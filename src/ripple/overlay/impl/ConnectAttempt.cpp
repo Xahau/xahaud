@@ -44,9 +44,10 @@ ConnectAttempt::ConnectAttempt(
     , usage_(usage)
     , strand_(io_service)
     , timer_(io_service)
-    , stream_ptr_(std::make_unique<stream_type>(
-          socket_type(std::forward<boost::asio::io_service&>(io_service)),
-          *context))
+    , stream_ptr_(
+          std::make_unique<stream_type>(
+              socket_type(std::forward<boost::asio::io_service&>(io_service)),
+              *context))
     , socket_(stream_ptr_->next_layer().socket())
     , stream_(*stream_ptr_)
     , slot_(slot)
@@ -65,12 +66,13 @@ void
 ConnectAttempt::stop()
 {
     if (!strand_.running_in_this_thread())
-        return strand_.post(
-            std::bind(&ConnectAttempt::stop, shared_from_this()));
+        return strand_.post([self = shared_from_this()]() { self->stop(); });
+
     if (socket_.is_open())
     {
         JLOG(journal_.debug()) << "Stop";
     }
+
     close();
 }
 
@@ -79,10 +81,9 @@ ConnectAttempt::run()
 {
     stream_.next_layer().async_connect(
         remote_endpoint_,
-        strand_.wrap(std::bind(
-            &ConnectAttempt::onConnect,
-            shared_from_this(),
-            std::placeholders::_1)));
+        strand_.wrap([self = shared_from_this()](error_code ec) {
+            self->onConnect(ec);
+        }));
 }
 
 //------------------------------------------------------------------------------
@@ -125,8 +126,8 @@ ConnectAttempt::setTimer()
         return;
     }
 
-    timer_.async_wait(strand_.wrap(std::bind(
-        &ConnectAttempt::onTimer, shared_from_this(), std::placeholders::_1)));
+    timer_.async_wait(strand_.wrap(strand_.wrap(
+        [self = shared_from_this()](error_code ec) { self->onTimer(ec); })));
 }
 
 void
@@ -172,10 +173,9 @@ ConnectAttempt::onConnect(error_code ec)
     stream_.set_verify_mode(boost::asio::ssl::verify_none);
     stream_.async_handshake(
         boost::asio::ssl::stream_base::client,
-        strand_.wrap(std::bind(
-            &ConnectAttempt::onHandshake,
-            shared_from_this(),
-            std::placeholders::_1)));
+        strand_.wrap([self = shared_from_this()](error_code ec) {
+            self->onHandshake(ec);
+        }));
 }
 
 void
@@ -197,10 +197,6 @@ ConnectAttempt::onHandshake(error_code ec)
             slot_, beast::IPAddressConversion::from_asio(local_endpoint)))
         return fail("Duplicate connection");
 
-    auto const sharedValue = makeSharedValue(*stream_ptr_, journal_);
-    if (!sharedValue)
-        return close();  // makeSharedValue logs
-
     req_ = makeRequest(
         !overlay_.peerFinder().config().peerPrivate,
         app_.config().COMPRESSION,
@@ -208,22 +204,31 @@ ConnectAttempt::onHandshake(error_code ec)
         app_.config().TX_REDUCE_RELAY_ENABLE,
         app_.config().VP_REDUCE_RELAY_ENABLE);
 
+    auto const sharedValue = makeSharedValue(*stream_ptr_, journal_);
+    if (!sharedValue)
+        return close();  // makeSharedValue logs
+
+    auto const ekm = getSessionEKM(*stream_ptr_, app_.instanceID(), true);
+    if (!ekm)
+        return fail("Unable to retrieve EKM for session");
+
     buildHandshake(
         req_,
         *sharedValue,
+        *ekm,
         overlay_.setup().networkID,
         overlay_.setup().public_ip,
         remote_endpoint_.address(),
         app_);
 
     setTimer();
+
     boost::beast::http::async_write(
         stream_,
         req_,
-        strand_.wrap(std::bind(
-            &ConnectAttempt::onWrite,
-            shared_from_this(),
-            std::placeholders::_1)));
+        strand_.wrap([self = shared_from_this()](error_code ec, std::size_t) {
+            self->onWrite(ec);
+        }));
 }
 
 void
@@ -240,10 +245,9 @@ ConnectAttempt::onWrite(error_code ec)
         stream_,
         read_buf_,
         response_,
-        strand_.wrap(std::bind(
-            &ConnectAttempt::onRead,
-            shared_from_this(),
-            std::placeholders::_1)));
+        strand_.wrap([self = shared_from_this()](error_code ec, std::size_t) {
+            self->onRead(ec);
+        }));
 }
 
 void
@@ -259,10 +263,10 @@ ConnectAttempt::onRead(error_code ec)
     {
         JLOG(journal_.info()) << "EOF";
         setTimer();
-        return stream_.async_shutdown(strand_.wrap(std::bind(
-            &ConnectAttempt::onShutdown,
-            shared_from_this(),
-            std::placeholders::_1)));
+        return stream_.async_shutdown(
+            strand_.wrap([self = shared_from_this()](error_code ec) {
+                self->onShutdown(ec);
+            }));
     }
     if (ec)
         return fail("onRead", ec);
@@ -347,15 +351,37 @@ ConnectAttempt::processResponse()
                 "processResponse: Unable to negotiate protocol version");
     }
 
-    auto const sharedValue = makeSharedValue(*stream_ptr_, journal_);
-    if (!sharedValue)
-        return close();  // makeSharedValue logs
-
     try
     {
+        auto const sharedValue = makeSharedValue(*stream_ptr_, journal_);
+        if (!sharedValue)
+            return close();  // makeSharedValue logs
+
+        auto const peerInstanceID = [this]() {
+            std::uint64_t iid = 0;
+
+            if (auto const iter = response_.find("Instance-Cookie");
+                iter != response_.end())
+            {
+                if (!beast::lexicalCastChecked(iid, std::string(iter->value())))
+                    throw std::runtime_error("Invalid instance cookie");
+
+                if (iid == 0)
+                    throw std::runtime_error("Invalid instance cookie");
+            }
+
+            return iid;
+        }();
+
+        auto const ekm = getSessionEKM(*stream_ptr_, peerInstanceID, false);
+
+        if (!ekm)
+            return fail("Unable to retrieve EKM for session");
+
         auto publicKey = verifyHandshake(
             response_,
             *sharedValue,
+            *ekm,
             overlay_.setup().networkID,
             overlay_.setup().public_ip,
             remote_endpoint_.address(),
