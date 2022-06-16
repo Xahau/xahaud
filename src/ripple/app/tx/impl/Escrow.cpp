@@ -230,8 +230,12 @@ EscrowCreate::doApply()
         return tecINSUFFICIENT_RESERVE;
 
     // Check reserve and funds availability
-    if (isXRP(amount) && balance < reserve + STAmount(ctx_.tx[sfAmount]).xrp())
-        return tecUNFUNDED;
+    if (isXRP(amount))
+    {
+        if (balance < reserve + STAmount(ctx_.tx[sfAmount]).xrp())
+            return tecUNFUNDED;
+        // pass
+    }
     else
     {
         // preflight will prevent this ever firing, included
