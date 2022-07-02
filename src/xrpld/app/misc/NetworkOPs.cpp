@@ -1161,7 +1161,7 @@ NetworkOPsImp::processTransaction(
     bool bLocal,
     FailHard failType)
 {
-    auto ev = m_job_queue.makeLoadEvent(jtTXN_PROC, "ProcessTXN");
+    auto ev = m_job_queue.createLoadEvent(jtTXN_PROC, "ProcessTXN");
 
     auto const view = m_ledgerMaster.getCurrentLedger();
 

@@ -157,7 +157,7 @@ void
 PeerImp::run()
 {
     if (!strand_.running_in_this_thread())
-        return post(strand_, std::bind(&PeerImp::run, shared_from_this()));
+        return post(strand_, [self = shared_from_this()]() { self->run(); });
 
     auto parseLedgerHash =
         [](std::string_view value) -> std::optional<uint256> {
@@ -215,7 +215,8 @@ void
 PeerImp::stop()
 {
     if (!strand_.running_in_this_thread())
-        return post(strand_, std::bind(&PeerImp::stop, shared_from_this()));
+        return post(strand_, [self = shared_from_this()]() { self->stop(); });
+
     if (socket_.is_open())
     {
         // The rationale for using different severity levels is that
@@ -241,7 +242,8 @@ void
 PeerImp::send(std::shared_ptr<Message> const& m)
 {
     if (!strand_.running_in_this_thread())
-        return post(strand_, std::bind(&PeerImp::send, shared_from_this(), m));
+        return post(
+            strand_, [self = shared_from_this(), m]() { self->send(m); });
     if (gracefulClose_)
         return;
     if (detaching_)
@@ -296,7 +298,7 @@ PeerImp::sendTxQueue()
 {
     if (!strand_.running_in_this_thread())
         return post(
-            strand_, std::bind(&PeerImp::sendTxQueue, shared_from_this()));
+            strand_, [self = shared_from_this()]() { self->sendTxQueue(); });
 
     if (!txQueue_.empty())
     {
@@ -314,8 +316,9 @@ void
 PeerImp::addTxQueue(uint256 const& hash)
 {
     if (!strand_.running_in_this_thread())
-        return post(
-            strand_, std::bind(&PeerImp::addTxQueue, shared_from_this(), hash));
+        return post(strand_, [self = shared_from_this(), hash]() {
+            self->addTxQueue(hash);
+        });
 
     if (txQueue_.size() == reduce_relay::MAX_TX_QUEUE_SIZE)
     {
@@ -331,9 +334,9 @@ void
 PeerImp::removeTxQueue(uint256 const& hash)
 {
     if (!strand_.running_in_this_thread())
-        return post(
-            strand_,
-            std::bind(&PeerImp::removeTxQueue, shared_from_this(), hash));
+        return post(strand_, [self = shared_from_this(), hash]() {
+            self->removeTxQueue(hash);
+        });
 
     auto removed = txQueue_.erase(hash);
     JLOG(p_journal_.trace()) << "removeTxQueue " << removed;
@@ -591,18 +594,17 @@ void
 PeerImp::fail(std::string const& reason)
 {
     if (!strand_.running_in_this_thread())
-        return post(
-            strand_,
-            std::bind(
-                (void(Peer::*)(std::string const&)) & PeerImp::fail,
-                shared_from_this(),
-                reason));
+        return post(strand_, [self = shared_from_this(), reason]() {
+            self->fail(reason);
+        });
+
     if (journal_.active(beast::severities::kWarning) && socket_.is_open())
     {
         std::string const n = name();
         JLOG(journal_.warn()) << (n.empty() ? remote_address_.to_string() : n)
                               << " failed: " << reason;
     }
+
     close();
 }
 
@@ -1012,8 +1014,10 @@ PeerImp::onMessageBegin(
     bool isCompressed)
 {
     auto const name = protocolMessageName(type);
-    load_event_ = app_.getJobQueue().makeLoadEvent(jtPEER, name);
+    load_event_ =
+        app_.getJobQueue().createLoadEvent(jtPEER, protocolMessageName(type));
     fee_ = {Resource::feeTrivialPeer, name};
+
     auto const category = TrafficCount::categorize(*m, type, true);
     overlay_.reportTraffic(category, true, static_cast<int>(size));
     using namespace protocol;
@@ -1255,7 +1259,7 @@ PeerImp::handleTransaction(
         // If we've never been in synch, there's nothing we can do
         // with a transaction
         JLOG(p_journal_.debug())
-            << "Ignoring incoming transaction: " << "Need network ledger";
+            << "Ignoring incoming transaction: need network ledger";
         return;
     }
 
@@ -1276,23 +1280,24 @@ PeerImp::handleTransaction(
         }
 
         int flags;
-        constexpr std::chrono::seconds tx_interval = 10s;
 
-        if (!app_.getHashRouter().shouldProcess(txID, id_, flags, tx_interval))
+        if (!app_.getHashRouter().shouldProcess(txID, id_, flags, 10s))
         {
             // we have seen this transaction recently
             if (flags & SF_BAD)
             {
                 fee_.update(Resource::feeUselessData, "known bad");
                 JLOG(p_journal_.debug()) << "Ignoring known bad tx " << txID;
+                return;
             }
 
             // Erase only if the server has seen this tx. If the server has not
             // seen this tx then the tx could not has been queued for this peer.
-            else if (eraseTxQueue && txReduceRelayEnabled())
+            if (eraseTxQueue && txReduceRelayEnabled())
+            {
                 removeTxQueue(txID);
-
-            return;
+                return;
+            }
         }
 
         JLOG(p_journal_.debug()) << "Got tx " << txID;
@@ -1321,29 +1326,161 @@ PeerImp::handleTransaction(
         {
             JLOG(p_journal_.trace())
                 << "No new transactions until synchronized";
+            return;
         }
-        else if (
-            app_.getJobQueue().getJobCount(jtTRANSACTION) >
+
+        if (app_.getJobQueue().getJobCount(jtTRANSACTION) >
             app_.config().MAX_TRANSACTIONS)
         {
             overlay_.incJqTransOverflow();
             JLOG(p_journal_.info()) << "Transaction queue is full";
+            return;
         }
-        else
-        {
-            app_.getJobQueue().addJob(
-                jtTRANSACTION,
-                "recvTransaction->checkTransaction",
-                [weak = std::weak_ptr<PeerImp>(shared_from_this()),
-                 flags,
-                 checkSignature,
-                 batch,
-                 stx]() {
-                    if (auto peer = weak.lock())
-                        peer->checkTransaction(
-                            flags, checkSignature, stx, batch);
-                });
-        }
+
+        app_.getJobQueue().addJob(
+            jtTRANSACTION,
+            "Check Transaction " + to_string(txID),
+            [weak = weak_from_this(), flags, checkSignature, batch, stx]() {
+                auto peer = weak.lock();
+
+                if (!peer)
+                    return;
+
+                auto& lm = peer->app_.getLedgerMaster();
+                auto& hr = peer->app_.getHashRouter();
+
+                // VFALCO TODO Rewrite to not use exceptions
+                try
+                {
+                    // charge strongly for relaying Hook emitted txns
+                    if (stx->isFieldPresent(sfEmitDetails))
+                    {
+                        JLOG(peer->p_journal_.warn())
+                            << "Ignoring Network relayed Tx containing "
+                               "sfEmitDetails (checkSignature).";
+                        peer->charge(
+                            Resource::feeHeavyBurdenPeer,
+                            "invalid sfEmitDetails");
+                        return;
+                    }
+
+                    // Expired?
+                    if (stx->isFieldPresent(sfLastLedgerSequence) &&
+                        (stx->getFieldU32(sfLastLedgerSequence) <
+                         lm.getValidLedgerIndex()))
+                    {
+                        hr.setFlags(stx->getTransactionID(), SF_BAD);
+                        peer->charge(Resource::feeUselessData, "expired tx");
+                        return;
+                    }
+
+                    if (isPseudoTx(*stx))
+                    {
+                        // Don't do anything with pseudo transactions except put
+                        // them in the TransactionMaster cache
+                        std::string reason;
+                        auto tx = std::make_shared<Transaction>(
+                            stx, reason, peer->app_);
+                        XRPL_ASSERT(
+                            tx->getStatus() == NEW,
+                            "ripple::PeerImp::checkTransaction Transaction "
+                            "created "
+                            "correctly");
+                        if (tx->getStatus() == NEW)
+                        {
+                            JLOG(peer->p_journal_.debug())
+                                << "Processing "
+                                << (batch ? "batch" : "unsolicited")
+                                << " pseudo-transaction tx " << tx->getID();
+
+                            peer->app_.getMasterTransaction().canonicalize(&tx);
+                            // Tell the overlay about it, but don't relay it.
+                            auto const toSkip = hr.shouldRelay(tx->getID());
+                            if (toSkip)
+                            {
+                                JLOG(peer->p_journal_.debug())
+                                    << "Passing skipped pseudo "
+                                       "pseudo-transaction tx "
+                                    << tx->getID();
+                                peer->app_.overlay().relay(
+                                    tx->getID(), {}, *toSkip);
+                            }
+                            if (!batch)
+                            {
+                                JLOG(peer->p_journal_.debug())
+                                    << "Charging for pseudo-transaction tx "
+                                    << tx->getID();
+                                peer->charge(
+                                    Resource::feeUselessData, "pseudo tx");
+                            }
+
+                            return;
+                        }
+                    }
+
+                    if (checkSignature)
+                    {
+                        // Check the signature before handing off to the job
+                        // queue.
+                        if (auto [valid, validReason] = checkValidity(
+                                hr,
+                                *stx,
+                                lm.getValidatedRules(),
+                                peer->app_.config());
+                            valid != Validity::Valid)
+                        {
+                            if (!validReason.empty())
+                            {
+                                JLOG(peer->p_journal_.trace())
+                                    << "Exception checking transaction: "
+                                    << validReason;
+                            }
+
+                            // Probably not necessary to set SF_BAD, but doesn't
+                            // hurt.
+                            hr.setFlags(stx->getTransactionID(), SF_BAD);
+                            peer->charge(
+                                Resource::feeInvalidSignature,
+                                "check transaction signature failure");
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        forceValidity(
+                            hr, stx->getTransactionID(), Validity::Valid);
+                    }
+
+                    std::string reason;
+                    auto tx =
+                        std::make_shared<Transaction>(stx, reason, peer->app_);
+
+                    if (tx->getStatus() == INVALID)
+                    {
+                        if (!reason.empty())
+                        {
+                            JLOG(peer->p_journal_.trace())
+                                << "Exception checking transaction: " << reason;
+                        }
+                        hr.setFlags(stx->getTransactionID(), SF_BAD);
+                        peer->charge(
+                            Resource::feeInvalidSignature, "tx (impossible)");
+                        return;
+                    }
+
+                    bool const trusted(flags & SF_TRUSTED);
+                    peer->app_.getOPs().processTransaction(
+                        tx, trusted, false, NetworkOPs::FailHard::no);
+                }
+                catch (std::exception const& ex)
+                {
+                    JLOG(peer->p_journal_.warn())
+                        << "Exception in " << __func__ << ": " << ex.what();
+                    hr.setFlags(stx->getTransactionID(), SF_BAD);
+                    using namespace std::string_literals;
+                    peer->charge(Resource::feeInvalidData, "tx "s + ex.what());
+                }
+            });
     }
     catch (std::exception const& ex)
     {
@@ -1474,8 +1611,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProofPathRequest> const& m)
                 }
                 else
                 {
-                    peer->send(std::make_shared<Message>(
-                        reply, protocol::mtPROOF_PATH_RESPONSE));
+                    peer->send(
+                        std::make_shared<Message>(
+                            reply, protocol::mtPROOF_PATH_RESPONSE));
                 }
             }
         });
@@ -1529,8 +1667,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMReplayDeltaRequest> const& m)
                 }
                 else
                 {
-                    peer->send(std::make_shared<Message>(
-                        reply, protocol::mtREPLAY_DELTA_RESPONSE));
+                    peer->send(
+                        std::make_shared<Message>(
+                            reply, protocol::mtREPLAY_DELTA_RESPONSE));
                 }
             }
         });
@@ -1740,13 +1879,52 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
             app_.timeKeeper().closeTime(),
             calcNodeID(app_.validatorManifests().getMasterKey(publicKey))});
 
-    std::weak_ptr<PeerImp> weak = shared_from_this();
     app_.getJobQueue().addJob(
         isTrusted ? jtPROPOSAL_t : jtPROPOSAL_ut,
-        "recvPropose->checkPropose",
-        [weak, isTrusted, m, proposal]() {
-            if (auto peer = weak.lock())
-                peer->checkPropose(isTrusted, m, proposal);
+        "Check Proposal " + to_string(suppression),
+        [weak = weak_from_this(), isTrusted, m, proposal]() {
+            auto peer = weak.lock();
+
+            if (!peer)
+                return;
+
+            JLOG(peer->p_journal_.trace())
+                << "Checking " << (isTrusted ? "trusted" : "UNTRUSTED")
+                << " proposal";
+
+            XRPL_ASSERT(m, "ripple::PeerImp::checkPropose : non-null packet");
+
+            if (!peer->cluster() && !proposal.checkSign())
+            {
+                std::string desc{"Proposal fails sig check"};
+                JLOG(peer->p_journal_.warn()) << desc;
+                peer->charge(Resource::feeInvalidSignature, desc);
+                return;
+            }
+
+            bool relay;
+
+            if (isTrusted)
+                relay = peer->app_.getOPs().processTrustedProposal(proposal);
+            else
+                relay = peer->app_.config().RELAY_UNTRUSTED_PROPOSALS == 1 ||
+                    peer->cluster();
+
+            if (relay)
+            {
+                // haveMessage contains peers, which are suppressed; i.e.
+                // the peers are the source of the message, consequently the
+                // message should not be relayed to these peers. But the
+                // message must be counted as part of the squelch logic.
+                auto haveMessage = peer->app_.overlay().relay(
+                    *m, proposal.suppressionID(), proposal.publicKey());
+                if (peer->reduceRelayReady() && !haveMessage.empty())
+                    peer->overlay_.updateSlotAndSquelch(
+                        proposal.suppressionID(),
+                        proposal.publicKey(),
+                        std::move(haveMessage),
+                        protocol::mtPROPOSE_LEDGER);
+            }
         });
 }
 
@@ -2368,8 +2546,55 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
                 isTrusted ? jtVALIDATION_t : jtVALIDATION_ut,
                 name,
                 [weak, val, m, key]() {
-                    if (auto peer = weak.lock())
-                        peer->checkValidation(val, key, m);
+                    auto peer = weak.lock();
+
+                    if (!peer)
+                        return;
+
+                    if (!val->isValid())
+                    {
+                        std::string desc{
+                            "Validation forwarded by peer is invalid"};
+                        JLOG(peer->p_journal_.debug()) << desc;
+                        peer->charge(Resource::feeInvalidSignature, desc);
+                        return;
+                    }
+
+                    // FIXME it should be safe to remove this try/catch.
+                    // Investigate codepaths.
+                    try
+                    {
+                        if (peer->cluster() ||
+                            peer->app_.getOPs().recvValidation(
+                                val, std::to_string(peer->id())))
+                        {
+                            // haveMessage contains peers, which are suppressed;
+                            // i.e. the peers are the source of the message,
+                            // consequently the message should not be relayed to
+                            // these peers. But the message must be counted as
+                            // part of the squelch logic.
+                            auto haveMessage = peer->overlay_.relay(
+                                *m, key, val->getSignerPublic());
+                            if (peer->reduceRelayReady() &&
+                                !haveMessage.empty())
+                            {
+                                peer->overlay_.updateSlotAndSquelch(
+                                    key,
+                                    val->getSignerPublic(),
+                                    std::move(haveMessage),
+                                    protocol::mtVALIDATION);
+                            }
+                        }
+                    }
+                    catch (std::exception const& ex)
+                    {
+                        JLOG(peer->p_journal_.trace())
+                            << "Exception processing validation: " << ex.what();
+                        using namespace std::string_literals;
+                        peer->charge(
+                            Resource::feeMalformedRequest,
+                            "validation "s + ex.what());
+                    }
                 });
         }
         else
@@ -2554,62 +2779,66 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMHaveTransactions> const& m)
         return;
     }
 
-    std::weak_ptr<PeerImp> weak = shared_from_this();
     app_.getJobQueue().addJob(
-        jtMISSING_TXN, "handleHaveTransactions", [weak, m]() {
-            if (auto peer = weak.lock())
-                peer->handleHaveTransactions(m);
+        jtMISSING_TXN,
+        "handleHaveTransactions",
+        [weak = weak_from_this(), m]() {
+            auto peer = weak.lock();
+
+            if (!peer)
+                return;
+
+            protocol::TMGetObjectByHash tmBH;
+            tmBH.set_type(
+                protocol::TMGetObjectByHash_ObjectType_otTRANSACTIONS);
+            tmBH.set_query(true);
+
+            JLOG(peer->p_journal_.trace())
+                << "received TMHaveTransactions " << m->hashes_size();
+
+            for (std::uint32_t i = 0; i < m->hashes_size(); i++)
+            {
+                if (!stringIsUint256Sized(m->hashes(i)))
+                {
+                    JLOG(peer->p_journal_.error())
+                        << "TMHaveTransactions with invalid hash size";
+                    peer->fee_.update(
+                        Resource::feeMalformedRequest, "hash size");
+                    return;
+                }
+
+                uint256 hash(m->hashes(i));
+
+                auto txn =
+                    peer->app_.getMasterTransaction().fetch_from_cache(hash);
+
+                JLOG(peer->p_journal_.trace())
+                    << "checking transaction " << (bool)txn;
+
+                if (!txn)
+                {
+                    JLOG(peer->p_journal_.debug())
+                        << "adding transaction to request";
+
+                    auto obj = tmBH.add_objects();
+                    obj->set_hash(hash.data(), hash.size());
+                }
+                else
+                {
+                    // Erase only if a peer has seen this tx. If the peer has
+                    // not seen this tx then the tx could not has been queued
+                    // for this peer.
+                    peer->removeTxQueue(hash);
+                }
+            }
+
+            JLOG(peer->p_journal_.trace())
+                << "transaction request object is " << tmBH.objects_size();
+
+            if (tmBH.objects_size() > 0)
+                peer->send(
+                    std::make_shared<Message>(tmBH, protocol::mtGET_OBJECTS));
         });
-}
-
-void
-PeerImp::handleHaveTransactions(
-    std::shared_ptr<protocol::TMHaveTransactions> const& m)
-{
-    protocol::TMGetObjectByHash tmBH;
-    tmBH.set_type(protocol::TMGetObjectByHash_ObjectType_otTRANSACTIONS);
-    tmBH.set_query(true);
-
-    JLOG(p_journal_.trace())
-        << "received TMHaveTransactions " << m->hashes_size();
-
-    for (std::uint32_t i = 0; i < m->hashes_size(); i++)
-    {
-        if (!stringIsUint256Sized(m->hashes(i)))
-        {
-            JLOG(p_journal_.error())
-                << "TMHaveTransactions with invalid hash size";
-            fee_.update(Resource::feeMalformedRequest, "hash size");
-            return;
-        }
-
-        uint256 hash(m->hashes(i));
-
-        auto txn = app_.getMasterTransaction().fetch_from_cache(hash);
-
-        JLOG(p_journal_.trace()) << "checking transaction " << (bool)txn;
-
-        if (!txn)
-        {
-            JLOG(p_journal_.debug()) << "adding transaction to request";
-
-            auto obj = tmBH.add_objects();
-            obj->set_hash(hash.data(), hash.size());
-        }
-        else
-        {
-            // Erase only if a peer has seen this tx. If the peer has not
-            // seen this tx then the tx could not has been queued for this
-            // peer.
-            removeTxQueue(hash);
-        }
-    }
-
-    JLOG(p_journal_.trace())
-        << "transaction request object is " << tmBH.objects_size();
-
-    if (tmBH.objects_size() > 0)
-        send(std::make_shared<Message>(tmBH, protocol::mtGET_OBJECTS));
 }
 
 void
@@ -2639,13 +2868,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMTransactions> const& m)
 void
 PeerImp::onMessage(std::shared_ptr<protocol::TMSquelch> const& m)
 {
-    using on_message_fn =
-        void (PeerImp::*)(std::shared_ptr<protocol::TMSquelch> const&);
     if (!strand_.running_in_this_thread())
         return post(
-            strand_,
-            std::bind(
-                (on_message_fn)&PeerImp::onMessage, shared_from_this(), m));
+            strand_, [self = shared_from_this(), m]() { self->onMessage(m); });
 
     if (!m->has_validatorpubkey())
     {
@@ -2795,221 +3020,6 @@ PeerImp::doTransactions(
 
     if (reply.transactions_size() > 0)
         send(std::make_shared<Message>(reply, protocol::mtTRANSACTIONS));
-}
-
-void
-PeerImp::checkTransaction(
-    int flags,
-    bool checkSignature,
-    std::shared_ptr<STTx const> const& stx,
-    bool batch)
-{
-    // VFALCO TODO Rewrite to not use exceptions
-    try
-    {
-        // charge strongly for relaying Hook emitted txns
-        if (stx->isFieldPresent(sfEmitDetails))
-        {
-            JLOG(p_journal_.warn()) << "Ignoring Network relayed Tx containing "
-                                       "sfEmitDetails (checkSignature).";
-            charge(Resource::feeHeavyBurdenPeer, "invalid sfEmitDetails");
-            return;
-        }
-
-        // Expired?
-        if (stx->isFieldPresent(sfLastLedgerSequence) &&
-            (stx->getFieldU32(sfLastLedgerSequence) <
-             app_.getLedgerMaster().getValidLedgerIndex()))
-        {
-            app_.getHashRouter().setFlags(stx->getTransactionID(), SF_BAD);
-            charge(Resource::feeUselessData, "expired tx");
-            return;
-        }
-
-        if (isPseudoTx(*stx))
-        {
-            // Don't do anything with pseudo transactions except put them in the
-            // TransactionMaster cache
-            std::string reason;
-            auto tx = std::make_shared<Transaction>(stx, reason, app_);
-            XRPL_ASSERT(
-                tx->getStatus() == NEW,
-                "ripple::PeerImp::checkTransaction Transaction created "
-                "correctly");
-            if (tx->getStatus() == NEW)
-            {
-                JLOG(p_journal_.debug())
-                    << "Processing " << (batch ? "batch" : "unsolicited")
-                    << " pseudo-transaction tx " << tx->getID();
-
-                app_.getMasterTransaction().canonicalize(&tx);
-                // Tell the overlay about it, but don't relay it.
-                auto const toSkip =
-                    app_.getHashRouter().shouldRelay(tx->getID());
-                if (toSkip)
-                {
-                    JLOG(p_journal_.debug())
-                        << "Passing skipped pseudo pseudo-transaction tx "
-                        << tx->getID();
-                    app_.overlay().relay(tx->getID(), {}, *toSkip);
-                }
-                if (!batch)
-                {
-                    JLOG(p_journal_.debug())
-                        << "Charging for pseudo-transaction tx " << tx->getID();
-                    charge(Resource::feeUselessData, "pseudo tx");
-                }
-
-                return;
-            }
-        }
-
-        if (checkSignature)
-        {
-            // Check the signature before handing off to the job queue.
-            if (auto [valid, validReason] = checkValidity(
-                    app_.getHashRouter(),
-                    *stx,
-                    app_.getLedgerMaster().getValidatedRules(),
-                    app_.config());
-                valid != Validity::Valid)
-            {
-                if (!validReason.empty())
-                {
-                    JLOG(p_journal_.trace())
-                        << "Exception checking transaction: " << validReason;
-                }
-
-                // Probably not necessary to set SF_BAD, but doesn't hurt.
-                app_.getHashRouter().setFlags(stx->getTransactionID(), SF_BAD);
-                charge(
-                    Resource::feeInvalidSignature,
-                    "check transaction signature failure");
-                return;
-            }
-        }
-        else
-        {
-            forceValidity(
-                app_.getHashRouter(), stx->getTransactionID(), Validity::Valid);
-        }
-
-        std::string reason;
-        auto tx = std::make_shared<Transaction>(stx, reason, app_);
-
-        if (tx->getStatus() == INVALID)
-        {
-            if (!reason.empty())
-            {
-                JLOG(p_journal_.trace())
-                    << "Exception checking transaction: " << reason;
-            }
-            app_.getHashRouter().setFlags(stx->getTransactionID(), SF_BAD);
-            charge(Resource::feeInvalidSignature, "tx (impossible)");
-            return;
-        }
-
-        bool const trusted(flags & SF_TRUSTED);
-        app_.getOPs().processTransaction(
-            tx, trusted, false, NetworkOPs::FailHard::no);
-    }
-    catch (std::exception const& ex)
-    {
-        JLOG(p_journal_.warn())
-            << "Exception in " << __func__ << ": " << ex.what();
-        app_.getHashRouter().setFlags(stx->getTransactionID(), SF_BAD);
-        using namespace std::string_literals;
-        charge(Resource::feeInvalidData, "tx "s + ex.what());
-    }
-}
-
-// Called from our JobQueue
-void
-PeerImp::checkPropose(
-    bool isTrusted,
-    std::shared_ptr<protocol::TMProposeSet> const& packet,
-    RCLCxPeerPos peerPos)
-{
-    JLOG(p_journal_.trace())
-        << "Checking " << (isTrusted ? "trusted" : "UNTRUSTED") << " proposal";
-
-    XRPL_ASSERT(packet, "ripple::PeerImp::checkPropose : non-null packet");
-
-    if (!cluster() && !peerPos.checkSign())
-    {
-        std::string desc{"Proposal fails sig check"};
-        JLOG(p_journal_.warn()) << desc;
-        charge(Resource::feeInvalidSignature, desc);
-        return;
-    }
-
-    bool relay;
-
-    if (isTrusted)
-        relay = app_.getOPs().processTrustedProposal(peerPos);
-    else
-        relay = app_.config().RELAY_UNTRUSTED_PROPOSALS == 1 || cluster();
-
-    if (relay)
-    {
-        // haveMessage contains peers, which are suppressed; i.e. the peers
-        // are the source of the message, consequently the message should
-        // not be relayed to these peers. But the message must be counted
-        // as part of the squelch logic.
-        auto haveMessage = app_.overlay().relay(
-            *packet, peerPos.suppressionID(), peerPos.publicKey());
-        if (reduceRelayReady() && !haveMessage.empty())
-            overlay_.updateSlotAndSquelch(
-                peerPos.suppressionID(),
-                peerPos.publicKey(),
-                std::move(haveMessage),
-                protocol::mtPROPOSE_LEDGER);
-    }
-}
-
-void
-PeerImp::checkValidation(
-    std::shared_ptr<STValidation> const& val,
-    uint256 const& key,
-    std::shared_ptr<protocol::TMValidation> const& packet)
-{
-    if (!val->isValid())
-    {
-        std::string desc{"Validation forwarded by peer is invalid"};
-        JLOG(p_journal_.debug()) << desc;
-        charge(Resource::feeInvalidSignature, desc);
-        return;
-    }
-
-    // FIXME it should be safe to remove this try/catch. Investigate codepaths.
-    try
-    {
-        if (app_.getOPs().recvValidation(val, std::to_string(id())) ||
-            cluster())
-        {
-            // haveMessage contains peers, which are suppressed; i.e. the peers
-            // are the source of the message, consequently the message should
-            // not be relayed to these peers. But the message must be counted
-            // as part of the squelch logic.
-            auto haveMessage =
-                overlay_.relay(*packet, key, val->getSignerPublic());
-            if (reduceRelayReady() && !haveMessage.empty())
-            {
-                overlay_.updateSlotAndSquelch(
-                    key,
-                    val->getSignerPublic(),
-                    std::move(haveMessage),
-                    protocol::mtVALIDATION);
-            }
-        }
-    }
-    catch (std::exception const& ex)
-    {
-        JLOG(p_journal_.trace())
-            << "Exception processing validation: " << ex.what();
-        using namespace std::string_literals;
-        charge(Resource::feeMalformedRequest, "validation "s + ex.what());
-    }
 }
 
 // Returns the set of peers that can help us get
