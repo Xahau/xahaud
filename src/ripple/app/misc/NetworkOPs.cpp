@@ -1199,8 +1199,6 @@ NetworkOPsImp::processTransaction(
     bool bLocal,
     FailHard failType)
 {
-    auto ev = m_job_queue.makeLoadEvent(jtTXN_PROC, "ProcessTXN");
-
     auto const view = m_ledgerMaster.getCurrentLedger();
 
     // This function is called by several different parts of the codebase
@@ -1218,9 +1216,11 @@ NetworkOPsImp::processTransaction(
         return;
     }
 
-    auto const newFlags = app_.getHashRouter().getFlags(transaction->getID());
+    auto ev = m_job_queue.createLoadEvent(jtTXN_PROC, "ProcessTXN");
 
-    if ((newFlags & SF_BAD) != 0)
+    if (auto const newFlags =
+            app_.getHashRouter().getFlags(transaction->getID());
+        (newFlags & SF_BAD) != 0)
     {
         // cached bad
         JLOG(m_journal.warn()) << transaction->getID() << ": cached bad!\n";

@@ -47,12 +47,9 @@ namespace ripple {
 NotTEC
 preflight0(PreflightContext const& ctx)
 {
-    if (ctx.tx.isFieldPresent(sfEmitDetails) || isPseudoTx(ctx.tx))
-    {
-        // all emitted and pseudo transactions are free to pass, do not need
-        // network id
-    }
-    else
+    // all emitted and pseudo transactions are free to pass, do not need
+    // network id
+    if (!ctx.tx.isFieldPresent(sfEmitDetails) && !isPseudoTx(ctx.tx))
     {
         uint32_t nodeNID = ctx.app.config().NETWORK_ID;
         std::optional<uint32_t> txNID = ctx.tx[~sfNetworkID];
@@ -76,9 +73,7 @@ preflight0(PreflightContext const& ctx)
         }
     }
 
-    auto const txID = ctx.tx.getTransactionID();
-
-    if (txID == beast::zero)
+    if (ctx.tx.getTransactionID() == beast::zero)
     {
         JLOG(ctx.j.warn())
             << "applyTransaction: transaction id may not be zero";
