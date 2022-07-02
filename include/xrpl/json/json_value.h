@@ -24,6 +24,7 @@
 #include <cstring>
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /** \brief JSON (JavaScript Object Notation).
@@ -74,6 +75,12 @@ public:
     c_str() const
     {
         return str_;
+    }
+
+    constexpr
+    operator std::string_view() const
+    {
+        return std::string_view(str_);
     }
 
 private:
@@ -214,7 +221,13 @@ public:
     Value(Int value);
     Value(UInt value);
     Value(double value);
-    Value(const char* value);
+    Value(std::string_view value);
+    Value(std::string const& value) : Value(std::string_view(value))
+    {
+    }
+    Value(char const* value) : Value(std::string_view(value))
+    {
+    }
     /** \brief Constructs a value from a static string.
 
      * Like other value string constructor but do not duplicate the string for
@@ -227,7 +240,6 @@ public:
      * \endcode
      */
     Value(const StaticString& value);
-    Value(std::string const& value);
     Value(bool value);
     Value(const Value& other);
     ~Value();
@@ -336,19 +348,13 @@ public:
     /// Access an object value by name, create a null member if it does not
     /// exist.
     Value&
-    operator[](const char* key);
+    operator[](std::string_view key);
+
     /// Access an object value by name, returns null if there is no member with
     /// that name.
-    const Value&
-    operator[](const char* key) const;
-    /// Access an object value by name, create a null member if it does not
-    /// exist.
-    Value&
-    operator[](std::string const& key);
-    /// Access an object value by name, returns null if there is no member with
-    /// that name.
-    const Value&
-    operator[](std::string const& key) const;
+    Value const&
+    operator[](std::string_view key) const;
+
     /** \brief Access an object value by name, create a null member if it does
      not exist.
 
