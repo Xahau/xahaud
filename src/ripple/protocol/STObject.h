@@ -94,10 +94,10 @@ public:
     STObject&
     operator=(STObject&& other);
 
-    STObject(const SOTemplate& type, SField const& name);
-    STObject(const SOTemplate& type, SerialIter& sit, SField const& name);
+    STObject(SOTemplate const& type, SField const& name);
+    STObject(SOTemplate const& type, Slice data, SField const& name);
     STObject(SerialIter& sit, SField const& name, int depth = 0);
-    STObject(SerialIter&& sit, SField const& name);
+    STObject(Slice data, SField const& name);
     explicit STObject(SField const& name);
 
     iterator
@@ -121,9 +121,6 @@ public:
     bool
     isFree() const;
 
-    void
-    set(const SOTemplate&);
-
     bool
     set(SerialIter& u, int depth = 0);
 
@@ -137,7 +134,7 @@ public:
     isDefault() const override;
 
     void
-    add(Serializer& s) const override;
+    add(SerializerBase& s) const override;
 
     std::string
     getFullText() const override;
@@ -150,10 +147,7 @@ public:
     getJson(JsonOptions options) const override;
 
     void
-    addWithoutSigningFields(Serializer& s) const;
-
-    Serializer
-    getSerializer() const;
+    addWithoutSigningFields(SerializerBase& s) const;
 
     template <class... Args>
     std::size_t
@@ -407,7 +401,7 @@ private:
     };
 
     void
-    add(Serializer& s, WhichFields whichFields) const;
+    add(SerializerBase& s, WhichFields whichFields) const;
 
     // Sort the entries in an STObject into the order that they will be
     // serialized.  Note: they are not sorted into pointer value order, they
@@ -850,11 +844,6 @@ STObject::Transform::operator()(detail::STVar const& e) const
 
 //------------------------------------------------------------------------------
 
-inline STObject::STObject(SerialIter&& sit, SField const& name)
-    : STObject(sit, name)
-{
-}
-
 inline STObject::iterator
 STObject::begin() const
 {
@@ -886,20 +875,9 @@ STObject::isFree() const
 }
 
 inline void
-STObject::addWithoutSigningFields(Serializer& s) const
+STObject::addWithoutSigningFields(SerializerBase& s) const
 {
     add(s, omitSigningFields);
-}
-
-// VFALCO NOTE does this return an expensive copy of an object with a
-//             dynamic buffer?
-// VFALCO TODO Remove this function and fix the few callers.
-inline Serializer
-STObject::getSerializer() const
-{
-    Serializer s;
-    add(s, withAllFields);
-    return s;
 }
 
 template <class... Args>
@@ -1166,6 +1144,23 @@ STObject::peekField(SField const& field)
         Throw<std::runtime_error>("Wrong field type");
 
     return *cf;
+}
+
+/** Serializes the given object into the specified buffer. */
+template <class Into>
+void
+serializeInto(Into& into, STObject const& object)
+{
+    SerializerInto s(into);
+    object.add(s);
+}
+
+template <class Into>
+void
+serializeIntoWithoutSigningFields(Into& into, STObject const& object)
+{
+    SerializerInto s(into);
+    object.addWithoutSigningFields(s);
 }
 
 }  // namespace ripple

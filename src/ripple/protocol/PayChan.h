@@ -29,7 +29,7 @@ namespace ripple {
 
 inline void
 serializePayChanAuthorization(
-    Serializer& msg,
+    SerializerBase& msg,
     uint256 const& key,
     XRPAmount const& amt)
 {

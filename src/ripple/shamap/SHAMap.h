@@ -309,7 +309,7 @@ public:
 
     /** Serializes the root in a format appropriate for sending over the wire */
     void
-    serializeRoot(Serializer& s) const;
+    serializeRoot(SerializerBase& s) const;
 
     SHAMapAddNode
     addRootNode(

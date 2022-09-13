@@ -463,17 +463,18 @@ SHAMap::getNodeFat(
     std::stack<std::tuple<SHAMapTreeNode*, SHAMapNodeID, int>> stack;
     stack.emplace(node, nodeID, depth);
 
-    Serializer s(8192);
-
     while (!stack.empty())
     {
         std::tie(node, nodeID, depth) = stack.top();
         stack.pop();
 
         // Add this node to the reply
-        s.erase();
-        node->serializeForWire(s);
-        data.emplace_back(nodeID, s.getData());
+        data.emplace_back(std::make_pair(nodeID, [&node]() {
+            Blob b;
+            SerializerInto s(b);
+            node->serializeForWire(s);
+            return b;
+        }()));
 
         if (node->isInner())
         {
@@ -504,9 +505,13 @@ SHAMap::getNodeFat(
                         else if (childNode->isInner() || fatLeaves)
                         {
                             // Just include this node
-                            s.erase();
-                            childNode->serializeForWire(s);
-                            data.emplace_back(childID, s.getData());
+                            data.emplace_back(
+                                std::make_pair(childID, [&childNode]() {
+                                    Blob b;
+                                    SerializerInto s(b);
+                                    childNode->serializeForWire(s);
+                                    return b;
+                                }()));
                         }
                     }
                 }
@@ -518,7 +523,7 @@ SHAMap::getNodeFat(
 }
 
 void
-SHAMap::serializeRoot(Serializer& s) const
+SHAMap::serializeRoot(SerializerBase& s) const
 {
     root_->serializeForWire(s);
 }
@@ -552,13 +557,17 @@ SHAMap::addRootNode(
 
     if (filter)
     {
-        Serializer s;
-        root_->serializeWithPrefix(s);
         filter->gotNode(
             false,
             root_->getHash(),
             ledgerSeq_,
-            std::move(s.modData()),
+            [this]() {
+                Blob b;
+                b.reserve(1024);
+                SerializerInto s(b);
+                root_->serializeWithPrefix(s);
+                return b;
+            }(),
             root_->getType());
     }
 
@@ -644,13 +653,17 @@ SHAMap::addKnownNode(
 
             if (filter)
             {
-                Serializer s;
-                newNode->serializeWithPrefix(s);
                 filter->gotNode(
                     false,
                     childHash,
                     ledgerSeq_,
-                    std::move(s.modData()),
+                    [&newNode]() {
+                        Blob b;
+                        b.reserve(1024);
+                        SerializerInto s(b);
+                        newNode->serializeWithPrefix(s);
+                        return b;
+                    }(),
                     newNode->getType());
             }
 
@@ -810,9 +823,13 @@ SHAMap::getProofPath(uint256 const& key) const
     path.reserve(stack.size());
     while (!stack.empty())
     {
-        Serializer s;
-        stack.top().first->serializeForWire(s);
-        path.emplace_back(std::move(s.modData()));
+        path.emplace_back([&stack]() {
+            Blob b;
+            b.reserve(1024);
+            SerializerInto s(b);
+            stack.top().first->serializeForWire(s);
+            return b;
+        }());
         stack.pop();
     }
 

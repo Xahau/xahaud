@@ -216,13 +216,17 @@ saveValidatedLedger(
     assert(ledger->info().txHash == ledger->txMap().getHash().as_uint256());
 
     // Save the ledger header in the hashed object store
-    {
-        Serializer s(128);
-        s.add32(HashPrefix::ledgerMaster);
-        addRaw(ledger->info(), s);
-        app.getNodeStore().store(
-            hotLEDGER, std::move(s.modData()), ledger->info().hash, seq);
-    }
+    app.getNodeStore().store(
+        hotLEDGER,
+        [&ledger]() {
+            Blob b;
+            b.reserve(1024);
+            serializeLedgerHeaderInto(
+                HashPrefix::ledgerMaster, ledger->info(), b);
+            return b;
+        }(),
+        ledger->info().hash,
+        seq);
 
     std::shared_ptr<AcceptedLedger> aLedger;
     try
@@ -636,14 +640,11 @@ transactionFromSQL(
     Blob const& rawTxn,
     Application& app)
 {
-    std::uint32_t const inLedger =
-        rangeCheckedCast<std::uint32_t>(ledgerSeq.value_or(0));
-
-    SerialIter it(makeSlice(rawTxn));
-    auto txn = std::make_shared<STTx const>(it);
-
-    auto tr = std::make_shared<Transaction>(txn);
-    tr->setStatus(sqlTransactionStatus(status), inLedger);
+    auto tr = std::make_shared<Transaction>(
+        std::make_shared<STTx const>(makeSlice(rawTxn)));
+    tr->setStatus(
+        sqlTransactionStatus(status),
+        rangeCheckedCast<std::uint32_t>(ledgerSeq.value_or(0)));
     return tr;
 }
 

@@ -17,61 +17,30 @@
 */
 //==============================================================================
 
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/protocol/STBlob.h>
+#ifndef RIPPLE_PROTOCOL_SERDES_H_INCLUDED
+#define RIPPLE_PROTOCOL_SERDES_H_INCLUDED
+
+#include <boost/endian/conversion.hpp>
+#include <cstdint>
 
 namespace ripple {
 
-STBlob::STBlob(SerialIter& st, SField const& name)
-    : STBase(name), value_(st.getVL())
-{
-}
+namespace serdes {
 
-STBase*
-STBlob::copy(std::size_t n, void* buf) const
-{
-    return emplace(n, buf, *this);
-}
+/**   The largest size that can be encoded with a 1-byte header length. */
+constexpr std::size_t const maxSize1 = 193;
 
-STBase*
-STBlob::move(std::size_t n, void* buf)
-{
-    return emplace(n, buf, std::move(*this));
-}
+/** The largest size that can be encoded with a 2-byte header length. */
+constexpr std::size_t const maxSize2 = 12481;
 
-SerializedTypeID
-STBlob::getSType() const
-{
-    return STI_VL;
-}
+/** The largest size that can be encoded with a 3-byte header length. */
+constexpr std::size_t const maxSize3 = 918745;
 
-std::string
-STBlob::getText() const
-{
-    return strHex(value_);
-}
+constexpr unsigned char const offset2 = 193;
+constexpr unsigned char const offset3 = 241;
 
-void
-STBlob::add(SerializerBase& s) const
-{
-    assert(getFName().isBinary());
-    assert(
-        (getFName().fieldType == STI_VL) ||
-        (getFName().fieldType == STI_ACCOUNT));
-    s.addVL(value_.data(), value_.size());
-}
-
-bool
-STBlob::isEquivalent(const STBase& t) const
-{
-    const STBlob* v = dynamic_cast<const STBlob*>(&t);
-    return v && (value_ == v->value_);
-}
-
-bool
-STBlob::isDefault() const
-{
-    return value_.empty();
-}
+}  // namespace serdes
 
 }  // namespace ripple
+
+#endif

@@ -141,16 +141,6 @@ public:
 
 private:
 
-    static void
-    threadItem(TxMeta& meta, std::shared_ptr<SLE> const& to);
-
-    std::shared_ptr<SLE>
-    getForMod(
-        ReadView const& base,
-        key_type const& key,
-        Mods& mods,
-        beast::Journal j);
-
     void
     threadTx(
         ReadView const& base,

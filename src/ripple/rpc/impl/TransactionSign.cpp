@@ -535,11 +535,9 @@ transactionPreProcessImpl(
     // If multisign then return multiSignature, else set TxnSignature field.
     if (signingArgs.isMultiSigning())
     {
-        Serializer s =
+        auto const v =
             buildMultiSigningData(*stpTrans, signingArgs.getSigner());
-
-        auto multisig = ripple::sign(pk, sk, s.slice());
-
+        auto multisig = ripple::sign(pk, sk, makeSlice(v));
         signingArgs.moveMultiSignature(std::move(multisig));
     }
     else if (signingArgs.isSingleSigning())
@@ -578,11 +576,9 @@ transactionConstructImpl(
         {
             Serializer s;
             tpTrans->getSTransaction()->add(s);
-            Blob transBlob = s.getData();
-            SerialIter sit{makeSlice(transBlob)};
 
             // Check the signature if that's called for.
-            auto sttxNew = std::make_shared<STTx const>(sit);
+            auto sttxNew = std::make_shared<STTx const>(s.slice());
             if (!app.checkSigs())
                 forceValidity(
                     app.getHashRouter(),
@@ -633,9 +629,11 @@ transactionFormatResultImpl(
     Json::Value jvResult;
     try
     {
+        Serializer s;
+        tpTrans->getSTransaction()->add(s);
         jvResult[jss::tx_json] = tpTrans->getJson(app, JsonOptions::none);
         jvResult[jss::tx_blob] =
-            strHex(tpTrans->getSTransaction()->getSerializer().peekData());
+            strHex(s.slice());
 
         if (temUNCERTAIN != tpTrans->getResult())
         {

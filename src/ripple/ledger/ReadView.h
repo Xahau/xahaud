@@ -354,8 +354,54 @@ getCloseAgree(LedgerInfo const& info)
     return (info.closeFlags & sLCF_NoConsensusTime) == 0;
 }
 
+/** Serialize a ledger header.
+
+    @note For legacy reasons, the ledger header does not use "ST encoding"
+          and is just directly serialized. While unfortunate and confusing
+          the format is now set in stone and any change would break things
+          that cannot be easily unbroken.
+ */
+/** @{ */
 void
-addRaw(LedgerInfo const&, Serializer&, bool includeHash = false);
+serializeLedgerHeader(
+    LedgerInfo const& info,
+    SerializerBase& s,
+    bool includeHash = false);
+
+template <class Buffer>
+void
+serializeLedgerHeaderInto(
+    LedgerInfo const& info,
+    Buffer& into,
+    bool includeHash = false)
+{
+    SerializerInto s(into);
+    serializeLedgerHeader(info, s, includeHash);
+}
+
+inline void
+serializeLedgerHeader(
+    HashPrefix prefix,
+    LedgerInfo const& info,
+    SerializerBase& s,
+    bool includeHash = false)
+{
+    s.add32(prefix);
+    serializeLedgerHeader(info, s, includeHash);
+}
+
+template <class Buffer>
+void
+serializeLedgerHeaderInto(
+    HashPrefix prefix,
+    LedgerInfo const& info,
+    Buffer& into,
+    bool includeHash = false)
+{
+    SerializerInto s(into);
+    serializeLedgerHeader(prefix, info, s, includeHash);
+}
+/** @} */
 
 Rules
 makeRulesGivenLedger(DigestAwareReadView const& ledger, Rules const& current);

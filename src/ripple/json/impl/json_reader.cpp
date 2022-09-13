@@ -920,11 +920,9 @@ Reader::getLocationLineAndColumn(Location location, int& line, int& column)
 std::string
 Reader::getLocationLineAndColumn(Location location) const
 {
-    int line, column;
-    getLocationLineAndColumn(location, line, column);
-    char buffer[18 + 16 + 16 + 1];
-    sprintf(buffer, "Line %d, Column %d", line, column);
-    return buffer;
+    int l, c;
+    getLocationLineAndColumn(location, l, c);
+    return "Line " + std::to_string(l) + ", Column " + std::to_string(c);
 }
 
 std::string

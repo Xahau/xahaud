@@ -77,7 +77,7 @@ private:
     void
     writeSignersToSLE(
         ApplyView& view,
-        SLE::pointer const& ledgerEntry,
+        std::shared_ptr<SLE> const& sle,
         std::uint32_t flags,
         std::uint32_t quorum,
         std::vector<SignerEntries::SignerEntry> const& signers);
@@ -93,10 +93,6 @@ private:
     replaceSignerList();
     TER
     destroySignerList();
-
-    void
-    writeSignersToSLE(SLE::pointer const& ledgerEntry, std::uint32_t flags)
-        const;
 
 public:
     static NotTEC
@@ -116,7 +112,7 @@ public:
         AccountID const& acc,
         std::uint32_t quorum,
         std::vector<SignerEntries::SignerEntry> const& signers,
-        XRPAmount const mPriorBalance)
+        XRPAmount const priorBalance)
     {
         auto const accountKeylet = keylet::account(acc);
         auto const ownerDirKeylet = keylet::ownerDir(acc);
@@ -157,7 +153,7 @@ public:
         // We check the reserve against the starting balance because we want to
         // allow dipping into the reserve to pay fees.  This behavior is consistent
         // with CreateTicket.
-        if (mPriorBalance < newReserve)
+        if (priorBalance < newReserve)
             return tecINSUFFICIENT_RESERVE;
 
         // Everything's ducky.  Add the ltSIGNER_LIST to the ledger.
@@ -182,7 +178,6 @@ public:
         adjustOwnerCount(view, sle, addedOwnerCount, j);
         return tesSUCCESS;
     }
-
 };
 
 }  // namespace ripple

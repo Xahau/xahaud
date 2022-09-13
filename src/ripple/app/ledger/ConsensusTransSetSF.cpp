@@ -46,8 +46,6 @@ ConsensusTransSetSF::gotNode(
     if (fromFilter)
         return;
 
-    m_nodeCache.insert(nodeHash.as_uint256(), nodeData);
-
     if ((type == SHAMapNodeType::tnTRANSACTION_NM) && (nodeData.size() > 16))
     {
         // this is a transaction, and we didn't have it
@@ -56,23 +54,24 @@ ConsensusTransSetSF::gotNode(
 
         try
         {
-            // skip prefix
-            Serializer s(nodeData.data() + 4, nodeData.size() - 4);
-            SerialIter sit(s.slice());
-            auto stx = std::make_shared<STTx const>(std::ref(sit));
+            // We use substr to skip the 4 byte prefix
+            auto stx =
+                std::make_shared<STTx const>(makeSlice(nodeData).substr(4));
             assert(stx->getTransactionID() == nodeHash.as_uint256());
-            auto const pap = &app_;
-            app_.getJobQueue().addJob(jtTRANSACTION, "TXS->TXN", [pap, stx]() {
-                pap->getOPs().submitTransaction(stx);
-            });
+            app_.getJobQueue().addJob(
+                jtTRANSACTION, "TXS->TXN", [app = &app_, stx]() {
+                    app->getOPs().submitTransaction(stx);
+                });
         }
         catch (std::exception const& ex)
         {
             JLOG(j_.warn())
-                << "Fetched invalid transaction in proposed set. Exception: "
-                << ex.what();
+                << "Fetched invalid tx in proposed set: " << ex.what();
+            return;
         }
     }
+
+    m_nodeCache.insert(nodeHash.as_uint256(), nodeData);
 }
 
 std::optional<Blob>
@@ -80,21 +79,31 @@ ConsensusTransSetSF::getNode(SHAMapHash const& nodeHash) const
 {
     auto const nh = nodeHash.as_uint256();
 
+    Blob nodeData;
+
+//    if (m_nodeCache.retrieve(nodeHash, nodeData))
+//        return nodeData;
+//
+//
     if (auto e = m_nodeCache.fetch(nh))
         return *e;  // This requires copying the blob.
 
-    if (auto txn = app_.getMasterTransaction().fetch_from_cache(nh))
-    {
-        // this is a transaction, and we have it
-        JLOG(j_.trace()) << "Node in our acquiring TX set is TXN we have";
-        Serializer s;
-        s.add32(HashPrefix::transactionID);
-        txn->getSTransaction()->add(s);
-        assert(sha512Half(s.slice()) == nh);
-        return std::move(s.modData());
-    }
+    auto txn =
+        app_.getMasterTransaction().fetch_from_cache(nodeHash.as_uint256());
 
-    return std::nullopt;
+    if (!txn)
+        return std::nullopt;
+
+    nodeData.clear();
+    nodeData.reserve(768);
+
+    // this is a transaction, and we have it
+    JLOG(j_.trace()) << "Node in our acquiring TX set is TXN we have";
+    SerializerInto s(nodeData);
+    s.add32(HashPrefix::transactionID);
+    txn->getSTransaction()->add(s);
+    assert(sha512Half(makeSlice(nodeData)) == nodeHash.as_uint256());
+    return nodeData;
 }
 
 }  // namespace ripple

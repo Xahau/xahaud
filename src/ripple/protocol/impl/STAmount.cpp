@@ -639,7 +639,7 @@ Json::Value STAmount::getJson(JsonOptions) const
 }
 
 void
-STAmount::add(Serializer& s) const
+STAmount::add(SerializerBase& s) const
 {
     if (mIsNative)
     {

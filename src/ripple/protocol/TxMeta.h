@@ -34,7 +34,7 @@ class TxMeta
 private:
     struct CtorHelper
     {
-        explicit CtorHelper() = default;
+        constexpr CtorHelper() = default;
     };
     template <class T>
     TxMeta(
@@ -44,7 +44,10 @@ private:
         CtorHelper);
 
 public:
-    TxMeta(uint256 const& transactionID, std::uint32_t ledger);
+    TxMeta(
+        uint256 const& transactionID,
+        std::uint32_t ledger,
+        std::optional<STAmount> delivered);
     TxMeta(uint256 const& txID, std::uint32_t ledger, Blob const&);
     TxMeta(uint256 const& txID, std::uint32_t ledger, std::string const&);
     TxMeta(uint256 const& txID, std::uint32_t ledger, STObject const&);
@@ -81,7 +84,9 @@ public:
     void
     setAffectedNode(uint256 const&, SField const& type, std::uint16_t nodeType);
     STObject&
-    getAffectedNode(SLE::ref node, SField const& type);  // create if needed
+    getAffectedNode(
+        std::shared_ptr<SLE> const& node,
+        SField const& type);  // create if needed
     STObject&
     getAffectedNode(uint256 const&);
 
@@ -95,25 +100,15 @@ public:
         return getAsObject().getJson(p);
     }
     void
-    addRaw(Serializer&, TER, std::uint32_t index);
+    addRaw(SerializerBase&, TER, std::uint32_t index);
 
     STObject
     getAsObject() const;
-    STArray&
-    getNodes()
-    {
-        return (mNodes);
-    }
+
     STArray const&
     getNodes() const
     {
-        return (mNodes);
-    }
-
-    void
-    setDeliveredAmount(STAmount const& delivered)
-    {
-        mDelivered = delivered;
+        return mNodes;
     }
 
     STArray const&
@@ -152,17 +147,10 @@ public:
         return static_cast<bool>(mHookEmissions);
     }
 
-    STAmount
+    std::optional<STAmount>
     getDeliveredAmount() const
     {
-        assert(hasDeliveredAmount());
-        return *mDelivered;
-    }
-
-    bool
-    hasDeliveredAmount() const
-    {
-        return static_cast<bool>(mDelivered);
+        return mDelivered;
     }
 
 private:

@@ -22,7 +22,6 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/Transaction.h>
 #include <ripple/app/misc/impl/AccountTxPaging.h>
-#include <ripple/protocol/Serializer.h>
 #include <ripple/protocol/UintTypes.h>
 #include <boost/format.hpp>
 #include <memory>
@@ -38,10 +37,7 @@ convertBlobsToTxResult(
     Blob const& rawMeta,
     Application& app)
 {
-    SerialIter it(makeSlice(rawTxn));
-    auto txn = std::make_shared<STTx const>(it);
-
-    auto tr = std::make_shared<Transaction>(txn);
+    auto tr = std::make_shared<Transaction>(std::make_shared<STTx const>(makeSlice(rawTxn)));
 
     tr->setStatus(sqlTransactionStatus(status), ledger_index);
 

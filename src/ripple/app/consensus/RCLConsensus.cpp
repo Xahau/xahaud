@@ -318,11 +318,14 @@ RCLConsensus::Adaptor::onClose(
     initialSet->setUnbacked();
 
     // Build SHAMap containing all transactions in our open ledger
+    Serializer s;
+
     for (auto const& tx : initialLedger->txs)
     {
         JLOG(j_.trace()) << "Adding open ledger TX "
                          << tx.first->getTransactionID();
-        Serializer s(2048);
+
+        s.clear();
         tx.first->add(s);
         initialSet->addItem(
             SHAMapNodeType::tnTRANSACTION_NM,
@@ -497,12 +500,10 @@ RCLConsensus::Adaptor::doAccept(
 #ifndef DEBUG
         try
         {
-#endif
-            retriableTxs.insert(
-                std::make_shared<STTx const>(SerialIter{item.slice()}));
+            retriableTxs.insert(std::make_shared<STTx const>(item.slice()));
             JLOG(j_.debug()) << "    Tx: " << item.key();
 
-#ifndef DEBUG 
+#ifndef DEBUG
         }
         catch (std::exception const& ex)
         {
@@ -611,8 +612,8 @@ RCLConsensus::Adaptor::doAccept(
                         << "Test applying disputed transaction that did"
                         << " not get in " << dispute.tx().id();
 
-                    SerialIter sit(dispute.tx().tx_->slice());
-                    auto txn = std::make_shared<STTx const>(sit);
+                    auto txn =
+                        std::make_shared<STTx const>(dispute.tx().tx_->slice());
 
                     // Disputed pseudo-transactions that were not accepted
                     // can't be successfully applied in the next ledger
@@ -777,7 +778,6 @@ RCLConsensus::Adaptor::buildLCL(
             j_);
     }();
 
-
     // Update fee computations based on accepted txs
     using namespace std::chrono_literals;
     app_.getTxQ().processClosedLedger(app_, *built, roundTime > 5s);
@@ -863,16 +863,17 @@ RCLConsensus::Adaptor::validate(
             }
         });
 
-    auto const serialized = v->getSerialized();
+    Serializer ser;
+    v->add(ser);
 
     // suppress it if we receive it
-    app_.getHashRouter().addSuppression(sha512Half(makeSlice(serialized)));
+    app_.getHashRouter().addSuppression(sha512Half(ser.slice()));
 
     handleNewValidation(app_, v, "local");
 
     // Broadcast to all our peers:
     protocol::TMValidation val;
-    val.set_validation(serialized.data(), serialized.size());
+    val.set_validation(ser.slice().data(), ser.slice().size());
     app_.overlay().broadcast(val);
 
     // Publish to all our subscribers:
