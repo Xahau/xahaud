@@ -33,6 +33,7 @@
 #include <ripple/basics/UptimeClock.h>
 #include <ripple/basics/chrono.h>
 #include <ripple/beast/insight/Collector.h>
+#include <ripple/json/json_value.h>
 #include <ripple/protocol/Protocol.h>
 #include <ripple/protocol/RippleLedgerHash.h>
 #include <ripple/protocol/STValidation.h>
@@ -221,8 +222,6 @@ public:
 
     void
     sweep();
-    float
-    getCacheHitRate();
 
     void
     checkAccept(std::shared_ptr<Ledger const> const& ledger);
@@ -296,6 +295,9 @@ public:
     std::optional<uint256>
     txnIDfromIndex(uint32_t ledgerSeq, uint32_t txnIndex);
 
+    Json::Value
+    info() const;
+
 private:
     void
     setValidLedger(std::shared_ptr<Ledger const> const& l);
@@ -368,7 +370,7 @@ private:
     // A set of transactions to replay during the next close
     std::unique_ptr<LedgerReplay> replayData;
 
-    std::recursive_mutex mCompleteLock;
+    std::recursive_mutex mutable mCompleteLock;
     RangeSet<std::uint32_t> mCompleteLedgers;
 
     // Publish thread is running.

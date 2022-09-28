@@ -1183,9 +1183,7 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
         return;
     }
 
-    std::string reason;
-
-    auto tx = std::make_shared<Transaction>(trans, reason, app_);
+    auto tx = std::make_shared<Transaction>(trans);
 
     m_job_queue.addJob(jtTRANSACTION, "submitTxn", [this, tx]() {
         auto t = tx;
@@ -1250,8 +1248,7 @@ NetworkOPsImp::processTransaction(
         return;
     }
 
-    // canonicalize can change our pointer
-    app_.getMasterTransaction().canonicalize(&transaction);
+    transaction = app_.getMasterTransaction().canonicalize(transaction);
 
     if (bLocal)
         doTransactionSync(transaction, bUnlimited, failType);
@@ -1454,9 +1451,8 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 auto const txNext = m_ledgerMaster.popAcctTransaction(txCur);
                 if (txNext)
                 {
-                    std::string reason;
                     auto const trans = sterilize(*txNext);
-                    auto t = std::make_shared<Transaction>(trans, reason, app_);
+                    auto t = std::make_shared<Transaction>(trans);
                     submit_held.emplace_back(t, false, false, FailHard::no);
                     t->setApplying();
                 }
@@ -2984,7 +2980,7 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
     if (!alpAccepted)
     {
         alpAccepted = std::make_shared<AcceptedLedger>(lpAccepted, app_);
-        app_.getAcceptedLedgerCache().canonicalize_replace_client(
+        app_.getAcceptedLedgerCache().retrieve_or_insert(
             lpAccepted->info().hash, alpAccepted);
     }
 
