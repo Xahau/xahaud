@@ -33,9 +33,9 @@ namespace BuildInfo {
 //  and follow the format described at http://semver.org/
 //------------------------------------------------------------------------------
 // clang-format off
-char const* const versionString = "1.10.0-b1"
-// clang-format on
+char const* const versionString = "1.10.0-rc1"
 "-hooks"
+// clang-format on
 
 #if defined(DEBUG) || defined(SANITIZER)
     "+"
