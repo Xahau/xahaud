@@ -351,7 +351,7 @@ run(int argc, char** argv)
 
     
     beast::setCurrentThreadName(
-        "rippled: main " + BuildInfo::getVersionString());
+        "xahaud: main " + BuildInfo::getVersionString());
 
     po::variables_map vm;
 
@@ -502,7 +502,7 @@ run(int argc, char** argv)
     }
     catch (std::exception const& ex)
     {
-        std::cerr << "rippled: " << ex.what() << std::endl;
+        std::cerr << "xahaud: " << ex.what() << std::endl;
         std::cerr << "Try 'rippled --help' for a list of options." << std::endl;
         return 1;
     }
@@ -515,7 +515,7 @@ run(int argc, char** argv)
 
     if (vm.count("version"))
     {
-        std::cout << "rippled version " << BuildInfo::getVersionString()
+        std::cout << "xahaud version " << BuildInfo::getVersionString()
                   << std::endl;
         return 0;
     }
@@ -523,7 +523,7 @@ run(int argc, char** argv)
 #ifndef ENABLE_TESTS
     if (vm.count("unittest") || vm.count("unittest-child"))
     {
-        std::cerr << "rippled: Tests disabled in this build." << std::endl;
+        std::cerr << "xahaud: Tests disabled in this build." << std::endl;
         std::cerr << "Try 'rippled --help' for a list of options." << std::endl;
         return 1;
     }
@@ -560,7 +560,7 @@ run(int argc, char** argv)
         if (vm.count("unittest-jobs"))
         {
             // unittest jobs only makes sense with `unittest`
-            std::cerr << "rippled: '--unittest-jobs' specified without "
+            std::cerr << "xahaud: '--unittest-jobs' specified without "
                          "'--unittest'.\n";
             std::cerr << "To run the unit tests the '--unittest' option must "
                          "be present.\n";
@@ -779,7 +779,7 @@ run(int argc, char** argv)
     }
 
     // We have an RPC command to process:
-    beast::setCurrentThreadName("rippled: rpc");
+    beast::setCurrentThreadName("xahaud: rpc");
     return RPCCall::fromCommandLine(
         *config, vm["parameters"].as<std::vector<std::string>>(), *logs);
 }
