@@ -248,9 +248,9 @@ getSingleSection(
 //
 //------------------------------------------------------------------------------
 
-char const* const Config::configFileName = "rippled.cfg";
-char const* const Config::databaseDirName = "db";
-char const* const Config::validatorsFileName = "validators.txt";
+char const* const Config::configFileName = "xahaud.cfg";
+char const* const Config::databaseDirName = "db-xahau";
+char const* const Config::validatorsFileName = "validators-xahau.txt";
 
 [[nodiscard]] static std::string
 getEnvVar(char const* name)
