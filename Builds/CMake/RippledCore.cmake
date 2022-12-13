@@ -134,10 +134,10 @@ target_link_libraries (xrpl_core
   PUBLIC
     OpenSSL::Crypto
     Ripple::boost
+    NIH::WasmEdge
     Ripple::syslibs
     NIH::secp256k1
     NIH::ed25519-donna
-    NIH::WasmEdge
     date::date
     Ripple::opts)
 #[=================================[

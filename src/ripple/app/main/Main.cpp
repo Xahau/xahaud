@@ -351,7 +351,7 @@ run(int argc, char** argv)
 
     
     beast::setCurrentThreadName(
-        "xahaud: main " + BuildInfo::getVersionString());
+        "rippled: main " + BuildInfo::getVersionString());
 
     po::variables_map vm;
 
@@ -779,7 +779,7 @@ run(int argc, char** argv)
     }
 
     // We have an RPC command to process:
-    beast::setCurrentThreadName("xahaud: rpc");
+    beast::setCurrentThreadName("rippled: rpc");
     return RPCCall::fromCommandLine(
         *config, vm["parameters"].as<std::vector<std::string>>(), *logs);
 }

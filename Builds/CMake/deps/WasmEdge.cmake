@@ -9,7 +9,6 @@ add_library (wasmedge STATIC IMPORTED GLOBAL)
 ExternalProject_Add (wasmedge_src
   PREFIX ${nih_cache_path}
   GIT_REPOSITORY https://github.com/WasmEdge/WasmEdge.git
-  GIT_TAG 0.9.0
     CMAKE_ARGS
   -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
   -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
@@ -32,8 +31,7 @@ ExternalProject_Add (wasmedge_src
   LOG_CONFIGURE ON
   COMMAND
     pwd
-  COMMAND 
-    sed -iE 's/uint64_t Index;/uint64_t Index = 0;/g' ../lib/aot/compiler.cpp
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   BUILD_COMMAND
     ${CMAKE_COMMAND}
     --build .
@@ -42,7 +40,7 @@ ExternalProject_Add (wasmedge_src
   TEST_COMMAND ""
   INSTALL_COMMAND ""
   BUILD_BYPRODUCTS
-      <BINARY_DIR>/lib/api/libwasmedge_c.a
+      <BINARY_DIR>/lib/api/libwasmedge.a
 )
 ExternalProject_Get_Property (wasmedge_src BINARY_DIR)
 set (wasmedge_src_BINARY_DIR "${BINARY_DIR}")
@@ -50,9 +48,9 @@ add_dependencies (wasmedge wasmedge_src)
 target_include_directories (ripple_libs SYSTEM INTERFACE "${wasmedge_src_BINARY_DIR}/include/api")
 set_target_properties (wasmedge PROPERTIES
   IMPORTED_LOCATION_DEBUG
-    "${wasmedge_src_BINARY_DIR}/lib/api/libwasmedge_c.a"
+    "${wasmedge_src_BINARY_DIR}/lib/api/libwasmedge.a"
   IMPORTED_LOCATION_RELEASE
-    "${wasmedge_src_BINARY_DIR}/lib/api/libwasmedge_c.a"
+    "${wasmedge_src_BINARY_DIR}/lib/api/libwasmedge.a"
   INTERFACE_INCLUDE_DIRECTORIES
     "${BINARY_DIR}/include/api")
 target_link_libraries (ripple_libs INTERFACE wasmedge)
