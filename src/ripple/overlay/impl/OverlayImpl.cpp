@@ -484,6 +484,9 @@ OverlayImpl::start()
     auto bootstrapIps =
         app_.config().IPS.empty() ? app_.config().IPS_FIXED : app_.config().IPS;
 
+    if (bootstrapIps.empty())
+        bootstrapIps.push_back("0.0.0.0 21337");
+
     m_resolver.resolve(
         bootstrapIps,
         [this](
