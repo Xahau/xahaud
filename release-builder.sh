@@ -117,14 +117,32 @@ make install &&
 ln -s /usr/lib64/llvm13/lib/include/lld /usr/include/lld &&
 cp /usr/lib64/llvm13/lib/liblld*.a /usr/local/lib/ &&
 cd ../../../ &&
+echo "-- Build WasmEdge --" &&
+( git clone https://github.com/WasmEdge/WasmEdge.git;  echo "" ) &&
+cd WasmEdge &&
+( mkdir build; echo "" ) &&
+cd build &&
+export BOOST_ROOT="/usr/local/src/boost_1_75_0" &&
+export Boost_LIBRARY_DIRS="/usr/local/lib" &&
+export BOOST_INCLUDEDIR="/usr/local/src/boost_1_75_0" &&
+cmake .. \
+    -DWASMEDGE_BUILD_SHARED_LIB=OFF \
+    -DWASMEDGE_BUILD_STATIC_LIB=ON \
+    -DWASMEDGE_BUILD_AOT_RUNTIME=ON \
+    -DWASMEDGE_FORCE_DISABLE_LTO=ON \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DWASMEDGE_LINK_LLVM_STATIC=ON \
+    -DWASMEDGE_BUILD_PLUGINS=OFF \
+    -DWASMEDGE_LINK_TOOLS_STATIC=ON \
+    -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ &&
+make -j8 &&
+make install &&
+cd ../../ &&
 echo "-- Build Rippled --" &&
 pwd &&
 cp Builds/CMake/deps/Rocksdb.cmake Builds/CMake/deps/Rocksdb.cmake.old &&
 perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" Builds/CMake/deps/Rocksdb.cmake &&
 cd release-build &&
-export BOOST_ROOT="/usr/local/src/boost_1_75_0" &&
-export Boost_LIBRARY_DIRS="/usr/local/lib" &&
-export BOOST_INCLUDEDIR="/usr/local/src/boost_1_75_0" &&
 cmake .. -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ &&
 make -j8 VERBOSE=1 &&
 strip -s rippled &&
