@@ -33,7 +33,7 @@ namespace ripple {
 static inline std::string const&
 systemName()
 {
-    static std::string const name = "ripple";
+    static std::string const name = "xahau";
     return name;
 }
 
@@ -58,7 +58,7 @@ systemCurrencyCode()
 }
 
 /** The XRP ledger network's earliest allowed sequence */
-static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{32570u};
+static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{3U};
 
 /** The number of ledgers in a shard */
 static constexpr std::uint32_t DEFAULT_LEDGERS_PER_SHARD{16384u};
@@ -78,6 +78,6 @@ constexpr std::chrono::seconds const defaultAmendmentMajorityTime = weeks{2};
 }  // namespace ripple
 
 /** Default peer port (IANA registered) */
-inline std::uint16_t constexpr DEFAULT_PEER_PORT{2459};
+inline std::uint16_t constexpr DEFAULT_PEER_PORT{21337};
 
 #endif
