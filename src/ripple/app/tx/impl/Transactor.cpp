@@ -584,6 +584,34 @@ Transactor::apply()
         if (sle->isFieldPresent(sfAccountTxnID))
             sle->setFieldH256(sfAccountTxnID, ctx_.tx.getTransactionID());
 
+        // accumulate rewards if the BalanceRewards amendment is enabled 
+        if (view().rules().enabled(featureBalanceRewards) &&
+                ctx_.tx[sfTransactionType] != ttCLAIM_REWARD)
+        {
+            uint32_t lgrCur = view().seq();
+            if (!sle->isFieldPresent(sfRewardLgrFirst) ||
+                !sle->isFieldPresent(sfRewardLgrLast) ||
+                !sle->isFieldPresent(sfRewardAccumulator))
+            {
+
+                sle->setFieldU32(sfRewardLgrFirst, lgrCur);
+                sle->setFieldU32(sfRewardLgrLast, lgrCur);
+                sle->setFieldU64(sfRewardAccumulator, 0ULL);
+            }
+            else
+            {
+                uint64_t bal = mPriorBalance.drops();
+                uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
+                if (lgrCur - lgrLast != 0)
+                {
+                    uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
+                    accum += bal * (lgrCur - lgrLast);
+                    sle->setFieldU64(sfRewardAccumulator, accum);
+                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
+                }
+            }
+        }
+
         view().update(sle);
     }
 

@@ -450,6 +450,7 @@ REGISTER_FEATURE(PaychanAndEscrowForTokens,     Supported::yes, DefaultVote::no)
 REGISTER_FIX    (fixNFTokenNegOffer,            Supported::yes, DefaultVote::no);
 REGISTER_FEATURE(NonFungibleTokensV1_1,         Supported::yes, DefaultVote::yes);
 REGISTER_FIX    (fixTrustLinesToSelf,           Supported::yes, DefaultVote::no);
+REGISTER_FEATURE(BalanceRewards,                Supported::yes, DefaultVote::yes);
 
 // The following amendments have been active for at least two years. Their
 // pre-amendment code has been removed and the identifiers are deprecated.

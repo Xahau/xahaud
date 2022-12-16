@@ -83,6 +83,7 @@ namespace hook
 
             // NFT
             case ttNFTOKEN_MINT:
+            case ttCLAIM_REWARD:
             {
                 if (tx.isFieldPresent(sfIssuer))
                     ADD_TSH(tx.getAccountID(sfIssuer), canRollback);

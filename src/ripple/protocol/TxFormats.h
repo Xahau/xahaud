@@ -139,6 +139,10 @@ enum TxType : std::uint16_t
     /** This transaction accepts an existing offer to buy or sell an existing  NFT. */
     ttNFTOKEN_ACCEPT_OFFER = 29,
 
+    /** This transaction resets accumulator/counters and claims a reward for holding an average balance
+     * from a specified hook */
+    ttCLAIM_REWARD = 98,
+
     /** This system-generated transaction type is used to update the status of the various amendments.
 
         For details, see: https://xrpl.org/amendments.html

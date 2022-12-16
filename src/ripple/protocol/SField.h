@@ -401,6 +401,8 @@ extern SF_UINT32 const sfBurnedNFTokens;
 extern SF_UINT32 const sfHookStateCount;
 extern SF_UINT32 const sfEmitGeneration;
 extern SF_UINT32 const sfLockCount;
+extern SF_UINT32 const sfRewardLgrFirst;
+extern SF_UINT32 const sfRewardLgrLast;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;
@@ -422,6 +424,7 @@ extern SF_UINT64 const sfHookOn;
 extern SF_UINT64 const sfHookInstructionCount;
 extern SF_UINT64 const sfHookReturnCode;
 extern SF_UINT64 const sfReferenceCount;
+extern SF_UINT64 const sfRewardAccumulator;
 
 // 128-bit
 extern SF_UINT128 const sfEmailHash;

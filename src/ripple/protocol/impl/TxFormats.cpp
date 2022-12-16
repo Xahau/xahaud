@@ -294,6 +294,13 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    add(jss::ClaimReward,
+        ttCLAIM_REWARD,
+        {
+            {sfIssuer, soeREQUIRED}
+        },
+        commonFields);
+
     add(jss::NFTokenMint,
         ttNFTOKEN_MINT,
         {

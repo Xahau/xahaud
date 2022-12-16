@@ -56,7 +56,10 @@ LedgerFormats::LedgerFormats()
             {sfMintedNFTokens,       soeDEFAULT},
             {sfBurnedNFTokens,       soeDEFAULT},
             {sfHookStateCount,       soeOPTIONAL},
-            {sfHookNamespaces,       soeOPTIONAL}
+            {sfHookNamespaces,       soeOPTIONAL},
+            {sfRewardLgrFirst,       soeOPTIONAL},
+            {sfRewardLgrLast,        soeOPTIONAL},
+            {sfRewardAccumulator,    soeOPTIONAL}
         },
         commonFields);
 

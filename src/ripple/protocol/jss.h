@@ -54,6 +54,7 @@ JSS(Check);                  // ledger type.
 JSS(CheckCancel);            // transaction type.
 JSS(CheckCash);              // transaction type.
 JSS(CheckCreate);            // transaction type.
+JSS(ClaimReward);            // transaction type.
 JSS(ClearFlag);              // field.
 JSS(CreateCode);             // field.
 JSS(DeliverMin);             // in: TransactionSign

@@ -152,6 +152,9 @@ CONSTRUCT_TYPED_SFIELD(sfHookStateCount,        "HookStateCount",       UINT32, 
 CONSTRUCT_TYPED_SFIELD(sfEmitGeneration,        "EmitGeneration",       UINT32,    46);
 CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32,    47);
 
+CONSTRUCT_TYPED_SFIELD(sfRewardLgrFirst,        "RewardLgrFirst",    UINT32,    99);
+CONSTRUCT_TYPED_SFIELD(sfRewardLgrLast,         "RewardLgrLast",     UINT32,   100);
+
 // 64-bit integers (common)
 CONSTRUCT_TYPED_SFIELD(sfIndexNext,             "IndexNext",            UINT64,     1);
 CONSTRUCT_TYPED_SFIELD(sfIndexPrevious,         "IndexPrevious",        UINT64,     2);
@@ -172,6 +175,7 @@ CONSTRUCT_TYPED_SFIELD(sfHookOn,                "HookOn",               UINT64, 
 CONSTRUCT_TYPED_SFIELD(sfHookInstructionCount,  "HookInstructionCount", UINT64,    17);
 CONSTRUCT_TYPED_SFIELD(sfHookReturnCode,        "HookReturnCode",       UINT64,    18);
 CONSTRUCT_TYPED_SFIELD(sfReferenceCount,        "ReferenceCount",       UINT64,    19);
+CONSTRUCT_TYPED_SFIELD(sfRewardAccumulator,     "RewardAccumulator",    UINT64,   100);
 
 // 128-bit
 CONSTRUCT_TYPED_SFIELD(sfEmailHash,             "EmailHash",            UINT128,    1);
