@@ -202,6 +202,7 @@ namespace hook
             case ttCHECK_CREATE:
             case ttACCOUNT_DELETE:
             case ttPAYCHAN_CREATE:
+            case ttINVOKE:
             {
                 ADD_TSH(*destAcc, canRollback);
                 break;
