@@ -47,7 +47,7 @@ ClaimReward::preflight(PreflightContext const& ctx)
 TER
 ClaimReward::preclaim(PreclaimContext const& ctx)
 {
-    if (ctx.view.rules().enabled(featureBalanceRewards))
+    if (!ctx.view.rules().enabled(featureBalanceRewards))
         return temDISABLED;
 
     auto const id = ctx.tx[sfAccount];
