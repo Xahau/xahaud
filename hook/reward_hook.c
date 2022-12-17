@@ -11,6 +11,13 @@ int64_t hook(uint32_t r)
     etxn_reserve(1);
     _g(1,1);
 
+    uint8_t ttbuf[16];
+    int64_t br = otxn_field(SBUF(ttbuf), sfTransactionType);
+    uint32_t txntype = ((uint32_t)(ttbuf[0]) << 16U) + ((uint32_t)(ttbuf[1]));
+
+    if (txntype != 98)
+        accept(0,0,0);
+
     // get the account id
     uint8_t account_field[20];
     ASSERT(otxn_field(SBUF(account_field), sfAccount) == 20);
