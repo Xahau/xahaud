@@ -1,5 +1,7 @@
 #include "hookapi.h"
-
+//#define REWARD_DELAY 2600000LL
+#define REWARD_DELAY 60LL
+#define REWARD_MULTIPLIER 0.00333333333f
 #define ASSERT(x)\
     if (!(x))\
         rollback(0,0,__LINE__);
@@ -41,12 +43,38 @@ int64_t hook(uint32_t r)
     ASSERT(slot_subfield(1, sfRewardLgrFirst, 3) == 3);
     ASSERT(slot_subfield(1, sfRewardLgrLast, 4) == 4);
     ASSERT(slot_subfield(1, sfBalance, 5) == 5);
+    ASSERT(slot_subfield(1, sfRewardTime, 6) == 6);
 
+    int64_t time = slot(0,0,6);
+
+    int64_t time_elapsed = ledger_last_time() - time;
+    if (time_elapsed < REWARD_DELAY)
+    {
+        uint8_t msg_buf[] = 
+        { 
+            'Y','o','u',' ','m','u','s','t',    // 8
+            ' ','w','a','i','t',' ',            //+6 = 14 
+            '0','0','0','0','0','0','0',
+            ' ','s','e','c','o','n','d','s' };
+
+        //2 600 000
+        time_elapsed = REWARD_DELAY - time_elapsed;
+        msg_buf[14] += (time_elapsed / 1000000) % 10;
+        msg_buf[15] += (time_elapsed /  100000) % 10;
+        msg_buf[16] += (time_elapsed /   10000) % 10;
+        msg_buf[17] += (time_elapsed /    1000) % 10;
+        msg_buf[18] += (time_elapsed /     100) % 10;
+        msg_buf[19] += (time_elapsed /      10) % 10;
+        msg_buf[20] += (time_elapsed          ) % 10;
+
+        rollback(SBUF(msg_buf), time_elapsed);
+    }
 
     int64_t accumulator = slot(0,0,2);
     int64_t first = slot(0,0,3);
     int64_t last = slot(0,0,4);
     int64_t bal = slot(0,0,5);
+
 
     TRACEVAR(accumulator);
     TRACEVAR(first);
@@ -65,7 +93,7 @@ int64_t hook(uint32_t r)
     int64_t elapsed_since_last = ledger_seq() - last;
 
     bal &= ~0xE000000000000000ULL;
-    bal /= 1000000;
+    bal /= 1000000LL;
 
     TRACEVAR(bal);
 
@@ -76,7 +104,7 @@ int64_t hook(uint32_t r)
     
     TRACEVAR(accumulator);
 
-    int64_t reward = accumulator / elapsed;
+    int64_t reward = (int64_t)(((REWARD_MULTIPLIER * (double)accumulator)) / ((double)elapsed));
     
     TRACEVAR(reward);
 
