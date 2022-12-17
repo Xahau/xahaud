@@ -152,8 +152,9 @@ CONSTRUCT_TYPED_SFIELD(sfHookStateCount,        "HookStateCount",       UINT32, 
 CONSTRUCT_TYPED_SFIELD(sfEmitGeneration,        "EmitGeneration",       UINT32,    46);
 CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32,    47);
 
-CONSTRUCT_TYPED_SFIELD(sfRewardLgrFirst,        "RewardLgrFirst",    UINT32,    99);
-CONSTRUCT_TYPED_SFIELD(sfRewardLgrLast,         "RewardLgrLast",     UINT32,   100);
+CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);
+CONSTRUCT_TYPED_SFIELD(sfRewardLgrFirst,        "RewardLgrFirst",       UINT32,    99);
+CONSTRUCT_TYPED_SFIELD(sfRewardLgrLast,         "RewardLgrLast",        UINT32,   100);
 
 // 64-bit integers (common)
 CONSTRUCT_TYPED_SFIELD(sfIndexNext,             "IndexNext",            UINT64,     1);

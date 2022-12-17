@@ -401,6 +401,7 @@ extern SF_UINT32 const sfBurnedNFTokens;
 extern SF_UINT32 const sfHookStateCount;
 extern SF_UINT32 const sfEmitGeneration;
 extern SF_UINT32 const sfLockCount;
+extern SF_UINT32 const sfRewardTime;
 extern SF_UINT32 const sfRewardLgrFirst;
 extern SF_UINT32 const sfRewardLgrLast;
 

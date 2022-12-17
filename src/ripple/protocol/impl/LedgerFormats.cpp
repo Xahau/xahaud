@@ -59,6 +59,7 @@ LedgerFormats::LedgerFormats()
             {sfHookNamespaces,       soeOPTIONAL},
             {sfRewardLgrFirst,       soeOPTIONAL},
             {sfRewardLgrLast,        soeOPTIONAL},
+            {sfRewardTime,           soeOPTIONAL},
             {sfRewardAccumulator,    soeOPTIONAL}
         },
         commonFields);

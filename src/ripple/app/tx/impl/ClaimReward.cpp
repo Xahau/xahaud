@@ -95,6 +95,8 @@ ClaimReward::doApply()
             sle->makeFieldAbsent(sfRewardLgrLast);
         if (sle->isFieldPresent(sfRewardAccumulator))
             sle->makeFieldAbsent(sfRewardAccumulator);
+        if (sle->isFieldPresent(sfRewardTime))
+            sle->makeFieldAbsent(sfRewardTime);
     }
     else
     {
@@ -104,6 +106,15 @@ ClaimReward::doApply()
         sle->setFieldU32(sfRewardLgrFirst, lgrCur);
         sle->setFieldU32(sfRewardLgrLast, lgrCur);
         sle->setFieldU64(sfRewardAccumulator, 0ULL);
+        sle->setFieldU32(sfRewardTime,
+           std::chrono::duration_cast<std::chrono::seconds>
+            (
+                ctx_.app.getLedgerMaster()
+                    .getValidatedLedger()->info()
+                        .parentCloseTime
+                            .time_since_epoch()
+            ).count());
+
     }
 
     view().update(sle);
