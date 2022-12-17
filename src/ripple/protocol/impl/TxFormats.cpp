@@ -297,7 +297,7 @@ TxFormats::TxFormats()
     add(jss::ClaimReward,
         ttCLAIM_REWARD,
         {
-            {sfIssuer, soeREQUIRED}
+            {sfIssuer, soeOPTIONAL}
         },
         commonFields);
 
