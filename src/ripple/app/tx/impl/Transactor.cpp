@@ -584,34 +584,6 @@ Transactor::apply()
         if (sle->isFieldPresent(sfAccountTxnID))
             sle->setFieldH256(sfAccountTxnID, ctx_.tx.getTransactionID());
 
-        // accumulate rewards if the BalanceRewards amendment is enabled 
-        if (view().rules().enabled(featureBalanceRewards) &&
-                ctx_.tx[sfTransactionType] != ttCLAIM_REWARD)
-        {
-            uint32_t lgrCur = view().seq();
-            if (!sle->isFieldPresent(sfRewardLgrFirst) ||
-                !sle->isFieldPresent(sfRewardLgrLast) ||
-                !sle->isFieldPresent(sfRewardAccumulator))
-            {
-
-                sle->setFieldU32(sfRewardLgrFirst, lgrCur);
-                sle->setFieldU32(sfRewardLgrLast, lgrCur);
-                sle->setFieldU64(sfRewardAccumulator, 0ULL);
-            }
-            else
-            {
-                uint64_t bal = mPriorBalance.drops();
-                uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
-                if (lgrCur - lgrLast != 0)
-                {
-                    uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
-                    accum += bal * (lgrCur - lgrLast);
-                    sle->setFieldU64(sfRewardAccumulator, accum);
-                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
-                }
-            }
-        }
-
         view().update(sle);
     }
 
@@ -1701,6 +1673,73 @@ Transactor::operator()()
         if (!isTecClaim(result) && !isTesSuccess(result))
             applied = false;
     }
+
+    if (applied && view().rules().enabled(featureBalanceRewards))
+    {
+        TxMeta metaRaw = ctx_.generateProvisionalMeta();
+        metaRaw.setResult(result, 0);
+        STObject const meta = std::move(metaRaw.getAsObject());
+
+        uint32_t lgrCur = view().seq();
+        // iterate all affected balances
+        for (auto const& node : meta.getFieldArray(sfAffectedNodes))
+        {
+            SField const& metaType = node.getFName();
+            uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
+
+            // we only care about ltACCOUNT_ROOT objects being modified or
+            // created
+            if (nodeType != ltACCOUNT_ROOT || metaType == sfDeletedNode)
+                continue;
+
+            if (!node.isFieldPresent(sfFinalFields) ||
+                !node.isFieldPresent(sfLedgerIndex))
+                continue;
+
+            auto sle = view().peek(Keylet{ ltACCOUNT_ROOT, node.getFieldH256(sfLedgerIndex) });
+
+            if (!sle)
+                continue;
+
+            if (!sle->isFieldPresent(sfRewardLgrFirst) ||
+                !sle->isFieldPresent(sfRewardLgrLast) ||
+                !sle->isFieldPresent(sfRewardAccumulator))
+                continue;
+            
+            STObject& finalFields = (const_cast<STObject&>(node))
+                                        .getField(sfFinalFields)
+                                        .downcast<STObject>();
+
+            if (!finalFields.isFieldPresent(sfBalance))
+                continue;
+
+
+            uint64_t bal = finalFields.getFieldAmount(sfBalance).xrp().drops() / 1'000'000;
+
+            if (bal == 0)
+                continue;
+
+            uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
+            
+            uint32_t lgrElapsed = lgrCur - lgrLast;
+
+            // overflow safety
+            if (lgrElapsed > lgrCur || lgrElapsed > lgrLast || lgrElapsed == 0)
+                continue;
+
+            uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
+            uint64_t accumNew = accum + bal * ((uint64_t)lgrElapsed);
+
+            // check for overflow
+            if (accumNew < accum)
+                continue;
+
+            sle->setFieldU64(sfRewardAccumulator, accumNew);
+            sle->setFieldU32(sfRewardLgrLast, lgrCur);
+
+            view().update(sle);
+        }
+    }
     
     // Post-application (Weak TSH/AAW) Hooks are executed here.
     // These TSH do not have the ability to rollback.
@@ -1740,7 +1779,6 @@ Transactor::operator()()
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
     }
-
 
 
     if (applied)

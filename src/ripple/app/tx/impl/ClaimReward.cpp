@@ -41,6 +41,11 @@ ClaimReward::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
+    // can have flag 1 set to opt-out of rewards
+    if (ctx.tx.isFieldPresent(sfFlags) && 
+        ctx.tx.getFieldU32(sfFlags) > 1)
+        return temMALFORMED;
+
     return preflight2(ctx);
 }
 
@@ -56,8 +61,15 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
     if (!sle)
         return terNO_ACCOUNT;
 
-    auto const issuer = ctx.tx[sfIssuer];
-    if (!ctx.view.exists(keylet::account(issuer)))
+    std::optional<uint32_t> flags = ctx.tx[~sfFlags];
+    std::optional<AccountID const> issuer = ctx.tx[~sfIssuer];
+
+    bool isOptOut = flags && *flags == 1;
+
+    if ((issuer && isOptOut) || (!issuer && !isOptOut))
+        return temMALFORMED;
+
+    if (issuer && !ctx.view.exists(keylet::account(*issuer)))
         return tecNO_ISSUER;
 
     return tesSUCCESS;
@@ -69,16 +81,32 @@ ClaimReward::doApply()
     auto const sle = view().peek(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
+    
+    std::optional<uint32_t> flags = ctx_.tx[~sfFlags];
+    std::optional<AccountID const> issuer = ctx_.tx[~sfIssuer];
 
-    // all actual rewards are handled by the hook on the sfIssuer
-    // the tt just resets the counters
-    uint32_t lgrCur = view().seq();
-    sle->setFieldU32(sfRewardLgrFirst, lgrCur);
-    sle->setFieldU32(sfRewardLgrLast, lgrCur);
-    sle->setFieldU64(sfRewardAccumulator, 0ULL);
+    bool isOptOut = flags && *flags == 1;
+
+    if (isOptOut)
+    {
+        if (sle->isFieldPresent(sfRewardLgrFirst))
+            sle->makeFieldAbsent(sfRewardLgrFirst);
+        if (sle->isFieldPresent(sfRewardLgrLast))
+            sle->makeFieldAbsent(sfRewardLgrLast);
+        if (sle->isFieldPresent(sfRewardAccumulator))
+            sle->makeFieldAbsent(sfRewardAccumulator);
+    }
+    else
+    {
+        // all actual rewards are handled by the hook on the sfIssuer
+        // the tt just resets the counters
+        uint32_t lgrCur = view().seq();
+        sle->setFieldU32(sfRewardLgrFirst, lgrCur);
+        sle->setFieldU32(sfRewardLgrLast, lgrCur);
+        sle->setFieldU64(sfRewardAccumulator, 0ULL);
+    }
 
     view().update(sle);
-
     return tesSUCCESS;
 }
 
