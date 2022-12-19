@@ -483,6 +483,18 @@ Config::loadFromString(std::string const& fileContents)
 
     if (getSingleSection(secConfig, SECTION_XPOP_HISTORY, strTemp, j_))
         XPOP_HISTORY = beast::lexicalCastThrow<bool>(strTemp);
+    
+    if (getSingleSection(secConfig, SECTION_NETWORK_ID, strTemp, j_))
+    {
+        if (strTemp == "main")
+            NETWORK_ID = 0;
+        else if (strTemp == "testnet")
+            NETWORK_ID = 1;
+        else if (strTemp == "devnet")
+            NETWORK_ID = 2;
+        else
+            NETWORK_ID = beast::lexicalCastThrow<uint32_t>(strTemp);
+    }
 
     if (getSingleSection(secConfig, SECTION_PEER_PRIVATE, strTemp, j_))
         PEER_PRIVATE = beast::lexicalCastThrow<bool>(strTemp);

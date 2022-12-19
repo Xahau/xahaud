@@ -87,6 +87,7 @@ JSS(Invoke);                 // transaction type
 JSS(LastLedgerSequence);     // in: TransactionSign; field
 JSS(LedgerHashes);           // ledger type.
 JSS(LimitAmount);            // field.
+JSS(NetworkID);              // field.
 JSS(NFTokenBurn);            // transaction type.
 JSS(NFTokenMint);            // transaction type.
 JSS(NFTokenOffer);           // ledger type.
