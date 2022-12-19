@@ -481,6 +481,9 @@ Config::loadFromString(std::string const& fileContents)
 
     std::string strTemp;
 
+    if (getSingleSection(secConfig, SECTION_XPOP_HISTORY, strTemp, j_))
+        XPOP_HISTORY = beast::lexicalCastThrow<bool>(strTemp);
+
     if (getSingleSection(secConfig, SECTION_PEER_PRIVATE, strTemp, j_))
         PEER_PRIVATE = beast::lexicalCastThrow<bool>(strTemp);
 
