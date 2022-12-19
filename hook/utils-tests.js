@@ -200,7 +200,7 @@ module.exports = {
 
                     try
                     {
-                        return fs.readFileSync('wasm/' + x).toString('hex').toUpperCase();
+                        return fs.readFileSync('' + x).toString('hex').toUpperCase();
                     }
                     catch (e) {}
 
@@ -300,6 +300,12 @@ module.exports = {
                     const acc = xrpljs.Wallet.fromSeed(kp.generateSeed());
                     return acc
                 };
+                
+                const fromSeed = (x)=>
+                {
+                    const acc = xrpljs.Wallet.fromSeed(x);
+                    return acc
+                };
 
                 const pay_mock = (seed, amt, dest) =>
                 {
@@ -351,7 +357,7 @@ module.exports = {
 
                 const hookHash = fn =>
                 {
-                    let b = fs.readFileSync('wasm/' + fn);
+                    let b = fs.readFileSync('' + fn);
                     return crypto.createHash('SHA512').update(b).digest().slice(0,32).toString('hex').toUpperCase()
                 }
 
@@ -579,6 +585,7 @@ module.exports = {
                         kp: kp,
                         genesis: genesis,
                         randomAccount: randomAccount,
+                        fromSeed: fromSeed,
                         fundFromGenesis: fundFromGenesis,
                         err: err,
                         hsfOVERRIDE: 1,
