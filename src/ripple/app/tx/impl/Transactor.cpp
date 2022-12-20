@@ -211,9 +211,9 @@ calculateHookChainFee(
         }
         
         // check if the hook can fire
-        uint64_t hookOn = (hookObj->isFieldPresent(sfHookOn)
-                ? hookObj->getFieldU64(sfHookOn)
-                : hookDef->getFieldU64(sfHookOn));
+        uint256 hookOn = (hookObj->isFieldPresent(sfHookOn)
+                ? hookObj->getFieldH256(sfHookOn)
+                : hookDef->getFieldH256(sfHookOn));
 
         uint32_t flags = 0;
         if (hookObj->isFieldPresent(sfFlags))
@@ -990,9 +990,9 @@ executeHookChain(
         }
 
         // check if the hook can fire
-        uint64_t hookOn = (hookObj->isFieldPresent(sfHookOn)
-                ? hookObj->getFieldU64(sfHookOn)
-                : hookDef->getFieldU64(sfHookOn));
+        uint256 hookOn = (hookObj->isFieldPresent(sfHookOn)
+                ? hookObj->getFieldH256(sfHookOn)
+                : hookDef->getFieldH256(sfHookOn));
 
         if (!hook::canHook(ctx_.tx.getTxnType(), hookOn))
             continue;    // skip if it can't

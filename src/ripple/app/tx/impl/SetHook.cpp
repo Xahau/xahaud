@@ -1150,9 +1150,9 @@ SetHook::setHook()
         std::optional<ripple::uint256>                                  newNamespace;
         std::optional<ripple::Keylet>                                   newDirKeylet;
 
-        std::optional<uint64_t>                                         oldHookOn;
-        std::optional<uint64_t>                                         newHookOn;
-        std::optional<uint64_t>                                         defHookOn;
+        std::optional<uint256>                                          oldHookOn;
+        std::optional<uint256>                                          newHookOn;
+        std::optional<uint256>                                          defHookOn;
 
         // when hsoCREATE is invoked it populates this variable in case the hook definition already exists
         // and the operation falls through into a hsoINSTALL operation instead
@@ -1205,10 +1205,10 @@ SetHook::setHook()
             oldDirKeylet = keylet::hookStateDir(account_, *oldNamespace);
             oldDirSLE = view().peek(*oldDirKeylet);
             if (oldDefSLE)
-                defHookOn = oldDefSLE->getFieldU64(sfHookOn);
+                defHookOn = oldDefSLE->getFieldH256(sfHookOn);
 
             if (oldHook->get().isFieldPresent(sfHookOn))
-                oldHookOn = oldHook->get().getFieldU64(sfHookOn);
+                oldHookOn = oldHook->get().getFieldH256(sfHookOn);
             else if (defHookOn)
                 oldHookOn = *defHookOn;
         }
@@ -1223,7 +1223,7 @@ SetHook::setHook()
             }
 
             if (hookSetObj->get().isFieldPresent(sfHookOn))
-                newHookOn = hookSetObj->get().getFieldU64(sfHookOn);
+                newHookOn = hookSetObj->get().getFieldH256(sfHookOn);
 
             if (hookSetObj->get().isFieldPresent(sfHookNamespace))
             {
@@ -1322,7 +1322,7 @@ SetHook::setHook()
                 // initially carry over the prior non-array values, whatever those were
                 newHook.setFieldH256(sfHookHash, oldHook->get().getFieldH256(sfHookHash));
                 if (oldHook->get().isFieldPresent(sfHookOn))
-                    newHook.setFieldU64(sfHookOn, oldHook->get().getFieldU64(sfHookOn));
+                    newHook.setFieldH256(sfHookOn, oldHook->get().getFieldH256(sfHookOn));
                 if (oldHook->get().isFieldPresent(sfHookNamespace))
                     newHook.setFieldH256(sfHookNamespace, oldHook->get().getFieldH256(sfHookNamespace));
 
@@ -1347,7 +1347,7 @@ SetHook::setHook()
                             newHook.makeFieldAbsent(sfHookOn);
                     }
                     else
-                        newHook.setFieldU64(sfHookOn, *newHookOn);
+                        newHook.setFieldH256(sfHookOn, *newHookOn);
                 }
 
                 // parameters
@@ -1488,7 +1488,7 @@ SetHook::setHook()
 
                     auto newHookDef = std::make_shared<SLE>( keylet );
                     newHookDef->setFieldH256(sfHookHash, *createHookHash);
-                    newHookDef->setFieldU64(    sfHookOn, *newHookOn);
+                    newHookDef->setFieldH256(   sfHookOn, *newHookOn);
                     newHookDef->setFieldH256(   sfHookNamespace, *newNamespace);
                     newHookDef->setFieldArray(  sfHookParameters,
                             hookSetObj->get().isFieldPresent(sfHookParameters)
@@ -1566,7 +1566,7 @@ SetHook::setHook()
 
                 // change which definition we're using to the new target
                 defNamespace = newDefSLE->getFieldH256(sfHookNamespace);
-                defHookOn = newDefSLE->getFieldU64(sfHookOn);
+                defHookOn = newDefSLE->getFieldH256(sfHookOn);
 
                 // set the namespace if it differs from the definition namespace
                 if (newNamespace && *defNamespace != *newNamespace)
@@ -1574,7 +1574,7 @@ SetHook::setHook()
 
                 // set the hookon field if it differs from definition
                 if (newHookOn && *defHookOn != *newHookOn)
-                    newHook.setFieldU64(sfHookOn, *newHookOn);
+                    newHook.setFieldH256(sfHookOn, *newHookOn);
 
                 // parameters
                 TER result =

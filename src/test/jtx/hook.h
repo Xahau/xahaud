@@ -37,8 +37,6 @@ hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv) = 0);
 Json::Value
 hso_delete(void (*f)(Json::Value& jv) = 0);
 
-std::string uint64_hex(uint64_t x);
-
 }  // namespace jtx
 }  // namespace test
 }  // namespace ripple

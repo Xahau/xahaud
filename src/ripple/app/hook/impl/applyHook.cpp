@@ -748,12 +748,15 @@ hook::removeHookNamespaceEntry(
 // from the right is 0 then the hook will trigger on ESCROW_FINISH. If it is 1 then ESCROW_FINISH will not trigger
 // the hook. However ttHOOK_SET = 22 is active high, so by default (HookOn == 0) ttHOOK_SET is not triggered by
 // transactions. If you wish to set a hook that has control over ttHOOK_SET then set bit 1U<<22.
-bool hook::canHook(ripple::TxType txType, uint64_t hookOn) {
+bool hook::canHook(ripple::TxType txType, ripple::uint256 hookOn) {
+    
     // invert ttHOOK_SET bit
-    hookOn ^= (1ULL << ttHOOK_SET);
+    hookOn ^= UINT256_BIT[ttHOOK_SET];
+
     // invert entire field
-    hookOn ^= 0xFFFFFFFFFFFFFFFFULL;
-    return (hookOn >> txType) & 1;
+    hookOn = ~hookOn;
+
+    return (hookOn & UINT256_BIT[txType]) != beast::zero;
 }
 
 

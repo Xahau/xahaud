@@ -173,7 +173,7 @@ CONSTRUCT_TYPED_SFIELD(sfNFTokenOfferNode,      "NFTokenOfferNode",     UINT64, 
 CONSTRUCT_TYPED_SFIELD(sfEmitBurden,            "EmitBurden",           UINT64,    13);
 
 // 64-bit integers (uncommon)
-CONSTRUCT_TYPED_SFIELD(sfHookOn,                "HookOn",               UINT64,    16);
+// 16 used to be HookOn until it was expanded to UINT256
 CONSTRUCT_TYPED_SFIELD(sfHookInstructionCount,  "HookInstructionCount", UINT64,    17);
 CONSTRUCT_TYPED_SFIELD(sfHookReturnCode,        "HookReturnCode",       UINT64,    18);
 CONSTRUCT_TYPED_SFIELD(sfReferenceCount,        "ReferenceCount",       UINT64,    19);
@@ -208,7 +208,7 @@ CONSTRUCT_TYPED_SFIELD(sfBookDirectory,         "BookDirectory",        UINT256,
 CONSTRUCT_TYPED_SFIELD(sfInvoiceID,             "InvoiceID",            UINT256,   17);
 CONSTRUCT_TYPED_SFIELD(sfNickname,              "Nickname",             UINT256,   18);
 CONSTRUCT_TYPED_SFIELD(sfAmendment,             "Amendment",            UINT256,   19);
-//                                                                                 20 is currently unused
+CONSTRUCT_TYPED_SFIELD(sfHookOn,                "HookOn",               UINT256,   20);
 CONSTRUCT_TYPED_SFIELD(sfDigest,                "Digest",               UINT256,   21);
 CONSTRUCT_TYPED_SFIELD(sfChannel,               "Channel",              UINT256,   22);
 CONSTRUCT_TYPED_SFIELD(sfConsensusHash,         "ConsensusHash",        UINT256,   23);

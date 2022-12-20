@@ -223,7 +223,7 @@ namespace hook_api
 namespace hook
 {
 
-    bool canHook(ripple::TxType txType, uint64_t hookOn);
+    bool canHook(ripple::TxType txType, ripple::uint256 hookOn);
 
     struct HookResult;
 

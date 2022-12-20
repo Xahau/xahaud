@@ -45,27 +45,6 @@ hook(Account const& account, std::optional<std::vector<Json::Value>> hooks, std:
     return jv;
 }
 
-
-std::string uint64_hex(uint64_t x)
-{
-    auto const nibble = [](uint64_t n) -> char
-    {
-        n &= 0x0FU;
-        return
-            n <= 9 ? '0' + n :
-            'A' + (n - 10);
-    };
-    return std::string("") +
-        nibble(x >> 60U) + nibble(x >> 56U) +
-        nibble(x >> 52U) + nibble(x >> 48U) +
-        nibble(x >> 44U) + nibble(x >> 40U) +
-        nibble(x >> 36U) + nibble(x >> 32U) +
-        nibble(x >> 28U) + nibble(x >> 24U) +
-        nibble(x >> 20U) + nibble(x >> 16U) +
-        nibble(x >> 12U) + nibble(x >>  8U) +
-        nibble(x >>  4U) + nibble(x >>  0U);
-}
-
 Json::Value
 hso_delete(void (*f)(Json::Value& jv))
 {
@@ -89,7 +68,7 @@ hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv))
     Json::Value jv;
     jv[jss::CreateCode] = strHex(wasmBytes);
     {
-        jv[jss::HookOn] = uint64_hex(0);
+        jv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
         jv[jss::HookNamespace] = to_string(uint256{beast::zero});
         jv[jss::HookApiVersion] = Json::Value{0};
     }

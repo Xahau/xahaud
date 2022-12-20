@@ -422,7 +422,6 @@ extern SF_UINT64 const sfEmitBurden;
 extern SF_UINT64 const sfNFTokenOfferNode;
 
 // 64-bit integers (uncommon)
-extern SF_UINT64 const sfHookOn;
 extern SF_UINT64 const sfHookInstructionCount;
 extern SF_UINT64 const sfHookReturnCode;
 extern SF_UINT64 const sfReferenceCount;
@@ -442,6 +441,7 @@ extern SF_UINT256 const sfLedgerHash;
 extern SF_UINT256 const sfParentHash;
 extern SF_UINT256 const sfTransactionHash;
 extern SF_UINT256 const sfAccountHash;
+extern SF_UINT256 const sfHookOn;
 extern SF_UINT256 const sfPreviousTxnID;
 extern SF_UINT256 const sfLedgerIndex;
 extern SF_UINT256 const sfWalletLocator;

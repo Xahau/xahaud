@@ -16,6 +16,7 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
+#include <ripple/app/hook/Enum.h>
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
@@ -470,7 +471,7 @@ public:
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
-                 {jss::HookOn, "0"},
+                 {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000000"},
                  {jss::HookApiVersion, "0"},
                  {jss::HookNamespace, to_string(uint256{beast::zero})}})
         {
@@ -631,7 +632,7 @@ public:
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
-                 {jss::HookOn, "0"},
+                 {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000000"},
                  {jss::HookApiVersion, "0"},
              })
         {
@@ -773,7 +774,7 @@ public:
             Json::Value iv;
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookApiVersion] = 0U;
-            iv[jss::HookOn] = uint64_hex(0);
+            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -789,7 +790,7 @@ public:
             Json::Value iv;
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
-            iv[jss::HookOn] = uint64_hex(0);
+            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -806,7 +807,7 @@ public:
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
             iv[jss::HookApiVersion] = 1U;
-            iv[jss::HookOn] = uint64_hex(0);
+            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -987,7 +988,7 @@ public:
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
             iv[jss::HookApiVersion] = 0U;
-            iv[jss::HookOn] = uint64_hex(0);
+            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
             iv[jss::HookParameters] = Json::Value{Json::arrayValue};
             iv[jss::HookParameters][0U] = Json::Value{};
             iv[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
@@ -1066,7 +1067,7 @@ public:
             grants[0U][jss::HookGrant][jss::HookHash] = accept_hash_str;
 
             for (auto const& [key, value] : JSSMap{
-                     {jss::HookOn, "1"},
+                     {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000001"},
                      {jss::HookNamespace,
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
@@ -1093,7 +1094,7 @@ public:
 
             // check all fields were updated to correct values
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookOn));
-            BEAST_EXPECT(hooks[0].getFieldU64(sfHookOn) == 1ULL);
+            BEAST_EXPECT(hooks[0].getFieldH256(sfHookOn) == hook_api::UINT256_BIT[0]);
 
             auto const ns = uint256::fromVoid(
                 (std::array<uint8_t, 32>{
@@ -1129,7 +1130,7 @@ public:
         // reset hookon and namespace to defaults
         {
             for (auto const& [key, value] : JSSMap{
-                     {jss::HookOn, "0"},
+                     {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000000"},
                      {jss::HookNamespace, to_string(uint256{beast::zero})}})
             {
                 Json::Value iv;
@@ -1369,7 +1370,7 @@ public:
             grants[0U][jss::HookGrant][jss::HookHash] = accept_hash_str;
 
             for (auto const& [key, value] : JSSMap{
-                     {jss::HookOn, "1"},
+                     {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000001"},
                      {jss::HookNamespace,
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
@@ -1571,7 +1572,7 @@ public:
         // hsoUPDATE
         {
             STObject hso{sfHook};
-            hso.setFieldU64(sfHookOn, 1LLU);
+            hso.setFieldH256(sfHookOn, hook_api::UINT256_BIT[0]);
             BEAST_EXPECT(SetHook::inferOperation(hso) == hsoUPDATE);
         }
 
