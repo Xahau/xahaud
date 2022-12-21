@@ -49,6 +49,21 @@ uint8_t key[32];
 uint8_t account_field[32];
 uint8_t zero[32];
 
+#define DONE()\
+{\
+    accept(0,0,(uint32_t)__LINE__);\
+}
+
+#define TRACELINE()\
+{\
+    uint8_t out[4];\
+    out[0] = (__LINE__ >> 24U) & 0xFFU;\
+    out[1] = (__LINE__ >> 16U) & 0xFFU;\
+    out[2] = (__LINE__ >>  8U) & 0xFFU;\
+    out[3] = (__LINE__ >>  0U) & 0xFFU;\
+    trace(SBUF("Line upto:"), out, 4, 1);\
+}
+
 int64_t hook(uint32_t r)
 {
     _g(1,1);
@@ -58,7 +73,7 @@ int64_t hook(uint32_t r)
     uint32_t txntype = ((uint32_t)(ttbuf[0]) << 16U) + ((uint32_t)(ttbuf[1]));
 
     if (txntype != 99)  // ttINVOKE
-        accept(0,0,0);
+        DONE();
 
     // get the account id
     ASSERT(otxn_field(account_field + 12, 20, sfAccount) == 20);
@@ -66,15 +81,12 @@ int64_t hook(uint32_t r)
     uint8_t hook_accid[20];
     hook_account(SBUF(hook_accid));
 
-    // outgoing txns allowed
-    int equal = 0; BUFFER_EQUAL(equal, hook_accid, account_field + 12, 20);
-    if (equal)
-        accept(0,0,0);
-
     // start of hook proper
 
 
     int64_t member_count = state(0,0, SBUF(key));
+
+    TRACEVAR(member_count);
     
     // initial execution, setup hook
     if (member_count == DOESNT_EXIST)
@@ -92,7 +104,7 @@ int64_t hook(uint32_t r)
 
         for (uint32_t i = 0; GUARD(INIT_MEMBER_COUNT), i < INIT_MEMBER_COUNT; ++i)
         {
-            key[31] = i;
+            key[31] = i+1;
 
                                                                 // 0... X where X is member id started from 1
                                                                 // maps to the member's account ID
@@ -105,7 +117,7 @@ int64_t hook(uint32_t r)
 
             // emit initial
             uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
-            PREPARE_PAYMENT_SIMPLE(tx, INIT_AMOUNT, (initial_members + (i * 20)), 0, 0);
+            PREPARE_PAYMENT_SIMPLE(tx, INIT_AMOUNT, (initial_members + (i * 32) + 12), 0, 0);
 
             // emit the transaction
             uint8_t emithash[32];
@@ -115,11 +127,17 @@ int64_t hook(uint32_t r)
 
         }
 
-        accept(0,0,0);
+        DONE();
     }
 
+    
+
+    // outgoing txns allowed
+    if (BUFFER_EQUAL_20(hook_accid, account_field + 12))
+        DONE();
 
 
+    
 
     // otherwise a normal execution (not initial)
     // first let's check if the invoking party is a member
@@ -131,14 +149,21 @@ int64_t hook(uint32_t r)
     // so lets process their vote
     ASSERT(otxn_slot(1) == 1);
     ASSERT(slot_subfield(1, sfHookParameters, 2) == 2);
-    // first parameter must contain the vote type
-    ASSERT(slot_subarray(2, 0, 3) == 3);
-    // second parameter must contain the vote contents
-    ASSERT(slot_subarray(2, 1, 4) == 4);
+    // first parameter must contain the topic as key and the topic data as value
+    ASSERT(slot_subarray(2, 0, 2) == 2);
+    ASSERT(slot_subfield(2, sfHookParameterName, 3) == 3);
+    ASSERT(slot_subfield(2, sfHookParameterValue, 4) == 4);
 
-    int64_t topic = slot(0,0, 3);
+    
+    uint8_t dump[1024];
+    uint64_t dumpsize = slot(SBUF(dump), 4);
+    trace(SBUF("dump"), dump, dumpsize, 1);
+
+    int64_t topic = slot(0,0, 3) & 0xFFU; // there's a high "size" byte because it's a VL
+    TRACEVAR(topic);
     ASSERT(topic >= 1 && topic <= 25);
 
+    
     uint8_t topic_data_buffer[44];  // this gives us some bytes on the front to play with to avoid buffer copies
     uint8_t* topic_data = topic_data_buffer + 12;;
     uint8_t topic_size = 
@@ -149,8 +174,10 @@ int64_t hook(uint32_t r)
     account_field[0] = topic;
 
     // read canidate from ttINVOKE parameter 
-    ASSERT(slot(topic_data, topic_size, 4) == topic_size);
+    ASSERT(slot(topic_data - 1, topic_size + 1, 4) == topic_size + 1);
+    *(topic_data - 1) = 0; // this is the size byte for the VL
 
+    
     // get previous vote if any on this topic (1-25)
     uint8_t previous_topic_data[32];
     int64_t previous_topic_size = state(previous_topic_data, topic_size, SBUF(account_field));
@@ -160,14 +187,10 @@ int64_t hook(uint32_t r)
 
     // check if the vote they're making has already been cast before,
     // if it is identical to their existing vote for this topic then just end with tesSUCCESS
-    if (previous_topic_size == topic_size)
-    {
-        int equal = 0; 
-        BUFFER_EQUAL(equal, topic_data, previous_topic_data, topic_size);
-        if (equal)
-            accept(0,0,0);
-    }
+    if (previous_topic_size == topic_size && BUFFER_EQUAL_32(previous_topic_data, topic_data))
+        DONE();
 
+    
     // execution to here means the vote is different
     // we might have to decrement the old voting if they voted previously
     // and we will have to increment the new voting
@@ -186,6 +209,7 @@ int64_t hook(uint32_t r)
     }
 
 
+    
     // increment new counter
     uint8_t votes = 0;
     uint8_t last_byte = *(topic_data + 31);
@@ -197,13 +221,14 @@ int64_t hook(uint32_t r)
     }
     *(topic_data + 31) = last_byte;
 
+    
     // set this flag if the topic data is all zeros, it's important in some cases
-    int topic_data_zero = 0;
-    BUFFER_EQUAL(topic_data_zero, zero, topic_data, topic_size);
+    int topic_data_zero = BUFFER_EQUAL_32(topic_data, zero); 
 
+    
     // now check if we hit threshold
     if (votes == member_count || // 100% required for topics 1 - 5 (interest rate, hooks0-3)
-            (topic > 5 && votes >= (member_count * 0.8))) // 80% required for membership voting
+        (topic > 5 && votes >= (member_count * 0.8))) // 80% required for membership voting
     {
         // 100%/80% threshold as needed is reached
         // action vote
@@ -237,9 +262,8 @@ int64_t hook(uint32_t r)
                 ASSERT(slot(SBUF(existing_hook), 8) == 32);
 
                 // if it is then do nothing
-                int equal = 0; BUFFER_EQUAL(equal, existing_hook, topic_data, 32);
-                if (equal)
-                    accept(0,0,0);
+                if (BUFFER_EQUAL_32(existing_hook, topic_data))
+                    DONE();
             }
 
             // generate the hook definition keylet
@@ -345,7 +369,5 @@ int64_t hook(uint32_t r)
         }
     }
     
-    
-
-    accept(0,0,0);
+    DONE();
 }

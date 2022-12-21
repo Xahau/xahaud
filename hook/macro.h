@@ -125,6 +125,24 @@ int out_len = 0;\
 #define SUB_OFFSET(x) ((int32_t)(x >> 32))
 #define SUB_LENGTH(x) ((int32_t)(x & 0xFFFFFFFFULL))
 
+#define BUFFER_EQUAL_20(buf1, buf2)\
+    (\
+        *(((uint64_t*)(buf1)) + 0) == *(((uint64_t*)(buf2)) + 0) &&\
+        *(((uint64_t*)(buf1)) + 1) == *(((uint64_t*)(buf2)) + 1) &&\
+        *(((uint32_t*)(buf1)) + 4) == *(((uint32_t*)(buf2)) + 4))
+
+#define BUFFER_EQUAL_32(buf1, buf2)\
+    (\
+        *(((uint64_t*)(buf1)) + 0) == *(((uint64_t*)(buf2)) + 0) &&\
+        *(((uint64_t*)(buf1)) + 1) == *(((uint64_t*)(buf2)) + 1) &&\
+        *(((uint64_t*)(buf1)) + 2) == *(((uint64_t*)(buf2)) + 2) &&\
+        *(((uint64_t*)(buf1)) + 3) == *(((uint64_t*)(buf2)) + 3) &&\
+        *(((uint64_t*)(buf1)) + 4) == *(((uint64_t*)(buf2)) + 4) &&\
+        *(((uint64_t*)(buf1)) + 5) == *(((uint64_t*)(buf2)) + 5) &&\
+        *(((uint64_t*)(buf1)) + 6) == *(((uint64_t*)(buf2)) + 6) &&\
+        *(((uint64_t*)(buf1)) + 7) == *(((uint64_t*)(buf2)) + 7))
+
+
 // when using this macro buf1len may be dynamic but buf2len must be static
 // provide n >= 1 to indicate how many times the macro will be hit on the line of code
 // e.g. if it is in a loop that loops 10 times n = 10
