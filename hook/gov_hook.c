@@ -40,7 +40,7 @@ uint8_t initial_members[] =
 };
 
 // this is the xfl for 0.00333333333
-uint8_t initial_reward =    // on key FF, 0..0 
+uint8_t initial_reward[] =    // on key FF, 0..0 
 {
     0x53U,0xCBU,0xD7U,0xA6U,0x25U,0x0DU,0x78U,0x80U
 };
@@ -242,11 +242,38 @@ int64_t hook(uint32_t r)
                     accept(0,0,0);
             }
 
-            // RH TODO: check if the hookhash maps to an extant hook
+            // generate the hook definition keylet
+            ASSERT(util_keylet(SBUF(keylet), KEYLET_HOOK_DEFINITION, topic_data, 32, 0,0,0,0) == 34);
 
-            // execution to here means we will emit a hook set transaction
+            // check if the ledger contains such a hook definition
+            ASSERT(slot_set(SBUF(keylet), 9) == 9);
 
-            // RH UPTO:    
+            // it does so now we can do the emit
+            etxn_reserve(1);
+
+            // RH UPTO: do hookset emit
+
+            uint8_t* hookhash = 
+                topic_data_zero 
+                ? ((uint8_t*)0xFFFFFFFFU) // if the topic data is all zero then it's a delete operation
+                : topic_data;             // otherwise it's an install operation
+
+            uint8_t* h[4] =
+            {
+                pos == 0 ? hookhash : 0,
+                pos == 1 ? hookhash : 0,
+                pos == 2 ? hookhash : 0,
+                pos == 3 ? hookhash : 0
+            };
+
+            uint8_t emit_buf[1024];
+            uint32_t emit_size = 0;
+            PREPARE_HOOKSET(emit_buf, sizeof(emit_buf), h[0], h[1], h[2], h[3], emit_size);
+
+            uint8_t emithash[32];
+            int64_t emit_result = emit(SBUF(emithash), emit_buf, emit_size);
+            TRACEVAR(emit_result);
+
         }
         else
         {
