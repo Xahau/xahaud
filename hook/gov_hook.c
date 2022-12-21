@@ -214,17 +214,19 @@ int64_t hook(uint32_t r)
     uint8_t votes = 0;
     uint8_t last_byte = *(topic_data + 31);
     *(topic_data + 31) = topic;
-    if (state(&votes, 1, SBUF(previous_topic_data)) && votes > 0)
-    {
-        votes++;
-        ASSERT(state_set(&votes, 1, topic_data, 32));
-    }
+    state(&votes, 1, topic_data, 32);
+    votes++;
+    ASSERT(state_set(&votes, 1, topic_data, 32));
     *(topic_data + 31) = last_byte;
 
     
     // set this flag if the topic data is all zeros, it's important in some cases
     int topic_data_zero = BUFFER_EQUAL_32(topic_data, zero); 
 
+    TRACEVAR(topic_data_zero);
+    TRACEVAR(votes);
+    TRACEVAR(member_count);
+    TRACEVAR(topic);
     
     // now check if we hit threshold
     if (votes == member_count || // 100% required for topics 1 - 5 (interest rate, hooks0-3)
@@ -232,6 +234,8 @@ int64_t hook(uint32_t r)
     {
         // 100%/80% threshold as needed is reached
         // action vote
+
+        TRACESTR("Actioning votes");
 
         if (topic == 1)
         {
