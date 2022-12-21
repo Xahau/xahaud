@@ -103,6 +103,7 @@ struct ConfigSection
 #define SECTION_SWEEP_INTERVAL "sweep_interval"
 #define SECTION_XPOP_HISTORY "xpop_history"
 #define SECTION_NETWORK_ID "network_id"
+#define SECTION_GENESIS_CONFIG "genesis"
 
 }  // namespace ripple
 

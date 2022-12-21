@@ -162,6 +162,17 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::NetworkID,
+        ltNETWORK_ID,
+        {
+            { sfNetworkID,           soeREQUIRED},
+            { sfAmount,              soeREQUIRED},
+            { sfAccount,             soeREQUIRED},
+            { sfURI,                 soeOPTIONAL},
+            { sfBlob,                soeOPTIONAL},
+        },
+        commonFields);
+
     add(jss::Ticket,
         ltTICKET,
         {

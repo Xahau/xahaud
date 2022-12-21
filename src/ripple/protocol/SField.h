@@ -485,7 +485,6 @@ extern SF_AMOUNT const sfHighLimit;
 extern SF_AMOUNT const sfFee;
 extern SF_AMOUNT const sfSendMax;
 extern SF_AMOUNT const sfDeliverMin;
-extern SF_AMOUNT const sfLockedBalance;
 
 // currency amount (uncommon)
 extern SF_AMOUNT const sfMinimumOffer;
@@ -493,6 +492,7 @@ extern SF_AMOUNT const sfRippleEscrow;
 extern SF_AMOUNT const sfDeliveredAmount;
 extern SF_AMOUNT const sfNFTokenBrokerFee;
 extern SF_AMOUNT const sfHookCallbackFee;
+extern SF_AMOUNT const sfLockedBalance;
 
 // variable length (common)
 extern SF_VL const sfPublicKey;

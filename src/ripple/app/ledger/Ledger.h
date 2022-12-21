@@ -41,10 +41,25 @@ class TransactionMaster;
 
 class SqliteStatement;
 
-struct create_genesis_t
+class create_genesis_t
 {
+    std::optional<STObject> object_;
+
+public:
     explicit create_genesis_t() = default;
+
+    explicit create_genesis_t(Slice cfg);
+
+    std::optional<STObject> const& object()
+    {
+        return object_;
+    }
+
+    AccountID rootAccount() const;
+
+    XRPAmount initialAmount() const;
 };
+
 extern create_genesis_t const create_genesis;
 
 /** Holds a ledger.

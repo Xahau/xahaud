@@ -43,6 +43,8 @@ namespace ripple {
           Entries that are removed should be moved to the bottom of the enum
           and marked as [[deprecated]] to prevent accidental reuse.
 */
+// RICHARDAH: Consider renumbering these from 0 upwards: it simplifies things
+// and reduces the likelihood of errors.
 enum class LedgerNameSpace : std::uint16_t {
     ACCOUNT = 'a',
     DIR_NODE = 'd',
@@ -54,6 +56,7 @@ enum class LedgerNameSpace : std::uint16_t {
     ESCROW = 'u',
     AMENDMENTS = 'f',
     FEE_SETTINGS = 'e',
+    NETWORK_ID = 'I',
     TICKET = 'T',
     SIGNER_LIST = 'S',
     PAYMENT_CHANNEL = 'x',
@@ -208,6 +211,14 @@ amendments() noexcept
 {
     static Keylet const ret{
         ltAMENDMENTS, indexHash(LedgerNameSpace::AMENDMENTS)};
+    return ret;
+}
+
+Keylet const&
+netid() noexcept
+{
+    static Keylet const ret{
+        ltNETWORK_ID, indexHash(LedgerNameSpace::NETWORK_ID)};
     return ret;
 }
 

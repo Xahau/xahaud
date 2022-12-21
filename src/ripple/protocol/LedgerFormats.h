@@ -117,6 +117,14 @@ enum LedgerEntryType : std::uint16_t
      */
     ltFEE_SETTINGS = 0x0073,
 
+    /** The ledger object which lists the network's identifier.
+
+        \note This is a singleton: only one such object exists in the ledger.
+
+        \sa keylet::netid()
+     */
+    ltNETWORK_ID = 0x0074,
+
     /** A ledger object describing a single escrow.
 
         \sa keylet::escrow

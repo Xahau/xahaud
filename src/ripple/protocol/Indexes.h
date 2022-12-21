@@ -103,6 +103,10 @@ skip() noexcept;
 Keylet
 skip(LedgerIndex ledger) noexcept;
 
+/** The (fixed) index of the object containing the network description. */
+Keylet const&
+netid() noexcept;
+
 /** The (fixed) index of the object containing the ledger fees. */
 Keylet const&
 fees() noexcept;

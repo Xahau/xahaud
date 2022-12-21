@@ -1096,7 +1096,7 @@ private:
     bool
     nodeToShards();
 
-    void
+    bool
     startGenesisLedger();
 
     std::shared_ptr<Ledger>
@@ -1228,9 +1228,13 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     {
         if (startUp == Config::FRESH)
         {
-            JLOG(m_journal.info()) << "Starting new Ledger";
+            JLOG(m_journal.info()) << "Starting new ledger";
 
-            startGenesisLedger();
+            if (!startGenesisLedger())
+            {
+                JLOG(m_journal.error())
+                    << "Failed to start new ledger" return false;
+            }
         }
         else if (
             startUp == Config::LOAD || startUp == Config::LOAD_FILE ||
@@ -1249,7 +1253,11 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
                 {
                     // Fall back to syncing from the network, such as
                     // when there's no existing data.
-                    startGenesisLedger();
+                    if (!startGenesisLedger())
+                    {
+                        JLOG(m_journal.error()) << "Failed to start new ledger";
+                        return false;
+                    }
                 }
                 else
                 {
@@ -1264,11 +1272,16 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             if (!config_->standalone())
                 m_networkOPs->setNeedNetworkLedger();
 
-            startGenesisLedger();
+            if (!startGenesisLedger())
+            {
+                JLOG(m_journal.error()) << "Failed to start new ledger.";
+                return false;
+            }
         }
-        else
+        else if (!startGenesisLedger())
         {
-            startGenesisLedger();
+            JLOG(m_journal.error()) << "Failed to start new ledger.";
+            return false;
         }
     }
 
@@ -1696,15 +1709,34 @@ ApplicationImp::fdRequired() const
 
 //------------------------------------------------------------------------------
 
-void
+bool
 ApplicationImp::startGenesisLedger()
 {
+    auto genesis_config = [this]() -> std::optional<create_genesis_t> {
+        if (!config_->exists(SECTION_GENESIS_CONFIG))
+            return create_genesis;
+
+        std::string blob;
+
+        for (auto const& line :
+             config_->section(SECTION_GENESIS_CONFIG).lines())
+            blob += boost::algorithm::trim_copy(line);
+
+        if (auto obj = strUnHex(blob))
+            return create_genesis_t{makeSlice(*obj)};
+
+        return std::nullopt;
+    }();
+
+    if (!genesis_config)
+        return false;
+
     std::vector<uint256> initialAmendments =
         (config_->START_UP == Config::FRESH) ? m_amendmentTable->getDesired()
                                              : std::vector<uint256>{};
 
     std::shared_ptr<Ledger> const genesis = std::make_shared<Ledger>(
-        create_genesis, *config_, initialAmendments, nodeFamily_);
+        *genesis_config, *config_, initialAmendments, nodeFamily_);
     m_ledgerMaster->storeLedger(genesis);
 
     auto const next =
@@ -1714,6 +1746,8 @@ ApplicationImp::startGenesisLedger()
     openLedger_.emplace(next, cachedSLEs_, logs_->journal("OpenLedger"));
     m_ledgerMaster->storeLedger(next);
     m_ledgerMaster->switchLCL(next);
+
+    return true;
 }
 
 std::shared_ptr<Ledger>

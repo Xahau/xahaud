@@ -59,6 +59,63 @@
 
 namespace ripple {
 
+create_genesis_t::create_genesis_t(Slice data)
+{
+    // clang-format off
+    static SOTemplate const format{
+        {sfVersion,     soeREQUIRED},
+        {sfAccount,     soeREQUIRED},
+        {sfAmount,      soeREQUIRED},
+        {sfNetworkID,   soeREQUIRED},
+        {sfDomain,      soeOPTIONAL}
+        {sfBlob,        soeOPTIONAL}
+    };
+    // clang-format on
+
+    SerialIter sit{data};
+    STObject st{sit, sfGeneric};
+
+    // This will throw if the template can't be applied
+    st.applyTemplate(format);
+
+    if (st[sfVersion] != 0)
+        throw std::runtime_error("Unsupported genesis configuration version");
+
+    if (!st.getFieldAmount(sfAmount).native())
+        return std::runtime_error("Invalid initial amount specified");
+
+    if (st.isFieldPresent(sfDomain))
+    {
+        auto dom = st.getFieldVL(sfDomain);
+
+        if (!isProperlyFormedTomlDomain(
+                {reinterpret_cast<char const*>(dom.data()), dom.size()}))
+            throw std::runtime_error("Invalid domain specified");
+    }
+}
+
+AccountID
+create_genesis_t::rootAccount() const
+{
+    static auto const root = calcAccountID(
+        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+            .first);
+
+    if (object_)
+        return (*object_)[sfAccount];
+
+    return root;
+}
+
+XRPAmount
+create_genesis_t::initialAmount() const
+{
+    if (object_)
+        return (*object_)[sfAmount].xrp();
+
+    return INITIAL_XRP;
+}
+
 create_genesis_t const create_genesis{};
 
 uint256
@@ -178,7 +235,7 @@ public:
 //------------------------------------------------------------------------------
 
 Ledger::Ledger(
-    create_genesis_t,
+    create_genesis_t genesis,
     Config const& config,
     std::vector<uint256> const& amendments,
     Family& family)
@@ -188,21 +245,21 @@ Ledger::Ledger(
     , rules_{config.features}
 {
     info_.seq = 1;
-    info_.drops = INITIAL_XRP;
+    info_.drops = genesis.initialAmount().drops();
     info_.closeTimeResolution = ledgerGenesisTimeResolution;
 
-    static auto const id = calcAccountID(
-        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
-            .first);
+    if (auto const& netdesc = genesis.object())
+        rawInsert(std::make_shared<SLE>(netdesc.value(), keylet::netid().key));
+
     {
-        auto const sle = std::make_shared<SLE>(keylet::account(id));
+        auto const sle =
+            std::make_shared<SLE>(keylet::account(genesis.rootAccount()));
         sle->setFieldU32(sfSequence, 1);
-        sle->setAccountID(sfAccount, id);
-        sle->setFieldAmount(sfBalance, info_.drops);
+        sle->setAccountID(sfAccount, genesis.rootAccount());
+        sle->setFieldAmount(sfBalance, genesis.initialAmount());
         rawInsert(sle);
     }
 
-    if (!amendments.empty())
     {
         auto const sle = std::make_shared<SLE>(keylet::amendments());
         sle->setFieldV256(sfAmendments, STVector256{amendments});
