@@ -357,7 +357,8 @@ TxFormats::TxFormats()
         {
             {sfBlob, soeOPTIONAL},
             {sfHookParameters, soeOPTIONAL},
-            {sfDestination, soeREQUIRED}
+            {sfDestination, soeOPTIONAL},
+            {sfInvoiceID, soeOPTIONAL},
         },
         commonFields);
 }
