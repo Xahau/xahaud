@@ -1,7 +1,10 @@
 #include "hookapi.h"
 //#define REWARD_DELAY 2600000LL
 #define REWARD_DELAY 60LL
-#define REWARD_MULTIPLIER 0.00333333333f
+#define REWARD_MULTIPLIER_XFL 6038156834009797973ULL
+//0.00333333333f
+
+
 #define ASSERT(x)\
     if (!(x))\
         rollback(0,0,__LINE__);
@@ -111,13 +114,32 @@ int64_t hook(uint32_t r)
     
     TRACEVAR(accumulator);
 
-    int64_t reward = (int64_t)(((REWARD_MULTIPLIER * (double)accumulator)) / ((double)elapsed));
-    
-    TRACEVAR(reward);
+    uint8_t key[32];
+    key[0] = 0xFFU;
+    // mr = monthly reward rate
+    int64_t xfl_mr = 
+        state(0,0, SBUF(key));
 
-    int64_t reward_drops = reward * 1000000ULL;
+    if (xfl_mr <= 0 || // invalid xfl
+        float_compare(xfl_mr, 0, COMPARE_LESS) ||  // negative xfl
+        float_compare(xfl_mr, float_one(), COMPARE_GREATER)) // greater than 100%
+        xfl_mr = REWARD_MULTIPLIER_XFL;
+    {
+        ASSERT(xfl_mr > 0);
+    }
 
-    ASSERT(reward_drops > reward);
+    int64_t xfl_accum = float_set(0, accumulator);
+    ASSERT(xfl_accum > 0);
+
+    int64_t xfl_elapsed = float_set(0, elapsed);
+    ASSERT(xfl_elapsed > 0);
+
+    int64_t xfl_reward = float_divide(xfl_accum, xfl_elapsed);
+    xfl_reward = float_multiply(xfl_mr, xfl_reward);
+
+    TRACEVAR(xfl_reward);
+
+    int64_t reward_drops = float_int(xfl_reward, 6, 0);
 
     TRACEVAR(reward_drops);
 
