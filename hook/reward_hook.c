@@ -151,5 +151,8 @@ int64_t hook(uint32_t r)
     int64_t emit_result = emit(SBUF(emithash), SBUF(tx));
     TRACEVAR(emit_result);
 
+    // RH TODO:
+    // on callback pay out each of the filled gov seat
+
     accept(0,0,0);
 }
