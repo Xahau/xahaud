@@ -19,7 +19,7 @@
 
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/app/rdb/RelationalDBInterface_global.h>
+#include <ripple/app/rdb/Wallet.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/STValidation.h>
@@ -425,7 +425,7 @@ AmendmentTableImpl::AmendmentTableImpl(
             }
             else  // up-vote
             {
-                auto s = add(amend_hash, lock);
+                AmendmentState& s = add(amend_hash, lock);
 
                 JLOG(j_.debug()) << "Amendment {" << *amendment_name << ", "
                                  << amend_hash << "} is upvoted.";

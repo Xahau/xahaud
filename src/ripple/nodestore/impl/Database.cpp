@@ -43,7 +43,8 @@ Database::Database(
     , earliestLedgerSeq_(
           get<std::uint32_t>(config, "earliest_seq", XRP_LEDGER_EARLIEST_SEQ))
     , earliestShardIndex_((earliestLedgerSeq_ - 1) / ledgersPerShard_)
-    , readThreads_(std::min(1, readThreads))
+    , requestBundle_(get<int>(config, "rq_bundle", 4))
+    , readThreads_(std::max(1, readThreads))
 {
     assert(readThreads != 0);
 
@@ -53,29 +54,43 @@ Database::Database(
     if (earliestLedgerSeq_ < 1)
         Throw<std::runtime_error>("Invalid earliest_seq");
 
-    for (int i = 0; i != readThreads_.load(); ++i)
+    if (requestBundle_ < 1 || requestBundle_ > 64)
+        Throw<std::runtime_error>("Invalid rq_bundle");
+
+    for (int i = readThreads_.load(); i != 0; --i)
     {
         std::thread t(
             [this](int i) {
+                runningThreads_++;
+
                 beast::setCurrentThreadName(
                     "db prefetch #" + std::to_string(i));
 
                 decltype(read_) read;
 
-                while (!isStopping())
+                while (true)
                 {
                     {
                         std::unique_lock<std::mutex> lock(readLock_);
 
+                        if (isStopping())
+                            break;
+
                         if (read_.empty())
+                        {
+                            runningThreads_--;
                             readCondVar_.wait(lock);
+                            runningThreads_++;
+                        }
 
                         if (isStopping())
-                            continue;
+                            break;
 
-                        // We extract up to 64 objects to minimize the overhead
-                        // of acquiring the mutex.
-                        for (int cnt = 0; !read_.empty() && cnt != 64; ++cnt)
+                        // extract multiple object at a time to minimize the
+                        // overhead of acquiring the mutex.
+                        for (int cnt = 0;
+                             !read_.empty() && cnt != requestBundle_;
+                             ++cnt)
                             read.insert(read_.extract(read_.begin()));
                     }
 
@@ -84,7 +99,7 @@ Database::Database(
                         assert(!it->second.empty());
 
                         auto const& hash = it->first;
-                        auto const& data = std::move(it->second);
+                        auto const& data = it->second;
                         auto const seqn = data[0].first;
 
                         auto obj =
@@ -108,6 +123,7 @@ Database::Database(
                     read.clear();
                 }
 
+                --runningThreads_;
                 --readThreads_;
             },
             i);
@@ -148,15 +164,34 @@ Database::maxLedgers(std::uint32_t shardIndex) const noexcept
 void
 Database::stop()
 {
-    if (!readStopping_.exchange(true, std::memory_order_relaxed))
     {
         std::lock_guard lock(readLock_);
-        read_.clear();
-        readCondVar_.notify_all();
+
+        if (!readStopping_.exchange(true, std::memory_order_relaxed))
+        {
+            JLOG(j_.debug()) << "Clearing read queue because of stop request";
+            read_.clear();
+            readCondVar_.notify_all();
+        }
     }
 
+    JLOG(j_.debug()) << "Waiting for stop request to complete...";
+
+    using namespace std::chrono;
+
+    auto const start = steady_clock::now();
+
     while (readThreads_.load() != 0)
+    {
+        assert(steady_clock::now() - start < 30s);
         std::this_thread::yield();
+    }
+
+    JLOG(j_.debug()) << "Stop request completed in "
+                     << duration_cast<std::chrono::milliseconds>(
+                            steady_clock::now() - start)
+                            .count()
+                     << " millseconds";
 }
 
 void
@@ -165,10 +200,13 @@ Database::asyncFetch(
     std::uint32_t ledgerSeq,
     std::function<void(std::shared_ptr<NodeObject> const&)>&& cb)
 {
-    // Post a read
     std::lock_guard lock(readLock_);
-    read_[hash].emplace_back(ledgerSeq, std::move(cb));
-    readCondVar_.notify_one();
+
+    if (!isStopping())
+    {
+        read_[hash].emplace_back(ledgerSeq, std::move(cb));
+        readCondVar_.notify_one();
+    }
 }
 
 void
@@ -340,6 +378,16 @@ void
 Database::getCountsJson(Json::Value& obj)
 {
     assert(obj.isObject());
+
+    {
+        std::unique_lock<std::mutex> lock(readLock_);
+        obj["read_queue"] = static_cast<Json::UInt>(read_.size());
+    }
+
+    obj["read_threads_total"] = readThreads_.load();
+    obj["read_threads_running"] = runningThreads_.load();
+    obj["read_request_bundle"] = requestBundle_;
+
     obj[jss::node_writes] = std::to_string(storeCount_);
     obj[jss::node_reads_total] = std::to_string(fetchTotalCount_);
     obj[jss::node_reads_hit] = std::to_string(fetchHitCount_);
