@@ -18,10 +18,11 @@
 //==============================================================================
 
 #include <ripple/app/ledger/LedgerMaster.h>
+#include <ripple/app/ledger/LedgerToJson.h>
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/misc/Transaction.h>
 #include <ripple/app/paths/TrustLine.h>
-#include <ripple/app/rdb/RelationalDBInterface.h>
+#include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/ledger/View.h>
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/AccountID.h>
@@ -31,7 +32,7 @@
 #include <ripple/rpc/impl/RPCHelpers.h>
 #include <boost/algorithm/string/case_conv.hpp>
 
-#include <ripple/rpc/impl/GRPCHelpers.h>
+#include <ripple/resource/Fees.h>
 
 namespace ripple {
 namespace RPC {
@@ -302,12 +303,6 @@ ledgerFromRequest(T& ledger, GRPCContext<R>& context)
 template Status
 ledgerFromRequest<>(
     std::shared_ptr<ReadView const>&,
-    GRPCContext<org::xrpl::rpc::v1::GetAccountInfoRequest>&);
-
-// explicit instantiation of above function
-template Status
-ledgerFromRequest<>(
-    std::shared_ptr<ReadView const>&,
     GRPCContext<org::xrpl::rpc::v1::GetLedgerEntryRequest>&);
 
 // explicit instantiation of above function
@@ -537,7 +532,7 @@ isValidated(
             {
                 assert(hash->isNonZero());
                 uint256 valHash =
-                    app.getRelationalDBInterface().getHashByIndex(seq);
+                    app.getRelationalDatabase().getHashByIndex(seq);
                 if (valHash == ledger.info().hash)
                 {
                     // SQL database doesn't match ledger chain
@@ -696,19 +691,31 @@ parseRippleLibSeed(Json::Value const& value)
 std::optional<Seed>
 getSeedFromRPC(Json::Value const& params, Json::Value& error)
 {
-    // The array should be constexpr, but that makes Visual Studio unhappy.
-    static char const* const seedTypes[]{
-        jss::passphrase.c_str(), jss::seed.c_str(), jss::seed_hex.c_str()};
+    using string_to_seed_t =
+        std::function<std::optional<Seed>(std::string const&)>;
+    using seed_match_t = std::pair<char const*, string_to_seed_t>;
+
+    static seed_match_t const seedTypes[]{
+        {jss::passphrase.c_str(),
+         [](std::string const& s) { return parseGenericSeed(s); }},
+        {jss::seed.c_str(),
+         [](std::string const& s) { return parseBase58<Seed>(s); }},
+        {jss::seed_hex.c_str(), [](std::string const& s) {
+             uint128 i;
+             if (i.parseHex(s))
+                 return std::optional<Seed>(Slice(i.data(), i.size()));
+             return std::optional<Seed>{};
+         }}};
 
     // Identify which seed type is in use.
-    char const* seedType = nullptr;
+    seed_match_t const* seedType = nullptr;
     int count = 0;
-    for (auto t : seedTypes)
+    for (auto const& t : seedTypes)
     {
-        if (params.isMember(t))
+        if (params.isMember(t.first))
         {
             ++count;
-            seedType = t;
+            seedType = &t;
         }
     }
 
@@ -722,28 +729,17 @@ getSeedFromRPC(Json::Value const& params, Json::Value& error)
     }
 
     // Make sure a string is present
-    if (!params[seedType].isString())
+    auto const& param = params[seedType->first];
+    if (!param.isString())
     {
-        error = RPC::expected_field_error(seedType, "string");
+        error = RPC::expected_field_error(seedType->first, "string");
         return std::nullopt;
     }
 
-    auto const fieldContents = params[seedType].asString();
+    auto const fieldContents = param.asString();
 
     // Convert string to seed.
-    std::optional<Seed> seed;
-
-    if (seedType == jss::seed.c_str())
-        seed = parseBase58<Seed>(fieldContents);
-    else if (seedType == jss::passphrase.c_str())
-        seed = parseGenericSeed(fieldContents);
-    else if (seedType == jss::seed_hex.c_str())
-    {
-        uint128 s;
-
-        if (s.parseHex(fieldContents))
-            seed.emplace(Slice(s.data(), s.size()));
-    }
+    std::optional<Seed> seed = seedType->second(fieldContents);
 
     if (!seed)
         error = rpcError(rpcBAD_SEED);
@@ -757,7 +753,6 @@ keypairForSignature(Json::Value const& params, Json::Value& error)
     bool const has_key_type = params.isMember(jss::key_type);
 
     // All of the secret types we allow, but only one at a time.
-    // The array should be constexpr, but that makes Visual Studio unhappy.
     static char const* const secretTypes[]{
         jss::passphrase.c_str(),
         jss::secret.c_str(),
@@ -811,7 +806,9 @@ keypairForSignature(Json::Value const& params, Json::Value& error)
             return {};
         }
 
-        if (secretType == jss::secret.c_str())
+        // using strcmp as pointers may not match (see
+        // https://developercommunity.visualstudio.com/t/assigning-constexpr-char--to-static-cha/10021357?entry=problem)
+        if (strcmp(secretType, jss::secret.c_str()) == 0)
         {
             error = RPC::make_param_error(
                 "The secret field is not allowed if " +
@@ -823,7 +820,9 @@ keypairForSignature(Json::Value const& params, Json::Value& error)
     // ripple-lib encodes seed used to generate an Ed25519 wallet in a
     // non-standard way. While we never encode seeds that way, we try
     // to detect such keys to avoid user confusion.
-    if (secretType != jss::seed_hex.c_str())
+    // using strcmp as pointers may not match (see
+    // https://developercommunity.visualstudio.com/t/assigning-constexpr-char--to-static-cha/10021357?entry=problem)
+    if (strcmp(secretType, jss::seed_hex.c_str()) != 0)
     {
         seed = RPC::parseRippleLibSeed(params[secretType]);
 
@@ -952,5 +951,119 @@ getAPIVersionNumber(Json::Value const& jv, bool betaEnabled)
     return requestedVersion.asUInt();
 }
 
+std::variant<std::shared_ptr<Ledger const>, Json::Value>
+getLedgerByContext(RPC::JsonContext& context)
+{
+    if (context.app.config().reporting())
+        return rpcError(rpcREPORTING_UNSUPPORTED);
+
+    auto const hasHash = context.params.isMember(jss::ledger_hash);
+    auto const hasIndex = context.params.isMember(jss::ledger_index);
+    std::uint32_t ledgerIndex = 0;
+
+    auto& ledgerMaster = context.app.getLedgerMaster();
+    LedgerHash ledgerHash;
+
+    if ((hasHash && hasIndex) || !(hasHash || hasIndex))
+    {
+        return RPC::make_param_error(
+            "Exactly one of ledger_hash and ledger_index can be set.");
+    }
+
+    context.loadType = Resource::feeHighBurdenRPC;
+
+    if (hasHash)
+    {
+        auto const& jsonHash = context.params[jss::ledger_hash];
+        if (!jsonHash.isString() || !ledgerHash.parseHex(jsonHash.asString()))
+            return RPC::invalid_field_error(jss::ledger_hash);
+    }
+    else
+    {
+        auto const& jsonIndex = context.params[jss::ledger_index];
+        if (!jsonIndex.isInt())
+            return RPC::invalid_field_error(jss::ledger_index);
+
+        // We need a validated ledger to get the hash from the sequence
+        if (ledgerMaster.getValidatedLedgerAge() >
+            RPC::Tuning::maxValidatedLedgerAge)
+        {
+            if (context.apiVersion == 1)
+                return rpcError(rpcNO_CURRENT);
+            return rpcError(rpcNOT_SYNCED);
+        }
+
+        ledgerIndex = jsonIndex.asInt();
+        auto ledger = ledgerMaster.getValidatedLedger();
+
+        if (ledgerIndex >= ledger->info().seq)
+            return RPC::make_param_error("Ledger index too large");
+        if (ledgerIndex <= 0)
+            return RPC::make_param_error("Ledger index too small");
+
+        auto const j = context.app.journal("RPCHandler");
+        // Try to get the hash of the desired ledger from the validated ledger
+        auto neededHash = hashOfSeq(*ledger, ledgerIndex, j);
+        if (!neededHash)
+        {
+            // Find a ledger more likely to have the hash of the desired ledger
+            auto const refIndex = getCandidateLedger(ledgerIndex);
+            auto refHash = hashOfSeq(*ledger, refIndex, j);
+            assert(refHash);
+
+            ledger = ledgerMaster.getLedgerByHash(*refHash);
+            if (!ledger)
+            {
+                // We don't have the ledger we need to figure out which ledger
+                // they want. Try to get it.
+
+                if (auto il = context.app.getInboundLedgers().acquire(
+                        *refHash, refIndex, InboundLedger::Reason::GENERIC))
+                {
+                    Json::Value jvResult = RPC::make_error(
+                        rpcLGR_NOT_FOUND,
+                        "acquiring ledger containing requested index");
+                    jvResult[jss::acquiring] =
+                        getJson(LedgerFill(*il, &context));
+                    return jvResult;
+                }
+
+                if (auto il = context.app.getInboundLedgers().find(*refHash))
+                {
+                    Json::Value jvResult = RPC::make_error(
+                        rpcLGR_NOT_FOUND,
+                        "acquiring ledger containing requested index");
+                    jvResult[jss::acquiring] = il->getJson(0);
+                    return jvResult;
+                }
+
+                // Likely the app is shutting down
+                return Json::Value();
+            }
+
+            neededHash = hashOfSeq(*ledger, ledgerIndex, j);
+        }
+        assert(neededHash);
+        ledgerHash = neededHash ? *neededHash : beast::zero;  // kludge
+    }
+
+    // Try to get the desired ledger
+    // Verify all nodes even if we think we have it
+    auto ledger = context.app.getInboundLedgers().acquire(
+        ledgerHash, ledgerIndex, InboundLedger::Reason::GENERIC);
+
+    // In standalone mode, accept the ledger from the ledger cache
+    if (!ledger && context.app.config().standalone())
+        ledger = ledgerMaster.getLedgerByHash(ledgerHash);
+
+    if (ledger)
+        return ledger;
+
+    if (auto il = context.app.getInboundLedgers().find(ledgerHash))
+        return il->getJson(0);
+
+    return RPC::make_error(
+        rpcNOT_READY, "findCreate failed to return an inbound ledger");
+}
 }  // namespace RPC
 }  // namespace ripple

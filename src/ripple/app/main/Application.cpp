@@ -45,17 +45,19 @@
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorSite.h>
 #include <ripple/app/paths/PathRequests.h>
-#include <ripple/app/rdb/RelationalDBInterface_global.h>
-#include <ripple/app/rdb/backend/RelationalDBInterfacePostgres.h>
+#include <ripple/app/rdb/Wallet.h>
+#include <ripple/app/rdb/backend/PostgresDatabase.h>
 #include <ripple/app/reporting/ReportingETL.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/ByteUtilities.h>
 #include <ripple/basics/PerfLog.h>
 #include <ripple/basics/ResolverAsio.h>
+#include <ripple/basics/random.h>
 #include <ripple/basics/safe_cast.h>
 #include <ripple/beast/asio/io_latency_probe.h>
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/core/DatabaseCon.h>
+#include <ripple/crypto/csprng.h>
 #include <ripple/json/json_reader.h>
 #include <ripple/nodestore/DatabaseShard.h>
 #include <ripple/nodestore/DummyScheduler.h>
@@ -165,6 +167,8 @@ public:
     std::unique_ptr<Logs> logs_;
     std::unique_ptr<TimeKeeper> timeKeeper_;
 
+    std::uint64_t const instanceCookie_;
+
     beast::Journal m_journal;
     std::unique_ptr<perf::PerfLog> perfLog_;
     Application::MutexType m_masterMutex;
@@ -177,7 +181,6 @@ public:
     NodeStoreScheduler m_nodeStoreScheduler;
     std::unique_ptr<SHAMapStore> m_shaMapStore;
     PendingSaves pendingSaves_;
-    AccountIDCache accountIDCache_;
     std::optional<OpenLedger> openLedger_;
 
     NodeCache m_tempNodeCache;
@@ -219,7 +222,7 @@ public:
     boost::asio::steady_timer sweepTimer_;
     boost::asio::steady_timer entropyTimer_;
 
-    std::unique_ptr<RelationalDBInterface> mRelationalDBInterface;
+    std::unique_ptr<RelationalDatabase> mRelationalDatabase;
     std::unique_ptr<DatabaseCon> mWalletDB;
     std::unique_ptr<Overlay> overlay_;
 
@@ -274,6 +277,11 @@ public:
         , config_(std::move(config))
         , logs_(std::move(logs))
         , timeKeeper_(std::move(timeKeeper))
+        , instanceCookie_(
+              1 +
+              rand_int(
+                  crypto_prng(),
+                  std::numeric_limits<std::uint64_t>::max() - 1))
         , m_journal(logs_->journal("Application"))
 
         // PerfLog must be started before any other threads are launched.
@@ -326,8 +334,6 @@ public:
               *this,
               m_nodeStoreScheduler,
               logs_->journal("SHAMapStore")))
-
-        , accountIDCache_(128000)
 
         , m_tempNodeCache(
               "NodeCache",
@@ -485,6 +491,8 @@ public:
               config_->reporting() ? std::make_unique<ReportingETL>(*this)
                                    : nullptr)
     {
+        initAccountIdCache(config_->getValueFor(SizedItem::accountIdCacheSize));
+
         add(m_resourceManager.get());
 
         //
@@ -508,13 +516,13 @@ public:
     //--------------------------------------------------------------------------
 
     bool
-    setup() override;
+    setup(boost::program_options::variables_map const& cmdline) override;
     void
     start(bool withTimers) override;
     void
     run() override;
     void
-    signalStop() override;
+    signalStop(std::string msg = "") override;
     bool
     checkSigs() const override;
     void
@@ -525,6 +533,12 @@ public:
     fdRequired() const override;
 
     //--------------------------------------------------------------------------
+
+    std::uint64_t
+    instanceID() const override
+    {
+        return instanceCookie_;
+    }
 
     Logs&
     logs() override
@@ -841,12 +855,6 @@ public:
         return pendingSaves_;
     }
 
-    AccountIDCache const&
-    accountIDCache() const override
-    {
-        return accountIDCache_;
-    }
-
     OpenLedger&
     openLedger() override
     {
@@ -877,11 +885,11 @@ public:
         return *txQ_;
     }
 
-    RelationalDBInterface&
-    getRelationalDBInterface() override
+    RelationalDatabase&
+    getRelationalDatabase() override
     {
-        assert(mRelationalDBInterface.get() != nullptr);
-        return *mRelationalDBInterface;
+        assert(mRelationalDatabase.get() != nullptr);
+        return *mRelationalDatabase;
     }
 
     DatabaseCon&
@@ -907,14 +915,14 @@ public:
     //--------------------------------------------------------------------------
 
     bool
-    initRDBMS()
+    initRelationalDatabase()
     {
         assert(mWalletDB.get() == nullptr);
 
         try
         {
-            mRelationalDBInterface =
-                RelationalDBInterface::init(*this, *config_, *m_jobQueue);
+            mRelationalDatabase =
+                RelationalDatabase::init(*this, *config_, *m_jobQueue);
 
             // wallet database
             auto setup = setup_DatabaseCon(*config_, m_journal);
@@ -1041,7 +1049,7 @@ public:
     doSweep()
     {
         if (!config_->standalone() &&
-            !getRelationalDBInterface().transactionDbHasSpace(*config_))
+            !getRelationalDatabase().transactionDbHasSpace(*config_))
         {
             signalStop();
         }
@@ -1066,8 +1074,7 @@ public:
         cachedSLEs_.sweep();
 
 #ifdef RIPPLED_REPORTING
-        if (auto pg = dynamic_cast<RelationalDBInterfacePostgres*>(
-                &*mRelationalDBInterface))
+        if (auto pg = dynamic_cast<PostgresDatabase*>(&*mRelationalDatabase))
             pg->sweep();
 #endif
 
@@ -1109,7 +1116,7 @@ private:
 
 // TODO Break this up into smaller, more digestible initialization segments.
 bool
-ApplicationImp::setup()
+ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
 {
     // We want to intercept CTRL-C and the standard termination signal SIGTERM
     // and terminate the process. This handler will NEVER be invoked twice.
@@ -1147,8 +1154,10 @@ ApplicationImp::setup()
         if (logs_->threshold() > kDebug)
             logs_->threshold(kDebug);
     }
-    JLOG(m_journal.info()) << "process starting: "
-                           << BuildInfo::getFullVersionString();
+
+    JLOG(m_journal.info()) << "Process starting: "
+                           << BuildInfo::getFullVersionString()
+                           << ", Instance Cookie: " << instanceCookie_;
 
     if (numberOfThreads(*config_) < 2)
     {
@@ -1162,7 +1171,7 @@ ApplicationImp::setup()
     if (!config_->standalone())
         timeKeeper_->run(config_->SNTP_SERVERS);
 
-    if (!initRDBMS() || !initNodeStore())
+    if (!initRelationalDatabase() || !initNodeStore())
         return false;
 
     if (shardStore_)
@@ -1266,7 +1275,7 @@ ApplicationImp::setup()
     if (!config().reporting())
         m_orderBookDB.setup(getLedgerMaster().getCurrentLedger());
 
-    nodeIdentity_ = getNodeIdentity(*this);
+    nodeIdentity_ = getNodeIdentity(*this, cmdline);
 
     if (!cluster_->load(config().section(SECTION_CLUSTER_NODES)))
     {
@@ -1619,8 +1628,7 @@ ApplicationImp::run()
     ledgerCleaner_->stop();
     if (reportingETL_)
         reportingETL_->stop();
-    if (auto pg = dynamic_cast<RelationalDBInterfacePostgres*>(
-            &*mRelationalDBInterface))
+    if (auto pg = dynamic_cast<PostgresDatabase*>(&*mRelationalDatabase))
         pg->stop();
     m_nodeStore->stop();
     perfLog_->stop();
@@ -1629,10 +1637,17 @@ ApplicationImp::run()
 }
 
 void
-ApplicationImp::signalStop()
+ApplicationImp::signalStop(std::string msg)
 {
     if (!isTimeToStop.exchange(true))
+    {
+        if (msg.empty())
+            JLOG(m_journal.warn()) << "Server stopping";
+        else
+            JLOG(m_journal.warn()) << "Server stopping: " << msg;
+
         stoppingCondition_.notify_all();
+    }
 }
 
 bool
@@ -2137,7 +2152,7 @@ ApplicationImp::nodeToShards()
 void
 ApplicationImp::setMaxDisallowedLedger()
 {
-    auto seq = getRelationalDBInterface().getMaxLedgerSeq();
+    auto seq = getRelationalDatabase().getMaxLedgerSeq();
     if (seq)
         maxDisallowedLedger_ = *seq;
 
