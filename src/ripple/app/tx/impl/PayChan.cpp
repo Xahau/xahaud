@@ -232,7 +232,7 @@ PayChanCreate::preflight(PreflightContext const& ctx)
     if (!isXRP(amount))
     {
         if (!ctx.rules.enabled(featurePaychanAndEscrowForTokens))
-            return temBAD_AMOUNT;
+            return temDISABLED;
 
         if (!isLegalNet(amount))
             return temBAD_AMOUNT;
@@ -285,9 +285,8 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
         return tecUNFUNDED;
     }
     else if (!isXRP(amount)) {
-    {
         if (!ctx.view.rules().enabled(featurePaychanAndEscrowForTokens))
-            return tecINTERNAL;
+            return temDISABLED;
 
         // check for any possible bars to a channel existing
         // between these accounts for this asset
@@ -431,7 +430,7 @@ PayChanCreate::doApply()
             << result;
 
         if (!isTesSuccess(result))
-            return tefINTERNAL;
+            return result;
     }
     
     adjustOwnerCount(ctx_.view(), sle, 1, ctx_.journal);
@@ -473,8 +472,8 @@ PayChanFund::preflight(PreflightContext const& ctx)
         if (ctx.tx[sfAccount] == amount.getIssuer())
         {
             JLOG(ctx.j.trace())
-                << "Malformed transaction: Cannot paychan own tokens to self.";
-            return temBAD_SRC_ACCOUNT;
+                << "Malformed transaction: Cannot escrow own tokens to self.";
+            return temDST_IS_SRC;
         }
     }
 
@@ -574,7 +573,6 @@ PayChanFund::doApply()
     if (balance < reserve)
         return tecINSUFFICIENT_RESERVE;
 
-
     if (isXRP(amount))
     {
         if (balance < reserve + amount)
@@ -587,7 +585,6 @@ PayChanFund::doApply()
     {
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
-
 
         TER result =
             trustAdjustLockedBalance(
@@ -603,7 +600,7 @@ PayChanFund::doApply()
             << result;
 
         if (!isTesSuccess(result))
-            return tefINTERNAL;
+            return result;
     }
 
     (*slep)[sfAmount] = (*slep)[sfAmount] + ctx_.tx[sfAmount];
