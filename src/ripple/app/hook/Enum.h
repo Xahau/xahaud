@@ -545,6 +545,7 @@ namespace hook_api
         "otxn_generation",
         "otxn_id",
         "otxn_type",
+        "otxn_param",
         "rollback",
         "slot",
         "slot_clear",
