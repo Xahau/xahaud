@@ -28,14 +28,11 @@ EncodedBlob::prepare(std::shared_ptr<NodeObject> const& object)
 {
     m_key = object->getHash().begin();
 
-    auto ret = m_data.alloc(object->getData().size() + 9);
+    auto ret = m_data.alloc(object->getData().size() + 1);
 
-    // the first 8 bytes are unused
-    std::memset(ret, 0, 8);
+    ret[0] = static_cast<std::uint8_t>(object->getType());
 
-    ret[8] = static_cast<std::uint8_t>(object->getType());
-
-    std::memcpy(ret + 9, object->getData().data(), object->getData().size());
+    std::memcpy(ret + 1, object->getData().data(), object->getData().size());
 }
 
 }  // namespace NodeStore

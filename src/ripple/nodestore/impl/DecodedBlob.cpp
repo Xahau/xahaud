@@ -30,10 +30,8 @@ DecodedBlob::DecodedBlob(void const* key, void const* value, int valueBytes)
     /*  Data format:
 
         Bytes
-
-        0...7       Unused
-        8           char            One of NodeObjectType
-        9...end                     The body of the object data
+        0           uint8           One of NodeObjectType
+        1...end                     The body of the object data
     */
 
     m_success = false;
@@ -41,19 +39,17 @@ DecodedBlob::DecodedBlob(void const* key, void const* value, int valueBytes)
     // VFALCO NOTE Ledger indexes should have started at 1
     m_objectType = hotUNKNOWN;
     m_objectData = nullptr;
-    m_dataBytes = std::max(0, valueBytes - 9);
+    m_dataBytes = std::max(0, valueBytes - 1);
 
-    // VFALCO NOTE What about bytes 4 through 7 inclusive?
-
-    if (valueBytes > 8)
+    if (valueBytes != 0)
     {
         unsigned char const* byte = static_cast<unsigned char const*>(value);
-        m_objectType = safe_cast<NodeObjectType>(byte[8]);
+        m_objectType = safe_cast<NodeObjectType>(byte[0]);
     }
 
-    if (valueBytes > 9)
+    if (valueBytes > 1)
     {
-        m_objectData = static_cast<unsigned char const*>(value) + 9;
+        m_objectData = static_cast<unsigned char const*>(value) + 1;
 
         switch (m_objectType)
         {
