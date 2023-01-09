@@ -433,7 +433,7 @@ namespace hook
 
 
         public:
-            HookContext hookCtx;
+            HookContext& hookCtx;
             WasmEdge_ModuleInstanceContext* importObj;
 
         /**
