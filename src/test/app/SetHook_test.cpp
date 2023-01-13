@@ -5195,7 +5195,7 @@ public:
 
         Json::Value iv;
         iv[jss::CreateCode] = strHex(hook);
-        iv[jss::HookOn] = uint64_hex(0);
+        iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
         iv[jss::HookApiVersion] = 0U;
         iv[jss::HookNamespace] =  to_string(uint256{beast::zero});
         Json::Value params{Json::arrayValue};
@@ -5387,7 +5387,7 @@ public:
 
         Json::Value iv;
         iv[jss::CreateCode] = strHex(setter_wasm);
-        iv[jss::HookOn] = uint64_hex(0);
+        iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
         iv[jss::HookApiVersion] = 0U;
         iv[jss::HookNamespace] =  to_string(uint256{beast::zero});
 
