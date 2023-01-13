@@ -336,14 +336,14 @@ extern uint256 const featureHooks;
 extern uint256 const featureExpandedSignerList;
 extern uint256 const featureNonFungibleTokensV1;
 extern uint256 const fixNFTokenDirV1;
-extern uint256 const featurePaychanAndEscrowForTokens;
 extern uint256 const fixNFTokenNegOffer;
 extern uint256 const featureNonFungibleTokensV1_1;
 extern uint256 const fixTrustLinesToSelf;
 extern uint256 const featureBalanceRewards;
+extern uint256 const featureDisallowIncoming;
 extern uint256 const fixRemoveNFTokenAutoTrustLine;
 extern uint256 const featureImmediateOfferKilled;
-extern uint256 const featureDisallowIncoming;
+extern uint256 const featurePaychanAndEscrowForTokens;
 
 }  // namespace ripple
 
