@@ -90,7 +90,7 @@ int64_t hook(uint32_t r)
     TRACEVAR(first);
     TRACEVAR(last);
 
-    ASSERT(accumulator > 0 && first > 0 && last > 0);
+    ASSERT(/*accumulator > 0 &&*/ first > 0 && last > 0);
 
     // we need to add the final block ourselves
 
