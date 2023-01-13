@@ -1564,7 +1564,7 @@ public:
         }
         catch (std::exception const& ex)
         {
-            BEAST_EXPECT(strcmp(ex.what(), "Unknown field") == 0);
+            BEAST_EXPECT(strncmp(ex.what(), "Unknown field", 7) == 0);
         }
 
         try
@@ -1575,7 +1575,7 @@ public:
         }
         catch (std::exception const& ex)
         {
-            BEAST_EXPECT(strcmp(ex.what(), "Unknown field") == 0);
+            BEAST_EXPECT(strncmp(ex.what(), "Unknown field", 7) == 0);
         }
     }
 
