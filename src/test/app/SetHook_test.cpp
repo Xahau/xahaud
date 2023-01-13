@@ -7516,6 +7516,7 @@ public:
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state"), fee(XRP(1)));
+            env.close();
         }
 
         // override hook with a second version that just reads those state objects
