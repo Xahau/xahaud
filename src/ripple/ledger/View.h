@@ -944,7 +944,7 @@ trustTransferLockedBalance(
     {
         // in most circumstances a missing destination line is a deal breaker
         if (actingAccID != dstAccID && srcAccID != dstAccID)
-            return tecNO_PERMISSION;
+            return tecNO_LINE;
 
         STAmount dstBalanceDrops = sleDstAcc->getFieldAmount(sfBalance);
 
