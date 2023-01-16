@@ -206,12 +206,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testSimple()
+    testSimple(FeatureBitset features)
     {
         testcase("simple");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -373,7 +373,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testCancelAfter()
+    testCancelAfter(FeatureBitset features)
     {
         testcase("cancel after");
         using namespace jtx;
@@ -383,7 +383,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const carol = Account("carol");
         {
             // If dst claims after cancel after, channel closes
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob);
             auto const pk = alice.pk();
             auto const settleDelay = 100s;
@@ -415,7 +415,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
         {
             // Third party can close after cancel after
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob, carol);
             auto const pk = alice.pk();
             auto const settleDelay = 100s;
@@ -438,12 +438,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testExpiration()
+    testExpiration(FeatureBitset features)
     {
         testcase("expiration");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -504,12 +504,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testSettleDelay()
+    testSettleDelay(FeatureBitset features)
     {
         testcase("settle delay");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -565,12 +565,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testCloseDry()
+    testCloseDry(FeatureBitset features)
     {
         testcase("close dry");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -599,13 +599,13 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testDefaultAmount()
+    testDefaultAmount(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
         testcase("default amount");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -653,7 +653,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testDisallowXRP()
+    testDisallowXRP(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
         testcase("Disallow XRP");
@@ -675,7 +675,7 @@ struct PayChan_test : public beast::unit_test::suite
         {
             // Create a channel where dst disallows XRP.  Ignore that flag,
             // since it's just advisory.
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob);
             env(fset(bob, asfDisallowXRP));
             auto const chan = channel(alice, bob, env.seq(alice));
@@ -700,7 +700,7 @@ struct PayChan_test : public beast::unit_test::suite
             // Claim to a channel where dst disallows XRP (channel is
             // created before disallow xrp is set).  Ignore that flag
             // since it is just advisory.
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob);
             auto const chan = channel(alice, bob, env.seq(alice));
             env(create(alice, bob, XRP(1000), 3600s, alice.pk()));
@@ -713,14 +713,14 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testDstTag()
+    testDstTag(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
         testcase("Dst Tag");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
         // Create a channel where dst disallows XRP
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -743,7 +743,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testDepositAuth()
+    testDepositAuth(FeatureBitset features)
     {
         testcase("Deposit Authorization");
         using namespace jtx;
@@ -753,7 +753,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const bob = Account("bob");
         auto const carol = Account("carol");
         {
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob, carol);
 
             env(fset(bob, asfDepositAuth));
@@ -866,13 +866,13 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testMultiple()
+    testMultiple(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
         testcase("Multiple channels to the same account");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -889,13 +889,13 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testAccountChannelsRPC()
+    testAccountChannelsRPC(FeatureBitset features)
     {
         testcase("AccountChannels RPC");
 
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const charlie = Account("charlie", KeyType::ed25519);
@@ -944,7 +944,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testAccountChannelsRPCMarkers()
+    testAccountChannelsRPCMarkers(FeatureBitset features)
     {
         testcase("Account channels RPC markers");
 
@@ -963,7 +963,7 @@ struct PayChan_test : public beast::unit_test::suite
             return r;
         }();
 
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), alice);
         for (auto const& a : bobs)
         {
@@ -1060,7 +1060,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testAccountChannelsRPCSenderOnly()
+    testAccountChannelsRPCSenderOnly(FeatureBitset features)
     {
         // Check that the account_channels command only returns channels owned
         // by the account
@@ -1071,7 +1071,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), alice, bob);
 
         // Create a channel from alice to bob and from bob to alice
@@ -1097,12 +1097,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testAuthVerifyRPC()
+    testAuthVerifyRPC(FeatureBitset features)
     {
         testcase("PayChan Auth/Verify RPC");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const charlie = Account("charlie", KeyType::ed25519);
@@ -1437,12 +1437,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testOptionalFields()
+    testOptionalFields(FeatureBitset features)
     {
         testcase("Optional Fields");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -1488,12 +1488,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testMalformedPK()
+    testMalformedPK(FeatureBitset features)
     {
         testcase("malformed pk");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -1557,7 +1557,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testMetaAndOwnership()
+    testMetaAndOwnership(FeatureBitset features)
     {
         testcase("Metadata & Ownership");
 
@@ -1608,7 +1608,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // Test with adding the paychan to the recipient's owner directory
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob);
             env(create(alice, bob, XRP(1000), settleDelay, pk));
             env.close();
@@ -1665,7 +1665,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testAccountDelete()
+    testAccountDelete(FeatureBitset features)
     {
         testcase("Account Delete");
         using namespace test::jtx;
@@ -1899,12 +1899,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testUsingTickets()
+    testUsingTickets(FeatureBitset features)
     {
         testcase("using tickets");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -2060,12 +2060,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICSimple()
+    testICSimple(FeatureBitset features)
     {
         testcase("ic simple");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         
         // <- setup tests
         auto const alice = Account("alice");
@@ -2261,7 +2261,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICCancelAfter()
+    testICCancelAfter(FeatureBitset features)
     {
         testcase("ic cancel after");
         using namespace jtx;
@@ -2274,7 +2274,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // If dst claims after cancel after, channel closes
-            Env env(*this);
+            Env env(*this, features);
             
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
@@ -2324,7 +2324,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
         {
             // Third party can close after cancel after
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob, carol, gw);
             env.close();
             env.trust(USD(100000), alice, bob, carol);
@@ -2358,12 +2358,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICSettleDelay()
+    testICSettleDelay(FeatureBitset features)
     {
         testcase("ic settle delay");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2439,12 +2439,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICExpiration()
+    testICExpiration(FeatureBitset features)
     {
         testcase("ic expiration");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -2514,12 +2514,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICCloseDry()
+    testICCloseDry(FeatureBitset features)
     {
         testcase("ic close dry");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2558,13 +2558,13 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICDefaultAmount()
+    testICDefaultAmount(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
         testcase("ic default amount");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2633,14 +2633,14 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICDstTag()
+    testICDstTag(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
         testcase("IC Dst Tag");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
         // Create a channel where dst disallows XRP
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2673,7 +2673,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICDepositAuth()
+    testICDepositAuth(FeatureBitset features)
     {
         testcase("IC Deposit Authorization");
         using namespace jtx;
@@ -2686,7 +2686,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const USD = gw["USD"];
 
         {
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob, carol, gw);
             env.close();
             env.trust(USD(100000), alice, bob, carol);
@@ -2807,13 +2807,13 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICMultiple()
+    testICMultiple(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
         testcase("IC Multiple channels to the same account");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2838,13 +2838,13 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICAccountChannelsRPC()
+    testICAccountChannelsRPC(FeatureBitset features)
     {
         testcase("AccountChannels RPC");
 
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const charlie = Account("charlie", KeyType::ed25519);
@@ -2902,7 +2902,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICAccountChannelsRPCMarkers()
+    testICAccountChannelsRPCMarkers(FeatureBitset features)
     {
         testcase("IC Account channels RPC markers");
 
@@ -2923,7 +2923,7 @@ struct PayChan_test : public beast::unit_test::suite
             return r;
         }();
 
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), alice, gw);
         env.close();
         env.trust(USD(100000), alice);
@@ -3029,7 +3029,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICAccountChannelsRPCSenderOnly()
+    testICAccountChannelsRPCSenderOnly(FeatureBitset features)
     {
         // Check that the account_channels command only returns channels owned
         // by the account
@@ -3043,7 +3043,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), alice, bob, gw);
         env.close();
         env.trust(USD(100000), alice, bob);
@@ -3074,12 +3074,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICAuthVerifyRPC()
+    testICAuthVerifyRPC(FeatureBitset features)
     {
         testcase("IC PayChan Auth/Verify RPC");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const charlie = Account("charlie", KeyType::ed25519);
@@ -3423,12 +3423,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICOptionalFields()
+    testICOptionalFields(FeatureBitset features)
     {
         testcase("IC Optional Fields");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -3484,12 +3484,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICMalformedPK()
+    testICMalformedPK(FeatureBitset features)
     {
         testcase("ic malformed pk");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -3561,7 +3561,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICMetaAndOwnership()
+    testICMetaAndOwnership(FeatureBitset features)
     {
         testcase("IC Metadata & Ownership");
 
@@ -3622,7 +3622,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // Test with adding the paychan to the recipient's owner directory
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice, bob);
@@ -3693,7 +3693,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICAccountDelete()
+    testICAccountDelete(FeatureBitset features)
     {
         testcase("IC Account Delete");
         using namespace test::jtx;
@@ -3958,12 +3958,12 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICUsingTickets()
+    testICUsingTickets(FeatureBitset features)
     {
         testcase("ic using tickets");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -4135,7 +4135,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testICAutoTL()
+    testICAutoTL(FeatureBitset features)
     {
         testcase("IC Auto Trust Line");
         using namespace test::jtx;
@@ -4149,7 +4149,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // test trust line missing
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice);
@@ -4207,48 +4207,57 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    run() override
+    testWithFeats(FeatureBitset features)
     {
-        testSimple();
-        testCancelAfter();
-        testSettleDelay();
-        testExpiration();
-        testCloseDry();
-        testDefaultAmount();
-        testDisallowXRP();
-        testDstTag();
-        testDepositAuth();
-        testMultiple();
-        testAccountChannelsRPC();
-        testAccountChannelsRPCMarkers();
-        testAccountChannelsRPCSenderOnly();
-        testAuthVerifyRPC();
-        testOptionalFields();
-        testMalformedPK();
-        testMetaAndOwnership();
-        testAccountDelete();
-        testUsingTickets();
-        testICSimple();
-        testICCancelAfter();
-        testICSettleDelay();
-        testICExpiration();
-        testICCloseDry();
-        testICDefaultAmount();
-        testICDstTag();
-        testICDepositAuth();
-        testICMultiple();
+        testSimple(features);
+        testCancelAfter(features);
+        testSettleDelay(features);
+        testExpiration(features);
+        testCloseDry(features);
+        testDefaultAmount(features);
+        testDisallowXRP(features);
+        testDstTag(features);
+        testDepositAuth(features);
+        testMultiple(features);
+        testAccountChannelsRPC(features);
+        testAccountChannelsRPCMarkers(features);
+        testAccountChannelsRPCSenderOnly(features);
+        testAuthVerifyRPC(features);
+        testOptionalFields(features);
+        testMalformedPK(features);
+        testMetaAndOwnership(features);
+        testAccountDelete(features);
+        testUsingTickets(features);
+        testICSimple(features);
+        testICCancelAfter(features);
+        testICSettleDelay(features);
+        testICExpiration(features);
+        testICCloseDry(features);
+        testICDefaultAmount(features);
+        testICDstTag(features);
+        testICDepositAuth(features);
+        testICMultiple(features);
         /*
-        // testICAccountChannelsRPC();
-        // testICAccountChannelsRPCMarkers();
-        // testICAccountChannelsRPCSenderOnly();
-        // testICAuthVerifyRPC();
+        // testICAccountChannelsRPC(features);
+        // testICAccountChannelsRPCMarkers(features);
+        // testICAccountChannelsRPCSenderOnly(features);
+        // testICAuthVerifyRPC(features);
         */
-        testICOptionalFields();
-        testICMalformedPK();
-        testICMetaAndOwnership();
-        // testICAccountDelete();
-        testICUsingTickets();
-        testICAutoTL();
+        testICOptionalFields(features);
+        testICMalformedPK(features);
+        testICMetaAndOwnership(features);
+        // testICAccountDelete(features);
+        testICUsingTickets(features);
+        testICAutoTL(features);
+    }
+
+public:
+    void
+    run() override
+    {                                                                                                                  
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments()};
+        testWithFeats(all);
     }
 };
 
