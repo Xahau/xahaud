@@ -532,7 +532,7 @@ class NFToken_test : public beast::unit_test::suite
             ter(temBAD_FEE));
 
         // Set an invalid flag.
-        env(token::mint(alice, 0u), txflags(0x00008000), ter(temINVALID_FLAG));
+        env(token::mint(alice, 0u), txflags(0x00010000), ter(temINVALID_FLAG));
 
         // Can't set a transfer fee if the NFT does not have the tfTRANSFERABLE
         // flag set.
@@ -614,7 +614,7 @@ class NFToken_test : public beast::unit_test::suite
 
         // Set an invalid flag.
         env(token::burn(alice, nftAlice0ID),
-            txflags(0x00008000),
+            txflags(0x00010000),
             ter(temINVALID_FLAG));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 0);
@@ -641,7 +641,8 @@ class NFToken_test : public beast::unit_test::suite
 
         using namespace test::jtx;
 
-        Env env{*this, features};
+        //Env env{*this, features};
+        Env env{*this, features}; //envconfig(), features, nullptr, beast::severities::kTrace};
         Account const alice{"alice"};
         Account const buyer{"buyer"};
         Account const gw("gw");
@@ -697,7 +698,7 @@ class NFToken_test : public beast::unit_test::suite
 
         // Set an invalid flag.
         env(token::createOffer(buyer, nftAlice0ID, XRP(1000)),
-            txflags(0x00008000),
+            txflags(0x00010000),
             ter(temINVALID_FLAG));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 0);
@@ -928,7 +929,7 @@ class NFToken_test : public beast::unit_test::suite
 
         // Set an invalid flag.
         env(token::cancelOffer(buyer, {buyerOfferIndex}),
-            txflags(0x00008000),
+            txflags(0x00010000),
             ter(temINVALID_FLAG));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 1);
@@ -962,7 +963,8 @@ class NFToken_test : public beast::unit_test::suite
         env(token::cancelOffer(buyer), ter(temMALFORMED));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 1);
-
+        
+        #define M(m) memo(m, "", "")
         //----------------------------------------------------------------------
         // preclaim
 
@@ -980,8 +982,12 @@ class NFToken_test : public beast::unit_test::suite
             auto const gwCheckId = keylet::check(gw, env.seq(gw)).key;
             env(check::create(gw, env.master, XRP(300)));
             env.close();
+            env.close();
 
-            env(token::cancelOffer(gw, {gwCheckId}), ter(tecNO_PERMISSION));
+            auto check = env.le(Keylet { ltCHECK, gwCheckId });
+            BEAST_EXPECT(!!check);
+
+            env(token::cancelOffer(gw, {gwCheckId}), M("here1"), ter(tecNO_PERMISSION));
             env.close();
 
             // Cancel the check so it doesn't mess up later tests.
@@ -990,7 +996,7 @@ class NFToken_test : public beast::unit_test::suite
         }
 
         // gw attempts to cancel an offer they don't have permission to cancel.
-        env(token::cancelOffer(gw, {buyerOfferIndex}), ter(tecNO_PERMISSION));
+        env(token::cancelOffer(gw, {buyerOfferIndex}), M("here2"), ter(tecNO_PERMISSION));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 1);
 
@@ -1002,6 +1008,8 @@ class NFToken_test : public beast::unit_test::suite
         env(token::cancelOffer(buyer, {buyerOfferIndex}));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 0);
+        env.close();
+
     }
 
     void
@@ -1088,7 +1096,7 @@ class NFToken_test : public beast::unit_test::suite
 
         // Set an invalid flag.
         env(token::acceptSellOffer(buyer, noXferOfferIndex),
-            txflags(0x00008000),
+            txflags(0x00010000),
             ter(temINVALID_FLAG));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 0);
@@ -3616,6 +3624,7 @@ class NFToken_test : public beast::unit_test::suite
 
         // The offer has not expired yet, so becky can't cancel it now.
         BEAST_EXPECT(ownerCount(env, alice) == 2);
+
         env(token::cancelOffer(becky, {expiredOfferIndex}),
             ter(tecNO_PERMISSION));
         env.close();

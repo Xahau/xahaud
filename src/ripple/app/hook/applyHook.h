@@ -474,6 +474,8 @@ namespace hook
             JLOG(j.trace())
                 << "HookInfo[" << HC_ACC() << "]: creating wasm instance";
 
+            WasmEdge_LogOff();
+
             WasmEdge_ConfigureContext* confCtx  = WasmEdge_ConfigureCreate();
             WasmEdge_ConfigureStatisticsSetInstructionCounting(confCtx, true);
             WasmEdge_VMContext* vmCtx = WasmEdge_VMCreate(confCtx, NULL);

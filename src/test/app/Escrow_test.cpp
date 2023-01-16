@@ -1963,6 +1963,7 @@ struct Escrow_test : public beast::unit_test::suite
                 fee(1500));
             env.close();
             env(finish(carol, alice, seq1), fee(1500));
+            env.close();
             BEAST_EXPECT(env.balance(bob).value() == USD(5100));
 
             env.close();
