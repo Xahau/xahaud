@@ -140,8 +140,8 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
             return false;
         }
 
-        // RH TODO: rippled's template system already does most of these checks, run through and
-        // remove redundant template checking.
+        // RH NOTE: templating system already does most of these checks but if a change is made
+        // in future then they are double checked here
         bool nameFound = false;
         for (auto const& paramElement : *hookParamObj)
         {

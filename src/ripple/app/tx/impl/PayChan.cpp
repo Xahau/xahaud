@@ -750,7 +750,7 @@ PayChanClaim::doApply()
         // featureDepositAuth to remove the bug.
         bool const depositAuth{ctx_.view().rules().enabled(featureDepositAuth)};
         if (!depositAuth &&
-            // RH TODO: does this condition need to be changed for IOU paychans?
+            chanBalance.native() &&
             (txAccount == src && (sled->getFlags() & lsfDisallowXRP)))
             return tecNO_TARGET;
 

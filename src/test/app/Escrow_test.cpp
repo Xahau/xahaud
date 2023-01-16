@@ -1964,8 +1964,7 @@ struct Escrow_test : public beast::unit_test::suite
             env.close();
             env(finish(carol, alice, seq1), fee(1500));
             env.close();
-            BEAST_EXPECT(env.balance(bob).value() == USD(5100));
-
+            env.require(balance("bob", USD(5100)));
             env.close();
 
             // Creating an escrow without a finish time and a condition is
@@ -1980,7 +1979,8 @@ struct Escrow_test : public beast::unit_test::suite
                 condition(cb1),
                 fulfillment(fb1),
                 fee(1500));
-            BEAST_EXPECT(env.balance(bob).value() == USD(5200));
+            env.close();
+            env.require(balance("bob", USD(5200)));
         }
 
         {
@@ -2022,7 +2022,7 @@ struct Escrow_test : public beast::unit_test::suite
                 condition(cb1),
                 fulfillment(fb1),
                 fee(1500));
-            BEAST_EXPECT(env.balance(bob).value() == USD(5100));
+            env.require(balance("bob", USD(5100)));
         }
     }
 
