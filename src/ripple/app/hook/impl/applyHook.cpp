@@ -647,8 +647,6 @@ unserialize_keylet(uint8_t* ptr, uint32_t len)
 }
 
 
-// RH TODO: this is used by sethook to determine the value stored in ltHOOK
-// replace this with votable value
 uint32_t hook::maxHookStateDataSize(void) {
     return 256U;
 }
@@ -2877,6 +2875,7 @@ DEFINE_HOOK_FUNCTION(
 
     // check the emitted txn is valid
     /* Emitted TXN rules
+     * 0. Account must match the hook account
      * 1. Sequence: 0
      * 2. PubSigningKey: 000000000000000
      * 3. sfEmitDetails present and valid
@@ -2887,6 +2886,13 @@ DEFINE_HOOK_FUNCTION(
      * 8. The generation cannot be higher than 10
      */
 
+    // rule 0: account must match the hook account
+    if (!stpTrans->isFieldPresent(sfAccount) || stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC() << "]: sfAccount does not match hook account";
+        return EMISSION_FAILURE;
+    }
 
     // rule 1: sfSequence must be present and 0
     if (!stpTrans->isFieldPresent(sfSequence) || stpTrans->getFieldU32(sfSequence) != 0)
