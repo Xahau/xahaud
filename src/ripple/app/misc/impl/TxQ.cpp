@@ -1490,6 +1490,8 @@ TxQ::accept(Application& app, OpenView& view)
                 auto seq = view.info().seq;
                 auto txnHash = stpTrans->getTransactionID();
 
+                app.getHashRouter().setFlags(txnHash, SF_EMITTED);
+
                 if (stpTrans->getFieldU32(sfLastLedgerSequence) < seq)
                 {
                     JLOG(j_.trace())
@@ -1518,6 +1520,7 @@ TxQ::accept(Application& app, OpenView& view)
 
                     // RH TODO: should this txn be added in a different way to prevent any chance of failure
                     app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    app.getHashRouter().setFlags(txID, SF_EMITTED);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     ledgerChanged = true;
 
