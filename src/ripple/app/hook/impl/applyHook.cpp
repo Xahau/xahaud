@@ -760,7 +760,6 @@ hook::removeHookNamespaceEntry(
         else
         {
             // defensively ensure the uniqueness of the namespace array
-            // RH TODO: consider removing this for production
             std::set<uint256> spaces;
 
             for (auto u : vec.value())
@@ -1204,8 +1203,6 @@ lookup_state_cache(
 
 
 // update the state cache
-// RH TODO: add an accumulator for newly reserved state to the state map so canReserveNew can be computed
-// correctly when more than one new state is reserved.
 inline
 bool                                    // true unless a new hook state was required and the acc has insufficent reserve
 set_state_cache(
@@ -3091,9 +3088,10 @@ DEFINE_HOOK_FUNCTION(
             << "HookEmit[" << HC_ACC() << "]: tpTrans->getStatus() != NEW";
         return EMISSION_FAILURE;
     }
-/*
+
+    // preflight the transaction
     auto preflightResult = 
-        ripple::preflight(applyCtx.app, applyCtx.view().rules(), *stpTrans, ripple::ApplyFlags::tapNONE, j);
+        ripple::preflight(applyCtx.app, applyCtx.view().rules(), *stpTrans, ripple::ApplyFlags::tapPREFLIGHT_EMIT, j);
 
     if (preflightResult.ter != tesSUCCESS)
     {
@@ -3101,7 +3099,7 @@ DEFINE_HOOK_FUNCTION(
             << "HookEmit[" << HC_ACC() << "]: Transaction preflight failure: " << preflightResult.ter;
         return EMISSION_FAILURE;
     }
-*/
+
     hookCtx.result.emittedTxn.push(tpTrans);
 
     auto const& txID =
