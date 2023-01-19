@@ -149,6 +149,37 @@ private:
         }
     }
 
+    // Build an object or string
+    // { "currency" : "XYZ", "issuer" : "rXYX", "value": 1000 }
+    // "1000"
+    static Json::Value
+    jvParseAmount(std::string const& strAmount)
+    {
+        Json::Reader reader;
+        Json::Value jv;
+        Json::Value jv1{Json::objectValue};
+        if (to_uint64(strAmount))
+            return strAmount;
+        
+        bool valid_parse = reader.parse(strAmount, jv);
+        if (valid_parse)
+        {
+            if (jv.isObject())
+            {
+                if (jv.isMember(jss::params))
+                {
+                    auto const& params = jv[jss::params];
+                    for (auto i = params.begin(); i != params.end(); ++i)
+                        jv1[i.key().asString()] = *i;
+                }
+                jv1[jss::issuer] = jv[jss::issuer];
+                jv1[jss::currency] = jv[jss::currency];
+                jv1[jss::value] = jv[jss::value];
+            }
+        }
+        return jv1;
+    }
+
     static bool
     validPublicKey(
         std::string const& strPk,
@@ -851,14 +882,24 @@ private:
             index++;
         }
 
-        if (!jvParams[index].isString() ||
-            !to_uint64(jvParams[index].asString()))
-            return rpcError(rpcCHANNEL_AMT_MALFORMED);
-        jvRequest[jss::amount] = jvParams[index];
+        {
+            // validate amount string | json
+            if (!jvParams[index].isString())
+                return rpcError(rpcCHANNEL_AMT_MALFORMED);
+
+            Json::Value amountJson = jvParseAmount(jvParams[index].asString());
+            if (!amountJson)
+                return rpcError(rpcCHANNEL_AMT_MALFORMED);
+            
+            STAmount amount;
+            if (!amountFromJsonNoThrow(amount, amountJson))
+                return rpcError(rpcCHANNEL_AMT_MALFORMED);
+            
+            jvRequest[jss::amount] = amountJson;
+        }
 
         // If additional parameters are appended, be sure to increment index
         // here
-
         return jvRequest;
     }
 
@@ -882,9 +923,21 @@ private:
         }
         jvRequest[jss::channel_id] = jvParams[1u].asString();
 
-        if (!jvParams[2u].isString() || !to_uint64(jvParams[2u].asString()))
-            return rpcError(rpcCHANNEL_AMT_MALFORMED);
-        jvRequest[jss::amount] = jvParams[2u];
+        {
+            // validate amount string | json
+            if (!jvParams[2u].isString())
+                return rpcError(rpcCHANNEL_AMT_MALFORMED);
+
+            Json::Value amountJson = jvParseAmount(jvParams[2u].asString());
+            if (!amountJson)
+                return rpcError(rpcCHANNEL_AMT_MALFORMED);
+            
+            STAmount amount;
+            if (!amountFromJsonNoThrow(amount, amountJson))
+                return rpcError(rpcCHANNEL_AMT_MALFORMED);
+            
+            jvRequest[jss::amount] = amountJson;
+        }
 
         jvRequest[jss::signature] = jvParams[3u].asString();
 
