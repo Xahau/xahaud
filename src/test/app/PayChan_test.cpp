@@ -2645,7 +2645,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
         {
-            // Create a channel where dst disallows XRP
+            // Ignore the flag since it this is Issued Currency
             Env env(*this, supported_amendments() - featureDepositAuth);
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
@@ -2656,13 +2656,11 @@ struct PayChan_test : public beast::unit_test::suite
             env.close();
             env(fset(bob, asfDisallowXRP));
             auto const chan = channel(alice, bob, env.seq(alice));
-            env(create(alice, bob, USD(1000), 3600s, alice.pk()),
-                ter(tecNO_TARGET));
-            BEAST_EXPECT(!channelExists(*env.current(), chan));
+            env(create(alice, bob, USD(1000), 3600s, alice.pk()));
+            BEAST_EXPECT(channelExists(*env.current(), chan));
         }
         {
-            // Create a channel where dst disallows XRP.  Ignore that flag,
-            // since it's just advisory.
+            // Ignore the flag since it this is Issued Currency
             Env env(*this, features);
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
@@ -2678,8 +2676,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
 
         {
-            // Claim to a channel where dst disallows XRP
-            // (channel is created before disallow xrp is set)
+            // Ignore the flag since it this is Issued Currency
             Env env(*this, supported_amendments() - featureDepositAuth);
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
@@ -2694,12 +2691,10 @@ struct PayChan_test : public beast::unit_test::suite
 
             env(fset(bob, asfDisallowXRP));
             auto const reqBal = USD(500).value();
-            env(claim(alice, chan, reqBal, reqBal), ter(tecNO_TARGET));
+            env(claim(alice, chan, reqBal, reqBal));
         }
         {
-            // Claim to a channel where dst disallows XRP (channel is
-            // created before disallow xrp is set).  Ignore that flag
-            // since it is just advisory.
+            // Ignore the flag since it this is Issued Currency
             Env env(*this, features);
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
