@@ -307,7 +307,7 @@ EscrowCreate::doApply()
         // Obeying the lsfDissalowXRP flag was a bug.  Piggyback on
         // featureDepositAuth to remove the bug.
         if (!ctx_.view().rules().enabled(featureDepositAuth) &&
-            ((*sled)[sfFlags] & lsfDisallowXRP))
+            isXRP(amount) && ((*sled)[sfFlags] & lsfDisallowXRP))
             return tecNO_TARGET;
     }
 
