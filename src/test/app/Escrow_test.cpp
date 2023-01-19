@@ -1933,8 +1933,7 @@ struct Escrow_test : public beast::unit_test::suite
             env.close();
             env(fset(george, asfDisallowXRP));
             env(escrow(bob, george, USD(10)),
-                finish_time(env.now() + 1s),
-                ter(tecNO_TARGET));
+                finish_time(env.now() + 1s));
         }
         {
             // Ignore the "asfDisallowXRP" account flag, which we should
