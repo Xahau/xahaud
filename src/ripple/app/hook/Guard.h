@@ -11,7 +11,7 @@
 
 using GuardLog = std::optional<std::reference_wrapper<std::basic_ostream<char>>>;
 
-#define DEBUG_GUARD 0
+#define DEBUG_GUARD 1
 #define DEBUG_GUARD_VERBOSE 0
 #define DEBUG_GUARD_VERY_VERBOSE 0
 
@@ -210,6 +210,9 @@ check_guard(
     std::string guardLogAccStr)
 {
 
+    #define MAX_GUARD_CALLS 1024
+    uint32_t guard_count = 0;
+
     if (DEBUG_GUARD)
         printf("\ncheck_guard called with "
                "codesec=%d start_offset=%d end_offset=%d guard_func_idx=%d last_import_idx=%d\n",
@@ -310,6 +313,10 @@ check_guard(
 
                 if (call_func_idx != guard_func_idx)
                     GUARD_ERROR("Call after first and second i32.const at loop start was not _g");
+
+                if (guard_count++ > MAX_GUARD_CALLS)
+                    GUARD_ERROR("Too many guard calls! Limit is 1024");
+                printf("guard_count: %d\n", guard_count);
             }
 
             current->children.push_back(
@@ -388,6 +395,15 @@ check_guard(
 
                 return {};
             }
+
+            // enforce guard call limit
+            if (callee_idx == guard_func_idx)
+            {
+                if (guard_count++ > MAX_GUARD_CALLS)
+                    GUARD_ERROR("Too many guard calls! Limit is 1024");
+                printf("guard_count: %d\n", guard_count);
+            }
+
             continue;
         }
 
