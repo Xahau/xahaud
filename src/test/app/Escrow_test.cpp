@@ -3301,7 +3301,7 @@ struct Escrow_test : public beast::unit_test::suite
             BEAST_EXPECT(pf.ter == tesSUCCESS);
             BEAST_EXPECT(!pf.consequences.isBlocker());
             BEAST_EXPECT(pf.consequences.fee() == drops(10));
-            BEAST_EXPECT(pf.consequences.potentialSpend().value() == USD(0));
+            BEAST_EXPECT(pf.consequences.potentialSpend().value() == 0);
         }
 
         {
@@ -3315,7 +3315,7 @@ struct Escrow_test : public beast::unit_test::suite
             BEAST_EXPECT(pf.ter == tesSUCCESS);
             BEAST_EXPECT(!pf.consequences.isBlocker());
             BEAST_EXPECT(pf.consequences.fee() == drops(10));
-            BEAST_EXPECT(pf.consequences.potentialSpend().value() == USD(0));
+            BEAST_EXPECT(pf.consequences.potentialSpend().value() == 0);
         }
 
         {
@@ -3329,7 +3329,7 @@ struct Escrow_test : public beast::unit_test::suite
             BEAST_EXPECT(pf.ter == tesSUCCESS);
             BEAST_EXPECT(!pf.consequences.isBlocker());
             BEAST_EXPECT(pf.consequences.fee() == drops(10));
-            BEAST_EXPECT(pf.consequences.potentialSpend().value() == USD(0));
+            BEAST_EXPECT(pf.consequences.potentialSpend().value() == 0);
         }
     }
 
