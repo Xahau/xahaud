@@ -1103,7 +1103,7 @@ public:
 
             // check all fields were updated to correct values
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookOn));
-            BEAST_EXPECT(hooks[0].getFieldH256(sfHookOn) == hook_api::UINT256_BIT[0]);
+            BEAST_EXPECT(hooks[0].getFieldH256(sfHookOn) == UINT256_BIT[0]);
 
             auto const ns = uint256::fromVoid(
                 (std::array<uint8_t, 32>{
@@ -1581,7 +1581,7 @@ public:
         // hsoUPDATE
         {
             STObject hso{sfHook};
-            hso.setFieldH256(sfHookOn, hook_api::UINT256_BIT[0]);
+            hso.setFieldH256(sfHookOn, UINT256_BIT[0]);
             BEAST_EXPECT(SetHook::inferOperation(hso) == hsoUPDATE);
         }
 
