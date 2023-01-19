@@ -30,11 +30,10 @@
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/Rate.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/digest.h>
 #include <ripple/protocol/st.h>
-#include <ripple/protocol/Rate.h>
-
 
 // During an EscrowFinish, the transaction must specify both
 // a condition and a fulfillment. We track whether that
@@ -95,8 +94,8 @@ after(NetClock::time_point now, std::uint32_t mark)
 TxConsequences
 EscrowCreate::makeTxConsequences(PreflightContext const& ctx)
 {
-    return TxConsequences{ctx.tx,
-        isXRP(ctx.tx[sfAmount]) ? ctx.tx[sfAmount].xrp() : beast::zero};
+    return TxConsequences{
+        ctx.tx, isXRP(ctx.tx[sfAmount]) ? ctx.tx[sfAmount].xrp() : beast::zero};
 }
 
 NotTEC
@@ -108,7 +107,7 @@ EscrowCreate::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
-    STAmount const amount {ctx.tx[sfAmount]};
+    STAmount const amount{ctx.tx[sfAmount]};
     if (!isXRP(amount))
     {
         if (!ctx.rules.enabled(featurePaychanAndEscrowForTokens))
@@ -219,7 +218,7 @@ EscrowCreate::doApply()
     if (!sle)
         return temDISABLED;
 
-    STAmount const amount {ctx_.tx[sfAmount]};
+    STAmount const amount{ctx_.tx[sfAmount]};
 
     std::shared_ptr<SLE> sleLine;
 
@@ -247,12 +246,11 @@ EscrowCreate::doApply()
         // check if the escrow is capable of being
         // finished before we allow it to be created
         {
-            TER result = 
-                trustTransferAllowed(
-                    ctx_.view(),
-                    {account, ctx_.tx[sfDestination]},
-                    amount.issue(),
-                    ctx_.journal);
+            TER result = trustTransferAllowed(
+                ctx_.view(),
+                {account, ctx_.tx[sfDestination]},
+                amount.issue(),
+                ctx_.journal);
 
             JLOG(ctx_.journal.trace())
                 << "EscrowCreate::doApply trustTransferAllowed result="
@@ -276,17 +274,12 @@ EscrowCreate::doApply()
         }
 
         {
-            TER result = 
-                trustAdjustLockedBalance(
-                    ctx_.view(),
-                    sleLine,
-                    amount,
-                    1,
-                    ctx_.journal,
-                    DryRun);
-            
+            TER result = trustAdjustLockedBalance(
+                ctx_.view(), sleLine, amount, 1, ctx_.journal, DryRun);
+
             JLOG(ctx_.journal.trace())
-                << "EscrowCreate::doApply trustAdjustLockedBalance (dry) result="
+                << "EscrowCreate::doApply trustAdjustLockedBalance (dry) "
+                   "result="
                 << result;
 
             if (!isTesSuccess(result))
@@ -306,8 +299,8 @@ EscrowCreate::doApply()
 
         // Obeying the lsfDissalowXRP flag was a bug.  Piggyback on
         // featureDepositAuth to remove the bug.
-        if (!ctx_.view().rules().enabled(featureDepositAuth) &&
-            isXRP(amount) && ((*sled)[sfFlags] & lsfDisallowXRP))
+        if (!ctx_.view().rules().enabled(featureDepositAuth) && isXRP(amount) &&
+            ((*sled)[sfFlags] & lsfDisallowXRP))
             return tecNO_TARGET;
     }
 
@@ -350,21 +343,16 @@ EscrowCreate::doApply()
     // Deduct owner's balance, increment owner count
     if (isXRP(amount))
         (*sle)[sfBalance] = (*sle)[sfBalance] - ctx_.tx[sfAmount];
-    else 
+    else
     {
-        if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens) || !sleLine)
+        if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens) ||
+            !sleLine)
             return temDISABLED;
 
         // do the lock-up for real now
-        TER result =
-            trustAdjustLockedBalance(
-                ctx_.view(),
-                sleLine,
-                amount,
-                1,
-                ctx_.journal,
-                WetRun);
-                
+        TER result = trustAdjustLockedBalance(
+            ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
+
         JLOG(ctx_.journal.trace())
             << "EscrowCreate::doApply trustAdjustLockedBalance (wet) result="
             << result;
@@ -586,25 +574,23 @@ EscrowFinish::doApply()
         }
     }
 
-    
     if (!isXRP(amount))
     {
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
-        
-        // perform a dry run of the transfer before we 
+
+        // perform a dry run of the transfer before we
         // change anything on-ledger
-        TER result = 
-            trustTransferLockedBalance(
-                ctx_.view(), 
-                account_,   // txn signing account
-                sle,        // src account
-                sled,       // dst account
-                amount,     // xfer amount
-                -1,
-                j_,
-                DryRun      // dry run
-            );
+        TER result = trustTransferLockedBalance(
+            ctx_.view(),
+            account_,  // txn signing account
+            sle,       // src account
+            sled,      // dst account
+            amount,    // xfer amount
+            -1,
+            j_,
+            DryRun  // dry run
+        );
 
         JLOG(j_.trace())
             << "EscrowFinish::doApply trustTransferLockedBalance (dry) result="
@@ -636,26 +622,23 @@ EscrowFinish::doApply()
         }
     }
 
-
-
     if (isXRP(amount))
         (*sled)[sfBalance] = (*sled)[sfBalance] + (*slep)[sfAmount];
-    else 
+    else
     {
         // all the significant complexity of checking the validity of this
         // transfer and ensuring the lines exist etc is hidden away in this
         // function, all we need to do is call it and return if unsuccessful.
-        TER result = 
-            trustTransferLockedBalance(
-                ctx_.view(), 
-                account_,   // txn signing account
-                sle,        // src account
-                sled,       // dst account
-                amount,     // xfer amount
-                -1,
-                j_,
-                WetRun      // wet run;
-            );
+        TER result = trustTransferLockedBalance(
+            ctx_.view(),
+            account_,  // txn signing account
+            sle,       // src account
+            sled,      // dst account
+            amount,    // xfer amount
+            -1,
+            j_,
+            WetRun  // wet run;
+        );
 
         JLOG(j_.trace())
             << "EscrowFinish::doApply trustTransferLockedBalance (wet) result="
@@ -745,19 +728,12 @@ EscrowCancel::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        sleLine =
-            ctx_.view().peek(
-                keylet::line(account, amount.getIssuer(), amount.getCurrency()));
+        sleLine = ctx_.view().peek(
+            keylet::line(account, amount.getIssuer(), amount.getCurrency()));
 
         // dry run before we make any changes to ledger
-        if (TER result = 
-            trustAdjustLockedBalance(
-                ctx_.view(),
-                sleLine,
-                -amount,
-                -1,
-                ctx_.journal,
-                DryRun);
+        if (TER result = trustAdjustLockedBalance(
+                ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun);
             result != tesSUCCESS)
             return result;
     }
@@ -796,19 +772,13 @@ EscrowCancel::doApply()
             return temDISABLED;
 
         // unlock previously locked tokens from source line
-        TER result =
-            trustAdjustLockedBalance(
-                ctx_.view(),
-                sleLine,
-                -amount,
-                -1,
-                ctx_.journal,
-                WetRun);
+        TER result = trustAdjustLockedBalance(
+            ctx_.view(), sleLine, -amount, -1, ctx_.journal, WetRun);
 
         JLOG(ctx_.journal.trace())
             << "EscrowCancel::doApply trustAdjustLockedBalance (wet) result="
             << result;
-        
+
         if (!isTesSuccess(result))
             return result;
     }
