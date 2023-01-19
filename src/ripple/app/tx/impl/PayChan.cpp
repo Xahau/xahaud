@@ -340,7 +340,7 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
         // Obeying the lsfDisallowXRP flag was a bug.  Piggyback on
         // featureDepositAuth to remove the bug.
         if (!ctx.view.rules().enabled(featureDepositAuth) &&
-            ((*sled)[sfFlags] & lsfDisallowXRP))
+            isXRP(amount) && ((*sled)[sfFlags] & lsfDisallowXRP))
             return tecNO_TARGET;
     }
 
@@ -741,9 +741,7 @@ PayChanClaim::doApply()
         // Obeying the lsfDisallowXRP flag was a bug.  Piggyback on
         // featureDepositAuth to remove the bug.
         bool const depositAuth{ctx_.view().rules().enabled(featureDepositAuth)};
-        if (!depositAuth &&
-            // RH TODO: does this condition need to be changed for IOU paychans?
-            (txAccount == src && (sled->getFlags() & lsfDisallowXRP)))
+        if (!depositAuth && chanBalance.native() && (txAccount == src && (sled->getFlags() & lsfDisallowXRP)))
             return tecNO_TARGET;
 
         // Check whether the destination account requires deposit authorization.
