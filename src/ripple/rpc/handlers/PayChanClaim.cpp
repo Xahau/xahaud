@@ -63,18 +63,30 @@ doChannelAuthorize(RPC::JsonContext& context)
     if (!channelId.parseHex(params[jss::channel_id].asString()))
         return rpcError(rpcCHANNEL_MALFORMED);
 
-    STAmount amount;
-    bool isAmount = amountFromJsonNoThrow(amount, params[jss::amount]);
-    if (!isAmount)
+    Serializer msg;
+
+    if (params[jss::amount].isNumeric())
         return rpcError(rpcCHANNEL_AMT_MALFORMED);
 
-    Serializer msg;
-    if (isXRP(amount))
+    if (params[jss::amount].isString())
     {
-        serializePayChanAuthorization(msg, channelId, amount.xrp());
+        std::optional<std::uint64_t> const optDrops = params[jss::amount].isString()
+        ? to_uint64(params[jss::amount].asString())
+        : std::nullopt;
+
+        if (!optDrops)
+            return rpcError(rpcCHANNEL_AMT_MALFORMED);
+
+        std::uint64_t const drops = *optDrops;
+        serializePayChanAuthorization(msg, channelId, XRPAmount(drops));
     }
     else
     {
+        STAmount amount;
+        bool isAmount = amountFromJsonNoThrow(amount, params[jss::amount]);
+        if (!isAmount)
+            return rpcError(rpcCHANNEL_AMT_MALFORMED);
+
         serializePayChanAuthorization(
             msg,
             channelId,
@@ -133,18 +145,31 @@ doChannelVerify(RPC::JsonContext& context)
     if (!channelId.parseHex(params[jss::channel_id].asString()))
         return rpcError(rpcCHANNEL_MALFORMED);
 
-    STAmount amount;
-    bool isAmount = amountFromJsonNoThrow(amount, params[jss::amount]);
-    if (!isAmount)
+    Serializer msg;
+
+    if (params[jss::amount].isNumeric())
         return rpcError(rpcCHANNEL_AMT_MALFORMED);
 
-    Serializer msg;
-    if (isXRP(amount))
+    if (params[jss::amount].isString())
     {
-        serializePayChanAuthorization(msg, channelId, amount.xrp());
+        std::optional<std::uint64_t> const optDrops = params[jss::amount].isString()
+        ? to_uint64(params[jss::amount].asString())
+        : std::nullopt;
+
+        if (!optDrops)
+            return rpcError(rpcCHANNEL_AMT_MALFORMED);
+
+        std::uint64_t const drops = *optDrops;
+        serializePayChanAuthorization(msg, channelId, XRPAmount(drops));
     }
     else
     {
+        STAmount amount;
+        bool isAmount = amountFromJsonNoThrow(amount, params[jss::amount]);
+
+        if (!isAmount)
+            return rpcError(rpcCHANNEL_AMT_MALFORMED);
+
         serializePayChanAuthorization(
             msg,
             channelId,
