@@ -860,10 +860,8 @@ private:
             
             // parse string
             Json::Value amountJson = jvParseSTAmount(jvParams[index].asString());
-            // std::cout << "AMT JSON: " << amountJson << "\n";
             if (!amountJson) {
                 // amount is string
-                // std::cout << "IS STRING: " << "\n";
                 if (!to_uint64(jvParams[index].asString()))
                     return rpcError(rpcCHANNEL_AMT_MALFORMED);
                 
@@ -872,7 +870,6 @@ private:
             else
             {
                 // amount is json
-                // std::cout << "IS JSON: " << "\n";
                 STAmount amount;
                 bool isAmount = amountFromJsonNoThrow(amount, amountJson);
                 if (!isAmount)
@@ -913,7 +910,6 @@ private:
                 return rpcError(rpcCHANNEL_AMT_MALFORMED);
             // parse string
             Json::Value amountJson = jvParseSTAmount(jvParams[2u].asString());
-            // std::cout << "AMT JSON: " << amountJson << "\n";
             if (!amountJson) {
                 // amount is string
                 if (!to_uint64(jvParams[2u].asString()))
@@ -934,7 +930,6 @@ private:
         }
 
         jvRequest[jss::signature] = jvParams[3u].asString();
-
         return jvRequest;
     }
 

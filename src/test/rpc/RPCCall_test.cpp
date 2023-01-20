@@ -2036,9 +2036,9 @@ static RPCCallTestData const rpcCallTestArray[] = {
       {
          "api_version" : %MAX_API_VER%,
          "amount" : {
-            "value: "1000",
-            "currency: "USD",
-            "issuer: "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA"
+            "currency" : "USD",
+            "issuer" : "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+            "value" : "1000"
          },
          "channel_id" : "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
          "secret" : "secret_can_be_anything"
@@ -2222,9 +2222,9 @@ static RPCCallTestData const rpcCallTestArray[] = {
       {
          "api_version" : %MAX_API_VER%,
          "amount" : {
-            "value: "1000",
-            "currency: "USD",
-            "issuer: "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA"
+            "currency" : "USD",
+            "issuer" : "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+            "value" : "1000"
          },
          "channel_id" : "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
          "public_key" : "aB4BXXLuPu8DpVuyq1DBiu3SrPdtK9AYZisKhu8mvkoiUD8J9Gov",
