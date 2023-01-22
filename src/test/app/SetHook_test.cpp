@@ -1441,8 +1441,6 @@ public:
             auto const hook = env.le(keylet::hook(Account("alice").id()));
             BEAST_REQUIRE(hook);
 
-            std::cout << *hook << "\n";
-
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
             BEAST_EXPECT(hooks.size() == 2);
@@ -5960,20 +5958,8 @@ public:
             alice.id()
         );
 
-        /*
-        std::cout << 
-            "seq: " << seq << 
-            ", llc: " << llc << 
-            ", llh: " << llh << 
-            ", txid: " << txid << 
-            ", count: 0" << 
-            ", acc: " << alice.human() <<
-            ", nonce: " << computed_hash_1 << ", " << computed_hash_2 << "\n";
-        */
-
         BEAST_EXPECT(computed_hash_1 == uint256::fromVoid(retStr.data()));
         BEAST_EXPECT(computed_hash_2 == uint256::fromVoid(retStr.data() + 32));
-
     }
 
     void
@@ -7757,7 +7743,7 @@ public:
         env.fund(XRP(10000), bob);
         env.fund(XRP(10000), cho);
         env.fund(XRP(10000), david);
-        env.fund(XRP(110), eve);            // 100 xrp for the hook install, 10 xrp for reserves
+        env.fund(XRP(2600), eve);
 
         TestHook grantee_wasm = wasm[R"[test.hook](
             #include <stdint.h>
@@ -8155,40 +8141,45 @@ public:
 
         // now invoke repeatedly until exhaustion is reached
         {
+
             Json::Value json = pay(cho, bob, XRP(1));
             json[jss::InvoiceID] = "01" + std::string(22, '0') + strHex(eve.id());
-            // 10 xrp less 1 account reserve divided by by 0.2 object reserve = 45 objects
-            // of these we already have: 1 hook, 1 sfAuthorize, so 43 objects can be allocated
+            
+            // 2500 xrp less 1 account reserve (200) divided by 50xrp per object reserve = 46 objects
+            // of these we already have: 1 hook, 1 sfAuthorize, so 44 objects can be allocated
             env(json, fee(XRP(1)),
                 M("test state_foreign_set 13"),
                 ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 3);
 
-            // now we have allocated 1 state object, so 42 more can be allocated
+            // now we have allocated 1 state object, so 43 more can be allocated
 
-            // try to set 43 state entries, this will fail            
-            json[jss::InvoiceID] = "2B" + std::string(22, '0') + strHex(eve.id());
+            // try to set 44 state entries, this will fail            
+            json[jss::InvoiceID] = "2C" + std::string(22, '0') + strHex(eve.id());
             env(json, fee(XRP(1)),
                 M("test state_foreign_set 14"),
                 ter(tecHOOK_REJECTED));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 3);
+            
 
-            // try to set 42 state objects, this will succeed
-            json[jss::InvoiceID] = "2A" + std::string(22, '0') + strHex(eve.id());
+            // try to set 43 state objects, this will succeed
+            json[jss::InvoiceID] = "2B" + std::string(22, '0') + strHex(eve.id());
             env(json, fee(XRP(1)),
                 M("test state_foreign_set 15"),
                 ter(tesSUCCESS));
             env.close();
-            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 45);
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 46);
+            
 
             // try to set one state object, this will fail
             env(json, fee(XRP(1)),
                 M("test state_foreign_set 16"),
                 ter(tecHOOK_REJECTED));
             env.close();
-            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 45);
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 46);
+            
         }
 
     }
