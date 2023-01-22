@@ -3123,7 +3123,6 @@ struct PayChan_test : public beast::unit_test::suite
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        Env env(*this, features);
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
