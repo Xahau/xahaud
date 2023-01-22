@@ -7742,15 +7742,22 @@ public:
 
 
         Env env{*this, supported_amendments()};
+//        Env env{*this, envconfig(), supported_amendments(), nullptr, 
+//            beast::severities::kWarning
+//            beast::severities::kTrace
+//        };
+        
 
         auto const david = Account("david"); // grantee generic
         auto const cho = Account{"cho"};     // invoker
         auto const bob = Account{"bob"};     // grantee specific
         auto const alice = Account{"alice"}; // grantor
+        auto const eve = Account{"eve"};     // grantor with small balance
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
         env.fund(XRP(10000), cho);
         env.fund(XRP(10000), david);
+        env.fund(XRP(110), eve);            // 100 xrp for the hook install, 10 xrp for reserves
 
         TestHook grantee_wasm = wasm[R"[test.hook](
             #include <stdint.h>
@@ -8062,7 +8069,128 @@ public:
                 M("test state_foreign_set 10"),
                  ter(tecHOOK_REJECTED));
         }
-        // RH TODO: check reserve exhaustion
+        
+        // check reserve exhaustion
+        TestHook exhaustion_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            #define sfInvoiceID ((5U << 16U) + 17U)
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t otxn_field (uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_id(uint32_t, uint32_t, uint32_t);
+            extern int64_t state_foreign_set (
+                uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t, uint32_t, uint32_t, uint32_t
+            );
+            extern int64_t trace_num(uint32_t, uint32_t, int64_t);
+            extern int64_t trace(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), y);
+
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+
+                uint8_t i;
+                int64_t y;
+                // get this transaction id
+                uint8_t txn[32];
+                ASSERT(otxn_id(SBUF(txn), 0) == 32);
+
+                trace(SBUF("txnid"), SBUF(txn), 1);
+
+                // get the invoice id, which contains the grantor account
+                uint8_t grantor[32];
+                ASSERT(otxn_field(SBUF(grantor), sfInvoiceID) == 32);
+
+
+
+                uint8_t iterations = grantor[0];
+                trace_num(SBUF("iterations"), iterations);
+
+                // set the current txn id on the grantor's state under key 1, namespace 0
+                uint8_t zero[32];
+                for (i = 0; GUARD(255), i < iterations; ++i)
+                {
+                    txn[0] = i;
+                    trace_num(SBUF("exhaustion i:"), i); 
+                    ASSERT((y=state_foreign_set(SBUF(txn), SBUF(txn), SBUF(zero), grantor + 12, 20)) == 32);
+                }
+               
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+
+        HASH_WASM(exhaustion);
+
+        // install the grantor hook on eve
+        {
+            Json::Value grants{Json::arrayValue};
+            grants[0U][jss::HookGrant] = Json::Value{};
+            grants[0U][jss::HookGrant][jss::HookHash] = exhaustion_hash_str;
+            grants[0U][jss::HookGrant][jss::Authorize] = bob.human(); 
+            
+            Json::Value json = ripple::test::jtx::hook(eve, {{hso(grantor_wasm, overrideFlag)}}, 0);
+            json[jss::Hooks][0U][jss::Hook][jss::HookGrants] = grants;
+
+            env(json,
+                M("set state_foreign_set 11"),
+                HSFEE);
+            env.close();
+        }
+
+        // install exhaustion grantee on bob
+        {
+            
+            Json::Value json = ripple::test::jtx::hook(bob, {{hso(exhaustion_wasm, overrideFlag)}}, 0);
+            env(json,
+                M("set state_foreign_set 12"),
+                HSFEE);
+            env.close();
+        }
+
+        // now invoke repeatedly until exhaustion is reached
+        {
+            Json::Value json = pay(cho, bob, XRP(1));
+            json[jss::InvoiceID] = "01" + std::string(22, '0') + strHex(eve.id());
+            // 10 xrp less 1 account reserve divided by by 0.2 object reserve = 45 objects
+            // of these we already have: 1 hook, 1 sfAuthorize, so 43 objects can be allocated
+            env(json, fee(XRP(1)),
+                M("test state_foreign_set 13"),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 3);
+
+            // now we have allocated 1 state object, so 42 more can be allocated
+
+            // try to set 43 state entries, this will fail            
+            json[jss::InvoiceID] = "2B" + std::string(22, '0') + strHex(eve.id());
+            env(json, fee(XRP(1)),
+                M("test state_foreign_set 14"),
+                ter(tecHOOK_REJECTED));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 3);
+
+            // try to set 42 state objects, this will succeed
+            json[jss::InvoiceID] = "2A" + std::string(22, '0') + strHex(eve.id());
+            env(json, fee(XRP(1)),
+                M("test state_foreign_set 15"),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 45);
+
+            // try to set one state object, this will fail
+            env(json, fee(XRP(1)),
+                M("test state_foreign_set 16"),
+                ter(tecHOOK_REJECTED));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 45);
+        }
+
     }
 
     void
@@ -11144,6 +11272,7 @@ public:
     run() override
     {
         // testTicketSetHook();  // RH TODO
+
         testHooksDisabled();
         testTxStructure();
         testInferHookSetOperation();

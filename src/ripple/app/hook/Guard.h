@@ -772,8 +772,8 @@ validateGuards(
 {
     uint64_t byteCount = hook.size();
 
-    // RH TODO compute actual smallest possible hook and update this value
-    if (byteCount < 10)
+    // 63 bytes is the smallest possible valid hook wasm
+    if (byteCount < 63U)
     {
         GUARDLOG(hook::log::WASM_TOO_SMALL)
             << "Malformed transaction: Hook was not valid webassembly binary. Too small." << "\n";
@@ -918,7 +918,6 @@ validateGuards(
                 int type_idx = 
                     parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
 
-                // RH TODO: validate that the parameters of the imported functions are correct
                 if (import_name == "_g")
                 {
                     guard_import_number = func_upto;
@@ -1214,7 +1213,6 @@ validateGuards(
 
                 int result_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
 
-                // RH TODO: enable this for production
                 // this needs a reliable hook cleaner otherwise it will catch most compilers out
                 if (result_count != 1)
                 {
