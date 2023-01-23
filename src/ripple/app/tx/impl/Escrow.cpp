@@ -118,13 +118,6 @@ EscrowCreate::preflight(PreflightContext const& ctx)
 
         if (isFakeXRP(amount))
             return temBAD_CURRENCY;
-
-        if (ctx.tx[sfAccount] == amount.getIssuer())
-        {
-            JLOG(ctx.j.trace())
-                << "Malformed transaction: Cannot escrow own tokens to self.";
-            return temBAD_SRC_ACCOUNT;
-        }
     }
 
     if (ctx.tx[sfAmount] <= beast::zero)
@@ -216,15 +209,15 @@ EscrowCreate::doApply()
     auto const account = ctx_.tx[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
     if (!sle)
-        return temDISABLED;
+        return tefINTERNAL;
 
     STAmount const amount{ctx_.tx[sfAmount]};
 
     std::shared_ptr<SLE> sleLine;
 
     auto const balance = STAmount((*sle)[sfBalance]).xrp();
-    auto const reserve =
-        ctx_.view().fees().accountReserve((*sle)[sfOwnerCount] + 1);
+    auto const reserve = ctx_.view().fees().accountReserve((*sle)[sfOwnerCount] + 1);
+    bool isIssuer = amount.getIssuer() == account;
 
     if (balance < reserve)
         return tecINSUFFICIENT_RESERVE;
@@ -245,20 +238,18 @@ EscrowCreate::doApply()
 
         // check if the escrow is capable of being
         // finished before we allow it to be created
-        {
-            TER result = trustTransferAllowed(
-                ctx_.view(),
-                {account, ctx_.tx[sfDestination]},
-                amount.issue(),
-                ctx_.journal);
+        if (!sleLine && amount.getIssuer() != account)
+            return tecNO_LINE;
 
-            JLOG(ctx_.journal.trace())
-                << "EscrowCreate::doApply trustTransferAllowed result="
-                << result;
+        TER result = trustTransferAllowed(
+            ctx_.view(),
+            {account, ctx_.tx[sfDestination]},
+            amount.issue(),
+            ctx_.journal);
 
-            if (!isTesSuccess(result))
-                return result;
-        }
+        JLOG(ctx_.journal.trace())
+            << "EscrowCreate::doApply trustTransferAllowed result="
+            << result;
 
         // perform the lock as a dry run before
         // we modify anything on-ledger
@@ -273,17 +264,29 @@ EscrowCreate::doApply()
             return tecUNFUNDED;
         }
 
+        if (!isTesSuccess(result))
+            return result;
+
+        // issuer does not need to lock anything
+        if (!isIssuer)
         {
-            TER result = trustAdjustLockedBalance(
-                ctx_.view(), sleLine, amount, 1, ctx_.journal, DryRun);
+            // perform the lock as a dry run before
+            // we modify anything on-ledger
+            sleLine = ctx_.view().peek(
+                keylet::line(account, amount.getIssuer(), amount.getCurrency()));
 
-            JLOG(ctx_.journal.trace())
-                << "EscrowCreate::doApply trustAdjustLockedBalance (dry) "
-                   "result="
-                << result;
+            {
+                TER result = trustAdjustLockedBalance(
+                    ctx_.view(), sleLine, amount, 1, ctx_.journal, DryRun);
 
-            if (!isTesSuccess(result))
-                return result;
+                JLOG(ctx_.journal.trace())
+                    << "EscrowCreate::doApply trustAdjustLockedBalance (dry) "
+                    "result="
+                    << result;
+
+                if (!isTesSuccess(result))
+                    return result;
+            }
         }
     }
 
@@ -345,20 +348,26 @@ EscrowCreate::doApply()
         (*sle)[sfBalance] = (*sle)[sfBalance] - ctx_.tx[sfAmount];
     else
     {
-        if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens) ||
-            !sleLine)
+        if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        // do the lock-up for real now
-        TER result = trustAdjustLockedBalance(
-            ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
+        if (!sleLine && amount.getIssuer() != account)
+            return tecNO_LINE;
 
-        JLOG(ctx_.journal.trace())
-            << "EscrowCreate::doApply trustAdjustLockedBalance (wet) result="
-            << result;
+        // issuer does not need to lock anything
+        if (!isIssuer)
+        {
+            // do the lock-up for real now
+            TER result = trustAdjustLockedBalance(
+                ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 
-        if (!isTesSuccess(result))
-            return result;
+            JLOG(ctx_.journal.trace())
+                << "EscrowCreate::doApply trustAdjustLockedBalance (wet) result="
+                << result;
+
+            if (!isTesSuccess(result))
+                return result;
+        }
     }
 
     adjustOwnerCount(ctx_.view(), sle, 1, ctx_.journal);
@@ -720,6 +729,7 @@ EscrowCancel::doApply()
     AccountID const account = (*slep)[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
     auto amount = slep->getFieldAmount(sfAmount);
+    bool isIssuer = amount.getIssuer() == account;
 
     std::shared_ptr<SLE> sleLine;
 
@@ -728,14 +738,15 @@ EscrowCancel::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        sleLine = ctx_.view().peek(
-            keylet::line(account, amount.getIssuer(), amount.getCurrency()));
+        // issuer does not need to lock anything
+        if (!isIssuer)
+        {
+            sleLine = ctx_.view().peek(keylet::line(account, amount.getIssuer(), amount.getCurrency()));
 
-        // dry run before we make any changes to ledger
-        if (TER result = trustAdjustLockedBalance(
-                ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun);
-            result != tesSUCCESS)
-            return result;
+            // dry run before we make any changes to ledger
+            if (TER result = trustAdjustLockedBalance(ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun); result != tesSUCCESS)
+                return result;
+        }
     }
 
     // Remove escrow from owner directory
@@ -771,16 +782,20 @@ EscrowCancel::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        // unlock previously locked tokens from source line
-        TER result = trustAdjustLockedBalance(
-            ctx_.view(), sleLine, -amount, -1, ctx_.journal, WetRun);
+        // issuer does not need to lock anything
+        if (!isIssuer)
+        {
+            // unlock previously locked tokens from source line
+            TER result = trustAdjustLockedBalance(
+                ctx_.view(), sleLine, -amount, -1, ctx_.journal, WetRun);
 
-        JLOG(ctx_.journal.trace())
-            << "EscrowCancel::doApply trustAdjustLockedBalance (wet) result="
-            << result;
+            JLOG(ctx_.journal.trace())
+                << "EscrowCancel::doApply trustAdjustLockedBalance (wet) result="
+                << result;
 
-        if (!isTesSuccess(result))
-            return result;
+            if (!isTesSuccess(result))
+                return result;
+        }
     }
 
     // Decrement owner count
