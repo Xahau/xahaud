@@ -1009,8 +1009,7 @@ trustTransferLockedBalance(
             return tecPRECISION_LOSS;
 
         finalBalance = isIssuer ? -finalBalance
-                                : dstHigh
-                                ? -finalBalance
+            : dstHigh           ? -finalBalance
                                 : finalBalance;
         if constexpr (!dryRun)
             sleDstLine->setFieldAmount(sfBalance, finalBalance);

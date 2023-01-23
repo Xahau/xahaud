@@ -3521,7 +3521,7 @@ struct PayChan_test : public beast::unit_test::suite
                           .asString();
             }
 
-            // Try to authorize without specifying a key type, expect an 
+            // Try to authorize without specifying a key type, expect an
             // error:
             auto const rs = env.rpc(
                 "channel_authorize",
@@ -4572,7 +4572,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const chan = channel(gw, alice, env.seq(gw));
             env(create(gw, alice, USD(1000), settleDelay, pk));
             env.close();
-            
+
             // gw can not claim
             auto const preAlice = env.balance(alice, USD.issue());
             auto chanBal = channelBalance(*env.current(), chan);
@@ -4594,7 +4594,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const chan = channel(gw, alice, env.seq(gw));
             env(create(gw, alice, USD(1000), settleDelay, pk));
             env.close();
-            
+
             // alice can claim
             auto const preAlice = env.balance(alice, USD.issue());
             auto chanBal = channelBalance(*env.current(), chan);
@@ -4624,7 +4624,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const chan = channel(gw, alice, env.seq(gw));
             env(create(gw, alice, USD(1000), settleDelay, pk));
             env.close();
-            
+
             // gw can claim
             auto const preAlice = env.balance(alice, USD.issue());
             auto chanBal = channelBalance(*env.current(), chan);
@@ -4656,7 +4656,7 @@ struct PayChan_test : public beast::unit_test::suite
             env.close();
 
             env(fund(gw, chan, USD(1000)));
-            
+
             // gw can claim
             auto const preAlice = env.balance(alice, USD.issue());
             auto chanBal = channelBalance(*env.current(), chan);
@@ -4682,7 +4682,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const bob = Account("bob");
         auto const carol = Account("carol");
         auto const gw = Account{"gateway"};
-         auto const USD = gw["USD"];
+        auto const USD = gw["USD"];
 
         auto const aliceUSD = alice["USD"];
         auto const bobUSD = bob["USD"];
@@ -4722,7 +4722,8 @@ struct PayChan_test : public beast::unit_test::suite
 
             // bob can claim, increasing the limit amount
             auto const preBobLimit = limitAmount(env, bob, gw, USD);
-            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            auto const sig =
+                signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();
             auto const postBobLimit = limitAmount(env, bob, gw, USD);
@@ -4771,9 +4772,9 @@ struct PayChan_test : public beast::unit_test::suite
             env(claim(alice, chan, reqBal, authAmt));
             env.close();
             // bob can claim
-            // auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
-            // env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
-            // env.close();
+            // auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan,
+            // authAmt); env(claim(bob, chan, reqBal, authAmt, Slice(sig),
+            // alice.pk())); env.close();
         }
         // test TransferRate
         {
@@ -4813,20 +4814,21 @@ struct PayChan_test : public beast::unit_test::suite
 
             // bob can claim, increasing the limit amount
             // auto const preBobLimit = limitAmount(env, bob, gw, USD);
-            // auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
-            // env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
-            // env.close();
+            // auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan,
+            // authAmt); env(claim(bob, chan, reqBal, authAmt, Slice(sig),
+            // alice.pk())); env.close();
 
             auto const postLocked = lockedAmount(env, alice, gw, USD);
             auto const aliceLimit = limitAmount(env, alice, gw, USD);
             auto const bobLimit = limitAmount(env, bob, gw, USD);
-            // std::cout << "ALICE AMOUNT: " << env.balance(alice, USD.issue()) << "\n";
-            // std::cout << "BOB AMOUNT: " << env.balance(bob, USD.issue()) << "\n";
-            // std::cout << "ALICE LIMIT: " << aliceLimit << "\n";
-            // std::cout << "BOB LIMIT: " << bobLimit << "\n";
+            // std::cout << "ALICE AMOUNT: " << env.balance(alice, USD.issue())
+            // << "\n"; std::cout << "BOB AMOUNT: " << env.balance(bob,
+            // USD.issue()) << "\n"; std::cout << "ALICE LIMIT: " << aliceLimit
+            // << "\n"; std::cout << "BOB LIMIT: " << bobLimit << "\n";
             // std::cout << "POST LOCKED: " << postLocked << "\n";
-            // std::cout << "CHAN BAL: " << channelBalance(*env.current(), chan) << "\n";
-            // std::cout << "CHAN AUTH: " << channelAmount(*env.current(), chan) << "\n";
+            // std::cout << "CHAN BAL: " << channelBalance(*env.current(), chan)
+            // << "\n"; std::cout << "CHAN AUTH: " <<
+            // channelAmount(*env.current(), chan) << "\n";
         }
         // test Global Freeze
         {
@@ -4869,7 +4871,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(claim(alice, chan, reqBal, authAmt), ter(tecFROZEN));
             // bob cannot claim - tl global freeze
             auto sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
-            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()), ter(tecFROZEN));
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
+                ter(tecFROZEN));
             env.close();
 
             env(fclear(gw, asfGlobalFreeze));
