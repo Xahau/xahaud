@@ -216,7 +216,8 @@ EscrowCreate::doApply()
     std::shared_ptr<SLE> sleLine;
 
     auto const balance = STAmount((*sle)[sfBalance]).xrp();
-    auto const reserve = ctx_.view().fees().accountReserve((*sle)[sfOwnerCount] + 1);
+    auto const reserve =
+        ctx_.view().fees().accountReserve((*sle)[sfOwnerCount] + 1);
     bool isIssuer = amount.getIssuer() == account;
 
     if (balance < reserve)
@@ -248,8 +249,7 @@ EscrowCreate::doApply()
             ctx_.journal);
 
         JLOG(ctx_.journal.trace())
-            << "EscrowCreate::doApply trustTransferAllowed result="
-            << result;
+            << "EscrowCreate::doApply trustTransferAllowed result=" << result;
 
         // perform the lock as a dry run before
         // we modify anything on-ledger
@@ -272,8 +272,8 @@ EscrowCreate::doApply()
         {
             // perform the lock as a dry run before
             // we modify anything on-ledger
-            sleLine = ctx_.view().peek(
-                keylet::line(account, amount.getIssuer(), amount.getCurrency()));
+            sleLine = ctx_.view().peek(keylet::line(
+                account, amount.getIssuer(), amount.getCurrency()));
 
             {
                 TER result = trustAdjustLockedBalance(
@@ -281,7 +281,7 @@ EscrowCreate::doApply()
 
                 JLOG(ctx_.journal.trace())
                     << "EscrowCreate::doApply trustAdjustLockedBalance (dry) "
-                    "result="
+                       "result="
                     << result;
 
                 if (!isTesSuccess(result))
@@ -362,7 +362,8 @@ EscrowCreate::doApply()
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 
             JLOG(ctx_.journal.trace())
-                << "EscrowCreate::doApply trustAdjustLockedBalance (wet) result="
+                << "EscrowCreate::doApply trustAdjustLockedBalance (wet) "
+                   "result="
                 << result;
 
             if (!isTesSuccess(result))
@@ -741,10 +742,13 @@ EscrowCancel::doApply()
         // issuer does not need to lock anything
         if (!isIssuer)
         {
-            sleLine = ctx_.view().peek(keylet::line(account, amount.getIssuer(), amount.getCurrency()));
+            sleLine = ctx_.view().peek(keylet::line(
+                account, amount.getIssuer(), amount.getCurrency()));
 
             // dry run before we make any changes to ledger
-            if (TER result = trustAdjustLockedBalance(ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun); result != tesSUCCESS)
+            if (TER result = trustAdjustLockedBalance(
+                    ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun);
+                result != tesSUCCESS)
                 return result;
         }
     }
@@ -790,7 +794,8 @@ EscrowCancel::doApply()
                 ctx_.view(), sleLine, -amount, -1, ctx_.journal, WetRun);
 
             JLOG(ctx_.journal.trace())
-                << "EscrowCancel::doApply trustAdjustLockedBalance (wet) result="
+                << "EscrowCancel::doApply trustAdjustLockedBalance (wet) "
+                   "result="
                 << result;
 
             if (!isTesSuccess(result))

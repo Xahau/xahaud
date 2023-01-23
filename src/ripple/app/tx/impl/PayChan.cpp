@@ -285,9 +285,13 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
         {
             if (!isIssuer)
             {
-                auto sleLine = ctx.view.read(keylet::line(account, amount.getIssuer(), amount.getCurrency()));
-                TER result = trustAdjustLockedBalance(ctx.view, sleLine, amount, 1, ctx.j, DryRun);
-                JLOG(ctx.j.trace()) << "PayChanCreate::preclaim trustAdjustLockedBalance(dry) result=" << result;
+                auto sleLine = ctx.view.read(keylet::line(
+                    account, amount.getIssuer(), amount.getCurrency()));
+                TER result = trustAdjustLockedBalance(
+                    ctx.view, sleLine, amount, 1, ctx.j, DryRun);
+                JLOG(ctx.j.trace()) << "PayChanCreate::preclaim "
+                                       "trustAdjustLockedBalance(dry) result="
+                                    << result;
                 if (!isTesSuccess(result))
                     return result;
             }
@@ -385,17 +389,19 @@ PayChanCreate::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        auto sleLine = ctx_.view().peek(keylet::line(account, amount.getIssuer(), amount.getCurrency()));
+        auto sleLine = ctx_.view().peek(
+            keylet::line(account, amount.getIssuer(), amount.getCurrency()));
         if (!sleLine && !isIssuer)
             return tecNO_LINE;
-        
+
         if (!isIssuer)
         {
             TER result = trustAdjustLockedBalance(
-            ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
+                ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 
             JLOG(ctx_.journal.trace())
-                << "PayChanCreate::doApply trustAdjustLockedBalance(wet) result="
+                << "PayChanCreate::doApply trustAdjustLockedBalance(wet) "
+                   "result="
                 << result;
 
             if (!isTesSuccess(result))
@@ -470,7 +476,8 @@ PayChanFund::doApply()
         // issuer does not need to lock anything
         if (!isIssuer)
         {
-            sleLine = ctx_.view().peek(keylet::line((*slep)[sfAccount], amount.getIssuer(), amount.getCurrency()));
+            sleLine = ctx_.view().peek(keylet::line(
+                (*slep)[sfAccount], amount.getIssuer(), amount.getCurrency()));
 
             TER result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, DryRun);
@@ -547,7 +554,7 @@ PayChanFund::doApply()
         if (!isIssuer)
         {
             TER result = trustAdjustLockedBalance(
-            ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
+                ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 
             JLOG(ctx_.journal.trace())
                 << "PayChanFund::doApply trustAdjustLockedBalance(wet) result="
