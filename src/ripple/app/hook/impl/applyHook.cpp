@@ -1535,7 +1535,7 @@ finalizeHookState(
                 if (is_modified)
                 {
                     changeCount++;
-                    if (changeCount >= 0xFFFFU)      // RH TODO: limit the max number of state changes?
+                    if (changeCount > max_state_modifications + 1)
                     {
                         // overflow
                         JLOG(j.warn()) 

@@ -1342,22 +1342,4 @@ validateGuards(
 
     return std::pair<uint64_t, uint64_t>{maxInstrCountHook, maxInstrCountCbak};
 
-    /*
-    GUARDLOG(hook::log::WASM_SMOKE_TEST)
-        << "Trying to wasm instantiate proposed hook "
-        << "size = " <<  hook.size() << "\n";
-
-    std::optional<std::string> result =
-        hook::HookExecutor::validateWasm(hook.data(), (size_t)hook.size());
-
-    if (result)
-    {
-        GUARDLOG(hook::log::WASM_TEST_FAILURE)
-            << "Tried to set a hook with invalid code. VM error: "
-            << *result << "\n";
-        return {};
-    }
-    */
-
-    return std::pair<uint64_t, uint64_t>{maxInstrCountHook, maxInstrCountCbak};
 }

@@ -8195,11 +8195,15 @@ public:
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
         auto const cho = Account{"cho"};
+        auto const david = Account{"david"};
+        auto const eve = Account{"eve"};     // small balance
+        auto const frank = Account{"frank"}; // big balance
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
         env.fund(XRP(10000), cho);
-
-        
+        env.fund(XRP(1000000), david);
+        env.fund(XRP(2600), eve);
+        env.fund(XRP(1000000000), frank);
 
         // install a rollback hook on cho
         env(ripple::test::jtx::hook(cho, {{hso(rollback_wasm, overrideFlag)}}, 0),
@@ -8755,11 +8759,143 @@ public:
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
 
         }
+        
+        // check reserve exhaustion
+        TestHook exhaustion_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            #define sfInvoiceID ((5U << 16U) + 17U)
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t otxn_field (uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_id(uint32_t, uint32_t, uint32_t);
+            extern int64_t state_set (
+                uint32_t, uint32_t, uint32_t, uint32_t
+            );
+            extern int64_t hook_pos(void);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
 
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+
+                // get this transaction id
+                uint8_t txn[32];
+                ASSERT(otxn_id(SBUF(txn), 0) == 32);
+
+                // get the invoice id, which contains the grantor account
+                uint8_t grantor[32];
+                ASSERT(otxn_field(SBUF(grantor), sfInvoiceID) == 32);
+
+                uint16_t iterations = (((uint16_t)grantor[0]) << 8U) + ((uint16_t)grantor[1]);
+
+                uint8_t p = hook_pos();
+                for (uint16_t i = 0; GUARD(1500), i < iterations; ++i)
+                {
+                    *((uint16_t*)txn) = i;
+                    txn[2] = (uint8_t)p;
+                    ASSERT(state_set(SBUF(txn), SBUF(txn)) == 32);
+                }
+
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+
+        HASH_WASM(exhaustion);
+
+        // install the exhaustion hook on eve
+        {
+            Json::Value json = ripple::test::jtx::hook(eve, {{hso(exhaustion_wasm, overrideFlag)}}, 0);
+
+            env(json,
+                M("set state_set 6"),
+                HSFEE);
+            env.close();
+        }
+
+        // now invoke repeatedly until exhaustion is reached
+        {
+
+            Json::Value json = pay(david, eve, XRP(1));
+            json[jss::InvoiceID] = "0001" + std::string(60, '0');
+            
+            // 2500 xrp less 1 account reserve (200) divided by 50xrp per object reserve = 46 objects
+            // of these we already have: 1 hook, so 45 objects can be allocated
+            env(json, fee(XRP(1)),
+                M("test state_set 7"),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 2);
+
+            // now we have allocated 1 state object, so 44 more can be allocated
+
+            // try to set 45 state entries, this will fail            
+            json[jss::InvoiceID] = "002D" + std::string(60, '0');
+            env(json, fee(XRP(1)),
+                M("test state_set 8"),
+                ter(tecHOOK_REJECTED));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 2);
+            
+
+            // try to set 44 state objects, this will succeed
+            json[jss::InvoiceID] = "002C" + std::string(60, '0');
+            env(json, fee(XRP(1)),
+                M("test state_set 9"),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 46);
+            
+
+            // try to set one state object, this will fail
+            env(json, fee(XRP(1)),
+                M("test state_set 10"),
+                ter(tecHOOK_REJECTED));
+            env.close();
+            BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 46);
+        }
+
+        // test maximum state modification
+        {
+            // install the hook into every position on frank
+            env(ripple::test::jtx::hook(
+                    frank, {{
+                        hso(exhaustion_wasm), 
+                        hso(exhaustion_wasm), 
+                        hso(exhaustion_wasm), 
+                        hso(exhaustion_wasm)
+                    }}, 0),
+                M("set state_set 11"),
+                HSFEE,
+                ter(tesSUCCESS));
+
+            Json::Value json = pay(david, frank, XRP(1));
+
+            // we can modify 1500 entries at a time with the hook, but first we want to test too many modifications
+            // so we will do 1251 which times 4 executions is 5005
+            json[jss::InvoiceID] = "04E3" + std::string(60, '0');
+            env(json, fee(XRP(1)),
+                M("test state_set 12"),
+                ter(tecHOOK_REJECTED));
+            env.close();
+            BEAST_EXPECT((*env.le("frank"))[sfOwnerCount] == 4);
+
+            // now we will do 1250 which is exactly 5000, which should be accepted
+            json[jss::InvoiceID] = "04E2" + std::string(60, '0');
+            env(json, fee(XRP(1)),
+                M("test state_set 13"),
+                ter(tesSUCCESS));
+            env.close();
+            std::cout << "frank ownercount: " << (*env.le("frank"))[sfOwnerCount] << "\n";
+            BEAST_EXPECT((*env.le("frank"))[sfOwnerCount] == 5004);
+        }
+        
         // RH TODO:
         // check state can be set on emit callback
-        // check reserve - cant make new state object if reserve insufficient
-        // try creating many new state objects
         // check namespacing provides for non-collision of same key
 
     }
