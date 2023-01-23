@@ -3511,6 +3511,7 @@ struct Escrow_test : public beast::unit_test::suite
                 fulfillment(fb1),
                 fee(1500));
             env.close();
+            BEAST_EXPECT(preAlice == USD(5000));
             BEAST_EXPECT(
                 env.balance(alice, USD.issue()) == preAlice + USD(1000));
         }
@@ -3534,6 +3535,7 @@ struct Escrow_test : public beast::unit_test::suite
                 fulfillment(fb1),
                 fee(1500));
             env.close();
+            BEAST_EXPECT(preAlice == USD(0));
             BEAST_EXPECT(
                 env.balance(alice, USD.issue()) == preAlice + USD(1000));
         }
