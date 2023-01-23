@@ -1204,7 +1204,7 @@ lookup_state_cache(
 
 // update the state cache
 inline
-bool                                    // true unless a new hook state was required and the acc has insufficent reserve
+int64_t                                         // if negative a hook return code, if == 1 then success
 set_state_cache(
         hook::HookContext& hookCtx,
         ripple::AccountID const& acc,
@@ -1213,8 +1213,11 @@ set_state_cache(
         ripple::Blob& data,
         bool modified)
 {
-
     auto& stateMap = hookCtx.result.stateMap;
+
+    if (modified && stateMap.modified_entry_count > max_state_modifications)
+        return TOO_MANY_STATE_MODIFICATIONS;
+
     if (stateMap.find(acc) == stateMap.end())
     {
 
@@ -1224,7 +1227,7 @@ set_state_cache(
 
         auto const accSLE = hookCtx.applyCtx.view().read(ripple::keylet::account(acc));
         if (!accSLE)
-            return false;
+            return DOESNT_EXIST;
 
         STAmount bal = accSLE->getFieldAmount(sfBalance);
 
@@ -1239,7 +1242,9 @@ set_state_cache(
         availableForReserves /= increment;
 
         if (availableForReserves < 1 && modified)
-            return false;
+            return RESERVE_INSUFFICIENT;
+
+        stateMap.modified_entry_count++;
         
         stateMap[acc] =
         {
@@ -1259,7 +1264,7 @@ set_state_cache(
                 }
             }
         };
-        return true;
+        return 1;
     }
 
     auto& stateMapAcc = stateMap[acc].second;
@@ -1272,8 +1277,10 @@ set_state_cache(
         if (modified)
         {   
             if (!canReserveNew)
-                return false;
+                return RESERVE_INSUFFICIENT;
+
             availableForReserves--;
+            stateMap.modified_entry_count++;
         }
 
         stateMapAcc[ns] =
@@ -1283,7 +1290,7 @@ set_state_cache(
             }
         };
 
-        return true;
+        return 1;
     }
 
     auto& stateMapNs = stateMapAcc[ns];
@@ -1292,13 +1299,14 @@ set_state_cache(
         if (modified)
         {   
             if (!canReserveNew)
-                return false;
+                return RESERVE_INSUFFICIENT;
             availableForReserves--;
+            stateMap.modified_entry_count++;
         }
 
         stateMapNs[key] = { modified, data };
         hookCtx.result.changedStateCount++;
-        return true;
+        return 1;
     }
 
     if (modified)
@@ -1306,11 +1314,12 @@ set_state_cache(
         if (!stateMapNs[key].first)
             hookCtx.result.changedStateCount++;
 
+        stateMap.modified_entry_count++;
         stateMapNs[key].first = true;
     }
 
     stateMapNs[key].second = data;
-    return true;
+    return 1;
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -1400,8 +1409,8 @@ DEFINE_HOOK_FUNCTION(
     // local modifications are always allowed
     if (aread_len == 0 || acc == hookCtx.result.account)
     {
-        if (!set_state_cache(hookCtx, acc, ns, *key, data, true))
-            return RESERVE_INSUFFICIENT;
+        if (int64_t ret = set_state_cache(hookCtx, acc, ns, *key, data, true); ret < 0)
+            return ret;
 
         return read_len;
     }
@@ -1415,8 +1424,8 @@ DEFINE_HOOK_FUNCTION(
     if (cacheEntry && cacheEntry->get().first)
     {
         // if a cache entry already exists and it has already been modified don't check grants again
-        if (!set_state_cache(hookCtx, acc, ns, *key, data, true))
-            return RESERVE_INSUFFICIENT;
+        if (int64_t ret = set_state_cache(hookCtx, acc, ns, *key, data, true); ret < 0)
+            return ret;
 
         return read_len;
     }
@@ -1463,11 +1472,6 @@ DEFINE_HOOK_FUNCTION(
                 continue;
         }
 
-                
-
-        //if (hookObj->isFieldPresent(sfHookNamespace) && hookObj->getFieldH256(sfHookNamespace) != ns)
-        //    continue;
-
         // this is expensive search so we'll disallow after one failed attempt
         for (auto const& hookGrant : hookGrants)
         {
@@ -1493,14 +1497,14 @@ DEFINE_HOOK_FUNCTION(
         return NOT_AUTHORIZED;
     }
 
-    if (!set_state_cache(
+    if (int64_t ret = set_state_cache(
             hookCtx,
             acc,
             ns,
             *key,
             data,
-            true))
-        return RESERVE_INSUFFICIENT;
+            true); ret < 0)
+        return ret;
 
     return read_len;
 }
@@ -1839,7 +1843,7 @@ DEFINE_HOOK_FUNCTION(
     Blob b = hsSLE->getFieldVL(sfHookStateData);
 
     // it exists add it to cache and return it
-    if (!set_state_cache(hookCtx, acc, ns, *key, b, false))
+    if (set_state_cache(hookCtx, acc, ns, *key, b, false) < 0)
         return INTERNAL_ERROR; // should never happen
 
     if (write_ptr == 0)
@@ -3690,8 +3694,8 @@ DEFINE_HOOK_FUNCTION(
     if (read_len > 49)
         return TOO_BIG;
 
-    // RH TODO we shouldn't need to slice this input but the base58 routine fails if we dont... maybe
-    // some encoding or padding that shouldnt be there or maybe something that should be there
+    // RH TODO we shouldn't need to slice this input but the base58 routine fails if we dont...
+    // maybe some encoding or padding that shouldnt be there or maybe something that should be there
 
     char buffer[50];
     for (int i = 0; i < read_len; ++i)
@@ -3700,12 +3704,9 @@ DEFINE_HOOK_FUNCTION(
 
     std::string raddr{buffer};
     
-    //std::string raddr((char*)(memory + read_ptr), read_len);
-
     auto const result = decodeBase58Token(raddr, TokenType::AccountID);
     if (result.empty())
         return INVALID_ARGUMENT;
-
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, write_len,
