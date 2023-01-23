@@ -42,30 +42,39 @@ public:
     InboundTransactions&
     operator=(InboundTransactions const&) = delete;
 
-    virtual ~InboundTransactions() = 0;
+    virtual ~InboundTransactions() = default;
 
-    /** Find and return a transaction set, or nullptr if it is missing.
+    /** Retrieve a transaction set if it is available locally.
      *
-     * @param setHash The transaction set ID (digest of the SHAMap root node).
-     * @param acquire Whether to fetch the transaction set from the network if
-     * it is missing.
-     * @return The transaction set with ID setHash, or nullptr if it is
-     * missing.
+     * @param hash The transaction set ID (digest of the SHAMap root node).
+     * @return The transaction set, or nullptr if not available.
      */
     virtual std::shared_ptr<SHAMap>
-    getSet(uint256 const& setHash, bool acquire) = 0;
+    get(uint256 const& hash) = 0;
+
+    /** Retrieve a transaction set, fetching it from the network if necessary.
+     *
+     * If the transaction set is not available locally, initiates acquisition
+     * from peers and returns nullptr. The set will be delivered asynchronously
+     * via the callback when available.
+     *
+     * @param hash The transaction set ID (digest of the SHAMap root node).
+     * @return The transaction set if available locally, otherwise nullptr.
+     */
+    virtual std::shared_ptr<SHAMap>
+    acquire(uint256 const& hash) = 0;
 
     /** Add a transaction set from a LedgerData message.
      *
      * @param setHash The transaction set ID (digest of the SHAMap root node).
      * @param peer The peer that sent the message.
-     * @param message The LedgerData message.
+     * @param data The data we received.
      */
     virtual void
     gotData(
         uint256 const& setHash,
         std::shared_ptr<Peer> peer,
-        std::shared_ptr<protocol::TMLedgerData> message) = 0;
+        std::vector<std::pair<SHAMapNodeID, Slice>> const& data) = 0;
 
     /** Add a transaction set.
      *

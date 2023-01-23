@@ -132,6 +132,9 @@ public:
 public:
     Application();
 
+    Application(Application const&) = delete;
+    Application(Application&&) = delete;
+
     virtual ~Application() = default;
 
     virtual bool

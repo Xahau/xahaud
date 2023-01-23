@@ -247,10 +247,9 @@ RCLConsensus::Adaptor::share(RCLTxSet const& txns)
 std::optional<RCLTxSet>
 RCLConsensus::Adaptor::acquireTxSet(RCLTxSet::ID const& setId)
 {
-    if (auto txns = inboundTransactions_.getSet(setId, true))
-    {
+    if (auto txns = inboundTransactions_.acquire(setId))
         return RCLTxSet{std::move(txns)};
-    }
+
     return std::nullopt;
 }
 

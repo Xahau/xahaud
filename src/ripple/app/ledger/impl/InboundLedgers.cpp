@@ -111,13 +111,13 @@ public:
             }
         }
 
-        if (inbound->isFailed())
+        if (inbound->hasFailed())
             return {};
 
         if (!isNew)
             inbound->update(seq);
 
-        if (!inbound->isComplete())
+        if (!inbound->hasCompleted())
             return {};
 
         if (reason == InboundLedger::Reason::HISTORY)
