@@ -3479,7 +3479,7 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testICGW(FeatureBitset features)
+    testICGateway(FeatureBitset features)
     {
         testcase("IC Gateway");
         using namespace test::jtx;
@@ -3566,7 +3566,7 @@ struct Escrow_test : public beast::unit_test::suite
         testICMetaAndOwnership(features);
         testICConsequences(features);
         testICEscrowWithTickets(features);
-        testICGW(features);
+        testICGateway(features);
     }
 
 public:
