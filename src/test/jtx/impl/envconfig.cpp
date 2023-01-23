@@ -69,6 +69,7 @@ namespace jtx {
 std::unique_ptr<Config>
 no_admin(std::unique_ptr<Config> cfg)
 {
+    cfg->NETWORK_ID = 21337;
     (*cfg)["port_rpc"].set("admin", "");
     (*cfg)["port_ws"].set("admin", "");
     return cfg;
