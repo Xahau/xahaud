@@ -383,11 +383,12 @@ PayChanCreate::doApply()
 
         auto sleLine = ctx_.view().peek(
             keylet::line(account, amount.getIssuer(), amount.getCurrency()));
-        if (!sleLine && !isIssuer)
-            return tecNO_LINE;
 
         if (!isIssuer)
         {
+            if (!sleLine)
+                return tecNO_LINE;
+            
             TER result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 

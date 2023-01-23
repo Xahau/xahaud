@@ -236,11 +236,6 @@ EscrowCreate::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        // check if the escrow is capable of being
-        // finished before we allow it to be created
-        if (!sleLine && amount.getIssuer() != account)
-            return tecNO_LINE;
-
         TER result = trustTransferAllowed(
             ctx_.view(),
             {account, ctx_.tx[sfDestination]},
@@ -255,11 +250,16 @@ EscrowCreate::doApply()
 
         // issuer does not need to lock anything
         if (!isIssuer)
-        {
+        {   
             // perform the lock as a dry run before
             // we modify anything on-ledger
             sleLine = ctx_.view().peek(keylet::line(
                 account, amount.getIssuer(), amount.getCurrency()));
+
+            // check if the escrow is capable of being
+            // finished before we allow it to be created
+            if (!sleLine)
+                return tecNO_LINE;
 
             {
                 TER result = trustAdjustLockedBalance(
@@ -336,12 +336,12 @@ EscrowCreate::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        if (!sleLine && amount.getIssuer() != account)
-            return tecNO_LINE;
-
         // issuer does not need to lock anything
         if (!isIssuer)
         {
+            if (!sleLine)
+                return tecNO_LINE;
+            
             // do the lock-up for real now
             TER result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
