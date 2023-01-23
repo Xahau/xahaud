@@ -238,7 +238,7 @@ namespace hook_api
         ACCEPT = 3,
     };
 
-    const uint16_t max_state_modifications = 5000;
+    const uint16_t max_state_modifications = 256;
     const uint8_t max_slots = 255;
     const uint8_t max_nonce = 255;
     const uint8_t max_emit = 255;

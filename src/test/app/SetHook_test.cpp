@@ -8875,23 +8875,23 @@ public:
 
             Json::Value json = pay(david, frank, XRP(1));
 
-            // we can modify 1500 entries at a time with the hook, but first we want to test too many modifications
-            // so we will do 1251 which times 4 executions is 5005
-            json[jss::InvoiceID] = "04E3" + std::string(60, '0');
+            // we can modify 256 entries at a time with the hook, but first we want to test too many modifications
+            // so we will do 65 which times 4 executions is 260
+            json[jss::InvoiceID] = "0041" + std::string(60, '0');
             env(json, fee(XRP(1)),
                 M("test state_set 12"),
                 ter(tecHOOK_REJECTED));
             env.close();
             BEAST_EXPECT((*env.le("frank"))[sfOwnerCount] == 4);
 
-            // now we will do 1250 which is exactly 5000, which should be accepted
-            json[jss::InvoiceID] = "04E2" + std::string(60, '0');
+            // now we will do 64 which is exactly 256, which should be accepted
+            json[jss::InvoiceID] = "0040" + std::string(60, '0');
             env(json, fee(XRP(1)),
                 M("test state_set 13"),
                 ter(tesSUCCESS));
             env.close();
             std::cout << "frank ownercount: " << (*env.le("frank"))[sfOwnerCount] << "\n";
-            BEAST_EXPECT((*env.le("frank"))[sfOwnerCount] == 5004);
+            BEAST_EXPECT((*env.le("frank"))[sfOwnerCount] == 260);
         }
         
         // RH TODO:
