@@ -20,12 +20,14 @@
 #ifndef RIPPLE_LEDGER_VIEW_H_INCLUDED
 #define RIPPLE_LEDGER_VIEW_H_INCLUDED
 
+#include <ripple/basics/Log.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/core/Config.h>
 #include <ripple/ledger/ApplyView.h>
 #include <ripple/ledger/OpenView.h>
 #include <ripple/ledger/RawView.h>
 #include <ripple/ledger/ReadView.h>
+#include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Protocol.h>
 #include <ripple/protocol/Rate.h>
 #include <ripple/protocol/STLedgerEntry.h>
@@ -33,13 +35,11 @@
 #include <ripple/protocol/STTx.h>
 #include <ripple/protocol/Serializer.h>
 #include <ripple/protocol/TER.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/basics/Log.h>
 #include <functional>
 #include <map>
 #include <memory>
-#include <utility>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace ripple {
@@ -353,7 +353,6 @@ trustDelete(
     AccountID const& uHighAccountID,
     beast::Journal j);
 
-
 /** Delete an offer.
 
     Requirements:
@@ -422,7 +421,7 @@ transferXRP(
 // Trustline Locking and Transfer (PaychanAndEscrowForTokens)
 //
 
-// In functions white require a `RunType` 
+// In functions white require a `RunType`
 // pass DryRun (don't apply changes) or WetRun (do apply changes)
 // to allow compile time evaluation of which types and calls to use
 
@@ -435,15 +434,16 @@ transferXRP(
 template <class T, T V>
 struct RunType
 {
-    //see:
-    //http://alumni.media.mit.edu/~rahimi/compile-time-flags/
-    constexpr operator T() const 
-    { 
+    // see:
+    // http://alumni.media.mit.edu/~rahimi/compile-time-flags/
+    constexpr operator T() const
+    {
         static_assert(std::is_same<bool, T>::value);
         return V;
     }
 
-    constexpr T operator!() const
+    constexpr T
+    operator!() const
     {
         static_assert(std::is_same<bool, T>::value);
         return !(V);
@@ -452,7 +452,8 @@ struct RunType
 
 // allow party lists to be logged easily
 template <class T>
-std::ostream& operator<< (std::ostream& lhs, std::vector<T> const& rhs)
+std::ostream&
+operator<<(std::ostream& lhs, std::vector<T> const& rhs)
 {
     lhs << "{";
     for (int i = 0; i < rhs.size(); ++i)
@@ -461,7 +462,8 @@ std::ostream& operator<< (std::ostream& lhs, std::vector<T> const& rhs)
     return lhs;
 }
 // Return true iff the acc side of line is in default state
-bool isTrustDefault(
+bool
+isTrustDefault(
     std::shared_ptr<SLE> const& acc,    // side to check
     std::shared_ptr<SLE> const& line);  // line to check
 
@@ -469,17 +471,17 @@ bool isTrustDefault(
     If positive deltaAmt lock the amount.
     If negative deltaAmt unlock the amount.
 */
-template<class V, class S, class R>
+template <class V, class S, class R>
 [[nodiscard]] TER
 trustAdjustLockedBalance(
     V& view,
     S& sleLine,
     STAmount const& deltaAmt,
-    int deltaLockCount,                // if +1 lockCount is increased, -1 is decreased, 0 unchanged
+    int deltaLockCount,  // if +1 lockCount is increased, -1 is decreased, 0
+                         // unchanged
     beast::Journal const& j,
     R dryRun)
 {
-
     static_assert(
         (std::is_same<V, ReadView const>::value &&
          std::is_same<S, std::shared_ptr<SLE const>>::value) ||
@@ -498,27 +500,23 @@ trustAdjustLockedBalance(
         return tecNO_LINE;
 
     // auto const currency = deltaAmt.getCurrency();
-    auto const issuer   = deltaAmt.getIssuer();
+    auto const issuer = deltaAmt.getIssuer();
 
-    STAmount lowLimit  = sleLine->getFieldAmount(sfLowLimit);
+    STAmount lowLimit = sleLine->getFieldAmount(sfLowLimit);
 
     // the account which is modifying the LockedBalance is always
     // the side that isn't the issuer, so if the low side is the
     // issuer then the high side is the account.
-    bool high =  lowLimit.getIssuer() == issuer;
+    bool high = lowLimit.getIssuer() == issuer;
 
-    std::vector<AccountID> parties 
-        {high ? sleLine->getFieldAmount(sfHighLimit).getIssuer(): lowLimit.getIssuer()}; 
+    std::vector<AccountID> parties{
+        high ? sleLine->getFieldAmount(sfHighLimit).getIssuer()
+             : lowLimit.getIssuer()};
 
     // check for freezes & auth
     {
-        TER result =
-            trustTransferAllowed(
-                view,
-                parties,
-                deltaAmt.issue(),
-                j);
-        
+        TER result = trustTransferAllowed(view, parties, deltaAmt.issue(), j);
+
         JLOG(j.trace())
             << "trustAdjustLockedBalance: trustTransferAllowed result="
             << result;
@@ -528,8 +526,7 @@ trustAdjustLockedBalance(
     }
 
     // pull the TL balance from the account's perspective
-    STAmount balance =
-        high ? -(*sleLine)[sfBalance] : (*sleLine)[sfBalance];
+    STAmount balance = high ? -(*sleLine)[sfBalance] : (*sleLine)[sfBalance];
 
     // this would mean somehow the issuer is trying to lock balance
     if (balance < beast::zero)
@@ -541,14 +538,13 @@ trustAdjustLockedBalance(
     // can't lock or unlock a zero balance
     if (balance == beast::zero)
     {
-        JLOG(j.trace())
-            << "trustAdjustLockedBalance failed, zero balance";
+        JLOG(j.trace()) << "trustAdjustLockedBalance failed, zero balance";
         return tecUNFUNDED_PAYMENT;
     }
 
-    STAmount priorLockedBalance {sfLockedBalance, deltaAmt.issue()};
+    STAmount priorLockedBalance{sfLockedBalance, deltaAmt.issue()};
     if (sleLine->isFieldPresent(sfLockedBalance))
-        priorLockedBalance = 
+        priorLockedBalance =
             high ? -(*sleLine)[sfLockedBalance] : (*sleLine)[sfLockedBalance];
 
     uint32_t priorLockCount = 0;
@@ -560,19 +556,15 @@ trustAdjustLockedBalance(
 
     if (finalLockedBalance > balance)
     {
-        JLOG(j.trace())
-            << "trustAdjustLockedBalance: "
-            << "lockedBalance("
-            << finalLockedBalance
-            << ") > balance("
-            << balance
-            << ") = true\n";
+        JLOG(j.trace()) << "trustAdjustLockedBalance: "
+                        << "lockedBalance(" << finalLockedBalance
+                        << ") > balance(" << balance << ") = true\n";
         return tecUNFUNDED_PAYMENT;
     }
 
     if (finalLockedBalance < beast::zero)
         return tecINTERNAL;
-   
+
     // check if there is significant precision loss
     if (!isAddable(balance, deltaAmt) ||
         !isAddable(priorLockedBalance, deltaAmt) ||
@@ -589,7 +581,9 @@ trustAdjustLockedBalance(
     if (dryRun)
         return tesSUCCESS;
 
-    if constexpr(std::is_same<V, ApplyView>::value && std::is_same<S, std::shared_ptr<SLE>>::value)
+    if constexpr (
+        std::is_same<V, ApplyView>::value &&
+        std::is_same<S, std::shared_ptr<SLE>>::value)
     {
         if (finalLockedBalance == beast::zero || finalLockCount == 0)
         {
@@ -598,17 +592,17 @@ trustAdjustLockedBalance(
         }
         else
         {
-            sleLine->
-                setFieldAmount(sfLockedBalance, high ? -finalLockedBalance : finalLockedBalance);
+            sleLine->setFieldAmount(
+                sfLockedBalance,
+                high ? -finalLockedBalance : finalLockedBalance);
             sleLine->setFieldU32(sfLockCount, finalLockCount);
         }
-    
+
         view.update(sleLine);
     }
 
     return tesSUCCESS;
 }
-
 
 /** Check if a set of accounts can freely exchange the specified token.
     Read only, does not change any ledger object.
@@ -618,8 +612,8 @@ trustAdjustLockedBalance(
     If parties contains more than 1 entry then any party with noRipple
     on issuer side is a bar to xfer.
 */
-template<class V>
-[[nodiscard]]TER
+template <class V>
+[[nodiscard]] TER
 trustTransferAllowed(
     V& view,
     std::vector<AccountID> const& parties,
@@ -629,12 +623,11 @@ trustTransferAllowed(
     static_assert(
         std::is_same<V, ReadView const>::value ||
         std::is_same<V, ApplyView>::value);
-    
+
     typedef typename std::conditional<
         std::is_same<V, ApplyView>::value,
         std::shared_ptr<SLE>,
         std::shared_ptr<SLE const>>::type SLEPtr;
-
 
     if (isFakeXRP(issue.currency))
         return tecNO_PERMISSION;
@@ -656,12 +649,13 @@ trustTransferAllowed(
 
     bool requireAuth = issuerFlags & lsfRequireAuth;
 
-    for (AccountID const& p: parties)
+    for (AccountID const& p : parties)
     {
         if (p == issue.account)
             continue;
 
-        auto const line = view.read(keylet::line(p, issue.account, issue.currency));
+        auto const line =
+            view.read(keylet::line(p, issue.account, issue.currency));
         if (!line)
         {
             if (requireAuth)
@@ -686,16 +680,16 @@ trustTransferAllowed(
             // these "strange" old lines, if they even exist anymore are
             // always a bar to xfer
             if (line->getFieldAmount(sfLowLimit).getIssuer() ==
-                    line->getFieldAmount(sfHighLimit).getIssuer())
+                line->getFieldAmount(sfHighLimit).getIssuer())
                 return tecINTERNAL;
 
             if (line->isFieldPresent(sfLockedBalance))
             {
                 if (!lockedBalanceAllowed)
                 {
-                    JLOG(j.warn())
-                        << "trustTransferAllowed: "
-                        << "sfLockedBalance found on line when amendment not enabled";
+                    JLOG(j.warn()) << "trustTransferAllowed: "
+                                   << "sfLockedBalance found on line when "
+                                      "amendment not enabled";
                     return tecINTERNAL;
                 }
 
@@ -704,9 +698,9 @@ trustTransferAllowed(
 
                 if (lockedBalance.getCurrency() != balance.getCurrency())
                 {
-                    JLOG(j.warn())
-                        << "trustTansferAllowed: "
-                        << "lockedBalance currency did not match balance currency";
+                    JLOG(j.warn()) << "trustTansferAllowed: "
+                                   << "lockedBalance currency did not match "
+                                      "balance currency";
                     return tecINTERNAL;
                 }
             }
@@ -719,19 +713,19 @@ trustTransferAllowed(
         {
             bool pHigh = p > issue.account;
 
-            auto const flagIssuerNoRipple { pHigh ? lsfLowNoRipple : lsfHighNoRipple };
-            auto const flagIssuerFreeze   { pHigh ? lsfLowFreeze   : lsfHighFreeze   };
-            auto const flagIssuerAuth     { pHigh ? lsfLowAuth     : lsfHighAuth     };
+            auto const flagIssuerNoRipple{
+                pHigh ? lsfLowNoRipple : lsfHighNoRipple};
+            auto const flagIssuerFreeze{pHigh ? lsfLowFreeze : lsfHighFreeze};
+            auto const flagIssuerAuth{pHigh ? lsfLowAuth : lsfHighAuth};
 
             uint32_t flags = line->getFieldU32(sfFlags);
 
             if (flags & flagIssuerFreeze)
             {
-                JLOG(j.trace())
-                    << "trustTransferAllowed: "
-                    << "parties=[" << parties << "], "
-                    << "issuer: " << issue.account << " "
-                    << "has freeze on party: " << p;
+                JLOG(j.trace()) << "trustTransferAllowed: "
+                                << "parties=[" << parties << "], "
+                                << "issuer: " << issue.account << " "
+                                << "has freeze on party: " << p;
                 return tecFROZEN;
             }
 
@@ -740,11 +734,10 @@ trustTransferAllowed(
             // blocks any possible xfer
             if (parties.size() > 1 && (flags & flagIssuerNoRipple))
             {
-                JLOG(j.trace())
-                    << "trustTransferAllowed: "
-                    << "parties=[" << parties << "], "
-                    << "issuer: " << issue.account << " "
-                    << "has noRipple on party: " << p;
+                JLOG(j.trace()) << "trustTransferAllowed: "
+                                << "parties=[" << parties << "], "
+                                << "issuer: " << issue.account << " "
+                                << "has noRipple on party: " << p;
                 return tecPATH_DRY;
             }
 
@@ -752,13 +745,12 @@ trustTransferAllowed(
             // the issuer has specified lsfRequireAuth
             if (requireAuth && !(flags & flagIssuerAuth))
             {
-                JLOG(j.trace())
-                    << "trustTransferAllowed: "
-                    << "parties=[" << parties << "], "
-                    << "issuer: " << issue.account << " "
-                    << "requires TL auth which "
-                    << "party: " << p << " "
-                    << "does not possess.";
+                JLOG(j.trace()) << "trustTransferAllowed: "
+                                << "parties=[" << parties << "], "
+                                << "issuer: " << issue.account << " "
+                                << "requires TL auth which "
+                                << "party: " << p << " "
+                                << "does not possess.";
                 return tecNO_AUTH;
             }
         }
@@ -775,22 +767,20 @@ template <class V, class S, class R>
 [[nodiscard]] TER
 trustTransferLockedBalance(
     V& view,
-    AccountID const& actingAccID, // the account whose tx is actioning xfer
+    AccountID const& actingAccID,  // the account whose tx is actioning xfer
     S& sleSrcAcc,
     S& sleDstAcc,
-    STAmount const& amount,     // issuer, currency are in this field
-    int deltaLockCount,         // -1 decrement, +1 increment, 0 unchanged
+    STAmount const& amount,  // issuer, currency are in this field
+    int deltaLockCount,      // -1 decrement, +1 increment, 0 unchanged
     beast::Journal const& j,
     R dryRun)
 {
-    
     typedef typename std::conditional<
         std::is_same<V, ApplyView>::value && !dryRun,
         std::shared_ptr<SLE>,
         std::shared_ptr<SLE const>>::type SLEPtr;
 
-    auto peek = [&](Keylet& k)
-    {
+    auto peek = [&](Keylet& k) {
         if constexpr (std::is_same<V, ApplyView>::value && !dryRun)
             return const_cast<ApplyView&>(view).peek(k);
         else
@@ -804,15 +794,13 @@ trustTransferLockedBalance(
 
     if (!sleSrcAcc || !sleDstAcc)
     {
-        JLOG(j.warn())
-            << "trustTransferLockedBalance without sleSrc/sleDst";
+        JLOG(j.warn()) << "trustTransferLockedBalance without sleSrc/sleDst";
         return tecINTERNAL;
     }
 
     if (amount <= beast::zero)
     {
-        JLOG(j.warn())
-            << "trustTransferLockedBalance with non-positive amount";
+        JLOG(j.warn()) << "trustTransferLockedBalance with non-positive amount";
         return tecINTERNAL;
     }
 
@@ -823,15 +811,12 @@ trustTransferLockedBalance(
 
     bool srcHigh = srcAccID > issuerAccID;
     bool dstHigh = dstAccID > issuerAccID;
+    bool isIssuer = issuerAccID == srcAccID;
 
     // check for freezing, auth, no ripple and TL sanity
     {
-        TER result =
-            trustTransferAllowed(
-                view,
-                {srcAccID, dstAccID},
-                {currency, issuerAccID},
-                j);
+        TER result = trustTransferAllowed(
+            view, {srcAccID, dstAccID}, {currency, issuerAccID}, j);
 
         JLOG(j.trace())
             << "trustTransferLockedBalance: trustTransferAlowed result="
@@ -841,85 +826,94 @@ trustTransferLockedBalance(
     }
 
     // ensure source line exists
-    Keylet klSrcLine { keylet::line(srcAccID, issuerAccID, currency)};
+    Keylet klSrcLine{keylet::line(srcAccID, issuerAccID, currency)};
     SLEPtr sleSrcLine = peek(klSrcLine);
 
-    if (!sleSrcLine)
-        return tecNO_LINE;
-
-    // can't transfer a locked balance that does not exist
-    if (!sleSrcLine->isFieldPresent(sfLockedBalance) || !sleSrcLine->isFieldPresent(sfLockCount))
+    // source account IS issuer
+    if (!isIssuer)
     {
-        JLOG(j.trace())
-            << "trustTransferLockedBalance could not find sfLockedBalance/sfLockCount on source line";
-        return tecUNFUNDED_PAYMENT;
-    }
+        if (!sleSrcLine)
+            return tecNO_LINE;
 
-
-    // decrement source balance
-    {
-        STAmount priorBalance =
-            srcHigh ? -((*sleSrcLine)[sfBalance]) : (*sleSrcLine)[sfBalance];
-
-        STAmount priorLockedBalance =
-            srcHigh ? -((*sleSrcLine)[sfLockedBalance]) : (*sleSrcLine)[sfLockedBalance];
-
-        uint32_t priorLockCount = (*sleSrcLine)[sfLockCount];
-
-        AccountID srcIssuerAccID = 
-                sleSrcLine->getFieldAmount(srcHigh ? sfLowLimit : sfHighLimit).getIssuer();
-
-        // check they have sufficient funds
-        if (amount > priorLockedBalance)
+        // can't transfer a locked balance that does not exist
+        if (!sleSrcLine->isFieldPresent(sfLockedBalance) ||
+            !sleSrcLine->isFieldPresent(sfLockCount))
         {
-            JLOG(j.trace())
-                << "trustTransferLockedBalance amount > lockedBalance: "
-                << "amount=" << amount << " lockedBalance=" 
-                << priorLockedBalance;
+            JLOG(j.trace()) << "trustTransferLockedBalance could not find "
+                               "sfLockedBalance/sfLockCount on source line";
             return tecUNFUNDED_PAYMENT;
         }
 
-        STAmount finalBalance = priorBalance - amount;
-
-        STAmount finalLockedBalance = priorLockedBalance - amount;
-
-        uint32_t finalLockCount = priorLockCount + deltaLockCount;
-
-        // check if there is significant precision loss
-        if (!isAddable(priorBalance, amount) ||
-            !isAddable(priorLockedBalance, amount))
-            return tecPRECISION_LOSS;
-
-        // sanity check possible overflows on the lock counter
-        if ((deltaLockCount > 0 && priorLockCount > finalLockCount) ||
-            (deltaLockCount < 0 && priorLockCount < finalLockCount) ||
-            (deltaLockCount == 0 && priorLockCount != finalLockCount))
-            return tecOVERSIZE;
-        
-        // this should never happen but defensively check it here before updating sle
-        if (finalBalance < beast::zero || finalLockedBalance < beast::zero)
+        // decrement source balance
         {
-            JLOG(j.warn())
-                << "trustTransferLockedBalance results in a negative balance on source line";
-            return tecINTERNAL;
-        }
+            STAmount priorBalance = srcHigh ? -((*sleSrcLine)[sfBalance])
+                                            : (*sleSrcLine)[sfBalance];
 
-        if constexpr(!dryRun)
-        {
-            sleSrcLine->setFieldAmount(sfBalance, srcHigh ? -finalBalance : finalBalance);
+            STAmount priorLockedBalance = srcHigh
+                ? -((*sleSrcLine)[sfLockedBalance])
+                : (*sleSrcLine)[sfLockedBalance];
 
-            if (finalLockedBalance == beast::zero || finalLockCount == 0)
+            uint32_t priorLockCount = (*sleSrcLine)[sfLockCount];
+
+            AccountID srcIssuerAccID =
+                sleSrcLine->getFieldAmount(srcHigh ? sfLowLimit : sfHighLimit)
+                    .getIssuer();
+
+            // check they have sufficient funds
+            if (amount > priorLockedBalance)
             {
-                sleSrcLine->makeFieldAbsent(sfLockedBalance);
-                sleSrcLine->makeFieldAbsent(sfLockCount);
+                JLOG(j.trace())
+                    << "trustTransferLockedBalance amount > lockedBalance: "
+                    << "amount=" << amount
+                    << " lockedBalance=" << priorLockedBalance;
+                return tecUNFUNDED_PAYMENT;
             }
-            else
+
+            STAmount finalBalance = priorBalance - amount;
+
+            STAmount finalLockedBalance = priorLockedBalance - amount;
+
+            uint32_t finalLockCount = priorLockCount + deltaLockCount;
+
+            // check if there is significant precision loss
+            if (!isAddable(priorBalance, amount) ||
+                !isAddable(priorLockedBalance, amount))
+                return tecPRECISION_LOSS;
+
+            // sanity check possible overflows on the lock counter
+            if ((deltaLockCount > 0 && priorLockCount > finalLockCount) ||
+                (deltaLockCount < 0 && priorLockCount < finalLockCount) ||
+                (deltaLockCount == 0 && priorLockCount != finalLockCount))
+                return tecOVERSIZE;
+
+            // this should never happen but defensively check it here before
+            // updating sle
+            if (finalBalance < beast::zero || finalLockedBalance < beast::zero)
             {
-                sleSrcLine->setFieldAmount(sfLockedBalance, srcHigh ? -finalLockedBalance : finalLockedBalance);
-                sleSrcLine->setFieldU32(sfLockCount, finalLockCount);
+                JLOG(j.warn()) << "trustTransferLockedBalance results in a "
+                                  "negative balance on source line";
+                return tecINTERNAL;
+            }
+
+            if constexpr (!dryRun)
+            {
+                sleSrcLine->setFieldAmount(
+                    sfBalance, srcHigh ? -finalBalance : finalBalance);
+
+                if (finalLockedBalance == beast::zero || finalLockCount == 0)
+                {
+                    sleSrcLine->makeFieldAbsent(sfLockedBalance);
+                    sleSrcLine->makeFieldAbsent(sfLockCount);
+                }
+                else
+                {
+                    sleSrcLine->setFieldAmount(
+                        sfLockedBalance,
+                        srcHigh ? -finalLockedBalance : finalLockedBalance);
+                    sleSrcLine->setFieldU32(sfLockCount, finalLockCount);
+                }
             }
         }
-
     }
 
     // dstLow XNOR srcLow tells us if we need to flip the balance amount
@@ -931,10 +925,9 @@ trustTransferLockedBalance(
 
     // the destination will sometimes get less depending on xfer rate
     // with any difference in tokens burned
-    auto dstAmt =
-        xferRate == parityRate
-            ? amount
-            : multiplyRound(amount, xferRate, amount.issue(), true);
+    auto dstAmt = xferRate == parityRate
+        ? amount
+        : multiplyRound(amount, xferRate, amount.issue(), true);
 
     // check for a destination line
     Keylet klDstLine = keylet::line(dstAccID, issuerAccID, currency);
@@ -953,9 +946,12 @@ trustTransferLockedBalance(
             dstBalanceDrops < view.fees().accountReserve(ownerCount + 1))
             return tecNO_LINE_INSUF_RESERVE;
 
-        // yes we can... we will 
+        // yes we can... we will
 
-        if constexpr(!dryRun)
+        auto const finalDstAmt = isIssuer ? dstAmt
+            : flipDstAmt                  ? -dstAmt
+                                          : dstAmt;
+        if constexpr (!dryRun)
         {
             // clang-format off
             if (TER const ter = trustCreate(
@@ -968,7 +964,7 @@ trustTransferLockedBalance(
                     false,                          // authorize account
                     (sleDstAcc->getFlags() & lsfDefaultRipple) == 0,
                     false,                          // freeze trust line
-                    flipDstAmt ? -dstAmt : dstAmt,  // initial balance
+                    finalDstAmt,                    // initial balance
                     Issue(currency, dstAccID),      // limit of zero
                     0,                              // quality in
                     0,                              // quality out
@@ -996,45 +992,52 @@ trustTransferLockedBalance(
 
         if (finalBalance < priorBalance)
         {
-            JLOG(j.warn())
-                << "trustTransferLockedBalance resulted in a lower/equal final balance on dest line";
+            JLOG(j.warn()) << "trustTransferLockedBalance resulted in a "
+                              "lower/equal final balance on dest line";
             return tecINTERNAL;
         }
 
         if (finalBalance > dstLimit && actingAccID != dstAccID)
         {
-            JLOG(j.trace())
-                << "trustTransferLockedBalance would increase dest line above limit without permission";
+            JLOG(j.trace()) << "trustTransferLockedBalance would increase dest "
+                               "line above limit without permission";
             return tecPATH_DRY;
         }
-        
+
         // check if there is significant precision loss
         if (!isAddable(priorBalance, dstAmt))
             return tecPRECISION_LOSS;
 
-        if constexpr(!dryRun)
-            sleDstLine->setFieldAmount(sfBalance, dstHigh ? -finalBalance : finalBalance);
+        finalBalance = isIssuer ? -finalBalance
+                                : dstHigh
+                                ? -finalBalance
+                                : finalBalance;
+        if constexpr (!dryRun)
+            sleDstLine->setFieldAmount(sfBalance, finalBalance);
     }
 
     if constexpr (!dryRun)
     {
         static_assert(std::is_same<V, ApplyView>::value);
 
-        // check if source line ended up in default state and adjust owner count if it did
-        if (isTrustDefault(sleSrcAcc, sleSrcLine))
+        // check if source line ended up in default state and adjust owner count
+        // if it did
+        if (!isIssuer)
         {
-            uint32_t flags = sleSrcLine->getFieldU32(sfFlags);
-            uint32_t fReserve { srcHigh ? lsfHighReserve : lsfLowReserve };
-            if (flags & fReserve)
+            if (isTrustDefault(sleSrcAcc, sleSrcLine))
             {
-                sleSrcLine->setFieldU32(sfFlags, flags & ~fReserve);
-                adjustOwnerCount(view, sleSrcAcc, -1, j); 
-                view.update(sleSrcAcc);
+                uint32_t flags = sleSrcLine->getFieldU32(sfFlags);
+                uint32_t fReserve{srcHigh ? lsfHighReserve : lsfLowReserve};
+                if (flags & fReserve)
+                {
+                    sleSrcLine->setFieldU32(sfFlags, flags & ~fReserve);
+                    adjustOwnerCount(view, sleSrcAcc, -1, j);
+                    view.update(sleSrcAcc);
+                }
             }
+            view.update(sleSrcLine);
         }
 
-        view.update(sleSrcLine);
-        
         // a destination line already existed and was updated
         if (sleDstLine)
             view.update(sleDstLine);

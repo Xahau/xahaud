@@ -3484,6 +3484,53 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
+    testICGW(FeatureBitset features)
+    {
+        testcase("IC Gateway");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+        {
+            // test create escrow from issuer with ic
+            // test with dest tl
+            // test finish from destination account
+            Env env(*this, features);
+            env.fund(XRP(5000), alice, gw);
+            env.close();
+            env.trust(USD(10000), alice);
+            env.close();
+            env(pay(gw, alice, USD(5000)));
+            env.close();
+            auto const seq1 = env.seq(gw);
+            auto const preAlice = env.balance(alice, USD.issue());
+            env(escrow(gw, alice, USD(1000)), condition(cb1), finish_time(env.now() + 1s), fee(1500));
+            env.close();
+            env(finish(alice, gw, seq1), condition(cb1), fulfillment(fb1), fee(1500));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + USD(1000));
+        }
+        {
+            // setup env
+            Env env(*this, features);
+            env.fund(XRP(5000), alice, gw);
+            env.close();
+
+            // test create escrow from issuer with ic no dest tl
+            auto const seq1 = env.seq(gw);
+            auto const preAlice = env.balance(alice, USD.issue());
+            env(escrow(gw, alice, USD(1000)), condition(cb1), finish_time(env.now() + 1s), fee(1500));
+            env.close();
+            // test finish from dest account
+            env(finish(alice, gw, seq1), condition(cb1), fulfillment(fb1), fee(1500));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + USD(1000));
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnablement(features);
@@ -3508,6 +3555,7 @@ struct Escrow_test : public beast::unit_test::suite
         testICMetaAndOwnership(features);
         testICConsequences(features);
         testICEscrowWithTickets(features);
+        testICGW(features);
     }
 
 public:
