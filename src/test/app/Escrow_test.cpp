@@ -203,7 +203,10 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     static Rate
-    escrowRate(jtx::Env const& env, jtx::Account const& account, uint32_t const& seq)
+    escrowRate(
+        jtx::Env const& env, 
+        jtx::Account const& account, 
+        uint32_t const& seq)
     {
         auto const sle = env.le(keylet::escrow(account.id(), seq));
         if (sle->isFieldPresent(sfTransferRate))
@@ -3587,7 +3590,8 @@ struct Escrow_test : public beast::unit_test::suite
                 fee(1500));
             env.close();
             auto const transferRate = escrowRate(env, alice, seq1);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.25));
             env(finish(bob, alice, seq1),
                 condition(cb1),
                 fulfillment(fb1),
@@ -3619,7 +3623,8 @@ struct Escrow_test : public beast::unit_test::suite
                 fee(1500));
             env.close();
             auto transferRate = escrowRate(env, alice, seq1);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.25));
             env(rate(gw, 1.26));
             env.close();
 
@@ -3654,7 +3659,8 @@ struct Escrow_test : public beast::unit_test::suite
                 fee(1500));
             env.close();
             auto transferRate = escrowRate(env, alice, seq1);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.25));
             env(rate(gw, 1.00));
             env.close();
             env(finish(bob, alice, seq1),

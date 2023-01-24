@@ -4821,7 +4821,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(create(alice, bob, USD(1000), settleDelay, pk));
             env.close();
             auto const transferRate = channelRate(*env.current(), chan);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.25));
             auto chanBal = channelBalance(*env.current(), chan);
             auto chanAmt = channelAmount(*env.current(), chan);
             auto const delta = USD(125);
@@ -4855,7 +4856,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(create(alice, bob, USD(1000), settleDelay, pk));
             env.close();
             auto transferRate = channelRate(*env.current(), chan);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.25));
 
             auto const preAlice = env.balance(alice, USD.issue());
             auto chanBal = channelBalance(*env.current(), chan);
@@ -4869,7 +4871,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(fund(alice, chan, USD(1000)));
             env.close();
             transferRate = channelRate(*env.current(), chan);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.25));
 
             // issuer changes rate lower
             env(rate(gw, 1.00));
@@ -4879,7 +4882,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(fund(alice, chan, USD(1000)));
             env.close();
             transferRate = channelRate(*env.current(), chan);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.00));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.00));
 
             // issuer changes rate higher
             env(rate(gw, 1.01));
@@ -4890,7 +4894,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(fund(alice, chan, USD(1000)), ter(temBAD_TRANSFER_RATE));
             env.close();
             transferRate = channelRate(*env.current(), chan);
-            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.00));
+            BEAST_EXPECT(
+                transferRate.value == std::uint32_t(1000000000 * 1.00));
         }
     }
 
@@ -4996,7 +5001,8 @@ struct PayChan_test : public beast::unit_test::suite
             env.close();
 
             // bob can claim
-            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            auto const sig = 
+                signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();
         }
