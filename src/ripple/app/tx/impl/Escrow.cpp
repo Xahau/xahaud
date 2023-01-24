@@ -295,11 +295,13 @@ EscrowCreate::doApply()
 
     // Create escrow in ledger.  Note that we we use the value from the
     // sequence or ticket.  For more explanation see comments in SeqProxy.h.
+    auto xferRate = transferRate(view(), amount.getIssuer());
     Keylet const escrowKeylet =
         keylet::escrow(account, ctx_.tx.getSeqProxy().value());
     auto const slep = std::make_shared<SLE>(escrowKeylet);
     (*slep)[sfAmount] = ctx_.tx[sfAmount];
     (*slep)[sfAccount] = account;
+    (*slep)[sfTransferRate] = xferRate.value;
     (*slep)[~sfCondition] = ctx_.tx[~sfCondition];
     (*slep)[~sfSourceTag] = ctx_.tx[~sfSourceTag];
     (*slep)[sfDestination] = ctx_.tx[sfDestination];
@@ -560,6 +562,13 @@ EscrowFinish::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
+        Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
+        auto issuerAccID = amount.getIssuer();
+        auto const xferRate = transferRate(view(), issuerAccID);
+        // update if issuer rate is less than locked rate
+        if (xferRate < lockedRate)
+            lockedRate = xferRate;
+
         // perform a dry run of the transfer before we
         // change anything on-ledger
         TER result = trustTransferLockedBalance(
@@ -569,6 +578,7 @@ EscrowFinish::doApply()
             sled,      // dst account
             amount,    // xfer amount
             -1,
+            lockedRate,
             j_,
             DryRun  // dry run
         );
@@ -607,6 +617,14 @@ EscrowFinish::doApply()
         (*sled)[sfBalance] = (*sled)[sfBalance] + (*slep)[sfAmount];
     else
     {
+        // compute transfer fee, if any
+        Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
+        auto issuerAccID = amount.getIssuer();
+        auto const xferRate = transferRate(view(), issuerAccID);
+        // update if issuer rate is less than locked rate
+        if (xferRate < lockedRate)
+            lockedRate = xferRate;
+
         // all the significant complexity of checking the validity of this
         // transfer and ensuring the lines exist etc is hidden away in this
         // function, all we need to do is call it and return if unsuccessful.
@@ -617,6 +635,7 @@ EscrowFinish::doApply()
             sled,      // dst account
             amount,    // xfer amount
             -1,
+            lockedRate,
             j_,
             WetRun  // wet run;
         );

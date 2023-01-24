@@ -490,7 +490,6 @@ trustAdjustLockedBalance(
 
     // dry runs are explicit in code, but really the view type determines
     // what occurs here, so this combination is invalid.
-
     static_assert(!(std::is_same<V, ReadView const>::value && !dryRun));
 
     if (!view.rules().enabled(featurePaychanAndEscrowForTokens))
@@ -772,6 +771,7 @@ trustTransferLockedBalance(
     S& sleDstAcc,
     STAmount const& amount,  // issuer, currency are in this field
     int deltaLockCount,      // -1 decrement, +1 increment, 0 unchanged
+    Rate const& xferRate,  // TransferRate
     beast::Journal const& j,
     R dryRun)
 {
@@ -829,7 +829,7 @@ trustTransferLockedBalance(
     Keylet klSrcLine{keylet::line(srcAccID, issuerAccID, currency)};
     SLEPtr sleSrcLine = peek(klSrcLine);
 
-    // source account IS issuer
+    // source account is not issuer use locked balance
     if (!isIssuer)
     {
         if (!sleSrcLine)
@@ -919,16 +919,18 @@ trustTransferLockedBalance(
     // dstLow XNOR srcLow tells us if we need to flip the balance amount
     // on the destination line
     bool flipDstAmt = !((dstHigh && srcHigh) || (!dstHigh && !srcHigh));
-
-    // compute transfer fee, if any
-    auto xferRate = transferRate(view, issuerAccID);
-
-    // the destination will sometimes get less depending on xfer rate
-    // with any difference in tokens burned
-    auto dstAmt = xferRate == parityRate
-        ? amount
-        : multiplyRound(amount, xferRate, amount.issue(), true);
-
+    
+    // default to amount
+    auto dstAmt = amount;
+    // if transfer rate
+    if (xferRate != parityRate)
+    {
+        // compute transfer fee, if any
+        auto const xferFee =
+            amount.value() - divideRound(amount, xferRate, amount.issue(), true);
+        // compute balance to transfer
+        dstAmt = amount.value() - xferFee;
+    }
     // check for a destination line
     Keylet klDstLine = keylet::line(dstAccID, issuerAccID, currency);
     SLEPtr sleDstLine = peek(klDstLine);
@@ -945,7 +947,6 @@ trustTransferLockedBalance(
         if (std::uint32_t const ownerCount = {sleDstAcc->at(sfOwnerCount)};
             dstBalanceDrops < view.fees().accountReserve(ownerCount + 1))
             return tecNO_LINE_INSUF_RESERVE;
-
         // yes we can... we will
 
         auto const finalDstAmt =
