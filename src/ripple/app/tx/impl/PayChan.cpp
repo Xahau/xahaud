@@ -335,6 +335,7 @@ PayChanCreate::doApply()
 
     STAmount const amount{ctx_.tx[sfAmount]};
     bool isIssuer = amount.getIssuer() == account;
+    auto xferRate = transferRate(view(), amount.getIssuer());
 
     // Create PayChan in ledger.
     //
@@ -352,6 +353,7 @@ PayChanCreate::doApply()
     (*slep)[sfAccount] = account;
     (*slep)[sfDestination] = dst;
     (*slep)[sfSettleDelay] = ctx_.tx[sfSettleDelay];
+    (*slep)[sfTransferRate] = xferRate.value;
     (*slep)[sfPublicKey] = ctx_.tx[sfPublicKey];
     (*slep)[~sfCancelAfter] = ctx_.tx[~sfCancelAfter];
     (*slep)[~sfSourceTag] = ctx_.tx[~sfSourceTag];
@@ -469,6 +471,19 @@ PayChanFund::doApply()
     auto const txAccount = ctx_.tx[sfAccount];
     auto const expiration = (*slep)[~sfExpiration];
     bool isIssuer = amount.getIssuer() == txAccount;
+    // auto const chanFunds = (*slep)[sfAmount];
+
+    // adjust transfer rate
+    Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
+    auto issuerAccID = amount.getIssuer();
+    auto const xferRate = transferRate(view(), issuerAccID);
+    // update if issuer rate less than locked rate
+    if (xferRate < lockedRate)
+        (*slep)[sfTransferRate] = xferRate.value;
+    // throw if issuer rate greater than locked rate
+    if (xferRate > lockedRate)
+        return temBAD_TRANSFER_RATE;
+
     // if this is a Fund operation on an IOU then perform a dry run here
     if (!isXRP(amount) &&
         ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
@@ -728,6 +743,17 @@ PayChanClaim::doApply()
             }
         }
 
+        // compute transfer fee, if any
+        Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
+        auto issuerAccID = chanFunds.getIssuer();
+        auto const xferRate = transferRate(view(), issuerAccID);
+        // update if issuer rate is less than locked rate
+        if (xferRate < lockedRate)
+        {
+            (*slep)[sfTransferRate] = xferRate.value;
+            lockedRate = xferRate;
+        }
+
         (*slep)[sfBalance] = ctx_.tx[sfBalance];
         STAmount const reqDelta = reqBalance - chanBalance;
         assert(reqDelta >= beast::zero);
@@ -749,6 +775,7 @@ PayChanClaim::doApply()
                 sled,
                 reqDelta,
                 0,
+                lockedRate,
                 ctx_.journal,
                 WetRun);
 

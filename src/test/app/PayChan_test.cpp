@@ -111,6 +111,15 @@ struct PayChan_test : public beast::unit_test::suite
         return (*slep)[sfAmount];
     }
 
+    static Rate
+    channelRate(ReadView const& view, uint256 const& chan)
+    {
+        auto const slep = view.read({ltPAYCHAN, chan});
+        if (!slep)
+            return Rate{0};
+        return ripple::Rate((*slep)[sfTransferRate]);
+    }
+
     static STAmount
     lockedAmount(
         jtx::Env const& env,
@@ -4641,8 +4650,66 @@ struct PayChan_test : public beast::unit_test::suite
         using namespace std::literals;
 
         auto const alice = Account("alice");
+        auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
+        {
+            // test create paychan from issuer with ic
+            // test where dest has no tl
+            // test claim from issuer account
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, gw);
+            env.close();
+            auto const pk = gw.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(gw, alice, env.seq(gw));
+            env(create(gw, alice, USD(1000), settleDelay, pk));
+            env.close();
+
+            // gw can not claim
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            auto const delta = USD(500);
+            auto const reqBal = chanBal + delta;
+            auto const authAmt = reqBal + USD(100);
+            // env(claim(gw, chan, reqBal, authAmt), ter(tecNO_LINE));
+
+            auto const sig = signClaimICAuth(gw.pk(), gw.sk(), chan, authAmt);
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), gw.pk()));
+            env.close();
+        }
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(1000), alice);
+            env.trust(USD(1000), bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
+            env.close();
+
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+            BEAST_EXPECT(channelBalance(*env.current(), chan) == USD(0));
+            BEAST_EXPECT(channelAmount(*env.current(), chan) == USD(1000));
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            BEAST_EXPECT(chanBal == USD(0));
+            BEAST_EXPECT(chanAmt == USD(1000));
+            auto preBob = env.balance(bob);
+            auto const delta = USD(50);
+            auto reqBal = chanBal + delta;
+            auto authAmt = reqBal + USD(100);
+            assert(reqBal <= chanAmt);
+            auto const preLocked = lockedAmount(env, alice, gw, USD);
+            BEAST_EXPECT(preLocked == USD(1000));
+            env(claim(alice, chan, reqBal, authAmt));
+        }
         {
             // test create paychan from issuer with ic
             // test where dest has no tl
@@ -4755,6 +4822,114 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testICLockedRate(FeatureBitset features)
+    {
+        testcase("IC Locked Rate");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        auto const aliceUSD = alice["USD"];
+        auto const bobUSD = bob["USD"];
+
+        // test TransferRate
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice);
+            env.trust(USD(100000), bob);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env.close();
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+            auto const transferRate = channelRate(*env.current(), chan);
+            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            auto const delta = USD(125);
+            auto reqBal = chanBal + delta;
+            auto authAmt = reqBal + USD(500);
+            // alice can claim
+            env(claim(alice, chan, reqBal, authAmt));
+            env.close();
+            auto const postLocked = lockedAmount(env, alice, gw, USD);
+            BEAST_EXPECT(postLocked == USD(875));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10100));
+        }
+        // test rate locked in
+        // test fund fail
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice);
+            env.trust(USD(100000), bob);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+            auto transferRate = channelRate(*env.current(), chan);
+            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            auto const delta = USD(100);
+            auto reqBal = chanBal + delta;
+            auto authAmt = reqBal + USD(500);
+
+            // alice can fund paychan at rate
+            // no change in rate
+            env(fund(alice, chan, USD(1000)));
+            env.close();
+            transferRate = channelRate(*env.current(), chan);
+            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.25));
+
+            // issuer changes rate lower
+            env(rate(gw, 1.00));
+            env.close();
+
+            // alice can fund after issuer rate change
+            env(fund(alice, chan, USD(1000)));
+            env.close();
+            transferRate = channelRate(*env.current(), chan);
+            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.00));
+
+            // issuer changes rate higher
+            env(rate(gw, 1.01));
+            env.close();
+
+            // alice cant fund after issuer rate change
+            // issuer rate stays the same
+            env(fund(alice, chan, USD(1000)), ter(temBAD_TRANSFER_RATE));
+            env.close();
+            transferRate = channelRate(*env.current(), chan);
+            BEAST_EXPECT(transferRate.value == std::uint32_t(1000000000 * 1.00));
+        }
+    }
+
+    void
     testICTLFeatures(FeatureBitset features)
     {
         testcase("IC Trustline Features");
@@ -4854,64 +5029,11 @@ struct PayChan_test : public beast::unit_test::suite
             // alice can claim
             env(claim(alice, chan, reqBal, authAmt));
             env.close();
+
             // bob can claim
-            // auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan,
-            // authAmt); env(claim(bob, chan, reqBal, authAmt, Slice(sig),
-            // alice.pk())); env.close();
-        }
-        // test TransferRate
-        {
-            Env env(*this, features);
-            env.fund(XRP(10000), alice, bob, gw);
-            env(rate(gw, 1.25));
+            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();
-            env.trust(USD(100000), alice);
-            env.trust(USD(100000), bob);
-            env.close();
-            env(pay(gw, alice, USD(10000)));
-            env(pay(gw, bob, USD(10000)));
-            env.close();
-
-            // env(pay(alice, bob, USD(100)), sendmax(USD(125)));
-            // env(pay(alice, bob, USD(100)), txflags(tfPartialPayment));
-            // env.close();
-            // env.require(
-            //     balance(alice, xrpMinusFee(env, 10000 - 50)),
-            //     balance(bob, USD(2.5)),  // owner pays transfer fee
-            //     balance(carol, USD(50)));
-
-            auto const pk = alice.pk();
-            auto const settleDelay = 100s;
-            auto const chan = channel(alice, bob, env.seq(alice));
-            env(create(alice, bob, USD(1000), settleDelay, pk));
-            env.close();
-
-            auto chanBal = channelBalance(*env.current(), chan);
-            auto chanAmt = channelAmount(*env.current(), chan);
-            auto const delta = USD(100);
-            auto reqBal = chanBal + delta;
-            auto authAmt = reqBal + USD(200);
-            // alice can claim
-            env(claim(alice, chan, reqBal, authAmt));
-            env.close();
-
-            // bob can claim, increasing the limit amount
-            // auto const preBobLimit = limitAmount(env, bob, gw, USD);
-            // auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan,
-            // authAmt); env(claim(bob, chan, reqBal, authAmt, Slice(sig),
-            // alice.pk())); env.close();
-
-            auto const postLocked = lockedAmount(env, alice, gw, USD);
-            auto const aliceLimit = limitAmount(env, alice, gw, USD);
-            auto const bobLimit = limitAmount(env, bob, gw, USD);
-            // std::cout << "ALICE AMOUNT: " << env.balance(alice, USD.issue())
-            // << "\n"; std::cout << "BOB AMOUNT: " << env.balance(bob,
-            // USD.issue()) << "\n"; std::cout << "ALICE LIMIT: " << aliceLimit
-            // << "\n"; std::cout << "BOB LIMIT: " << bobLimit << "\n";
-            // std::cout << "POST LOCKED: " << postLocked << "\n";
-            // std::cout << "CHAN BAL: " << channelBalance(*env.current(), chan)
-            // << "\n"; std::cout << "CHAN AUTH: " <<
-            // channelAmount(*env.current(), chan) << "\n";
         }
         // test Global Freeze
         {
@@ -4924,53 +5046,38 @@ struct PayChan_test : public beast::unit_test::suite
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
             env.close();
-
             env(fset(gw, asfGlobalFreeze));
             env.close();
-
             auto const pk = alice.pk();
             auto const settleDelay = 100s;
             auto chan = channel(alice, bob, env.seq(alice));
             env(create(alice, bob, USD(1000), settleDelay, pk), ter(tecFROZEN));
             env.close();
-
             env(fclear(gw, asfGlobalFreeze));
             env.close();
-
             chan = channel(alice, bob, env.seq(alice));
             env(create(alice, bob, USD(1000), settleDelay, pk));
             env.close();
-
             env(fset(gw, asfGlobalFreeze));
             env.close();
-
             auto chanBal = channelBalance(*env.current(), chan);
             auto chanAmt = channelAmount(*env.current(), chan);
-
             auto const delta = USD(10);
             auto reqBal = chanBal + delta;
             auto authAmt = reqBal + USD(100);
-            // alice cannot claim - tl global freeze
             env(claim(alice, chan, reqBal, authAmt), ter(tecFROZEN));
-            // bob cannot claim - tl global freeze
             auto sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ter(tecFROZEN));
             env.close();
-
             env(fclear(gw, asfGlobalFreeze));
             env.close();
-
-            // alice can claim
             env(claim(alice, chan, reqBal, authAmt));
             env.close();
-
-            // update channel values for claim
             chanBal = channelBalance(*env.current(), chan);
             chanAmt = channelAmount(*env.current(), chan);
             reqBal = chanBal + delta;
             authAmt = reqBal + USD(100);
-            // bob can claim
             sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();
@@ -5043,6 +5150,41 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testICMismatchFunding(FeatureBitset features)
+    {
+        testcase("IC Mismatch Funding");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+        auto const USDC = gw["USDC"];
+
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000), alice);
+            env.trust(USD(100000), bob);
+            env.trust(USDC(100000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env(pay(gw, alice, USDC(10000)));
+            env.close();
+
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+            env(fund(alice, chan, USDC(1000)));
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testSimple(features);
@@ -5085,7 +5227,9 @@ struct PayChan_test : public beast::unit_test::suite
         testICUsingTickets(features);
         testICAutoTL(features);
         testICGateway(features);
+        testICLockedRate(features);
         testICTLFeatures(features);
+        testICMismatchFunding(features);
     }
 
 public:
