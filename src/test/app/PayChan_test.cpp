@@ -5150,6 +5150,240 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testICPrecisionLoss(FeatureBitset features)
+    {
+        testcase("IC Precision Loss");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        // test max precision locked claim
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000000000000000), alice);
+            env.trust(USD(100000000000000000), bob);
+            env.close();
+            env(pay(gw, alice, USD(10000000000000000)));
+            env(pay(gw, bob, USD(10000000000000000)));
+            env.close();
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, USD(10000000000000000), settleDelay, pk));
+            env.close();
+            // alice CANNOT fund again, precision loss
+            env(fund(alice, chan, USD(1)), ter(tecPRECISION_LOSS));
+            env.close();
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto const preLocked = lockedAmount(env, alice, gw, USD);
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            auto const delta = USD(10000000000000000);
+            auto reqBal = chanBal + delta;
+            env(claim(alice, chan, reqBal, reqBal));
+            env.close();
+            auto postLocked = lockedAmount(env, alice, gw, USD);
+            BEAST_EXPECT(postLocked == USD(0));
+            // alice CAN fund again
+            env(pay(gw, alice, USD(1)));
+            env.close();
+            env(fund(alice, chan, USD(1)));
+            env.close();
+            postLocked = lockedAmount(env, alice, gw, USD);
+            BEAST_EXPECT(postLocked == USD(1));
+        }
+        // test max precision locked claim
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(1000000000000000000), alice);
+            env.trust(USD(1000000000000000000), bob);
+            env.close();
+            env(pay(gw, alice, USD(100000000000000000)));
+            env(pay(gw, bob, USD(1)));
+            env.close();
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            // alice cannot create paychan for 1/10/100 token - precision loss
+            env(create(alice, bob, USD(1), settleDelay, pk), ter(tecPRECISION_LOSS));
+            env.close();
+            // alice can create paychan for 1000 token
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, USD(10000), settleDelay, pk));
+            env.close();
+
+            auto const chanBal = channelBalance(*env.current(), chan);
+            auto const chanAmt = channelAmount(*env.current(), chan);
+            auto reqBal = USD(1000);
+            auto authAmt = reqBal + USD(1000);
+            auto sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()), ter(tecPRECISION_LOSS));
+
+            reqBal = USD(10000);
+            authAmt = reqBal + USD(10000);
+            sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
+        }
+        // test limits
+        // tl 100000000000000000
+        // amount 100,000,000,000,000,000
+        // minimum 10
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(1000000000000000000), alice);
+            env.trust(USD(1000000000000000000), bob);
+            env.close();
+            env(pay(gw, alice, USD(100000000000000000)));
+            env(pay(gw, bob, USD(100000000000000000)));
+            env.close();
+            auto const precision = USD(100000000000000000);
+            auto const delta = USD(1);
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            // alice cannot create channel - precision loss
+            env(create(alice, bob, delta, settleDelay, pk), ter(tecPRECISION_LOSS));
+            env.close();
+
+            auto const createLocked = lockedAmount(env, alice, gw, USD);
+            BEAST_EXPECT(createLocked == USD(0));
+        }
+        // test max precision locked claim
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000000000000000), alice);
+            env.trust(USD(100000000000000000), bob);
+            env.close();
+            env(pay(gw, alice, USD(10000000000000)));
+            env(pay(gw, bob, USD(10000000000000)));
+            env.close();
+
+            // alice can create with 1 token
+            auto const precision = USD(10000000000000);
+            auto const delta = USD(1);
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, delta, settleDelay, pk));
+            env.close();
+
+            // alice cannot fund with precision
+            env(fund(alice, chan, precision), ter(tecPRECISION_LOSS));
+            env.close();
+            
+            // alice can fund with precision - lockedAmount
+            auto const createLocked = lockedAmount(env, alice, gw, USD);
+            auto const availAmount = precision - delta;
+            env(fund(alice, chan, availAmount));
+            env.close();
+
+            auto postLocked = lockedAmount(env, alice, gw, USD);
+            BEAST_EXPECT(postLocked == precision);
+
+            auto const chanBal = channelBalance(*env.current(), chan);
+            auto const chanAmt = channelAmount(*env.current(), chan);
+            auto const reqBal = delta;
+            auto const authAmt = reqBal + USD(100);
+            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
+            env.close();
+        }
+        // test max precision locked claim
+        // bob has no tl
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000000000000000), alice);
+            env.close();
+            env(pay(gw, alice, USD(100000000000000)));
+            env.close();
+            auto const precision = USD(100000000000000);
+            auto const delta = USD(10);
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, delta, settleDelay, pk));
+            env.close();
+
+            auto const chanBal = channelBalance(*env.current(), chan);
+            auto const chanAmt = channelAmount(*env.current(), chan);
+            auto const authAmt = USD(100);
+            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(claim(bob, chan, USD(1), authAmt, Slice(sig), alice.pk()), ter(tecPRECISION_LOSS));
+            env(claim(bob, chan, USD(10), authAmt, Slice(sig), alice.pk()));
+            env.close();
+        }
+        // test max precision locked claim
+        // bob has tl with 1 token
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000000000000000), alice);
+            env.trust(USD(100000000000000000), bob);
+            env.close();
+            env(pay(gw, alice, USD(100000000000000)));
+            env(pay(gw, bob, USD(1)));
+            env.close();
+            auto const precision = USD(100000000000000);
+            auto const delta = USD(10);
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, delta, settleDelay, pk));
+            env.close();
+
+            auto const chanBal = channelBalance(*env.current(), chan);
+            auto const chanAmt = channelAmount(*env.current(), chan);
+            auto const authAmt = USD(100);
+            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(claim(bob, chan, USD(1), authAmt, Slice(sig), alice.pk()), ter(tecPRECISION_LOSS));
+            env(claim(bob, chan, USD(10), authAmt, Slice(sig), alice.pk()));
+            env.close();
+        }
+        // test max precision locked claim
+        // bob has tl with max tokens
+        {
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000000000000000), alice);
+            env.trust(USD(100000000000000000), bob);
+            env.close();
+            env(pay(gw, alice, USD(100000000000000)));
+            env(pay(gw, bob, USD(100000000000000)));
+            env.close();
+            auto const precision = USD(100000000000000);
+            auto const delta = precision;
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, delta, settleDelay, pk));
+            env.close();
+            auto const chanBal = channelBalance(*env.current(), chan);
+            auto const chanAmt = channelAmount(*env.current(), chan);
+            auto const authAmt = USD(100);
+            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            // bob cannot claim 1
+            env(claim(bob, chan, USD(1), authAmt, Slice(sig), alice.pk()), ter(tecPRECISION_LOSS));
+            // bob can claim 10
+            env(claim(bob, chan, USD(10), authAmt, Slice(sig), alice.pk()));
+            env.close();
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testSimple(features);
@@ -5195,6 +5429,7 @@ struct PayChan_test : public beast::unit_test::suite
         testICLockedRate(features);
         testICTLFeatures(features);
         testICMismatchFunding(features);
+        testICPrecisionLoss(features);
     }
 
 public:
