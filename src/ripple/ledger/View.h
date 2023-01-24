@@ -558,7 +558,7 @@ trustAdjustLockedBalance(
         JLOG(j.trace()) << "trustAdjustLockedBalance: "
                         << "lockedBalance(" << finalLockedBalance
                         << ") > balance(" << balance << ") = true\n";
-        return tecUNFUNDED_PAYMENT;
+        return tecINSUFFICIENT_FUNDS;
     }
 
     if (finalLockedBalance < beast::zero)
@@ -841,7 +841,7 @@ trustTransferLockedBalance(
         {
             JLOG(j.trace()) << "trustTransferLockedBalance could not find "
                                "sfLockedBalance/sfLockCount on source line";
-            return tecUNFUNDED_PAYMENT;
+            return tecINSUFFICIENT_FUNDS;
         }
 
         // decrement source balance
@@ -866,7 +866,7 @@ trustTransferLockedBalance(
                     << "trustTransferLockedBalance amount > lockedBalance: "
                     << "amount=" << amount
                     << " lockedBalance=" << priorLockedBalance;
-                return tecUNFUNDED_PAYMENT;
+                return tecINSUFFICIENT_FUNDS;
             }
 
             STAmount finalBalance = priorBalance - amount;
