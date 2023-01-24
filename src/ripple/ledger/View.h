@@ -948,9 +948,8 @@ trustTransferLockedBalance(
 
         // yes we can... we will
 
-        auto const finalDstAmt = isIssuer ? dstAmt
-            : flipDstAmt                  ? -dstAmt
-                                          : dstAmt;
+        auto const finalDstAmt =
+            isIssuer ? dstAmt : flipDstAmt ? -dstAmt : dstAmt;
         if constexpr (!dryRun)
         {
             // clang-format off
@@ -1008,9 +1007,8 @@ trustTransferLockedBalance(
         if (!isAddable(priorBalance, dstAmt))
             return tecPRECISION_LOSS;
 
-        finalBalance = isIssuer ? -finalBalance
-            : dstHigh           ? -finalBalance
-                                : finalBalance;
+        finalBalance =
+            isIssuer ? -finalBalance : dstHigh ? -finalBalance : finalBalance;
         if constexpr (!dryRun)
             sleDstLine->setFieldAmount(sfBalance, finalBalance);
     }
