@@ -281,20 +281,19 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
             if (!isTesSuccess(result))
                 return result;
         }
-        // check if the amount can be locked
+
+        // issuer does not need to lock anything
+        if (!isIssuer)
         {
-            if (!isIssuer)
-            {
-                auto sleLine = ctx.view.read(keylet::line(
-                    account, amount.getIssuer(), amount.getCurrency()));
-                TER result = trustAdjustLockedBalance(
-                    ctx.view, sleLine, amount, 1, ctx.j, DryRun);
-                JLOG(ctx.j.trace()) << "PayChanCreate::preclaim "
-                                       "trustAdjustLockedBalance(dry) result="
-                                    << result;
-                if (!isTesSuccess(result))
-                    return result;
-            }
+            auto sleLine = ctx.view.read(keylet::line(
+                account, amount.getIssuer(), amount.getCurrency()));
+            TER result = trustAdjustLockedBalance(
+                ctx.view, sleLine, amount, 1, ctx.j, DryRun);
+            JLOG(ctx.j.trace()) << "PayChanCreate::preclaim "
+                                   "trustAdjustLockedBalance(dry) result="
+                                << result;
+            if (!isTesSuccess(result))
+                return result;
         }
     }
 
@@ -396,7 +395,7 @@ PayChanCreate::doApply()
         {
             if (!sleLine)
                 return tecNO_LINE;
-            
+
             TER result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 

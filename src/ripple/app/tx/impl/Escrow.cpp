@@ -264,7 +264,7 @@ EscrowCreate::doApply()
 
         // issuer does not need to lock anything
         if (!isIssuer)
-        {   
+        {
             // perform the lock as a dry run before
             // we modify anything on-ledger
             sleLine = ctx_.view().peek(keylet::line(
@@ -356,7 +356,7 @@ EscrowCreate::doApply()
         {
             if (!sleLine)
                 return tecNO_LINE;
-            
+
             // do the lock-up for real now
             TER result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
