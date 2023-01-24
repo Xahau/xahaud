@@ -2180,7 +2180,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("ic simple");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -2397,7 +2397,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // If dst claims after cancel after, channel closes
-            Env env{*this, features}
+            Env env{*this, features};
 
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
@@ -2449,7 +2449,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
         {
             // Third party can close after cancel after
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, carol, gw);
             env.close();
             env.trust(USD(100000), alice, bob, carol);
@@ -2490,7 +2490,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("ic settle delay");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2575,7 +2575,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("ic expiration");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -2650,7 +2650,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("ic close dry");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2698,7 +2698,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("ic default amount");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2799,7 +2799,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
         {
             // Ignore the flag since it this is Issued Currency
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice, bob);
@@ -2833,7 +2833,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
         {
             // Ignore the flag since it this is Issued Currency
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice, bob);
@@ -2859,7 +2859,7 @@ struct PayChan_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
         // Create a channel where dst disallows XRP
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -2905,7 +2905,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const USD = gw["USD"];
 
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, carol, gw);
             env.close();
             env.trust(USD(100000), alice, bob, carol);
@@ -3035,7 +3035,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("IC Multiple channels to the same account");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -3066,7 +3066,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const charlie = Account("charlie", KeyType::ed25519);
@@ -3145,7 +3145,7 @@ struct PayChan_test : public beast::unit_test::suite
             return r;
         }();
 
-        Env env{*this, features}
+        Env env{*this, features};
         env.fund(XRP(10000), alice, gw);
         env.close();
         env.trust(USD(100000), alice);
@@ -3265,7 +3265,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
-        Env env{*this, features}
+        Env env{*this, features};
         env.fund(XRP(10000), alice, bob, gw);
         env.close();
         env.trust(USD(100000), alice, bob);
@@ -3301,7 +3301,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("IC PayChan Auth/Verify RPC");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const charlie = Account("charlie", KeyType::ed25519);
@@ -3820,7 +3820,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("IC Optional Fields");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -3881,7 +3881,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("ic malformed pk");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -4014,7 +4014,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // Test with adding the paychan to the recipient's owner directory
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice, bob);
@@ -4391,7 +4391,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("ic using tickets");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, features}
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
@@ -4583,7 +4583,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // test trust line missing
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice);
@@ -4657,7 +4657,7 @@ struct PayChan_test : public beast::unit_test::suite
             // test create paychan from issuer with ic
             // test where dest has no tl
             // test claim from issuer account
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, gw);
             env.close();
             auto const pk = gw.pk();
@@ -4681,7 +4681,7 @@ struct PayChan_test : public beast::unit_test::suite
             // env.close();
         }
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(1000), alice);
@@ -4715,7 +4715,7 @@ struct PayChan_test : public beast::unit_test::suite
             // test create paychan from issuer with ic
             // test where dest has no tl
             // test claim from issuer account
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, gw);
             env.close();
             auto const pk = gw.pk();
@@ -4737,7 +4737,7 @@ struct PayChan_test : public beast::unit_test::suite
             // test create paychan from issuer with ic
             // test where dest has no tl
             // test claim from destination account
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, gw);
             env.close();
             auto const pk = gw.pk();
@@ -4763,7 +4763,7 @@ struct PayChan_test : public beast::unit_test::suite
             // test create paychan from issuer with ic
             // test where dest has tl
             // test claim from issuer/source account
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, gw);
             env.close();
             env.trust(USD(100000), alice);
@@ -4793,7 +4793,7 @@ struct PayChan_test : public beast::unit_test::suite
             // test where dest has tl
             // test fund paychan from issuer with ic
             // test claim from issuer/source account
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, gw);
             env.close();
             env.trust(USD(100000), alice);
@@ -4840,7 +4840,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         // test TransferRate
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env(rate(gw, 1.25));
             env.close();
@@ -4874,7 +4874,7 @@ struct PayChan_test : public beast::unit_test::suite
         // test rate locked in
         // test fund fail
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env(rate(gw, 1.25));
             env.close();
@@ -4948,7 +4948,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         // test LimitAmount
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(1000), alice);
@@ -4990,7 +4990,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
         // test asfRequireAuth
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(1000), alice, bob, gw);
             env(fset(gw, asfRequireAuth));
             env.close();
@@ -5038,7 +5038,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
         // test Global Freeze
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice);
@@ -5086,7 +5086,7 @@ struct PayChan_test : public beast::unit_test::suite
         {
             // test pay more than locked amount
             // ie. has 10000, lock 1000 then try to pay 10000
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice);
@@ -5118,7 +5118,7 @@ struct PayChan_test : public beast::unit_test::suite
         {
             // test lock more than balance + locked
             // ie. has 10000 lock 1000 then try to lock 10000
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice);
@@ -5164,7 +5164,7 @@ struct PayChan_test : public beast::unit_test::suite
         auto const USDC = gw["USDC"];
 
         {
-            Env env{*this, features}
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
             env.trust(USD(100000), alice);
