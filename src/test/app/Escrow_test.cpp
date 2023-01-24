@@ -2155,7 +2155,7 @@ struct Escrow_test : public beast::unit_test::suite
 
             env(escrow(daniel, bob, USD(51)),
                 finish_time(env.now() + 1s),
-                ter(tecUNFUNDED_PAYMENT));
+                ter(tecINSUFFICIENT_FUNDS));
 
             // Removed 3 Account Reserve/Increment XRP tests
             // See line 602
@@ -2164,7 +2164,7 @@ struct Escrow_test : public beast::unit_test::suite
             env.close();
             env(escrow(daniel, bob, USD(51)),
                 finish_time(env.now() + 1s),
-                ter(tecUNFUNDED_PAYMENT));
+                ter(tecINSUFFICIENT_FUNDS));
         }
 
         {  // Specify incorrect sequence number

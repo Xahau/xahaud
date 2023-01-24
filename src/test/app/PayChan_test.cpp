@@ -326,7 +326,7 @@ struct PayChan_test : public beast::unit_test::suite
             // claim again
             preBob = env.balance(bob);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
-                ter(tecUNFUNDED_PAYMENT));
+                ter(tecINSUFFICIENT_FUNDS));
             BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
             BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
             BEAST_EXPECT(env.balance(bob) == preBob - feeDrops);
@@ -2108,7 +2108,7 @@ struct PayChan_test : public beast::unit_test::suite
             // A transaction that generates a tec still consumes its ticket.
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ticket::use(bobTicketSeq++),
-                ter(tecUNFUNDED_PAYMENT));
+                ter(tecINSUFFICIENT_FUNDS));
 
             env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
             BEAST_EXPECT(env.seq(bob) == bobSeq);
@@ -2242,7 +2242,7 @@ struct PayChan_test : public beast::unit_test::suite
             ter(tecNO_ENTRY));
         // not enough funds
         env(create(alice, bob, USD(10000), settleDelay, pk),
-            ter(tecUNFUNDED_PAYMENT));
+            ter(tecINSUFFICIENT_FUNDS));
 
         {
             // No signature claim with bad amounts (negative)
@@ -2302,7 +2302,7 @@ struct PayChan_test : public beast::unit_test::suite
             preBob = env.balance(bob, USD.issue());
             preLocked = lockedAmount(env, alice, gw, USD);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
-                ter(tecUNFUNDED_PAYMENT));
+                ter(tecINSUFFICIENT_FUNDS));
             postLocked = lockedAmount(env, alice, gw, USD);
             BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
             BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
@@ -4497,7 +4497,7 @@ struct PayChan_test : public beast::unit_test::suite
             // A transaction that generates a tec still consumes its ticket.
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ticket::use(bobTicketSeq++),
-                ter(tecUNFUNDED_PAYMENT));
+                ter(tecINSUFFICIENT_FUNDS));
 
             env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
             BEAST_EXPECT(env.seq(bob) == bobSeq);
@@ -4675,41 +4675,9 @@ struct PayChan_test : public beast::unit_test::suite
             auto const authAmt = reqBal + USD(100);
             // env(claim(gw, chan, reqBal, authAmt), ter(tecNO_LINE));
 
-            // TODO: FIX THIS
-            // auto const sig = signClaimICAuth(gw.pk(), gw.sk(), chan, authAmt);
-            // env(claim(bob, chan, reqBal, authAmt, Slice(sig), gw.pk()));
-            // env.close();
-        }
-        {
-            Env env{*this, features};
-            env.fund(XRP(10000), alice, bob, gw);
+            auto const sig = signClaimICAuth(gw.pk(), gw.sk(), chan, authAmt);
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), gw.pk()));
             env.close();
-            env.trust(USD(1000), alice);
-            env.trust(USD(1000), bob);
-            env.close();
-            env(pay(gw, alice, USD(1000)));
-            env(pay(gw, bob, USD(1000)));
-            env.close();
-
-            auto const pk = alice.pk();
-            auto const settleDelay = 100s;
-            auto const chan = channel(alice, bob, env.seq(alice));
-            env(create(alice, bob, USD(1000), settleDelay, pk));
-            env.close();
-            BEAST_EXPECT(channelBalance(*env.current(), chan) == USD(0));
-            BEAST_EXPECT(channelAmount(*env.current(), chan) == USD(1000));
-            auto chanBal = channelBalance(*env.current(), chan);
-            auto chanAmt = channelAmount(*env.current(), chan);
-            BEAST_EXPECT(chanBal == USD(0));
-            BEAST_EXPECT(chanAmt == USD(1000));
-            auto preBob = env.balance(bob);
-            auto const delta = USD(50);
-            auto reqBal = chanBal + delta;
-            auto authAmt = reqBal + USD(100);
-            assert(reqBal <= chanAmt);
-            auto const preLocked = lockedAmount(env, alice, gw, USD);
-            BEAST_EXPECT(preLocked == USD(1000));
-            env(claim(alice, chan, reqBal, authAmt));
         }
         {
             // test create paychan from issuer with ic
@@ -4831,12 +4799,8 @@ struct PayChan_test : public beast::unit_test::suite
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const carol = Account("carol");
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
-
-        auto const aliceUSD = alice["USD"];
-        auto const bobUSD = bob["USD"];
 
         // test TransferRate
         {
@@ -4986,7 +4950,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();
             auto const postBobLimit = limitAmount(env, bob, gw, USD);
-            // BEAST_EXPECT(postBobLimit == preBobLimit + delta);
+            // bobs limit is NOT changed
+            BEAST_EXPECT(postBobLimit == preBobLimit);
         }
         // test asfRequireAuth
         {
@@ -5022,10 +4987,9 @@ struct PayChan_test : public beast::unit_test::suite
             env(create(alice, bob, USD(100), settleDelay, pk));
             env.close();
 
-            auto const delta = USD(50);
             auto chanBal = channelBalance(*env.current(), chan);
             auto chanAmt = channelAmount(*env.current(), chan);
-            auto reqBal = chanBal + delta;
+            auto reqBal = USD(50);
             auto authAmt = reqBal + USD(100);
             // alice can claim
             env(claim(alice, chan, reqBal, authAmt));
@@ -5146,7 +5110,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const preLocked = lockedAmount(env, alice, gw, USD);
             BEAST_EXPECT(preLocked == USD(1000));
             env(create(alice, bob, USD(10000), settleDelay, pk),
-                ter(tecUNFUNDED_PAYMENT));
+                ter(tecINSUFFICIENT_FUNDS));
         }
     }
 
