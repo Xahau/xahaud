@@ -5001,7 +5001,7 @@ struct PayChan_test : public beast::unit_test::suite
             env.close();
 
             // bob can claim
-            auto const sig = 
+            auto const sig =
                 signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();

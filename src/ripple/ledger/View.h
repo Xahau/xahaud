@@ -926,7 +926,7 @@ trustTransferLockedBalance(
     if (lXferRate != parityRate)
     {
         // compute transfer fee, if any
-        auto const xferFee = amount.value() - 
+        auto const xferFee = amount.value() -
             divideRound(amount, lXferRate, amount.issue(), true);
         // compute balance to transfer
         dstAmt = amount.value() - xferFee;

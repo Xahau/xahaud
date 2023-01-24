@@ -204,8 +204,8 @@ struct Escrow_test : public beast::unit_test::suite
 
     static Rate
     escrowRate(
-        jtx::Env const& env, 
-        jtx::Account const& account, 
+        jtx::Env const& env,
+        jtx::Account const& account,
         uint32_t const& seq)
     {
         auto const sle = env.le(keylet::escrow(account.id(), seq));
