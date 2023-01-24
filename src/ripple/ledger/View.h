@@ -771,7 +771,7 @@ trustTransferLockedBalance(
     S& sleDstAcc,
     STAmount const& amount,  // issuer, currency are in this field
     int deltaLockCount,      // -1 decrement, +1 increment, 0 unchanged
-    Rate const& xferRate,  // TransferRate
+    Rate const& lXferRate,    // locked transfer rate
     beast::Journal const& j,
     R dryRun)
 {
@@ -923,11 +923,11 @@ trustTransferLockedBalance(
     // default to amount
     auto dstAmt = amount;
     // if transfer rate
-    if (xferRate != parityRate)
+    if (lXferRate != parityRate)
     {
         // compute transfer fee, if any
         auto const xferFee =
-            amount.value() - divideRound(amount, xferRate, amount.issue(), true);
+            amount.value() - divideRound(amount, lXferRate, amount.issue(), true);
         // compute balance to transfer
         dstAmt = amount.value() - xferFee;
     }
