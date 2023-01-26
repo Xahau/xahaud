@@ -67,18 +67,21 @@ mkdir .nih_c;
 mkdir .nih_toolchain;
 cd .nih_toolchain &&
 yum install -y wget lz4 lz4-devel git llvm13-static.x86_64 llvm13-devel.x86_64 devtoolset-10-binutils zlib-static ncurses-static -y \
-  gcc-c++ \
+  devtoolset-7-gcc-c++ \
+  devtoolset-9-gcc-c++ \
+  devtoolset-10-gcc-c++ \
   snappy snappy-devel \
   zlib zlib-devel \
   lz4-devel \
   libasan &&
+export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-7/g"` &&
 echo "-- Install ZStd 1.1.3 --" &&
 yum install epel-release -y &&
 ZSTD_VERSION="1.1.3" &&
 ( wget -nc -O zstd-${ZSTD_VERSION}.tar.gz https://github.com/facebook/zstd/archive/v${ZSTD_VERSION}.tar.gz; echo "" ) &&
 tar xzvf zstd-${ZSTD_VERSION}.tar.gz &&
 cd zstd-${ZSTD_VERSION} &&
-make -j8 && make install &&
+make -j8 install &&
 cd .. &&
 echo "-- Install Cmake 3.23.1 --" &&
 pwd &&
@@ -112,19 +115,19 @@ rm -rf build CMakeCache.txt &&
 mkdir build &&
 cd build &&
 cmake .. -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ -DCMAKE_INSTALL_PREFIX=/usr/lib64/llvm13/ -DCMAKE_BUILD_TYPE=Release &&
-make -j8 &&
-make install &&
+make -j8 install &&
 ln -s /usr/lib64/llvm13/lib/include/lld /usr/include/lld &&
 cp /usr/lib64/llvm13/lib/liblld*.a /usr/local/lib/ &&
-cd ../../../ &&
+cd ../../ &&
 echo "-- Build WasmEdge --" &&
-( git clone https://github.com/WasmEdge/WasmEdge.git;  echo "" ) &&
-cd WasmEdge &&
+( wget -nc https://github.com/WasmEdge/WasmEdge/archive/refs/tags/0.11.2.zip; unzip -o 0.11.2.zip; ) &&
+cd WasmEdge-0.11.2 &&
 ( mkdir build; echo "" ) &&
 cd build &&
 export BOOST_ROOT="/usr/local/src/boost_1_75_0" &&
 export Boost_LIBRARY_DIRS="/usr/local/lib" &&
 export BOOST_INCLUDEDIR="/usr/local/src/boost_1_75_0" &&
+export PATH=`echo $PATH | sed -E "s/devtoolset-7/devtoolset-9/g"` &&
 cmake .. \
     -DWASMEDGE_BUILD_SHARED_LIB=OFF \
     -DWASMEDGE_BUILD_STATIC_LIB=ON \
@@ -135,15 +138,26 @@ cmake .. \
     -DWASMEDGE_BUILD_PLUGINS=OFF \
     -DWASMEDGE_LINK_TOOLS_STATIC=ON \
     -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ &&
-make -j8 &&
-make install &&
-cd ../../ &&
+make -j8 install &&
+export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-10/g"` &&
+cp -r include/api/wasmedge /usr/include/ &&
+cd /io/ &&
 echo "-- Build Rippled --" &&
 pwd &&
 cp Builds/CMake/deps/Rocksdb.cmake Builds/CMake/deps/Rocksdb.cmake.old &&
 perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" Builds/CMake/deps/Rocksdb.cmake &&
+mv Builds/CMake/deps/WasmEdge.cmake Builds/CMake/deps/WasmEdge.old &&
+echo "find_package(LLVM REQUIRED CONFIG)
+message(STATUS \"Found LLVM ${LLVM_PACKAGE_VERSION}\")
+message(STATUS \"Using LLVMConfig.cmake in: \${LLVM_DIR}\")
+add_library (wasmedge STATIC IMPORTED GLOBAL)
+set_target_properties(wasmedge PROPERTIES IMPORTED_LOCATION \${WasmEdge_LIB})
+target_link_libraries (ripple_libs INTERFACE wasmedge)
+add_library (NIH::WasmEdge ALIAS wasmedge)
+message(\"WasmEdge DONE\")
+" > Builds/CMake/deps/WasmEdge.cmake &&
 cd release-build &&
-cmake .. -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ &&
+cmake .. -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ -DWasmEdge_LIB=/usr/local/lib64/libwasmedge.a &&
 make -j8 VERBOSE=1 &&
 strip -s rippled &&
 mv rippled xahaud &&
@@ -158,4 +172,5 @@ echo "Git log [last 20]:" >> release.info &&
 git log -n 20 >> release.info;
 cd ..;
 mv src/ripple/net/impl/RegisterSSLCerts.cpp.old src/ripple/net/impl/RegisterSSLCerts.cpp;
-mv Builds/CMake/deps/Rocksdb.cmake.old Builds/CMake/deps/Rocksdb.cmake'
+mv Builds/CMake/deps/Rocksdb.cmake.old Builds/CMake/deps/Rocksdb.cmake;
+mv Builds/CMake/deps/WasmEdge.old Builds/CMake/deps/WasmEdge.cmake;'
