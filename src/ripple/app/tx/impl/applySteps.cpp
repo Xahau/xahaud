@@ -156,6 +156,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<ClaimReward>(ctx);
         case ttINVOKE:
             return invoke_preflight_helper<Invoke>(ctx);
+        case ttURI_TOKEN:
+            return invoke_preflight_helper<URIToken>(ctx);
         default:
             assert(false);
             return {temUNKNOWN, TxConsequences{temUNKNOWN}};
@@ -265,6 +267,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<ClaimReward>(ctx);
         case ttINVOKE:
             return invoke_preclaim<Invoke>(ctx);
+        case ttURI_TOKEN:
+            return invoke_preclaim<URIToken>(ctx);
         default:
             assert(false);
             return temUNKNOWN;
@@ -335,6 +339,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return ClaimReward::calculateBaseFee(view, tx);
         case ttINVOKE:
             return Invoke::calculateBaseFee(view, tx);
+        case ttURI_TOKEN:
+            return URIToken::calculateBaseFee(view, tx);
         default:
             assert(false);
             return FeeUnit64{0};
@@ -499,6 +505,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttINVOKE: {
             Invoke p(ctx);
+            return p();
+        }
+        case ttURI_TOKEN: {
+            URIToken p(ctx);
             return p();
         }
         default:

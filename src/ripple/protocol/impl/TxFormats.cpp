@@ -361,6 +361,16 @@ TxFormats::TxFormats()
             {sfInvoiceID, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::URIToken,
+        ttURI_TOKEN,
+        {
+            {sfURI, soeOPTIONAL},
+            {sfURITokenID, soeOPTIONAL},
+            {sfAmount, soeOPTIONAL},
+            {sfDestination, soeOPTIONAL}
+        },
+        commonFields);
 }
 
 TxFormats const&

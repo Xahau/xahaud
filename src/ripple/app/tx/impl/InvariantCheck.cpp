@@ -392,6 +392,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltEMITTED_TXN:
             case ltNFTOKEN_PAGE:
             case ltNFTOKEN_OFFER:
+            case ltURI_TOKEN:
                 break;
             default:
                 invalidTypeAdded_ = true;

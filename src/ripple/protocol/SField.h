@@ -472,7 +472,7 @@ extern SF_UINT256 const sfHookNamespace;
 extern SF_UINT256 const sfHookSetTxnID;
 extern SF_UINT256 const sfOfferID;
 extern SF_UINT256 const sfEscrowID;
-
+extern SF_UINT256 const sfURITokenID;
 
 // currency amount (common)
 extern SF_AMOUNT const sfAmount;
