@@ -381,6 +381,7 @@ public:
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::signer_list), 0));
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::state), 0));
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::ticket), 0));
+        BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::uri_token), 0));
 
         // Set up a trust line so we can find it.
         env.trust(USD(1000), alice);
@@ -526,7 +527,7 @@ public:
         {
             // Find the uri token.
             std::string const uri(maxTokenURILength, '?');
-            Json::Value const resp = acct_objs(gw, jss::URIToken);
+            Json::Value const resp = acct_objs(gw, jss::uri_token);
             BEAST_EXPECT(acct_objs_is_size(resp, 1));
 
             auto const& uritoken = resp[jss::result][jss::account_objects][0u];
@@ -546,7 +547,8 @@ public:
                     jss::Escrow.c_str(),
                     jss::Check.c_str(),
                     jss::RippleState.c_str(),
-                    jss::PayChannel.c_str()};
+                    jss::PayChannel.c_str(),
+                    jss::URIToken.c_str()};
                 std::sort(v.begin(), v.end());
                 return v;
             }();
