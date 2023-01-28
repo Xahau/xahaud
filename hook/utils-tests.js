@@ -273,6 +273,17 @@ module.exports = {
                     });
                 }
 
+                const submit = (seed, txn) =>
+                {
+                    return new Promise((resolve, reject) =>
+                    {
+                        api.submit(txn,
+                            {wallet: xrpljs.Wallet.fromSeed(seed)}).then(s=>
+                        {
+                            resolve(s);
+                        }).catch(e=>{reject(e);});
+                    });
+                }
 
                 const feeSubmit = (seed, txn) =>
                 {
@@ -609,6 +620,7 @@ module.exports = {
                         trustSet: trustSet,
                         issueTokens: issueTokens,
                         log: log,
+                        submit: submit,
                         setTshCollect: setTshCollect,
                         feeSubmitAcceptMultiple: feeSubmitAcceptMultiple,
                         nftid: nftid
