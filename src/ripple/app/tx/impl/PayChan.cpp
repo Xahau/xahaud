@@ -491,6 +491,9 @@ PayChanFund::doApply()
         // issuer does not need to lock anything
         if (!isIssuer)
         {
+            if (slep->getFieldAmount(sfBalance).issue() != amount.issue())
+                return temBAD_CURRENCY;
+
             sleLine = ctx_.view().peek(keylet::line(
                 (*slep)[sfAccount], amount.getIssuer(), amount.getCurrency()));
 
@@ -766,7 +769,7 @@ PayChanClaim::doApply()
             // no reason to do a dry run first
             if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
                 return temDISABLED;
-
+            
             auto sleSrcAcc = ctx_.view().peek(keylet::account(src));
             TER result = trustTransferLockedBalance(
                 ctx_.view(),
