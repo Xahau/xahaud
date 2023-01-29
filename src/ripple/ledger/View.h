@@ -811,7 +811,8 @@ trustTransferLockedBalance(
 
     bool srcHigh = srcAccID > issuerAccID;
     bool dstHigh = dstAccID > issuerAccID;
-    bool isIssuer = issuerAccID == srcAccID;
+    bool srcIssuer = issuerAccID == srcAccID;
+    bool dstIssuer = issuerAccID == dstAccID;
 
     // check for freezing, auth, no ripple and TL sanity
     {
@@ -825,13 +826,36 @@ trustTransferLockedBalance(
             return result;
     }
 
+    // dstLow XNOR srcLow tells us if we need to flip the balance amount
+    // on the destination line
+    bool flipDstAmt = !((dstHigh && srcHigh) || (!dstHigh && !srcHigh));
+
+    // default dstAmount to amount
+    auto dstAmt = amount;
+
+    // if tx acct not source issuer or dest issuer
+    // and xfer rate is not parity
+    if ((!srcIssuer || !dstIssuer) && lXferRate != parityRate)
+    {
+        // compute transfer fee, if any
+        auto const xferFee = amount.value() -
+            divideRound(
+                amount, 
+                lXferRate, 
+                amount.issue(), 
+                true);
+        // compute balance to transfer
+        dstAmt = amount.value() - xferFee;
+    }
+
     // ensure source line exists
     Keylet klSrcLine{keylet::line(srcAccID, issuerAccID, currency)};
     SLEPtr sleSrcLine = peek(klSrcLine);
 
-    // source account is not issuer use locked balance
-    if (!isIssuer)
+    // if source account is not issuer
+    if (!srcIssuer)
     {
+        // if source account has no trust line - fail
         if (!sleSrcLine)
             return tecNO_LINE;
 
@@ -915,115 +939,112 @@ trustTransferLockedBalance(
             }
         }
     }
-
-    // dstLow XNOR srcLow tells us if we need to flip the balance amount
-    // on the destination line
-    bool flipDstAmt = !((dstHigh && srcHigh) || (!dstHigh && !srcHigh));
-
-    // default to amount
-    auto dstAmt = amount;
-    // if transfer rate
-    if (lXferRate != parityRate)
-    {
-        // compute transfer fee, if any
-        auto const xferFee = amount.value() -
-            divideRound(amount, lXferRate, amount.issue(), true);
-        // compute balance to transfer
-        dstAmt = amount.value() - xferFee;
-    }
+    
     // check for a destination line
     Keylet klDstLine = keylet::line(dstAccID, issuerAccID, currency);
     SLEPtr sleDstLine = peek(klDstLine);
 
-    if (!sleDstLine)
+    // if dest account is not issuer
+    if (!dstIssuer)
     {
-        // in most circumstances a missing destination line is a deal breaker
-        if (actingAccID != dstAccID && srcAccID != dstAccID)
-            return tecNO_LINE;
-
-        STAmount dstBalanceDrops = sleDstAcc->getFieldAmount(sfBalance);
-
-        // no dst line exists, we might be able to create one...
-        if (std::uint32_t const ownerCount = {sleDstAcc->at(sfOwnerCount)};
-            dstBalanceDrops < view.fees().accountReserve(ownerCount + 1))
-            return tecNO_LINE_INSUF_RESERVE;
-        // yes we can... we will
-
-        auto const finalDstAmt =
-            isIssuer ? dstAmt : flipDstAmt ? -dstAmt : dstAmt;
-        if constexpr (!dryRun)
+        // if dest acct has no trustline
+        if (!sleDstLine)
         {
-            // clang-format off
-            if (TER const ter = trustCreate(
-                    view,
-                    !dstHigh,                       // is dest low?
-                    issuerAccID,                    // source
-                    dstAccID,                       // destination
-                    klDstLine.key,                  // ledger index
-                    sleDstAcc,                      // Account to add to
-                    false,                          // authorize account
-                    (sleDstAcc->getFlags() & lsfDefaultRipple) == 0,
-                    false,                          // freeze trust line
-                    finalDstAmt,                    // initial balance
-                    Issue(currency, dstAccID),      // limit of zero
-                    0,                              // quality in
-                    0,                              // quality out
-                    j);                             // journal
-                !isTesSuccess(ter))
+            // if tx acct is not dest acct and src acct is not dest acct
+            if (actingAccID != dstAccID && srcAccID != dstAccID)
+                return tecNO_LINE;
+
+            STAmount dstBalanceDrops = sleDstAcc->getFieldAmount(sfBalance);
+
+            // no dst line exists, we might be able to create one...
+            if (std::uint32_t const ownerCount = {sleDstAcc->at(sfOwnerCount)};
+                dstBalanceDrops < view.fees().accountReserve(ownerCount + 1))
+                return tecNO_LINE_INSUF_RESERVE;
+            
+            // compute final destination amount
+            auto const finalDstAmt = flipDstAmt ? -dstAmt : dstAmt;
+            // create destination trust line
+            if constexpr (!dryRun)
             {
-                return ter;
+                // clang-format off
+                if (TER const ter = trustCreate(
+                        view,
+                        !dstHigh,                       // is dest low?
+                        issuerAccID,                    // source
+                        dstAccID,                       // destination
+                        klDstLine.key,                  // ledger index
+                        sleDstAcc,                      // Account to add to
+                        false,                          // authorize account
+                        (sleDstAcc->getFlags() & lsfDefaultRipple) == 0,
+                        false,                          // freeze trust line
+                        finalDstAmt,                    // initial balance
+                        Issue(currency, dstAccID),      // limit of zero
+                        0,                              // quality in
+                        0,                              // quality out
+                        j);                             // journal
+                    !isTesSuccess(ter))
+                {
+                    return ter;
+                }
             }
+            // clang-format on
         }
-        // clang-format on
-    }
-    else
-    {
-        // the dst line does exist, and it would have been checked above
-        // in trustTransferAllowed for NoRipple and Freeze flags
-
-        // check the limit
-        STAmount dstLimit =
-            dstHigh ? (*sleDstLine)[sfHighLimit] : (*sleDstLine)[sfLowLimit];
-
-        STAmount priorBalance =
-            dstHigh ? -((*sleDstLine)[sfBalance]) : (*sleDstLine)[sfBalance];
-
-        STAmount finalBalance = priorBalance + dstAmt;
-
-        if (finalBalance < priorBalance)
+        else
         {
-            JLOG(j.warn()) << "trustTransferLockedBalance resulted in a "
-                              "lower/equal final balance on dest line";
-            return tecINTERNAL;
+            // dest trust line does exist
+            // checked NoRipple and Freeze flags in trustTransferAllowed
+
+            // check the limit
+            STAmount dstLimit =
+                dstHigh ? (*sleDstLine)[sfHighLimit] : (*sleDstLine)[sfLowLimit];
+
+            // get prior balance
+            STAmount priorBalance =
+                dstHigh ? -((*sleDstLine)[sfBalance]) : (*sleDstLine)[sfBalance];
+
+            // combine prior with dest amount for final
+            STAmount finalBalance = priorBalance + dstAmt;
+
+            // if final is less than prior - fail
+            if (finalBalance < priorBalance)
+            {
+                JLOG(j.warn()) << "trustTransferLockedBalance resulted in a "
+                                "lower/equal final balance on dest line";
+                return tecINTERNAL;
+            }
+
+            // if final is more than dest limit and tx acct is not dest acct - fail
+            if (finalBalance > dstLimit && actingAccID != dstAccID)
+            {
+                JLOG(j.trace()) << "trustTransferLockedBalance would increase dest "
+                                "line above limit without permission";
+                return tecPATH_DRY;
+            }
+
+            // if there is significant precision loss - fail
+            if (!isAddable(priorBalance, dstAmt))
+                return tecPRECISION_LOSS;
+
+            // compute final balance to send - reverse sign for high dest
+            finalBalance = dstHigh ? -finalBalance : finalBalance;
+            
+            // if not dry run - set dst line field
+            if constexpr (!dryRun)
+                sleDstLine->setFieldAmount(sfBalance, finalBalance);
         }
-
-        if (finalBalance > dstLimit && actingAccID != dstAccID)
-        {
-            JLOG(j.trace()) << "trustTransferLockedBalance would increase dest "
-                               "line above limit without permission";
-            return tecPATH_DRY;
-        }
-
-        // check if there is significant precision loss
-        if (!isAddable(priorBalance, dstAmt))
-            return tecPRECISION_LOSS;
-
-        finalBalance =
-            isIssuer ? -finalBalance : dstHigh ? -finalBalance : finalBalance;
-        if constexpr (!dryRun)
-            sleDstLine->setFieldAmount(sfBalance, finalBalance);
     }
 
     if constexpr (!dryRun)
     {
         static_assert(std::is_same<V, ApplyView>::value);
 
-        // check if source line ended up in default state and adjust owner count
-        // if it did
-        if (!isIssuer)
+        // if source account is not issuer
+        if (!srcIssuer)
         {
+            // check if source line ended up in default state
             if (isTrustDefault(sleSrcAcc, sleSrcLine))
             {
+                // adjust owner count
                 uint32_t flags = sleSrcLine->getFieldU32(sfFlags);
                 uint32_t fReserve{srcHigh ? lsfHighReserve : lsfLowReserve};
                 if (flags & fReserve)
@@ -1033,11 +1054,13 @@ trustTransferLockedBalance(
                     view.update(sleSrcAcc);
                 }
             }
+            // update source line
             view.update(sleSrcLine);
         }
 
-        // a destination line already existed and was updated
+        // if dest line exists
         if (sleDstLine)
+            // update dest line
             view.update(sleDstLine);
     }
     return tesSUCCESS;
