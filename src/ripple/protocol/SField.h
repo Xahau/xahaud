@@ -263,6 +263,7 @@ public:
     compare(const SField& f1, const SField& f2);
 
     static std::map<int, SField const*> knownCodeToField;
+
 private:
     static int num;
 };

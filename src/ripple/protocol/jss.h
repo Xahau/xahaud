@@ -41,87 +41,87 @@ namespace jss {
    error: Common properties of RPC error responses.
 */
 
-JSS(AL_size);                // out: GetCounts
-JSS(AL_hit_rate);            // out: GetCounts
-JSS(Account);                // in: TransactionSign; field.
-JSS(AccountDelete);          // transaction type.
-JSS(AccountRoot);            // ledger type.
-JSS(AccountSet);             // transaction type.
-JSS(Amendments);             // ledger type.
-JSS(Amount);                 // in: TransactionSign; field.
-JSS(Authorize);              // field
-JSS(Check);                  // ledger type.
-JSS(CheckCancel);            // transaction type.
-JSS(CheckCash);              // transaction type.
-JSS(CheckCreate);            // transaction type.
-JSS(ClaimReward);            // transaction type.
-JSS(ClearFlag);              // field.
-JSS(CreateCode);             // field.
-JSS(DeliverMin);             // in: TransactionSign
-JSS(DepositPreauth);         // transaction and ledger type.
-JSS(Destination);            // in: TransactionSign; field.
-JSS(DirectoryNode);          // ledger type.
-JSS(EnableAmendment);        // transaction type.
-JSS(EmitFailure);            // transaction type. (cleanup emit)
-JSS(Escrow);                 // ledger type.
-JSS(EscrowCancel);           // transaction type.
-JSS(EscrowCreate);           // transaction type.
-JSS(EscrowFinish);           // transaction type.
-JSS(Fee);                    // in/out: TransactionSign; field.
-JSS(FeeSettings);            // ledger type.
-JSS(FIELDS);                 // out: RPC server_definitions
-JSS(Flags);                  // in/out: TransactionSign; field.
-JSS(incomplete_shards);      // out: OverlayImpl, PeerImp
-JSS(HookApiVersion);         // field
-JSS(HookHash);               // field
-JSS(HookNamespace);          // field
-JSS(HookOn);                 // field
-JSS(Hooks);                  // field
-JSS(HookGrants);             // field
-JSS(HookParameters);         // field
-JSS(HookParameterName);      // field
-JSS(HookParameterValue);     // field
-JSS(HookParameter);          // field
-JSS(HookGrant);              // field
-JSS(isSerialized);           // out: RPC server_definitions
-JSS(isSigningField);         // out: RPC server_definitions
-JSS(isVLEncoded);            // out: RPC server_definitions
-JSS(Invalid);                //
-JSS(Invoke);                 // transaction type
-JSS(InvoiceID);              // field
-JSS(LastLedgerSequence);     // in: TransactionSign; field
-JSS(LedgerHashes);           // ledger type.
-JSS(LimitAmount);            // field.
-JSS(NetworkID);              // field.
-JSS(NFTokenBurn);            // transaction type.
-JSS(NFTokenMint);            // transaction type.
-JSS(NFTokenOffer);           // ledger type.
-JSS(NFTokenAcceptOffer);     // transaction type.
-JSS(NFTokenCancelOffer);     // transaction type.
-JSS(NFTokenCreateOffer);     // transaction type.
-JSS(NFTokenPage);            // ledger type.
-JSS(Offer);                  // ledger type.
-JSS(OfferCancel);            // transaction type.
-JSS(OfferCreate);            // transaction type.
-JSS(OfferSequence);          // field.
-JSS(Paths);                  // in/out: TransactionSign
-JSS(PayChannel);             // ledger type.
-JSS(Payment);                // transaction type.
-JSS(PaymentChannelClaim);    // transaction type.
-JSS(PaymentChannelCreate);   // transaction type.
-JSS(PaymentChannelFund);     // transaction type.
-JSS(RippleState);            // ledger type.
-JSS(SLE_hit_rate);           // out: GetCounts.
-JSS(SetFee);                 // transaction type.
-JSS(UNLModify);              // transaction type.
-JSS(SettleDelay);            // in: TransactionSign
-JSS(SendMax);                // in: TransactionSign
-JSS(Sequence);               // in/out: TransactionSign; field.
-JSS(SetFlag);                // field.
-JSS(SetRegularKey);          // transaction type.
-JSS(SetHook);                // transaction type.
-JSS(Hook);                   // ledger type.
-JSS(HookState);              // ledger type.
+JSS(AL_size);               // out: GetCounts
+JSS(AL_hit_rate);           // out: GetCounts
+JSS(Account);               // in: TransactionSign; field.
+JSS(AccountDelete);         // transaction type.
+JSS(AccountRoot);           // ledger type.
+JSS(AccountSet);            // transaction type.
+JSS(Amendments);            // ledger type.
+JSS(Amount);                // in: TransactionSign; field.
+JSS(Authorize);             // field
+JSS(Check);                 // ledger type.
+JSS(CheckCancel);           // transaction type.
+JSS(CheckCash);             // transaction type.
+JSS(CheckCreate);           // transaction type.
+JSS(ClaimReward);           // transaction type.
+JSS(ClearFlag);             // field.
+JSS(CreateCode);            // field.
+JSS(DeliverMin);            // in: TransactionSign
+JSS(DepositPreauth);        // transaction and ledger type.
+JSS(Destination);           // in: TransactionSign; field.
+JSS(DirectoryNode);         // ledger type.
+JSS(EnableAmendment);       // transaction type.
+JSS(EmitFailure);           // transaction type. (cleanup emit)
+JSS(Escrow);                // ledger type.
+JSS(EscrowCancel);          // transaction type.
+JSS(EscrowCreate);          // transaction type.
+JSS(EscrowFinish);          // transaction type.
+JSS(Fee);                   // in/out: TransactionSign; field.
+JSS(FeeSettings);           // ledger type.
+JSS(FIELDS);                // out: RPC server_definitions
+JSS(Flags);                 // in/out: TransactionSign; field.
+JSS(incomplete_shards);     // out: OverlayImpl, PeerImp
+JSS(HookApiVersion);        // field
+JSS(HookHash);              // field
+JSS(HookNamespace);         // field
+JSS(HookOn);                // field
+JSS(Hooks);                 // field
+JSS(HookGrants);            // field
+JSS(HookParameters);        // field
+JSS(HookParameterName);     // field
+JSS(HookParameterValue);    // field
+JSS(HookParameter);         // field
+JSS(HookGrant);             // field
+JSS(isSerialized);          // out: RPC server_definitions
+JSS(isSigningField);        // out: RPC server_definitions
+JSS(isVLEncoded);           // out: RPC server_definitions
+JSS(Invalid);               //
+JSS(Invoke);                // transaction type
+JSS(InvoiceID);             // field
+JSS(LastLedgerSequence);    // in: TransactionSign; field
+JSS(LedgerHashes);          // ledger type.
+JSS(LimitAmount);           // field.
+JSS(NetworkID);             // field.
+JSS(NFTokenBurn);           // transaction type.
+JSS(NFTokenMint);           // transaction type.
+JSS(NFTokenOffer);          // ledger type.
+JSS(NFTokenAcceptOffer);    // transaction type.
+JSS(NFTokenCancelOffer);    // transaction type.
+JSS(NFTokenCreateOffer);    // transaction type.
+JSS(NFTokenPage);           // ledger type.
+JSS(Offer);                 // ledger type.
+JSS(OfferCancel);           // transaction type.
+JSS(OfferCreate);           // transaction type.
+JSS(OfferSequence);         // field.
+JSS(Paths);                 // in/out: TransactionSign
+JSS(PayChannel);            // ledger type.
+JSS(Payment);               // transaction type.
+JSS(PaymentChannelClaim);   // transaction type.
+JSS(PaymentChannelCreate);  // transaction type.
+JSS(PaymentChannelFund);    // transaction type.
+JSS(RippleState);           // ledger type.
+JSS(SLE_hit_rate);          // out: GetCounts.
+JSS(SetFee);                // transaction type.
+JSS(UNLModify);             // transaction type.
+JSS(SettleDelay);           // in: TransactionSign
+JSS(SendMax);               // in: TransactionSign
+JSS(Sequence);              // in/out: TransactionSign; field.
+JSS(SetFlag);               // field.
+JSS(SetRegularKey);         // transaction type.
+JSS(SetHook);               // transaction type.
+JSS(Hook);                  // ledger type.
+JSS(HookState);             // ledger type.
 JSS(HookDefinition);
 JSS(EmittedTxn);             // ledger type.
 JSS(SignerList);             // ledger type.
