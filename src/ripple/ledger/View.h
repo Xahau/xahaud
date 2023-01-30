@@ -835,11 +835,7 @@ trustTransferLockedBalance(
     {
         // compute transfer fee, if any
         auto const xferFee = amount.value() -
-            divideRound(
-                amount,
-                lXferRate,
-                amount.issue(),
-                true);
+            divideRound(amount, lXferRate, amount.issue(), true);
         // compute balance to transfer
         dstAmt = amount.value() - xferFee;
     }
@@ -934,7 +930,7 @@ trustTransferLockedBalance(
             }
         }
     }
-    
+
     // check for a destination line
     Keylet klDstLine = keylet::line(dstAccID, issuerAccID, currency);
     SLEPtr sleDstLine = peek(klDstLine);
@@ -955,7 +951,7 @@ trustTransferLockedBalance(
             if (std::uint32_t const ownerCount = {sleDstAcc->at(sfOwnerCount)};
                 dstBalanceDrops < view.fees().accountReserve(ownerCount + 1))
                 return tecNO_LINE_INSUF_RESERVE;
-            
+
             // create destination trust line
             if constexpr (!dryRun)
             {
@@ -988,12 +984,12 @@ trustTransferLockedBalance(
             // checked NoRipple and Freeze flags in trustTransferAllowed
 
             // check the limit
-            STAmount dstLimit =
-                dstHigh ? (*sleDstLine)[sfHighLimit] : (*sleDstLine)[sfLowLimit];
+            STAmount dstLimit = dstHigh ? (*sleDstLine)[sfHighLimit]
+                                        : (*sleDstLine)[sfLowLimit];
 
             // get prior balance
-            STAmount priorBalance =
-                dstHigh ? -((*sleDstLine)[sfBalance]) : (*sleDstLine)[sfBalance];
+            STAmount priorBalance = dstHigh ? -((*sleDstLine)[sfBalance])
+                                            : (*sleDstLine)[sfBalance];
 
             // combine prior with dest amount for final
             STAmount finalBalance = priorBalance + dstAmt;
@@ -1002,15 +998,17 @@ trustTransferLockedBalance(
             if (finalBalance < priorBalance)
             {
                 JLOG(j.warn()) << "trustTransferLockedBalance resulted in a "
-                                "lower/equal final balance on dest line";
+                                  "lower/equal final balance on dest line";
                 return tecINTERNAL;
             }
 
-            // if final is more than dest limit and tx acct is not dest acct - fail
+            // if final is more than dest limit and tx acct is not dest acct -
+            // fail
             if (finalBalance > dstLimit && actingAccID != dstAccID)
             {
-                JLOG(j.trace()) << "trustTransferLockedBalance would increase dest "
-                                "line above limit without permission";
+                JLOG(j.trace())
+                    << "trustTransferLockedBalance would increase dest "
+                       "line above limit without permission";
                 return tecPATH_DRY;
             }
 
@@ -1020,7 +1018,7 @@ trustTransferLockedBalance(
 
             // compute final balance to send - reverse sign for high dest
             finalBalance = dstHigh ? -finalBalance : finalBalance;
-            
+
             // if not dry run - set dst line field
             if constexpr (!dryRun)
                 sleDstLine->setFieldAmount(sfBalance, finalBalance);

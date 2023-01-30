@@ -324,8 +324,7 @@ Keylet
 payChan(AccountID const& src, AccountID const& dst, std::uint32_t seq) noexcept
 {
     return {
-        ltPAYCHAN,
-        indexHash(LedgerNameSpace::PAYMENT_CHANNEL, src, dst, seq)};
+        ltPAYCHAN, indexHash(LedgerNameSpace::PAYMENT_CHANNEL, src, dst, seq)};
 }
 
 Keylet

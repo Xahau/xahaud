@@ -70,9 +70,10 @@ doChannelAuthorize(RPC::JsonContext& context)
 
     if (params[jss::amount].isString())
     {
-        std::optional<std::uint64_t> const optDrops = params[jss::amount].isString()
-        ? to_uint64(params[jss::amount].asString())
-        : std::nullopt;
+        std::optional<std::uint64_t> const optDrops =
+            params[jss::amount].isString()
+            ? to_uint64(params[jss::amount].asString())
+            : std::nullopt;
 
         if (!optDrops)
             return rpcError(rpcCHANNEL_AMT_MALFORMED);
@@ -92,8 +93,7 @@ doChannelAuthorize(RPC::JsonContext& context)
             channelId,
             amount.iou(),
             amount.getCurrency(),
-            amount.getIssuer()
-        );
+            amount.getIssuer());
     }
 
     try
@@ -152,9 +152,10 @@ doChannelVerify(RPC::JsonContext& context)
 
     if (params[jss::amount].isString())
     {
-        std::optional<std::uint64_t> const optDrops = params[jss::amount].isString()
-        ? to_uint64(params[jss::amount].asString())
-        : std::nullopt;
+        std::optional<std::uint64_t> const optDrops =
+            params[jss::amount].isString()
+            ? to_uint64(params[jss::amount].asString())
+            : std::nullopt;
 
         if (!optDrops)
             return rpcError(rpcCHANNEL_AMT_MALFORMED);
@@ -175,8 +176,7 @@ doChannelVerify(RPC::JsonContext& context)
             channelId,
             amount.iou(),
             amount.getCurrency(),
-            amount.getIssuer()
-        );
+            amount.getIssuer());
     }
 
     auto sig = strUnHex(params[jss::signature].asString());

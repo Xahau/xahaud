@@ -257,12 +257,12 @@ accountHolds(
 
         // If tokens can be escrowed then they can be locked in the trustline
         // which means we must never spend them until the escrow is released.
-        if (view.rules().enabled(featurePaychanAndEscrowForTokens)
-                && sle->isFieldPresent(sfLockedBalance))
+        if (view.rules().enabled(featurePaychanAndEscrowForTokens) &&
+            sle->isFieldPresent(sfLockedBalance))
         {
             STAmount lockedBalance = sle->getFieldAmount(sfLockedBalance);
-            STAmount spendableBalance = amount -
-                (account > issuer ? -lockedBalance : lockedBalance);
+            STAmount spendableBalance =
+                amount - (account > issuer ? -lockedBalance : lockedBalance);
 
             // RH NOTE: this is defensively programmed, it should never fire
             // if something bad does happen the trustline acts as a frozen line.
@@ -912,7 +912,8 @@ trustDelete(
     return tesSUCCESS;
 }
 
-bool isTrustDefault(
+bool
+isTrustDefault(
     std::shared_ptr<SLE> const& acc,
     std::shared_ptr<SLE> const& line)
 {
@@ -921,7 +922,7 @@ bool isTrustDefault(
     uint32_t tlFlags = line->getFieldU32(sfFlags);
 
     AccountID highAccID = line->getFieldAmount(sfHighLimit).issue().account;
-    AccountID lowAccID  = line->getFieldAmount(sfLowLimit ).issue().account;
+    AccountID lowAccID = line->getFieldAmount(sfLowLimit).issue().account;
 
     AccountID accID = acc->getAccountID(sfAccount);
 
@@ -931,8 +932,8 @@ bool isTrustDefault(
 
     uint32_t acFlags = line->getFieldU32(sfFlags);
 
-    const auto fNoRipple    {high ? lsfHighNoRipple : lsfLowNoRipple};
-    const auto fFreeze      {high ? lsfHighFreeze   : lsfLowFreeze};
+    const auto fNoRipple{high ? lsfHighNoRipple : lsfLowNoRipple};
+    const auto fFreeze{high ? lsfHighFreeze : lsfLowFreeze};
 
     if (tlFlags & fFreeze)
         return false;
@@ -949,17 +950,19 @@ bool isTrustDefault(
     if (line->getFieldAmount(high ? sfHighLimit : sfLowLimit) != beast::zero)
         return false;
 
-    uint32_t qualityIn  = line->getFieldU32(high ? sfHighQualityIn  : sfLowQualityIn);
-    uint32_t qualityOut = line->getFieldU32(high ? sfHighQualityOut : sfLowQualityOut);
+    uint32_t qualityIn =
+        line->getFieldU32(high ? sfHighQualityIn : sfLowQualityIn);
+    uint32_t qualityOut =
+        line->getFieldU32(high ? sfHighQualityOut : sfLowQualityOut);
 
-    if (qualityIn  && qualityIn  != QUALITY_ONE)
+    if (qualityIn && qualityIn != QUALITY_ONE)
         return false;
 
     if (qualityOut && qualityOut != QUALITY_ONE)
         return false;
 
     return true;
-}   
+}
 
 TER
 offerDelete(ApplyView& view, std::shared_ptr<SLE> const& sle, beast::Journal j)
