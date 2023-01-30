@@ -155,14 +155,12 @@ removeGeneric(
     if (!sleDel)
         return tesSUCCESS;
 
-    auto const owner = (*offer)[sfOwner];
-
     if (!view.dirRemove(
             keylet::ownerDir(account),
             (*sleDel)[sfOwnerNode],
             sleDel->key(),
             false))
-        return false;
+        return tefBAD_LEDGER;
 
     adjustOwnerCount(
         view,
@@ -171,7 +169,7 @@ removeGeneric(
         beast::Journal{beast::Journal::getNullSink()});
 
     view.erase(sleDel);
-    return true;
+    return tesSUCCESS;
 }
 
 // Return nullptr if the LedgerEntryType represents an obligation that can't
