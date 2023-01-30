@@ -160,7 +160,7 @@ removeGeneric(
             (*sleDel)[sfOwnerNode],
             sleDel->key(),
             false))
-        return tecINTERNAL;
+        return tefBAD_LEDGER;
 
     adjustOwnerCount(
         view,
