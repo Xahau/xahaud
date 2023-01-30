@@ -826,28 +826,23 @@ trustTransferLockedBalance(
             return result;
     }
 
-    // dstLow XNOR srcLow tells us if we need to flip the balance amount
-    // on the destination line
-    bool flipDstAmt = !((dstHigh && srcHigh) || (!dstHigh && !srcHigh));
-
     // default dstAmount to amount
     auto dstAmt = amount;
 
     // if tx acct not source issuer or dest issuer
     // and xfer rate is not parity
-    if ((!srcIssuer || !dstIssuer) && lXferRate != parityRate)
+    if ((!srcIssuer && !dstIssuer) && lXferRate != parityRate)
     {
         // compute transfer fee, if any
         auto const xferFee = amount.value() -
             divideRound(
-                amount, 
-                lXferRate, 
-                amount.issue(), 
+                amount,
+                lXferRate,
+                amount.issue(),
                 true);
         // compute balance to transfer
         dstAmt = amount.value() - xferFee;
     }
-
     // ensure source line exists
     Keylet klSrcLine{keylet::line(srcAccID, issuerAccID, currency)};
     SLEPtr sleSrcLine = peek(klSrcLine);
@@ -961,8 +956,6 @@ trustTransferLockedBalance(
                 dstBalanceDrops < view.fees().accountReserve(ownerCount + 1))
                 return tecNO_LINE_INSUF_RESERVE;
             
-            // compute final destination amount
-            auto const finalDstAmt = flipDstAmt ? -dstAmt : dstAmt;
             // create destination trust line
             if constexpr (!dryRun)
             {
@@ -977,7 +970,7 @@ trustTransferLockedBalance(
                         false,                          // authorize account
                         (sleDstAcc->getFlags() & lsfDefaultRipple) == 0,
                         false,                          // freeze trust line
-                        finalDstAmt,                    // initial balance
+                        dstAmt,                         // initial balance
                         Issue(currency, dstAccID),      // limit of zero
                         0,                              // quality in
                         0,                              // quality out
