@@ -183,8 +183,7 @@ doAccountChannels(RPC::JsonContext& context)
                     nextHint = RPC::getStartHint(sleCur, visitData.accountID);
                 }
 
-                if (count <= limit &&
-                    (*sleCur)[sfAccount] == accountID &&
+                if (count <= limit && (*sleCur)[sfAccount] == accountID &&
                     (!visitData.hasDst ||
                      visitData.raDstAccount == (*sleCur)[sfDestination]))
                 {

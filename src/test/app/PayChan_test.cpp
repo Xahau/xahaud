@@ -4676,7 +4676,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("bob0");
             auto const gw = Account{"gw0"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(5000), src, dst, gw);
             env.close();
@@ -4724,7 +4724,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("dan1");
             auto const gw = Account{"gw1"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(5000), src, dst, gw);
             env.close();
@@ -4772,7 +4772,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("alice2");
             auto const gw = Account{"gw0"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(5000), src, dst, gw);
             env.close();
@@ -4820,7 +4820,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("carol0");
             auto const gw = Account{"gw1"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(5000), src, dst, gw);
             env.close();
@@ -4868,7 +4868,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("bob0");
             auto const gw = Account{"gw0"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(10000), src, dst, gw);
             env.close();
@@ -4921,7 +4921,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("dan1");
             auto const gw = Account{"gw1"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(10000), src, dst, gw);
             env.close();
@@ -4974,7 +4974,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("alice2");
             auto const gw = Account{"gw0"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(10000), src, dst, gw);
             env.close();
@@ -5027,7 +5027,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const dst = Account("carol0");
             auto const gw = Account{"gw1"};
             auto const USD = gw["USD"];
-            
+
             Env env{*this, features};
             env.fund(XRP(10000), src, dst, gw);
             env.close();
@@ -5079,7 +5079,7 @@ struct PayChan_test : public beast::unit_test::suite
         testcase("IC Gateway");
         using namespace test::jtx;
         using namespace std::literals;
-        
+
         // issuer -> src
         // src > issuer
         // dest no trustline
@@ -5389,13 +5389,15 @@ struct PayChan_test : public beast::unit_test::suite
             auto const delta = USD(500);
             auto const reqBal = chanBal + delta;
             auto const authAmt = reqBal + USD(100);
-            auto const sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
+            auto const sig =
+                signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(gw, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();
             BEAST_EXPECT(preAlice == USD(10000));
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
             std::cout << "PRE ALICE: " << preAlice << "\n";
-            std::cout << "POST ALICE: " << env.balance(alice, USD.issue()) << "\n";
+            std::cout << "POST ALICE: " << env.balance(alice, USD.issue())
+                      << "\n";
         }
     }
 
@@ -5423,7 +5425,7 @@ struct PayChan_test : public beast::unit_test::suite
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
             env.close();
-            
+
             // alice can create paychan w/ xfer rate
             auto const preAlice = env.balance(alice, USD.issue());
             auto const pk = alice.pk();
@@ -5641,7 +5643,8 @@ struct PayChan_test : public beast::unit_test::suite
             auto chan = channel(alice, bob, env.seq(alice));
             // alice cannot create because bob's trustline is not authorized
             // all parties must be authorized
-            env(create(alice, bob, USD(1000), settleDelay, pk), ter(tecNO_AUTH));
+            env(create(alice, bob, USD(1000), settleDelay, pk),
+                ter(tecNO_AUTH));
             env.close();
 
             env(trust(gw, bobUSD(10000)), txflags(tfSetfAuth));
@@ -5671,7 +5674,8 @@ struct PayChan_test : public beast::unit_test::suite
             auto const newAuthAmt = newReqBal + USD(100);
             auto const sig =
                 signClaimICAuth(alice.pk(), alice.sk(), chan, newAuthAmt);
-            env(claim(bob, chan, newReqBal, newAuthAmt, Slice(sig), alice.pk()));
+            env(claim(
+                bob, chan, newReqBal, newAuthAmt, Slice(sig), alice.pk()));
             env.close();
         }
     }
@@ -5753,7 +5757,7 @@ struct PayChan_test : public beast::unit_test::suite
             // set freeze on alice trustline
             env(trust(gw, USD(100000), alice, tfSetFreeze));
             env.close();
-            
+
             // setup transaction
             auto const pk = alice.pk();
             auto const settleDelay = 100s;
@@ -5771,18 +5775,18 @@ struct PayChan_test : public beast::unit_test::suite
             chan = channel(alice, bob, env.seq(alice));
             env(create(alice, bob, USD(1000), settleDelay, pk));
             env.close();
-           
+
             // set freeze on alice trustline
             env(trust(gw, USD(100000), alice, tfSetFreeze));
             env.close();
-            
+
             // paychan fields
             auto chanBal = channelBalance(*env.current(), chan);
             auto chanAmt = channelAmount(*env.current(), chan);
             auto const delta = USD(10);
             auto reqBal = chanBal + delta;
             auto authAmt = reqBal + USD(100);
-            
+
             // alice claim paychan fails - frozen trustline
             env(claim(alice, chan, reqBal, authAmt), ter(tecFROZEN));
 
@@ -5950,20 +5954,20 @@ struct PayChan_test : public beast::unit_test::suite
             env(pay(gw, alice, USD(10000000000000000)));
             env(pay(gw, bob, USD(10000000000000000)));
             env.close();
-            
+
             // setup tx
             auto const pk = alice.pk();
             auto const settleDelay = 100s;
             auto const chan = channel(alice, bob, env.seq(alice));
-            
+
             // create paychan fails - precision loss
             env(create(alice, bob, USD(10000000000000000), settleDelay, pk));
             env.close();
-            
+
             // alice cannot fund again - precision loss
             env(fund(alice, chan, USD(1)), ter(tecPRECISION_LOSS));
             env.close();
-            
+
             // setup tx
             auto const preAlice = env.balance(alice, USD.issue());
             auto const preLocked = -lockedAmount(env, alice, gw, USD);
@@ -5971,13 +5975,13 @@ struct PayChan_test : public beast::unit_test::suite
             auto chanAmt = channelAmount(*env.current(), chan);
             auto const delta = USD(10000000000000000);
             auto reqBal = chanBal + delta;
-            
+
             // create paychan success
             env(claim(alice, chan, reqBal, reqBal));
             env.close();
             auto postLocked = -lockedAmount(env, alice, gw, USD);
             BEAST_EXPECT(postLocked == USD(0));
-            
+
             // alice can fund again
             env(pay(gw, alice, USD(1)));
             env.close();
@@ -6000,7 +6004,8 @@ struct PayChan_test : public beast::unit_test::suite
             auto const pk = alice.pk();
             auto const settleDelay = 100s;
             // alice cannot create paychan for 1/10/100 token - precision loss
-            env(create(alice, bob, USD(1), settleDelay, pk), ter(tecPRECISION_LOSS));
+            env(create(alice, bob, USD(1), settleDelay, pk),
+                ter(tecPRECISION_LOSS));
             env.close();
             // alice can create paychan for 1000 token
             auto const chan = channel(alice, bob, env.seq(alice));
@@ -6012,7 +6017,8 @@ struct PayChan_test : public beast::unit_test::suite
             auto reqBal = USD(1000);
             auto authAmt = reqBal + USD(1000);
             auto sig = signClaimICAuth(alice.pk(), alice.sk(), chan, authAmt);
-            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()), ter(tecPRECISION_LOSS));
+            env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
+                ter(tecPRECISION_LOSS));
 
             reqBal = USD(10000);
             authAmt = reqBal + USD(10000);

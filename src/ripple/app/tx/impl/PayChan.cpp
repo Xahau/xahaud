@@ -769,7 +769,7 @@ PayChanClaim::doApply()
             // no reason to do a dry run first
             if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
                 return temDISABLED;
-            
+
             auto sleSrcAcc = ctx_.view().peek(keylet::account(src));
             TER result = trustTransferLockedBalance(
                 ctx_.view(),

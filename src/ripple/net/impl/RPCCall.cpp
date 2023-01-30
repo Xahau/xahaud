@@ -154,7 +154,8 @@ private:
     static Json::Value
     jvParseSTAmount(std::string const& strIC)
     {
-        static boost::regex reCurIss("\\`(0|[1-9][0-9]*)(?:/([[:alpha:]]{3}))(?:/(.+))?\\'");
+        static boost::regex reCurIss(
+            "\\`(0|[1-9][0-9]*)(?:/([[:alpha:]]{3}))(?:/(.+))?\\'");
 
         boost::smatch icMatch;
 
@@ -846,7 +847,8 @@ private:
         return parseAccountRaw2(jvParams, jss::destination_account);
     }
 
-    // channel_authorize: <private_key> [<key_type>] <channel_id> <drops | amount>
+    // channel_authorize: <private_key> [<key_type>] <channel_id> <drops |
+    // amount>
     Json::Value
     parseChannelAuthorize(Json::Value const& jvParams)
     {
@@ -883,14 +885,16 @@ private:
             // validate amount string | json
             if (!jvParams[index].isString())
                 return rpcError(rpcCHANNEL_AMT_MALFORMED);
-            
+
             // parse string
-            Json::Value amountJson = jvParseSTAmount(jvParams[index].asString());
-            if (!amountJson) {
+            Json::Value amountJson =
+                jvParseSTAmount(jvParams[index].asString());
+            if (!amountJson)
+            {
                 // amount is string
                 if (!to_uint64(jvParams[index].asString()))
                     return rpcError(rpcCHANNEL_AMT_MALFORMED);
-                
+
                 jvRequest[jss::amount] = jvParams[index].asString();
             }
             else
@@ -900,7 +904,7 @@ private:
                 bool isAmount = amountFromJsonNoThrow(amount, amountJson);
                 if (!isAmount)
                     return rpcError(rpcCHANNEL_AMT_MALFORMED);
-                
+
                 jvRequest[jss::amount] = amountJson;
             }
         }
@@ -936,11 +940,12 @@ private:
                 return rpcError(rpcCHANNEL_AMT_MALFORMED);
             // parse string
             Json::Value amountJson = jvParseSTAmount(jvParams[2u].asString());
-            if (!amountJson) {
+            if (!amountJson)
+            {
                 // amount is string
                 if (!to_uint64(jvParams[2u].asString()))
                     return rpcError(rpcCHANNEL_AMT_MALFORMED);
-                
+
                 jvRequest[jss::amount] = jvParams[2u].asString();
             }
             else
@@ -950,7 +955,7 @@ private:
                 bool isAmount = amountFromJsonNoThrow(amount, amountJson);
                 if (!isAmount)
                     return rpcError(rpcCHANNEL_AMT_MALFORMED);
-                
+
                 jvRequest[jss::amount] = amountJson;
             }
         }
