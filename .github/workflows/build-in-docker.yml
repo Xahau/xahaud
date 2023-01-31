@@ -2,7 +2,7 @@ name: Build using Docker
 
 on:
   push:
-    branches: [ "dev" ]
+    branches: [ "dev", "test" ]
   pull_request:
     branches: [ "dev" ]
 
@@ -11,5 +11,11 @@ jobs:
     runs-on: [self-hosted, vanity]
     steps:
     - uses: actions/checkout@v3
+      with:
+        clean: false
     - name: Build using Docker
       run: /bin/bash release-builder.sh
+    - uses: actions/upload-artifact@v3
+      with:
+        name: build
+        path: /io/release-build/xahaud
