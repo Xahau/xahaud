@@ -142,10 +142,17 @@ cp Builds/CMake/deps/Rocksdb.cmake Builds/CMake/deps/Rocksdb.cmake.old &&
 
 echo "MOVING TO [ build-core.sh ]"
 cd /io;
+
+printenv > .env.temp;
+cat .env.temp | grep '=' | sed s/\\\(^[^=]\\+=\\\)/\\1\\\"/g|sed s/\$/\\\"/g > .env;
+rm .env.temp;
+
+echo "Persisting ENV:"
+cat .env
+
 ./build-core.sh "$1" "$2" "$3" "$4"
 echo "END [ build-core.sh ]"
 
 echo "END INSIDE CONTAINER - FULL"
 
 echo "-- Built with env vars:"
-printenv
