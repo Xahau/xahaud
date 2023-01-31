@@ -1,0 +1,15 @@
+name: Build using Docker
+
+on:
+  push:
+    branches: [ "dev" ]
+  pull_request:
+    branches: [ "dev" ]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build using Docker
+      run: /bin/bash release-builder.sh
