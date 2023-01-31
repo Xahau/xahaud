@@ -12,7 +12,8 @@ then
   echo 'Run this inside the rippled directory. (.git dir not found).'
   exit 1
 fi
-docker run --user $(id -u):$(id -g) --rm  -v `pwd`:/io --network host ghcr.io/foobarwidget/holy-build-box-x64 /hbb_exe/activate-exec bash -x -c '
+docker run --user 0:$(id -g) --rm  -v `pwd`:/io --network host ghcr.io/foobarwidget/holy-build-box-x64 /hbb_exe/activate-exec bash -x -c '
+umask 0000;
 cd /io;
 mkdir src/certs;
 curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o src/certs/certbundle.h;
