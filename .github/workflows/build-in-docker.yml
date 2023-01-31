@@ -17,5 +17,9 @@ jobs:
       run: /bin/bash release-builder.sh
     - uses: actions/upload-artifact@v3
       with:
-        name: build
-        path: release-build/xahaud
+        name: build-${{ github.run_number }}
+        path: |
+          release-build/xahaud
+          release-build/release.info
+    - name: Unit tests
+      run: /bin/bash docker-unit-tests.sh
