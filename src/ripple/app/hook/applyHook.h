@@ -464,6 +464,37 @@ namespace hook
             return ret;
         }
 
+        class WasmEdgeVM
+        {
+        public:
+
+            WasmEdge_ConfigureContext* conf = NULL;
+            WasmEdge_VMContext* ctx = NULL;
+
+            WasmEdgeVM()
+            {
+                conf = WasmEdge_ConfigureCreate();
+                if (!conf)
+                    return;
+                WasmEdge_ConfigureStatisticsSetInstructionCounting(conf, true);
+                ctx = WasmEdge_VMCreate(conf, NULL);
+            }
+
+            bool
+            sane()
+            {
+                return ctx && conf;
+            }
+
+            ~WasmEdgeVM()
+            {
+                if (conf)
+                    WasmEdge_ConfigureDelete(conf);
+                if (ctx)
+                    WasmEdge_VMDelete(ctx);
+            }
+        };
+
         /**
          * Execute web assembly byte code against the constructed Hook Context
          * Once execution has occured the exector is spent and cannot be used again and should be destructed
@@ -482,61 +513,49 @@ namespace hook
 
             WasmEdge_LogOff();
 
-            WasmEdge_ConfigureContext* confCtx  = WasmEdge_ConfigureCreate();
-            WasmEdge_ConfigureStatisticsSetInstructionCounting(confCtx, true);
-            WasmEdge_VMContext* vmCtx = WasmEdge_VMCreate(confCtx, NULL);
+            auto vm = std::make_unique<WasmEdgeVM>();
 
-            WasmEdge_Result res = WasmEdge_VMRegisterModuleFromImport(vmCtx, this->importObj);
+            if (!vm->sane())
+            {
+                JLOG(j.warn())
+                    << "HookError[" << HC_ACC() << "]: Could not create WASMEDGE instance.";
+                    
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+                return;
+            }
+
+            WasmEdge_Result res = WasmEdge_VMRegisterModuleFromImport(vm->ctx, this->importObj);
             if (!WasmEdge_ResultOK(res))
             {
                 hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
                 JLOG(j.trace())
                     << "HookError[" << HC_ACC() << "]: Import phase failed "
                     << WasmEdge_ResultGetMessage(res);
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+                return;
             }
-            else
+
+            WasmEdge_Value params[1] = { WasmEdge_ValueGenI32((int64_t)wasmParam) };
+            WasmEdge_Value returns[1];
+
+            res =
+                WasmEdge_VMRunWasmFromBuffer(vm->ctx, reinterpret_cast<const uint8_t*>(wasm), len,
+                    callback ? cbakFunctionName : hookFunctionName,
+                    params, 1, returns, 1);
+
+            if (!WasmEdge_ResultOK(res))
             {
-
-                WasmEdge_Value params[1] = { WasmEdge_ValueGenI32((int64_t)wasmParam) };
-                WasmEdge_Value returns[1];
-
-                /*
-                printf("executing hook wasm:\n");
-                for (int j = 0; j < len; j++)
-                {
-                    if (j % 16 == 0)
-                        printf("0x%08X:\t", j);
-
-                    printf("%02X%s", (reinterpret_cast<const uint8_t*>(wasm))[j],
-                        (j % 16 == 15 ? "\n" :
-                        (j % 4 == 3 ? "  " :
-                        (j % 2 == 1 ? " " : ""))));
-                }
-                printf("\n----\n");
-                */
-
-                res =
-                    WasmEdge_VMRunWasmFromBuffer(vmCtx, reinterpret_cast<const uint8_t*>(wasm), len,
-                        callback ? cbakFunctionName : hookFunctionName,
-                        params, 1, returns, 1);
-
-                if (!WasmEdge_ResultOK(res))
-                {
-                    JLOG(j.warn())
-                        << "HookError[" << HC_ACC() << "]: WASM VM error "
-                        <<  WasmEdge_ResultGetMessage(res);
-                    hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-                }
-                else
-                {
-
-                    auto* statsCtx= WasmEdge_VMGetStatisticsContext(vmCtx);
-                    hookCtx.result.instructionCount = WasmEdge_StatisticsGetInstrCount(statsCtx);
-                }
+                JLOG(j.warn())
+                    << "HookError[" << HC_ACC() << "]: WASM VM error "
+                    <<  WasmEdge_ResultGetMessage(res);
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+                return;
             }
 
-            WasmEdge_ConfigureDelete(confCtx);
-            WasmEdge_VMDelete(vmCtx);
+            auto* statsCtx= WasmEdge_VMGetStatisticsContext(vm->ctx);
+            hookCtx.result.instructionCount = WasmEdge_StatisticsGetInstrCount(statsCtx);
+
+            // RH NOTE: stack unwind will clean up WasmEdgeVM
         }
 
         HookExecutor(HookContext& ctx)
