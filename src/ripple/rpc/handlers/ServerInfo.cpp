@@ -286,7 +286,7 @@ private:
                  tc == 19U /* Vector256  */);
 
             innerObj[jss::isSerialized] =
-                (tc >=
+                (tc <
                  10000); /* TRANSACTION, LEDGER_ENTRY, VALIDATION, METADATA */
 
             innerObj[jss::isSigningField] = f->shouldInclude(false);
@@ -314,10 +314,25 @@ private:
         for (auto [value, name] : magic_enum::enum_entries<TECcodes>())
             ret[jss::TRANSACTION_RESULTS][STR(name)] = std::stoi(STR(value));
 
+
+        auto const translate_tt = [](std::string inp) -> std::string {
+            if (inp == "PaychanClaim")
+                return "PaymentChannelClaim";
+            if (inp == "PaychanCreate")
+                return "PaymentChannelCreate";
+            if (inp == "PaychanFund")
+                return "PaymentChannelFund";
+            if (inp == "RegularKeySet")
+                return "SetRegularKey";
+            if (inp == "HookSet")
+                return "SetHook";
+            return inp;
+        };
+
         ret[jss::TRANSACTION_TYPES] = Json::objectValue;
         ret[jss::TRANSACTION_TYPES][jss::Invalid] = -1;
         for (auto [value, name] : magic_enum::enum_entries<TxType>())
-            ret[jss::TRANSACTION_TYPES][translate(STR(name).substr(2))] =
+            ret[jss::TRANSACTION_TYPES][translate_tt(translate(STR(name).substr(2)))] =
                 std::stoi(STR(value));
 
         // generate hash
