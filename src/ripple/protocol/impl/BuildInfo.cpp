@@ -35,11 +35,9 @@ namespace BuildInfo {
 // clang-format off
 char const* const versionString = "0.0.0"
 // clang-format on
-
 #ifdef DEBUG
-    ".DEBUG"
+    "+DEBUG"
 #endif
-
     //--------------------------------------------------------------------------
     ;
 
