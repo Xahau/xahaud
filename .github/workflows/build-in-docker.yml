@@ -21,6 +21,18 @@ jobs:
         path: |
           release-build/xahaud
           release-build/release.info
+
+  publisher:
+    needs: builder
+    runs-on: [self-hosted, vanity]
+    steps:
+    - uses: actions/upload-artifact@v3
+      with:
+        name: build-${{ github.run_number }}.zip
+        path: |
+          release-build/xahaud
+          release-build/release.info
+
   unittests:
     needs: builder
     runs-on: [self-hosted, vanity]
