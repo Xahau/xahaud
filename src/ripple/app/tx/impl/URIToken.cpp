@@ -25,6 +25,7 @@
 #include <ripple/protocol/STAccount.h>
 #include <ripple/protocol/TER.h>
 #include <ripple/protocol/TxFlags.h>
+#include <ripple/protocol/Quality.h>
 
 namespace ripple {
 

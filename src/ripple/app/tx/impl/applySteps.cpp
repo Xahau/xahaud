@@ -42,6 +42,7 @@
 #include <ripple/app/tx/impl/SetTrust.h>
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/Invoke.h>
+#include <ripple/app/tx/impl/URIToken.h>
 
 namespace ripple {
 
