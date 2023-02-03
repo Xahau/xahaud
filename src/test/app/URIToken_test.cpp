@@ -66,11 +66,80 @@ struct URIToken_test : public beast::unit_test::suite
     }
 
     static bool
-    uritExists(ReadView const& view, uint256 const& id)
+    uritokenExists(ReadView const& view, uint256 const& id)
     {
         auto const slep = view.read({ltURI_TOKEN, id});
         return bool(slep);
     }
+
+    void
+    debugBalance(
+        jtx::Env const& env,
+        std::string const& name,
+        jtx::Account const& account,
+        jtx::IOU const& iou)
+    {
+        // debugBalance(env, "alice", alice, USD);
+        std::cout << name << " BALANCE XRP: " << env.balance(account) << "\n";
+        std::cout << name << " BALANCE USD: " << env.balance(account, iou.issue()) << "\n";
+    }
+
+    void
+    debugToken(
+        ReadView const& view,
+        std::string const& name,
+        jtx::Account const& account,
+        uint256 const& id)
+    {
+        // debugToken(*env.current(), "token", alice, tid);
+        auto const slep = view.read({ltURI_TOKEN, id});
+        if (!slep)
+            return;
+        
+        std::cout << name << " sfOwner: " << slep->getAccountID(sfOwner) << "\n";
+        std::cout << name << " sfIssuer: " << slep->getAccountID(sfIssuer) << "\n";
+        // std::cout << name << " sfURI: " << slep->getFieldVL(sfURI) << "\n";
+        // std::cout << name << " sfDigest: " << (*slep)[sfDigest] << "\n";
+        if (slep->getFieldAmount(sfAmount))
+            std::cout << name << " sfAmount: " << slep->getFieldAmount(sfAmount) << "\n";
+        
+        if (slep->getFieldAmount(sfAmount))
+            std::cout << name << " sfDestination: " << slep->getAccountID(sfDestination) << "\n";
+    }
+
+    static AccountID
+    tokenOwner(ReadView const& view, uint256 const& id)
+    {
+        auto const slep = view.read({ltURI_TOKEN, id});
+        if (!slep)
+            return AccountID();
+        return slep->getAccountID(sfOwner);
+    }
+
+    static STAmount
+    tokenAmount(ReadView const& view, uint256 const& id)
+    {
+        auto const slep = view.read({ltURI_TOKEN, id});
+        if (!slep)
+            return XRPAmount{-1};
+        if (slep->getFieldAmount(sfAmount))
+            return (*slep)[sfAmount];
+        return XRPAmount{-1};
+    }
+    
+
+    // void
+    // debugOwnerDir(
+    //     jtx::Env const& env,
+    //     std::string const& name,
+    //     jtx::Account const& account,
+    //     std::string const& uri)
+    // {
+    //     auto const [urit, uritSle] = uriTokenKeyAndSle(env.current(), account, uri);
+    //     std::cout << "URIT: " << urit << "\n";
+    //     std::cout << name << "IN OWNER DIR: " << inOwnerDir(env.current(), account, uritSle) << "\n";
+    //     std::cout << name << "DIR: " << ownerDirCount(env.current(), account) << "\n";
+    // }
 
     static Json::Value
     mint(
@@ -140,30 +209,6 @@ struct URIToken_test : public beast::unit_test::suite
         jv[sfURITokenID.jsonName] = id;
         return jv;
     }
-
-    void
-    debugBalance(
-        jtx::Env const& env,
-        std::string const& name,
-        jtx::Account const& account,
-        jtx::IOU const& iou)
-    {
-        std::cout << name << " BALANCE XRP: " << env.balance(account) << "\n";
-        std::cout << name << " BALANCE USD: " << env.balance(account, iou.issue()) << "\n";
-    }
-
-    // void
-    // debugOwnerDir(
-    //     jtx::Env const& env,
-    //     std::string const& name,
-    //     jtx::Account const& account,
-    //     std::string const& uri)
-    // {
-    //     auto const [urit, uritSle] = uriTokenKeyAndSle(env.current(), account, uri);
-    //     std::cout << "URIT: " << urit << "\n";
-    //     std::cout << name << "IN OWNER DIR: " << inOwnerDir(env.current(), account, uritSle) << "\n";
-    //     std::cout << name << "DIR: " << ownerDirCount(env.current(), account) << "\n";
-    // }
 
     void
     testEnabled(FeatureBitset features)
@@ -638,6 +683,508 @@ struct URIToken_test : public beast::unit_test::suite
     }
 
     void
+    testMintValid(FeatureBitset features)
+    {
+        testcase("mint");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+
+        // setup env
+        Env env{*this, features};
+        env.fund(XRP(1000), alice, bob);
+
+        std::string const uri(maxTokenURILength, '?');
+        std::string const id{strHex(tokenid(alice, uri))};
+        
+        auto const digestval = "C16E7263F07AA41261DCC955660AF4646ADBA414E37B6F5A5BA50F75153F5CCC";
+        
+        // 0b110000001U: has digest - has uri - no flags
+        {
+            // mint
+            env(mint(alice, uri), json(sfDigest.fieldName, digestval));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // cleanup
+            env(burn(alice, id), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
+        }
+        // 0b110000010U: has digest - has uri - burnable flag
+        {
+            // mint
+            env(mint(alice, uri), txflags(tfBurnable), json(sfDigest.fieldName, digestval));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // cleanup
+            env(burn(alice, id), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
+        }
+        // 0b010000001U: has uri - no flags
+        {
+            // mint
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // cleanup
+            env(burn(alice, id), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
+        }
+        // 0b010000010U: has uri - burnable flag
+        {
+            // mint
+            env(mint(alice, uri), txflags(tfBurnable));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // cleanup
+            env(burn(alice, id), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
+        }
+    }
+
+    void
+    testBurnValid(FeatureBitset features)
+    {
+        testcase("burn");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+
+        // setup env
+        Env env{*this, features};
+        env.fund(XRP(1000), alice, bob);
+
+        std::string const uri(maxTokenURILength, '?');
+        std::string const id{strHex(tokenid(alice, uri))};
+        
+        // issuer can burn
+        {
+            // alice mints
+            env(mint(alice, uri), txflags(tfBurnable));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // alice sells
+            env(sell(alice, id, XRP(1)), txflags(tfSell));
+            env.close();
+            // bob buys
+            env(buy(bob, id, XRP(1)));
+            env.close();
+            // alice burns
+            env(burn(alice, id), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(bob, uri)));
+        }
+        // issuer cannot burn
+        {
+            // alice mints
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // alice sells
+            env(sell(alice, id, XRP(1)), txflags(tfSell));
+            env.close();
+            // bob buys
+            env(buy(bob, id, XRP(1)));
+            env.close();
+            // alice tries to burn
+            env(burn(alice, id), txflags(tfBurn), ter(tecNO_PERMISSION));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(bob, uri)));
+            // burn for test reset
+            env(burn(bob, id), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(bob, uri)));
+        }
+        // owner can burn
+        {
+            // alice mints
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // alice sells
+            env(sell(alice, id, XRP(1)), txflags(tfSell));
+            env.close();
+            // bob buys
+            env(buy(bob, id, XRP(1)));
+            env.close();
+            // bob burns
+            env(burn(bob, id), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(bob, uri)));
+        }
+    }
+
+    void
+    testBuyValid(FeatureBitset features)
+    {
+        testcase("buy");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+
+        // setup env
+        Env env{*this, features};
+        env.fund(XRP(1000), alice, bob, gw);
+        env.trust(USD(10000), alice);
+        env.trust(USD(10000), bob);
+        env.close();
+        env(pay(gw, alice, USD(1000)));
+        env(pay(gw, bob, USD(1000)));
+        env.close();
+
+        auto const feeDrops = env.current()->fees().base;
+        std::string const uri(maxTokenURILength, '?');
+        auto const tid = tokenid(alice, uri);
+        std::string const hexid{strHex(tid)};
+        
+        // bob can buy with XRP
+        {
+            // alice mints
+            const auto delta = XRP(10);
+            auto preAlice = env.balance(alice);
+            auto preBob = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            BEAST_EXPECT(env.balance(alice) == preAlice - (1 * feeDrops));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell));
+            BEAST_EXPECT(env.balance(alice) == preAlice - (2 * feeDrops));
+            env.close();
+            // bob buys
+            env(buy(bob, hexid, delta));
+            env.close();
+            
+            auto const [urit, uritSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
+            BEAST_EXPECT(env.balance(alice) == preAlice + delta - (2 * feeDrops));
+            BEAST_EXPECT(env.balance(bob) == preBob - delta - feeDrops);
+            BEAST_EXPECT(bob.id() == tokenOwner(*env.current(), tid));
+            
+            // bob burns to reset tests
+            env(burn(bob, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), urit));
+        }
+        // bob can buy with USD
+        {
+            // alice mints
+            const auto delta = USD(10);
+            auto preAlice = env.balance(alice, USD.issue());
+            auto preAliceXrp = env.balance(alice);
+            auto preBob = env.balance(bob, USD.issue());
+            auto preBobXrp = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            BEAST_EXPECT(env.balance(alice) == preAliceXrp - (1 * feeDrops));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell));
+            BEAST_EXPECT(env.balance(alice) == preAliceXrp - (2 * feeDrops));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice);
+            env.close();
+            // bob buys
+            env(buy(bob, hexid, delta));
+            env.close();
+            auto const [urit, uritSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
+            BEAST_EXPECT(env.balance(alice) == preAliceXrp - (2 * feeDrops));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
+            BEAST_EXPECT(env.balance(bob) == preBobXrp - (1 * feeDrops));
+            BEAST_EXPECT(bob.id() == tokenOwner(*env.current(), tid));
+            
+            // bob burns to reset tests
+            env(burn(bob, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), urit));
+        }
+    }
+
+    void
+    testSellValid(FeatureBitset features)
+    {
+        testcase("sell");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+
+        // setup env
+        Env env{*this, features};
+        env.fund(XRP(1000), alice, bob, carol, gw);
+        env.trust(USD(10000), alice);
+        env.trust(USD(10000), bob);
+        env.trust(USD(10000), carol);
+        env.close();
+        env(pay(gw, alice, USD(1000)));
+        env(pay(gw, bob, USD(1000)));
+        env(pay(gw, carol, USD(1000)));
+        env.close();
+
+        auto const feeDrops = env.current()->fees().base;
+        std::string const uri(maxTokenURILength, '?');
+        auto const tid = tokenid(alice, uri);
+        std::string const hexid{strHex(tid)};
+        
+        // alice can sell with XRP
+        {
+            // alice mints
+            const auto delta = XRP(10);
+            auto preAlice = env.balance(alice);
+            auto preBob = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(delta == tokenAmount(*env.current(), tid));
+            // alice clears and sells again at a higher price
+            env(clear(alice, hexid));
+            BEAST_EXPECT(XRPAmount{-1} == tokenAmount(*env.current(), tid));
+            env(sell(alice, hexid, XRP(11)), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(XRP(11) == tokenAmount(*env.current(), tid));
+            // bob tries to buy at original price and fails
+            env(buy(bob, hexid, delta), ter(tecINSUFFICIENT_PAYMENT));
+            // bob buys at higher price
+            env(buy(bob, hexid, XRP(11)));
+            env.close();
+            auto const [urit, uritSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
+            BEAST_EXPECT(env.balance(alice) == preAlice + XRP(11) - (4 * feeDrops));
+            BEAST_EXPECT(env.balance(bob) == preBob - XRP(11) - (2 * feeDrops));
+            BEAST_EXPECT(bob.id() == tokenOwner(*env.current(), tid));
+
+            debugToken(*env.current(), "token", alice, tid);
+            debugBalance(env, "alice", alice, USD);
+            debugBalance(env, "bob", bob, USD);
+            
+            // bob burns to reset tests
+            env(burn(bob, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tid));
+        }
+        // alice can sell with XRP and dest
+        {
+            // alice mints
+            const auto delta = XRP(10);
+            auto preAlice = env.balance(alice);
+            auto preBob = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell), jtx::token::destination(bob));
+            env.close();
+            BEAST_EXPECT(delta == tokenAmount(*env.current(), tid));
+            // carol tries to buy but cannot
+            env(buy(carol, hexid, delta), ter(tecNO_PERMISSION));
+            env.close();
+            // bob buys
+            env(buy(bob, hexid, delta));
+            env.close();
+            auto const [urit, uritSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
+            BEAST_EXPECT(env.balance(alice) == preAlice + delta- (2 * feeDrops));
+            BEAST_EXPECT(env.balance(bob) == preBob - delta - (1 * feeDrops));
+            BEAST_EXPECT(bob.id() == tokenOwner(*env.current(), tid));
+            
+            // bob burns to reset tests
+            env(burn(bob, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tid));
+        }
+
+        // alice can sell with USD
+        {
+            // alice mints
+            const auto delta = USD(10);
+            auto preAlice = env.balance(alice, USD.issue());
+            auto preAliceXrp = env.balance(alice);
+            auto preBob = env.balance(bob, USD.issue());
+            auto preBobXrp = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(delta == tokenAmount(*env.current(), tid));
+            // alice clears and sells again at a higher price
+            env(clear(alice, hexid));
+            BEAST_EXPECT(XRPAmount{-1} == tokenAmount(*env.current(), tid));
+            env(sell(alice, hexid, USD(11)), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(USD(11) == tokenAmount(*env.current(), tid));
+            // bob tries to buy at original price and fails
+            env(buy(bob, hexid, delta), ter(tecINSUFFICIENT_PAYMENT));
+            // bob buys at higher price
+            env(buy(bob, hexid, USD(11)));
+            env.close();
+            
+            auto const [urit, uritSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + USD(11) );
+            BEAST_EXPECT(env.balance(alice) == preAliceXrp - (4 * feeDrops));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - USD(11) );
+            BEAST_EXPECT(env.balance(bob) == preBobXrp - (2 * feeDrops));
+            BEAST_EXPECT(bob.id() == tokenOwner(*env.current(), tid));
+            
+            // bob burns to reset tests
+            env(burn(bob, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tid));
+        }
+        // alice can sell with USD and dest
+        {
+            // alice mints
+            const auto delta = USD(10);
+            auto preAlice = env.balance(alice, USD.issue());
+            auto preAliceXrp = env.balance(alice);
+            auto preBob = env.balance(bob, USD.issue());
+            auto preBobXrp = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell), jtx::token::destination(bob));
+            env.close();
+            BEAST_EXPECT(delta == tokenAmount(*env.current(), tid));
+            // carol tries to buy but cannot
+            env(buy(carol, hexid, delta), ter(tecNO_PERMISSION));
+            env.close();
+            // bob buys
+            env(buy(bob, hexid, delta));
+            env.close();
+            
+            auto const [urit, uritSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
+            BEAST_EXPECT(env.balance(alice) == preAliceXrp - (2 * feeDrops));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
+            BEAST_EXPECT(env.balance(bob) == preBobXrp - (1 * feeDrops));
+            BEAST_EXPECT(bob.id() == tokenOwner(*env.current(), tid));
+            
+            // bob burns to reset tests
+            env(burn(bob, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tid));
+        }
+    }
+
+     void
+    testClearValid(FeatureBitset features)
+    {
+        testcase("clear");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+
+        // setup env
+        Env env{*this, features};
+        env.fund(XRP(1000), alice, bob, carol, gw);
+        env.trust(USD(10000), alice);
+        env.trust(USD(10000), bob);
+        env.trust(USD(10000), carol);
+        env.close();
+        env(pay(gw, alice, USD(1000)));
+        env(pay(gw, bob, USD(1000)));
+        env(pay(gw, carol, USD(1000)));
+        env.close();
+
+        auto const feeDrops = env.current()->fees().base;
+        std::string const uri(maxTokenURILength, '?');
+        auto const tid = tokenid(alice, uri);
+        std::string const hexid{strHex(tid)};
+        
+        // alice can clear / reset XRP amount
+        {
+            // alice mints
+            const auto delta = XRP(10);
+            auto preAlice = env.balance(alice);
+            auto preBob = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(delta == tokenAmount(*env.current(), tid));
+            // alice clears the sell amount
+            env(clear(alice, hexid));
+            BEAST_EXPECT(XRPAmount{-1} == tokenAmount(*env.current(), tid));
+            // alice sets sell for higher amount
+            env(sell(alice, hexid, XRP(11)), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(XRP(11) == tokenAmount(*env.current(), tid));
+            // alice clears the sell amount
+            env(clear(alice, hexid));
+            BEAST_EXPECT(XRPAmount{-1} == tokenAmount(*env.current(), tid));
+            
+            // alice burns to reset tests
+            env(burn(bob, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tid));
+        }
+        // alice can clear / reset USD amount
+        {
+            // alice mints
+            const auto delta = USD(10);
+            auto preAlice = env.balance(alice, USD.issue());
+            auto preAliceXrp = env.balance(alice);
+            auto preBob = env.balance(bob, USD.issue());
+            auto preBobXrp = env.balance(bob);
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(uritokenExists(*env.current(), tid));
+            // alice sells
+            env(sell(alice, hexid, delta), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(delta == tokenAmount(*env.current(), tid));
+            // alice clears the sell amount
+            env(clear(alice, hexid));
+            BEAST_EXPECT(XRPAmount{-1} == tokenAmount(*env.current(), tid));
+            // alice sets sell for higher amount
+            env(sell(alice, hexid, USD(11)), txflags(tfSell));
+            env.close();
+            BEAST_EXPECT(USD(11) == tokenAmount(*env.current(), tid));
+            // alice clears the sell amount
+            env(clear(alice, hexid));
+            BEAST_EXPECT(XRPAmount{-1} == tokenAmount(*env.current(), tid));
+            
+            // alice burns to reset tests
+            env(burn(alice, hexid), txflags(tfBurn));
+            env.close();
+            BEAST_EXPECT(!uritokenExists(*env.current(), tid));
+        }
+    }
+
+    void
     testMetaAndOwnership(FeatureBitset features)
     {
         testcase("Metadata & Ownership");
@@ -676,7 +1223,7 @@ struct URIToken_test : public beast::unit_test::suite
             // // alice sets the sell offer
             // // bob sets the buy offer
             env(buy(bob, id, USD(10)));
-            BEAST_EXPECT(uritExists(*env.current(), urit));
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, uritSle));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uritSle));
@@ -706,7 +1253,7 @@ struct URIToken_test : public beast::unit_test::suite
             // // bob sets the buy offer
             env(buy(bob, id, USD(10)));
             env.close();
-            BEAST_EXPECT(uritExists(*env.current(), urit));
+            BEAST_EXPECT(uritokenExists(*env.current(), urit));
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, uritSle));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uritSle));
@@ -714,6 +1261,7 @@ struct URIToken_test : public beast::unit_test::suite
         }
     }
 
+    // TODO: THIS TEST IS NOT COMPLETE
     void
     testAccountDelete(FeatureBitset features)
     {
@@ -763,15 +1311,10 @@ struct URIToken_test : public beast::unit_test::suite
             env(pay(gw, carol, USD(1000)));
             env.close();
 
-            auto const feeDrops = env.current()->fees().base;
-
-            // debugBalance(env, "alice", alice, USD);
-            // debugBalance(env, "bob", bob, USD);
-
             // mint a uritoken from alice
             env(mint(alice, uri));
             env.close();
-            BEAST_EXPECT(uritExists(*env.current(), tokenid(alice, uri)));
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
             env(sell(alice, id, USD(10)), txflags(tfSell));
             env.close();
 
@@ -785,7 +1328,7 @@ struct URIToken_test : public beast::unit_test::suite
             // alice still has a trustline
             rmAccount(env, alice, bob, tecHAS_OBLIGATIONS);
 
-            BEAST_EXPECT(uritExists(*env.current(), tokenid(alice, uri)));
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
 
             // buy should fail if the uri token was removed
             auto preBob = env.balance(bob, USD.issue());
@@ -794,10 +1337,11 @@ struct URIToken_test : public beast::unit_test::suite
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob);
             
             env(mint(bob, uri));
-            BEAST_EXPECT(uritExists(*env.current(), tokenid(bob, uri)));
+            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(bob, uri)));
         }
     }
 
+    // TODO: THIS TEST IS NOT COMPLETE
     void
     testUsingTickets(FeatureBitset features)
     {
@@ -836,123 +1380,7 @@ struct URIToken_test : public beast::unit_test::suite
 
         env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
         BEAST_EXPECT(env.seq(alice) == aliceSeq);
-
-        BEAST_EXPECT(uritExists(*env.current(), tokenid(alice, uri)));
-
-        // {
-        //     auto const preAlice = env.balance(alice);
-        //     env(sell(alice, id, XRP(1000)), ticket::use(aliceTicketSeq++));
-
-        //     env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
-        //     BEAST_EXPECT(env.seq(alice) == aliceSeq);
-
-        //     auto const feeDrops = env.current()->fees().base;
-        //     BEAST_EXPECT(env.balance(alice) == preAlice - XRP(1000) - feeDrops);
-        // }
-
-        // BEAST_EXPECT(uritExists(*env.current(), tokenid(alice, uri)));
-
-        // {
-        //     // No signature needed since the bob is buying
-        //     auto const preBob = env.balance(bob);
-        //     env(buy(bob, id, USD(10)), ticket::use(bobTicketSeq++));
-
-        //     env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
-        //     BEAST_EXPECT(env.seq(bob) == bobSeq);
-
-        //     BEAST_EXPECT(uritExists(*env.current(), tokenid(alice, uri)));
-        //     BEAST_EXPECT(env.balance(bob) == preBob + USD(10));
-        // }
-        // {
-        //     // Claim with signature
-        //     auto preBob = env.balance(bob);
-        //     auto const delta = XRP(500);
-        //     auto const reqBal = chanBal + delta;
-        //     auto const authAmt = reqBal + XRP(100);
-        //     assert(reqBal <= chanAmt);
-        //     auto const sig =
-        //         signClaimAuth(alice.pk(), alice.sk(), chan, authAmt);
-        //     env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
-        //         ticket::use(bobTicketSeq++));
-
-        //     env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
-        //     BEAST_EXPECT(env.seq(bob) == bobSeq);
-
-        //     BEAST_EXPECT(channelBalance(*env.current(), chan) == reqBal);
-        //     BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
-        //     auto const feeDrops = env.current()->fees().base;
-        //     BEAST_EXPECT(env.balance(bob) == preBob + delta - feeDrops);
-        //     chanBal = reqBal;
-
-        //     // claim again
-        //     preBob = env.balance(bob);
-        //     // A transaction that generates a tec still consumes its ticket.
-        //     env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
-        //         ticket::use(bobTicketSeq++),
-        //         ter(tecUNFUNDED_PAYMENT));
-
-        //     env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
-        //     BEAST_EXPECT(env.seq(bob) == bobSeq);
-
-        //     BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
-        //     BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
-        //     BEAST_EXPECT(env.balance(bob) == preBob - feeDrops);
-        // }
-        // {
-        //     // Try to claim more than authorized
-        //     auto const preBob = env.balance(bob);
-        //     STAmount const authAmt = chanBal + XRP(500);
-        //     STAmount const reqAmt = authAmt + drops(1);
-        //     assert(reqAmt <= chanAmt);
-        //     // Note that since claim() returns a tem (neither tec nor tes),
-        //     // the ticket is not consumed.  So we don't increment bobTicket.
-        //     auto const sig =
-        //         signClaimAuth(alice.pk(), alice.sk(), chan, authAmt);
-        //     env(claim(bob, chan, reqAmt, authAmt, Slice(sig), alice.pk()),
-        //         ticket::use(bobTicketSeq),
-        //         ter(temBAD_AMOUNT));
-
-        //     env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
-        //     BEAST_EXPECT(env.seq(bob) == bobSeq);
-
-        //     BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
-        //     BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
-        //     BEAST_EXPECT(env.balance(bob) == preBob);
-        // }
-
-        // // Dst tries to fund the channel
-        // env(fund(bob, chan, XRP(1000)),
-        //     ticket::use(bobTicketSeq++),
-        //     ter(tecNO_PERMISSION));
-
-        // env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
-        // BEAST_EXPECT(env.seq(bob) == bobSeq);
-
-        // BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
-        // BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
-
-        // {
-        //     // Dst closes channel
-        //     auto const preAlice = env.balance(alice);
-        //     auto const preBob = env.balance(bob);
-        //     env(claim(bob, chan),
-        //         txflags(tfClose),
-        //         ticket::use(bobTicketSeq++));
-
-        //     env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
-        //     BEAST_EXPECT(env.seq(bob) == bobSeq);
-
-        //     BEAST_EXPECT(!channelExists(*env.current(), chan));
-        //     auto const feeDrops = env.current()->fees().base;
-        //     auto const delta = chanAmt - chanBal;
-        //     assert(delta > beast::zero);
-        //     BEAST_EXPECT(env.balance(alice) == preAlice + delta);
-        //     BEAST_EXPECT(env.balance(bob) == preBob - feeDrops);
-        // }
-        // env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
-        // BEAST_EXPECT(env.seq(alice) == aliceSeq);
-        // env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
-        // BEAST_EXPECT(env.seq(bob) == bobSeq);
+        BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
     }
 
     void
@@ -964,9 +1392,14 @@ struct URIToken_test : public beast::unit_test::suite
         // testSellInvalid(features);
         // testBuyInvalid(features);
         // testClearInvalid(features);
+        // testMintValid(features);
+        // testBurnValid(features);
+        // testBuyValid(features);
+        testSellValid(features);
+        testClearValid(features);
         // testMetaAndOwnership(features);
         // testAccountDelete(features);
-        testUsingTickets(features);
+        // testUsingTickets(features);
     }
 
 public:
