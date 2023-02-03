@@ -43,6 +43,7 @@ TxFormats::TxFormats()
         {sfEmitDetails, soeOPTIONAL},
         {sfFirstLedgerSequence, soeOPTIONAL},
         {sfNetworkID, soeOPTIONAL},
+        {sfHookParameters, soeOPTIONAL},
     };
 
     add(jss::AccountSet,
@@ -356,7 +357,6 @@ TxFormats::TxFormats()
         ttINVOKE,
         {
             {sfBlob, soeOPTIONAL},
-            {sfHookParameters, soeOPTIONAL},
             {sfDestination, soeOPTIONAL},
             {sfInvoiceID, soeOPTIONAL},
         },

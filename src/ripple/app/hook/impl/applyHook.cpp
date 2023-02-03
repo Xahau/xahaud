@@ -71,7 +71,7 @@ namespace hook
         auto const getNFTOffer = [](std::optional<uint256> id, ReadView const& rv) ->
         std::shared_ptr<const SLE>
         {
-                if (!id)
+                if (!id || *id == beast::zero)
                     return nullptr;
 
                 return rv.read(keylet::nftoffer(*id));
@@ -80,6 +80,32 @@ namespace hook
 
         switch (tt)
         {
+
+            case ttURI_TOKEN:
+            {
+                if (!tx.isFieldPresent(sfURITokenID))
+                    return {};
+
+                Keylet const id { ltURI_TOKEN, tx.getFieldH256(sfURITokenID) };
+                if (!rv.exists(id))
+                    return {};
+
+                auto const ut = rv.read(id);
+                if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                    return {};
+
+                auto const owner = ut->getAccountID(sfOwner);
+
+                // if the owner is initating the txn then there are no other TSH
+                if (owner == tx.getAccountID(sfAccount))
+                    return {};
+
+                // if the URIToken has the tfBurnable flag set then the
+                // owner is a strong TSH, otherwise they are a weak TSH
+                ADD_TSH(owner, ut->getFlags() & tfBurnable);
+                break;
+            }
+
 
             // NFT
             case ttNFTOKEN_MINT:
@@ -115,6 +141,7 @@ namespace hook
 
             case ttNFTOKEN_ACCEPT_OFFER:
             {
+                
                 auto const bo = getNFTOffer(tx[~sfNFTokenBuyOffer], rv);
                 auto const so = getNFTOffer(tx[~sfNFTokenSellOffer], rv);
                 

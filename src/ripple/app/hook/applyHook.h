@@ -73,7 +73,8 @@ namespace hook
         {ttNFTOKEN_CANCEL_OFFER,    tshCOLLECT  },
         {ttNFTOKEN_ACCEPT_OFFER,    tshROLLBACK },
         {ttCLAIM_REWARD,            tshROLLBACK },
-        {ttINVOKE,                  tshROLLBACK }
+        {ttINVOKE,                  tshROLLBACK },
+        {ttURI_TOKEN,               tshROLLBACK },
     };
 
 
