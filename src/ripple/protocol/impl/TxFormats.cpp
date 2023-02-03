@@ -364,13 +364,11 @@ TxFormats::TxFormats()
 
     add(jss::URIToken,
         ttURI_TOKEN,
-        {
-            {sfURI, soeOPTIONAL},
-            {sfURITokenID, soeOPTIONAL},
-            {sfAmount, soeOPTIONAL},
-            {sfDigest, soeOPTIONAL},
-            {sfDestination, soeOPTIONAL}
-        },
+        {{sfURI, soeOPTIONAL},
+         {sfURITokenID, soeOPTIONAL},
+         {sfAmount, soeOPTIONAL},
+         {sfDigest, soeOPTIONAL},
+         {sfDestination, soeOPTIONAL}},
         commonFields);
 }
 

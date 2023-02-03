@@ -417,8 +417,7 @@ nft_sells(uint256 const& id) noexcept
 Keylet
 uritoken(AccountID const& issuer, Blob const& uri)
 {
-    return {
-        ltURI_TOKEN, indexHash(LedgerNameSpace::URI_TOKEN, issuer, uri)};
+    return {ltURI_TOKEN, indexHash(LedgerNameSpace::URI_TOKEN, issuer, uri)};
 }
 
 }  // namespace keylet

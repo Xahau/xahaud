@@ -22,10 +22,10 @@
 #include <ripple/basics/Log.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/Quality.h>
 #include <ripple/protocol/STAccount.h>
 #include <ripple/protocol/TER.h>
 #include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/Quality.h>
 
 namespace ripple {
 
@@ -37,13 +37,12 @@ namespace ripple {
  * Clear: URITokenID only       (clear current sell offer)
  */
 
-
-
-inline URIOperation inferOperation(STTx const& tx)
+inline URIOperation
+inferOperation(STTx const& tx)
 {
     bool const hasDigest = tx.isFieldPresent(sfDigest);
     bool const hasURI = tx.isFieldPresent(sfURI);
-    bool const hasID  = tx.isFieldPresent(sfURITokenID);
+    bool const hasID = tx.isFieldPresent(sfURITokenID);
     bool const hasAmt = tx.isFieldPresent(sfAmount);
     bool const hasDst = tx.isFieldPresent(sfDestination);
 
@@ -53,16 +52,11 @@ inline URIOperation inferOperation(STTx const& tx)
     bool const hasBurnableFlag = flags == tfBurnable;
     bool const blankFlags = flags == 0;
 
-    uint16_t combination =
-        (hasDigest       ? 0b100000000U : 0) +
-        (hasURI          ? 0b010000000U : 0) +
-        (hasBurnFlag     ? 0b001000000U : 0) +
-        (hasID           ? 0b000100000U : 0) +
-        (hasAmt          ? 0b000010000U : 0) +
-        (hasDst          ? 0b000001000U : 0) +
-        (hasSellFlag     ? 0b000000100U : 0) +
-        (hasBurnableFlag ? 0b000000010U : 0) +
-        (blankFlags      ? 0b000000001U : 0);
+    uint16_t combination = (hasDigest ? 0b100000000U : 0) +
+        (hasURI ? 0b010000000U : 0) + (hasBurnFlag ? 0b001000000U : 0) +
+        (hasID ? 0b000100000U : 0) + (hasAmt ? 0b000010000U : 0) +
+        (hasDst ? 0b000001000U : 0) + (hasSellFlag ? 0b000000100U : 0) +
+        (hasBurnableFlag ? 0b000000010U : 0) + (blankFlags ? 0b000000001U : 0);
 
     switch (combination)
     {
@@ -98,20 +92,29 @@ URIToken::preflight(PreflightContext const& ctx)
     auto const op = inferOperation(ctx.tx);
     if (op == URIOperation::Invalid)
     {
-        JLOG(ctx.j.warn())
-                << "Malformed transaction. Check flags/fields, "
-                << "documentation for how to specify Mint/Burn/Buy/Sell operations.";
+        JLOG(ctx.j.warn()) << "Malformed transaction. Check flags/fields, "
+                           << "documentation for how to specify "
+                              "Mint/Burn/Buy/Sell operations.";
         return temMALFORMED;
     }
-    
+
     JLOG(ctx.j.trace())
-        << "URIToken txnid=" << ctx.tx.getTransactionID() << " inferred operation="
-        <<  (op == URIOperation::Invalid ? "Invalid" :
-            (op == URIOperation::Mint ? "Mint" :
-            (op == URIOperation::Burn ? "Burn" :
-            (op == URIOperation::Buy ? "Buy" :
-            (op == URIOperation::Sell ? "Sell" :
-            (op == URIOperation::Clear ? "Clear" : "Unknown")))))) << "\n";
+        << "URIToken txnid=" << ctx.tx.getTransactionID()
+        << " inferred operation="
+        << (op == URIOperation::Invalid
+                ? "Invalid"
+                : (op == URIOperation::Mint
+                       ? "Mint"
+                       : (op == URIOperation::Burn
+                              ? "Burn"
+                              : (op == URIOperation::Buy
+                                     ? "Buy"
+                                     : (op == URIOperation::Sell
+                                            ? "Sell"
+                                            : (op == URIOperation::Clear
+                                                   ? "Clear"
+                                                   : "Unknown"))))))
+        << "\n";
 
     if (op == URIOperation::Mint && ctx.tx.getFieldVL(sfURI).size() > 256)
     {
@@ -125,15 +128,14 @@ URIToken::preflight(PreflightContext const& ctx)
         STAmount const amt = ctx.tx.getFieldAmount(sfAmount);
         if (!isLegalNet(amt) || amt.signum() <= 0)
         {
-            JLOG(ctx.j.warn())
-                << "Malformed transaction. Negative or invalid amount specified.";
+            JLOG(ctx.j.warn()) << "Malformed transaction. Negative or invalid "
+                                  "amount specified.";
             return temBAD_AMOUNT;
         }
 
         if (badCurrency() == amt.getCurrency())
         {
-            JLOG(ctx.j.warn())
-                << "Malformed transaction. Bad currency.";
+            JLOG(ctx.j.warn()) << "Malformed transaction. Bad currency.";
             return temBAD_CURRENCY;
         }
     }
@@ -149,7 +151,8 @@ URIToken::preclaim(PreclaimContext const& ctx)
 
     std::shared_ptr<SLE const> sleU;
     if (ctx.tx.isFieldPresent(sfURITokenID))
-        sleU = ctx.view.read(Keylet {ltURI_TOKEN, ctx.tx.getFieldH256(sfURITokenID)});
+        sleU = ctx.view.read(
+            Keylet{ltURI_TOKEN, ctx.tx.getFieldH256(sfURITokenID)});
 
     uint32_t leFlags = sleU ? sleU->getFieldU32(sfFlags) : 0;
     std::optional<AccountID> issuer;
@@ -158,7 +161,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
     std::optional<AccountID> dest;
 
     std::shared_ptr<SLE const> sleOwner;
-    
+
     if (sleU)
     {
         if (sleU->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
@@ -175,34 +178,32 @@ URIToken::preclaim(PreclaimContext const& ctx)
         sleOwner = ctx.view.read(keylet::account(*owner));
         if (!sleOwner)
         {
-            JLOG(ctx.j.warn())
-                    << "Malformed transaction: owner of URIToken is not in the ledger.";
+            JLOG(ctx.j.warn()) << "Malformed transaction: owner of URIToken is "
+                                  "not in the ledger.";
             return tecNO_ENTRY;
         }
-
     }
     else if (op != URIOperation::Mint)
         return tecNO_ENTRY;
 
     switch (op)
     {
-        case URIOperation::Mint:
-        {
+        case URIOperation::Mint: {
             // check if this token has already been minted.
-            if (ctx.view.exists(keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
+            if (ctx.view.exists(
+                    keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
                 return tecDUPLICATE;
-            
+
             return tesSUCCESS;
         }
 
-        case URIOperation::Burn:
-        {
+        case URIOperation::Burn: {
             if (leFlags == tfBurnable && acc == *issuer)
             {
-                // pass, the issuer can burn the URIToken if they minted it with a burn flag
+                // pass, the issuer can burn the URIToken if they minted it with
+                // a burn flag
             }
-            else
-            if (acc == *owner)
+            else if (acc == *owner)
             {
                 // pass, the owner can always destroy their own URI token
             }
@@ -212,10 +213,9 @@ URIToken::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         }
 
-        case URIOperation::Buy:
-        {
-            // if the owner is the account then the buy operation is a clear operation
-            // and we won't bother to check anything else
+        case URIOperation::Buy: {
+            // if the owner is the account then the buy operation is a clear
+            // operation and we won't bother to check anything else
             if (acc == *owner)
                 return tesSUCCESS;
 
@@ -239,35 +239,31 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (purchaseAmount.native() && saleAmount->native())
             {
                 // if it's an xrp sale/purchase then no trustline needed
-                if (purchaseAmount > (sleOwner->getFieldAmount(sfBalance) - ctx.tx[sfFee]))
+                if (purchaseAmount >
+                    (sleOwner->getFieldAmount(sfBalance) - ctx.tx[sfFee]))
                     return tecINSUFFICIENT_FUNDS;
             }
 
             // execution to here means it's an IOU sale
-            // check if the buyer has the right trustline with an adequate balance
+            // check if the buyer has the right trustline with an adequate
+            // balance
 
             STAmount availableFunds{accountFunds(
-                ctx.view,
-                acc,
-                purchaseAmount,
-                fhZERO_IF_FROZEN,
-                ctx.j)};
+                ctx.view, acc, purchaseAmount, fhZERO_IF_FROZEN, ctx.j)};
 
             if (purchaseAmount > availableFunds)
-               return tecINSUFFICIENT_FUNDS;
+                return tecINSUFFICIENT_FUNDS;
 
             return tesSUCCESS;
         }
 
-        case URIOperation::Clear:
-        {
+        case URIOperation::Clear: {
             if (acc != *owner)
                 return tecNO_PERMISSION;
 
             return tesSUCCESS;
         }
-        case URIOperation::Sell:
-        {
+        case URIOperation::Sell: {
             if (acc != *owner)
                 return tecNO_PERMISSION;
 
@@ -275,25 +271,23 @@ URIToken::preclaim(PreclaimContext const& ctx)
             {
                 AccountID const iouIssuer = saleAmount->getIssuer();
                 if (!ctx.view.exists(keylet::account(iouIssuer)))
-                        return tecNO_ISSUER;
+                    return tecNO_ISSUER;
             }
             return tesSUCCESS;
         }
 
-        default:
-        {
-            JLOG(ctx.j.warn())
-                << "URIToken txid=" << ctx.tx.getTransactionID() << " preclaim with URIOperation::Invalid\n";
+        default: {
+            JLOG(ctx.j.warn()) << "URIToken txid=" << ctx.tx.getTransactionID()
+                               << " preclaim with URIOperation::Invalid\n";
             return tecINTERNAL;
         }
     }
-
 }
 
 TER
 URIToken::doApply()
 {
-    auto j = ctx_.app.journal("View"); 
+    auto j = ctx_.app.journal("View");
     URIOperation op = inferOperation(ctx_.tx);
 
     auto const sle = view().peek(keylet::account(account_));
@@ -302,7 +296,8 @@ URIToken::doApply()
 
     if (op == URIOperation::Mint || op == URIOperation::Buy)
     {
-        STAmount const reserve{view().fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
+        STAmount const reserve{
+            view().fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
 
         if (mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp() < reserve)
             return tecINSUFFICIENT_RESERVE;
@@ -318,8 +313,8 @@ URIToken::doApply()
 
     if (op != URIOperation::Mint)
     {
-        kl = Keylet {ltURI_TOKEN, ctx_.tx.getFieldH256(sfURITokenID)};
-        sleU  = view().peek(*kl);
+        kl = Keylet{ltURI_TOKEN, ctx_.tx.getFieldH256(sfURITokenID)};
+        sleU = view().peek(*kl);
 
         if (!sleU)
             return tecNO_ENTRY;
@@ -339,17 +334,15 @@ URIToken::doApply()
 
         if (!sleOwner)
         {
-            JLOG(j.warn())
-                    << "Malformed transaction: owner of URIToken is not in the ledger.";
+            JLOG(j.warn()) << "Malformed transaction: owner of URIToken is not "
+                              "in the ledger.";
             return tecNO_ENTRY;
         }
     }
 
     switch (op)
     {
-        case URIOperation::Mint:
-        {
-
+        case URIOperation::Mint: {
             kl = keylet::uritoken(account_, ctx_.tx.getFieldVL(sfURI));
             if (view().exists(*kl))
                 return tecDUPLICATE;
@@ -366,14 +359,11 @@ URIToken::doApply()
                 sleU->setFieldH256(sfDigest, ctx_.tx.getFieldH256(sfDigest));
 
             auto const page = view().dirInsert(
-                keylet::ownerDir(account_),
-                *kl,
-                describeOwnerDir(account_));
+                keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
 
             JLOG(j_.trace())
-                << "Adding URIToken to owner directory "
-                << to_string(kl->key) << ": "
-                << (page ? "success" : "failure");
+                << "Adding URIToken to owner directory " << to_string(kl->key)
+                << ": " << (page ? "success" : "failure");
 
             if (!page)
                 return tecDIR_FULL;
@@ -384,9 +374,8 @@ URIToken::doApply()
             adjustOwnerCount(view(), sle, 1, j);
             return tesSUCCESS;
         }
-        
-        case URIOperation::Clear:
-        {
+
+        case URIOperation::Clear: {
             sleU->makeFieldAbsent(sfAmount);
             if (sleU->isFieldPresent(sfDestination))
                 sleU->makeFieldAbsent(sfDestination);
@@ -394,8 +383,7 @@ URIToken::doApply()
             return tesSUCCESS;
         }
 
-        case URIOperation::Buy:
-        {
+        case URIOperation::Buy: {
             if (account_ == *owner)
             {
                 // this is a clear operation
@@ -449,62 +437,69 @@ URIToken::doApply()
                 finBuyerBal = *initBuyerBal - purchaseAmount;
             }
             else
-            { 
+            {
                 // IOU sale
                 STAmount availableFunds{accountFunds(
-                    view(),
-                    account_,
-                    purchaseAmount,
-                    fhZERO_IF_FROZEN,
-                    j)};
+                    view(), account_, purchaseAmount, fhZERO_IF_FROZEN, j)};
 
                 if (purchaseAmount > availableFunds)
                     return tecINSUFFICIENT_FUNDS;
 
-
                 // check if the seller has a line
-                tlSeller =
-                    keylet::line(*owner, purchaseAmount.getIssuer(), purchaseAmount.getCurrency());
-                Keylet tlBuyer =
-                    keylet::line(account_, purchaseAmount.getIssuer(), purchaseAmount.getCurrency());
+                tlSeller = keylet::line(
+                    *owner,
+                    purchaseAmount.getIssuer(),
+                    purchaseAmount.getCurrency());
+                Keylet tlBuyer = keylet::line(
+                    account_,
+                    purchaseAmount.getIssuer(),
+                    purchaseAmount.getCurrency());
 
                 sleDstLine = view().peek(*tlSeller);
                 sleSrcLine = view().peek(tlBuyer);
 
                 if (!sleDstLine)
                 {
-                    // they do not, so we can create one if they have sufficient reserve
+                    // they do not, so we can create one if they have sufficient
+                    // reserve
 
-                    if (std::uint32_t const ownerCount = {sleOwner->at(sfOwnerCount)};
-                        (*sleOwner)[sfBalance] < view().fees().accountReserve(ownerCount + 1))
+                    if (std::uint32_t const ownerCount = {sleOwner->at(
+                            sfOwnerCount)};
+                        (*sleOwner)[sfBalance] <
+                        view().fees().accountReserve(ownerCount + 1))
                     {
-                        JLOG(j_.trace()) << "Trust line does not exist. "
-                                            "Insufficent reserve to create line.";
+                        JLOG(j_.trace())
+                            << "Trust line does not exist. "
+                               "Insufficent reserve to create line.";
 
                         return tecNO_LINE_INSUF_RESERVE;
                     }
                 }
 
                 // remove from buyer
-                initBuyerBal = buyerLow ? ((*sleSrcLine)[sfBalance]) : -((*sleSrcLine)[sfBalance]);
+                initBuyerBal = buyerLow ? ((*sleSrcLine)[sfBalance])
+                                        : -((*sleSrcLine)[sfBalance]);
                 finBuyerBal = *initBuyerBal - purchaseAmount;
 
                 // compute amount to deliver
                 static Rate const parityRate(QUALITY_ONE);
                 auto xferRate = transferRate(view(), saleAmount->getIssuer());
-                dstAmt =
-                    xferRate == parityRate
-                    ? purchaseAmount
-                    : multiplyRound(purchaseAmount, xferRate, purchaseAmount.issue(), true);
+                dstAmt = xferRate == parityRate ? purchaseAmount
+                                                : multiplyRound(
+                                                      purchaseAmount,
+                                                      xferRate,
+                                                      purchaseAmount.issue(),
+                                                      true);
 
-                initSellerBal = !sleDstLine
-                    ? purchaseAmount.zeroed()
-                    : sellerLow ? ((*sleDstLine)[sfBalance]) : -((*sleDstLine)[sfBalance]);
+                initSellerBal = !sleDstLine ? purchaseAmount.zeroed()
+                    : sellerLow             ? ((*sleDstLine)[sfBalance])
+                                            : -((*sleDstLine)[sfBalance]);
 
                 finSellerBal = *initSellerBal + *dstAmt;
             }
 
-            // sanity check balance mutations (xrp or iou, both are checked the same way now)
+            // sanity check balance mutations (xrp or iou, both are checked the
+            // same way now)
             if (*finSellerBal < *initSellerBal)
             {
                 JLOG(j.warn())
@@ -538,18 +533,17 @@ URIToken::doApply()
             }
 
             // to this point no ledger changes have been made
-            // make them in a sensible order such that failure doesn't require cleanup
+            // make them in a sensible order such that failure doesn't require
+            // cleanup
 
-            // add to new owner's directory first, this can fail if they have too many objects
+            // add to new owner's directory first, this can fail if they have
+            // too many objects
             auto const newPage = view().dirInsert(
-                keylet::ownerDir(account_),
-                *kl,
-                describeOwnerDir(account_));
+                keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
 
             JLOG(j_.trace())
-                << "Adding URIToken to owner directory "
-                << to_string(kl->key) << ": "
-                << (newPage ? "success" : "failure");
+                << "Adding URIToken to owner directory " << to_string(kl->key)
+                << ": " << (newPage ? "success" : "failure");
 
             if (!newPage)
             {
@@ -557,9 +551,10 @@ URIToken::doApply()
                 // we can just leave with DIR_FULL
                 return tecDIR_FULL;
             }
-            
-            // Next create destination trustline where applicable. This could fail for a variety of reasons.
-            // If it does fail we need to remove the dir entry we just added to the buyer before we leave.
+
+            // Next create destination trustline where applicable. This could
+            // fail for a variety of reasons. If it does fail we need to remove
+            // the dir entry we just added to the buyer before we leave.
             bool lineCreated = false;
             if (!isXRP(purchaseAmount) && !sleDstLine)
             {
@@ -595,22 +590,28 @@ URIToken::doApply()
                     return ter;
                 }
                 // clang-format on
-           
-                // add their trustline to their ownercount 
+
+                // add their trustline to their ownercount
                 lineCreated = true;
             }
-            
-            // execution to here means we added the URIToken to the buyer's directory
-            // and we definitely have a way to send the funds to the seller.
+
+            // execution to here means we added the URIToken to the buyer's
+            // directory and we definitely have a way to send the funds to the
+            // seller.
 
             // remove from current owner directory
-            if (!view().dirRemove(keylet::ownerDir(*owner), sleU->getFieldU64(sfOwnerNode), kl->key, true))
+            if (!view().dirRemove(
+                    keylet::ownerDir(*owner),
+                    sleU->getFieldU64(sfOwnerNode),
+                    kl->key,
+                    true))
             {
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
 
                 // remove the newly inserted directory entry before we leave
-                if (!view().dirRemove(keylet::ownerDir(account_), *newPage, kl->key, true))
+                if (!view().dirRemove(
+                        keylet::ownerDir(account_), *newPage, kl->key, true))
                 {
                     JLOG(j.fatal())
                         << "Could not remove URIToken from owner directory (2)";
@@ -627,10 +628,12 @@ URIToken::doApply()
                 return tefBAD_LEDGER;
             }
 
-            // above is all the things that could fail. we now have swapped the ownership as far as the ownerdirs
-            // are concerned, and we have a place to pay to and from.
+            // above is all the things that could fail. we now have swapped the
+            // ownership as far as the ownerdirs are concerned, and we have a
+            // place to pay to and from.
 
-            // if a trustline was created then the ownercount stays the same on the seller +1 TL -1 URIToken
+            // if a trustline was created then the ownercount stays the same on
+            // the seller +1 TL -1 URIToken
             if (!lineCreated)
                 adjustOwnerCount(view(), sleOwner, -1, j);
 
@@ -648,7 +651,6 @@ URIToken::doApply()
             // tell the ledger where to find it
             sleU->setFieldU64(sfOwnerNode, *newPage);
 
-
             // update the buyer's balance
             if (isXRP(purchaseAmount))
             {
@@ -657,8 +659,10 @@ URIToken::doApply()
             }
             else if (sleSrcLine)
             {
-                // update the buyer's line to reflect the reduction of the purchase price
-                sleSrcLine->setFieldAmount(sfBalance, buyerLow ? *finBuyerBal : -(*finBuyerBal));
+                // update the buyer's line to reflect the reduction of the
+                // purchase price
+                sleSrcLine->setFieldAmount(
+                    sfBalance, buyerLow ? *finBuyerBal : -(*finBuyerBal));
             }
             else
                 return tecINTERNAL;
@@ -672,7 +676,8 @@ URIToken::doApply()
             else if (sleDstLine)
             {
                 // the line already existed on the seller side so update it
-                sleDstLine->setFieldAmount(sfBalance, sellerLow ? *finSellerBal : -(*finSellerBal));
+                sleDstLine->setFieldAmount(
+                    sfBalance, sellerLow ? *finSellerBal : -(*finSellerBal));
             }
             else if (lineCreated)
             {
@@ -680,7 +685,6 @@ URIToken::doApply()
             }
             else
                 return tecINTERNAL;
-
 
             if (sleSrcLine)
                 view().update(sleSrcLine);
@@ -691,15 +695,17 @@ URIToken::doApply()
             view().update(sleOwner);
             return tesSUCCESS;
         }
-        case URIOperation::Burn:
-        {
+        case URIOperation::Burn: {
             if (sleU->getAccountID(sfOwner) == account_)
             {
                 // pass, owner may always delete own object
             }
-            else if (sleU->getAccountID(sfIssuer) == account_ && (sleU->getFlags() & tfBurnable))
+            else if (
+                sleU->getAccountID(sfIssuer) == account_ &&
+                (sleU->getFlags() & tfBurnable))
             {
-                // pass, issuer may burn if the tfBurnable flag was set during minting
+                // pass, issuer may burn if the tfBurnable flag was set during
+                // minting
             }
             else
                 return tecNO_PERMISSION;
@@ -707,9 +713,9 @@ URIToken::doApply()
             // execution to here means there is permission to burn
 
             auto const page = (*sleU)[sfOwnerNode];
-            if (!view().dirRemove(keylet::ownerDir(*owner), page, kl->key, true))
+            if (!view().dirRemove(
+                    keylet::ownerDir(*owner), page, kl->key, true))
             {
-
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
                 return tefBAD_LEDGER;
@@ -720,8 +726,7 @@ URIToken::doApply()
             return tesSUCCESS;
         }
 
-        case URIOperation::Sell:
-        {
+        case URIOperation::Sell: {
             if (account_ != *owner)
                 return tecNO_PERMISSION;
 
@@ -741,7 +746,6 @@ URIToken::doApply()
 
         default:
             return tecINTERNAL;
-
     }
 }
 
