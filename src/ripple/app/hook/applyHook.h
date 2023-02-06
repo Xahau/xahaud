@@ -443,28 +443,6 @@ namespace hook
             HookContext& hookCtx;
             WasmEdge_ModuleInstanceContext* importObj;
 
-        /**
-         * Validate that a web assembly blob can be loaded by wasmedge
-         */
-        static std::optional<std::string> validateWasm(const void* wasm, size_t len)
-        {
-            std::optional<std::string> ret;
-            WasmEdge_ConfigureContext* confCtx  = WasmEdge_ConfigureCreate();
-            WasmEdge_VMContext* vmCtx = WasmEdge_VMCreate(confCtx, NULL);
-            WasmEdge_Result res = WasmEdge_VMLoadWasmFromBuffer(vmCtx, reinterpret_cast<const uint8_t*>(wasm), len);
-            if (!WasmEdge_ResultOK(res))
-                ret = "VMLoadWasmFromBuffer failed";
-            else
-            {
-                res = WasmEdge_VMValidate(vmCtx);
-                if (!WasmEdge_ResultOK(res))
-                    ret = "VMValidate failed";
-            }
-            WasmEdge_VMDelete(vmCtx);
-            WasmEdge_ConfigureDelete(confCtx);
-            return ret;
-        }
-
         class WasmEdgeVM
         {
         public:
@@ -495,6 +473,31 @@ namespace hook
                     WasmEdge_VMDelete(ctx);
             }
         };
+        
+        /**
+         * Validate that a web assembly blob can be loaded by wasmedge
+         */
+        static std::optional<std::string> validateWasm(const void* wasm, size_t len)
+        {
+            WasmEdgeVM vm;
+
+            if (!vm.sane())
+                return "Could not create WASMEDGE instance";
+
+            WasmEdge_Result res =
+                WasmEdge_VMLoadWasmFromBuffer(vm.ctx, reinterpret_cast<const uint8_t*>(wasm), len);
+
+            if (!WasmEdge_ResultOK(res))
+                return "VMLoadWasmFromBuffer failed";
+
+            res = WasmEdge_VMValidate(vm.ctx);
+
+            if (!WasmEdge_ResultOK(res))
+                return "VMValidate failed";
+
+            return {};
+        }
+
 
         /**
          * Execute web assembly byte code against the constructed Hook Context
@@ -514,9 +517,9 @@ namespace hook
 
             WasmEdge_LogOff();
 
-            auto vm = std::make_unique<WasmEdgeVM>();
+            WasmEdgeVM vm;
 
-            if (!vm->sane())
+            if (!vm.sane())
             {
                 JLOG(j.warn())
                     << "HookError[" << HC_ACC() << "]: Could not create WASMEDGE instance.";
@@ -525,7 +528,7 @@ namespace hook
                 return;
             }
 
-            WasmEdge_Result res = WasmEdge_VMRegisterModuleFromImport(vm->ctx, this->importObj);
+            WasmEdge_Result res = WasmEdge_VMRegisterModuleFromImport(vm.ctx, this->importObj);
             if (!WasmEdge_ResultOK(res))
             {
                 hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
@@ -540,7 +543,7 @@ namespace hook
             WasmEdge_Value returns[1];
 
             res =
-                WasmEdge_VMRunWasmFromBuffer(vm->ctx, reinterpret_cast<const uint8_t*>(wasm), len,
+                WasmEdge_VMRunWasmFromBuffer(vm.ctx, reinterpret_cast<const uint8_t*>(wasm), len,
                     callback ? cbakFunctionName : hookFunctionName,
                     params, 1, returns, 1);
 
@@ -553,7 +556,7 @@ namespace hook
                 return;
             }
 
-            auto* statsCtx= WasmEdge_VMGetStatisticsContext(vm->ctx);
+            auto* statsCtx= WasmEdge_VMGetStatisticsContext(vm.ctx);
             hookCtx.result.instructionCount = WasmEdge_StatisticsGetInstrCount(statsCtx);
 
             // RH NOTE: stack unwind will clean up WasmEdgeVM
