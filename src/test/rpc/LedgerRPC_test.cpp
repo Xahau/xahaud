@@ -246,7 +246,7 @@ class LedgerRPC_test : public beast::unit_test::suite
         testcase("Ledger Request, Full Option Without Admin");
         using namespace test::jtx;
 
-        Env env{*this, envconfig(no_admin)};
+        Env env{*this, envconfig(no_admin_networkid)};
 
         //        env.close();
 

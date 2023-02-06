@@ -82,6 +82,9 @@ envconfig(F&& modfunc, Args&&... args)
 /// @return unique_ptr to Config instance
 std::unique_ptr<Config> no_admin(std::unique_ptr<Config>);
 
+// production networkid supplied
+std::unique_ptr<Config> no_admin_networkid(std::unique_ptr<Config> cfg);
+
 std::unique_ptr<Config> secure_gateway(std::unique_ptr<Config>);
 
 std::unique_ptr<Config> admin_localnet(std::unique_ptr<Config>);
