@@ -343,6 +343,7 @@ extern uint256 const featureBalanceRewards;
 extern uint256 const featureDisallowIncoming;
 extern uint256 const fixRemoveNFTokenAutoTrustLine;
 extern uint256 const featureImmediateOfferKilled;
+extern uint256 const featureDisallowIncoming;
 extern uint256 const featurePaychanAndEscrowForTokens;
 extern uint256 const featureURIToken;
 
