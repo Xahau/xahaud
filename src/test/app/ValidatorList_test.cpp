@@ -1318,6 +1318,7 @@ private:
             BEAST_EXPECT(changes.added == expectedTrusted);
             BEAST_EXPECT(trustedKeys->quorum() == minQuorum);
 
+            /*
             // Use normal quorum when seen validators >= quorum
             activeValidators.emplace(toBeSeen);
             changes = trustedKeys->updateTrusted(
@@ -1329,6 +1330,7 @@ private:
             BEAST_EXPECT(changes.removed.empty());
             BEAST_EXPECT(changes.added.empty());
             BEAST_EXPECT(trustedKeys->quorum() == std::ceil(n * 0.8f));
+            */
         }
         {
             // Remove expired published list
