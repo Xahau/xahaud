@@ -2391,7 +2391,7 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
             Json::Value& w = warnings.append(Json::objectValue);
             w[jss::id] = warnRPC_EXPIRED_VALIDATOR_LIST;
             w[jss::message] =
-                "This server has an expired validator list. validators.txt "
+                "This server has an expired validator list. validators-xahau.txt "
                 "may be incorrectly configured or some [validator_list_sites] "
                 "may be unreachable.";
         }

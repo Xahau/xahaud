@@ -823,7 +823,7 @@ Config::loadFromString(std::string const& fileContents)
         // not a file.
         // If the specified file is not an absolute path, then look
         // for it in the same directory as the config file.
-        // If no path was specified, then look for validators.txt
+        // If no path was specified, then look for validators-xahau.txt
         // in the same directory as the config file, but don't complain
         // if we can't find it.
         boost::filesystem::path validatorsFile;

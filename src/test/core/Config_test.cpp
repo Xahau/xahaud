@@ -227,7 +227,7 @@ moreripplevalidators.net
 }
 
 /**
-   Write a validators.txt file and remove when done.
+   Write a validators-xahau.txt file and remove when done.
  */
 class ValidatorsTxtGuard : public test::detail::FileDirGuard
 {
@@ -606,7 +606,7 @@ trustthesevalidators.gov
         {
             // load from specified [validators_file] file name
             // in config directory
-            std::string const valFileName = "validators.txt";
+            std::string const valFileName = "validators-xahau.txt";
             detail::ValidatorsTxtGuard const vtg(
                 *this, "test_cfg", valFileName);
             detail::RippledCfgGuard const rcg(
@@ -625,8 +625,8 @@ trustthesevalidators.gov
             // load from specified [validators_file] relative path
             // to config directory
             detail::ValidatorsTxtGuard const vtg(
-                *this, "test_cfg", "validators.txt");
-            auto const valFilePath = ".." / vtg.subdir() / "validators.txt";
+                *this, "test_cfg", "validators-xahau.txt");
+            auto const valFilePath = ".." / vtg.subdir() / "validators-xahau.txt";
             detail::RippledCfgGuard const rcg(
                 *this, vtg.subdir(), "", valFilePath, false);
             BEAST_EXPECT(vtg.validatorsFileExists());
@@ -642,7 +642,7 @@ trustthesevalidators.gov
         {
             // load from validators file in default location
             detail::ValidatorsTxtGuard const vtg(
-                *this, "test_cfg", "validators.txt");
+                *this, "test_cfg", "validators-xahau.txt");
             detail::RippledCfgGuard const rcg(
                 *this, vtg.subdir(), "", "", false);
             BEAST_EXPECT(vtg.validatorsFileExists());
@@ -662,7 +662,7 @@ trustthesevalidators.gov
                 *this, "test_cfg", "validators.cfg");
             BEAST_EXPECT(vtg.validatorsFileExists());
             detail::ValidatorsTxtGuard const vtgDefault(
-                *this, vtg.subdir(), "validators.txt", false);
+                *this, vtg.subdir(), "validators-xahau.txt", false);
             BEAST_EXPECT(vtgDefault.validatorsFileExists());
             detail::RippledCfgGuard const rcg(
                 *this, vtg.subdir(), "", vtg.validatorsFile(), false);

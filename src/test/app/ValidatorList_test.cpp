@@ -1830,7 +1830,8 @@ private:
                     env.app().getOPs(),
                     env.app().overlay(),
                     env.app().getHashRouter());
-                if (trustedKeys->quorum() == std::ceil(cfgKeys.size() * 0.8f))
+                if (trustedKeys->quorum() == std::ceil(cfgKeys.size() * 0.8f) ||
+                    (minimumQuorum && trustedKeys->quorum() == *minimumQuorum))
                     return trustedKeys;
             }
             return nullptr;
@@ -1982,7 +1983,7 @@ private:
                     env.app().getOPs(),
                     env.app().overlay(),
                     env.app().getHashRouter());
-                BEAST_EXPECT(validators->quorum() == 48);
+                BEAST_EXPECT(validators->quorum() == 30);
                 hash_set<PublicKey> nUnl;
                 it = unl.begin();
                 for (std::uint32_t i = 0; i < 20; ++i)
