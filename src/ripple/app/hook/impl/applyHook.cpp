@@ -52,21 +52,16 @@ namespace hook
 
         bool canRollback = tsh & tshROLLBACK;
 
-        #define ADD_TSH(acc, rb)\
-        {\
-            auto acc_r = acc;\
-            if (acc_r != *otxnAcc)\
-            {\
-                if (tshEntries.find(acc_r) != tshEntries.end())\
-                {\
-                    if (tshEntries[acc_r].second == false && (rb))\
-                        tshEntries[acc_r].second = true;\
-                }\
-                else\
-                    tshEntries.emplace(acc_r, std::pair<int, bool>{upto++, (rb)});\
-            }\
-        }
-
+        auto const ADD_TSH = [&otxnAcc, &tshEntries, &upto](const AccountID& acc_r, bool rb)
+        {
+            if (acc_r != *otxnAcc)
+            {
+                if (tshEntries.find(acc_r) != tshEntries.end())
+                    tshEntries[acc_r].second |= rb;
+                else
+                    tshEntries.emplace(acc_r, std::make_pair(upto++, rb));
+            }
+        };
 
         auto const getNFTOffer = [](std::optional<uint256> id, ReadView const& rv) ->
         std::shared_ptr<const SLE>
@@ -299,12 +294,9 @@ namespace hook
             case ttSIGNER_LIST_SET:
             {
                 STArray const& signerEntries = tx.getFieldArray(sfSignerEntries);
-                for (auto const& e : signerEntries)
-                {
-                    auto const& entryObj = dynamic_cast<STObject const*>(&e);
-                    if (entryObj->isFieldPresent(sfAccount))
-                        ADD_TSH(entryObj->getAccountID(sfAccount), canRollback);
-                }
+                for (auto const& entryObj : signerEntries)
+                    if (entryObj.isFieldPresent(sfAccount))
+                        ADD_TSH(entryObj.getAccountID(sfAccount), canRollback);
                 break;
             }
 
