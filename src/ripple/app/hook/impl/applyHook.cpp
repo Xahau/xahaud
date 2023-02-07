@@ -359,7 +359,6 @@ namespace hook_float
             return INVALID_FLOAT;
         if (float1 == 0)
             return 0;
-        if (float1 < 0) return INVALID_FLOAT;
         uint64_t float_in = (uint64_t)float1;
         float_in >>= 54U;
         float_in &= 0xFFU;
@@ -372,7 +371,6 @@ namespace hook_float
             return INVALID_FLOAT;
         if (float1 == 0)
             return 0;
-        if (float1 < 0) return INVALID_FLOAT;
         float1 -= ((((uint64_t)float1) >> 54U) << 54U);
         return float1;
     }
