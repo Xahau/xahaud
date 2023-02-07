@@ -17,6 +17,7 @@
 #include <wasmedge/wasmedge.h>
 #include <ripple/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <cfenv>
 
 using namespace ripple;
 
@@ -453,6 +454,12 @@ namespace hook_float
     inline int64_t normalize_xfl(T& man, int32_t& exp, bool neg = false)
     {
 
+        if (man == 0)
+            return 0;
+
+        if (man == std::numeric_limits<int64_t>::min())
+            man++;
+        
         constexpr bool sman = std::is_same<T, int64_t>::value;
         static_assert(sman || std::is_same<T, uint64_t>());
 
@@ -466,16 +473,27 @@ namespace hook_float
         }
 
         // mantissa order
+        std::feclearexcept(FE_ALL_EXCEPT);
         int32_t mo = log10(man);
+        // defensively ensure log10 produces a sane result; we'll borrow the overflow error code if it didn't
+        if (std::fetestexcept(FE_INVALID))
+            return XFL_OVERFLOW;
+
         int32_t adjust = 15 - mo;
 
         if (adjust > 0)
         {
+            // defensive check
+            if (adjust > 18)
+                return 0;
             man *= power_of_ten[adjust];
             exp -= adjust;
         }
         else if (adjust < 0)
         {
+            // defensive check
+            if (-adjust > 18)
+                return XFL_OVERFLOW;
             man /= power_of_ten[-adjust];
             exp -= adjust;
         }
