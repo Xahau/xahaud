@@ -69,7 +69,7 @@ getFullVersionString();
     @return the encoded version in a 64-bit integer
 */
 std::uint64_t
-encodeSoftwareVersion(char const* const versionStr);
+encodeSoftwareVersion(char const* versionStr);
 
 /** Returns this server's version packed in a 64-bit integer. */
 std::uint64_t
