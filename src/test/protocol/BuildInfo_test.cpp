@@ -95,13 +95,13 @@ public:
         auto vFF = 0xFFFF'FFFF'FFFF'FFFFLLU;
         BEAST_EXPECT(!BuildInfo::isNewerVersion(vFF));
 
-        auto v159 = BuildInfo::encodeSoftwareVersion("1.5.9");
-        BEAST_EXPECT(!BuildInfo::isNewerVersion(v159));
+        auto v2050 = BuildInfo::encodeSoftwareVersion("2050.1.1");
+        BEAST_EXPECT(BuildInfo::isNewerVersion(v2050));
 
         auto vCurrent = BuildInfo::getEncodedVersion();
         BEAST_EXPECT(!BuildInfo::isNewerVersion(vCurrent));
 
-        auto vMax = BuildInfo::encodeSoftwareVersion("255.255.255");
+        auto vMax = BuildInfo::encodeSoftwareVersion("9999.12.30");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vMax));
     }
 
