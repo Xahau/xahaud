@@ -473,7 +473,17 @@ namespace hook
                     WasmEdge_VMDelete(ctx);
             }
         };
-        
+       
+        // if an error occured return a string prefixed with `prefix` followed by the error description
+        static std::optional<std::string> getWasmError(std::string prefix, WasmEdge_Result& res)
+        {
+            if (WasmEdge_ResultOK(res))
+                return {};
+
+            const char* msg = WasmEdge_ResultGetMessage(res);
+            return prefix + ": " + (msg ? msg : "unknown error");
+        }
+
         /**
          * Validate that a web assembly blob can be loaded by wasmedge
          */
@@ -487,13 +497,13 @@ namespace hook
             WasmEdge_Result res =
                 WasmEdge_VMLoadWasmFromBuffer(vm.ctx, reinterpret_cast<const uint8_t*>(wasm), len);
 
-            if (!WasmEdge_ResultOK(res))
-                return "VMLoadWasmFromBuffer failed";
+            if (auto err = getWasmError("VMLoadWasmFromBuffer failed", res); err)
+                return *err;
 
             res = WasmEdge_VMValidate(vm.ctx);
 
-            if (!WasmEdge_ResultOK(res))
-                return "VMValidate failed";
+            if (auto err = getWasmError("VMValidate failed", res); err)
+                return *err;
 
             return {};
         }
@@ -529,13 +539,11 @@ namespace hook
             }
 
             WasmEdge_Result res = WasmEdge_VMRegisterModuleFromImport(vm.ctx, this->importObj);
-            if (!WasmEdge_ResultOK(res))
+
+            if (auto err = getWasmError("Import phase failed", res); err)
             {
                 hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-                JLOG(j.trace())
-                    << "HookError[" << HC_ACC() << "]: Import phase failed "
-                    << WasmEdge_ResultGetMessage(res);
-                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+                JLOG(j.trace()) << "HookError[" << HC_ACC() << "]: " << *err;
                 return;
             }
 
@@ -547,11 +555,9 @@ namespace hook
                     callback ? cbakFunctionName : hookFunctionName,
                     params, 1, returns, 1);
 
-            if (!WasmEdge_ResultOK(res))
+            if (auto err = getWasmError("WASM VM error", res); err)
             {
-                JLOG(j.warn())
-                    << "HookError[" << HC_ACC() << "]: WASM VM error "
-                    <<  WasmEdge_ResultGetMessage(res);
+                JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << *err;
                 hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
                 return;
             }
