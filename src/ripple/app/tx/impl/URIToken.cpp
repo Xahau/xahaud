@@ -173,7 +173,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
 {
 
     std::shared_ptr<SLE const> sleU;
-    uint32_t leFlags = sleU ? sleU->getFieldU32(sfFlags) : 0;
+    uint32_t leFlags;
     std::optional<AccountID> issuer;
     std::optional<AccountID> owner;
     std::optional<STAmount> saleAmount;
@@ -186,6 +186,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
         if (!sleU)
             return tecNO_ENTRY;
         
+        leFlags = sleU ? sleU->getFieldU32(sfFlags) : 0;
         owner = sleU->getAccountID(sfOwner);
         issuer = sleU->getAccountID(sfIssuer);
         if (sleU->isFieldPresent(sfAmount))
@@ -292,11 +293,10 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (acc != *owner)
                 return tecNO_PERMISSION;
 
-            saleAmount = ctx.tx.getFieldAmount(sfAmount);
-
-            if (!saleAmount->native())
+            STAmount txAmount = ctx.tx.getFieldAmount(sfAmount);
+            if (!txAmount.native())
             {
-                AccountID const iouIssuer = saleAmount->getIssuer();
+                AccountID const iouIssuer = txAmount.getIssuer();
                 if (!ctx.view.exists(keylet::account(iouIssuer)))
                         return tecNO_ISSUER;
             }
