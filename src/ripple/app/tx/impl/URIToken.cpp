@@ -244,6 +244,8 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (acc != *owner)
                 return tecNO_PERMISSION;
 
+            saleAmount = ctx.tx.getFieldAmount(sfAmount);
+
             if (!saleAmount->native())
             {
                 AccountID const iouIssuer = saleAmount->getIssuer();
