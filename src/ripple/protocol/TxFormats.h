@@ -140,7 +140,11 @@ enum TxType : std::uint16_t
     ttNFTOKEN_ACCEPT_OFFER = 29,
 
     /** This transaction mints/burns/buys/sells a URI TOKEN */
-    ttURI_TOKEN = 45,
+    ttURITOKEN_MINT = 45,
+    ttURITOKEN_BURN = 46,
+    ttURITOKEN_BUY = 47,
+    ttURITOKEN_CREATE_SELL_OFFER = 48,
+    ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
     /** This transaction resets accumulator/counters and claims a reward for holding an average balance
      * from a specified hook */

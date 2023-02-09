@@ -157,7 +157,11 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<ClaimReward>(ctx);
         case ttINVOKE:
             return invoke_preflight_helper<Invoke>(ctx);
-        case ttURI_TOKEN:
+        case ttURITOKEN_MINT:
+        case ttURITOKEN_BURN:
+        case ttURITOKEN_BUY:
+        case ttURITOKEN_CREATE_SELL_OFFER:
+        case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preflight_helper<URIToken>(ctx);
         default:
             assert(false);
@@ -268,7 +272,11 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<ClaimReward>(ctx);
         case ttINVOKE:
             return invoke_preclaim<Invoke>(ctx);
-        case ttURI_TOKEN:
+        case ttURITOKEN_MINT:
+        case ttURITOKEN_BURN:
+        case ttURITOKEN_BUY:
+        case ttURITOKEN_CREATE_SELL_OFFER:
+        case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preclaim<URIToken>(ctx);
         default:
             assert(false);
@@ -340,7 +348,11 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return ClaimReward::calculateBaseFee(view, tx);
         case ttINVOKE:
             return Invoke::calculateBaseFee(view, tx);
-        case ttURI_TOKEN:
+        case ttURITOKEN_MINT:
+        case ttURITOKEN_BURN:
+        case ttURITOKEN_BUY:
+        case ttURITOKEN_CREATE_SELL_OFFER:
+        case ttURITOKEN_CANCEL_SELL_OFFER:
             return URIToken::calculateBaseFee(view, tx);
         default:
             assert(false);
@@ -508,7 +520,11 @@ invoke_apply(ApplyContext& ctx)
             Invoke p(ctx);
             return p();
         }
-        case ttURI_TOKEN: {
+        case ttURITOKEN_MINT:
+        case ttURITOKEN_BURN:
+        case ttURITOKEN_BUY:
+        case ttURITOKEN_CREATE_SELL_OFFER:
+        case ttURITOKEN_CANCEL_SELL_OFFER: {
             URIToken p(ctx);
             return p();
         }

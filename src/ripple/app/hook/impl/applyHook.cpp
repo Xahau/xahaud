@@ -77,11 +77,28 @@ namespace hook
         switch (tt)
         {
 
-            case ttURI_TOKEN:
+            case ttURITOKEN_BURN:
             {
-                if (!tx.isFieldPresent(sfURITokenID))
+                Keylet const id { ltURI_TOKEN, tx.getFieldH256(sfURITokenID) };
+                if (!rv.exists(id))
                     return {};
 
+                auto const ut = rv.read(id);
+                if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                    return {};
+
+                auto const owner = ut->getAccountID(sfOwner);
+                auto const issuer = ut->getAccountID(sfIssuer);
+
+                // the issuer is a strong tsh if the burnable flag is set
+                if (issuer != owner)
+                    ADD_TSH(issuer, ut->getFlags() & tfBurnable);
+                
+                break;
+            }
+            
+            case ttURITOKEN_BUY:
+            {
                 Keylet const id { ltURI_TOKEN, tx.getFieldH256(sfURITokenID) };
                 if (!rv.exists(id))
                     return {};
@@ -92,14 +109,43 @@ namespace hook
 
                 auto const owner = ut->getAccountID(sfOwner);
 
-                // if the owner is initating the txn then there are no other TSH
-                if (owner == tx.getAccountID(sfAccount))
+                if (owner != tx.getAccountID(sfAccount))
+                {
+                    // current owner is a strong TSH
+                    ADD_TSH(owner, canRollback);
+                }
+                
+                // issuer is also a strong TSH if the burnable flag is set
+                auto const issuer = ut->getAccountID(sfIssuer);
+                if (issuer != owner)
+                    ADD_TSH(issuer, ut->getFlags() & tfBurnable);
+                
+                break;
+            }
+
+            case ttURITOKEN_CREATE_SELL_OFFER:
+            {
+                Keylet const id { ltURI_TOKEN, tx.getFieldH256(sfURITokenID) };
+                if (!rv.exists(id))
                     return {};
 
-                // if the URIToken has the tfBurnable flag set then the
-                // owner is a strong TSH, otherwise they are a weak TSH
-                ADD_TSH(owner, ut->getFlags() & tfBurnable);
+                auto const ut = rv.read(id);
+                if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                    return {};
+
+                auto const owner = ut->getAccountID(sfOwner);
+                auto const issuer = ut->getAccountID(sfIssuer);
+                
+                // issuer is a strong TSH if the burnable flag is set
+                if (issuer != owner)
+                    ADD_TSH(issuer, ut->getFlags() & tfBurnable);
+
+                // destination is a strong tsh
+                if (tx.isFieldPresent(sfDestination))
+                    ADD_TSH(tx.getAccountID(sfDestination), canRollback);
+
                 break;
+                
             }
 
 
@@ -194,6 +240,8 @@ namespace hook
 
 
             // self transactions
+            case ttURITOKEN_MINT:
+            case ttURITOKEN_CANCEL_SELL_OFFER:
             case ttACCOUNT_SET:
             case ttOFFER_CANCEL:
             case ttTICKET_CREATE:

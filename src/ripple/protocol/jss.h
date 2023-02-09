@@ -665,6 +665,11 @@ JSS(unlimited);               // out: Connection.h
 JSS(uptime);                  // out: GetCounts
 JSS(uri);                     // out: ValidatorSites
 JSS(URIToken);                // LedgerEntry
+JSS(URITokenMint);            // tx type
+JSS(URITokenBurn);            // tx type
+JSS(URITokenBuy);             // tx type
+JSS(URITokenCreateSellOffer); // tx type
+JSS(URITokenCancelSellOffer); // tx type
 JSS(url);                     // in/out: Subscribe, Unsubscribe
 JSS(url_password);            // in: Subscribe
 JSS(url_username);            // in: Subscribe

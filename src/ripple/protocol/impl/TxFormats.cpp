@@ -361,14 +361,44 @@ TxFormats::TxFormats()
             {sfInvoiceID, soeOPTIONAL},
         },
         commonFields);
+    
+    add(jss::URITokenMint,
+        ttURITOKEN_MINT,
+        {
+            {sfURI, soeREQUIRED},
+            {sfDigest, soeOPTIONAL},
+        },
+        commonFields);
 
-    add(jss::URIToken,
-        ttURI_TOKEN,
-        {{sfURI, soeOPTIONAL},
-         {sfURITokenID, soeOPTIONAL},
-         {sfAmount, soeOPTIONAL},
-         {sfDigest, soeOPTIONAL},
-         {sfDestination, soeOPTIONAL}},
+    add(jss::URITokenBurn,
+        ttURITOKEN_BURN,
+        {
+            {sfURITokenID, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::URITokenBuy,
+        ttURITOKEN_BUY,
+        {
+            {sfURITokenID, soeREQUIRED},
+            {sfAmount, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::URITokenCreateSellOffer,
+        ttURITOKEN_CREATE_SELL_OFFER,
+        {
+            {sfURITokenID, soeREQUIRED},
+            {sfAmount, soeREQUIRED},
+            {sfDestination, soeOPTIONAL},
+        },
+        commonFields);
+    
+    add(jss::URITokenCancelSellOffer,
+        ttURITOKEN_CANCEL_SELL_OFFER,
+        {
+            {sfURITokenID, soeREQUIRED},
+        },
         commonFields);
 }
 

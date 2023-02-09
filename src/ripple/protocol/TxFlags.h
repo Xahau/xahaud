@@ -129,9 +129,6 @@ constexpr std::uint32_t const tfStrongTSH              = 0x00008000;
 constexpr std::uint32_t const tfNFTokenMintOldMask =
     ~(tfUniversal | tfBurnable | tfOnlyXRP | tfTrustLine | tfTransferable | tfStrongTSH);
 
-// URIToken flags:
-constexpr std::uint32_t const tfBurn                   = 0x00000002;
-
 // Prior to fixRemoveNFTokenAutoTrustLine, transfer of an NFToken between
 // accounts allowed a TrustLine to be added to the issuer of that token
 // without explicit permission from that issuer.  This was enabled by
@@ -159,6 +156,10 @@ constexpr std::uint32_t const tfNFTokenCancelOfferMask = ~(tfUniversal);
 
 // NFTokenAcceptOffer flags:
 constexpr std::uint32_t const tfNFTokenAcceptOfferMask = ~tfUniversal;
+
+// URIToken mask
+constexpr std::uint32_t const tfURITokenMintMask = ~(tfUniversal | tfBurnable);
+constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
 
 // clang-format on
 

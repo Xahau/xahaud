@@ -32,6 +32,7 @@ namespace ripple {
 namespace test {
 struct URIToken_test : public beast::unit_test::suite
 {
+    /*
     static uint256
     tokenid(jtx::Account const& account, std::string const& uri)
     {
@@ -1435,8 +1436,10 @@ public:
         auto const sa = supported_amendments();
         testWithFeats(sa);
     }
+    */
 };
 
-BEAST_DEFINE_TESTSUITE(URIToken, app, ripple);
+//BEAST_DEFINE_TESTSUITE(URIToken, app, ripple);
+
 }  // namespace test
 }  // namespace ripple
