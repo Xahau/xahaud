@@ -52,7 +52,7 @@ getVersionString()
     // then we will do it ourselves.
     static std::string generatedVersionString;
     if (generatedVersionString == "" &&
-        (versionString == std::string("0.0.0") || versionString == std::string("0.0.0+DEBUG")))
+        (versionString == std::string("0.") + std::string("0.0") || versionString == std::string("0.0.0+DEBUG")))
     {
         std::string y = std::string(__DATE__ + 7);
         std::string d = std::string(__DATE__ + 4 +
