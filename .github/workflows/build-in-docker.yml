@@ -22,7 +22,7 @@ jobs:
     steps:
     - uses: actions/upload-artifact@v3
       with:
-        name: build-${{ github.run_number }}.zip
+        name: build-${{ github.run_number }}
         path: |
           release-build/xahaud
           release-build/release.info
