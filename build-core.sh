@@ -40,9 +40,21 @@ echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
 git log -n 20 >> release.info;
+
+if [[ "$4" == "" ]]; then
+  # Non GH, local building
+else
+  # GH Action, runner
+  cp /io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
+  cp /io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+  echo "Published build to: http://build.xahau.tech/"
+  echho $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
+fi
+
 cd ..;
 mv src/ripple/net/impl/RegisterSSLCerts.cpp.old src/ripple/net/impl/RegisterSSLCerts.cpp;
 mv Builds/CMake/deps/Rocksdb.cmake.old Builds/CMake/deps/Rocksdb.cmake;
 mv Builds/CMake/deps/WasmEdge.old Builds/CMake/deps/WasmEdge.cmake;
+
 
 echo "END INSIDE CONTAINER - CORE"
