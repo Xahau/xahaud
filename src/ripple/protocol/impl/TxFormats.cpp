@@ -367,6 +367,7 @@ TxFormats::TxFormats()
         {
             {sfURI, soeREQUIRED},
             {sfDigest, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
 
@@ -374,6 +375,7 @@ TxFormats::TxFormats()
         ttURITOKEN_BURN,
         {
             {sfURITokenID, soeREQUIRED},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
 
@@ -382,6 +384,7 @@ TxFormats::TxFormats()
         {
             {sfURITokenID, soeREQUIRED},
             {sfAmount, soeREQUIRED},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
 
@@ -391,6 +394,7 @@ TxFormats::TxFormats()
             {sfURITokenID, soeREQUIRED},
             {sfAmount, soeREQUIRED},
             {sfDestination, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
     
@@ -398,6 +402,7 @@ TxFormats::TxFormats()
         ttURITOKEN_CANCEL_SELL_OFFER,
         {
             {sfURITokenID, soeREQUIRED},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
 }
