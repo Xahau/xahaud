@@ -149,7 +149,9 @@
             WasmEdge_CallingFrameGetMemoryInstance(&frameCtx, 0);\
     [[maybe_unused]] unsigned char* memory = WasmEdge_MemoryInstanceGetPointer(memoryCtx, 0, 0);\
     [[maybe_unused]] const uint64_t memory_length = WasmEdge_MemoryInstanceGetPageSize(memoryCtx) * \
-        WasmEdge_kPageSize;
+        WasmEdge_kPageSize;\
+    if (!memoryCtx || !memory || !memory_length)\
+        return INTERNAL_ERROR;\
 
 #define WRITE_WASM_MEMORY(bytes_written, guest_dst_ptr, guest_dst_len,\
         host_src_ptr, host_src_len, host_memory_ptr, guest_memory_length)\
