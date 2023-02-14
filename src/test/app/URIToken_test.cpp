@@ -195,6 +195,19 @@ struct URIToken_test : public beast::unit_test::suite
         return STAmount(iou, 0);
     }
 
+    static STAmount
+    gwBalance(
+        jtx::Env const& env,
+        jtx::Account const& account,
+        jtx::IOU const& iou)
+    {
+        auto const sle =
+            env.le(keylet::line(iou.account, account, iou.currency));
+        if (sle && sle->isFieldPresent(sfBalance))
+            return (*sle)[sfBalance];
+        return STAmount(iou, 0);
+    }
+
     static Json::Value
     mint(jtx::Account const& account, std::string const& uri)
     {
@@ -277,6 +290,7 @@ struct URIToken_test : public beast::unit_test::suite
             Env env{*this, amend};
 
             env.fund(XRP(1000), alice, bob);
+            env.close();
 
             std::string const uri(maxTokenURILength, '?');
             std::string const id{strHex(tokenid(alice, uri))};
@@ -467,12 +481,12 @@ struct URIToken_test : public beast::unit_test::suite
         auto const nacct = Account("alice");
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
         auto const NUSD = nacct["USD"];
         env.fund(XRP(1000), alice, bob, gw);
-        env.trust(USD(10000), alice);
-        env.trust(USD(10000), bob);
+        env.close();
+        env.trust(USD(100000), alice, bob);
         env.close();
         env(pay(gw, alice, USD(1000)));
         env(pay(gw, bob, USD(1000)));
@@ -535,13 +549,11 @@ struct URIToken_test : public beast::unit_test::suite
         auto const bob = Account("bob");
         auto const carol = Account("carol");
         auto const dave = Account("dave");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
         auto const EUR = gw["EUR"];
         env.fund(XRP(1000), alice, bob, carol, gw);
-        env.trust(USD(10000), alice);
-        env.trust(USD(10000), bob);
-        env.trust(USD(10000), carol);
+        env.trust(USD(100000), alice, bob, carol);
         env.close();
         env(pay(gw, alice, USD(1000)));
         env(pay(gw, bob, USD(1000)));
@@ -677,12 +689,11 @@ struct URIToken_test : public beast::unit_test::suite
         Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
         auto const EUR = gw["EUR"];
         env.fund(XRP(1000), alice, bob, gw);
-        env.trust(USD(10000), alice);
-        env.trust(USD(10000), bob);
+        env.trust(USD(100000), alice, bob);
         env.close();
         env(pay(gw, alice, USD(1000)));
         env(pay(gw, bob, USD(1000)));
@@ -861,16 +872,16 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
+        Env env{*this, features};
+
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
         // setup env
-        Env env{*this, features};
         env.fund(XRP(1000), alice, bob, gw);
-        env.trust(USD(10000), alice);
-        env.trust(USD(10000), bob);
+        env.trust(USD(100000), alice, bob);
         env.close();
         env(pay(gw, alice, USD(1000)));
         env(pay(gw, bob, USD(1000)));
@@ -954,15 +965,14 @@ struct URIToken_test : public beast::unit_test::suite
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
         // setup env
         Env env{*this, features};
         env.fund(XRP(1000), alice, bob, carol, gw);
-        env.trust(USD(10000), alice);
-        env.trust(USD(10000), bob);
-        env.trust(USD(10000), carol);
+        env.close();
+        env.trust(USD(100000), alice, bob, carol);
         env.close();
         env(pay(gw, alice, USD(1000)));
         env(pay(gw, bob, USD(1000)));
@@ -1133,15 +1143,14 @@ struct URIToken_test : public beast::unit_test::suite
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
         // setup env
         Env env{*this, features};
         env.fund(XRP(1000), alice, bob, carol, gw);
-        env.trust(USD(10000), alice);
-        env.trust(USD(10000), bob);
-        env.trust(USD(10000), carol);
+        env.close();
+        env.trust(USD(100000), alice, bob, carol);
         env.close();
         env(pay(gw, alice, USD(1000)));
         env(pay(gw, bob, USD(1000)));
@@ -1218,14 +1227,14 @@ struct URIToken_test : public beast::unit_test::suite
     void
     testMetaAndOwnership(FeatureBitset features)
     {
-        testcase("Metadata & Ownership");
+        testcase("metadata_and_onwnership");
 
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
         std::string const uri(maxTokenURILength, '?');
@@ -1236,8 +1245,8 @@ struct URIToken_test : public beast::unit_test::suite
             // directory
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob, gw);
-            env.trust(USD(10000), alice);
-            env.trust(USD(10000), bob);
+            env.close();
+            env.trust(USD(100000), alice, bob);
             env.close();
             env(pay(gw, alice, USD(1000)));
             env(pay(gw, bob, USD(1000)));
@@ -1266,8 +1275,8 @@ struct URIToken_test : public beast::unit_test::suite
             // directory
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob, gw);
-            env.trust(USD(10000), alice);
-            env.trust(USD(10000), bob);
+            env.close();
+            env.trust(USD(100000), alice, bob);
             env.close();
             env(pay(gw, alice, USD(1000)));
             env(pay(gw, bob, USD(1000)));
@@ -1298,7 +1307,7 @@ struct URIToken_test : public beast::unit_test::suite
     void
     testAccountDelete(FeatureBitset features)
     {
-        testcase("Account Delete");
+        testcase("account_delete");
         using namespace test::jtx;
         using namespace std::literals::chrono_literals;
         auto rmAccount = [this](
@@ -1326,7 +1335,7 @@ struct URIToken_test : public beast::unit_test::suite
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
         std::string const uri(maxTokenURILength, '?');
@@ -1335,9 +1344,8 @@ struct URIToken_test : public beast::unit_test::suite
         {
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob, carol, gw);
-            env.trust(USD(10000), alice);
-            env.trust(USD(10000), bob);
-            env.trust(USD(10000), carol);
+            env.close();
+            env.trust(USD(100000), alice, bob, carol);
             env.close();
             env(pay(gw, alice, USD(1000)));
             env(pay(gw, bob, USD(1000)));
@@ -1360,8 +1368,16 @@ struct URIToken_test : public beast::unit_test::suite
 
             // alice still has a trustline
             rmAccount(env, alice, bob, tecHAS_OBLIGATIONS);
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
 
-            BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
+            // drain pay all back and drain trustlin
+            env.trust(USD(0), alice);
+            env(pay(alice, gw, env.balance(alice, USD.issue())));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+
+            // alice can delete account
+            rmAccount(env, alice, bob);
+            BEAST_EXPECT(!uritokenExists(*env.current(), tokenid(alice, uri)));
 
             // buy should fail if the uri token was removed
             auto preBob = env.balance(bob, USD.issue());
@@ -1369,27 +1385,27 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob);
 
+            // bob can mint same exact token because alice burned it
             env(mint(bob, uri));
             BEAST_EXPECT(uritokenExists(*env.current(), tokenid(bob, uri)));
         }
     }
 
-    // TODO: THIS TEST IS NOT COMPLETE
     void
-    testUsingTickets(FeatureBitset features)
+    testTickets(FeatureBitset features)
     {
-        testcase("using tickets");
+        testcase("tickets");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
         Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const gw = Account("gw");
+        auto const gw = Account{"gateway"};
         auto USD = gw["USD"];
         env.fund(XRP(1000), alice, bob, gw);
-        env.trust(USD(10000), alice);
-        env.trust(USD(10000), bob);
+        env.close();
+        env.trust(USD(100000), alice, bob);
         env.close();
         env(pay(gw, alice, USD(1000)));
         env(pay(gw, bob, USD(1000)));
@@ -1410,29 +1426,29 @@ struct URIToken_test : public beast::unit_test::suite
         std::string const id{strHex(tokenid(alice, uri))};
 
         env(mint(alice, uri), ticket::use(aliceTicketSeq++));
-        env(sell(alice, id, USD(10)), ticket::use(aliceTicketSeq++));
+        env(sell(alice, id, USD(1000)), ticket::use(aliceTicketSeq++));
 
-        env.require(tickets(alice, env.seq(alice) - (2 * aliceTicketSeq)));
+        env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
         BEAST_EXPECT(env.seq(alice) == aliceSeq);
         BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
 
         // A transaction that generates a tec still consumes its ticket.
-        env(buy(bob, id, USD(10)),
+        env(buy(bob, id, USD(1500)),
             ticket::use(bobTicketSeq++),
             ter(tecINSUFFICIENT_FUNDS));
-        env.require(tickets(alice, env.seq(alice) - (2 * aliceTicketSeq)));
+        env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
 
-        env(buy(bob, id, USD(10)), ticket::use(bobTicketSeq++));
+        env(buy(bob, id, USD(1000)), ticket::use(bobTicketSeq++));
 
-        env.require(tickets(bob, env.seq(bob) - (2 * bobTicketSeq)));
+        env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
         BEAST_EXPECT(env.seq(bob) == bobSeq);
-        BEAST_EXPECT(uritokenExists(*env.current(), tokenid(bob, uri)));
+        BEAST_EXPECT(uritokenExists(*env.current(), tokenid(alice, uri)));
     }
 
     void
     testRippleState(FeatureBitset features)
     {
-        testcase("RippleState");
+        testcase("ripple_state");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -1441,320 +1457,80 @@ struct URIToken_test : public beast::unit_test::suite
         // I did this to check the exact sign "-/+"
         //
 
-        // src > dst
-        // src > issuer
-        // dst no trustline
-        // negative tl balance
+        struct TestAccountData
         {
-            auto const src = Account("alice2");
-            auto const dst = Account("bob0");
-            auto const gw = Account{"gw0"};
-            auto const USD = gw["USD"];
+            Account src;
+            Account dst;
+            Account gw;
+            bool hasTrustline;
+            bool negative;
+        };
 
+        std::array<TestAccountData, 8> tests = {
+            {
+                // src > dst && src > issuer && dst no trustline
+                {Account("alice2"), Account("bob0"), Account{"gw0"}, false, true},
+                // src < dst && src < issuer && dst no trustline
+                {Account("carol0"), Account("dan1"), Account{"gw1"}, false, false},
+                // dst > src && dst > issuer && dst no trustline
+                {Account("dan1"), Account("alice2"), Account{"gw0"}, false, true},
+                // dst < src && dst < issuer && dst no trustline
+                {Account("bob0"), Account("carol0"), Account{"gw1"}, false, false},
+                // src > dst && src > issuer && dst has trustline
+                {Account("alice2"), Account("bob0"), Account{"gw0"}, true, true},
+                // src < dst && src < issuer && dst has trustline
+                {Account("carol0"), Account("dan1"), Account{"gw1"}, true, false},
+                // dst > src && dst > issuer && dst has trustline
+                {Account("dan1"), Account("alice2"), Account{"gw0"}, true, true},
+                // dst < src && dst < issuer && dst has trustline
+                {Account("bob0"), Account("carol0"), Account{"gw1"}, true, false},
+            }
+        };
+
+        for (auto const& t : tests)
+        {
             Env env{*this, features};
-            env.fund(XRP(5000), src, dst, gw);
+            auto const USD = t.gw["USD"];
+            env.fund(XRP(5000), t.src, t.dst, t.gw);
             env.close();
-            env.trust(USD(100000), src);
+            
+            if (t.hasTrustline)
+                env.trust(USD(100000), t.src, t.dst);
+            else
+                env.trust(USD(100000), t.src);
             env.close();
-            env(pay(gw, src, USD(10000)));
+
+            env(pay(t.gw, t.src, USD(10000)));
+            if (t.hasTrustline)
+                env(pay(t.gw, t.dst, USD(10000)));
             env.close();
 
             // dst can create uritoken
             std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
+            std::string const id{strHex(tokenid(t.dst, uri))};
+            env(mint(t.dst, uri));
             env.close();
 
-            // dst can create sell w/out token
+            // dst can create sell
             auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
+            auto const preSrc = lineBalance(env, t.src, USD);
+            auto const preDst = lineBalance(env, t.dst, USD);
+            env(sell(t.dst, id, delta));
             env.close();
             BEAST_EXPECT(preDst == preDst);
 
             // src can create buy
-            env(buy(src, id, delta));
+            env(buy(t.src, id, delta));
             env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc + delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst - delta);
-        }
-        // src < dst
-        // src < issuer
-        // dest no trustline
-        // positive tl balance
-        {
-            auto const src = Account("carol0");
-            auto const dst = Account("dan1");
-            auto const gw = Account{"gw1"};
-            auto const USD = gw["USD"];
-
-            Env env{*this, features};
-            env.fund(XRP(5000), src, dst, gw);
-            env.close();
-            env.trust(USD(100000), src);
-            env.close();
-            env(pay(gw, src, USD(10000)));
-            env.close();
-
-            // dst can create uritoken
-            std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
-            env.close();
-
-            // dst can create sell w/out token
-            auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
-            env.close();
-            BEAST_EXPECT(preDst == preDst);
-
-            // src can create buy
-            env(buy(src, id, delta));
-            env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc - delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst + delta);
-        }
-        // dst > src
-        // dst > issuer
-        // dest no trustline
-        // negative locked/tl balance
-        {
-            auto const src = Account("dan1");
-            auto const dst = Account("alice2");
-            auto const gw = Account{"gw0"};
-            auto const USD = gw["USD"];
-
-            Env env{*this, features};
-            env.fund(XRP(5000), src, dst, gw);
-            env.close();
-            env.trust(USD(100000), src);
-            env.close();
-            env(pay(gw, src, USD(10000)));
-            env.close();
-
-            // dst can create uritoken
-            std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
-            env.close();
-
-            // dst can create sell w/out token
-            auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
-            env.close();
-            BEAST_EXPECT(preDst == preDst);
-
-            // src can create buy
-            env(buy(src, id, delta));
-            env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc + delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst - delta);
-        }
-        // dst < src
-        // dst < issuer
-        // dest no trustline
-        // positive tl balance
-        {
-            auto const src = Account("bob0");
-            auto const dst = Account("carol0");
-            auto const gw = Account{"gw1"};
-            auto const USD = gw["USD"];
-
-            Env env{*this, features};
-            env.fund(XRP(5000), src, dst, gw);
-            env.close();
-            env.trust(USD(100000), src);
-            env.close();
-            env(pay(gw, src, USD(10000)));
-            env.close();
-
-            // dst can create uritoken
-            std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
-            env.close();
-
-            // dst can create sell w/out token
-            auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
-            env.close();
-            BEAST_EXPECT(preDst == preDst);
-
-            // src can create buy
-            env(buy(src, id, delta));
-            env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc - delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst + delta);
-        }
-        // src > dst
-        // src > issuer
-        // dst has trustline
-        // negative tl balance
-        {
-            auto const src = Account("alice2");
-            auto const dst = Account("bob0");
-            auto const gw = Account{"gw0"};
-            auto const USD = gw["USD"];
-
-            Env env{*this, features};
-            env.fund(XRP(5000), src, dst, gw);
-            env.close();
-            env.trust(USD(100000), src, dst);
-            env.close();
-            env(pay(gw, src, USD(10000)));
-            env(pay(gw, dst, USD(10000)));
-            env.close();
-
-            // dst can create uritoken
-            std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
-            env.close();
-
-            // dst can create sell w/out token
-            auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
-            env.close();
-            BEAST_EXPECT(preDst == preDst);
-
-            // src can create buy
-            env(buy(src, id, delta));
-            env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc + delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst - delta);
-        }
-        // src < dst
-        // src < issuer
-        // dest has trustline
-        // positive tl balance
-        {
-            auto const src = Account("carol0");
-            auto const dst = Account("dan1");
-            auto const gw = Account{"gw1"};
-            auto const USD = gw["USD"];
-
-            Env env{*this, features};
-            env.fund(XRP(10000), src, dst, gw);
-            env.close();
-            env.trust(USD(100000), src, dst);
-            env.close();
-            env(pay(gw, src, USD(10000)));
-            env(pay(gw, dst, USD(10000)));
-            env.close();
-
-            // dst can create uritoken
-            std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
-            env.close();
-
-            // dst can create sell w/out token
-            auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
-            env.close();
-            BEAST_EXPECT(preDst == preDst);
-
-            // src can create buy
-            env(buy(src, id, delta));
-            env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc - delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst + delta);
-        }
-        // dst > src
-        // dst > issuer
-        // dest has trustline
-        // negative tl balance
-        {
-            auto const src = Account("dan1");
-            auto const dst = Account("alice2");
-            auto const gw = Account{"gw0"};
-            auto const USD = gw["USD"];
-
-            Env env{*this, features};
-            env.fund(XRP(10000), src, dst, gw);
-            env.close();
-            env.trust(USD(100000), src, dst);
-            env.close();
-            env(pay(gw, src, USD(10000)));
-            env(pay(gw, dst, USD(10000)));
-            env.close();
-
-            // dst can create uritoken
-            std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
-            env.close();
-
-            // dst can create sell w/out token
-            auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
-            env.close();
-            BEAST_EXPECT(preDst == preDst);
-
-            // src can create buy
-            env(buy(src, id, delta));
-            env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc + delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst - delta);
-        }
-        // dst < src
-        // dst < issuer
-        // dest has trustline
-        // positive tl balance
-        {
-            auto const src = Account("bob0");
-            auto const dst = Account("carol0");
-            auto const gw = Account{"gw1"};
-            auto const USD = gw["USD"];
-
-            Env env{*this, features};
-            env.fund(XRP(10000), src, dst, gw);
-            env.close();
-            env.trust(USD(100000), src, dst);
-            env.close();
-            env(pay(gw, src, USD(10000)));
-            env(pay(gw, dst, USD(10000)));
-            env.close();
-
-            // dst can create uritoken
-            std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(dst, uri))};
-            env(mint(dst, uri));
-            env.close();
-
-            // dst can create sell w/out token
-            auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, dst, USD);
-            env(sell(dst, id, delta));
-            env.close();
-            BEAST_EXPECT(preDst == preDst);
-
-            // src can create buy
-            env(buy(src, id, delta));
-            env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc - delta);
-            BEAST_EXPECT(lineBalance(env, dst, USD) == preDst + delta);
+            BEAST_EXPECT(lineBalance(env, t.src, USD) == (t.negative ? (preSrc + delta) : (preSrc - delta)));
+            BEAST_EXPECT(lineBalance(env, t.dst, USD) == (t.negative ? (preDst - delta) : (preDst + delta)));
         }
     }
 
     void
     testGateway(FeatureBitset features)
     {
-        testcase("Gateway");
+        testcase("gateway");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -1777,7 +1553,7 @@ struct URIToken_test : public beast::unit_test::suite
             env(mint(src, uri));
             env.close();
 
-            // issuer can create sell w/out token
+            // src can create sell w/out token
             auto const delta = USD(1000);
             auto const preSrc = lineBalance(env, src, USD);
             auto const preDst = lineBalance(env, gw, USD);
@@ -1785,11 +1561,15 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(preDst == preDst);
 
-            // src can create buy
+            // gw can create buy
             env(buy(gw, id, delta));
             env.close();
             BEAST_EXPECT(lineBalance(env, src, USD) == preSrc - delta);
             BEAST_EXPECT(lineBalance(env, gw, USD) == preDst + delta);
+            
+            auto const gwbal = gwBalance(env, src, USD);
+            std::cout << "GW BAL: " << gwbal << "\n";
+            std::cout << "ALICE BAL: " << env.balance(src, USD.issue()) << "\n";
         }
     }
 
@@ -1845,9 +1625,9 @@ struct URIToken_test : public beast::unit_test::suite
     }
 
     void
-    testGlobalFreeze(FeatureBitset features)
+    testFreeze(FeatureBitset features)
     {
-        testcase("Global Freeze");
+        testcase("freeze");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -1856,17 +1636,14 @@ struct URIToken_test : public beast::unit_test::suite
         auto const carol = Account("carol");
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
-
-        auto const aliceUSD = alice["USD"];
-        auto const bobUSD = bob["USD"];
+        
         // test Global Freeze
         {
             // setup env
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob, gw);
             env.close();
-            env.trust(USD(10000), alice);
-            env.trust(USD(10000), bob);
+            env.trust(USD(100000), alice, bob);
             env.close();
             env(pay(gw, alice, USD(1000)));
             env(pay(gw, bob, USD(1000)));
@@ -1899,8 +1676,7 @@ struct URIToken_test : public beast::unit_test::suite
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob, gw);
             env.close();
-            env(trust(alice, USD(10000)));
-            env(trust(bob, USD(10000)));
+            env.trust(USD(100000), alice, bob);
             env.close();
             env(pay(gw, alice, USD(1000)));
             env(pay(gw, bob, USD(1000)));
@@ -1932,6 +1708,164 @@ struct URIToken_test : public beast::unit_test::suite
     }
 
     void
+    testTransferRate(FeatureBitset features)
+    {
+        testcase("transfer_rate");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        // test transfer rate
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
+            env.close();
+
+            auto const preBob = env.balance(bob, USD.issue());
+
+            // setup mint
+            std::string const uri(maxTokenURILength, '?');
+            std::string const id{strHex(tokenid(alice, uri))};
+            auto const delta = USD(100);
+            env(mint(alice, uri));
+            env(sell(alice, id, delta));
+            env.close();
+
+            env(buy(bob, id, delta));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(1125));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
+        }
+        // test rate change
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            // setup
+            std::string const uri(maxTokenURILength, '?');
+            std::string const id{strHex(tokenid(alice, uri))};
+            auto const delta = USD(100);
+            auto preBob = env.balance(bob, USD.issue());
+            
+            // alice mints and sells
+            env(mint(alice, uri));
+            env(sell(alice, id, delta));
+            env.close();
+
+            // bob buys at higher rate and burns
+            env(buy(bob, id, delta));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10125));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
+            env(burn(bob, id));
+
+            // issuer changes rate lower
+            env(rate(gw, 1.00));
+            env.close();
+
+            preBob = env.balance(bob, USD.issue());
+
+            // alice mints and sells
+            env(mint(alice, uri));
+            env(sell(alice, id, delta));
+            env.close();
+
+            // bob buys at lower rate
+            env(buy(bob, id, delta));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10225));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
+        }
+        // // test issuer doesnt pay own rate
+        // {
+        //     Env env{*this, features};
+        //     env.fund(XRP(10000), alice, gw);
+        //     env(rate(gw, 1.25));
+        //     env.close();
+        //     env.trust(USD(100000), alice);
+        //     env.close();
+        //     env(pay(gw, alice, USD(10000)));
+        //     env.close();
+
+        //     // issuer with rate can create paychan
+        //     auto const pk = gw.pk();
+        //     auto const settleDelay = 100s;
+        //     auto const chan = channel(gw, alice, env.seq(gw));
+        //     env(create(gw, alice, USD(1000), settleDelay, pk));
+        //     env.close();
+
+        //     // issuer can claim paychan, alice has trustline
+        //     auto const preLocked = -lockedAmount(env, alice, gw, USD);
+        //     auto const preAlice = env.balance(alice, USD.issue());
+        //     auto chanBal = channelBalance(*env.current(), chan);
+        //     auto chanAmt = channelAmount(*env.current(), chan);
+        //     auto const delta = USD(500);
+        //     auto const reqBal = chanBal + delta;
+        //     auto const authAmt = reqBal + USD(100);
+        //     env(claim(gw, chan, reqBal, authAmt));
+        //     env.close();
+        //     auto const postLocked = -lockedAmount(env, alice, gw, USD);
+        //     BEAST_EXPECT(postLocked == USD(0));
+        //     BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
+        // }
+    }
+
+    void
+    testDisallowXRP(FeatureBitset features)
+    {
+        // auth amount defaults to balance if not present
+        testcase("disallow_xrp");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+
+        {
+            // Create a channel where src/dst disallows XRP
+            // Ignore that flag, since it's just advisory.
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob);
+            env(fset(alice, asfDisallowXRP));
+            env(fset(bob, asfDisallowXRP));
+            env.close();
+
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = tokenid(alice, uri);
+            std::string const hexid{strHex(tid)};
+
+            // alice mints
+            env(mint(alice, uri));
+            env.close();
+            
+            // alice sells
+            env(sell(alice, hexid, XRP(10)));
+            env.close();
+            
+            // bob buys
+            env(buy(bob, hexid, XRP(10)));
+            env.close();
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -1946,12 +1880,14 @@ struct URIToken_test : public beast::unit_test::suite
         testSellValid(features);
         testClearValid(features);
         testMetaAndOwnership(features);
-        // testAccountDelete(features);
-        // testUsingTickets(features);
+        testAccountDelete(features);
+        testTickets(features);
         testRippleState(features);
         // testGateway(features);
         testRequireAuth(features);
-        testGlobalFreeze(features);
+        testFreeze(features);
+        testTransferRate(features);
+        testDisallowXRP(features);
     }
 
 public:
