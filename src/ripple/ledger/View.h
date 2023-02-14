@@ -722,7 +722,7 @@ trustTransferAllowed(
             if (flags & flagIssuerFreeze)
             {
                 JLOG(j.trace()) << "trustTransferAllowed: "
-                                << "parties=[" << parties << "], "
+                                // << "parties=[" << parties << "], "
                                 << "issuer: " << issue.account << " "
                                 << "has freeze on party: " << p;
                 return tecFROZEN;
@@ -734,7 +734,7 @@ trustTransferAllowed(
             if (parties.size() > 1 && (flags & flagIssuerNoRipple))
             {
                 JLOG(j.trace()) << "trustTransferAllowed: "
-                                << "parties=[" << parties << "], "
+                                // << "parties=[" << parties << "], "
                                 << "issuer: " << issue.account << " "
                                 << "has noRipple on party: " << p;
                 return tecPATH_DRY;
@@ -745,7 +745,7 @@ trustTransferAllowed(
             if (requireAuth && !(flags & flagIssuerAuth))
             {
                 JLOG(j.trace()) << "trustTransferAllowed: "
-                                << "parties=[" << parties << "], "
+                                // << "parties=[" << parties << "], "
                                 << "issuer: " << issue.account << " "
                                 << "requires TL auth which "
                                 << "party: " << p << " "
