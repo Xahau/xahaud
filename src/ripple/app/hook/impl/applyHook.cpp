@@ -1490,6 +1490,9 @@ DEFINE_HOOK_FUNCTION(
     auto const key =
         make_state_key( std::string_view { (const char*)(memory + kread_ptr), (size_t)kread_len } );
 
+    if (!key)
+        return INTERNAL_ERROR;
+
     ripple::Blob data {memory + read_ptr,  memory + read_ptr + read_len};
 
     // local modifications are always allowed
