@@ -614,7 +614,7 @@ no_free_slots(hook::HookContext& hookCtx)
 
 
 inline
-int32_t
+std::optional<int32_t>
 get_free_slot(hook::HookContext& hookCtx)
 {
 
@@ -632,13 +632,16 @@ get_free_slot(hook::HookContext& hookCtx)
     // slot ahead of when the counter gets there
     do
     {
+        if (hookCtx.slot_counter >= hook_api::max_slots)
+            return {};
+
         slot_into = ++hookCtx.slot_counter;
     }
     while (hookCtx.slot.find(slot_into) != hookCtx.slot.end() && 
         // this condition should always be met, if for some reason, somehow it is not
         // then we will return the final slot every time.
         hookCtx.slot_counter <= hook_api::max_slots);
-    
+
     return slot_into;
 }
 
@@ -2019,8 +2022,12 @@ DEFINE_HOOK_FUNCTION(
         return NO_FREE_SLOTS;
 
     if (slot_into == 0)
-        slot_into = get_free_slot(hookCtx);
-
+    {
+        if (auto found = get_free_slot(hookCtx); found)
+            slot_into = *found;
+        else
+            return NO_FREE_SLOTS;
+    }
 
     auto const& st_tx =
         std::make_shared<ripple::STObject>(
@@ -2343,7 +2350,12 @@ DEFINE_HOOK_FUNCTION(
         return DOESNT_EXIST;
 
     if (slot_into == 0)
-        slot_into = get_free_slot(hookCtx);
+    {
+        if (auto found = get_free_slot(hookCtx); found)
+            slot_into = *found;
+        else
+            return NO_FREE_SLOTS;
+    }
 
     hookCtx.slot[slot_into] = hook::SlotEntry {
             .storage = *slot_value,
@@ -2397,7 +2409,13 @@ DEFINE_HOOK_FUNCTION(
         if (parent_obj.size() <= array_id)
             return DOESNT_EXIST;
 
-        new_slot = ( new_slot == 0 ? get_free_slot(hookCtx) : new_slot );
+        if (new_slot == 0)
+        {
+            if (auto found = get_free_slot(hookCtx); found)
+                new_slot = *found;
+            else
+                return NO_FREE_SLOTS;
+        }
 
         // copy
         if (new_slot != parent_slot)
@@ -2451,7 +2469,13 @@ DEFINE_HOOK_FUNCTION(
         if (!parent_obj.isFieldPresent(fieldCode))
             return DOESNT_EXIST;
 
-        new_slot = ( new_slot == 0 ? get_free_slot(hookCtx) : new_slot );
+        if (new_slot == 0)
+        {
+            if (auto found = get_free_slot(hookCtx); found)
+                new_slot = *found;
+            else
+                return NO_FREE_SLOTS;
+        }
 
         // copy
         if (new_slot != parent_slot)
@@ -5291,7 +5315,12 @@ DEFINE_HOOK_FUNCTION(
         return NO_FREE_SLOTS;
 
     if (slot_into == 0)
-        slot_into = get_free_slot(hookCtx);
+    {
+        if (auto found = get_free_slot(hookCtx); found)
+            slot_into = *found;
+        else
+            return NO_FREE_SLOTS;
+    }
 
     hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into, hook::SlotEntry {
             .storage = hookCtx.result.provisionalMeta,
