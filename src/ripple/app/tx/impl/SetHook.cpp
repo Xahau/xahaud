@@ -72,10 +72,9 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
     AccountID const& hookAcc = ctx.tx.getAccountID(sfAccount);
 
     std::set<GrantKey> already;
-    for (auto const& hookGrant : hookGrants)
+    for (auto const& hookGrantObj : hookGrants)
     {
-        auto const& hookGrantObj = dynamic_cast<STObject const*>(&hookGrant);
-        if (!hookGrantObj || (hookGrantObj->getFName() != sfHookGrant))
+        if (hookGrantObj.getFName() != sfHookGrant)
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::GRANTS_ILLEGAL << ")[" << HS_ACC()
@@ -83,8 +82,8 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
             return false;
         }
 
-        if (hookGrantObj->isFieldPresent(sfAuthorize) &&
-            hookGrantObj->getAccountID(sfAuthorize) == hookAcc)
+        if (hookGrantObj.isFieldPresent(sfAuthorize) &&
+            hookGrantObj.getAccountID(sfAuthorize) == hookAcc)
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::GRANTS_ILLEGAL << ")[" << HS_ACC()
@@ -93,9 +92,9 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
         }
 
 
-        auto const hash = hookGrantObj->getFieldH256(sfHookHash);
+        auto const hash = hookGrantObj.getFieldH256(sfHookHash);
 
-        GrantKey entry {hash, hookGrantObj->at(~sfAuthorize)};
+        GrantKey entry {hash, hookGrantObj.at(~sfAuthorize)};
         if (already.find(entry) != already.end())
         {
             JLOG(ctx.j.trace())
@@ -127,11 +126,9 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
 
     std::set<ripple::Blob> alreadySet;
 
-    for (auto const& hookParam : hookParams)
+    for (auto const& hookParamObj : hookParams)
     {
-        auto const& hookParamObj = dynamic_cast<STObject const*>(&hookParam);
-
-        if (!hookParamObj || (hookParamObj->getFName() != sfHookParameter))
+        if (hookParamObj.getFName() != sfHookParameter)
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::PARAMETERS_ILLEGAL << ")[" << HS_ACC()
@@ -143,7 +140,7 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
         // RH NOTE: templating system already does most of these checks but if a change is made
         // in future then they are double checked here
         bool nameFound = false;
-        for (auto const& paramElement : *hookParamObj)
+        for (auto const& paramElement : hookParamObj)
         {
             auto const& name = paramElement.getFName();
 
@@ -169,11 +166,11 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
             return false;
         }
 
-        ripple::Blob const& paramName = hookParam.getFieldVL(sfHookParameterName);
+        ripple::Blob const& paramName = hookParamObj.getFieldVL(sfHookParameterName);
 
         if (paramName.size() > paramKeyMax ||
-            (hookParam.isFieldPresent(sfHookParameterValue) &&
-                hookParam.getFieldVL(sfHookParameterValue).size() > paramValueMax))
+            (hookParamObj.isFieldPresent(sfHookParameterValue) &&
+                hookParamObj.getFieldVL(sfHookParameterValue).size() > paramValueMax))
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::HOOK_PARAM_SIZE << ")[" << HS_ACC()
@@ -528,22 +525,20 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     auto const& hookSets = tx.getFieldArray(sfHooks);
 
-    for (auto const& hookSet : hookSets)
+    for (auto const& hookSetObj : hookSets)
     {
-        auto const& hookSetObj = dynamic_cast<STObject const*>(&hookSet);
-
-        if (!hookSetObj->isFieldPresent(sfCreateCode))
+        if (!hookSetObj.isFieldPresent(sfCreateCode))
             continue;
 
         extraFee += FeeUnit64{
             hook::computeCreationFee(
-                hookSetObj->getFieldVL(sfCreateCode).size())};
+                hookSetObj.getFieldVL(sfCreateCode).size())};
 
         // parameters are billed at the same rate as code bytes
-        if (hookSetObj->isFieldPresent(sfHookParameters))
+        if (hookSetObj.isFieldPresent(sfHookParameters))
         {
             uint64_t paramBytes = 0;
-            auto const& params = hookSetObj->getFieldArray(sfHookParameters);
+            auto const& params = hookSetObj.getFieldArray(sfHookParameters);
             for (auto const& param : params)
             {
                 paramBytes +=
@@ -565,15 +560,12 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
 
     auto const& hookSets = ctx.tx.getFieldArray(sfHooks);
 
-    for (auto const& hookSet : hookSets)
+    for (auto const& hookSetObj : hookSets)
     {
-
-        auto const& hookSetObj = dynamic_cast<STObject const*>(&hookSet);
-
-        if (!hookSetObj->isFieldPresent(sfHookHash))
+        if (!hookSetObj.isFieldPresent(sfHookHash))
             continue;
 
-        auto const& hash = hookSetObj->getFieldH256(sfHookHash);
+        auto const& hash = hookSetObj.getFieldH256(sfHookHash);
         {
             if (!ctx.view.exists(keylet::hookDefinition(hash)))
             {
@@ -640,12 +632,9 @@ SetHook::preflight(PreflightContext const& ctx)
 
     bool allBlank = true;
 
-    for (auto const& hookSet : hookSets)
+    for (auto const& hookSetObj : hookSets)
     {
-
-        auto const& hookSetObj = dynamic_cast<STObject const*>(&hookSet);
-
-        if (!hookSetObj || (hookSetObj->getFName() != sfHook))
+        if (hookSetObj.getFName() != sfHook)
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::HOOKS_ARRAY_BAD << ")["
@@ -654,8 +643,8 @@ SetHook::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (hookSetObj->isFieldPresent(sfCreateCode) &&
-            hookSetObj->getFieldVL(sfCreateCode).size() > hook::maxHookWasmSize())
+        if (hookSetObj.isFieldPresent(sfCreateCode) &&
+            hookSetObj.getFieldVL(sfCreateCode).size() > hook::maxHookWasmSize())
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::WASM_TOO_BIG << ")[" << HS_ACC()
@@ -663,12 +652,12 @@ SetHook::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (hookSetObj->getCount() == 0) // skip blanks
+        if (hookSetObj.getCount() == 0) // skip blanks
             continue;
 
         allBlank = false;
 
-        for (auto const& hookSetElement : *hookSetObj)
+        for (auto const& hookSetElement : hookSetObj)
         {
             auto const& name = hookSetElement.getFName();
 
@@ -693,7 +682,7 @@ SetHook::preflight(PreflightContext const& ctx)
 
             // may throw if leb128 overflow is detected
             auto valid =
-                validateHookSetEntry(shCtx, *hookSetObj);
+                validateHookSetEntry(shCtx, hookSetObj);
 
             if (std::holds_alternative<bool>(valid) && !std::get<bool>(valid))
                 return temMALFORMED;
@@ -952,27 +941,25 @@ updateHookParameters(
     // Unpopulated optional in the map means AV, populated with {} (.empty()) means EV.
 
     // first pull the old parameters into a map
-    for (auto const& hookParameter : oldParameters)
+    for (auto const& hookParameterObj : oldParameters)
     {
-        auto const& hookParameterObj = dynamic_cast<STObject const*>(&hookParameter);
-        auto const pname = hookParameterObj->getFieldVL(sfHookParameterName);
-        if (hookParameterObj->isFieldPresent(sfHookParameterValue))
-            parameters[pname] = {hookParameterObj->getFieldVL(sfHookParameterValue)};
+        auto const pname = hookParameterObj.getFieldVL(sfHookParameterName);
+        if (hookParameterObj.isFieldPresent(sfHookParameterValue))
+            parameters[pname] = {hookParameterObj.getFieldVL(sfHookParameterValue)};
         else
             parameters[pname] = {};
     }
 
     // ... then override old parameters with specified parameters 
     auto const& hookParameters = hookSetObj.getFieldArray(sfHookParameters);
-    for (auto const& hookParameter : hookParameters)
+    for (auto const& hookParameterObj : hookParameters)
     {
-        auto const& hookParameterObj = dynamic_cast<STObject const*>(&hookParameter);
-        auto const& pname = hookParameterObj->getFieldVL(sfHookParameterName);
+        auto const& pname = hookParameterObj.getFieldVL(sfHookParameterName);
         // specifying a missing value:
         // deletes the parameter if there is no default value for that parameter on the hook definition
         // sits as a blank / deletion marker if there is a default value on the hook definition
-        if (hookParameterObj->isFieldPresent(sfHookParameterValue))
-            parameters[pname] = {hookParameterObj->getFieldVL(sfHookParameterValue)};
+        if (hookParameterObj.isFieldPresent(sfHookParameterValue))
+            parameters[pname] = {hookParameterObj.getFieldVL(sfHookParameterValue)};
         else
             parameters[pname] = {};
     }
@@ -985,11 +972,10 @@ updateHookParameters(
     {
         auto const& defParameters = oldDefSLE->getFieldArray(sfHookParameters);
 
-        for (auto const& hookParameter : defParameters)
+        for (auto const& hookParameterObj : defParameters)
         {
-            auto const& hookParameterObj = dynamic_cast<STObject const*>(&hookParameter);
-            ripple::Blob n = hookParameterObj->getFieldVL(sfHookParameterName);
-            ripple::Blob v = hookParameterObj->getFieldVL(sfHookParameterValue);
+            ripple::Blob n = hookParameterObj.getFieldVL(sfHookParameterName);
+            ripple::Blob v = hookParameterObj.getFieldVL(sfHookParameterValue);
 
             if (parameters.find(n) != parameters.end())
             {
