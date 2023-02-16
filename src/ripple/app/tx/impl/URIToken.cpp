@@ -49,13 +49,63 @@ URIToken::preflight(PreflightContext const& ctx)
             if (flags & tfURITokenMintMask)
                 return temINVALID_FLAG;
 
-            size_t len = ctx.tx.getFieldVL(sfURI).size();
-            if (len < 1 || len > 256)
+            auto const uri = ctx.tx.getFieldVL(sfURI);
+
+            if (uri.size() < 1 || uri.size() > 256)
             {
                 JLOG(ctx.j.warn())
                     << "Malformed transaction. URI must be at least 1 character and no more than 256 characters.";
                 return temMALFORMED;
             }
+
+            if (!([](std::vector<uint8_t> const& u) -> bool
+                {
+                    // this code is from https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c
+                    uint8_t const* s = (uint8_t const*)u.data();
+                    uint8_t const* end = s + u.size();
+                    while (s < end) {
+                        if (*s < 0x80)
+                            /* 0xxxxxxx */
+                            s++;
+                        else if ((s[0] & 0xe0) == 0xc0) {
+                            /* 110XXXXx 10xxxxxx */
+                            if ((s[1] & 0xc0) != 0x80 ||
+                                    (s[0] & 0xfe) == 0xc0)                        /* overlong? */
+                                return false;
+                            else
+                                s += 2;
+                        } else if ((s[0] & 0xf0) == 0xe0) {
+                            /* 1110XXXX 10Xxxxxx 10xxxxxx */
+                            if ((s[1] & 0xc0) != 0x80 ||
+                                    (s[2] & 0xc0) != 0x80 ||
+                                    (s[0] == 0xe0 && (s[1] & 0xe0) == 0x80) ||    /* overlong? */
+                                    (s[0] == 0xed && (s[1] & 0xe0) == 0xa0) ||    /* surrogate? */
+                                    (s[0] == 0xef && s[1] == 0xbf &&
+                                     (s[2] & 0xfe) == 0xbe))                      /* U+FFFE or U+FFFF? */
+                                return false;
+                            else
+                                s += 3;
+                        } else if ((s[0] & 0xf8) == 0xf0) {
+                            /* 11110XXX 10XXxxxx 10xxxxxx 10xxxxxx */
+                            if ((s[1] & 0xc0) != 0x80 ||
+                                    (s[2] & 0xc0) != 0x80 ||
+                                    (s[3] & 0xc0) != 0x80 ||
+                                    (s[0] == 0xf0 && (s[1] & 0xf0) == 0x80) ||    /* overlong? */
+                                    (s[0] == 0xf4 && s[1] > 0x8f) || s[0] > 0xf4) /* > U+10FFFF? */
+                                return false;
+                            else
+                                s += 4;
+                        } else
+                            return false;
+                    }
+                    return true;
+                })(uri))
+            {
+                JLOG(ctx.j.warn())
+                    << "Malformed transaction. URI must be a valid utf-8 string.";
+                return temMALFORMED;
+            }
+
             break;
         }
 
@@ -186,10 +236,8 @@ URIToken::preclaim(PreclaimContext const& ctx)
 
         case ttURITOKEN_BUY:
         {
-            // if the owner is the account then the buy operation is a clear operation
-            // and we won't bother to check anything else
             if (acc == *owner)
-                return tesSUCCESS;
+                return tecCANT_ACCEPT_OWN_NFTOKEN_OFFER;
 
             // check if the seller has listed it at all
             if (!saleAmount)
