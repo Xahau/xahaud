@@ -1907,16 +1907,11 @@ DEFINE_HOOK_FUNCTION(
     if (cacheEntryLookup)
     {
         auto const& cacheEntry = cacheEntryLookup->get();
-        if (write_ptr == 0)
-            return data_as_int64(cacheEntry.second.data(), cacheEntry.second.size());
 
-        if (cacheEntry.second.size() > write_len)
-            return TOO_SMALL;
-
-        WRITE_WASM_MEMORY_AND_RETURN(
+        WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
             write_ptr, write_len,
             cacheEntry.second.data(), cacheEntry.second.size(),
-            memory, memory_length);
+            false);
     }
 
     auto hsSLE =
@@ -1931,16 +1926,11 @@ DEFINE_HOOK_FUNCTION(
     if (set_state_cache(hookCtx, acc, ns, *key, b, false) < 0)
         return INTERNAL_ERROR; // should never happen
 
-    if (write_ptr == 0)
-        return data_as_int64(b.data(), b.size());
-
-    if (b.size() > write_len)
-        return TOO_SMALL;
-
-    WRITE_WASM_MEMORY_AND_RETURN(
+    WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
         write_ptr, write_len,
         b.data(), b.size(),
-        memory, memory_length);
+        false);
+
     HOOK_TEARDOWN();
 }
 
@@ -2212,22 +2202,13 @@ DEFINE_HOOK_FUNCTION(
         ? hookCtx.emitFailure->getField(fieldType)
         : const_cast<ripple::STTx&>(applyCtx.tx).getField(fieldType);
 
-    bool is_account = field.getSType() == STI_ACCOUNT;
-
     Serializer s;
     field.add(s);
 
-
-    if (write_ptr == 0)
-        return data_as_int64(s.getDataPtr(), s.getDataLength());
-
-    if (s.getDataLength() - (is_account ? 1 : 0) > write_len)
-        return TOO_SMALL;
-
-    WRITE_WASM_MEMORY_AND_RETURN(
+    WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
         write_ptr, write_len,
-        (unsigned char*)(s.getDataPtr()) + (is_account ? 1 : 0), s.getDataLength() - (is_account ? 1 : 0),
-        memory, memory_length);
+        s.getDataPtr(), s.getDataLength(),
+        field.getSType() == STI_ACCOUNT);
 
     HOOK_TEARDOWN();
 }
@@ -2264,18 +2245,10 @@ DEFINE_HOOK_FUNCTION(
     Serializer s;
     hookCtx.slot[slot_no].entry->add(s);
 
-    if (write_ptr == 0)
-        return data_as_int64(s.getDataPtr(), s.getDataLength());
-
-    bool is_account = hookCtx.slot[slot_no].entry->getSType() == STI_ACCOUNT; //RH TODO improve this hack
-
-    if (s.getDataLength() - (is_account ? 1 : 0) > write_len)
-        return TOO_SMALL;
-
-    WRITE_WASM_MEMORY_AND_RETURN(
+    WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
         write_ptr, write_len,
-        (unsigned char*)(s.getDataPtr()) + (is_account ? 1 : 0), s.getDataLength() - (is_account ? 1 : 0),
-        memory, memory_length);
+        s.getDataPtr(), s.getDataLength(),
+        hookCtx.slot[slot_no].entry->getSType() == STI_ACCOUNT);
 
     HOOK_TEARDOWN();
 }

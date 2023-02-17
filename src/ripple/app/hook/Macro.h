@@ -219,3 +219,28 @@
     hookCtx.result.exitCode = error_code;\
     return (exit_type == hook_api::ExitType::ACCEPT ? RC_ACCEPT : RC_ROLLBACK);\
 }
+
+#define WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(write_ptr_in, write_len_in, data_ptr_in, data_len_in, is_account_in)\
+{\
+    uint8_t* data_ptr = (uint8_t*)(data_ptr_in);\
+    int data_len = (data_len_in);\
+    if (is_account_in)\
+    {\
+        data_len--;\
+        data_ptr++;\
+    }\
+    if (data_len < 0 ||\
+        data_len > (data_len_in) ||\
+        data_ptr < (data_ptr_in))\
+        return INTERNAL_ERROR;\
+    if (data_len == 0)\
+        return 0;\
+    if ((write_ptr_in) == 0)\
+        return data_as_int64(data_ptr, data_len);\
+    if (data_len > (write_len_in))\
+        return TOO_SMALL;\
+    WRITE_WASM_MEMORY_AND_RETURN(\
+        (write_ptr_in), (write_len_in),\
+        data_ptr, data_len,\
+        memory, memory_length);\
+}
