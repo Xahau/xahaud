@@ -216,14 +216,12 @@ calculateHookChainFee(
 
     auto const& hooks = hookSLE->getFieldArray(sfHooks);
 
-    for (auto const& hook : hooks)
+    for (auto const& hookObj : hooks)
     {
-        ripple::STObject const* hookObj = dynamic_cast<ripple::STObject const*>(&hook);
-
-        if (!hookObj->isFieldPresent(sfHookHash)) // skip blanks
+        if (!hookObj.isFieldPresent(sfHookHash)) // skip blanks
             continue;
         
-        uint256 const& hash = hookObj->getFieldH256(sfHookHash);
+        uint256 const& hash = hookObj.getFieldH256(sfHookHash);
             
         std::shared_ptr<SLE const> hookDef = view.read(keylet::hookDefinition(hash));
 
@@ -236,13 +234,13 @@ calculateHookChainFee(
         }
         
         // check if the hook can fire
-        uint256 hookOn = (hookObj->isFieldPresent(sfHookOn)
-                ? hookObj->getFieldH256(sfHookOn)
+        uint256 hookOn = (hookObj.isFieldPresent(sfHookOn)
+                ? hookObj.getFieldH256(sfHookOn)
                 : hookDef->getFieldH256(sfHookOn));
 
         uint32_t flags = 0;
-        if (hookObj->isFieldPresent(sfFlags))
-            flags = hookObj->getFieldU32(sfFlags);
+        if (hookObj.isFieldPresent(sfFlags))
+            flags = hookObj.getFieldU32(sfFlags);
         else
             flags = hookDef->getFieldU32(sfFlags);
 
@@ -997,17 +995,15 @@ executeHookChain(
     auto const& hooks = hookSLE->getFieldArray(sfHooks);
     uint8_t hook_no = 0;
 
-    for (auto const& hook : hooks)
+    for (auto const& hookObj : hooks)
     {
         hook_no++;
 
-        ripple::STObject const* hookObj = dynamic_cast<ripple::STObject const*>(&hook);
-
-        if (!hookObj->isFieldPresent(sfHookHash)) // skip blanks
+        if (!hookObj.isFieldPresent(sfHookHash)) // skip blanks
             continue;
 
         // lookup hook definition
-        uint256 const& hookHash = hookObj->getFieldH256(sfHookHash);
+        uint256 const& hookHash = hookObj.getFieldH256(sfHookHash);
 
         if (hookSkips.find(hookHash) != hookSkips.end())
         {
@@ -1025,15 +1021,15 @@ executeHookChain(
         }
 
         // check if the hook can fire
-        uint256 hookOn = (hookObj->isFieldPresent(sfHookOn)
-                ? hookObj->getFieldH256(sfHookOn)
+        uint256 hookOn = (hookObj.isFieldPresent(sfHookOn)
+                ? hookObj.getFieldH256(sfHookOn)
                 : hookDef->getFieldH256(sfHookOn));
 
         if (!hook::canHook(ctx_.tx.getTxnType(), hookOn))
             continue;    // skip if it can't
 
-        uint32_t flags = (hookObj->isFieldPresent(sfFlags) ?
-                hookObj->getFieldU32(sfFlags) : hookDef->getFieldU32(sfFlags));
+        uint32_t flags = (hookObj.isFieldPresent(sfFlags) ?
+                hookObj.getFieldU32(sfFlags) : hookDef->getFieldU32(sfFlags));
 
         JLOG(j_.trace())
             << "HookChainExecution: " << hookHash
@@ -1045,8 +1041,8 @@ executeHookChain(
 
         // fetch the namespace either from the hook object of, if absent, the hook def
         uint256 const& ns = 
-            (hookObj->isFieldPresent(sfHookNamespace)
-                 ?  hookObj->getFieldH256(sfHookNamespace)
+            (hookObj.isFieldPresent(sfHookNamespace)
+                 ?  hookObj.getFieldH256(sfHookNamespace)
                  :  hookDef->getFieldH256(sfHookNamespace));
 
         // gather parameters
@@ -1161,22 +1157,20 @@ Transactor::doHookCallback(std::shared_ptr<STObject const> const& provisionalMet
     bool found = false;
     auto const& hooks = hooksCallback->getFieldArray(sfHooks);
     uint8_t hook_no = 0;
-    for (auto const& hook : hooks)
+    for (auto const& hookObj : hooks)
     {
         hook_no++;
 
-        STObject const* hookObj = dynamic_cast<STObject const*>(&hook);
-
-        if (!hookObj->isFieldPresent(sfHookHash)) // skip blanks
+        if (!hookObj.isFieldPresent(sfHookHash)) // skip blanks
             continue;
 
-        if (hookObj->getFieldH256(sfHookHash) != callbackHookHash)
+        if (hookObj.getFieldH256(sfHookHash) != callbackHookHash)
             continue;
     
         // fetch the namespace either from the hook object of, if absent, the hook def
         uint256 const& ns = 
-            (hookObj->isFieldPresent(sfHookNamespace)
-                 ?  hookObj->getFieldH256(sfHookNamespace)
+            (hookObj.isFieldPresent(sfHookNamespace)
+                 ?  hookObj.getFieldH256(sfHookNamespace)
                  :  hookDef->getFieldH256(sfHookNamespace));
 
         executedHookCount_++;
@@ -1433,18 +1427,16 @@ Transactor::doAgainAsWeak(
 
     auto const& hooks = hooksArray->getFieldArray(sfHooks);
     uint8_t hook_no = 0;
-    for (auto const& hook : hooks)
+    for (auto const& hookObj : hooks)
     {
         hook_no++;
 
-        STObject const* hookObj = dynamic_cast<STObject const*>(&hook);
-
-        if (!hookObj->isFieldPresent(sfHookHash)) // skip blanks
+        if (!hookObj.isFieldPresent(sfHookHash)) // skip blanks
             continue;
         
-        uint256 const& hookHash = hookObj->getFieldH256(sfHookHash);
+        uint256 const& hookHash = hookObj.getFieldH256(sfHookHash);
 
-        if (hookHashes.find(hookObj->getFieldH256(sfHookHash)) == hookHashes.end())
+        if (hookHashes.find(hookObj.getFieldH256(sfHookHash)) == hookHashes.end())
             continue;
 
         auto const& hookDef = view().peek(keylet::hookDefinition(hookHash));
@@ -1458,8 +1450,8 @@ Transactor::doAgainAsWeak(
 
         // fetch the namespace either from the hook object of, if absent, the hook def
         uint256 const& ns = 
-            (hookObj->isFieldPresent(sfHookNamespace)
-                 ?  hookObj->getFieldH256(sfHookNamespace)
+            (hookObj.isFieldPresent(sfHookNamespace)
+                 ?  hookObj.getFieldH256(sfHookNamespace)
                  :  hookDef->getFieldH256(sfHookNamespace));
 
         executedHookCount_++;

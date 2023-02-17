@@ -398,7 +398,7 @@ namespace hook
     bool /* retval of true means an error */
     gatherHookParameters(
             std::shared_ptr<ripple::STLedgerEntry> const& hookDef,
-            ripple::STObject const* hookObj,
+            ripple::STObject const& hookObj,
             std::map<std::vector<uint8_t>, std::vector<uint8_t>>& parameters,
             beast::Journal const& j_);
 

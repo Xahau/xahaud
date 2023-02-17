@@ -632,15 +632,15 @@ get_free_slot(hook::HookContext& hookCtx)
     // slot ahead of when the counter gets there
     do
     {
-        if (hookCtx.slot_counter >= hook_api::max_slots)
-            return {};
-
         slot_into = ++hookCtx.slot_counter;
     }
     while (hookCtx.slot.find(slot_into) != hookCtx.slot.end() && 
         // this condition should always be met, if for some reason, somehow it is not
         // then we will return the final slot every time.
         hookCtx.slot_counter <= hook_api::max_slots);
+
+    if (hookCtx.slot_counter > hook_api::max_slots)
+        return {};
 
     return slot_into;
 }
@@ -1529,32 +1529,30 @@ DEFINE_HOOK_FUNCTION(
 
     // we do this by iterating the hooks installed on the foreign account and in turn their grants and namespaces
     auto const& hooks = sle->getFieldArray(sfHooks);
-    for (auto const& hook : hooks)
+    for (auto const& hookObj : hooks)
     {
-        STObject const* hookObj = dynamic_cast<STObject const*>(&hook);
-
         // skip blank entries
-        if (!hookObj->isFieldPresent(sfHookHash))
+        if (!hookObj.isFieldPresent(sfHookHash))
             continue;
 
-        if (!hookObj->isFieldPresent(sfHookGrants))
+        if (!hookObj.isFieldPresent(sfHookGrants))
             continue;
 
-        auto const& hookGrants = hookObj->getFieldArray(sfHookGrants);
+        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
 
         if (hookGrants.size() < 1)
             continue;
 
         // the grant allows the hook to modify the granter's namespace only
-        if (hookObj->isFieldPresent(sfHookNamespace))
+        if (hookObj.isFieldPresent(sfHookNamespace))
         {
-            if (hookObj->getFieldH256(sfHookNamespace) != ns)
+            if (hookObj.getFieldH256(sfHookNamespace) != ns)
                 continue;
         }
         else
         {
             // fetch the hook definition
-            auto const def = view.read(ripple::keylet::hookDefinition(hookObj->getFieldH256(sfHookHash)));
+            auto const def = view.read(ripple::keylet::hookDefinition(hookObj.getFieldH256(sfHookHash)));
             if (!def)       // should never happen except in a rare race condition
                 continue;
             if (def->getFieldH256(sfHookNamespace) != ns)
@@ -1562,13 +1560,12 @@ DEFINE_HOOK_FUNCTION(
         }
 
         // this is expensive search so we'll disallow after one failed attempt
-        for (auto const& hookGrant : hookGrants)
+        for (auto const& hookGrantObj : hookGrants)
         {
-            STObject const* hookGrantObj = dynamic_cast<STObject const*>(&hookGrant);
-            bool hasAuthorizedField = hookGrantObj->isFieldPresent(sfAuthorize);
+            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
 
-            if (hookGrantObj->getFieldH256(sfHookHash) == hookCtx.result.hookHash &&
-               (!hasAuthorizedField || hookGrantObj->getAccountID(sfAuthorize) == hookCtx.result.account))
+            if (hookGrantObj.getFieldH256(sfHookHash) == hookCtx.result.hookHash &&
+               (!hasAuthorizedField || hookGrantObj.getAccountID(sfAuthorize) == hookCtx.result.account))
             {
                 found_auth = true;
                 break;
@@ -1659,7 +1656,7 @@ bool /* retval of true means an error */
 hook::
 gatherHookParameters(
         std::shared_ptr<ripple::STLedgerEntry> const& hookDef,
-        ripple::STObject const* hookObj,
+        ripple::STObject const& hookObj,
         std::map<std::vector<uint8_t>, std::vector<uint8_t>>& parameters,
         beast::Journal const& j_)
 {
@@ -1672,22 +1669,20 @@ gatherHookParameters(
 
     // first defaults
     auto const& defaultParameters = hookDef->getFieldArray(sfHookParameters);
-    for (auto const& hookParameter : defaultParameters)
+    for (auto const& hookParameterObj : defaultParameters)
     {
-        auto const& hookParameterObj = dynamic_cast<STObject const*>(&hookParameter);
-        parameters[hookParameterObj->getFieldVL(sfHookParameterName)] =
-            hookParameterObj->getFieldVL(sfHookParameterValue);
+        parameters[hookParameterObj.getFieldVL(sfHookParameterName)] =
+            hookParameterObj.getFieldVL(sfHookParameterValue);
     } 
 
     // and then custom
-    if (hookObj->isFieldPresent(sfHookParameters))
+    if (hookObj.isFieldPresent(sfHookParameters))
     {
-        auto const& hookParameters = hookObj->getFieldArray(sfHookParameters);
-        for (auto const& hookParameter : hookParameters)
+        auto const& hookParameters = hookObj.getFieldArray(sfHookParameters);
+        for (auto const& hookParameterObj : hookParameters)
         {
-            auto const& hookParameterObj = dynamic_cast<STObject const*>(&hookParameter);
-            parameters[hookParameterObj->getFieldVL(sfHookParameterName)] =
-                hookParameterObj->getFieldVL(sfHookParameterValue);
+            parameters[hookParameterObj.getFieldVL(sfHookParameterName)] =
+                hookParameterObj.getFieldVL(sfHookParameterValue);
         } 
     }
     return false;
@@ -5254,12 +5249,11 @@ DEFINE_HOOK_FUNCTION(
 
     ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
     bool found = false;
-    for (auto const& hook : hooks)
+    for (auto const& hookObj : hooks)
     {
-        auto const& hookObj = dynamic_cast<STObject const*>(&hook);
-        if (hookObj->isFieldPresent(sfHookHash))
+        if (hookObj.isFieldPresent(sfHookHash))
         {
-            if (hookObj->getFieldH256(sfHookHash) == hash)
+            if (hookObj.getFieldH256(sfHookHash) == hash)
             {
                 found = true;
                 break;
