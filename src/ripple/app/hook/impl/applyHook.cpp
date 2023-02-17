@@ -1855,15 +1855,13 @@ DEFINE_HOOK_FUNCTION(
         if (aread_len != 0)
             return INVALID_ARGUMENT;
     }
-    else if (aread_ptr > 0)
+    else
     {
         // valid arguments, foreign state
         is_foreign = true;
         if (aread_len != 20)
             return INVALID_ARGUMENT;
     }
-    else
-        return INVALID_ARGUMENT;
 
     if (kread_len > 32)
         return TOO_BIG;
