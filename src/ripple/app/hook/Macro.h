@@ -142,6 +142,7 @@
     R hook_api::F(hook::HookContext& hookCtx, WasmEdge_CallingFrameContext const& frameCtx)
 
 #define HOOK_SETUP()\
+    try {\
     [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;\
     [[maybe_unused]] auto& view = applyCtx.view();\
     [[maybe_unused]] auto j = applyCtx.app.journal("View");\
@@ -152,6 +153,14 @@
         WasmEdge_kPageSize;\
     if (!memoryCtx || !memory || !memory_length)\
         return INTERNAL_ERROR;\
+
+#define HOOK_TEARDOWN()\
+    } catch (const std::exception&) {\
+        JLOG(hookCtx.applyCtx.app.journal("View").error())\
+        << "HookError[" << HC_ACC() << "]: "\
+        << __func__ << " threw uncaught exception.";\
+       return INTERNAL_ERROR;\
+    }
 
 #define WRITE_WASM_MEMORY(bytes_written, guest_dst_ptr, guest_dst_len,\
         host_src_ptr, host_src_len, host_memory_ptr, guest_memory_length)\

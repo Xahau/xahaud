@@ -1155,6 +1155,7 @@ DEFINE_HOOK_FUNCTION(
         << "HookTrace[" << HC_ACC() << "]: "
         << number;
     return 0;
+    HOOK_TEARDOWN();
 }
 
 
@@ -1229,6 +1230,7 @@ DEFINE_HOOK_FUNCTION(
     }
 
     return 0;
+    HOOK_TEARDOWN();
 }
 
 
@@ -1439,7 +1441,6 @@ DEFINE_HOOK_FUNCTION(
     uint32_t nread_ptr, uint32_t nread_len,
     uint32_t aread_ptr, uint32_t aread_len)
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
 
     if (read_ptr == 0 && read_len == 0)
@@ -1593,6 +1594,7 @@ DEFINE_HOOK_FUNCTION(
         return ret;
 
     return read_len;
+    HOOK_TEARDOWN();
 }
 
 ripple::TER
@@ -1842,7 +1844,6 @@ DEFINE_HOOK_FUNCTION(
     uint32_t nread_ptr, uint32_t nread_len,         // namespace
     uint32_t aread_ptr, uint32_t aread_len )        // account
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
 
     bool is_foreign = false;
@@ -1940,6 +1941,7 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, write_len,
         b.data(), b.size(),
         memory, memory_length);
+    HOOK_TEARDOWN();
 }
 
 
@@ -1951,6 +1953,7 @@ DEFINE_HOOK_FUNCTION(
 {
     HOOK_SETUP();
     HOOK_EXIT(read_ptr, read_len, error_code, hook_api::ExitType::ACCEPT);
+    HOOK_TEARDOWN();
 }
 
 // Cause the originating transaction to be rejected, discard state changes and discard emitted tx, exit hook
@@ -1961,6 +1964,7 @@ DEFINE_HOOK_FUNCTION(
 {
     HOOK_SETUP();
     HOOK_EXIT(read_ptr, read_len, error_code, hook_api::ExitType::ROLLBACK);
+    HOOK_TEARDOWN();
 }
 
 
@@ -1970,7 +1974,6 @@ DEFINE_HOOK_FUNCTION(
     otxn_id,
     uint32_t write_ptr, uint32_t write_len, uint32_t flags )
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
 
     auto const& txID =
@@ -1989,6 +1992,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, txID.size(),
         txID.data(), txID.size(),
         memory, memory_length);
+
+    HOOK_TEARDOWN();
 }
 
 // Return the tt (Transaction Type) numeric code of the originating transaction
@@ -2002,6 +2007,8 @@ DEFINE_HOOK_FUNCNARG(
         return safe_cast<TxType>(hookCtx.emitFailure->getFieldU16(sfTransactionType));
 
     return applyCtx.tx.getTxnType();
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2009,7 +2016,6 @@ DEFINE_HOOK_FUNCTION(
     otxn_slot,
     uint32_t slot_into )
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
 
     if (slot_into > hook_api::max_slots)
@@ -2047,6 +2053,7 @@ DEFINE_HOOK_FUNCTION(
 
     return slot_into;
 
+    HOOK_TEARDOWN();
 }
 // Return the burden of the originating transaction... this will be 1 unless the originating transaction
 // was itself an emitted transaction from a previous hook invocation
@@ -2055,6 +2062,7 @@ DEFINE_HOOK_FUNCNARG(
         otxn_burden)
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (hookCtx.burden)
         return hookCtx.burden;
 
@@ -2074,6 +2082,8 @@ DEFINE_HOOK_FUNCNARG(
     burden &= ((1ULL << 63)-1); // wipe out the two high bits just in case somehow they are set
     hookCtx.burden = burden;
     return (int64_t)(burden);
+
+    HOOK_TEARDOWN();
 }
 
 // Return the generation of the originating transaction... this will be 1 unless the originating transaction
@@ -2102,6 +2112,8 @@ DEFINE_HOOK_FUNCNARG(
 
     hookCtx.generation = pd.getFieldU32(sfEmitGeneration);
     return hookCtx.generation;
+
+    HOOK_TEARDOWN();
 }
 
 // Return the generation of a hypothetically emitted transaction from this hook
@@ -2109,6 +2121,7 @@ DEFINE_HOOK_FUNCNARG(
         int64_t,
         etxn_generation)
 {
+    // proxy only, no setup or teardown
     return otxn_generation(hookCtx, frameCtx) + 1;
 }
 
@@ -2118,8 +2131,11 @@ DEFINE_HOOK_FUNCNARG(
         int64_t,
         ledger_seq)
 {
-    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+    HOOK_SETUP();
+
     return applyCtx.app.getLedgerMaster().getValidLedgerIndex() + 1;
+
+    HOOK_TEARDOWN();
 }
 
 
@@ -2129,6 +2145,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t write_ptr, uint32_t write_len)
 {
     HOOK_SETUP();
+
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
     if (write_len < 32)
@@ -2141,6 +2158,7 @@ DEFINE_HOOK_FUNCTION(
         hash.data(), 32,
         memory, memory_length);
 
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCNARG(
@@ -2148,6 +2166,7 @@ DEFINE_HOOK_FUNCNARG(
     ledger_last_time)
 {
     HOOK_SETUP();
+
     return
         std::chrono::duration_cast<std::chrono::seconds>
         (
@@ -2156,6 +2175,8 @@ DEFINE_HOOK_FUNCNARG(
                     .parentCloseTime
                         .time_since_epoch()
         ).count();
+
+    HOOK_TEARDOWN();
 }
 
 // Dump a field from the originating transaction into the hook's memory
@@ -2207,6 +2228,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, write_len,
         (unsigned char*)(s.getDataPtr()) + (is_account ? 1 : 0), s.getDataLength() - (is_account ? 1 : 0),
         memory, memory_length);
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2254,6 +2277,7 @@ DEFINE_HOOK_FUNCTION(
         (unsigned char*)(s.getDataPtr()) + (is_account ? 1 : 0), s.getDataLength() - (is_account ? 1 : 0),
         memory, memory_length);
 
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2270,6 +2294,8 @@ DEFINE_HOOK_FUNCTION(
     hookCtx.slot_free.push(slot_no);
 
     return 1;
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2278,6 +2304,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t slot_no )
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
@@ -2288,6 +2315,8 @@ DEFINE_HOOK_FUNCTION(
         return INTERNAL_ERROR;
 
     return hookCtx.slot[slot_no].entry->downcast<ripple::STArray>().size();
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2297,6 +2326,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t slot_into /* providing 0 allocates a slot to you */ )
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
@@ -2362,6 +2392,8 @@ DEFINE_HOOK_FUNCTION(
     hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
 
     return slot_into;
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2369,6 +2401,8 @@ DEFINE_HOOK_FUNCTION(
     slot_size,
     uint32_t slot_no )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
@@ -2376,6 +2410,8 @@ DEFINE_HOOK_FUNCTION(
     Serializer s;
     hookCtx.slot[slot_no].entry->add(s);
     return s.getDataLength();
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2383,6 +2419,8 @@ DEFINE_HOOK_FUNCTION(
     slot_subarray,
     uint32_t parent_slot, uint32_t array_id, uint32_t new_slot )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
@@ -2433,6 +2471,8 @@ DEFINE_HOOK_FUNCTION(
         }
         return NOT_AN_ARRAY;
     }
+
+    HOOK_TEARDOWN();
 }
 
 
@@ -2495,6 +2535,7 @@ DEFINE_HOOK_FUNCTION(
         return NOT_AN_OBJECT;
     }
 
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2532,6 +2573,8 @@ DEFINE_HOOK_FUNCTION(
     {
         return INTERNAL_ERROR;
     }
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2539,6 +2582,8 @@ DEFINE_HOOK_FUNCTION(
     slot_float,
     uint32_t slot_no )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
@@ -2565,6 +2610,7 @@ DEFINE_HOOK_FUNCTION(
         return NOT_AN_AMOUNT;
     }
 
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -2931,6 +2977,8 @@ DEFINE_HOOK_FUNCTION(
     }
 
     return NO_SUCH_KEYLET;
+
+    HOOK_TEARDOWN();
 }
 
 
@@ -2943,6 +2991,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t read_ptr, uint32_t read_len )
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
@@ -3224,6 +3273,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, txID.size(),
         txID.data(), txID.size(),
         memory, memory_length);
+
+    HOOK_TEARDOWN();
 }
 
 // When implemented will return the hash of the current hook
@@ -3267,6 +3318,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, write_len,
         hash.data(), hash.size(),
         memory, memory_length);
+
+    HOOK_TEARDOWN();
 }
 
 // Write the account id that the running hook is installed on into write_ptr
@@ -3287,6 +3340,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, 20,
         hookCtx.result.account.data(), 20,
         memory, memory_length);
+    
+    HOOK_TEARDOWN();
 }
 
 // Deterministic nonces (can be called multiple times)
@@ -3331,6 +3386,8 @@ DEFINE_HOOK_FUNCTION(
         memory, memory_length);
 
     return 32;
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -3377,6 +3434,8 @@ DEFINE_HOOK_FUNCTION(
         memory, memory_length);
 
     return 32;
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -3419,6 +3478,8 @@ DEFINE_HOOK_FUNCTION(
     Keylet kl_out{(*klLo).type, *found};
 
     return serialize_keylet(kl_out, memory, write_ptr, write_len);
+    
+    HOOK_TEARDOWN();
 }
 
 // Reserve one or more transactions for emission from the running hook
@@ -3427,8 +3488,8 @@ DEFINE_HOOK_FUNCTION(
     etxn_reserve,
     uint32_t count )
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+    
     if (hookCtx.expected_etxn_count > -1)
         return ALREADY_SET;
 
@@ -3441,6 +3502,8 @@ DEFINE_HOOK_FUNCTION(
     hookCtx.expected_etxn_count = count;
 
     return count;
+    
+    HOOK_TEARDOWN();
 }
 
 // Compute the burden of an emitted transaction based on a number of factors
@@ -3460,6 +3523,8 @@ DEFINE_HOOK_FUNCNARG(
         return FEE_TOO_LARGE;
 
     return burden;
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -3485,6 +3550,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, 32,
         hash.data(), 32,
         memory, memory_length);
+
+    HOOK_TEARDOWN();
 }
 
 
@@ -3638,8 +3705,8 @@ DEFINE_HOOK_FUNCTION(
     sto_subfield,
     uint32_t read_ptr, uint32_t read_len, uint32_t field_id )
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
@@ -3686,6 +3753,8 @@ DEFINE_HOOK_FUNCTION(
         return PARSE_ERROR;
 
     return DOESNT_EXIST;
+
+    HOOK_TEARDOWN();
 }
 
 // Same as subfield but indexes into a serialized array
@@ -3694,8 +3763,8 @@ DEFINE_HOOK_FUNCTION(
     sto_subarray,
     uint32_t read_ptr, uint32_t read_len, uint32_t index_id )
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
@@ -3748,6 +3817,8 @@ DEFINE_HOOK_FUNCTION(
         return PARSE_ERROR;
 
     return DOESNT_EXIST;
+
+    HOOK_TEARDOWN();
 }
 
 // Convert an account ID into a base58-check encoded r-address
@@ -3758,6 +3829,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t read_ptr, uint32_t read_len )
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
@@ -3776,6 +3848,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, write_len,
         raddr.c_str(), raddr.size(),
         memory, memory_length);
+
+    HOOK_TEARDOWN();
 }
 
 // Convert a base58-check encoded r-address into a 20 byte account id
@@ -3817,6 +3891,8 @@ DEFINE_HOOK_FUNCTION(
         write_ptr, write_len,
         result.data(), 20,
         memory, memory_length);
+
+    HOOK_TEARDOWN();
 }
 
 /**
@@ -3998,6 +4074,8 @@ DEFINE_HOOK_FUNCTION(
             memory, memory_length);
     }
     return bytes_written;
+
+    HOOK_TEARDOWN();
 }
 
 /**
@@ -4009,6 +4087,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t write_ptr, uint32_t write_len,
     uint32_t read_ptr,  uint32_t read_len,  uint32_t field_id )
 {
+    // proxy only no setup or teardown
     int64_t ret =
         sto_emplace(
                 hookCtx, frameCtx,
@@ -4056,6 +4135,8 @@ DEFINE_HOOK_FUNCTION(
     }
 
     return upto == end ? 1 : 0;
+
+    HOOK_TEARDOWN();
 }
 
 
@@ -4094,6 +4175,8 @@ DEFINE_HOOK_FUNCTION(
     
     ripple::PublicKey key { keyslice };
     return verify(key, data, sig, false) ? 1 : 0;
+    
+    HOOK_TEARDOWN();
 }
 
 // Return the current fee base of the current ledger (multiplied by a margin)
@@ -4102,7 +4185,10 @@ DEFINE_HOOK_FUNCNARG(
     fee_base)
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+    
     return view.fees().base.drops();
+    
+    HOOK_TEARDOWN();
 }
 
 // Return the fee base for a hypothetically emitted transaction from the current hook based on byte count
@@ -4140,6 +4226,8 @@ DEFINE_HOOK_FUNCTION(
     {
         return INVALID_TXN;
     }
+    
+    HOOK_TEARDOWN();
 }
 
 // Populate an sfEmitDetails field in a soon-to-be emitted transaction
@@ -4149,6 +4237,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t write_ptr, uint32_t write_len )
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
@@ -4212,6 +4301,8 @@ DEFINE_HOOK_FUNCTION(
     
     DBG_PRINTF("emitdetails size = %d\n", outlen);
     return outlen;
+    
+    HOOK_TEARDOWN();
 }
 
 
@@ -4224,6 +4315,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t id, uint32_t maxitr )
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (hookCtx.guard_map.find(id) == hookCtx.guard_map.end())
         hookCtx.guard_map[id] = 1;
     else
@@ -4251,6 +4343,8 @@ DEFINE_HOOK_FUNCTION(
         return RC_ROLLBACK;
     }
     return 1;
+    
+    HOOK_TEARDOWN();
 }
 
 #define RETURN_IF_INVALID_FLOAT(float1)\
@@ -4276,6 +4370,7 @@ DEFINE_HOOK_FUNCTION(
     int64_t float1)
 {
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx on current stack
+
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
@@ -4311,6 +4406,8 @@ DEFINE_HOOK_FUNCTION(
         << (read_len == 0 ? "" : std::string_view((const char*)memory + read_ptr, read_len))
         << " Float " << (neg ? "-" : "") << man << "*10^(" << exp << ")";
     return 0;
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4318,6 +4415,8 @@ DEFINE_HOOK_FUNCTION(
     float_set,
     int32_t exp, int64_t mantissa )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (mantissa == 0)
         return 0;
 
@@ -4329,6 +4428,8 @@ DEFINE_HOOK_FUNCTION(
         return INVALID_FLOAT;
 
     return normalized;
+
+    HOOK_TEARDOWN();
 }
 
 inline int64_t mulratio_internal
@@ -4378,6 +4479,8 @@ DEFINE_HOOK_FUNCTION(
     uint32_t decimal_places,
     uint32_t absolute)
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0) return 0;
     uint64_t man1 = get_mantissa(float1);
@@ -4405,6 +4508,8 @@ DEFINE_HOOK_FUNCTION(
         man1 /= power_of_ten[shift];
     
     return man1;
+
+    HOOK_TEARDOWN();
 }
 
 
@@ -4413,6 +4518,8 @@ DEFINE_HOOK_FUNCTION(
     float_multiply,
     int64_t float1, int64_t float2 )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
@@ -4427,6 +4534,8 @@ DEFINE_HOOK_FUNCTION(
 
 
     return float_multiply_internal_parts(man1, exp1, neg1, man2, exp2, neg2);
+
+    HOOK_TEARDOWN();
 }
 
 
@@ -4436,6 +4545,8 @@ DEFINE_HOOK_FUNCTION(
     int64_t float1, uint32_t round_up,
     uint32_t numerator, uint32_t denominator )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0)
         return 0;
@@ -4453,6 +4564,8 @@ DEFINE_HOOK_FUNCTION(
         man1 *= -1LL;
 
     return make_float((uint64_t)man1, exp1, is_negative(float1));
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4460,9 +4573,13 @@ DEFINE_HOOK_FUNCTION(
     float_negate,
     int64_t float1 )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (float1 == 0) return 0;
     RETURN_IF_INVALID_FLOAT(float1);
     return hook_float::invert_sign(float1);
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4470,6 +4587,8 @@ DEFINE_HOOK_FUNCTION(
     float_compare,
     int64_t float1, int64_t float2, uint32_t mode)
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
@@ -4512,6 +4631,7 @@ DEFINE_HOOK_FUNCTION(
         return XFL_OVERFLOW;
     }
 
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4519,6 +4639,8 @@ DEFINE_HOOK_FUNCTION(
     float_sum,
     int64_t float1, int64_t float2)
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
@@ -4548,6 +4670,8 @@ DEFINE_HOOK_FUNCTION(
     {
         return XFL_OVERFLOW;
     }
+
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4747,6 +4871,7 @@ DEFINE_HOOK_FUNCTION(
 
     return bytes_written;
 
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4754,7 +4879,6 @@ DEFINE_HOOK_FUNCTION(
     float_sto_set,
     uint32_t read_ptr, uint32_t read_len )
 {
-
     HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
 
     if (read_len < 8)
@@ -4831,6 +4955,8 @@ DEFINE_HOOK_FUNCTION(
         exponent,
         is_negative 
     );
+    
+    HOOK_TEARDOWN();
 }
 
 const int64_t float_one_internal = make_float(1000000000000000ull, -15, false);
@@ -4910,7 +5036,11 @@ DEFINE_HOOK_FUNCTION(
     float_divide,
     int64_t float1, int64_t float2 )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     return float_divide_internal(float1, float2);
+    
+    HOOK_TEARDOWN();
 }
 
 
@@ -4926,11 +5056,15 @@ DEFINE_HOOK_FUNCTION(
     float_invert,
     int64_t float1 )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     if (float1 == 0)
         return DIVISION_BY_ZERO;
     if (float1 == float_one_internal)
         return float_one_internal;
     return float_divide_internal(float_one_internal, float1);
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4938,10 +5072,14 @@ DEFINE_HOOK_FUNCTION(
     float_mantissa,
     int64_t float1 )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0)
         return 0;
     return get_mantissa(float1);
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4949,10 +5087,14 @@ DEFINE_HOOK_FUNCTION(
     float_sign,
     int64_t float1 )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0)
         return 0;
     return is_negative(float1);
+    
+    HOOK_TEARDOWN();
 }
 
 
@@ -5008,6 +5150,8 @@ DEFINE_HOOK_FUNCTION(
     float_log,
     int64_t float1 )
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
 
     if (float1 == 0) return INVALID_ARGUMENT;
@@ -5021,6 +5165,8 @@ DEFINE_HOOK_FUNCTION(
     double result = log10(inp) + exp1;
 
     return double_to_xfl(result);
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -5028,6 +5174,8 @@ DEFINE_HOOK_FUNCTION(
     float_root,
     int64_t float1, uint32_t n)
 {
+    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx, hookCtx on current stack
+
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0) return 0;
 
@@ -5043,6 +5191,8 @@ DEFINE_HOOK_FUNCTION(
     double result = pow(inp, ((double)1.0f)/((double)(n)));
 
     return double_to_xfl(result);
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -5095,6 +5245,8 @@ DEFINE_HOOK_FUNCTION(
     } 
 
     return DOESNT_EXIST;
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -5152,6 +5304,8 @@ DEFINE_HOOK_FUNCTION(
     }
 
     return DOESNT_EXIST;
+    
+    HOOK_TEARDOWN();
 }
 
 
@@ -5207,6 +5361,8 @@ DEFINE_HOOK_FUNCTION(
         overrides[hash][std::move(paramName)] = std::move(paramValue);
 
     return read_len;
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -5268,6 +5424,7 @@ DEFINE_HOOK_FUNCTION(
     hookCtx.result.hookSkips.emplace(hash);
     return 1;
 
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCNARG(
@@ -5293,6 +5450,8 @@ DEFINE_HOOK_FUNCNARG(
     }
 
     return PREREQUISITE_NOT_MET;
+    
+    HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -5301,6 +5460,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t slot_into )
 {
     HOOK_SETUP();
+
     if (!hookCtx.result.provisionalMeta)
         return PREREQUISITE_NOT_MET;
 
@@ -5326,6 +5486,8 @@ DEFINE_HOOK_FUNCTION(
     hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
 
     return slot_into;
+    
+    HOOK_TEARDOWN();
 }
 
 /*

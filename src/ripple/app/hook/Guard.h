@@ -208,7 +208,7 @@ struct WasmBlkInf
              blk->instruction_count,\
              blk->iteration_bound,\
              (blk->parent != 0 ? blk->parent->iteration_bound : -1),\
-             multiplier, &(blk->parent));\    
+             multiplier, &(blk->parent));\
 }
 // compute worst case execution time
 inline
