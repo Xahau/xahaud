@@ -1756,10 +1756,6 @@ finalizeHookResult(
 
             std::shared_ptr<const ripple::STTx> ptr = tpTrans->getSTransaction();
 
-            ripple::Serializer s;
-            ptr->add(s);
-            SerialIter sit(s.slice());
-
             auto emittedId = keylet::emittedTxn(id);
             auto sleEmitted = applyCtx.view().peek(emittedId);
 
@@ -1767,6 +1763,12 @@ finalizeHookResult(
             {
                 ++emission_count;
                 sleEmitted = std::make_shared<SLE>(emittedId);
+
+                // RH TODO: add a new constructor to STObject to avoid this serder thing            
+                ripple::Serializer s;
+                ptr->add(s);
+                SerialIter sit(s.slice());
+
                 sleEmitted->emplace_back(
                     ripple::STObject(sit, sfEmittedTxn)
                 );
