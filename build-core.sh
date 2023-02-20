@@ -43,12 +43,13 @@ git log -n 20 >> release.info;
 
 if [[ "$4" == "" ]]; then
   # Non GH, local building
+  echo "Non GH, local building, no Action runner magic"
 else
   # GH Action, runner
   cp /io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
   cp /io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
   echo "Published build to: http://build.xahau.tech/"
-  echho $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
+  echo $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
 fi
 
 cd ..;
