@@ -3903,16 +3903,13 @@ inline
 bool
 overlapping_memory(std::vector<uint64_t> regions)
 {
-    for (uint64_t i = 0; i < regions.size(); i+= 2)
+    for (uint64_t i = 0; i < regions.size() - 2; i+= 2)
     {
         uint64_t a = regions[i + 0];
         uint64_t b = regions[i + 1];
 
-        for (uint64_t j = 0; j < regions.size(); j+= 2)
+        for (uint64_t j = i + 2; j < regions.size(); j+= 2)
         {
-            if (j == i)
-                continue;
-
             uint64_t c = regions[j + 0];
             uint64_t d = regions[j + 1];
 
