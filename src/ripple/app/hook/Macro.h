@@ -155,10 +155,11 @@
         return INTERNAL_ERROR;\
 
 #define HOOK_TEARDOWN()\
-    } catch (const std::exception&) {\
+    } catch (const std::exception& e) {\
         JLOG(hookCtx.applyCtx.app.journal("View").error())\
         << "HookError[" << HC_ACC() << "]: "\
-        << __func__ << " threw uncaught exception.";\
+        << __func__ << " threw uncaught exception, what="\
+        << e.what();\
        return INTERNAL_ERROR;\
     }
 
@@ -174,8 +175,10 @@
             << " bytes past end of wasm memory";\
         return OUT_OF_BOUNDS;\
     }\
-    WasmEdge_MemoryInstanceSetData(memoryCtx, \
-            reinterpret_cast<const uint8_t*>(host_src_ptr), guest_dst_ptr, bytes_to_write);\
+    if (!WasmEdge_ResultOK(\
+        WasmEdge_MemoryInstanceSetData(memoryCtx, \
+                reinterpret_cast<const uint8_t*>(host_src_ptr), guest_dst_ptr, bytes_to_write)))\
+        return INTERNAL_ERROR;\
     bytes_written += bytes_to_write;\
 }
 
