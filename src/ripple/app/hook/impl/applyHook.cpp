@@ -2281,11 +2281,11 @@ DEFINE_HOOK_FUNCTION(
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
-    if (hookCtx.slot[slot_no].entry->getSType() != STI_ARRAY)
-        return NOT_AN_ARRAY;
-
     if (hookCtx.slot[slot_no].entry == 0)
         return INTERNAL_ERROR;
+
+    if (hookCtx.slot[slot_no].entry->getSType() != STI_ARRAY)
+        return NOT_AN_ARRAY;
 
     return hookCtx.slot[slot_no].entry->downcast<ripple::STArray>().size();
 
@@ -2379,6 +2379,9 @@ DEFINE_HOOK_FUNCTION(
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
+    if (hookCtx.slot[slot_no].entry == 0)
+        return INTERNAL_ERROR;
+
     //RH TODO: this is a very expensive way of computing size, cache it
     Serializer s;
     hookCtx.slot[slot_no].entry->add(s);
@@ -2396,12 +2399,12 @@ DEFINE_HOOK_FUNCTION(
 
     if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
         return DOESNT_EXIST;
+    
+    if (hookCtx.slot[parent_slot].entry == 0)
+        return INTERNAL_ERROR;
 
     if (hookCtx.slot[parent_slot].entry->getSType() != STI_ARRAY)
         return NOT_AN_ARRAY;
-
-    if (hookCtx.slot[parent_slot].entry == 0)
-        return INTERNAL_ERROR;
 
     if (new_slot == 0 && no_free_slots(hookCtx))
         return NO_FREE_SLOTS;
@@ -2469,6 +2472,9 @@ DEFINE_HOOK_FUNCTION(
 
     if (fieldCode == sfInvalid)
         return INVALID_FIELD;
+
+    if (hookCtx.slot[parent_slot].entry == 0)
+        return INTERNAL_ERROR;
 
     bool copied = false;
 
@@ -2559,6 +2565,9 @@ DEFINE_HOOK_FUNCTION(
 
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
+    
+    if (hookCtx.slot[slot_no].entry == 0)
+        return INTERNAL_ERROR;
 
     try
     {
