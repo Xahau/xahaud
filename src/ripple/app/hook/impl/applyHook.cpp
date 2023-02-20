@@ -4456,6 +4456,9 @@ inline int64_t float_multiply_internal_parts(
     cpp_int mult = cpp_int(man1) * cpp_int(man2);
     mult /= power_of_ten[15];
     uint64_t man_out = static_cast<uint64_t>(mult);
+    if (mult > man_out)
+        return XFL_OVERFLOW;
+
     int32_t exp_out = exp1 + exp2 + 15;
     bool neg_out = (neg1 && !neg2) || (!neg1 && neg2);
     int64_t ret = normalize_xfl(man_out, exp_out, neg_out);
