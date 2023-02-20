@@ -3246,8 +3246,6 @@ DEFINE_HOOK_FUNCTION(
         return EMISSION_FAILURE;
     }
 
-    hookCtx.result.emittedTxn.push(tpTrans);
-
     auto const& txID =
         tpTrans->getID();
 
@@ -3257,11 +3255,22 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
         return OUT_OF_BOUNDS;
 
-    WRITE_WASM_MEMORY_AND_RETURN(
-        write_ptr, txID.size(),
-        txID.data(), txID.size(),
-        memory, memory_length);
 
+   
+    auto const write_txid = [&]() -> int64_t
+    { 
+        WRITE_WASM_MEMORY_AND_RETURN(
+            write_ptr, txID.size(),
+            txID.data(), txID.size(),
+            memory, memory_length);
+    };
+
+    int64_t result = write_txid();
+
+    if (result == 32)
+        hookCtx.result.emittedTxn.push(tpTrans);
+
+    return result;
     HOOK_TEARDOWN();
 }
 
