@@ -3168,13 +3168,19 @@ DEFINE_HOOK_FUNCTION(
     }
 
     // rule 5: LastLedgerSeq must be present and after current ledger
+    if (!stpTrans->isFieldPresent(sfLastLedgerSequence))
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC() << "]: sfLastLedgerSequence missing";
+        return EMISSION_FAILURE;
+    }
 
     uint32_t tx_lls = stpTrans->getFieldU32(sfLastLedgerSequence);
     uint32_t ledgerSeq = applyCtx.app.getLedgerMaster().getValidLedgerIndex() + 1;
-    if (!stpTrans->isFieldPresent(sfLastLedgerSequence) || tx_lls < ledgerSeq + 1)
+    if (tx_lls < ledgerSeq + 1)
     {
         JLOG(j.trace())
-            << "HookEmit[" << HC_ACC() << "]: sfLastLedgerSequence missing or invalid";
+            << "HookEmit[" << HC_ACC() << "]: sfLastLedgerSequence invalid (less than next ledger)";
         return EMISSION_FAILURE;
     }
 
