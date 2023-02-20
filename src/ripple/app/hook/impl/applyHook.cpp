@@ -3382,8 +3382,6 @@ DEFINE_HOOK_FUNCTION(
         hash.data(), 32,
         memory, memory_length);
 
-    return 32;
-    
     HOOK_TEARDOWN();
 }
 
@@ -3430,8 +3428,6 @@ DEFINE_HOOK_FUNCTION(
         hash.data(), 32,
         memory, memory_length);
 
-    return 32;
-    
     HOOK_TEARDOWN();
 }
 
