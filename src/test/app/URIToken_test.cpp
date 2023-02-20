@@ -43,10 +43,11 @@ struct URIToken_test : public beast::unit_test::suite
     inOwnerDir(
         ReadView const& view,
         jtx::Account const& acct,
-        std::shared_ptr<SLE const> const& token)
+        std::string const& uri)
     {
+        auto const [urit, uritSle] = uriTokenKeyAndSle(view, acct, uri);
         ripple::Dir const ownerDir(view, keylet::ownerDir(acct.id()));
-        return std::find(ownerDir.begin(), ownerDir.end(), token) !=
+        return std::find(ownerDir.begin(), ownerDir.end(), uritSle) !=
             ownerDir.end();
     }
 
@@ -84,45 +85,57 @@ struct URIToken_test : public beast::unit_test::suite
     }
 
     void
-    debugBalance(
-        jtx::Env const& env,
-        std::string const& name,
-        jtx::Account const& account,
-        jtx::IOU const& iou)
-    {
-        std::cout << name << " BALANCE XRP: " << env.balance(account) << "\n";
-        std::cout << name
-                  << " BALANCE USD: " << env.balance(account, iou.issue())
-                  << "\n";
-        std::cout << name << " BALANCE LINE: " << lineBalance(env, account, iou)
-                  << "\n";
-    }
-
-    void
-    debugToken(
-        ReadView const& view,
-        uint256 const& id)
+    debugToken(ReadView const& view, uint256 const& id)
     {
         // debugToken(*env.current(), tid);
         auto const slep = view.read({ltURI_TOKEN, id});
         if (!slep)
             return;
 
-        std::cout << " ---- DEBUG TOKEN ----" << "\n";
+        std::cout << " ---- DEBUG TOKEN ----"
+                  << "\n";
         std::cout << "BURNABLE: " << (slep->getFlags() & tfBurnable) << "\n";
-        std::cout <<  "OWNER: " << slep->getAccountID(sfOwner)
-                  << "\n";
-        std::cout <<  "ISSUER: " << slep->getAccountID(sfIssuer)
-                  << "\n";
+        std::cout << "OWNER: " << slep->getAccountID(sfOwner) << "\n";
+        std::cout << "ISSUER: " << slep->getAccountID(sfIssuer) << "\n";
         // std::cout <<  " sfURI: " << slep->getFieldVL(sfURI) << "\n";
         // std::cout <<  " sfDigest: " << (*slep)[sfDigest] << "\n";
         if (slep->getFieldAmount(sfAmount))
-            std::cout <<  "AMOUNT: " << slep->getFieldAmount(sfAmount)
-                      << "\n";
+            std::cout << "AMOUNT: " << slep->getFieldAmount(sfAmount) << "\n";
 
         if (slep->getFieldAmount(sfAmount))
             std::cout << "DESTINATION: " << slep->getAccountID(sfDestination)
                       << "\n";
+    }
+
+    void
+    debugLimit(
+        jtx::Env const& env,
+        std::string const& name,
+        jtx::Account const& account,
+        jtx::Account const& gw,
+        jtx::IOU const& iou)
+    {
+        std::cout << " ---- DEBUG LINE ----" << "\n";
+        auto const aHigh = account.id() > gw.id();
+        auto const sle = env.le(keylet::line(account, gw, iou.currency));
+        std::cout << name << " IS HIGH: " << aHigh << "\n";
+        std::cout << name << " HIGH: " << (*sle)[sfHighLimit] << "\n";
+        std::cout << name << " LOW: " << (*sle)[sfLowLimit] << "\n";
+        std::cout << name << " BALANCE: " << (*sle)[sfBalance] << "\n";
+    }
+
+    static STAmount
+    limitAmount(
+        jtx::Env const& env,
+        jtx::Account const& account,
+        jtx::Account const& gw,
+        jtx::IOU const& iou)
+    {
+        auto const aHigh = account.id() > gw.id();
+        auto const sle = env.le(keylet::line(account, gw, iou.currency));
+        if (sle && sle->isFieldPresent(aHigh ? sfLowLimit : sfHighLimit))
+            return (*sle)[aHigh ? sfLowLimit : sfHighLimit];
+        return STAmount(iou, 0);
     }
 
     void
@@ -146,11 +159,11 @@ struct URIToken_test : public beast::unit_test::suite
         BEAST_EXPECT(slep->getAccountID(sfOwner) == owner);
         BEAST_EXPECT(slep->getAccountID(sfIssuer) == issuer);
         // BEAST_EXPECT(slep->getFieldVL(sfURI).size() > uri.size());
-        
+
         // test the ledger object optionals
-        if(burnable)
+        if (burnable)
             BEAST_EXPECT(slep->getFlags() & tfBurnable);
-        
+
         if (amount != STAmount{0})
             BEAST_EXPECT(slep->getFieldAmount(sfAmount) == amount);
 
@@ -186,23 +199,11 @@ struct URIToken_test : public beast::unit_test::suite
     lineBalance(
         jtx::Env const& env,
         jtx::Account const& account,
+        jtx::Account const& gw,
         jtx::IOU const& iou)
     {
         auto const sle =
-            env.le(keylet::line(account, iou.account, iou.currency));
-        if (sle && sle->isFieldPresent(sfBalance))
-            return (*sle)[sfBalance];
-        return STAmount(iou, 0);
-    }
-
-    static STAmount
-    gwBalance(
-        jtx::Env const& env,
-        jtx::Account const& account,
-        jtx::IOU const& iou)
-    {
-        auto const sle =
-            env.le(keylet::line(iou.account, account, iou.currency));
+            env.le(keylet::line(account, gw, iou.currency));
         if (sle && sle->isFieldPresent(sfBalance))
             return (*sle)[sfBalance];
         return STAmount(iou, 0);
@@ -399,16 +400,6 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
 
             // tecDIR_FULL - directory full
-            // pay alice xrp - 251 * required reserve (50) + 1
-            // env(pay(env.master, alice, XRP(1) + XRP(251 * 50)));
-            // env.close();
-
-            // env(mint(alice, uri), ter(tecDIR_FULL));
-            // env.close();
-            // auto const reserveFee = 
-            //     env.current()->fees().accountReserve(ownerDirCount(*env.current(), alice));
-            // std::cout << "RESERVE FEE: " << reserveFee << "\n";
-            // debugXrp(env, "alice", alice);
         }
     }
 
@@ -512,7 +503,7 @@ struct URIToken_test : public beast::unit_test::suite
         // temBAD_CURRENCY - bad currency
         IOU const BAD{gw, badCurrency()};
         env(sell(alice, id, BAD(10)), ter(temBAD_CURRENCY));
-        
+
         // temMALFORMED - no destination and 0 value
         env(sell(alice, id, USD(0)), ter(temMALFORMED));
         env.close();
@@ -863,6 +854,8 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!uritokenExists(*env.current(), tid));
         }
+        // mint 10 burn random
+        // mint 10 burn in order
     }
 
     void
@@ -1257,17 +1250,17 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             auto const [urit, uritSle] =
                 uriTokenKeyAndSle(*env.current(), alice, uri);
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, uritSle));
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
-            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uritSle));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // // alice sets the sell offer
             // // bob sets the buy offer
             env(buy(bob, id, USD(10)));
             BEAST_EXPECT(uritokenExists(*env.current(), urit));
-            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, uritSle));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
-            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uritSle));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
         }
         {
@@ -1287,18 +1280,18 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             auto const [urit, uritSle] =
                 uriTokenKeyAndSle(*env.current(), alice, uri);
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, uritSle));
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
-            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uritSle));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // // alice sets the sell offer
             // // bob sets the buy offer
             env(buy(bob, id, USD(10)));
             env.close();
             BEAST_EXPECT(uritokenExists(*env.current(), urit));
-            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, uritSle));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
-            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uritSle));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, uri));
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
         }
     }
@@ -1466,26 +1459,24 @@ struct URIToken_test : public beast::unit_test::suite
             bool negative;
         };
 
-        std::array<TestAccountData, 8> tests = {
-            {
-                // src > dst && src > issuer && dst no trustline
-                {Account("alice2"), Account("bob0"), Account{"gw0"}, false, true},
-                // src < dst && src < issuer && dst no trustline
-                {Account("carol0"), Account("dan1"), Account{"gw1"}, false, false},
-                // dst > src && dst > issuer && dst no trustline
-                {Account("dan1"), Account("alice2"), Account{"gw0"}, false, true},
-                // dst < src && dst < issuer && dst no trustline
-                {Account("bob0"), Account("carol0"), Account{"gw1"}, false, false},
-                // src > dst && src > issuer && dst has trustline
-                {Account("alice2"), Account("bob0"), Account{"gw0"}, true, true},
-                // src < dst && src < issuer && dst has trustline
-                {Account("carol0"), Account("dan1"), Account{"gw1"}, true, false},
-                // dst > src && dst > issuer && dst has trustline
-                {Account("dan1"), Account("alice2"), Account{"gw0"}, true, true},
-                // dst < src && dst < issuer && dst has trustline
-                {Account("bob0"), Account("carol0"), Account{"gw1"}, true, false},
-            }
-        };
+        std::array<TestAccountData, 8> tests = {{
+            // src > dst && src > issuer && dst no trustline
+            {Account("alice2"), Account("bob0"), Account{"gw0"}, false, true},
+            // src < dst && src < issuer && dst no trustline
+            {Account("carol0"), Account("dan1"), Account{"gw1"}, false, false},
+            // dst > src && dst > issuer && dst no trustline
+            {Account("dan1"), Account("alice2"), Account{"gw0"}, false, true},
+            // dst < src && dst < issuer && dst no trustline
+            {Account("bob0"), Account("carol0"), Account{"gw1"}, false, false},
+            // src > dst && src > issuer && dst has trustline
+            {Account("alice2"), Account("bob0"), Account{"gw0"}, true, true},
+            // src < dst && src < issuer && dst has trustline
+            {Account("carol0"), Account("dan1"), Account{"gw1"}, true, false},
+            // dst > src && dst > issuer && dst has trustline
+            {Account("dan1"), Account("alice2"), Account{"gw0"}, true, true},
+            // dst < src && dst < issuer && dst has trustline
+            {Account("bob0"), Account("carol0"), Account{"gw1"}, true, false},
+        }};
 
         for (auto const& t : tests)
         {
@@ -1513,8 +1504,8 @@ struct URIToken_test : public beast::unit_test::suite
 
             // dst can create sell
             auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, t.src, USD);
-            auto const preDst = lineBalance(env, t.dst, USD);
+            auto const preSrc = lineBalance(env, t.src, t.gw, USD);
+            auto const preDst = lineBalance(env, t.dst, t.gw, USD);
             env(sell(t.dst, id, delta));
             env.close();
             BEAST_EXPECT(preDst == preDst);
@@ -1522,8 +1513,12 @@ struct URIToken_test : public beast::unit_test::suite
             // src can create buy
             env(buy(t.src, id, delta));
             env.close();
-            BEAST_EXPECT(lineBalance(env, t.src, USD) == (t.negative ? (preSrc + delta) : (preSrc - delta)));
-            BEAST_EXPECT(lineBalance(env, t.dst, USD) == (t.negative ? (preDst - delta) : (preDst + delta)));
+            BEAST_EXPECT(
+                lineBalance(env, t.src, t.gw, USD) ==
+                (t.negative ? (preSrc + delta) : (preSrc - delta)));
+            BEAST_EXPECT(
+                lineBalance(env, t.dst, t.gw, USD) ==
+                (t.negative ? (preDst - delta) : (preDst + delta)));
         }
     }
 
@@ -1534,49 +1529,120 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // issuer -> src
-        // src > issuer
-        // dest no trustline
-        // negative tl balance
+        struct TestAccountData
         {
-            auto const src = Account("alice2");
-            auto const gw = Account{"gw0"};
-            auto const USD = gw["USD"];
+            Account acct;
+            Account gw;
+            bool hasTrustline;
+            bool negative;
+        };
 
+        std::array<TestAccountData, 4> tests = {
+            {
+                // acct no trustline
+                // acct > issuer
+                {Account("alice2"), Account{"gw0"}, false, true},
+                // acct < issuer
+                {Account("carol0"), Account{"gw1"}, false, false},
+                
+                // acct has trustline
+                // acct > issuer
+                {Account("alice2"), Account{"gw0"}, true, true},
+                // acct < issuer
+                {Account("carol0"), Account{"gw1"}, true, false},
+            }
+        };
+
+        // test gateway is buyer
+        for (auto const& t : tests)
+        {
             Env env{*this, features};
-            env.fund(XRP(10000), src, gw);
+            auto const USD = t.gw["USD"];
+            env.fund(XRP(5000), t.acct, t.gw);
+            env.close();
+            
+            if (t.hasTrustline)
+                env.trust(USD(100000), t.acct);
+            
             env.close();
 
-            // src can create uritoken
+            if (t.hasTrustline)
+                env(pay(t.gw, t.acct, USD(10000)));
+            
+            env.close();
+
+            // acct can create uritoken
             std::string const uri(maxTokenURILength, '?');
-            std::string const id{strHex(tokenid(src, uri))};
-            env(mint(src, uri));
+            std::string const id{strHex(tokenid(t.acct, uri))};
+            env(mint(t.acct, uri));
             env.close();
 
-            // src can create sell w/out token
+            // acct can create sell w/out token
             auto const delta = USD(1000);
-            auto const preSrc = lineBalance(env, src, USD);
-            auto const preDst = lineBalance(env, gw, USD);
-            env(sell(src, id, delta));
+            auto const preAcct = lineBalance(env, t.acct, t.gw, USD);
+            auto const preGw = lineBalance(env, t.gw, t.acct, USD);
+            env(sell(t.acct, id, delta));
             env.close();
-            BEAST_EXPECT(preDst == preDst);
+            auto const preAmount = t.hasTrustline ? 10000 : 0;
+            BEAST_EXPECT(preAcct == (t.negative ? -USD(preAmount) : USD(preAmount)));
 
             // gw can create buy
-            env(buy(gw, id, delta));
+            env(buy(t.gw, id, delta));
             env.close();
-            BEAST_EXPECT(lineBalance(env, src, USD) == preSrc - delta);
-            BEAST_EXPECT(lineBalance(env, gw, USD) == preDst + delta);
-            
-            auto const gwbal = gwBalance(env, src, USD);
-            std::cout << "GW BAL: " << gwbal << "\n";
-            std::cout << "ALICE BAL: " << env.balance(src, USD.issue()) << "\n";
+            auto const postAmount = t.hasTrustline ? 11000 : 1000;
+            BEAST_EXPECT(
+                lineBalance(env, t.acct, t.gw, USD) ==
+                (t.negative ? -USD(postAmount) : USD(postAmount)));
+            BEAST_EXPECT(
+                lineBalance(env, t.gw, t.acct, USD) ==
+                (t.negative ? -USD(postAmount) : USD(postAmount)));
+        }
+
+        // test gateway is seller
+        // ignore hasTrustline
+        for (auto const& t : tests)
+        {
+            Env env{*this, features};
+            auto const USD = t.gw["USD"];
+            env.fund(XRP(5000), t.acct, t.gw);
+            env.close();
+            env.trust(USD(100000), t.acct);
+            env.close();
+            env(pay(t.gw, t.acct, USD(10000)));
+            env.close();
+
+            // gw can create uritoken
+            std::string const uri(maxTokenURILength, '?');
+            std::string const id{strHex(tokenid(t.gw, uri))};
+            env(mint(t.gw, uri));
+            env.close();
+
+            // gw can create sell w/out token
+            auto const delta = USD(1000);
+            auto const preAcct = lineBalance(env, t.acct, t.gw, USD);
+            auto const preGw = lineBalance(env, t.gw, t.acct, USD);
+            env(sell(t.gw, id, delta));
+            env.close();
+            auto const preAmount = 10000;
+            BEAST_EXPECT(preAcct == (t.negative ? -USD(preAmount) : USD(preAmount)));
+
+            // acct can create buy
+            env(buy(t.acct, id, delta));
+            env.close();
+            auto const postAmount = 9000;
+            BEAST_EXPECT(
+                lineBalance(env, t.acct, t.gw, USD) ==
+                (t.negative ? -USD(postAmount) : USD(postAmount)));
+            BEAST_EXPECT(
+                lineBalance(env, t.gw, t.acct, USD) ==
+                (t.negative ? -USD(postAmount) : USD(postAmount)));
         }
     }
 
     void
     testRequireAuth(FeatureBitset features)
     {
-        testcase("Require Auth");
+        testcase("require_auth");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -1793,38 +1859,37 @@ struct URIToken_test : public beast::unit_test::suite
             BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10225));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
-        // // test issuer doesnt pay own rate
-        // {
-        //     Env env{*this, features};
-        //     env.fund(XRP(10000), alice, gw);
-        //     env(rate(gw, 1.25));
-        //     env.close();
-        //     env.trust(USD(100000), alice);
-        //     env.close();
-        //     env(pay(gw, alice, USD(10000)));
-        //     env.close();
+        // test issuer doesnt pay own rate
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env.close();
 
-        //     // issuer with rate can create paychan
-        //     auto const pk = gw.pk();
-        //     auto const settleDelay = 100s;
-        //     auto const chan = channel(gw, alice, env.seq(gw));
-        //     env(create(gw, alice, USD(1000), settleDelay, pk));
-        //     env.close();
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = tokenid(alice, uri);
+            std::string const hexid{strHex(tid)};
 
-        //     // issuer can claim paychan, alice has trustline
-        //     auto const preLocked = -lockedAmount(env, alice, gw, USD);
-        //     auto const preAlice = env.balance(alice, USD.issue());
-        //     auto chanBal = channelBalance(*env.current(), chan);
-        //     auto chanAmt = channelAmount(*env.current(), chan);
-        //     auto const delta = USD(500);
-        //     auto const reqBal = chanBal + delta;
-        //     auto const authAmt = reqBal + USD(100);
-        //     env(claim(gw, chan, reqBal, authAmt));
-        //     env.close();
-        //     auto const postLocked = -lockedAmount(env, alice, gw, USD);
-        //     BEAST_EXPECT(postLocked == USD(0));
-        //     BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
-        // }
+            auto const delta = USD(10);
+            auto const preAlice = env.balance(alice, USD.issue());
+
+            // alice mints
+            env(mint(alice, uri));
+            env.close();
+            
+            // alice sells
+            env(sell(alice, hexid, delta));
+            env.close();
+
+            // gw buys
+            env(buy(gw, hexid, delta));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
+        }
     }
 
     void
@@ -1866,6 +1931,349 @@ struct URIToken_test : public beast::unit_test::suite
     }
 
     void
+    testLimitAmount(FeatureBitset features)
+    {
+        testcase("limit_amount");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol, gw);
+            env.close();
+            env.trust(USD(1000), bob);
+            env.trust(USD(1000), carol);
+            env.close();
+            env(pay(gw, bob, USD(1000)));
+            env(pay(gw, carol, USD(1000)));
+            env.close();
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = tokenid(alice, uri);
+            std::string const hexid{strHex(tid)};
+            env(mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, uri));
+            env(sell(alice, hexid, USD(10)));
+            env.close();
+            auto preLimit = limitAmount(env, alice, gw, USD);
+            BEAST_EXPECT(preLimit == USD(0));
+            env(buy(bob, hexid, USD(10)));
+            env.close();
+            auto const postLimit = limitAmount(env, bob, gw, USD);
+            BEAST_EXPECT(postLimit == preLimit);
+            env(pay(alice, carol, USD(1)), ter(tecPATH_DRY));
+        }
+    }
+
+    void
+    testURIUTF8(FeatureBitset features)
+    {
+        // https://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt
+        testcase("uri_utf8");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+
+        Env env{*this, features};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        std::string uri = "";
+
+        // test utf-8 success
+        {
+
+            // case: kosme
+            uri = "κόσμε";
+            env(mint(alice, uri));
+
+            // case: single ASCII character
+            uri = "a";
+            env(mint(alice, uri));
+
+            // case: single non-ASCII character
+            uri = "é";
+            env(mint(alice, uri));
+
+            // case: valid multi-byte UTF-8 sequence
+            uri = "€";
+            env(mint(alice, uri));
+
+            // case: ipfs cid
+            uri = "QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
+            env(mint(alice, uri));
+
+            // case: empty ipfs cid url
+            uri = "ipfs://";
+            env(mint(alice, uri));
+
+            // case: ipfs cid url
+            uri = "ipfs://QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
+            env(mint(alice, uri));
+
+            // case: ipfs metadata url
+            uri = "https://example.com/ipfs/";
+            env(mint(alice, uri));
+            
+            // // BOUNDRY - START
+            // ----------------------------------------------------------------
+            
+            // // case: 1 byte  (U-00000000)
+            // uri = "�";
+            // env(mint(alice, uri));
+            // // case: 2 bytes (U-00000080)
+            // uri = "";
+            // env(mint(alice, uri));
+            // // case: 3 bytes (U-00000800)
+            // uri = "ࠀ";
+            // env(mint(alice, uri));
+            // // case: 4 bytes (U-00010000)
+            // uri = "𐀀";
+            // env(mint(alice, uri));
+            // // case: 5 bytes (U-00200000)
+            // uri = "�����";
+            // env(mint(alice, uri));
+            // // case: 6 bytes (U-04000000)
+            // uri = "������";
+            // env(mint(alice, uri));
+
+            // // BOUNDRY - END
+            // ----------------------------------------------------------------
+
+            // // case: 1 byte  (U-0000007F)
+            // uri = "";
+            // env(mint(alice, uri));
+            // // case: 2 bytes (U-000007FF)
+            // uri = "߿";
+            // env(mint(alice, uri));
+            // // case: 3 bytes (U-0000FFFF)
+            // uri = "￿";
+            // env(mint(alice, uri));
+            // // case: 4 bytes (U-001FFFFF)
+            // uri = "����";
+            // env(mint(alice, uri));
+            // // case: 5 bytes (U-03FFFFFF)
+            // uri = "�����";
+            // env(mint(alice, uri));
+            // // case: 6 bytes (U-7FFFFFFF)
+            // uri = "������";
+            // env(mint(alice, uri));
+
+            // // BOUNDRY - OTHER
+            // ----------------------------------------------------------------
+            // // case: 1 bytes (U-0000D7FF)
+            // uri = "";
+            // env(mint(alice, uri));
+            // // case: 2 bytes (U-0000E000)
+            // uri = "߿";
+            // env(mint(alice, uri));
+            // // case: 3 bytes (U-0000FFFD)
+            // uri = "￿";
+            // env(mint(alice, uri));
+            // // case: 4 bytes (U-0010FFFF)
+            // uri = "����";
+            // env(mint(alice, uri));
+            // // case: 4 bytes (U-00110000)
+            // uri = "����";
+            // env(mint(alice, uri));
+        }
+        // test utf8 malformed
+        {
+            // MALFORMED - END
+            // ----------------------------------------------------------------
+            // First continuation byte 0x80:
+            // uri = "�";
+            // env(mint(alice, uri), ter(temMALFORMED));
+            
+            // Last continuation byte 0xbf
+            // uri = "�";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // 2 continuation bytes
+            // uri = "��";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // 3 continuation bytes
+            // uri = "���";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // 4 continuation bytes
+            // uri = "����";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // 5 continuation bytes
+            // uri = "�����";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // 6 continuation bytes
+            // uri = "������";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // 7 continuation bytes
+            // uri = "�������";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // Sequence of all 64 possible continuation bytes (0x80-0xbf)
+            // uri = "\x80\xB7";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // All 32 first bytes of 2-byte sequences (0xc0-0xdf), each followed
+            // by a space character
+            // uri = "\xC0\xDF";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // All 16 first bytes of 3-byte sequences (0xe0-0xef), each followed
+            // by a space character
+            // uri = "\xE0\xEF";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // All 8 first bytes of 4-byte sequences (0xf0-0xf7), each followed
+            // by a space character
+            // uri = "\xF0\xF7";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // All 4 first bytes of 5-byte sequences (0xf8-0xfb), each followed
+            // by a space character
+            // uri = "\xF8\xFB";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // All 2 first bytes of 6-byte sequences (0xfc-0xfd), each followed
+            // by a space character
+            // uri = "\xFC\xFD";
+            // env(mint(alice, uri), ter(temMALFORMED));
+
+            // Sequences with last continuation byte missing  
+
+            // Concatenation of incomplete sequences
+
+            // Impossible bytes
+            uri = "\xFE";
+            env(mint(alice, uri), ter(temMALFORMED));
+            uri = "\xFF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            uri = "\xFE\xFE\xFF\xFF";
+            env(mint(alice, uri), ter(temMALFORMED));
+
+            // Examples of an overlong ASCII character
+            // case: (U+002F)
+            uri = "\xC0\xAF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+002F)
+            uri = "\xE0\x80\xAF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+002F)
+            uri = "\xF0\x80\x80\xAF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+002F)
+            uri = "\xF0\x80\x80\x80\xAF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+002F)
+            uri = "\xF0\x80\x80\x80\x80\xAF";
+            env(mint(alice, uri), ter(temMALFORMED));
+
+            // Maximum overlong sequences
+            // case: (U+0000007F)
+            uri = "\xC1\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+000007FF)
+            uri = "\xE0\x9F\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+0000FFFF)
+            uri = "\xF0\x8F\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+001FFFFF)
+            uri = "\xF8\x87\xBF\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+03FFFFFF)
+            uri = "\xFC\x83\xBF\xBF\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+
+            // Overlong representation of the NUL character
+            // case: (U+0000)
+            uri = "\xC0\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+0000)
+            uri = "\xC0\x80\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+0000)
+            uri = "\xC0\x80\x80\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+0000)
+            uri = "\xC0\x80\x80\x80\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+0000)
+            uri = "\xC0\x80\x80\x80\x80\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+
+            // Single UTF-16 surrogates
+            // case: (U+D800)
+            uri = "\xED\xA0\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DB7F)
+            uri = "\xED\xAD\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DB80)
+            uri = "\xED\xAE\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DBFF)
+            uri = "\xED\xAF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DC00)
+            uri = "\xED\xB0\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DF80)
+            uri = "\xED\xBE\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DFFF)
+            uri = "\xED\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+
+            // Paired UTF-16 surrogates
+            // case: (U+D800 U+DC00)
+            uri = "\xED\xA0\x80\xED\xB0\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+D800 U+DFFF)
+            uri = "\xED\xA0\x80\xED\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DB7F U+DC00)
+            uri = "\xED\xAD\xBF\xED\xB0\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DB7F U+DFFF)
+            uri = "\xED\xAD\xBF\xED\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DB80 U+DC00)
+            uri = "\xED\xAE\x80\xED\xB0\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DB80 U+DFFF)
+            uri = "\xED\xAE\x80\xED\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DBFF U+DC00)
+            uri = "\xED\xAF\xBF\xED\xB0\x80";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+DBFF U+DFFF)
+            uri = "\xED\xAF\xBF\xED\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+
+            // problematic noncharacters in 16-bit applications
+            // case: (U+FFFE)
+            uri = "\xEF\xBF\xBE";
+            env(mint(alice, uri), ter(temMALFORMED));
+            // case: (U+FFFF)
+            uri = "\xEF\xBF\xBF";
+            env(mint(alice, uri), ter(temMALFORMED));
+        }
+    }
+
+    
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -1883,11 +2291,13 @@ struct URIToken_test : public beast::unit_test::suite
         testAccountDelete(features);
         testTickets(features);
         testRippleState(features);
-        // testGateway(features);
+        testGateway(features);
         testRequireAuth(features);
         testFreeze(features);
         testTransferRate(features);
         testDisallowXRP(features);
+        testLimitAmount(features);
+        testURIUTF8(features);
     }
 
 public:
