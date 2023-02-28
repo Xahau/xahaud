@@ -95,7 +95,7 @@ parseSignedLeb128(
 // this macro will return temMALFORMED if i ever exceeds the end of the hook
 #define CHECK_SHORT_HOOK()\
 {\
-    if (i >= hook.size())\
+    if (i >= wasm.size())\
     {\
         \
         GUARDLOG(hook::log::SHORT_HOOK) \
@@ -108,7 +108,7 @@ parseSignedLeb128(
 
 #define REQUIRE(x)\
 {\
-    if (i + (x) > hook.size())\
+    if (i + (x) > wasm.size())\
     {\
         \
         GUARDLOG(hook::log::SHORT_HOOK) \
@@ -124,10 +124,10 @@ parseSignedLeb128(
 }
 
 #define LEB()\
-    parseLeb128(hook, i, &i)
+    parseLeb128(wasm, i, &i)
 
 #define SIGNED_LEB()\
-    parseSignedLeb128(hook, i, &i)
+    parseSignedLeb128(wasm, i, &i)
 
 #define GUARD_ERROR(msg)\
 {\
@@ -177,20 +177,10 @@ struct WasmBlkInf
         return child;
     }
 
-    void free_children(WasmBlkInf* blk)
-    {
-        for (WasmBlkInf* child : blk->children)
-            free_children(child);
-        delete blk;
-    }
-
-
     ~WasmBlkInf()
     {
-        // only the root is responsible for freeing
-        if (is_root)
-            for (WasmBlkInf* child : children)
-                free_children(child);
+        for (WasmBlkInf* child : children)
+           delete child;
     }
 
 };
@@ -272,7 +262,7 @@ uint64_t compute_wce (const WasmBlkInf* blk, int level, bool* recursion_limit_re
 inline
 std::optional<uint64_t>
 check_guard(
-    std::vector<uint8_t> const& hook,
+    std::vector<uint8_t> const& wasm,
     int codesec,
     int start_offset,
     int end_offset,
@@ -290,7 +280,7 @@ check_guard(
                "codesec=%d start_offset=%d end_offset=%d guard_func_idx=%d last_import_idx=%d\n",
                codesec, start_offset, end_offset, guard_func_idx, last_import_idx);
 
-    if (end_offset <= 0) end_offset = hook.size();
+    if (end_offset <= 0) end_offset = wasm.size();
     int block_depth = 0;
 
     // the root node is constructed in a unique ptr, which will cause its destructor to be called
@@ -311,12 +301,12 @@ check_guard(
         {
             printf("->");
             for (int z = i; z < 16 + i && z < end_offset; ++z)
-                printf("%02X", hook[z]);
+                printf("%02X", wasm[z]);
             printf("\n");
         }
 
         REQUIRE(1);
-        uint8_t instr = hook[i];
+        uint8_t instr = wasm[i];
         ADVANCE(1);
 
         current->instruction_count++;
@@ -339,7 +329,7 @@ check_guard(
             REQUIRE(1);
 
             // discard the block return type
-            uint8_t block_type = hook[i];
+            uint8_t block_type = wasm[i];
             if ((block_type >= 0x7CU && block_type <= 0x7FU) ||
                  block_type == 0x7BU || block_type == 0x70U  ||
                  block_type == 0x7BU || block_type == 0x40U)
@@ -362,21 +352,21 @@ check_guard(
 
                 // first i32
                 REQUIRE(1);
-                if (hook[i] != 0x41U)
+                if (wasm[i] != 0x41U)
                     GUARD_ERROR("Missing first i32.const after loop instruction");
                 ADVANCE(1);
                 SIGNED_LEB();          // this is the ID, we don't need it here
 
                 // second i32
                 REQUIRE(1);
-                if (hook[i] != 0x41U)
+                if (wasm[i] != 0x41U)
                     GUARD_ERROR("Missing second i32.const after loop instruction");
                 ADVANCE(1);
                 iteration_bound = LEB();   // second param is the iteration bound, which is important here
 
                 // guard call
                 REQUIRE(1);
-                if (hook[i] != 0x10U)
+                if (wasm[i] != 0x10U)
                     GUARD_ERROR("Missing call to _g after first and second i32.const at loop start");
                 ADVANCE(1);
                 uint64_t call_func_idx = LEB();     // the function being called *must* be the _g function
@@ -501,7 +491,7 @@ check_guard(
             {
                 REQUIRE(1);
                 // if it's a ref type it's a single byte
-                if (!(hook[i] == 0x70U || hook[i] == 0x6FU))
+                if (!(wasm[i] == 0x70U || wasm[i] == 0x6FU))
                     GUARD_ERROR("Invalid reftype in 0xD0 instruction");
                 ADVANCE(1);
             }
@@ -530,7 +520,7 @@ check_guard(
                 for (uint64_t n = 0; n < vec_count; ++n)
                 {
                     REQUIRE(1);
-                    uint8_t v = hook[i];
+                    uint8_t v = wasm[i];
                     if ((v >= 0x7BU && v <= 0x7FU) || v == 0x70U || v == 0x6FU)
                     {
                         // fine
@@ -766,11 +756,11 @@ std::pair<
     uint64_t    // max instruction count for cbak()
 >>
 validateGuards(
-    std::vector<uint8_t> const& hook,
+    std::vector<uint8_t> const& wasm,
     GuardLog guardLog,
     std::string guardLogAccStr)
 {
-    uint64_t byteCount = hook.size();
+    uint64_t byteCount = wasm.size();
 
     // 63 bytes is the smallest possible valid hook wasm
     if (byteCount < 63U)
@@ -784,7 +774,7 @@ validateGuards(
     unsigned char header[8] = { 0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U };
     for (int i = 0; i < 8; ++i)
     {
-        if (hook[i] != header[i])
+        if (wasm[i] != header[i])
         {
             GUARDLOG(hook::log::WASM_BAD_MAGIC)
                 << "Malformed transaction: Hook was not valid webassembly binary. "
@@ -808,7 +798,7 @@ validateGuards(
     int last_import_number = -1;
     int import_count = 0;
     int last_section_type = 0;
-    for (int i = 8, j = 0; i < hook.size();)
+    for (int i = 8, j = 0; i < wasm.size();)
     {
 
         if (j == i)
@@ -823,7 +813,7 @@ validateGuards(
         j = i;
 
         // each web assembly section begins with a single byte section type followed by an leb128 length
-        int section_type = hook[i++];
+        int section_type = wasm[i++];
 
         if (section_type == 0)
         {
@@ -843,7 +833,7 @@ validateGuards(
 
 
 
-        int section_length = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+        int section_length = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
         //int section_start = i;
 
         if (DEBUG_GUARD_VERBOSE)
@@ -855,7 +845,7 @@ validateGuards(
         if (section_type == 2) // import section
         {
             // we are interested in the import section... we need to know if _g is imported and which import# it is
-            import_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+            import_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
             if (import_count <= 0)
             {
                 GUARDLOG(hook::log::IMPORTS_MISSING)
@@ -870,8 +860,8 @@ validateGuards(
             for (int j = 0; j < import_count; ++j)
             {
                 // first check module name
-                int mod_length = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
-                if (mod_length < 1 || mod_length > (hook.size() - i))
+                int mod_length = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
+                if (mod_length < 1 || mod_length > (wasm.size() - i))
                 {
                     GUARDLOG(hook::log::IMPORT_MODULE_BAD)
                         << "Malformed transaction. "
@@ -879,7 +869,7 @@ validateGuards(
                     return {};
                 }
 
-                if (std::string_view( (const char*)(hook.data() + i), (size_t)mod_length ) != "env")
+                if (std::string_view( (const char*)(wasm.data() + i), (size_t)mod_length ) != "env")
                 {
                     GUARDLOG(hook::log::IMPORT_MODULE_ENV)
                         << "Malformed transaction. "
@@ -890,8 +880,8 @@ validateGuards(
                 i += mod_length; CHECK_SHORT_HOOK();
 
                 // next get import name
-                int name_length = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
-                if (name_length < 1 || name_length > (hook.size() - i))
+                int name_length = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
+                if (name_length < 1 || name_length > (wasm.size() - i))
                 {
                     GUARDLOG(hook::log::IMPORT_NAME_BAD)
                         << "Malformed transaction. "
@@ -899,12 +889,12 @@ validateGuards(
                     return {};
                 }
 
-                std::string import_name { (const char*)(hook.data() + i), (size_t)name_length };
+                std::string import_name { (const char*)(wasm.data() + i), (size_t)name_length };
 
                 i += name_length; CHECK_SHORT_HOOK();
 
                 // next get import type
-                if (hook[i] > 0x00)
+                if (wasm[i] > 0x00)
                 {
                     // not a function import
                     GUARDLOG(hook::log::IMPORT_ILLEGAL)
@@ -916,7 +906,7 @@ validateGuards(
                 // execution to here means it's a function import
                 i++; CHECK_SHORT_HOOK();
                 int type_idx = 
-                    parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                    parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
 
                 if (import_name == "_g")
                 {
@@ -958,7 +948,7 @@ validateGuards(
         } else
         if (section_type == 7) // export section
         {
-            int export_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+            int export_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
             if (export_count <= 0)
             {
                 GUARDLOG(hook::log::EXPORTS_MISSING)
@@ -970,14 +960,14 @@ validateGuards(
 
             for (int j = 0; j < export_count; ++j)
             {
-                int name_len = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                int name_len = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                 if (name_len == 4)
                 {
 
-                    if (hook[i] == 'h' && hook[i+1] == 'o' && hook[i+2] == 'o' && hook[i+3] == 'k')
+                    if (wasm[i] == 'h' && wasm[i+1] == 'o' && wasm[i+2] == 'o' && wasm[i+3] == 'k')
                     {
                         i += name_len; CHECK_SHORT_HOOK();
-                        if (hook[i] != 0)
+                        if (wasm[i] != 0)
                         {
                             GUARDLOG(hook::log::EXPORT_HOOK_FUNC)
                                 << "Malformed transaction. "
@@ -986,14 +976,14 @@ validateGuards(
                         }
 
                         i++; CHECK_SHORT_HOOK();
-                        hook_func_idx = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                        hook_func_idx = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                         continue;
                     }
 
-                    if (hook[i] == 'c' && hook[i+1] == 'b' && hook[i+2] == 'a' && hook[i+3] == 'k')
+                    if (wasm[i] == 'c' && wasm[i+1] == 'b' && wasm[i+2] == 'a' && wasm[i+3] == 'k')
                     {
                         i += name_len; CHECK_SHORT_HOOK();
-                        if (hook[i] != 0)
+                        if (wasm[i] != 0)
                         {
                             GUARDLOG(hook::log::EXPORT_CBAK_FUNC)
                                 << "Malformed transaction. "
@@ -1001,13 +991,13 @@ validateGuards(
                             return {};
                         }
                         i++; CHECK_SHORT_HOOK();
-                        cbak_func_idx = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                        cbak_func_idx = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                         continue;
                     }
                 }
 
                 i += name_len + 1;
-                parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
             }
 
             // execution to here means export section was parsed
@@ -1022,7 +1012,7 @@ validateGuards(
         }
         else if (section_type == 3) // function section
         {
-            int function_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+            int function_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
             if (function_count <= 0)
             {
                 GUARDLOG(hook::log::FUNCS_MISSING)
@@ -1034,7 +1024,7 @@ validateGuards(
 
             for (int j = 0; j < function_count; ++j)
             {
-                int type_idx = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                int type_idx = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                 if (DEBUG_GUARD)
                     printf("Function map: func %d -> type %d\n", j, type_idx);
                 func_type_map[j] = type_idx;
@@ -1078,20 +1068,20 @@ validateGuards(
 
     // second pass... where we check all the guard function calls follow the guard rules
     // minimal other validation in this pass because first pass caught most of it
-    for (int i = 8; i < hook.size();)
+    for (int i = 8; i < wasm.size();)
     {
 
-        int section_type = hook[i++];
-        int section_length = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+        int section_type = wasm[i++];
+        int section_length = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
         //int section_start = i;
         int next_section = i + section_length;
 
         if (section_type == 1) // type section
         {
-            int type_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+            int type_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
             for (int j = 0; j < type_count; ++j)
             {
-                if (hook[i++] != 0x60)
+                if (wasm[i++] != 0x60)
                 {
                     GUARDLOG(hook::log::FUNC_TYPE_INVALID)
                         << "Invalid function type. "
@@ -1147,7 +1137,7 @@ validateGuards(
                     return {};
                 }
 
-                int param_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                int param_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                 if (j == hook_type_idx)
                 {
                    if (param_count != 1)
@@ -1169,7 +1159,7 @@ validateGuards(
 
                 for (int k = 0; k < param_count; ++k)
                 {
-                    int param_type = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                    int param_type = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                     if (param_type == 0x7FU || param_type == 0x7EU ||
                         param_type == 0x7DU || param_type == 0x7CU)
                     {
@@ -1211,7 +1201,7 @@ validateGuards(
                     }
                 }
 
-                int result_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                int result_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
 
                 // this needs a reliable hook cleaner otherwise it will catch most compilers out
                 if (result_count != 1)
@@ -1226,7 +1216,7 @@ validateGuards(
                 // so for completeness this loop is here but can be taken out in prod
                 for (int k = 0; k < result_count; ++k)
                 {
-                    int result_type = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                    int result_type = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                     if (result_type == 0x7F || result_type == 0x7E ||
                         result_type == 0x7D || result_type == 0x7C)
                     {
@@ -1278,19 +1268,19 @@ validateGuards(
         {
             // RH TODO: parse anywhere else an expr is allowed in wasm and enforce rules there too
             // these are the functions
-            int func_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+            int func_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
 
             for (int j = 0; j < func_count; ++j)
             {
                 // parse locals
-                int code_size = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                int code_size = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                 int code_end = i + code_size;
-                int local_count = parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
+                int local_count = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
                 for (int k = 0; k < local_count; ++k)
                 {
                     /*int array_size = */
-                    parseLeb128(hook, i, &i); CHECK_SHORT_HOOK();
-                    if (!(hook[i] >= 0x7C && hook[i] <= 0x7F))
+                    parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
+                    if (!(wasm[i] >= 0x7C && wasm[i] <= 0x7F))
                     {
                         GUARDLOG(hook::log::TYPE_INVALID)
                             << "Invalid local type. "
@@ -1309,7 +1299,7 @@ validateGuards(
 
                 auto valid =
                     check_guard(
-                        hook,
+                        wasm,
                         j,
                         i,
                         code_end,
