@@ -332,7 +332,8 @@ check_guard(
             uint8_t block_type = wasm[i];
             if ((block_type >= 0x7CU && block_type <= 0x7FU) ||
                  block_type == 0x7BU || block_type == 0x70U  ||
-                 block_type == 0x7BU || block_type == 0x40U)
+                 block_type == 0x7BU || block_type == 0x40U  ||
+                 block_type == 0x6FU)
             {
                 ADVANCE(1);
             }
