@@ -2260,8 +2260,6 @@ struct URIToken_test : public beast::unit_test::suite
             env(sell(alice, hexid, XRP(10)));
             env.close();
 
-            auto const preAlice = env.balance(alice);
-            auto const preBob = env.balance(bob);
             // bob attempts to buy
             env(buy(bob, hexid, XRP(10)));
             // alice cannot lower sell by injection
@@ -2307,8 +2305,6 @@ struct URIToken_test : public beast::unit_test::suite
             env(sell(alice, hexid, XRP(10)));
             env.close();
 
-            auto const preAlice = env.balance(alice);
-            auto const preBob = env.balance(bob);
             // alice attempts to burn
             env(burn(alice, hexid));
             // bob attempts to buy
@@ -2326,8 +2322,6 @@ struct URIToken_test : public beast::unit_test::suite
             env(sell(alice, hexid, XRP(10)));
             env.close();
 
-            auto const preAlice = env.balance(alice);
-            auto const preBob = env.balance(bob);
             // bob attempts to buy
             env(buy(bob, hexid, XRP(10)));
             // alice attempts to burn
@@ -2349,8 +2343,6 @@ struct URIToken_test : public beast::unit_test::suite
             env(sell(alice, hexid, XRP(10)));
             env.close();
 
-            auto const preAlice = env.balance(alice);
-            auto const preBob = env.balance(bob);
             // alice attempts to clear
             env(clear(alice, hexid));
             // bob attempts to buy
@@ -2373,8 +2365,6 @@ struct URIToken_test : public beast::unit_test::suite
             env(sell(alice, hexid, XRP(10)));
             env.close();
 
-            auto const preAlice = env.balance(alice);
-            auto const preBob = env.balance(bob);
             // bob attempts to buy
             env(buy(bob, hexid, XRP(10)));
             // alice attempts to clear
