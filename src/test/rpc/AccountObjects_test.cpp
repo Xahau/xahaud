@@ -519,7 +519,7 @@ public:
             jfURIToken[jss::TransactionType] = jss::URITokenMint;
             jfURIToken[jss::Flags] = tfBurnable;
             jfURIToken[jss::Account] = gw.human();
-            jfURIToken[jss::uri] = strHex(uri);
+            jfURIToken[sfURI.jsonName] = strHex(uri);
             env(jfURIToken);
             env.close();
         }
