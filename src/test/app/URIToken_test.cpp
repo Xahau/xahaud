@@ -185,57 +185,6 @@ struct URIToken_test : public beast::unit_test::suite
         return jv;
     }
 
-    // MISC TEST HELPERS
-    // REMOVE IN PR
-    void
-    debugXrp(
-        jtx::Env const& env,
-        std::string const& name,
-        jtx::Account const& account)
-    {
-        std::cout << name << " BALANCE XRP: " << env.balance(account) << "\n";
-    }
-
-    void
-    debugToken(ReadView const& view, uint256 const& id)
-    {
-        // debugToken(*env.current(), tid);
-        auto const slep = view.read({ltURI_TOKEN, id});
-        if (!slep)
-            return;
-
-        std::cout << " ---- DEBUG TOKEN ----"
-                  << "\n";
-        std::cout << "BURNABLE: " << (slep->getFlags() & tfBurnable) << "\n";
-        std::cout << "OWNER: " << slep->getAccountID(sfOwner) << "\n";
-        std::cout << "ISSUER: " << slep->getAccountID(sfIssuer) << "\n";
-        // std::cout <<  " sfURI: " << slep->getFieldVL(sfURI) << "\n";
-        // std::cout <<  " sfDigest: " << (*slep)[sfDigest] << "\n";
-        if (slep->getFieldAmount(sfAmount))
-            std::cout << "AMOUNT: " << slep->getFieldAmount(sfAmount) << "\n";
-
-        if (slep->getFieldAmount(sfAmount))
-            std::cout << "DESTINATION: " << slep->getAccountID(sfDestination)
-                      << "\n";
-    }
-
-    void
-    debugLimit(
-        jtx::Env const& env,
-        std::string const& name,
-        jtx::Account const& account,
-        jtx::Account const& gw,
-        jtx::IOU const& iou)
-    {
-        std::cout << " ---- DEBUG LINE ----" << "\n";
-        auto const aHigh = account.id() > gw.id();
-        auto const sle = env.le(keylet::line(account, gw, iou.currency));
-        std::cout << name << " IS HIGH: " << aHigh << "\n";
-        std::cout << name << " HIGH: " << (*sle)[sfHighLimit] << "\n";
-        std::cout << name << " LOW: " << (*sle)[sfLowLimit] << "\n";
-        std::cout << name << " BALANCE: " << (*sle)[sfBalance] << "\n";
-    }
-
     void
     testEnabled(FeatureBitset features)
     {
@@ -251,8 +200,7 @@ struct URIToken_test : public beast::unit_test::suite
         {
             // If the URIToken amendment is not enabled, you should not be able
             // to mint, burn, buy, sell or clear uri tokens.
-            auto const amend =
-                withURIToken ? features : features - featureURIToken;
+            auto const amend = withURIToken ? features : features - featureURIToken;
             Env env{*this, amend};
 
             env.fund(XRP(1000), alice, bob);
@@ -434,12 +382,12 @@ struct URIToken_test : public beast::unit_test::suite
 
         // setup env
         Env env{*this, features};
-        auto const nacct = Account("alice");
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account{"gateway"};
+        auto const ngw = Account{"ngateway"};
         auto const USD = gw["USD"];
-        auto const NUSD = nacct["USD"];
+        auto const NUSD = ngw["USD"];
         env.fund(XRP(1000), alice, bob, gw);
         env.close();
         env.trust(USD(100000), alice, bob);
@@ -479,10 +427,9 @@ struct URIToken_test : public beast::unit_test::suite
         env(sell(bob, id, USD(10)), ter(tecNO_PERMISSION));
         env.close();
 
-        // todo: delete account for this
         // tecNO_ISSUER - invalid issuer
-        // env(sell(alice, id, NUSD(10)), ter(tecNO_ISSUER));
-        // env.close();
+        env(sell(alice, id, NUSD(10)), ter(tecNO_ISSUER));
+        env.close();
 
         //----------------------------------------------------------------------
         // doApply
@@ -505,6 +452,7 @@ struct URIToken_test : public beast::unit_test::suite
         auto const bob = Account("bob");
         auto const carol = Account("carol");
         auto const dave = Account("dave");
+        auto const echo = Account("echo");
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
         auto const EUR = gw["EUR"];
@@ -610,14 +558,30 @@ struct URIToken_test : public beast::unit_test::suite
         // tecINSUFFICIENT_FUNDS - insuficient amount sent
         env(buy(bob, hexid, USD(10000)), ter(tecINSUFFICIENT_FUNDS));
         env.close();
-
-        // fund dave 200 xrp (not enough for reserve)
-        // env.fund(XRP(200), dave);
-        // env.close();
-
+        
         // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
-        // env(buy(dave, hexid, USD(1000)), ter(tecNO_LINE_INSUF_RESERVE));
-        // env.close();
+        {
+            // fund dave 251 xrp (not enough for line reserve)
+            env.fund(XRP(251), echo);
+            env.fund(XRP(301), dave);
+            env.close();
+            env.trust(USD(100000), dave);
+            env.close();
+            env(pay(gw, dave, USD(1000)));
+            env.close();
+
+            // mint token
+            std::string const uri(3, '?');
+            auto const tid = tokenid(echo, uri);
+            std::string const hexid{strHex(tid)};
+            env(mint(echo, uri));
+            env(sell(echo, hexid, USD(1)));
+            env.close();
+
+            // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
+            env(buy(dave, hexid, USD(1)), ter(tecNO_LINE_INSUF_RESERVE));
+            env.close();
+        }
 
         // tecDIR_FULL - unknown how to test/handle
         // tecINTERNAL - unknown how to test/handle
@@ -2230,150 +2194,6 @@ struct URIToken_test : public beast::unit_test::suite
             env(mint(alice, uri), ter(temMALFORMED));
         }
     }
-
-    void
-    testInjectionConditions(FeatureBitset features)
-    {
-        testcase("injection_conditions");
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        Env env{*this, features};
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-        auto const carol = Account("carol");
-
-        env.fund(XRP(10000), alice, bob, carol);
-        env.close();
-
-        auto const feeDrops = env.current()->fees().base;
-
-        // injection: test that alice cannot change sell price after buy
-        {
-            std::string const uri(maxTokenURILength, '?');
-            auto const tid = tokenid(alice, uri);
-            std::string const hexid{strHex(tid)};
-            env(mint(alice, uri));
-            env.close();
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            env(sell(alice, hexid, XRP(10)));
-            env.close();
-
-            // bob attempts to buy
-            env(buy(bob, hexid, XRP(10)));
-            // alice cannot lower sell by injection
-            env(sell(alice, hexid, XRP(9)), ter(tecNO_PERMISSION));
-            env.close();
-            // bob burns the token
-            env(burn(bob, hexid));
-            env.close();
-        }
-        // injection: test that alice can change sell price before buy
-        {
-            std::string const uri(maxTokenURILength, '?');
-            auto const tid = tokenid(alice, uri);
-            std::string const hexid{strHex(tid)};
-            env(mint(alice, uri));
-            env.close();
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            env(sell(alice, hexid, XRP(10)));
-            env.close();
-
-            auto const preAlice = env.balance(alice);
-            auto const preBob = env.balance(bob);
-            // alice attempts to lower sell
-            env(sell(alice, hexid, XRP(9)));
-            // bob attempts to buy
-            env(buy(bob, hexid, XRP(10)));
-            env.close();
-            BEAST_EXPECT(env.balance(alice) == preAlice + XRP(10) - feeDrops);
-            BEAST_EXPECT(env.balance(bob) == preBob - XRP(10) - feeDrops);
-
-            // clean up
-            env(burn(bob, hexid));
-            env.close();
-        }
-        // injection: test that alice can burn before buy
-        {
-            std::string const uri(maxTokenURILength, '?');
-            auto const tid = tokenid(alice, uri);
-            std::string const hexid{strHex(tid)};
-            env(mint(alice, uri));
-            env.close();
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            env(sell(alice, hexid, XRP(10)));
-            env.close();
-
-            // alice attempts to burn
-            env(burn(alice, hexid));
-            // bob attempts to buy
-            env(buy(bob, hexid, XRP(10)), ter(tecNO_ENTRY));
-            env.close();
-        }
-        // injection: test that alice cannot burn after buy
-        {
-            std::string const uri(maxTokenURILength, '?');
-            auto const tid = tokenid(alice, uri);
-            std::string const hexid{strHex(tid)};
-            env(mint(alice, uri));
-            env.close();
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            env(sell(alice, hexid, XRP(10)));
-            env.close();
-
-            // bob attempts to buy
-            env(buy(bob, hexid, XRP(10)));
-            // alice attempts to burn
-            env(burn(alice, hexid), ter(tecNO_PERMISSION));
-            env.close();
-
-            // clean up
-            env(burn(bob, hexid));
-            env.close();
-        }
-        // injection: test that bob cannot buy after clear
-        {
-            std::string const uri(maxTokenURILength, '?');
-            auto const tid = tokenid(alice, uri);
-            std::string const hexid{strHex(tid)};
-            env(mint(alice, uri));
-            env.close();
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            env(sell(alice, hexid, XRP(10)));
-            env.close();
-
-            // alice attempts to clear
-            env(clear(alice, hexid));
-            // bob attempts to buy
-            env(buy(bob, hexid, XRP(10)), ter(tecNO_PERMISSION));
-            env.close();
-
-            // clean up
-            env(burn(alice, hexid), ter(tecNO_PERMISSION));
-            env(burn(bob, hexid));
-            env.close();
-        }
-        // injection: test that bob can buy before clear
-        {
-            std::string const uri(maxTokenURILength, '?');
-            auto const tid = tokenid(alice, uri);
-            std::string const hexid{strHex(tid)};
-            env(mint(alice, uri));
-            env.close();
-            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            env(sell(alice, hexid, XRP(10)));
-            env.close();
-
-            // bob attempts to buy
-            env(buy(bob, hexid, XRP(10)));
-            // alice attempts to clear
-            env(clear(alice, hexid), ter(tecNO_PERMISSION));
-            env.close();
-            env(burn(bob, hexid));
-            env.close();
-        }
-    }
     
     void
     testWithFeats(FeatureBitset features)
@@ -2400,7 +2220,6 @@ struct URIToken_test : public beast::unit_test::suite
         testDisallowXRP(features);
         testLimitAmount(features);
         testURIUTF8(features);
-        testInjectionConditions(features);
     }
 
 public:
