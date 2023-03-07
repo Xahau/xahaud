@@ -910,8 +910,23 @@ bool reduceReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
 
 void incrementReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
 {
-    if (sle && sle->isFieldPresent(sfReferenceCount))
-        sle->setFieldU64(sfReferenceCount, sle->getFieldU64(sfReferenceCount) + 1);
+    if (!sle)
+        return;
+
+    uint64_t rc = 
+        sle->isFieldPresent(sfReferenceCount)
+            ? sle->getFieldU64(sfReferenceCount) + 1
+            : 1;
+
+    if (rc == 0)
+    {
+        // overflow should be impossible...
+        // it would require ~ 4.6*10^18 accounts each pointing all four hook entries at one hook definition
+        // handle this somewhat gracefully anyway if it somehow did happen
+        return;
+    }
+
+    sle->setFieldU64(sfReferenceCount, rc);
 }
 
 TER
