@@ -89,9 +89,6 @@ namespace hook
 namespace hook_api
 {
 
-#define TER_TO_HOOK_RETURN_CODE(x)\
-    (((TERtoInt(x)) << 16)*-1)
-
 // for debugging if you want a lot of output change to 1
 #define HOOK_DBG 0
 #define DBG_PRINTF if (HOOK_DBG) printf

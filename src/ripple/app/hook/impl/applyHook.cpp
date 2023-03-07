@@ -2030,11 +2030,6 @@ DEFINE_HOOK_FUNCTION(
                 : const_cast<ripple::STTx&>(applyCtx.tx).downcast<ripple::STObject>()
         );
 
-    auto const& txID =
-        hookCtx.emitFailure
-            ? applyCtx.tx.getFieldH256(sfTransactionHash)
-            : applyCtx.tx.getTransactionID();
-
     hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into, hook::SlotEntry {
             .storage = st_tx,
             .entry = 0

@@ -38,7 +38,6 @@ Invoke::preflight(PreflightContext const& ctx)
         return ret;
 
     auto& tx = ctx.tx;
-    auto& j = ctx.j;
 
     if (tx.getFieldVL(sfBlob).size() > (128*1024))
         return temMALFORMED;
