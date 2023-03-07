@@ -1631,7 +1631,7 @@ SetHook::setHook()
             return reserve;
         };
 
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < hook::maxHookChainLength(); ++i)
         {
             if (oldHooks && i < oldHookCount)
                 oldHookReserve += computeHookReserve(((*oldHooks).get())[i]);
