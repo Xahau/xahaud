@@ -123,6 +123,7 @@ export Boost_LIBRARY_DIRS="/usr/local/lib" &&
 export BOOST_INCLUDEDIR="/usr/local/src/boost_1_75_0" &&
 export PATH=`echo $PATH | sed -E "s/devtoolset-7/devtoolset-9/g"` &&
 cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
     -DWASMEDGE_BUILD_SHARED_LIB=OFF \
     -DWASMEDGE_BUILD_STATIC_LIB=ON \
     -DWASMEDGE_BUILD_AOT_RUNTIME=ON \
