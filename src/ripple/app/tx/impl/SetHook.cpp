@@ -1260,7 +1260,13 @@ SetHook::setHook()
 
         // if there is only an existing hook, without a HookSetObj then it is
         // logically impossible for the operation to not be NOOP
-        assert(hookSetObj || op == hsoNOOP);
+        if(!hookSetObj && op != hsoNOOP)
+        {
+            JLOG(ctx.j.warn())
+                << "HookSet(" << hook::log::INTERNAL_ERROR << ")[" << HS_ACC()
+                << "]: Logic error. !hookSetObj && op != hsoNOOP";
+            return tecINTERNAL;
+        }
 
         switch (op)
         {

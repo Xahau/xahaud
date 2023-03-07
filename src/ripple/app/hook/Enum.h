@@ -132,6 +132,7 @@ namespace hook
             NESTING_LIMIT = 84,         // the hook nested blocks/loops/ifs beyond 16 levels
             SECTIONS_OUT_OF_SEQUENCE = 85,  // the wasm contained sections out of sequence
             CUSTOM_SECTION_DISALLOWED = 86, // the wasm contained a custom section (id=0)
+            INTERNAL_ERROR       = 87,  // an internal error described by the log text
             // RH NOTE: only HookSet msgs got log codes, possibly all Hook log lines should get a code? 
         };
     };
