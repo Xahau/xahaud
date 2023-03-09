@@ -298,7 +298,7 @@ EscrowCreate::doApply()
     // sequence or ticket.  For more explanation see comments in SeqProxy.h.
     auto xferRate = transferRate(view(), amount.getIssuer());
     Keylet const escrowKeylet =
-        keylet::escrow(account, ctx_.tx.getSeqProxy().value());
+        keylet::escrow(account, seqID(ctx_));
     auto const slep = std::make_shared<SLE>(escrowKeylet);
     (*slep)[sfAmount] = ctx_.tx[sfAmount];
     (*slep)[sfAccount] = account;
