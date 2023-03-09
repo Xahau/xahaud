@@ -5838,7 +5838,7 @@ public:
             std::chrono::duration_cast<std::chrono::seconds>
             (
                 env.app().getLedgerMaster()
-                    .getValidatedLedger()->info()
+                    .getCurrentLedger()->info()
                         .parentCloseTime
                             .time_since_epoch()
             ).count();

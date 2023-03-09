@@ -4,7 +4,6 @@
 #include <ripple/app/misc/Transaction.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/app/ledger/TransactionMaster.h>
-#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/NetworkOPs.h>
@@ -2118,7 +2117,7 @@ DEFINE_HOOK_FUNCNARG(
 {
     HOOK_SETUP();
 
-    return applyCtx.app.getLedgerMaster().getValidLedgerIndex() + 1;
+    return view.info().seq;
 
     HOOK_TEARDOWN();
 }
@@ -2136,7 +2135,7 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 32)
         return TOO_SMALL;
 
-    uint256 hash = applyCtx.app.getLedgerMaster().getValidatedLedger()->info().hash;
+    uint256 hash = view.info().parentHash;
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, write_len,
@@ -2153,13 +2152,8 @@ DEFINE_HOOK_FUNCNARG(
     HOOK_SETUP();
 
     return
-        std::chrono::duration_cast<std::chrono::seconds>
-        (
-            applyCtx.app.getLedgerMaster()
-                .getValidatedLedger()->info()
-                    .parentCloseTime
-                        .time_since_epoch()
-        ).count();
+        std::chrono::duration_cast<std::chrono::seconds>(
+            view.info().parentCloseTime.time_since_epoch()).count();
 
     HOOK_TEARDOWN();
 }
@@ -3171,7 +3165,7 @@ DEFINE_HOOK_FUNCTION(
     }
 
     uint32_t tx_lls = stpTrans->getFieldU32(sfLastLedgerSequence);
-    uint32_t ledgerSeq = applyCtx.app.getLedgerMaster().getValidLedgerIndex() + 1;
+    uint32_t ledgerSeq = view.info().seq;
     if (tx_lls < ledgerSeq + 1)
     {
         JLOG(j.trace())
@@ -3400,23 +3394,12 @@ DEFINE_HOOK_FUNCTION(
             ripple::HashPrefix::hookNonce,
             view.info().seq,
             view.info().parentCloseTime.time_since_epoch().count(),
-            applyCtx.app.getLedgerMaster().getValidatedLedger()->info().hash,
+            view.info().parentHash,
             applyCtx.tx.getTransactionID(),
             hookCtx.ledger_nonce_counter++,
             hookCtx.result.account
     );
     
-    /*
-    std::cout <<
-            "seq: " << view.info().seq <<
-            ", llc: " << view.info().parentCloseTime.time_since_epoch().count() <<
-            ", llh: " << applyCtx.app.getLedgerMaster().getValidatedLedger()->info().hash <<
-            ", txid: " << applyCtx.tx.getTransactionID() <<
-            ", count: " << hookCtx.ledger_nonce_counter << 
-            ", acc: " << hookCtx.result.account << 
-            ", nonce: " << hash << "\n";
-    */
-
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, 32,
