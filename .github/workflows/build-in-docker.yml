@@ -2,9 +2,9 @@ name: Build using Docker
 
 on:
   push:
-    branches: [ "dev", "test" ]
+    branches: [ "dev", "test", "release" ]
   pull_request:
-    branches: [ "dev" ]
+    branches: [ "dev", "release" ]
 
 jobs:
   builder:
