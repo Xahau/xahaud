@@ -1250,7 +1250,7 @@ class LedgerRPC_test : public beast::unit_test::suite
         {
             // Request the uritoken using its index.
             Json::Value jvParams;
-            jvParams[jss::uri_token] = to_string(uritokenIndex);
+            jvParams[jss::URIToken] = to_string(uritokenIndex);
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc("json", "ledger_entry", to_string(jvParams))[jss::result];
             BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
@@ -1260,7 +1260,7 @@ class LedgerRPC_test : public beast::unit_test::suite
         {
             // Request an index that is not a uritoken.
             Json::Value jvParams;
-            jvParams[jss::uri_token] = ledgerHash;
+            jvParams[jss::URIToken] = ledgerHash;
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
