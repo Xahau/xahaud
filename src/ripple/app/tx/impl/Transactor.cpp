@@ -1349,7 +1349,7 @@ doTSH(
             {
                 // this is a collect call so first check if the tsh can accept
                 uint32_t tshFlags = tshAcc->getFieldU32(sfFlags);
-                if (!canRollback && !(tshFlags & lsfTshCollect))
+                if (!(tshFlags & lsfTshCollect))
                 {
                     // this TSH doesn't allow collect calls, skip
                     JLOG(j_.trace())
