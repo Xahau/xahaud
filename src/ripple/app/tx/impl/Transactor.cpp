@@ -247,9 +247,17 @@ calculateHookChainFee(
         if (hook::canHook(tx.getTxnType(), hookOn) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
-                fee += FeeUnit64{
-                    (uint32_t)(hookDef->getFieldAmount(sfFee).xrp().drops())
-                };
+            FeeUnit64 const toAdd {
+                hookDef->getFieldAmount(sfFee).xrp().drops()
+            };
+
+            // this overflow should never happen, if somehow it does
+            // fee is set to the largest possible valid xrp value to force
+            // fail the transaction
+            if (fee + toAdd < fee)
+                fee = FeeUnit64{INITIAL_XRP.drops()};
+            else
+                fee += toAdd;
         }
     }
 
@@ -291,8 +299,19 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
             std::shared_ptr<SLE const> hookDef = view.read(keylet::hookDefinition(callbackHookHash));
 
             if (hookDef && hookDef->isFieldPresent(sfHookCallbackFee))
-                hookExecutionFee +=
-                    FeeUnit64{(uint32_t)(hookDef->getFieldAmount(sfHookCallbackFee).xrp().drops())};
+            {
+                FeeUnit64 const toAdd {
+                    hookDef->getFieldAmount(sfHookCallbackFee).xrp().drops()
+                };
+
+                // this overflow should never happen, if somehow it does
+                // fee is set to the largest possible valid xrp value to force
+                // fail the transaction
+                if (hookExecutionFee + toAdd < hookExecutionFee)
+                    hookExecutionFee = FeeUnit64{INITIAL_XRP.drops()};
+                else
+                    hookExecutionFee += toAdd;
+            }
 
             assert (emitDetails.isFieldPresent(sfEmitBurden));
 
@@ -312,8 +331,33 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                     calculateHookChainFee(view, tx, keylet::hook(tshAcc));
     }
 
-    // RH NOTE: hookExecutionFee = 0, burden = 1 if hooks is not enabled 
-    return baseFee * burden + (signerCount * baseFee) + hookExecutionFee; 
+    // RH NOTE: hookExecutionFee = 0, burden = 1 if hooks is not enabled
+
+    // The calculation is (baseFee * burden) + (signerCount * baseFee) + hookExecutionFee
+    // To ensure there are no overflows or illegal negatives we will do each operation with an overflow check
+    // between and if there is a problem then return the highest possible fee to fail to the transaction.
+    FeeUnit64 accumulator = baseFee;
+    do
+    {
+        if (accumulator * burden < accumulator)
+            break;
+    
+        accumulator *= burden;
+
+        if (accumulator + (signerCount * baseFee) < accumulator)
+            break;
+
+        accumulator += signerCount * baseFee;
+
+        if (accumulator + hookExecutionFee < accumulator)
+            break;
+    
+        accumulator += hookExecutionFee;
+
+        return accumulator;
+    }
+    while (0);
+    return FeeUnit64{INITIAL_XRP.drops()};
 }
 
 XRPAmount
