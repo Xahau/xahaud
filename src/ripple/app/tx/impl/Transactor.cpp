@@ -1056,51 +1056,70 @@ executeHookChain(
 
         bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
 
-        results.push_back(
-            hook::apply(
-                hookDef->getFieldH256(sfHookSetTxnID),
-                hookHash,
-                ns,
-                hookDef->getFieldVL(sfCreateCode),
-                parameters,
-                hookParamOverrides,
-                stateMap,
-                ctx_,
-                account,
-                hasCallback,
-                false,
-                strong,
-                (strong ? 0 : 1UL),             // 0 = strong, 1 = weak
-                hook_no - 1,
-                provisionalMeta));
-
-        executedHookCount_++;
-
-        hook::HookResult& hookResult = results.back();
-
-        if (hookResult.exitType != hook_api::ExitType::ACCEPT)
+        try
         {
-            if (results.back().exitType == hook_api::ExitType::WASM_ERROR)
-                return temMALFORMED;
+            results.push_back(
+                hook::apply(
+                    hookDef->getFieldH256(sfHookSetTxnID),
+                    hookHash,
+                    ns,
+                    hookDef->getFieldVL(sfCreateCode),
+                    parameters,
+                    hookParamOverrides,
+                    stateMap,
+                    ctx_,
+                    account,
+                    hasCallback,
+                    false,
+                    strong,
+                    (strong ? 0 : 1UL),             // 0 = strong, 1 = weak
+                    hook_no - 1,
+                    provisionalMeta));
+
+            executedHookCount_++;
+
+            hook::HookResult& hookResult = results.back();
+
+            if (hookResult.exitType != hook_api::ExitType::ACCEPT)
+            {
+                if (results.back().exitType == hook_api::ExitType::WASM_ERROR)
+                {
+                    JLOG(j_.warn()) 
+                        << "HookError[" << account << "-" << ctx_.tx.getAccountID(sfAccount) << "]: "
+                        << "]: Execution failure (graceful) "
+                        << "HookHash: " << hookHash;
+                }
+                return tecHOOK_REJECTED;
+            }
+
+            // gather skips
+            for (uint256 const& hash : hookResult.hookSkips)
+                if (hookSkips.find(hash) == hookSkips.end())
+                    hookSkips.emplace(hash);
+
+            // gather overrides
+            auto const& resultOverrides = hookResult.hookParamOverrides;
+            for (auto const& [hash, params] : resultOverrides)
+            {
+                if (hookParamOverrides.find(hash) == hookParamOverrides.end())
+                    hookParamOverrides[hash] = {};
+
+                auto& overrides = hookParamOverrides[hash];
+                for (auto const& [k, v] : params)
+                    overrides[k] = v;
+            }
+        }
+        catch (std::exception& e)
+        {
+            JLOG(j_.warn()) 
+                << "HookError[" << account << "-" << ctx_.tx.getAccountID(sfAccount) << "]: "
+                << "]: Execution failure (exceptional) "
+                << "Exception: " << e.what()
+                << " HookHash: " << hookHash;
+
             return tecHOOK_REJECTED;
         }
 
-        // gather skips
-        for (uint256 const& hash : hookResult.hookSkips)
-            if (hookSkips.find(hash) == hookSkips.end())
-                hookSkips.emplace(hash);
-
-        // gather overrides
-        auto const& resultOverrides = hookResult.hookParamOverrides;
-        for (auto const& [hash, params] : resultOverrides)
-        {
-            if (hookParamOverrides.find(hash) == hookParamOverrides.end())
-                hookParamOverrides[hash] = {};
-
-            auto& overrides = hookParamOverrides[hash];
-            for (auto const& [k, v] : params)
-                overrides[k] = v;
-        }
 
     }
     return tesSUCCESS;
