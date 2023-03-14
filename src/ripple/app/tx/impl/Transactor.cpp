@@ -1613,7 +1613,7 @@ Transactor::operator()()
     // Pre-application (Strong TSH) Hooks are executed here
     // These TSH have the right to rollback.
     // Weak TSH and callback are executed post-application.
-    if (hooksEnabled && (result == tesSUCCESS || result == tecHOOK_REJECTED))
+    if (hooksEnabled && result == tesSUCCESS)
     {
         // this state map will be shared across all hooks in this execution chain
         // and any associated chains which are executed during this transaction also
