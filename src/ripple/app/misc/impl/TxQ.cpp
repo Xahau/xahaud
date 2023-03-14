@@ -1448,11 +1448,13 @@ TxQ::accept(Application& app, OpenView& view)
             if (!sleItem)
             {
                 // Directory node has an invalid index.  Bail out.
-                JLOG(j_.fatal())
+                JLOG(j_.warn())
                     << "EmittedTxn processing: directory node in ledger " << view.seq()
                     << " has index to object that is missing: "
                     << to_string(dirEntry);
-                break;
+
+                // RH TODO: if this ever happens the entry should be gracefully removed (somehow)
+                continue;
             }
 
             LedgerEntryType const nodeType{
@@ -1460,9 +1462,10 @@ TxQ::accept(Application& app, OpenView& view)
 
             if (nodeType != ltEMITTED_TXN)
             {
-                JLOG(j_.fatal())
+                JLOG(j_.warn())
                     << "EmittedTxn processing: emitted directory contained non ltEMITTED_TXN type";
-                break;
+                // RH TODO: if this ever happens the entry should be gracefully removed (somehow)
+                continue;
             }
 
             JLOG(j_.info()) << "Processing emitted txn: " << *sleItem;
@@ -1484,6 +1487,7 @@ TxQ::accept(Application& app, OpenView& view)
                     JLOG(j_.warn())
                         << "Hook: Emission failure: "
                         << "sfEmitDetails or sfFirst/LastLedgerSeq missing.";
+                    // RH TODO: if this ever happens the entry should be gracefully removed (somehow)
                     continue;
                 }
                 
@@ -1544,7 +1548,7 @@ TxQ::accept(Application& app, OpenView& view)
             }
             catch (std::exception& e)
             {
-                JLOG(j_.fatal()) << "EmittedTxn Processing: Failure: " << e.what() << "\n";
+                JLOG(j_.warn()) << "EmittedTxn Processing: Failure: " << e.what() << "\n";
             }
 
         } while (cdirNext(view, emittedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
