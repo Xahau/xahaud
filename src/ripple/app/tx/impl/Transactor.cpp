@@ -1173,8 +1173,6 @@ Transactor::doHookCallback(std::shared_ptr<STObject const> const& provisionalMet
                  ?  hookObj.getFieldH256(sfHookNamespace)
                  :  hookDef->getFieldH256(sfHookNamespace));
 
-        executedHookCount_++;
-
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
@@ -1209,7 +1207,8 @@ Transactor::doHookCallback(std::shared_ptr<STObject const> const& provisionalMet
                         ? 1UL : 0UL, 
                     hook_no - 1,
                     provisionalMeta);
-
+        
+            executedHookCount_++;
             
             bool success = callbackResult.exitType == hook_api::ExitType::ACCEPT;
 
@@ -1454,7 +1453,6 @@ Transactor::doAgainAsWeak(
                  ?  hookObj.getFieldH256(sfHookNamespace)
                  :  hookDef->getFieldH256(sfHookNamespace));
 
-        executedHookCount_++;
 
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
@@ -1484,6 +1482,8 @@ Transactor::doAgainAsWeak(
                     hook_no - 1,
                     provisionalMeta);
 
+        
+            executedHookCount_++;
 
             results.push_back(aawResult);            
 
