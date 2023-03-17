@@ -248,7 +248,7 @@ calculateHookChainFee(
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
             FeeUnit64 const toAdd {
-                hookDef->getFieldAmount(sfFee).xrp().drops()
+                (uint64_t)hookDef->getFieldAmount(sfFee).xrp().drops()
             };
 
             // this overflow should never happen, if somehow it does
@@ -301,7 +301,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
             if (hookDef && hookDef->isFieldPresent(sfHookCallbackFee))
             {
                 FeeUnit64 const toAdd {
-                    hookDef->getFieldAmount(sfHookCallbackFee).xrp().drops()
+                    (uint64_t)hookDef->getFieldAmount(sfHookCallbackFee).xrp().drops()
                 };
 
                 // this overflow should never happen, if somehow it does
