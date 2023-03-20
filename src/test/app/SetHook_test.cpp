@@ -135,9 +135,15 @@ public:
                   hso(accept_wasm),
                   hso(accept_wasm),
                   hso(accept_wasm),
+                  hso(accept_wasm),
+                  hso(accept_wasm),
+                  hso(accept_wasm),
+                  hso(accept_wasm),
+                  hso(accept_wasm),
+                  hso(accept_wasm),
                   hso(accept_wasm)}},
                 0),
-            M("Must have fewer than 5 entries"),
+            M("Must have fewer than 11 entries"),
             HSFEE,
             ter(temMALFORMED));
 

@@ -776,7 +776,7 @@ int64_t hook::computeCreationFee(uint64_t byteCount)
 
 uint32_t hook::maxHookChainLength(void)
 {
-    return 4;
+    return 10;
 }
 
 // many datatypes can be encoded into an int64_t
