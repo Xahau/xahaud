@@ -183,6 +183,8 @@ STObject::set(SerialIter& sit, int depth)
 
     v_.clear();
 
+    uint8_t nop_counter = 0;
+
     // Consume data in the pipe until we run out or reach the end
     while (!sit.empty())
     {
@@ -191,6 +193,18 @@ STObject::set(SerialIter& sit, int depth)
 
         // Get the metadata for the next field
         sit.getFieldID(type, field);
+
+        // pass nops
+        if (type == 9 && field == 9)
+        {
+            if (++nop_counter == 64)
+            {
+                JLOG(debugLog().error())
+                    << "Too many NOPS";
+                Throw<std::runtime_error>("Too many NOPS");
+            }
+            continue;
+        }
 
         // The object termination marker has been found and the termination
         // marker has been consumed. Done deserializing.

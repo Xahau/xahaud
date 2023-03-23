@@ -58,10 +58,23 @@ STArray::STArray(std::vector<STObject> const& v, SField const& f) : STBase(f)
 
 STArray::STArray(SerialIter& sit, SField const& f, int depth) : STBase(f)
 {
+    uint8_t nop_counter = 0;
     while (!sit.empty())
     {
         int type, field;
         sit.getFieldID(type, field);
+
+        // pass nops
+        if (type == 9 && field == 9)
+        {
+            if (++nop_counter == 64)
+            {
+                JLOG(debugLog().error())
+                    << "Too many NOPS";
+                Throw<std::runtime_error>("Too many NOPS");
+            }
+            continue;
+        }
 
         if ((type == STI_ARRAY) && (field == 1))
             break;
