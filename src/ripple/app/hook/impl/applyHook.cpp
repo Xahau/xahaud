@@ -2562,19 +2562,25 @@ DEFINE_HOOK_FUNCTION(
     {
         ripple::STAmount& st_amt =
             const_cast<ripple::STBase&>(*hookCtx.slot[slot_no].entry).downcast<ripple::STAmount>();
+
+        int64_t normalized = 0;
         if (st_amt.native())
         {
             ripple::XRPAmount amt = st_amt.xrp();
             int64_t drops = amt.drops();
             int32_t exp = -6;
             // normalize
-            return hook_float::normalize_xfl(drops, exp);
+            normalized = hook_float::normalize_xfl(drops, exp);
         }
         else
         {
             ripple::IOUAmount amt = st_amt.iou();
-            return make_float(amt);
+            normalized = make_float(amt);
         }
+
+        if (normalized == EXPONENT_UNDERSIZED /* exponent undersized (underflow) */)
+            return 0; // return 0 in this case
+        return normalized;
     }
     catch (const std::bad_cast& e)
     {
