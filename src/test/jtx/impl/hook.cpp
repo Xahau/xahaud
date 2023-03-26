@@ -80,6 +80,28 @@ hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv))
 
 }
 
+Json::Value
+hso(std::string const& wasmHex, void (*f)(Json::Value& jv))
+{
+
+    if (wasmHex.size() == 0)
+        throw std::runtime_error("empty hook wasm passed to hso()");
+
+    Json::Value jv;
+    jv[jss::CreateCode] = wasmHex;
+    {
+        jv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+        jv[jss::HookNamespace] = to_string(uint256{beast::zero});
+        jv[jss::HookApiVersion] = Json::Value{0};
+    }
+
+    if (f)
+        f(jv);
+
+    return jv;
+
+}
+
 }  // namespace jtx
 }  // namespace test
 }  // namespace ripple
