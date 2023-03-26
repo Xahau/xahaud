@@ -19,6 +19,7 @@
 
 #include <ripple/app/misc/Manifest.h>
 #include <ripple/app/misc/TxQ.h>
+#include <ripple/app/hook/Enum.h>
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/beast/unit_test.h>
 #include <ripple/protocol/ErrorCodes.h>
@@ -27,8 +28,13 @@
 
 namespace ripple {
 
+namespace test {
+
 class LedgerRPC_test : public beast::unit_test::suite
 {
+    
+public:
+    #define HSFEE fee(100'000'000)
     void
     checkErrorValue(
         Json::Value const& jv,
@@ -783,6 +789,255 @@ class LedgerRPC_test : public beast::unit_test::suite
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
             checkErrorValue(jrr, "malformedRequest", "");
+        }
+    }
+
+    void
+    testLedgerEntryHook()
+    {
+        testcase("ledger_entry Request Hook");
+        using namespace test::jtx;
+        Env env{*this};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Lambda to create a hook.
+        auto setHook = [](test::jtx::Account const& account) {
+            std::string const createCodeHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
+            Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+            return jv;
+        };
+
+        using namespace std::chrono_literals;
+        env(setHook(alice), HSFEE);
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        std::string hookIndex;
+        {
+            // Request the hook using account.
+            Json::Value jvParams;
+            jvParams[jss::hook] = Json::objectValue;
+            jvParams[jss::hook][jss::account] = alice.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][jss::Account] == alice.human());
+            hookIndex = jrr[jss::index].asString();
+        }
+        {
+            // Request the hook by index.
+            Json::Value jvParams;
+            jvParams[jss::hook] = hookIndex;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(
+                jrr[jss::node][jss::Account] == alice.human());
+        }
+        {
+            // Malformed account entry.
+            Json::Value jvParams;
+            jvParams[jss::hook] = Json::objectValue;
+            std::string const badAddress = makeBadAddress(alice.human());
+            jvParams[jss::hook][jss::account] = badAddress;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedAddress", "");
+        }
+        {
+            // Missing account.
+            Json::Value jvParams;
+            jvParams[jss::hook] = Json::objectValue;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+    }
+
+    void
+    testLedgerEntryHookDefinition()
+    {
+        testcase("ledger_entry Request Hook Definition");
+        using namespace test::jtx;
+        Env env{*this};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Lambda to create a hook.
+        auto setHook = [](test::jtx::Account const& account) {
+            std::string const createCodeHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
+            Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+            return jv;
+        };
+
+        using namespace std::chrono_literals;
+        env(setHook(alice), HSFEE);
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        auto const hook = env.le(keylet::hook(alice.id()));
+        auto const& hooks = hook->getFieldArray(sfHooks);
+        uint256 hookHash = hooks[0].getFieldH256(sfHookHash);
+        
+        {
+            // Request the hook_definition using hash.
+            Json::Value jvParams;
+            jvParams[jss::hook_definition] = to_string(hookHash);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][jss::HookHash] == to_string(hookHash));
+        }
+        {
+            // Malformed hook_definition entry.
+            Json::Value jvParams;
+            jvParams[jss::hook_definition] = Json::objectValue;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Request an index that is not a payment channel.
+            Json::Value jvParams;
+            jvParams[jss::hook_definition] = ledgerHash;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
+        }
+    }
+
+    void
+    testLedgerEntryHookState()
+    {
+        testcase("ledger_entry Request Hook State");
+        using namespace test::jtx;
+        Env env{*this};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        auto const key = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 'k',   'e',   'y',   0x00U})
+                .data());
+
+        auto const ns = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
+                .data());
+
+        auto const nons = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFFU})
+                .data());
+
+        // Lambda to create a hook.
+        auto setHook = [](test::jtx::Account const& account) {
+            std::string const createCodeHex = "0061736D01000000011B0460027F7F017F60047F7F7F7F017E60037F7F7E017E60017F017E02270303656E76025F67000003656E760973746174655F736574000103656E76066163636570740002030201030503010002062B077F01419088040B7F004180080B7F00418A080B7F004180080B7F00419088040B7F0041000B7F0041010B07080104686F6F6B00030AE7800001E3800002017F017E230041106B220124002001200036020C41012200200010001A2001418008280000360208200141046A410022002F0088083B010020012000280084083602004100200020014106200141086A4104100110022102200141106A240020020B0B1001004180080B096B65790076616C7565";
+            std::string ns_str = "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE";
+            Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+            jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
+            return jv;
+        };
+
+        using namespace std::chrono_literals;
+        env(setHook(alice), HSFEE);
+        env.close();
+
+        env(pay(bob, alice, XRP(1)),
+            fee(XRP(1)));
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+        
+        {
+            // Request the hook_state using hash.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][jss::HookStateData] == "76616C756500");
+            BEAST_EXPECT(jrr[jss::node][jss::HookStateKey] == to_string(key));
+        }
+        {
+            // Malformed hook_state object.  Missing account member.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed hook_state object.  Missing key member.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+         {
+            // Malformed hook_state object.  Missing namespace member.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed hook_state account.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = makeBadAddress(alice.human());
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedAddress", "");
+        }
+        {
+            // Request a hook_state that doesn't exist.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(nons);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
         }
     }
 
@@ -1779,6 +2034,9 @@ public:
         testLedgerEntryDepositPreauth();
         testLedgerEntryDirectory();
         testLedgerEntryEscrow();
+        testLedgerEntryHook();
+        testLedgerEntryHookDefinition();
+        testLedgerEntryHookState();
         testLedgerEntryOffer();
         testLedgerEntryPayChan();
         testLedgerEntryRippleState();
@@ -1794,4 +2052,5 @@ public:
 
 BEAST_DEFINE_TESTSUITE(LedgerRPC, app, ripple);
 
+}  // namespace test
 }  // namespace ripple

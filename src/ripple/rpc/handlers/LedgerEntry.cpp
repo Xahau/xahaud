@@ -327,11 +327,37 @@ doLedgerEntry(RPC::JsonContext& context)
                     *id, context.params[jss::ticket][jss::ticket_seq].asUInt());
         }
     }
-    else if (context.params.isMember(jss::hook_hash))
+    else if (context.params.isMember(jss::hook))
+    {
+        expectedType = ltHOOK;
+        if (!context.params[jss::hook].isObject())
+        {
+            if (!uNodeIndex.parseHex(context.params[jss::hook].asString()))
+            {
+                uNodeIndex = beast::zero;
+                jvResult[jss::error] = "malformedRequest";
+            }
+        }
+        else if (
+            !context.params[jss::hook].isMember(jss::account))
+        {
+            jvResult[jss::error] = "malformedRequest";
+        }
+        else
+        {
+            auto const id = parseBase58<AccountID>(
+                context.params[jss::hook][jss::account].asString());
+            if (!id)
+                jvResult[jss::error] = "malformedAddress";
+            else
+                uNodeIndex = keylet::hook(*id).key;
+        }
+    }
+    else if (context.params.isMember(jss::hook_definition))
     {
         expectedType = ltHOOK_DEFINITION;
-        if (context.params[jss::hook_hash].isObject() ||
-            (!uNodeIndex.parseHex(context.params[jss::hook_hash].asString())))
+        if (context.params[jss::hook_definition].isObject() ||
+            (!uNodeIndex.parseHex(context.params[jss::hook_definition].asString())))
         {
             uNodeIndex = beast::zero;
             jvResult[jss::error] = "malformedRequest";
@@ -339,6 +365,45 @@ doLedgerEntry(RPC::JsonContext& context)
         else
         {
             uNodeIndex = keylet::hookDefinition(uNodeIndex).key;
+        }
+    }
+    else if (context.params.isMember(jss::hook_state))
+    {
+        expectedType = ltHOOK_STATE;
+        uint256 uNodeKey;
+        uint256 uNameSpace;
+        Json::Value jvHookState = context.params[jss::hook_state];
+
+        if (!jvHookState.isObject() ||
+            !jvHookState.isMember(jss::account) ||
+            !jvHookState.isMember(jss::key) ||
+            !jvHookState.isMember(jss::namespace_id) ||
+            !jvHookState[jss::account].isString() ||
+            !jvHookState[jss::key].isString() ||
+            !jvHookState[jss::namespace_id].isString())
+        {
+            uNodeIndex = beast::zero;
+            jvResult[jss::error] = "malformedRequest";
+        }
+        else
+        {
+            auto const account = parseBase58<AccountID>(jvHookState[jss::account].asString());
+            if (!account)
+            {
+                jvResult[jss::error] = "malformedAddress";
+            }
+            else if (!uNodeKey.parseHex(jvHookState[jss::key].asString()))
+            {
+                jvResult[jss::error] = "malformedRequest";
+            }
+            else if (!uNameSpace.parseHex(jvHookState[jss::namespace_id].asString()))
+            {
+                jvResult[jss::error] = "malformedRequest";
+            }
+            else
+            {
+                uNodeIndex = keylet::hookState(*account, uNodeKey, uNameSpace).key;
+            }
         }
     }
     else if (context.params.isMember(jss::nft_page))
