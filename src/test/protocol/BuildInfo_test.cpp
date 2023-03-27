@@ -95,8 +95,8 @@ public:
         auto vFF = 0xFFFF'FFFF'FFFF'FFFFLLU;
         BEAST_EXPECT(!BuildInfo::isNewerVersion(vFF));
 
-        auto v2050 = BuildInfo::encodeSoftwareVersion("2050.1.1");
-        BEAST_EXPECT(BuildInfo::isNewerVersion(v2050));
+        auto v2020 = BuildInfo::encodeSoftwareVersion("2020.1.1");
+        BEAST_EXPECT(BuildInfo::isNewerVersion(v2020));
 
         auto vCurrent = BuildInfo::getEncodedVersion();
         BEAST_EXPECT(!BuildInfo::isNewerVersion(vCurrent));
