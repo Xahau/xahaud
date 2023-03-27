@@ -44,6 +44,9 @@ class NodeToShardRPC_test : public beast::unit_test::suite
 
         if (completed)
         {
+            std::cout << "INCOMPLETE: " << info->incomplete().size() << "\n";
+            std::cout << "FINALIZED: " << info->finalized().size() << "\n";
+            std::cout << "NUM: " << numberOfShards << "\n";
             BEAST_EXPECT(
                 info->incomplete().size() + info->finalized().size() ==
                 numberOfShards);
