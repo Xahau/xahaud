@@ -208,6 +208,7 @@ encodeSoftwareVersion(char const* versionStr)
 std::uint64_t
 getEncodedVersion()
 {
+    std::cout << "V STRING: " << versionString << "\n";
     static std::uint64_t const cookie = {encodeSoftwareVersion(versionString)};
     return cookie;
 }
@@ -222,6 +223,9 @@ isRippledVersion(std::uint64_t version)
 bool
 isNewerVersion(std::uint64_t version)
 {
+    std::cout << "IS RIPPLE V: " << isRippledVersion(version) << "\n";
+    std::cout << "ENC V: " << getEncodedVersion() << "\n";
+    std::cout << "V: " << version << "\n";
     if (isRippledVersion(version))
         return version > getEncodedVersion();
     return false;
