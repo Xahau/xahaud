@@ -1076,6 +1076,7 @@ chooseLedgerEntryType(Json::Value const& params)
                  {jss::hashes, ltLEDGER_HASHES},
                  {jss::offer, ltOFFER},
                  {jss::payment_channel, ltPAYCHAN},
+                 {jss::uri_token, ltURI_TOKEN},
                  {jss::signer_list, ltSIGNER_LIST},
                  {jss::state, ltRIPPLE_STATE},
                  {jss::ticket, ltTICKET},

@@ -58,51 +58,62 @@ URIToken::preflight(PreflightContext const& ctx)
                 return temMALFORMED;
             }
 
-            if (!([](std::vector<uint8_t> const& u) -> bool
-                {
-                    // this code is from https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c
+            if (!([](std::vector<uint8_t> const& u) -> bool {
+                    // this code is from
+                    // https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c
                     uint8_t const* s = (uint8_t const*)u.data();
                     uint8_t const* end = s + u.size();
-                    while (s < end) {
+                    while (s < end)
+                    {
                         if (*s < 0x80)
                             /* 0xxxxxxx */
                             s++;
-                        else if ((s[0] & 0xe0) == 0xc0) {
+                        else if ((s[0] & 0xe0) == 0xc0)
+                        {
                             /* 110XXXXx 10xxxxxx */
                             if ((s[1] & 0xc0) != 0x80 ||
-                                    (s[0] & 0xfe) == 0xc0)                        /* overlong? */
+                                (s[0] & 0xfe) == 0xc0) /* overlong? */
                                 return false;
                             else
                                 s += 2;
-                        } else if ((s[0] & 0xf0) == 0xe0) {
+                        }
+                        else if ((s[0] & 0xf0) == 0xe0)
+                        {
                             /* 1110XXXX 10Xxxxxx 10xxxxxx */
                             if ((s[1] & 0xc0) != 0x80 ||
-                                    (s[2] & 0xc0) != 0x80 ||
-                                    (s[0] == 0xe0 && (s[1] & 0xe0) == 0x80) ||    /* overlong? */
-                                    (s[0] == 0xed && (s[1] & 0xe0) == 0xa0) ||    /* surrogate? */
-                                    (s[0] == 0xef && s[1] == 0xbf &&
-                                     (s[2] & 0xfe) == 0xbe))                      /* U+FFFE or U+FFFF? */
+                                (s[2] & 0xc0) != 0x80 ||
+                                (s[0] == 0xe0 &&
+                                 (s[1] & 0xe0) == 0x80) || /* overlong? */
+                                (s[0] == 0xed &&
+                                 (s[1] & 0xe0) == 0xa0) || /* surrogate? */
+                                (s[0] == 0xef && s[1] == 0xbf &&
+                                 (s[2] & 0xfe) == 0xbe)) /* U+FFFE or U+FFFF? */
                                 return false;
                             else
                                 s += 3;
-                        } else if ((s[0] & 0xf8) == 0xf0) {
+                        }
+                        else if ((s[0] & 0xf8) == 0xf0)
+                        {
                             /* 11110XXX 10XXxxxx 10xxxxxx 10xxxxxx */
                             if ((s[1] & 0xc0) != 0x80 ||
-                                    (s[2] & 0xc0) != 0x80 ||
-                                    (s[3] & 0xc0) != 0x80 ||
-                                    (s[0] == 0xf0 && (s[1] & 0xf0) == 0x80) ||    /* overlong? */
-                                    (s[0] == 0xf4 && s[1] > 0x8f) || s[0] > 0xf4) /* > U+10FFFF? */
+                                (s[2] & 0xc0) != 0x80 ||
+                                (s[3] & 0xc0) != 0x80 ||
+                                (s[0] == 0xf0 &&
+                                 (s[1] & 0xf0) == 0x80) || /* overlong? */
+                                (s[0] == 0xf4 && s[1] > 0x8f) ||
+                                s[0] > 0xf4) /* > U+10FFFF? */
                                 return false;
                             else
                                 s += 4;
-                        } else
+                        }
+                        else
                             return false;
                     }
                     return true;
                 })(uri))
             {
-                JLOG(ctx.j.warn())
-                    << "Malformed transaction. URI must be a valid utf-8 string.";
+                JLOG(ctx.j.warn()) << "Malformed transaction. URI must be a "
+                                      "valid utf-8 string.";
                 return temMALFORMED;
             }
 
@@ -221,8 +232,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         }
 
-        case ttURITOKEN_BUY:
-        {
+        case ttURITOKEN_BUY: {
             if (acc == *owner)
                 return tecCANT_ACCEPT_OWN_NFTOKEN_OFFER;
 
@@ -458,7 +468,7 @@ URIToken::doApply()
 
                 // check for any possible bars to a buy transaction
                 // between these accounts for this asset
-                
+
                 if (buyerIssuer)
                 {
                     // pass: issuer does not create own trustline
@@ -494,7 +504,7 @@ URIToken::doApply()
                 if (sellerIssuer)
                 {
                     // pass: issuer does not create own trustline
-                } 
+                }
                 else if (!sleDstLine)
                 {
                     // they do not, so we can create one if they have sufficient
@@ -512,7 +522,6 @@ URIToken::doApply()
                         return tecNO_LINE_INSUF_RESERVE;
                     }
                 }
-                
                 if (buyerIssuer)
                 {
                     // pass: issuer does not adjust own trustline

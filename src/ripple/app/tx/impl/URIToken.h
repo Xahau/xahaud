@@ -30,7 +30,6 @@ namespace ripple {
 class URIToken : public Transactor
 {
 public:
-
     static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
 
     explicit URIToken(ApplyContext& ctx) : Transactor(ctx)
