@@ -35,6 +35,9 @@
 #include <ripple/rpc/impl/RPCHelpers.h>
 #include <boost/algorithm/string/case_conv.hpp>
 
+#include <ripple/resource/Fees.h>
+#include <regex>
+
 namespace ripple {
 namespace RPC {
 
