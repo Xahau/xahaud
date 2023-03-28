@@ -398,7 +398,7 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
-    
+
     add(jss::URITokenCancelSellOffer,
         ttURITOKEN_CANCEL_SELL_OFFER,
         {

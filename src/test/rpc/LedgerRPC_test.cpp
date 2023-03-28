@@ -1230,7 +1230,8 @@ class LedgerRPC_test : public beast::unit_test::suite
         env.close();
 
         // Lambda to create an uritoken.
-        auto mint = [](test::jtx::Account const& account, std::string const& uri) {
+        auto mint = [](test::jtx::Account const& account,
+                       std::string const& uri) {
             Json::Value jv;
             jv[jss::TransactionType] = jss::URITokenMint;
             jv[jss::Flags] = tfBurnable;
@@ -1246,13 +1247,15 @@ class LedgerRPC_test : public beast::unit_test::suite
 
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
-        uint256 const uritokenIndex{keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
+        uint256 const uritokenIndex{
+            keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
         {
             // Request the uritoken using its index.
             Json::Value jvParams;
-            jvParams[jss::URIToken] = to_string(uritokenIndex);
+            jvParams[jss::uri_token] = to_string(uritokenIndex);
             jvParams[jss::ledger_hash] = ledgerHash;
-            Json::Value const jrr = env.rpc("json", "ledger_entry", to_string(jvParams))[jss::result];
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
             BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
             BEAST_EXPECT(jrr[jss::node][sfURI.jsonName] == strHex(uri));
             BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == 1);
@@ -1260,7 +1263,7 @@ class LedgerRPC_test : public beast::unit_test::suite
         {
             // Request an index that is not a uritoken.
             Json::Value jvParams;
-            jvParams[jss::URIToken] = ledgerHash;
+            jvParams[jss::uri_token] = ledgerHash;
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
