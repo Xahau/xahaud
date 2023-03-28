@@ -118,14 +118,25 @@ enum TEMcodes : TERUnderlyingType {
     temINVALID_ACCOUNT_ID,
     temCANNOT_PREAUTH_SELF,
     temINVALID_COUNT,
-    temHOOK_DATA_TOO_LARGE,
-    temHOOK_REJECTED,
 
     temUNCERTAIN,  // An internal intermediate result; should never be returned.
     temUNKNOWN,    // An internal intermediate result; should never be returned.
 
     temSEQ_AND_TICKET,
     temBAD_NFTOKEN_TRANSFER_FEE,
+
+    temAMM_BAD_TOKENS, // RESERVED - AMM
+
+    temXCHAIN_EQUAL_DOOR_ACCOUNTS, // RESERVED - XCHAIN
+    temXCHAIN_BAD_PROOF, // RESERVED - XCHAIN
+    temXCHAIN_BRIDGE_BAD_ISSUES, // RESERVED - XCHAIN
+    temXCHAIN_BRIDGE_NONDOOR_OWNER, // RESERVED - XCHAIN
+    temXCHAIN_BRIDGE_BAD_MIN_ACCOUNT_CREATE_AMOUNT, // RESERVED - XCHAIN
+    temXCHAIN_BRIDGE_BAD_REWARD_AMOUNT, // RESERVED - XCHAIN
+    temXCHAIN_TOO_MANY_ATTESTATIONS, // RESERVED - XCHAIN
+    
+    temHOOK_DATA_TOO_LARGE,
+    temHOOK_REJECTED,
 };
 
 //------------------------------------------------------------------------------
@@ -208,6 +219,7 @@ enum TERcodes : TERUnderlyingType {
     terNO_RIPPLE,    // Rippling not allowed
     terQUEUED,       // Transaction is being held in TxQ until fee drops
     terPRE_TICKET,   // Ticket is not yet in ledger but might be on its way
+    terNO_AMM        // RESERVED - AMM
     terNO_HOOK       // Transaction requires a non-existent hook definition (referenced by sfHookHash)
 };
 
@@ -296,8 +308,31 @@ enum TECcodes : TERUnderlyingType {
     tecINSUFFICIENT_FUNDS = 159,
     tecOBJECT_NOT_FOUND = 160,
     tecINSUFFICIENT_PAYMENT = 161,
-    tecREQUIRES_FLAG = 162,
-    tecPRECISION_LOSS = 163,
+    tecAMM_UNFUNDED = 162, // RESERVED - AMM
+    tecAMM_BALANCE = 163, // RESERVED - AMM
+    tecAMM_FAILED_DEPOSIT= 164, // RESERVED - AMM
+    tecAMM_FAILED_WITHDRAW= 165, // RESERVED - AMM
+    tecAMM_INVALID_TOKENS = 166, // RESERVED - AMM
+    tecAMM_FAILED_BID = 167, // RESERVED - AMM
+    tecAMM_FAILED_VOTE = 168, // RESERVED - AMM
+    tecREQUIRES_FLAG = 169,
+    tecPRECISION_LOSS = 170,
+    tecBAD_XCHAIN_TRANSFER_ISSUE = 171, // RESERVED - XCHAIN
+    tecXCHAIN_NO_CLAIM_ID = 172, // RESERVED - XCHAIN
+    tecXCHAIN_BAD_CLAIM_ID = 173, // RESERVED - XCHAIN
+    tecXCHAIN_CLAIM_NO_QUORUM = 174, // RESERVED - XCHAIN
+    tecXCHAIN_PROOF_UNKNOWN_KEY = 175, // RESERVED - XCHAIN
+    tecXCHAIN_CREATE_ACCOUNT_NONXRP_ISSUE = 176, // RESERVED - XCHAIN
+    tecXCHAIN_WRONG_CHAIN = 177, // RESERVED - XCHAIN
+    tecXCHAIN_REWARD_MISMATCH = 178, // RESERVED - XCHAIN
+    tecXCHAIN_NO_SIGNERS_LIST = 179, // RESERVED - XCHAIN
+    tecXCHAIN_SENDING_ACCOUNT_MISMATCH = 180, // RESERVED - XCHAIN
+    tecXCHAIN_INSUFF_CREATE_AMOUNT = 181, // RESERVED - XCHAIN
+    tecXCHAIN_ACCOUNT_CREATE_PAST = 182, // RESERVED - XCHAIN
+    tecXCHAIN_ACCOUNT_CREATE_TOO_MANY = 183, // RESERVED - XCHAIN
+    tecXCHAIN_PAYMENT_FAILED = 184, // RESERVED - XCHAIN
+    tecXCHAIN_SELF_COMMIT = 185, // RESERVED - XCHAIN
+    tecXCHAIN_BAD_PUBLIC_KEY_ACCOUNT_PAIR = 186 // RESERVED - XCHAIN
 };
 
 //------------------------------------------------------------------------------

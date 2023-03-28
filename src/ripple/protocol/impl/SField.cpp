@@ -151,7 +151,9 @@ CONSTRUCT_TYPED_SFIELD(sfMintedNFTokens,        "MintedNFTokens",       UINT32, 
 CONSTRUCT_TYPED_SFIELD(sfBurnedNFTokens,        "BurnedNFTokens",       UINT32,    44);
 CONSTRUCT_TYPED_SFIELD(sfHookStateCount,        "HookStateCount",       UINT32,    45);
 CONSTRUCT_TYPED_SFIELD(sfEmitGeneration,        "EmitGeneration",       UINT32,    46);
-CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32,    47);
+// 47: RESERVED FOR AMM
+// 48: RESERVED FOR AMM
+CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32,    49);
 
 CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);
 CONSTRUCT_TYPED_SFIELD(sfRewardLgrFirst,        "RewardLgrFirst",       UINT32,    99);
