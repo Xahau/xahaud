@@ -219,7 +219,7 @@ enum TERcodes : TERUnderlyingType {
     terNO_RIPPLE,    // Rippling not allowed
     terQUEUED,       // Transaction is being held in TxQ until fee drops
     terPRE_TICKET,   // Ticket is not yet in ledger but might be on its way
-    terNO_AMM        // RESERVED - AMM
+    terNO_AMM,       // RESERVED - AMM
     terNO_HOOK       // Transaction requires a non-existent hook definition (referenced by sfHookHash)
 };
 
