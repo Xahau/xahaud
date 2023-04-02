@@ -121,10 +121,10 @@ JSS(SetFlag);               // field.
 JSS(SetRegularKey);         // transaction type.
 JSS(SetHook);               // transaction type.
 JSS(Hook);                  // ledger type.
+JSS(HookDefinition);        // ledger type.
 JSS(HookState);             // ledger type.
 JSS(HookStateData);         // field.
 JSS(HookStateKey);          // field.
-JSS(HookDefinition);
 JSS(EmittedTxn);             // ledger type.
 JSS(SignerList);             // ledger type.
 JSS(SignerListSet);          // transaction type.
@@ -278,6 +278,7 @@ JSS(error_code);            // out: error
 JSS(error_exception);       // out: Submit
 JSS(error_message);         // out: error
 JSS(escrow);                // in: LedgerEntry
+JSS(emitted_txn);           // in: LedgerEntry
 JSS(expand);                // in: handler/Ledger
 JSS(expected_date);         // out: any (warnings)
 JSS(expected_date_UTC);     // out: any (warnings)
