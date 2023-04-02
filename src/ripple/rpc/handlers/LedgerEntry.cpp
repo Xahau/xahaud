@@ -217,6 +217,18 @@ doLedgerEntry(RPC::JsonContext& context)
                         .key;
         }
     }
+    else if (context.params.isMember(jss::emitted_txn))
+    {
+        expectedType = ltEMITTED_TXN;
+        if (!context.params[jss::emitted_txn].isObject())
+        {
+            if (!uNodeIndex.parseHex(context.params[jss::emitted_txn].asString()))
+            {
+                uNodeIndex = beast::zero;
+                jvResult[jss::error] = "malformedRequest";
+            }
+        }
+    }
     else if (context.params.isMember(jss::offer))
     {
         expectedType = ltOFFER;
