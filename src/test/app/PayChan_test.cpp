@@ -5994,10 +5994,10 @@ struct PayChan_test : public beast::unit_test::suite
             Env env(*this, features);
             env.fund(XRP(10000), alice, bob, gw);
             env.close();
-            env.trust(USD(1000000000000000000), alice);
-            env.trust(USD(1000000000000000000), bob);
+            env.trust(USD(100000000000000000), alice);
+            env.trust(USD(100000000000000000), bob);
             env.close();
-            env(pay(gw, alice, USD(100000000000000000)));
+            env(pay(gw, alice, USD(10000000000000000)));
             env(pay(gw, bob, USD(1)));
             env.close();
             auto const pk = alice.pk();
@@ -6007,9 +6007,9 @@ struct PayChan_test : public beast::unit_test::suite
                 ter(tecPRECISION_LOSS));
             env.close();
 
-            // alice can create paychan for 100 token
+            // alice can create paychan for 10000 token
             auto const chan = channel(alice, bob, env.seq(alice));
-            env(create(alice, bob, USD(100), settleDelay, pk));
+            env(create(alice, bob, USD(1000), settleDelay, pk));
             env.close();
 
             auto const chanBal = channelBalance(*env.current(), chan);
@@ -6022,8 +6022,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ter(tecPRECISION_LOSS));
 
-            reqBal = USD(100);
-            authAmt = reqBal + USD(100);
+            reqBal = USD(1000);
+            authAmt = reqBal + USD(1000);
             sig = signClaimTokenAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
         }
