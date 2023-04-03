@@ -46,7 +46,8 @@ struct URIToken_test : public beast::unit_test::suite
     {
         auto const uritSle = view.read({ltURI_TOKEN, tid});
         ripple::Dir const ownerDir(view, keylet::ownerDir(acct.id()));
-        return std::find(ownerDir.begin(), ownerDir.end(), uritSle) != ownerDir.end();
+        return std::find(ownerDir.begin(), ownerDir.end(), uritSle) !=
+            ownerDir.end();
     }
 
     static std::size_t
@@ -116,8 +117,7 @@ struct URIToken_test : public beast::unit_test::suite
         jtx::Account const& gw,
         jtx::IOU const& iou)
     {
-        auto const sle =
-            env.le(keylet::line(account, gw, iou.currency));
+        auto const sle = env.le(keylet::line(account, gw, iou.currency));
         if (sle && sle->isFieldPresent(sfBalance))
             return (*sle)[sfBalance];
         return STAmount(iou, 0);
@@ -200,7 +200,8 @@ struct URIToken_test : public beast::unit_test::suite
         {
             // If the URIToken amendment is not enabled, you should not be able
             // to mint, burn, buy, sell or clear uri tokens.
-            auto const amend = withURIToken ? features : features - featureURIToken;
+            auto const amend =
+                withURIToken ? features : features - featureURIToken;
             Env env{*this, amend};
 
             env.fund(XRP(1000), alice, bob);
@@ -558,7 +559,6 @@ struct URIToken_test : public beast::unit_test::suite
         // tecINSUFFICIENT_FUNDS - insuficient amount sent
         env(buy(bob, hexid, USD(10000)), ter(tecINSUFFICIENT_FUNDS));
         env.close();
-        
         // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
         {
             // fund dave 251 xrp (not enough for line reserve)
@@ -656,7 +656,8 @@ struct URIToken_test : public beast::unit_test::suite
         auto const tid = tokenid(alice, uri);
         std::string const hexid{strHex(tid)};
 
-        std::string const digestval = "C16E7263F07AA41261DCC955660AF4646ADBA414E37B6F5A5BA50F75153F5CCC";
+        std::string const digestval =
+            "C16E7263F07AA41261DCC955660AF4646ADBA414E37B6F5A5BA50F75153F5CCC";
 
         // has digest - has uri - no flags
         {
@@ -664,7 +665,8 @@ struct URIToken_test : public beast::unit_test::suite
             env(mint(alice, uri), json(sfDigest.fieldName, digestval));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            BEAST_EXPECT(to_string(tokenDigest(*env.current(), tid)) == digestval);
+            BEAST_EXPECT(
+                to_string(tokenDigest(*env.current(), tid)) == digestval);
             // cleanup
             env(burn(alice, hexid));
             env.close();
@@ -678,7 +680,8 @@ struct URIToken_test : public beast::unit_test::suite
                 json(sfDigest.fieldName, digestval));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
-            BEAST_EXPECT(to_string(tokenDigest(*env.current(), tid)) == digestval);
+            BEAST_EXPECT(
+                to_string(tokenDigest(*env.current(), tid)) == digestval);
             // cleanup
             env(burn(alice, hexid));
             env.close();
@@ -1404,7 +1407,6 @@ struct URIToken_test : public beast::unit_test::suite
             auto const USD = t.gw["USD"];
             env.fund(XRP(5000), t.src, t.dst, t.gw);
             env.close();
-            
             if (t.hasTrustline)
                 env.trust(USD(100000), t.src, t.dst);
             else
@@ -1457,21 +1459,19 @@ struct URIToken_test : public beast::unit_test::suite
             bool negative;
         };
 
-        std::array<TestAccountData, 4> tests = {
-            {
-                // acct no trustline
-                // acct > issuer
-                {Account("alice2"), Account{"gw0"}, false, true},
-                // acct < issuer
-                {Account("carol0"), Account{"gw1"}, false, false},
-                
-                // acct has trustline
-                // acct > issuer
-                {Account("alice2"), Account{"gw0"}, true, true},
-                // acct < issuer
-                {Account("carol0"), Account{"gw1"}, true, false},
-            }
-        };
+        std::array<TestAccountData, 4> tests = {{
+            // acct no trustline
+            // acct > issuer
+            {Account("alice2"), Account{"gw0"}, false, true},
+            // acct < issuer
+            {Account("carol0"), Account{"gw1"}, false, false},
+
+            // acct has trustline
+            // acct > issuer
+            {Account("alice2"), Account{"gw0"}, true, true},
+            // acct < issuer
+            {Account("carol0"), Account{"gw1"}, true, false},
+        }};
 
         // test gateway is buyer
         for (auto const& t : tests)
@@ -1480,15 +1480,14 @@ struct URIToken_test : public beast::unit_test::suite
             auto const USD = t.gw["USD"];
             env.fund(XRP(5000), t.acct, t.gw);
             env.close();
-            
+
             if (t.hasTrustline)
                 env.trust(USD(100000), t.acct);
-            
+
             env.close();
 
             if (t.hasTrustline)
                 env(pay(t.gw, t.acct, USD(10000)));
-            
             env.close();
 
             // acct can create uritoken
@@ -1504,7 +1503,8 @@ struct URIToken_test : public beast::unit_test::suite
             env(sell(t.acct, id, delta));
             env.close();
             auto const preAmount = t.hasTrustline ? 10000 : 0;
-            BEAST_EXPECT(preAcct == (t.negative ? -USD(preAmount) : USD(preAmount)));
+            BEAST_EXPECT(
+                preAcct == (t.negative ? -USD(preAmount) : USD(preAmount)));
 
             // gw can create buy
             env(buy(t.gw, id, delta));
@@ -1544,7 +1544,8 @@ struct URIToken_test : public beast::unit_test::suite
             env(sell(t.gw, id, delta));
             env.close();
             auto const preAmount = 10000;
-            BEAST_EXPECT(preAcct == (t.negative ? -USD(preAmount) : USD(preAmount)));
+            BEAST_EXPECT(
+                preAcct == (t.negative ? -USD(preAmount) : USD(preAmount)));
 
             // acct can create buy
             env(buy(t.acct, id, delta));
@@ -1623,7 +1624,6 @@ struct URIToken_test : public beast::unit_test::suite
         auto const carol = Account("carol");
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
-        
         // test Global Freeze
         {
             // setup env
@@ -1752,7 +1752,6 @@ struct URIToken_test : public beast::unit_test::suite
             std::string const id{strHex(tokenid(alice, uri))};
             auto const delta = USD(100);
             auto preBob = env.balance(bob, USD.issue());
-            
             // alice mints and sells
             env(mint(alice, uri));
             env(sell(alice, id, delta));
@@ -1803,7 +1802,6 @@ struct URIToken_test : public beast::unit_test::suite
             // alice mints
             env(mint(alice, uri));
             env.close();
-            
             // alice sells
             env(sell(alice, hexid, delta));
             env.close();
@@ -1842,11 +1840,11 @@ struct URIToken_test : public beast::unit_test::suite
             // alice mints
             env(mint(alice, uri));
             env.close();
-            
+
             // alice sells
             env(sell(alice, hexid, XRP(10)));
             env.close();
-            
+
             // bob buys
             env(buy(bob, hexid, XRP(10)));
             env.close();
@@ -1912,7 +1910,6 @@ struct URIToken_test : public beast::unit_test::suite
 
         // test utf-8 success
         {
-
             // case: kosme
             uri = "κόσμε";
             env(mint(alice, uri));
@@ -1944,13 +1941,14 @@ struct URIToken_test : public beast::unit_test::suite
             // case: ipfs metadata url
             uri = "https://example.com/ipfs/";
             env(mint(alice, uri));
-            
+
             // BOUNDRY - START
             // ----------------------------------------------------------------
-            
+
             // case: 1 byte  (U-00000000)
             uri = "\x00";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
             // case: 2 bytes (U-00000080)
             uri = "\xC2\x80";
             env(mint(alice, uri));
@@ -1962,10 +1960,12 @@ struct URIToken_test : public beast::unit_test::suite
             env(mint(alice, uri));
             // case: 5 bytes (U-00200000)
             uri = "\xF8\x88\x80\x80\x80";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
             // case: 6 bytes (U-04000000)
             uri = "\xFC\x84\x80\x80\x80\x80";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
 
             // BOUNDRY - END
             // ----------------------------------------------------------------
@@ -1978,22 +1978,27 @@ struct URIToken_test : public beast::unit_test::suite
             env(mint(alice, uri));
             // case: 3 bytes (U-0000FFFF)
             uri = "\xEF\xBF\xBF";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
             // case: 4 bytes (U-001FFFFF)
             uri = "\xF7\xBF\xBF\xBF";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
             // case: 5 bytes (U-03FFFFFF)
             uri = "\xFB\xBF\xBF\xBF\xBF";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
             // case: 6 bytes (U-7FFFFFFF)
             uri = "\xFD\xBF\xBF\xBF\xBF\xBF";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
 
             // // BOUNDRY - OTHER
             // ----------------------------------------------------------------
             // case: 1 bytes (U-0000D7FF)
             uri = "\xD7\xFF";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
             // case: 2 bytes (U-0000E000)
             uri = "\xEE\x80\x80";
             env(mint(alice, uri));
@@ -2005,7 +2010,8 @@ struct URIToken_test : public beast::unit_test::suite
             env(mint(alice, uri));
             // // case: 4 bytes (U-00110000)
             uri = "\xF4\x90\x80\x80";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD NOT FAIL
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
         }
         // test utf8 malformed
         {
@@ -2014,66 +2020,84 @@ struct URIToken_test : public beast::unit_test::suite
             // First continuation byte 0x80:
             uri = "\x80";
             env(mint(alice, uri), ter(temMALFORMED));
-            
             // Last continuation byte 0xbf
             uri = "\xBF";
             env(mint(alice, uri), ter(temMALFORMED));
 
             // 2 continuation bytes
             uri = "��";
-            env(mint(alice, uri)); // TODO: REVIEW - SHOULD FAIL
+            env(mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
 
             // 3 continuation bytes
             uri = "���";
-            env(mint(alice, uri)); // TODO: REVIEW - SHOULD FAIL
+            env(mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
 
             // 4 continuation bytes
             uri = "����";
-            env(mint(alice, uri)); // TODO: REVIEW - SHOULD FAIL
+            env(mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
 
             // 5 continuation bytes
             uri = "�����";
-            env(mint(alice, uri)); // TODO: REVIEW - SHOULD FAIL
+            env(mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
 
             // 6 continuation bytes
             uri = "������";
-            env(mint(alice, uri)); // TODO: REVIEW - SHOULD FAIL
+            env(mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
 
             // 7 continuation bytes
             uri = "�������";
-            env(mint(alice, uri)); // TODO: REVIEW - SHOULD FAIL
+            env(mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
 
             // Sequence of all 64 possible continuation bytes (0x80-0xbf)
-            uri = "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C\x9D\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB\xAC\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB\xBC\xBD\xBE\xBF";
+            uri =
+                "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E"
+                "\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C\x9D"
+                "\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB\xAC"
+                "\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB"
+                "\xBC\xBD\xBE\xBF";
             env(mint(alice, uri), ter(temMALFORMED));
 
             // TODO: REVIEW - THIS IS NOT THE CORRECT 32 byte sequence.
             // All 32 first bytes of 2-byte sequences (0xc0-0xdf), each followed
             // by a space character
-            // uri = "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83 \xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 \xE0\x80\x88 \xE0\x80\x89 \xE0\x80\x8A \xE0\x80\x8B \xE0\x80\x8C \xE0\x80\x8D \xE0\x80\x8E \xE0\x80\x8F \xE0\x80\x90";
-            // env(mint(alice, uri), ter(temMALFORMED));
+            // uri = "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83
+            // \xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 \xE0\x80\x88
+            // \xE0\x80\x89 \xE0\x80\x8A \xE0\x80\x8B \xE0\x80\x8C \xE0\x80\x8D
+            // \xE0\x80\x8E \xE0\x80\x8F \xE0\x80\x90"; env(mint(alice, uri),
+            // ter(temMALFORMED));
 
             // All 16 first bytes of 3-byte sequences (0xe0-0xef), each followed
             // by a space character
-            uri = "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83 \xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 \xE0\x80\x88 \xE0\x80\x89 \xE0\x80\x8A \xE0\x80\x8B \xE0\x80\x8C \xE0\x80\x8D \xE0\x80\x8E \xE0\x80\x8F \xE0\x80\x90";
+            uri =
+                "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83 "
+                "\xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 "
+                "\xE0\x80\x88 \xE0\x80\x89 \xE0\x80\x8A \xE0\x80\x8B "
+                "\xE0\x80\x8C \xE0\x80\x8D \xE0\x80\x8E \xE0\x80\x8F "
+                "\xE0\x80\x90";
             env(mint(alice, uri), ter(temMALFORMED));
 
             // All 8 first bytes of 4-byte sequences (0xf0-0xf7), each followed
             // by a space character
-            uri = "\xF0\x90\x80\x80 \xF0\x90\x80\x81 \xF0\x90\x80\x82 \xF0\x90\x80\x83 \xF0\x90\x80\x84 \xF0\x90\x80\x85 \xF0\x90\x80\x86 \xF0\x90\x80\x87";
-            env(mint(alice, uri)); // TODO: REVIEW - SHOULD FAIL
+            uri =
+                "\xF0\x90\x80\x80 \xF0\x90\x80\x81 \xF0\x90\x80\x82 "
+                "\xF0\x90\x80\x83 \xF0\x90\x80\x84 \xF0\x90\x80\x85 "
+                "\xF0\x90\x80\x86 \xF0\x90\x80\x87";
+            env(mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
 
             // All 4 first bytes of 5-byte sequences (0xf8-0xfb), each followed
             // by a space character
-            uri = "\xF8\x88\x80\x80\x80 \xF8\x88\x80\x80\x81 \xF8\x88\x80\x80\x82 \xF8\x88\x80\x80\x83";
-            env(mint(alice, uri), ter(temMALFORMED)); // TODO: REVIEW - SHOULD FAIL
+            uri =
+                "\xF8\x88\x80\x80\x80 \xF8\x88\x80\x80\x81 "
+                "\xF8\x88\x80\x80\x82 \xF8\x88\x80\x80\x83";
+            env(mint(alice, uri),
+                ter(temMALFORMED));  // TODO: REVIEW - SHOULD FAIL
 
             // All 2 first bytes of 6-byte sequences (0xfc-0xfd), each followed
             // by a space character
             uri = "\xFC\x84\x80\x80\x80\x80 \xFC\x84\x80\x80\x80\x81";
             env(mint(alice, uri), ter(temMALFORMED));
 
-            // Sequences with last continuation byte missing  
+            // Sequences with last continuation byte missing
 
             // Concatenation of incomplete sequences
 
@@ -2194,7 +2218,6 @@ struct URIToken_test : public beast::unit_test::suite
             env(mint(alice, uri), ter(temMALFORMED));
         }
     }
-    
     void
     testWithFeats(FeatureBitset features)
     {
