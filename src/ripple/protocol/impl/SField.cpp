@@ -151,9 +151,9 @@ CONSTRUCT_TYPED_SFIELD(sfMintedNFTokens,        "MintedNFTokens",       UINT32, 
 CONSTRUCT_TYPED_SFIELD(sfBurnedNFTokens,        "BurnedNFTokens",       UINT32,    44);
 CONSTRUCT_TYPED_SFIELD(sfHookStateCount,        "HookStateCount",       UINT32,    45);
 CONSTRUCT_TYPED_SFIELD(sfEmitGeneration,        "EmitGeneration",       UINT32,    46);
-CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32,    47);
-// Two field values of 48 and 49 are reserved for 
-// VoteWeight(AMM), DiscountedFee(AMM)
+// 47: RESERVED FOR AMM
+// 48: RESERVED FOR AMM
+CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32,    49);
 
 CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);
