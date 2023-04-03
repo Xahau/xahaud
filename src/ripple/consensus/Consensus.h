@@ -32,6 +32,7 @@
 #include <boost/logic/tribool.hpp>
 #include <optional>
 #include <sstream>
+#include <deque>
 
 namespace ripple {
 

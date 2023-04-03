@@ -35,6 +35,9 @@ Json::Value
 hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv) = 0);
 
 Json::Value
+hso(std::string const& wasmHex, void (*f)(Json::Value& jv) = 0);
+
+Json::Value
 hso_delete(void (*f)(Json::Value& jv) = 0);
 
 }  // namespace jtx

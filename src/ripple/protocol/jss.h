@@ -121,8 +121,10 @@ JSS(SetFlag);               // field.
 JSS(SetRegularKey);         // transaction type.
 JSS(SetHook);               // transaction type.
 JSS(Hook);                  // ledger type.
+JSS(HookDefinition);        // ledger type.
 JSS(HookState);             // ledger type.
-JSS(HookDefinition);
+JSS(HookStateData);         // field.
+JSS(HookStateKey);          // field.
 JSS(EmittedTxn);             // ledger type.
 JSS(SignerList);             // ledger type.
 JSS(SignerListSet);          // transaction type.
@@ -283,6 +285,7 @@ JSS(error_code);            // out: error
 JSS(error_exception);       // out: Submit
 JSS(error_message);         // out: error
 JSS(escrow);                // in: LedgerEntry
+JSS(emitted_txn);           // in: LedgerEntry
 JSS(expand);                // in: handler/Ledger
 JSS(expected_date);         // out: any (warnings)
 JSS(expected_date_UTC);     // out: any (warnings)
@@ -326,7 +329,9 @@ JSS(high);                  // out: BookChanges
 JSS(highest_sequence);      // out: AccountInfo
 JSS(highest_ticket);        // out: AccountInfo
 JSS(historical_perminute);  // historical_perminute.
-JSS(hook_hash);             // in: LedgerEntry
+JSS(hook);                  // in: LedgerEntry
+JSS(hook_definition);       // in: LedgerEntry
+JSS(hook_state);            // in: LedgerEntry
 JSS(hostid);                // out: NetworkOPs
 JSS(hotwallet);             // in: GatewayBalances
 JSS(id);                    // websocket.

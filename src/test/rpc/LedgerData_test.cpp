@@ -377,6 +377,17 @@ public:
         }
 
         {
+            std::string const createCodeHex = "0061736D01000000011B0460027F7F017F60047F7F7F7F017E60037F7F7E017E60017F017E02270303656E76025F67000003656E760973746174655F736574000103656E76066163636570740002030201030503010002062B077F01419088040B7F004180080B7F00418A080B7F004180080B7F00419088040B7F0041000B7F0041010B07080104686F6F6B00030AE7800001E3800002017F017E230041106B220124002001200036020C41012200200010001A2001418008280000360208200141046A410022002F0088083B010020012000280084083602004100200020014106200141086A4104100110022102200141106A240020020B0B1001004180080B096B65790076616C7565";
+            std::string ns_str = "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE";
+            Json::Value jv = ripple::test::jtx::hook(Account{"bob3"}, {{hso(createCodeHex)}}, 0);
+            jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
+            env(jv, fee(100'000'000));
+            env.close();
+            env(pay(Account{"bob2"}, Account{"bob3"}, XRP(1)), fee(XRP(1)));
+            env.close();
+        }
+
+        {
             Json::Value jv;
             jv[jss::TransactionType] = jss::PaymentChannelCreate;
             jv[jss::Flags] = tfUniversal;
@@ -423,7 +434,7 @@ public:
 
         {  // jvParams[jss::type] = "directory";
             auto const jrr = makeRequest(jss::directory);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 9));
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 10));
             for (auto const& j : jrr[jss::state])
                 BEAST_EXPECT(j["LedgerEntryType"] == jss::DirectoryNode);
         }
@@ -475,6 +486,27 @@ public:
             BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
             for (auto const& j : jrr[jss::state])
                 BEAST_EXPECT(j["LedgerEntryType"] == jss::Escrow);
+        }
+
+        {  // jvParams[jss::type] = "hook";
+            auto const jrr = makeRequest(jss::hook);
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            for (auto const& j : jrr[jss::state])
+                BEAST_EXPECT(j["LedgerEntryType"] == jss::Hook);
+        }
+
+        {  // jvParams[jss::type] = "hook_definition";
+            auto const jrr = makeRequest(jss::hook_definition);
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            for (auto const& j : jrr[jss::state])
+                BEAST_EXPECT(j["LedgerEntryType"] == jss::HookDefinition);
+        }
+
+        {  // jvParams[jss::type] = "hook_state";
+            auto const jrr = makeRequest(jss::hook_state);
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            for (auto const& j : jrr[jss::state])
+                BEAST_EXPECT(j["LedgerEntryType"] == jss::HookState);
         }
 
         {  // jvParams[jss::type] = "payment_channel";
