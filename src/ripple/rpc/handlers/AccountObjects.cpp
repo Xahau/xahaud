@@ -205,7 +205,7 @@ doAccountObjects(RPC::JsonContext& context)
             {jss::check, ltCHECK},
             {jss::escrow, ltESCROW},
             {jss::nft_page, ltNFTOKEN_PAGE},
-            {jss::escrow, ltHOOK},
+            {jss::hook, ltHOOK},
             {jss::payment_channel, ltPAYCHAN},
             {jss::uri_token, ltURI_TOKEN},
             {jss::state, ltRIPPLE_STATE}};
