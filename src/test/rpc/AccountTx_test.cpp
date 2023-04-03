@@ -532,7 +532,6 @@ class AccountTx_test : public beast::unit_test::suite
 
             // Delete Hook
             auto deleteHook = [](test::jtx::Account const& account) {
-                std::string const deleteHookHex = "";
                 Json::Value jv = ripple::test::jtx::hook(account, {{hso_delete()}}, hsfOVERRIDE);
                 return jv;
             };
