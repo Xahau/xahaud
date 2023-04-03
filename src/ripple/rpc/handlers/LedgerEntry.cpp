@@ -227,6 +227,7 @@ doLedgerEntry(RPC::JsonContext& context)
                 uNodeIndex = beast::zero;
                 jvResult[jss::error] = "malformedRequest";
             }
+            uNodeIndex = keylet::emittedTxn(uNodeIndex).key;
         }
     }
     else if (context.params.isMember(jss::offer))
