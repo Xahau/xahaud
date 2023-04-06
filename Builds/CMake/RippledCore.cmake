@@ -13,10 +13,6 @@ if (unity)
   set_target_properties(xrpl_core PROPERTIES UNITY_BUILD ON)
 endif ()
 
-add_library(libxrpl INTERFACE)
-target_link_libraries(libxrpl INTERFACE xrpl_core)
-add_library(xrpl::libxrpl ALIAS libxrpl)
-
 
 #[===============================[
     beast/legacy FILES:
@@ -141,8 +137,8 @@ target_link_libraries (xrpl_core
     Ripple::boost
     NIH::WasmEdge
     Ripple::syslibs
-    secp256k1::secp256k1
-    ed25519::ed25519
+    NIH::secp256k1
+    NIH::ed25519-donna
     date::date
     Ripple::opts)
 #[=================================[

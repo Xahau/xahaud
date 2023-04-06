@@ -26,6 +26,7 @@ build/docker
 
 # Ignore object files.
 *.o
+build
 .nih_c
 tags
 TAGS
@@ -69,7 +70,7 @@ docs/html_doc
 # Xcode user-specific project settings
 # Xcode
 .DS_Store
-/build/
+*/build/*
 *.pbxuser
 !default.pbxuser
 *.mode1v3
