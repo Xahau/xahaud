@@ -152,7 +152,10 @@ CONSTRUCT_TYPED_SFIELD(sfBurnedNFTokens,        "BurnedNFTokens",       UINT32, 
 CONSTRUCT_TYPED_SFIELD(sfHookStateCount,        "HookStateCount",       UINT32,    45);
 CONSTRUCT_TYPED_SFIELD(sfEmitGeneration,        "EmitGeneration",       UINT32,    46);
 CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32,    47);
+// Two field values of 48 and 49 are reserved for 
+// VoteWeight(AMM), DiscountedFee(AMM)
 
+CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);
 CONSTRUCT_TYPED_SFIELD(sfRewardLgrFirst,        "RewardLgrFirst",       UINT32,    99);
 CONSTRUCT_TYPED_SFIELD(sfRewardLgrLast,         "RewardLgrLast",        UINT32,   100);
@@ -245,6 +248,13 @@ CONSTRUCT_TYPED_SFIELD(sfDeliveredAmount,       "DeliveredAmount",      AMOUNT, 
 CONSTRUCT_TYPED_SFIELD(sfNFTokenBrokerFee,      "NFTokenBrokerFee",     AMOUNT,    19);
 CONSTRUCT_TYPED_SFIELD(sfHookCallbackFee,       "HookCallbackFee",      AMOUNT,    20);
 CONSTRUCT_TYPED_SFIELD(sfLockedBalance,         "LockedBalance",        AMOUNT,    21);
+
+// Reserve 20 & 21 for Hooks
+
+// currency amount (fees)
+CONSTRUCT_TYPED_SFIELD(sfBaseFeeDrops,            "BaseFeeDrops",           AMOUNT,    22);
+CONSTRUCT_TYPED_SFIELD(sfReserveBaseDrops,        "ReserveBaseDrops",       AMOUNT,    23);
+CONSTRUCT_TYPED_SFIELD(sfReserveIncrementDrops,   "ReserveIncrementDrops",  AMOUNT,    24);
 
 // variable length (common)
 CONSTRUCT_TYPED_SFIELD(sfPublicKey,             "PublicKey",            VL,         1);

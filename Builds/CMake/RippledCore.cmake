@@ -13,6 +13,10 @@ if (unity)
   set_target_properties(xrpl_core PROPERTIES UNITY_BUILD ON)
 endif ()
 
+add_library(libxrpl INTERFACE)
+target_link_libraries(libxrpl INTERFACE xrpl_core)
+add_library(xrpl::libxrpl ALIAS libxrpl)
+
 
 #[===============================[
     beast/legacy FILES:
@@ -50,6 +54,7 @@ target_sources (xrpl_core PRIVATE
   src/ripple/basics/impl/FileUtilities.cpp
   src/ripple/basics/impl/IOUAmount.cpp
   src/ripple/basics/impl/Log.cpp
+  src/ripple/basics/impl/Number.cpp
   src/ripple/basics/impl/StringUtilities.cpp
   #[===============================[
     main sources:
@@ -136,8 +141,8 @@ target_link_libraries (xrpl_core
     Ripple::boost
     NIH::WasmEdge
     Ripple::syslibs
-    NIH::secp256k1
-    NIH::ed25519-donna
+    secp256k1::secp256k1
+    ed25519::ed25519
     date::date
     Ripple::opts)
 #[=================================[
@@ -154,6 +159,7 @@ install (
     src/ripple/basics/LocalValue.h
     src/ripple/basics/Log.h
     src/ripple/basics/MathUtilities.h
+    src/ripple/basics/Number.h
     src/ripple/basics/safe_cast.h
     src/ripple/basics/Slice.h
     src/ripple/basics/spinlock.h
@@ -536,7 +542,6 @@ target_sources (rippled PRIVATE
   src/ripple/nodestore/impl/DeterministicShard.cpp
   src/ripple/nodestore/impl/DecodedBlob.cpp
   src/ripple/nodestore/impl/DummyScheduler.cpp
-  src/ripple/nodestore/impl/EncodedBlob.cpp
   src/ripple/nodestore/impl/ManagerImp.cpp
   src/ripple/nodestore/impl/NodeObject.cpp
   src/ripple/nodestore/impl/Shard.cpp
@@ -747,6 +752,7 @@ if (tests)
     src/test/basics/FileUtilities_test.cpp
     src/test/basics/IOUAmount_test.cpp
     src/test/basics/KeyCache_test.cpp
+    src/test/basics/Number_test.cpp
     src/test/basics/PerfLog_test.cpp
     src/test/basics/RangeSet_test.cpp
     src/test/basics/scope_test.cpp

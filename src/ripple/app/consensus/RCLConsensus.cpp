@@ -338,7 +338,7 @@ RCLConsensus::Adaptor::onClose(
             // pseudo-transactions
             auto validations = app_.validators().negativeUNLFilter(
                 app_.getValidations().getTrustedForLedger(
-                    prevLedger->info().parentHash));
+                    prevLedger->info().parentHash, prevLedger->seq() - 1));
             if (validations.size() >= app_.validators().quorum())
             {
                 feeVote_->doVoting(prevLedger, validations, initialSet);
@@ -499,10 +499,11 @@ RCLConsensus::Adaptor::doAccept(
                 std::make_shared<STTx const>(SerialIter{item.slice()}));
             JLOG(j_.debug()) << "    Tx: " << item.key();
         }
-        catch (std::exception const&)
+        catch (std::exception const& ex)
         {
             failed.insert(item.key());
-            JLOG(j_.warn()) << "    Tx: " << item.key() << " throws!";
+            JLOG(j_.warn())
+                << "    Tx: " << item.key() << " throws: " << ex.what();
         }
     }
 
@@ -616,10 +617,11 @@ RCLConsensus::Adaptor::doAccept(
 
                     anyDisputes = true;
                 }
-                catch (std::exception const&)
+                catch (std::exception const& ex)
                 {
-                    JLOG(j_.debug())
-                        << "Failed to apply transaction we voted NO on";
+                    JLOG(j_.debug()) << "Failed to apply transaction we voted "
+                                        "NO on. Exception: "
+                                     << ex.what();
                 }
             }
         }
@@ -840,7 +842,8 @@ RCLConsensus::Adaptor::validate(
             if (ledger.ledger_->isVotingLedger())
             {
                 // Fees:
-                feeVote_->doValidation(ledger.ledger_->fees(), v);
+                feeVote_->doValidation(
+                    ledger.ledger_->fees(), ledger.ledger_->rules(), v);
 
                 // Amendments
                 // FIXME: pass `v` and have the function insert the array

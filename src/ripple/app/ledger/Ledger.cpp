@@ -186,6 +186,7 @@ Ledger::Ledger(
     , txMap_(std::make_shared<SHAMap>(SHAMapType::TRANSACTION, family))
     , stateMap_(std::make_shared<SHAMap>(SHAMapType::STATE, family))
     , rules_{config.features}
+    , j_(beast::Journal(beast::Journal::getNullSink()))
 {
     info_.seq = 1;
     info_.drops = INITIAL_XRP;
@@ -209,8 +210,34 @@ Ledger::Ledger(
         rawInsert(sle);
     }
 
+    {
+        auto sle = std::make_shared<SLE>(keylet::fees());
+        // Whether featureXRPFees is supported will depend on startup options.
+        if (std::find(amendments.begin(), amendments.end(), featureXRPFees) !=
+            amendments.end())
+        {
+            sle->at(sfBaseFeeDrops) = config.FEES.reference_fee;
+            sle->at(sfReserveBaseDrops) = config.FEES.account_reserve;
+            sle->at(sfReserveIncrementDrops) = config.FEES.owner_reserve;
+        }
+        else
+        {
+            if (auto const f =
+                    config.FEES.reference_fee.dropsAs<std::uint64_t>())
+                sle->at(sfBaseFee) = *f;
+            if (auto const f =
+                    config.FEES.account_reserve.dropsAs<std::uint32_t>())
+                sle->at(sfReserveBase) = *f;
+            if (auto const f =
+                    config.FEES.owner_reserve.dropsAs<std::uint32_t>())
+                sle->at(sfReserveIncrement) = *f;
+            sle->at(sfReferenceFeeUnits) = Config::FEE_UNITS_DEPRECATED;
+        }
+        rawInsert(sle);
+    }
+
     stateMap_->flushDirty(hotACCOUNT_NODE);
-    setImmutable(config);
+    setImmutable();
 }
 
 Ledger::Ledger(
@@ -229,6 +256,7 @@ Ledger::Ledger(
           std::make_shared<SHAMap>(SHAMapType::STATE, info.accountHash, family))
     , rules_(config.features)
     , info_(info)
+    , j_(j)
 {
     loaded = true;
 
@@ -259,14 +287,15 @@ Ledger::Ledger(
     txMap_->setImmutable();
     stateMap_->setImmutable();
 
-    if (!setup(config))
+    defaultFees(config);
+    if (!setup())
         loaded = false;
 
     if (!loaded)
     {
         info_.hash = calculateLedgerHash(info_);
         if (acquire && !config.reporting())
-            family.missingNode(info_.hash, info_.seq);
+            family.missingNodeAcquireByHash(info_.hash, info_.seq);
     }
 }
 
@@ -279,6 +308,7 @@ Ledger::Ledger(Ledger const& prevLedger, NetClock::time_point closeTime)
     , stateMap_(prevLedger.stateMap_->snapShot(true))
     , fees_(prevLedger.fees_)
     , rules_(prevLedger.rules_)
+    , j_(beast::Journal(beast::Journal::getNullSink()))
 {
     info_.seq = prevLedger.info_.seq + 1;
     info_.parentCloseTime = prevLedger.info_.closeTime;
@@ -312,6 +342,7 @@ Ledger::Ledger(LedgerInfo const& info, Config const& config, Family& family)
           std::make_shared<SHAMap>(SHAMapType::STATE, info.accountHash, family))
     , rules_{config.features}
     , info_(info)
+    , j_(beast::Journal(beast::Journal::getNullSink()))
 {
     info_.hash = calculateLedgerHash(info_);
 }
@@ -325,15 +356,17 @@ Ledger::Ledger(
     , txMap_(std::make_shared<SHAMap>(SHAMapType::TRANSACTION, family))
     , stateMap_(std::make_shared<SHAMap>(SHAMapType::STATE, family))
     , rules_{config.features}
+    , j_(beast::Journal(beast::Journal::getNullSink()))
 {
     info_.seq = ledgerSeq;
     info_.closeTime = closeTime;
     info_.closeTimeResolution = ledgerDefaultTimeResolution;
-    setup(config);
+    defaultFees(config);
+    setup();
 }
 
 void
-Ledger::setImmutable(Config const& config, bool rehash)
+Ledger::setImmutable(bool rehash)
 {
     // Force update, since this is the only
     // place the hash transitions to valid
@@ -349,15 +382,14 @@ Ledger::setImmutable(Config const& config, bool rehash)
     mImmutable = true;
     txMap_->setImmutable();
     stateMap_->setImmutable();
-    setup(config);
+    setup();
 }
 
 void
 Ledger::setAccepted(
     NetClock::time_point closeTime,
     NetClock::duration closeResolution,
-    bool correctCloseTime,
-    Config const& config)
+    bool correctCloseTime)
 {
     // Used when we witnessed the consensus.
     assert(!open());
@@ -365,7 +397,7 @@ Ledger::setAccepted(
     info_.closeTime = closeTime;
     info_.closeTimeResolution = closeResolution;
     info_.closeFlags = correctCloseTime ? 0 : sLCF_NoConsensusTime;
-    setImmutable(config);
+    setImmutable();
 }
 
 bool
@@ -587,57 +619,94 @@ Ledger::rawTxInsertWithHash(
 }
 
 bool
-Ledger::setup(Config const& config)
+Ledger::setup()
 {
     bool ret = true;
 
-    fees_.base = config.FEE_DEFAULT;
-    fees_.units = config.TRANSACTION_FEE_BASE;
-    fees_.reserve = config.FEE_ACCOUNT_RESERVE;
-    fees_.increment = config.FEE_OWNER_RESERVE;
+    try
+    {
+        rules_ = makeRulesGivenLedger(*this, rules_);
+    }
+    catch (SHAMapMissingNode const&)
+    {
+        ret = false;
+    }
+    catch (std::exception const& ex)
+    {
+        JLOG(j_.error()) << "Exception in " << __func__ << ": " << ex.what();
+        Rethrow();
+    }
 
     try
     {
         if (auto const sle = read(keylet::fees()))
         {
-            // VFALCO NOTE Why getFieldIndex and not isFieldPresent?
-
-            if (sle->getFieldIndex(sfBaseFee) != -1)
-                fees_.base = sle->getFieldU64(sfBaseFee);
-
-            if (sle->getFieldIndex(sfReferenceFeeUnits) != -1)
-                fees_.units = sle->getFieldU32(sfReferenceFeeUnits);
-
-            if (sle->getFieldIndex(sfReserveBase) != -1)
-                fees_.reserve = sle->getFieldU32(sfReserveBase);
-
-            if (sle->getFieldIndex(sfReserveIncrement) != -1)
-                fees_.increment = sle->getFieldU32(sfReserveIncrement);
+            bool oldFees = false;
+            bool newFees = false;
+            {
+                auto const baseFee = sle->at(~sfBaseFee);
+                auto const reserveBase = sle->at(~sfReserveBase);
+                auto const reserveIncrement = sle->at(~sfReserveIncrement);
+                if (baseFee)
+                    fees_.base = *baseFee;
+                if (reserveBase)
+                    fees_.reserve = *reserveBase;
+                if (reserveIncrement)
+                    fees_.increment = *reserveIncrement;
+                oldFees = baseFee || reserveBase || reserveIncrement;
+            }
+            {
+                auto const baseFeeXRP = sle->at(~sfBaseFeeDrops);
+                auto const reserveBaseXRP = sle->at(~sfReserveBaseDrops);
+                auto const reserveIncrementXRP =
+                    sle->at(~sfReserveIncrementDrops);
+                auto assign = [&ret](
+                                  XRPAmount& dest,
+                                  std::optional<STAmount> const& src) {
+                    if (src)
+                    {
+                        if (src->native())
+                            dest = src->xrp();
+                        else
+                            ret = false;
+                    }
+                };
+                assign(fees_.base, baseFeeXRP);
+                assign(fees_.reserve, reserveBaseXRP);
+                assign(fees_.increment, reserveIncrementXRP);
+                newFees = baseFeeXRP || reserveBaseXRP || reserveIncrementXRP;
+            }
+            if (oldFees && newFees)
+                // Should be all of one or the other, but not both
+                ret = false;
+            if (!rules_.enabled(featureXRPFees) && newFees)
+                // Can't populate the new fees before the amendment is enabled
+                ret = false;
         }
     }
     catch (SHAMapMissingNode const&)
     {
         ret = false;
     }
-    catch (std::exception const&)
+    catch (std::exception const& ex)
     {
-        Rethrow();
-    }
-
-    try
-    {
-        rules_ = makeRulesGivenLedger(*this, config.features);
-    }
-    catch (SHAMapMissingNode const&)
-    {
-        ret = false;
-    }
-    catch (std::exception const&)
-    {
+        JLOG(j_.error()) << "Exception in " << __func__ << ": " << ex.what();
         Rethrow();
     }
 
     return ret;
+}
+
+void
+Ledger::defaultFees(Config const& config)
+{
+    assert(fees_.base == 0 && fees_.reserve == 0 && fees_.increment == 0);
+    if (fees_.base == 0)
+        fees_.base = config.FEES.reference_fee;
+    if (fees_.reserve == 0)
+        fees_.reserve = config.FEES.account_reserve;
+    if (fees_.increment == 0)
+        fees_.increment = config.FEES.owner_reserve;
 }
 
 std::shared_ptr<SLE>
@@ -1044,7 +1113,10 @@ finishLoadByIndexOrHash(
     if (!ledger)
         return;
 
-    ledger->setImmutable(config);
+    assert(
+        ledger->info().seq < XRP_LEDGER_EARLIEST_FEES ||
+        ledger->read(keylet::fees()));
+    ledger->setImmutable();
 
     JLOG(j.trace()) << "Loaded ledger: " << to_string(ledger->info().hash);
 

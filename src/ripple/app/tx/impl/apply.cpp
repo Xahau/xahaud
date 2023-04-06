@@ -143,6 +143,7 @@ apply(
     beast::Journal j)
 {
     STAmountSO stAmountSO{view.rules().enabled(fixSTAmountCanonicalize)};
+    NumberSO stNumberSO{view.rules().enabled(fixUniversalNumber)};
 
     auto pfresult = preflight(app, view.rules(), tx, flags, j);
     auto pcresult = preclaim(pfresult, app, view);
@@ -187,9 +188,9 @@ applyTransaction(
         JLOG(j.debug()) << "Transaction retry: " << transHuman(result.first);
         return ApplyResult::Retry;
     }
-    catch (std::exception const&)
+    catch (std::exception const& ex)
     {
-        JLOG(j.warn()) << "Throws";
+        JLOG(j.warn()) << "Throws: " << ex.what();
         return ApplyResult::Fail;
     }
 }

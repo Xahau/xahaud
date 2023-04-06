@@ -264,7 +264,7 @@ calculateHookChainFee(
     return fee;
 }
 
-FeeUnit64
+XRPAmount
 Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     // Returns the fee in fee units.
@@ -272,7 +272,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     // The computation has two parts:
     //  * The base fee, which is the same for most transactions.
     //  * The additional cost of each multisignature on the transaction.
-    FeeUnit64 const baseFee = safe_cast<FeeUnit64>(view.fees().units);
+    XRPAmount const baseFee = view.fees().base;
 
     // Each signer adds one more baseFee to the minimum required fee
     // for the transaction.
@@ -363,7 +363,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 XRPAmount
 Transactor::minimumFee(
     Application& app,
-    FeeUnit64 baseFee,
+    XRPAmount baseFee,
     Fees const& fees,
     ApplyFlags flags)
 {
@@ -371,7 +371,7 @@ Transactor::minimumFee(
 }
 
 TER
-Transactor::checkFee(PreclaimContext const& ctx, FeeUnit64 baseFee)
+Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
 {
     if (!ctx.tx[sfFee].native())
         return temBAD_FEE;
@@ -1574,6 +1574,7 @@ Transactor::operator()()
     JLOG(j_.trace()) << "apply: " << ctx_.tx.getTransactionID();
 
     STAmountSO stAmountSO{view().rules().enabled(fixSTAmountCanonicalize)};
+    NumberSO stNumberSO{view().rules().enabled(fixUniversalNumber)};
 
 #ifdef DEBUG
     {

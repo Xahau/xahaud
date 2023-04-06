@@ -407,6 +407,7 @@ extern SF_UINT32 const sfLockCount;
 extern SF_UINT32 const sfRewardTime;
 extern SF_UINT32 const sfRewardLgrFirst;
 extern SF_UINT32 const sfRewardLgrLast;
+extern SF_UINT32 const sfFirstNFTokenSequence;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;
@@ -495,6 +496,11 @@ extern SF_AMOUNT const sfRippleEscrow;
 extern SF_AMOUNT const sfDeliveredAmount;
 extern SF_AMOUNT const sfNFTokenBrokerFee;
 extern SF_AMOUNT const sfHookCallbackFee;
+
+// currency amount (fees)
+extern SF_AMOUNT const sfBaseFeeDrops;
+extern SF_AMOUNT const sfReserveBaseDrops;
+extern SF_AMOUNT const sfReserveIncrementDrops;
 
 // variable length (common)
 extern SF_VL const sfPublicKey;
