@@ -199,7 +199,7 @@ Transactor::Transactor(ApplyContext& ctx)
 
 // RH NOTE: this only computes one chain at a time, so if there is a receiving side to a txn
 // then it must seperately be computed by a second call here
-FeeUnit64
+XRPAmount
 Transactor::
 calculateHookChainFee(
     ReadView const& view,
@@ -210,9 +210,9 @@ calculateHookChainFee(
 
     std::shared_ptr<SLE const> hookSLE = view.read(hookKeylet);
     if (!hookSLE)
-        return FeeUnit64{0};
+        return XRPAmount{0};
 
-    FeeUnit64 fee{0};
+    XRPAmount fee{0};
 
     auto const& hooks = hookSLE->getFieldArray(sfHooks);
 
@@ -247,7 +247,7 @@ calculateHookChainFee(
         if (hook::canHook(tx.getTxnType(), hookOn) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
-            FeeUnit64 const toAdd {
+            XRPAmount const toAdd {
                 hookDef->getFieldAmount(sfFee).xrp().drops()
             };
 
@@ -255,7 +255,7 @@ calculateHookChainFee(
             // fee is set to the largest possible valid xrp value to force
             // fail the transaction
             if (fee + toAdd < fee)
-                fee = FeeUnit64{INITIAL_XRP.drops()};
+                fee = XRPAmount{INITIAL_XRP.drops()};
             else
                 fee += toAdd;
         }
@@ -279,13 +279,13 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     std::size_t const signerCount =
         tx.isFieldPresent(sfSigners) ? tx.getFieldArray(sfSigners).size() : 0;
 
-    FeeUnit64 hookExecutionFee{0};
+    XRPAmount hookExecutionFee{0};
     uint64_t burden {1};
     if (view.rules().enabled(featureHooks))
     {
         // if this is a "cleanup" txn we regard it as already paid up
         if (tx.getFieldU16(sfTransactionType) == ttEMIT_FAILURE)
-            return FeeUnit64{0};    
+            return XRPAmount{0};    
 
         // if the txn is an emitted txn then we add the callback fee
         // if the txn is NOT an emitted txn then we process the sending account's hook chain 
@@ -300,7 +300,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
             if (hookDef && hookDef->isFieldPresent(sfHookCallbackFee))
             {
-                FeeUnit64 const toAdd {
+                XRPAmount const toAdd {
                     hookDef->getFieldAmount(sfHookCallbackFee).xrp().drops()
                 };
 
@@ -308,7 +308,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                 // fee is set to the largest possible valid xrp value to force
                 // fail the transaction
                 if (hookExecutionFee + toAdd < hookExecutionFee)
-                    hookExecutionFee = FeeUnit64{INITIAL_XRP.drops()};
+                    hookExecutionFee = XRPAmount{INITIAL_XRP.drops()};
                 else
                     hookExecutionFee += toAdd;
             }
@@ -336,7 +336,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     // The calculation is (baseFee * burden) + (signerCount * baseFee) + hookExecutionFee
     // To ensure there are no overflows or illegal negatives we will do each operation with an overflow check
     // between and if there is a problem then return the highest possible fee to fail to the transaction.
-    FeeUnit64 accumulator = baseFee;
+    XRPAmount accumulator = baseFee;
     do
     {
         if (accumulator * burden < accumulator)
@@ -357,7 +357,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
         return accumulator;
     }
     while (0);
-    return FeeUnit64{INITIAL_XRP.drops()};
+    return XRPAmount{INITIAL_XRP.drops()};
 }
 
 XRPAmount
@@ -1389,14 +1389,13 @@ doTSH(
                 continue;
 
             // compute and deduct fees for the TSH if applicable
-            FeeUnit64 tshFee =
+            XRPAmount tshFeeDrops =
                 calculateHookChainFee(view, ctx_.tx, klTshHook, !canRollback);
 
             // no hooks to execute, skip tsh
-            if (tshFee == 0)
+            if (tshFeeDrops == 0)
                 continue;
                 
-            XRPAmount tshFeeDrops = view.fees().toDrops(tshFee);
             assert(tshFeeDrops >= beast::zero);
 
             STAmount priorBalance = tshAcc->getFieldAmount(sfBalance);

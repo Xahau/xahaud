@@ -60,7 +60,7 @@ LedgerFormats::LedgerFormats()
             {sfRewardLgrFirst,       soeOPTIONAL},
             {sfRewardLgrLast,        soeOPTIONAL},
             {sfRewardTime,           soeOPTIONAL},
-            {sfRewardAccumulator,    soeOPTIONAL}
+            {sfRewardAccumulator,    soeOPTIONAL},
             {sfFirstNFTokenSequence, soeOPTIONAL},
         },
         commonFields);

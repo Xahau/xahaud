@@ -1969,7 +1969,7 @@ TxQ::getTxs() const
 }
 
 Json::Value
-TxQ::doRPC(Application& app, std::optional<FeeUnit64> hookFeeUnits) const
+TxQ::doRPC(Application& app, std::optional<XRPAmount> hookFeeUnits) const
 {
     auto const view = app.openLedger().current();
     if (!view)
@@ -1996,7 +1996,7 @@ TxQ::doRPC(Application& app, std::optional<FeeUnit64> hookFeeUnits) const
     levels[jss::median_level] = to_string(metrics.medFeeLevel);
     levels[jss::open_ledger_level] = to_string(metrics.openLedgerFeeLevel);
 
-    auto const baseFee = view->fees().base + (hookFeeUnits ? hookFeeUnits->fee() : 0);
+    auto const baseFee = view->fees().base + (hookFeeUnits ? hookFeeUnits->drops() : 0);
     // If the base fee is 0 drops, but escalation has kicked in, treat the
     // base fee as if it is 1 drop, which makes the rest of the math
     // work.

@@ -359,7 +359,7 @@ public:
         @returns a `Json objectvalue`
     */
     Json::Value
-    doRPC(Application& app, std::optional<FeeUnit64> hookFeeUnits = std::nullopt) const;
+    doRPC(Application& app, std::optional<XRPAmount> hookFeeUnits = std::nullopt) const;
 
 private:
     // Implementation for nextQueuableSeq().  The passed lock must be held.

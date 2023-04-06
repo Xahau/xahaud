@@ -263,7 +263,7 @@ enum LedgerSpecificFlags {
         0x00800000,                 // True, trust lines allow rippling by default
     lsfDepositAuth = 0x01000000,    // True, all deposits require authorization
     lsfTshCollect = 0x02000000,     // True, allow TSH collect-calls to acc hooks
-    lsfDisallowIncomingNFTOffer =
+    lsfDisallowIncomingNFTokenOffer =
         0x04000000,               // True, reject new incoming NFT offers
     lsfDisallowIncomingCheck =
         0x08000000,               // True, reject new checks

@@ -33,7 +33,7 @@ namespace ripple {
 
 
 inline
-std::optional<FeeUnit64>
+std::optional<XRPAmount>
 getHookFees(RPC::JsonContext const& context)
 {
     auto const& params(context.params);
@@ -65,7 +65,7 @@ Json::Value
 doFee(RPC::JsonContext& context)
 {
     // get hook fees, if any
-    std::optional<FeeUnit64> hookFees;
+    std::optional<XRPAmount> hookFees;
     try
     {
         hookFees = getHookFees(context);

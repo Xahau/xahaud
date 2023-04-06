@@ -4194,12 +4194,10 @@ DEFINE_HOOK_FUNCTION(
         std::unique_ptr<STTx const> stpTrans;
         stpTrans = std::make_unique<STTx const>(std::ref(sitTrans));
 
-        FeeUnit64 fee =
+        return
             Transactor::calculateBaseFee(
                 *(applyCtx.app.openLedger().current()),
-                *stpTrans);
-
-        return fee.fee();
+                *stpTrans).drops();
     }
     catch (std::exception& e)
     {

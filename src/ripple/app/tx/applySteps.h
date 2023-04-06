@@ -336,7 +336,7 @@ calculateDefaultBaseFee(ReadView const& view, STTx const& tx);
 std::pair<TER, bool>
 doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view);
 
-FeeUnit64
+XRPAmount
 invoke_calculateBaseFee(ReadView const& view, STTx const& tx);
 
 }  // namespace ripple

@@ -518,10 +518,10 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
     }
 }
 
-FeeUnit64
+XRPAmount
 SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    FeeUnit64 extraFee{0};
+    XRPAmount extraFee{0};
 
     auto const& hookSets = tx.getFieldArray(sfHooks);
 
@@ -530,7 +530,7 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
         if (!hookSetObj.isFieldPresent(sfCreateCode))
             continue;
 
-        extraFee += FeeUnit64{
+        extraFee += XRPAmount{
             hook::computeCreationFee(
                 hookSetObj.getFieldVL(sfCreateCode).size())};
 
@@ -547,7 +547,7 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
                     (param.isFieldPresent(sfHookParameterValue) ?
                         param.getFieldVL(sfHookParameterValue).size() : 0);
             }
-            extraFee += FeeUnit64 { paramBytes };
+            extraFee += XRPAmount { paramBytes };
         }
     }
 

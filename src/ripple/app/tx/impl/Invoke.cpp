@@ -73,13 +73,13 @@ Invoke::doApply()
     return tesSUCCESS;
 }
 
-FeeUnit64
+XRPAmount
 Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    FeeUnit64 extraFee{0};
+    XRPAmount extraFee{0};
 
     if (tx.isFieldPresent(sfBlob))
-        extraFee += FeeUnit64{ tx.getFieldVL(sfBlob).size() };
+        extraFee += XRPAmount{ tx.getFieldVL(sfBlob).size() };
 
     if (tx.isFieldPresent(sfHookParameters))
     {
@@ -93,7 +93,7 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
                 (param.isFieldPresent(sfHookParameterValue) ?
                     param.getFieldVL(sfHookParameterValue).size() : 0);
         }
-        extraFee += FeeUnit64 { paramBytes };
+        extraFee += XRPAmount { paramBytes };
     }
 
     return Transactor::calculateBaseFee(view, tx) + extraFee;

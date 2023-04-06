@@ -179,7 +179,7 @@ public:
 
     // Hooks
 
-    static FeeUnit64
+    static XRPAmount
     calculateHookChainFee(ReadView const& view, STTx const& tx, Keylet const& hookKeylet,
             bool collectCallsOnly = false);
 

@@ -36,7 +36,7 @@ public:
     {
     }
     
-    static FeeUnit64
+    static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
 
     static TxConsequences
