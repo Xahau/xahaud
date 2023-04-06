@@ -4,10 +4,11 @@
 #define REWARD_MULTIPLIER_XFL 6038156834009797973ULL
 //0.00333333333f
 
-
 #define ASSERT(x)\
     if (!(x))\
-        rollback(0,0,__LINE__);
+        rollback(SBUF("Reward: Assertion failure."),__LINE__);
+
+#define DEBUG 1
 
 int64_t hook(uint32_t r)
 {
@@ -18,54 +19,43 @@ int64_t hook(uint32_t r)
     int64_t br = otxn_field(SBUF(ttbuf), sfTransactionType);
     uint32_t txntype = ((uint32_t)(ttbuf[0]) << 16U) + ((uint32_t)(ttbuf[1]));
 
+    // only process ttCLAIM_REWARD
     if (txntype != 98)
-        accept(0,0,0);
+        accept(SBUF("Reward: Passing non-claim txn"), __LINE__);
 
     // get the account id
     uint8_t account_field[20];
-    ASSERT(otxn_field(SBUF(account_field), sfAccount) == 20);
+    otxn_field(SBUF(account_field), sfAccount);
 
     uint8_t hook_accid[20];
     hook_account(SBUF(hook_accid));
 
-
-    int equal = 0; BUFFER_EQUAL(equal, hook_accid, account_field, 20);
-    if (equal)
-        accept(0,0,0);
-
+    if (BUFFER_EQUAL_20(hook_accid, account_field))
+        accept(SBUF("Reward: Passing outgoing txn"), __LINE__);
 
     // get the account root keylet
     uint8_t kl[34];
-    ASSERT(util_keylet(SBUF(kl), KEYLET_ACCOUNT, SBUF(account_field), 0,0,0,0) == 34);
+    util_keylet(SBUF(kl), KEYLET_ACCOUNT, SBUF(account_field), 0,0,0,0);
 
-    // slot the account root
-    ASSERT(slot_set(SBUF(kl), 1) == 1);
-
+    // slot the account root, this can't fail
+    slot_set(SBUF(kl), 1);
     
-    int64_t accum_slot = slot_subfield(1, sfRewardAccumulator, 2);
-
     // this is a first time claim reward has run and will setup these fields
-    if (accum_slot == DOESNT_EXIST)
-        accept(0,0,0);
+    if (slot_subfield(1, sfRewardAccumulator, 2) != 2)
+        accept(SBUF("Reward: Passing reward setup txn"), __LINE__);
 
     // this is an actual claim reward
-    ASSERT(accum_slot == 2);
-    ASSERT(slot_subfield(1, sfRewardLgrFirst, 3) == 3);
-    ASSERT(slot_subfield(1, sfRewardLgrLast, 4) == 4);
-    ASSERT(slot_subfield(1, sfBalance, 5) == 5);
-    ASSERT(slot_subfield(1, sfRewardTime, 6) == 6);
+    slot_subfield(1, sfRewardLgrFirst, 3);
+    slot_subfield(1, sfRewardLgrLast, 4);
+    slot_subfield(1, sfBalance, 5);
+    slot_subfield(1, sfRewardTime, 6);
 
     int64_t time = slot(0,0,6);
 
     int64_t time_elapsed = ledger_last_time() - time;
     if (time_elapsed < REWARD_DELAY)
     {
-        uint8_t msg_buf[] = 
-        { 
-            'Y','o','u',' ','m','u','s','t',    // 8
-            ' ','w','a','i','t',' ',            //+6 = 14 
-            '0','0','0','0','0','0','0',
-            ' ','s','e','c','o','n','d','s' };
+        uint8_t msg_buf[] = "You must wait 0000000 seconds";
 
         //2 600 000
         time_elapsed = REWARD_DELAY - time_elapsed;
@@ -77,7 +67,7 @@ int64_t hook(uint32_t r)
         msg_buf[19] += (time_elapsed /      10) % 10;
         msg_buf[20] += (time_elapsed          ) % 10;
 
-        rollback(SBUF(msg_buf), time_elapsed);
+        rollback(SBUF(msg_buf), __LINE__);
     }
 
     int64_t accumulator = slot(0,0,2);
@@ -85,10 +75,12 @@ int64_t hook(uint32_t r)
     int64_t last = slot(0,0,4);
     int64_t bal = slot(0,0,5);
 
-
-    TRACEVAR(accumulator);
-    TRACEVAR(first);
-    TRACEVAR(last);
+    if (DEBUG)
+    {
+        TRACEVAR(accumulator);
+        TRACEVAR(first);
+        TRACEVAR(last);
+    }
 
     ASSERT(/*accumulator > 0 &&*/ first > 0 && last > 0);
 
@@ -105,14 +97,17 @@ int64_t hook(uint32_t r)
     bal &= ~0xE000000000000000ULL;
     bal /= 1000000LL;
 
-    TRACEVAR(bal);
-
-    TRACEVAR(accumulator);
+    if (DEBUG)
+    {
+        TRACEVAR(bal);
+        TRACEVAR(accumulator);
+    }
 
     if (bal > 0 && elapsed_since_last > 0)
         accumulator += bal * elapsed_since_last;
-    
-    TRACEVAR(accumulator);
+
+    if (DEBUG)    
+        TRACEVAR(accumulator);
 
     uint8_t key[32];
     key[0] = 0xFFU;
@@ -137,11 +132,13 @@ int64_t hook(uint32_t r)
     int64_t xfl_reward = float_divide(xfl_accum, xfl_elapsed);
     xfl_reward = float_multiply(xfl_mr, xfl_reward);
 
-    TRACEVAR(xfl_reward);
+    if (DEBUG)
+        TRACEVAR(xfl_reward);
 
     int64_t reward_drops = float_int(xfl_reward, 6, 0);
 
-    TRACEVAR(reward_drops);
+    if (DEBUG)
+        TRACEVAR(reward_drops);
 
     uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
     PREPARE_PAYMENT_SIMPLE(tx, reward_drops, account_field, 0, 0);
@@ -149,10 +146,14 @@ int64_t hook(uint32_t r)
     // emit the transaction
     uint8_t emithash[32];
     int64_t emit_result = emit(SBUF(emithash), SBUF(tx));
-    TRACEVAR(emit_result);
 
+    if (DEBUG)
+        TRACEVAR(emit_result);
+
+    if (emit_result > 0)
+        accept(SBUF("Reward: Emitted reward txn successfully."), __LINE__);
     // RH TODO:
     // on callback pay out each of the filled gov seat
 
-    accept(0,0,0);
+    rollback(SBUF("Reward: Emit reward failed."), __LINE__);
 }

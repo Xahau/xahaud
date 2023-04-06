@@ -1,7 +1,7 @@
 #include "hookapi.h"
 #define ASSERT(x)\
     if (!(x))\
-        rollback(0,0,__LINE__);
+        rollback(SBUF("Govern: Assertion failed."),__LINE__);
 
 #define INIT_MEMBER_COUNT 5
 #define MAX_MEMBER_COUNT 20

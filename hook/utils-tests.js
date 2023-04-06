@@ -588,6 +588,7 @@ module.exports = {
                     resolve({
                         hex_memos: hex_memos,
                         rbc: rbc,
+                        rac: rac,
                         api: api,
                         xrpljs: xrpljs,
                         assertTxnSuccess: assertTxnSuccess,
