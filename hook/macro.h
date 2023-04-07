@@ -539,7 +539,7 @@ int out_len = 0;\
         *buf_out++ = 0xE1U;\
 }
 
-#define PREPARE_HOOKSET(buf_out_master, maxlen, hash0, hash1, hash2, hash3, sizeout)\
+#define PREPARE_HOOKSET(buf_out_master, maxlen, h, sizeout)\
     {\
         uint8_t* buf_out = (buf_out_master);                                            \
         uint8_t acc[20];                                                                \
@@ -558,10 +558,16 @@ int out_len = 0;\
         int64_t edlen = etxn_details((uint32_t)buf_out, remaining_size);                \
         buf_out += edlen;                                                               \
         *buf_out++ = 0xFBU;   /* hook array start */                                    \
-        _0E_0E_ENCODE_HOOKOBJ               (buf_out, hash0);                           \
-        _0E_0E_ENCODE_HOOKOBJ               (buf_out, hash1);                           \
-        _0E_0E_ENCODE_HOOKOBJ               (buf_out, hash2);                           \
-        _0E_0E_ENCODE_HOOKOBJ               (buf_out, hash3);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[0]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[1]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[2]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[3]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[4]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[5]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[6]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[7]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[8]);                           \
+        _0E_0E_ENCODE_HOOKOBJ               (buf_out, h[9]);                           \
         *buf_out++ = 0xF1U;  /* hook array end */                                       \
         sizeout = (buf_out - (buf_out_master));                                         \
         int64_t fee = etxn_fee_base(buf_out_master, sizeout);                           \
