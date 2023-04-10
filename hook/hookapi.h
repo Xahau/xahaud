@@ -45,5 +45,6 @@
 #include "extern.h"
 #include "sfcodes.h"
 #include "macro.h"
+#include "types.h"
 
 #endif
