@@ -19,6 +19,7 @@
 
 #include <ripple/app/misc/Manifest.h>
 #include <ripple/app/misc/TxQ.h>
+#include <ripple/app/hook/Enum.h>
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/beast/unit_test.h>
 #include <ripple/protocol/ErrorCodes.h>
@@ -27,8 +28,13 @@
 
 namespace ripple {
 
+namespace test {
+
 class LedgerRPC_test : public beast::unit_test::suite
 {
+    
+public:
+    #define HSFEE fee(100'000'000)
     void
     checkErrorValue(
         Json::Value const& jv,
@@ -237,7 +243,7 @@ class LedgerRPC_test : public beast::unit_test::suite
             env.rpc("json", "ledger", to_string(jvParams))[jss::result];
         BEAST_EXPECT(jrr[jss::ledger].isMember(jss::accountState));
         BEAST_EXPECT(jrr[jss::ledger][jss::accountState].isArray());
-        BEAST_EXPECT(jrr[jss::ledger][jss::accountState].size() == 2u);
+        BEAST_EXPECT(jrr[jss::ledger][jss::accountState].size() == 3u);
     }
 
     void
@@ -276,7 +282,7 @@ class LedgerRPC_test : public beast::unit_test::suite
             env.rpc("json", "ledger", to_string(jvParams))[jss::result];
         BEAST_EXPECT(jrr[jss::ledger].isMember(jss::accountState));
         BEAST_EXPECT(jrr[jss::ledger][jss::accountState].isArray());
-        BEAST_EXPECT(jrr[jss::ledger][jss::accountState].size() == 2u);
+        BEAST_EXPECT(jrr[jss::ledger][jss::accountState].size() == 3u);
     }
 
     void
@@ -686,6 +692,82 @@ class LedgerRPC_test : public beast::unit_test::suite
     }
 
     void
+    testLedgerEntryEmittedTxn()
+    {
+        testcase("ledger_entry Request Emitted Txn");
+        using namespace test::jtx;
+        using namespace std::literals::chrono_literals;
+        Env env{*this};
+        Account const alice{"alice"};
+
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto setHook = [](test::jtx::Account const& account) {
+            std::string const createCodeHex = "0061736D01000000012E0760057F7F7F7F7F017E60017F017E60047F7F7F7F017E60037F7F7E017E6000017E60027F7F017E60027F7F017F02AD010B03656E76057472616365000003656E760C6574786E5F72657365727665000103656E760A7574696C5F6163636964000203656E760974726163655F6E756D000303656E760A6C65646765725F736571000403656E760C686F6F6B5F6163636F756E74000503656E760C6574786E5F64657461696C73000503656E760D6574786E5F6665655F62617365000503656E7604656D6974000203656E76025F67000603656E7606616363657074000303030201010503010002062B077F0141B089040B7F004180080B7F0041AF090B7F004180080B7F0041B089040B7F0041000B7F0041010B070F02046362616B000B04686F6F6B000C0A8F900002AC800001017F230041106B220124002001200036020C419409411A41E9084119410010001A200141106A240042000BDC8F0001017F230041A0046B220124002001200036029C04418209411141B6084110410010001A410110011A200120014180046A411441C608412310023703F803200142E8073703F00341A808410D20012903F00310031A2001200141E0016A22003602DC01200120012903F0033703B801200141003602B401200141003602B001200110043E02AC01200141C0016A411410051A200141003A00AB0120012802DC0141123A000020012802DC0120012D00AB014108763A000120012802DC0120012D00AB013A0002200120012802DC0141036A3602DC0120014180808080783602A401200141023A00A30120012802DC0120012D00A301410F7141206A3A000020012802DC0120012802A4014118763A000120012802DC0120012802A4014110763A000220012802DC0120012802A4014108763A000320012802DC0120012802A4013A0004200120012802DC0141056A3602DC01200120012802B00136029C01200141033A009B0120012802DC0120012D009B01410F7141206A3A000020012802DC01200128029C014118763A000120012802DC01200128029C014110763A000220012802DC01200128029C014108763A000320012802DC01200128029C013A0004200120012802DC0141056A3602DC012001410036029401200141043A00930120012802DC0120012D009301410F7141206A3A000020012802DC012001280294014118763A000120012802DC012001280294014110763A000220012802DC012001280294014108763A000320012802DC012001280294013A0004200120012802DC0141056A3602DC01200120012802B40136028C012001410E3A008B0120012802DC0120012D008B01410F7141206A3A000020012802DC01200128028C014118763A000120012802DC01200128028C014110763A000220012802DC01200128028C014108763A000320012802DC01200128028C013A0004200120012802DC0141056A3602DC01200120012802AC0141016A360284012001411A3A00830120012802DC0141203A000020012802DC0120012D0083013A000120012802DC012001280284014118763A000220012802DC012001280284014110763A000320012802DC012001280284014108763A000420012802DC012001280284013A0005200120012802DC0141066A3602DC01200120012802AC0141056A36027C2001411B3A007B20012802DC0141203A000020012802DC0120012D007B3A000120012802DC01200128027C4118763A000220012802DC01200128027C4110763A000320012802DC01200128027C4108763A000420012802DC01200128027C3A0005200120012802DC0141066A3602DC01200141013A007A200120012903B80137037020012802DC0120012D007A410F7141E0006A3A000020012802DC012001290370423888423F8342407D3C000120012802DC01200129037042308842FF01833C000220012802DC01200129037042288842FF01833C000320012802DC01200129037042208842FF01833C000420012802DC01200129037042188842FF01833C000520012802DC01200129037042108842FF01833C000620012802DC01200129037042088842FF01833C000720012802DC01200129037042FF01833C0008200120012802DC0141096A3602DC01200120012802DC0136026C200141083A006B2001420037036020012802DC0120012D006B410F7141E0006A3A000020012802DC012001290360423888423F8342407D3C000120012802DC01200129036042308842FF01833C000220012802DC01200129036042288842FF01833C000320012802DC01200129036042208842FF01833C000420012802DC01200129036042188842FF01833C000520012802DC01200129036042108842FF01833C000620012802DC01200129036042088842FF01833C000720012802DC01200129036042FF01833C0008200120012802DC0141096A3602DC0120012802DC0141F3003A000020012802DC0141213A000120012802DC01420037030220012802DC01420037030A20012802DC01420037031220012802DC014200370319200120012802DC0141236A3602DC01200141013A005F20012802DC0120012D005F4180016A3A000020012802DC0141143A000120012802DC0120012903C00137030220012802DC0120012903C80137030A20012802DC0120012802D001360212200120012802DC0141166A3602DC01200141033A005E20012802DC0120012D005E4180016A3A000020012802DC0141143A000120012802DC0120012903800437030220012802DC0120012903880437030A20012802DC01200128029004360212200120012802DC0141166A3602DC012001418E0220012802DC0120006B6BAD370350200120012802DC012001290350A7100637034820012000418E021007370340200141083A003F20012001290340370330200128026C20012D003F410F7141E0006A3A0000200128026C2001290330423888423F8342407D3C0001200128026C200129033042308842FF01833C0002200128026C200129033042288842FF01833C0003200128026C200129033042208842FF01833C0004200128026C200129033042188842FF01833C0005200128026C200129033042108842FF01833C0006200128026C200129033042088842FF01833C0007200128026C200129033042FF01833C00082001200128026C41096A36026C2001200141106A41202000418E021008370308418008410B200129030810031A41012200200010091A418C08411C4200100A1A200141A0046A240042000B0BB60101004180080BAE01656D69745F726573756C7400436172626F6E3A20456D6974746564207472616E73616374696F6E0064726F70735F746F5F73656E6400436172626F6E3A2073746172746564007266436172626F6E564E547558636B5836783271544D466D46536E6D36644557475800436172626F6E3A2063616C6C6261636B2063616C6C65642E0022436172626F6E3A2073746172746564220022436172626F6E3A2063616C6C6261636B2063616C6C65642E22";
+            Json::Value jhv = hso(createCodeHex);
+            jhv[jss::HookOn] = "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffffbfffff";
+            Json::Value jv = ripple::test::jtx::hook(account, {{jhv}}, 0);
+            return jv;
+        };
+
+        env(setHook(alice), HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+        env(invoke, fee(XRP(1000)));
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        std::optional<uint256> emithash;
+        {
+            auto meta = env.meta();
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            for (auto const& node : meta->getFieldArray(sfAffectedNodes))
+            {
+                SField const& metaType = node.getFName();
+                uint16_t nodeType = node.getFieldU16(sfLedgerEntryType); 
+                if (metaType == sfCreatedNode && nodeType == ltEMITTED_TXN)
+                {
+                    auto const& nf = const_cast<ripple::STObject&>(node).getField(sfNewFields).downcast<STObject>();
+                    auto const& et = const_cast<ripple::STObject&>(nf).getField(sfEmittedTxn).downcast<STObject>();
+                    Blob txBlob = et.getSerializer().getData();
+                    auto const tx = std::make_unique<STTx>(Slice { txBlob.data(), txBlob.size() });
+                    emithash = tx->getTransactionID();
+                    break;
+                }
+            }
+        }
+
+        std::string emittedTxnIndex = to_string(*emithash);
+        {
+            // Request the emitted txn using its index.
+            Json::Value jvParams;
+            jvParams[jss::emitted_txn] = emittedTxnIndex;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            Json::Value const emtTx = jrr[jss::node][jss::EmittedTxn];
+            BEAST_EXPECT(emtTx[sfAccount.jsonName] == alice.human());
+            BEAST_EXPECT(emtTx[sfAmount.jsonName] == "1000");
+            BEAST_EXPECT(emtTx[sfDestination.jsonName] == "rfCarbonVNTuXckX6x2qTMFmFSnm6dEWGX");
+            BEAST_EXPECT(emtTx[sfDestinationTag.jsonName] == 0);
+        }
+        {
+            // Request an index that is not a emitted txn.
+            Json::Value jvParams;
+            jvParams[jss::emitted_txn] = ledgerHash;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
+        }
+    }
+
+    void
     testLedgerEntryEscrow()
     {
         testcase("ledger_entry Request Escrow");
@@ -783,6 +865,255 @@ class LedgerRPC_test : public beast::unit_test::suite
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
             checkErrorValue(jrr, "malformedRequest", "");
+        }
+    }
+
+    void
+    testLedgerEntryHook()
+    {
+        testcase("ledger_entry Request Hook");
+        using namespace test::jtx;
+        Env env{*this};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Lambda to create a hook.
+        auto setHook = [](test::jtx::Account const& account) {
+            std::string const createCodeHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
+            Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+            return jv;
+        };
+
+        using namespace std::chrono_literals;
+        env(setHook(alice), HSFEE);
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        std::string hookIndex;
+        {
+            // Request the hook using account.
+            Json::Value jvParams;
+            jvParams[jss::hook] = Json::objectValue;
+            jvParams[jss::hook][jss::account] = alice.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][jss::Account] == alice.human());
+            hookIndex = jrr[jss::index].asString();
+        }
+        {
+            // Request the hook by index.
+            Json::Value jvParams;
+            jvParams[jss::hook] = hookIndex;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(
+                jrr[jss::node][jss::Account] == alice.human());
+        }
+        {
+            // Malformed account entry.
+            Json::Value jvParams;
+            jvParams[jss::hook] = Json::objectValue;
+            std::string const badAddress = makeBadAddress(alice.human());
+            jvParams[jss::hook][jss::account] = badAddress;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedAddress", "");
+        }
+        {
+            // Missing account.
+            Json::Value jvParams;
+            jvParams[jss::hook] = Json::objectValue;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+    }
+
+    void
+    testLedgerEntryHookDefinition()
+    {
+        testcase("ledger_entry Request Hook Definition");
+        using namespace test::jtx;
+        Env env{*this};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Lambda to create a hook.
+        auto setHook = [](test::jtx::Account const& account) {
+            std::string const createCodeHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
+            Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+            return jv;
+        };
+
+        using namespace std::chrono_literals;
+        env(setHook(alice), HSFEE);
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        auto const hook = env.le(keylet::hook(alice.id()));
+        auto const& hooks = hook->getFieldArray(sfHooks);
+        uint256 hookHash = hooks[0].getFieldH256(sfHookHash);
+        
+        {
+            // Request the hook_definition using hash.
+            Json::Value jvParams;
+            jvParams[jss::hook_definition] = to_string(hookHash);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][jss::HookHash] == to_string(hookHash));
+        }
+        {
+            // Malformed hook_definition entry.
+            Json::Value jvParams;
+            jvParams[jss::hook_definition] = Json::objectValue;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Request an index that is not a payment channel.
+            Json::Value jvParams;
+            jvParams[jss::hook_definition] = ledgerHash;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
+        }
+    }
+
+    void
+    testLedgerEntryHookState()
+    {
+        testcase("ledger_entry Request Hook State");
+        using namespace test::jtx;
+        Env env{*this};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        auto const key = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 'k',   'e',   'y',   0x00U})
+                .data());
+
+        auto const ns = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
+                .data());
+
+        auto const nons = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFFU})
+                .data());
+
+        // Lambda to create a hook.
+        auto setHook = [](test::jtx::Account const& account) {
+            std::string const createCodeHex = "0061736D01000000011B0460027F7F017F60047F7F7F7F017E60037F7F7E017E60017F017E02270303656E76025F67000003656E760973746174655F736574000103656E76066163636570740002030201030503010002062B077F01419088040B7F004180080B7F00418A080B7F004180080B7F00419088040B7F0041000B7F0041010B07080104686F6F6B00030AE7800001E3800002017F017E230041106B220124002001200036020C41012200200010001A2001418008280000360208200141046A410022002F0088083B010020012000280084083602004100200020014106200141086A4104100110022102200141106A240020020B0B1001004180080B096B65790076616C7565";
+            std::string ns_str = "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE";
+            Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+            jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
+            return jv;
+        };
+
+        using namespace std::chrono_literals;
+        env(setHook(alice), HSFEE);
+        env.close();
+
+        env(pay(bob, alice, XRP(1)),
+            fee(XRP(1)));
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+        
+        {
+            // Request the hook_state using hash.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][jss::HookStateData] == "76616C756500");
+            BEAST_EXPECT(jrr[jss::node][jss::HookStateKey] == to_string(key));
+        }
+        {
+            // Malformed hook_state object.  Missing account member.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed hook_state object.  Missing key member.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+         {
+            // Malformed hook_state object.  Missing namespace member.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed hook_state account.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = makeBadAddress(alice.human());
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(ns);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedAddress", "");
+        }
+        {
+            // Request a hook_state that doesn't exist.
+            Json::Value jvParams;
+            jvParams[jss::hook_state] = Json::objectValue;
+            jvParams[jss::hook_state][jss::account] = alice.human();
+            jvParams[jss::hook_state][jss::key] = to_string(key);
+            jvParams[jss::hook_state][jss::namespace_id] = to_string(nons);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
         }
     }
 
@@ -1230,7 +1561,8 @@ class LedgerRPC_test : public beast::unit_test::suite
         env.close();
 
         // Lambda to create an uritoken.
-        auto mint = [](test::jtx::Account const& account, std::string const& uri) {
+        auto mint = [](test::jtx::Account const& account,
+                       std::string const& uri) {
             Json::Value jv;
             jv[jss::TransactionType] = jss::URITokenMint;
             jv[jss::Flags] = tfBurnable;
@@ -1246,13 +1578,15 @@ class LedgerRPC_test : public beast::unit_test::suite
 
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
-        uint256 const uritokenIndex{keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
+        uint256 const uritokenIndex{
+            keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
         {
             // Request the uritoken using its index.
             Json::Value jvParams;
-            jvParams[jss::URIToken] = to_string(uritokenIndex);
+            jvParams[jss::uri_token] = to_string(uritokenIndex);
             jvParams[jss::ledger_hash] = ledgerHash;
-            Json::Value const jrr = env.rpc("json", "ledger_entry", to_string(jvParams))[jss::result];
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
             BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
             BEAST_EXPECT(jrr[jss::node][sfURI.jsonName] == strHex(uri));
             BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == 1);
@@ -1260,7 +1594,7 @@ class LedgerRPC_test : public beast::unit_test::suite
         {
             // Request an index that is not a uritoken.
             Json::Value jvParams;
-            jvParams[jss::URIToken] = ledgerHash;
+            jvParams[jss::uri_token] = ledgerHash;
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
@@ -1367,8 +1701,8 @@ class LedgerRPC_test : public beast::unit_test::suite
             // access via the ledger_hash field
             Json::Value jvParams;
             jvParams[jss::ledger_hash] =
-                "2E81FC6EC0DD943197E0C7E3FBE9AE30"
-                "7F2775F2F7485BB37307984C3C0F2340";
+                "E86DE7F3D7A4D9CE17EF7C8BA08A8F4D"
+                "8F643B9552F0D895A31CDA78F541DE4E";
             auto jrr = env.rpc(
                 "json",
                 "ledger",
@@ -1584,12 +1918,12 @@ class LedgerRPC_test : public beast::unit_test::suite
         env.close();
 
         jrr = env.rpc("json", "ledger", to_string(jv))[jss::result];
-        const std::string txid1 = [&]() {
+        const std::string txid0 = [&]() {
             auto const& parentHash = env.current()->info().parentHash;
             if (BEAST_EXPECT(jrr[jss::queue_data].size() == 2))
             {
                 const std::string txid1 = [&]() {
-                    auto const& txj = jrr[jss::queue_data][0u];
+                    auto const& txj = jrr[jss::queue_data][1u];
                     BEAST_EXPECT(txj[jss::account] == alice.human());
                     BEAST_EXPECT(txj[jss::fee_level] == "256");
                     BEAST_EXPECT(txj["preflight_result"] == "tesSUCCESS");
@@ -1601,7 +1935,7 @@ class LedgerRPC_test : public beast::unit_test::suite
                     return tx[jss::hash].asString();
                 }();
 
-                auto const& txj = jrr[jss::queue_data][1u];
+                auto const& txj = jrr[jss::queue_data][0u];
                 BEAST_EXPECT(txj[jss::account] == alice.human());
                 BEAST_EXPECT(txj[jss::fee_level] == "256");
                 BEAST_EXPECT(txj["preflight_result"] == "tesSUCCESS");
@@ -1614,7 +1948,7 @@ class LedgerRPC_test : public beast::unit_test::suite
                 uint256 tx0, tx1;
                 BEAST_EXPECT(tx0.parseHex(txid0));
                 BEAST_EXPECT(tx1.parseHex(txid1));
-                BEAST_EXPECT((tx0 ^ parentHash) > (tx1 ^ parentHash));
+                BEAST_EXPECT((tx0 ^ parentHash) < (tx1 ^ parentHash));
                 return txid0;
             }
             return std::string{};
@@ -1628,7 +1962,7 @@ class LedgerRPC_test : public beast::unit_test::suite
         if (BEAST_EXPECT(jrr[jss::queue_data].size() == 2))
         {
             auto const& parentHash = env.current()->info().parentHash;
-            auto const txid0 = [&]() {
+            auto const txid1 = [&]() {
                 auto const& txj = jrr[jss::queue_data][1u];
                 BEAST_EXPECT(txj[jss::account] == alice.human());
                 BEAST_EXPECT(txj[jss::fee_level] == "256");
@@ -1643,11 +1977,11 @@ class LedgerRPC_test : public beast::unit_test::suite
             BEAST_EXPECT(txj["retries_remaining"] == 9);
             BEAST_EXPECT(txj["last_result"] == "terPRE_SEQ");
             BEAST_EXPECT(txj.isMember(jss::tx));
-            BEAST_EXPECT(txj[jss::tx] == txid1);
+            BEAST_EXPECT(txj[jss::tx] == txid0);
             uint256 tx0, tx1;
             BEAST_EXPECT(tx0.parseHex(txid0));
             BEAST_EXPECT(tx1.parseHex(txid1));
-            BEAST_EXPECT((tx0 ^ parentHash) > (tx1 ^ parentHash));
+            BEAST_EXPECT((tx0 ^ parentHash) < (tx1 ^ parentHash));
         }
 
         env.close();
@@ -1696,7 +2030,7 @@ class LedgerRPC_test : public beast::unit_test::suite
                 BEAST_EXPECT(txj["retries_remaining"] == 1);
                 BEAST_EXPECT(txj["last_result"] == "terPRE_SEQ");
                 BEAST_EXPECT(txj.isMember(jss::tx));
-                BEAST_EXPECT(txj[jss::tx] != txid1);
+                BEAST_EXPECT(txj[jss::tx] != txid0);
                 return txj[jss::tx].asString();
             }
             return std::string{};
@@ -1778,7 +2112,11 @@ public:
         testLedgerEntryCheck();
         testLedgerEntryDepositPreauth();
         testLedgerEntryDirectory();
+        testLedgerEntryEmittedTxn();
         testLedgerEntryEscrow();
+        testLedgerEntryHook();
+        testLedgerEntryHookDefinition();
+        testLedgerEntryHookState();
         testLedgerEntryOffer();
         testLedgerEntryPayChan();
         testLedgerEntryRippleState();
@@ -1794,4 +2132,5 @@ public:
 
 BEAST_DEFINE_TESTSUITE(LedgerRPC, app, ripple);
 
+}  // namespace test
 }  // namespace ripple

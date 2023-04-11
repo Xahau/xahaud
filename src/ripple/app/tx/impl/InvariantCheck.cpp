@@ -268,7 +268,7 @@ NoZeroEscrow::visitEntry(
 {
     auto isBad = [](STAmount const& amount) {
         if (!amount.native())
-            return (amount <= beast::zero);
+            return true;
 
         if (amount.xrp() <= XRPAmount{0})
             return true;
@@ -294,12 +294,19 @@ NoZeroEscrow::finalize(
     ReadView const& rv,
     beast::Journal const& j)
 {
-    // if the amendment isn't enabled and this is a non-XRP escrow then it's bad
-    if (!rv.rules().enabled(featurePaychanAndEscrowForTokens) && 
-        txn.isFieldPresent(sfAmount) &&
-        !isXRP(txn.getFieldAmount(sfAmount)))
-            bad_ = true;
-       
+    // bypass this invariant check for IOU escrows
+    if (bad_ && rv.rules().enabled(featurePaychanAndEscrowForTokens) &&
+        txn.isFieldPresent(sfTransactionType))
+    {
+        uint16_t tt = txn.getFieldU16(sfTransactionType);
+        if (tt == ttESCROW_CANCEL || tt == ttESCROW_FINISH)
+            return true;
+
+        if (txn.isFieldPresent(sfAmount) &&
+            !isXRP(txn.getFieldAmount(sfAmount)))
+            return true;
+    }
+
     if (bad_)
     {
         JLOG(j.fatal()) << "Invariant failed: escrow specifies invalid amount";

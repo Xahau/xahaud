@@ -418,7 +418,9 @@ Keylet
 uritoken(AccountID const& issuer, Blob const& uri)
 {
     return {
-        ltURI_TOKEN, indexHash(LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+        ltURI_TOKEN,
+        indexHash(
+            LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
 }
 
 }  // namespace keylet

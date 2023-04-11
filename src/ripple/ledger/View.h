@@ -633,7 +633,7 @@ trustTransferAllowed(
         std::shared_ptr<SLE>,
         std::shared_ptr<SLE const>>::type SLEPtr;
 
-    if (isFakeXRP(issue.currency))
+    if (issue.currency == badCurrency())
         return tecNO_PERMISSION;
 
     auto const sleIssuerAcc = view.read(keylet::account(issue.account));
@@ -678,8 +678,9 @@ trustTransferAllowed(
             // the point of transfer.
             continue;
         }
-
+        
         // sanity check the line, insane lines are a bar to xfer
+        if (lockedBalanceAllowed)
         {
             // these "strange" old lines, if they even exist anymore are
             // always a bar to xfer

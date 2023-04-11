@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/Enum.h>
 #include <ripple/json/json_reader.h>
 #include <ripple/json/json_value.h>
 #include <ripple/json/to_string.h>
@@ -111,6 +112,7 @@ static char const* bobs_account_objects[] = {
 class AccountObjects_test : public beast::unit_test::suite
 {
 public:
+    #define HSFEE fee(100'000'000)
     void
     testErrors()
     {
@@ -585,6 +587,8 @@ public:
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::signer_list), 0));
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::state), 0));
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::ticket), 0));
+        BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::uri_token), 0));
+        BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::hook), 0));
 
         // gw mints an NFT so we can find it.
         uint256 const nftID{token::getNextID(env, gw, 0u, tfTransferable)};
@@ -746,13 +750,30 @@ public:
         {
             // Find the uri token.
             std::string const uri(maxTokenURILength, '?');
-            Json::Value const resp = acct_objs(gw, jss::URIToken);
+            Json::Value const resp = acct_objs(gw, jss::uri_token);
             BEAST_EXPECT(acct_objs_is_size(resp, 1));
 
             auto const& uritoken = resp[jss::result][jss::account_objects][0u];
             BEAST_EXPECT(uritoken[sfOwner.jsonName] == gw.human());
             BEAST_EXPECT(uritoken[sfIssuer.jsonName] == gw.human());
             BEAST_EXPECT(uritoken[sfURI.jsonName] == strHex(uri));
+        }
+        {
+            // Create hook
+            auto setHook = [](test::jtx::Account const& account) {
+                std::string const createCodeHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
+                Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+                return jv;
+            };
+            env(setHook(gw), HSFEE);
+            env.close();
+        }
+        {
+            // Find the hook.
+            Json::Value const resp = acct_objs(gw, jss::hook);
+            BEAST_EXPECT(acct_objs_is_size(resp, 1));
+            auto const& hook = resp[jss::result][jss::account_objects][0u];
+            BEAST_EXPECT(hook[sfAccount.jsonName] == gw.human());
         }
         {
             // See how "deletion_blockers_only" handles gw's directory.
@@ -764,10 +785,12 @@ public:
             std::vector<std::string> const expectedLedgerTypes = [] {
                 std::vector<std::string> v{
                     jss::Escrow.c_str(),
+                    jss::Hook.c_str(),
                     jss::Check.c_str(),
                     jss::NFTokenPage.c_str(),
                     jss::RippleState.c_str(),
-                    jss::PayChannel.c_str()};
+                    jss::PayChannel.c_str(),
+                    jss::URIToken.c_str()};
                 std::sort(v.begin(), v.end());
                 return v;
             }();
@@ -809,7 +832,7 @@ public:
         // directory nodes.
         for (int d = 1'000'032; d >= 1'000'000; --d)
         {
-            env(offer(gw, USD(1), drops(d)));
+            env(offer(gw, USD(1), drops(d)), HSFEE);
             env.close();
         }
 
