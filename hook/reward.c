@@ -10,36 +10,85 @@
 
 #define DEBUG 1
 
+// this txn template is sent back to this account to distribute a duplicate reward to governance members
+// this distribution is handled by the governance reward hook
+uint8_t txn_loopback[235] =
+{
+/* size,upto */
+/*   3,  0 */   0x12U, 0x00U, 0x63U,                                                                /* tt = Invoke */
+/*   5,  3 */   0x22U, 0x80U, 0x00U, 0x00U, 0x00U,                                          /* flags = tfCanonical */
+/*   5,  8 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,                                                 /* sequence = 0 */
+/*   6, 13 */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,                                      /* first ledger seq */
+/*   6, 19 */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,                                       /* last ledger seq */
+/*   9, 25 */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,                         /* fee      */
+/*  35, 34 */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,       /* pubkey   */
+/*  22, 69 */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                                 /* src acc  */
+
+/* 116, 91 */   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,    /* emit detail */
+                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+
+/*  28,207 */   0xF0U,0x13U,0xE0U,0x17U,0x70U,0x18U,0x06U,0x72U,                                    /* hook params */
+                0x65U,0x77U,0x61U,0x72U,0x64U,0x70U,0x19U,0x08U,                                    /* reward key  */
+    /* 223 */   0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,                                    /* value/drops */
+                0xE1U,0xF1U,0xE1U,0xF1                                                              /* end params  */
+/*     235 */
+};
+
+
+// this txn template is used to pay out rewards
+uint8_t txn_payment[238] =
+{
+/* size,upto */
+/*   3,  0 */   0x12U, 0x00U, 0x00U,                                                               /* tt = Payment */
+/*   5,  3*/    0x22U, 0x80U, 0x00U, 0x00U, 0x00U,                                          /* flags = tfCanonical */
+/*   5,  8 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,                                                 /* sequence = 0 */
+/*   6, 13 */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,                                      /* first ledger seq */
+/*   6, 19 */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,                                       /* last ledger seq */
+/*   9, 25 */   0x61U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,      /* amount field 9 bytes */
+/*   9, 34 */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,                         /* fee      */
+/*  35, 43 */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,       /* pubkey   */
+/*  22, 78 */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                                 /* src acc  */
+/*  22,100 */   0x83U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                                 /* dst acc  */
+/* 116,122 */   /* emit details */
+/*   0,238 */
+};
+
+#define HOOK_ACCOUNT    (txn_loopback +   71U)
+#define HOOK_ACCOUNT_2  (txn_payment  +   80U)
+#define ACC_FIELD       (txn_payment  +  102U)
+#define AMOUNT_OUT      (txn_payment  +   26U)
+#define AMOUNT_OUT_2    (txn_loopback +  223U)
+
+uint8_t msg_buf[] = "You must wait 0000000 seconds";
 int64_t hook(uint32_t r)
 {
     etxn_reserve(1);
     _g(1,1);
 
-    uint8_t ttbuf[16];
-    int64_t br = otxn_field(SBUF(ttbuf), sfTransactionType);
-    uint32_t txntype = ((uint32_t)(ttbuf[0]) << 16U) + ((uint32_t)(ttbuf[1]));
-
     // only process ttCLAIM_REWARD
-    if (txntype != 98)
+    if (otxn_type() != 98)
         accept(SBUF("Reward: Passing non-claim txn"), __LINE__);
 
     // get the account id
-    uint8_t account_field[20];
-    otxn_field(SBUF(account_field), sfAccount);
+    otxn_field(ACC_FIELD, 20, sfAccount);
 
-    uint8_t hook_accid[20];
-    hook_account(SBUF(hook_accid));
+    // write the hook account into the txn template
+    hook_account(HOOK_ACCOUNT, 20);
 
-    if (BUFFER_EQUAL_20(hook_accid, account_field))
+    // there are two txn templates so also write into the second template
+    hook_account(HOOK_ACCOUNT_2, 20);
+
+    if (BUFFER_EQUAL_20(HOOK_ACCOUNT, ACC_FIELD))
         accept(SBUF("Reward: Passing outgoing txn"), __LINE__);
 
     // get the account root keylet
     uint8_t kl[34];
-    util_keylet(SBUF(kl), KEYLET_ACCOUNT, SBUF(account_field), 0,0,0,0);
+    util_keylet(SBUF(kl), KEYLET_ACCOUNT, ACC_FIELD, 20, 0,0,0,0);
 
     // slot the account root, this can't fail
     slot_set(SBUF(kl), 1);
-    
+
     // this is a first time claim reward has run and will setup these fields
     if (slot_subfield(1, sfRewardAccumulator, 2) != 2)
         accept(SBUF("Reward: Passing reward setup txn"), __LINE__);
@@ -55,8 +104,6 @@ int64_t hook(uint32_t r)
     int64_t time_elapsed = ledger_last_time() - time;
     if (time_elapsed < REWARD_DELAY)
     {
-        uint8_t msg_buf[] = "You must wait 0000000 seconds";
-
         //2 600 000
         time_elapsed = REWARD_DELAY - time_elapsed;
         msg_buf[14] += (time_elapsed / 1000000) % 10;
@@ -106,13 +153,14 @@ int64_t hook(uint32_t r)
     if (bal > 0 && elapsed_since_last > 0)
         accumulator += bal * elapsed_since_last;
 
-    if (DEBUG)    
+    if (DEBUG)
         TRACEVAR(accumulator);
 
-    uint8_t key[32];
-    key[0] = 0xFFU;
+    // reward hook shares the same namespace as governance hook, so we can request the RR key directly
+    uint8_t key[2] = {'R', 'R'};
+
     // mr = monthly reward rate
-    int64_t xfl_mr = 
+    int64_t xfl_mr =
         state(0,0, SBUF(key));
 
     if (xfl_mr <= 0 || // invalid xfl
@@ -135,25 +183,43 @@ int64_t hook(uint32_t r)
     if (DEBUG)
         TRACEVAR(xfl_reward);
 
-    int64_t reward_drops = float_int(xfl_reward, 6, 0);
 
-    if (DEBUG)
-        TRACEVAR(reward_drops);
+    // write drops to paymen txn
+    {
+        uint64_t drops = float_int(xfl_reward, 6, 1);                                                                     
+        uint8_t* b = AMOUNT_OUT;                                                                                   
+        *b++ = 0b01000000 + (( drops >> 56 ) & 0b00111111 );                                                           
+        *b++ = (drops >> 48) & 0xFFU;                                                                                  
+        *b++ = (drops >> 40) & 0xFFU;                                                                                  
+        *b++ = (drops >> 32) & 0xFFU;                                                                                  
+        *b++ = (drops >> 24) & 0xFFU;                                                                                  
+        *b++ = (drops >> 16) & 0xFFU;                                                                                  
+        *b++ = (drops >>  8) & 0xFFU;                                                                                  
+        *b++ = (drops >>  0) & 0xFFU;
 
-    uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
-    PREPARE_PAYMENT_SIMPLE(tx, reward_drops, account_field, 0, 0);
+        // copy to other template
+        *((uint64_t*)AMOUNT_OUT_2) = *((uint64_t*)AMOUNT_OUT);
+    }
 
-    // emit the transaction
+    // emit the payment transaction
     uint8_t emithash[32];
-    int64_t emit_result = emit(SBUF(emithash), SBUF(tx));
+    int64_t emit_result = emit(SBUF(emithash), SBUF(txn_payment));
 
     if (DEBUG)
         TRACEVAR(emit_result);
 
-    if (emit_result > 0)
-        accept(SBUF("Reward: Emitted reward txn successfully."), __LINE__);
-    // RH TODO:
-    // on callback pay out each of the filled gov seat
+    if (emit_result < 0)
+        rollback(SBUF("Reward: Emit reward failed."), __LINE__);
 
-    rollback(SBUF("Reward: Emit reward failed."), __LINE__);
+    // emit the loopback txn
+    emit_result = emit(SBUF(emithash), SBUF(txn_loopback));
+    
+    if (DEBUG)
+        TRACEVAR(emit_result);
+    
+    if (emit_result < 0)
+        rollback(SBUF("Reward: Emit loopback failed."), __LINE__);
+
+
+    accept(SBUF("Reward: Emitted reward txn successfully."), __LINE__);
 }

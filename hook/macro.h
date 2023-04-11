@@ -562,10 +562,13 @@ int out_len = 0;\
             else\
             {\
                 *buf_out++ = 0x1FU; /* HookHash */\
-                *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; \
-                *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; \
-                *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; \
-                *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; *buf_out++ = *hook0++; \
+                uint64_t* d = (uint64_t*)buf_out;\
+                uint64_t* s = (uint64_t*)hook0;\
+                *d++ = *s++;\
+                *d++ = *s++;\
+                *d++ = *s++;\
+                *d++ = *s++;\
+                buf_out+=32;\
             }\
         }\
         *buf_out++ = 0xE1U;\

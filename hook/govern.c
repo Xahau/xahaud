@@ -70,12 +70,12 @@
 #define SVAR(x) x, sizeof(x)
 
 #define DONE(x)\
-{\
-    accept(SVAR(x),(uint32_t)__LINE__);\
-}
+    accept(SVAR(x),(uint32_t)__LINE__);
 
 #define NOPE(x)\
     rollback(SBUF(x), __LINE__);
+
+#define DEBUG 1
 
 int64_t hook(uint32_t r)
 {
@@ -90,15 +90,31 @@ int64_t hook(uint32_t r)
 
     uint8_t hook_accid[20];
     hook_account(SBUF(hook_accid));
-
-    // start of hook proper
-    // state key 0..0 contains the member count
-    int64_t member_count = state(0,0, "MC", 2);
-
-    TRACEVAR(member_count);
     
+    int64_t member_count = state(0,0, "MC", 2);
+    if (DEBUG)
+        TRACEVAR(member_count);
+    
+    // outgoing txns to other hooks allowed
+    // but a self ttINVOKE means rewards hook is trying to get the governance hook to distribute governance rewards
+    int64_t is_distribution = 0;
+    int64_t is_setup = member_count == DOESNT_EXIST;
+
+    if (BUFFER_EQUAL_20(hook_accid, account_field + 12))
+    {
+        uint8_t dest_acc[20];
+        if (otxn_field(SBUF(dest_acc), sfDestination) == 20 && !BUFFER_EQUAL_20(hook_accid, dest_acc))
+            DONE("Goverance: Passing outgoing txn.");
+    
+        is_distribution = 1;
+    }
+
     // initial execution, setup hook
-    if (member_count == DOESNT_EXIST)
+
+    int64_t distribution_amount;
+
+
+    if (is_setup)
     {
         // gather hook parameters
 
@@ -136,39 +152,61 @@ int64_t hook(uint32_t r)
         // set reward delay
         ASSERT(state_set(SVAR(ird), "RD", 2));
 
-        for (uint8_t i = 0; GUARD(SEAT_COUNT), i < imc; ++i)
+        distribution_amount = ida;
+        member_count = imc;
+    }
+    else if (is_distribution)
+    {
+        ASSERT(member_count > 0);
+
+        uint8_t amt[8];
+        ASSERT(otxn_param(SBUF(amt), "reward", 5) == 8);
+        distribution_amount = INT64_FROM_BUF(amt);
+        distribution_amount /= member_count;
+        ASSERT(distribution_amount > 0);
+    }
+
+    if (is_setup || is_distribution)
+    {
+        for (uint8_t i = 0; GUARD(SEAT_COUNT), i < member_count; ++i)
         {
             uint8_t member_acc[20];
-            uint8_t member_pkey[3] = {'I', 'S', i};
-            if (hook_param(SBUF(member_acc), member_pkey, 3) != 20)
-                NOPE("Governance: One or more initial member account ID's is missing");
+            if (is_setup)
+            {
+                uint8_t member_pkey[3] = {'I', 'S', i};
+                if (hook_param(SBUF(member_acc), member_pkey, 3) != 20)
+                    NOPE("Governance: One or more initial member account ID's is missing");
 
                                                                 // 0... X where X is member id started from 1
                                                                 // maps to the member's account ID
-            // reverse key 
-            ASSERT(state_set(SBUF(member_acc), SVAR(i)) == 20);
+                // reverse key 
+                ASSERT(state_set(SBUF(member_acc), SVAR(i)) == 20);
             
                                                                 // 0, 0... ACCOUNT ID maps to member_id (as above)
-            // forward key
-            ASSERT(state_set(SVAR(i), SBUF(member_acc)) == 1);
+                // forward key
+                ASSERT(state_set(SVAR(i), SBUF(member_acc)) == 1);
+            }
+            else if (state(SBUF(member_acc), SVAR(i)) != 20)
+                break;
 
             // emit initial
             uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
-            PREPARE_PAYMENT_SIMPLE(tx, ida, member_acc, 0, 0);
+            PREPARE_PAYMENT_SIMPLE(tx, distribution_amount, member_acc, 0, 0);
 
             // emit the transaction
             uint8_t emithash[32];
             int64_t emit_result = emit(SBUF(emithash), SBUF(tx));
             ASSERT(emit_result > 0);
-            TRACEVAR(emit_result);
+
+            if (DEBUG)
+                TRACEVAR(emit_result);
+
         }
 
-        DONE("Governance: Setup completed successfully.");
+        DONE(is_setup
+            ? "Governance: Setup completed successfully."
+            : "Governance: Reward distribution completed successfully.");
     }
-
-    // outgoing txns allowed
-    if (BUFFER_EQUAL_20(hook_accid, account_field + 12))
-        DONE("Goverance: Passing outgoing txn.");
 
     // otherwise a normal execution (not initial)
     // first let's check if the invoking party is a member
@@ -274,11 +312,13 @@ int64_t hook(uint32_t r)
     uint8_t zero[32];
     int topic_data_zero = BUFFER_EQUAL_32(topic_data, zero); 
 
-    TRACEVAR(topic_data_zero);
-    TRACEVAR(votes);
-    TRACEVAR(member_count);
-
-    trace(SBUF("topic"), topic, 2, 1);
+    if (DEBUG)
+    {
+        TRACEVAR(topic_data_zero);
+        TRACEVAR(votes);
+        TRACEVAR(member_count);
+        trace(SBUF("topic"), topic, 2, 1);
+    }
     
     // now check if we hit threshold
     if (votes < (topic[0] == 'M' ? (member_count * 0.8) : member_count))
@@ -287,9 +327,9 @@ int64_t hook(uint32_t r)
     // 100%/80% threshold as needed is reached
     // action vote
 
-    TRACESTR("Actioning votes");
+    if (DEBUG)
+        TRACESTR("Actioning votes");
 
-    // RH UPTO:
     switch (topic[0])
     {
         case 'R':
@@ -354,7 +394,8 @@ int64_t hook(uint32_t r)
             uint8_t emithash[32];
             int64_t emit_result = emit(SBUF(emithash), emit_buf, emit_size);
 
-            TRACEVAR(emit_result);
+            if (DEBUG)
+                TRACEVAR(emit_result);
 
             if (emit_result != emit_size)
                 NOPE("Governance: Emit failed during hook actioning.");
