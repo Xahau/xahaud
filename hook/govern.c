@@ -27,6 +27,13 @@
  *      Parameter Value: Initial seat #0's member's 20 byte Account ID.
  *
  *      ...
+ *  
+ *  Topics:
+ *      'H[0-9]'    - Hook Hash in positions 0-9 <32 byte hash>
+ *      'RR'        - reward rate  <le xfl 8 bytes>
+ *      'RD'        - reward delay <le xfl 8 bytes>
+ *      'S[0-19]'   - who is a governance member occupying that seat <20 byte accid>
+ *      'B[0-19]'   - reimburse member at seat 0-19 for a Batch of xrp swaps <be drops 8 bytes>
  *
  *  Hook State:
  *      State Key: {0..0, 'M', 'C'}
@@ -44,10 +51,10 @@
  *      State Key: {0..0, <20 byte account id>}
  *      State Data: Seat number this member occupies <1 byte>
  *
- *      State Key: {'V', 'H|R|M' <topic type>, '\0 + topic id', 0..0, <member accid>}
+ *      State Key: {'V', 'H|R|S|B' <topic type>, '\0 + topic id', 0..0, <member accid>}
  *      State Data: A vote by a member for a topic and topic data
  *
- *      State Key: {'C', 'H|R|M' <topic type>, '\0 + topic id', 0*, <front truncated topic data>}
+ *      State Key: {'C', 'H|R|S|B' <topic type>, '\0 + topic id', 0*, <front truncated topic data>}
  *      State Data: The number of members who have voted for that topic data and topic combination <1 byte>
  *
  *  Hook Invocation:
@@ -224,11 +231,12 @@ int64_t hook(uint32_t r)
     if (result != 2 || (
                 topic[0] != 'S' &&      // topic type: seat
                 topic[0] != 'H' &&      // topic type: hook
-                topic[0] != 'R'))       // topic type: reward
+                topic[0] != 'R' &&      // topic type: reward 
+                topic[0] != 'B'))      // topic type: batch (redeem xrp swaps to gov member)
         NOPE("Governance: Valid TOPIC must be specified as otxn parameter.");
 
    
-    if (topic[0] == 'S' && topic[1] > (SEAT_COUNT - 1) )
+    if (topic[0] == 'S' && topic[1] > (SEAT_COUNT - 1))
         NOPE("Governance: Valid seat topics are 0 through 19.");
 
     if (topic[0] == 'H' && topic[1] > HOOK_MAX)
@@ -236,13 +244,18 @@ int64_t hook(uint32_t r)
 
     if (topic[0] == 'R' && topic[1] != 'R' && topic[1] != 'D')
         NOPE("Governance: Valid reward topics are R (rate) and D (delay).");
-    
+   
+    if (topic[0] == 'B' && topic[1] > (SEAT_COUNT - 1)) 
+        NOPE("Governance: Valid batch topics are 0 through 19.");
+
+    // RH TODO: validate RR/RD xfl > 0
+    // RH TODO: validate B drops > 0
 
     uint8_t topic_data[32];
     uint8_t topic_size = 
-        topic[0] == 'R' ? 8 :       // reward topics are an 8 byte int/xfl
         topic[0] == 'H' ? 32 :      // hook topics are a 32 byte hook hash
-                          20;       // account topics are a 20 byte account ID
+        topic[0] == 'S' ? 20 :      // account topics are a 20 byte account ID
+                          8;        // reward and batch topics are an 8 byte le xfl
     
     uint8_t padding = 32 - topic_size;
 
@@ -321,7 +334,7 @@ int64_t hook(uint32_t r)
     }
     
     // now check if we hit threshold
-    if (votes < (topic[0] == 'M' ? (member_count * 0.8) : member_count))
+    if (votes < ((topic[0] == 'S' || topic[0] == 'B') ? (member_count * 0.8) : member_count))
         DONE("Governance: Vote recorded. Not yet enough votes to action.");
 
     // 100%/80% threshold as needed is reached
@@ -332,6 +345,49 @@ int64_t hook(uint32_t r)
 
     switch (topic[0])
     {
+        case 'B':
+        {
+            // batch (redeem xrp swaps) topics
+
+            uint8_t member_acc[20];
+
+            if (state(SBUF(member_acc), topic + 1, 1) != 20)
+                NOPE("Governance: Cannot action batch topic because target seat is empty.");
+
+            uint64_t distribution_amount = UINT64_FROM_BUF(topic_data);
+
+            // emit 
+            uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
+            PREPARE_PAYMENT_SIMPLE(tx, distribution_amount, member_acc, 0, 0);
+
+            // emit the transaction
+            uint8_t emithash[32];
+            int64_t emit_result = emit(SBUF(emithash), SBUF(tx));
+            ASSERT(emit_result > 0);
+
+            if (DEBUG)
+                TRACEVAR(emit_result);
+
+            // unset all votes for this
+            for (uint8_t i = 0; GUARD(SEAT_COUNT), i < member_count; ++i)
+            {
+                uint8_t member_acc[32];
+                if (state(member_acc + 12, 20, SVAR(i)) != 20)
+                    continue;
+                member_acc[0] = 'V';
+                member_acc[1] = topic[0];
+                member_acc[2] = topic[1];
+                ASSERT(state_set(0,0, SBUF(member_acc)) == 0);
+            }
+
+            // delete the counter
+            topic_data[0] = 'C';
+            topic_data[1] = topic[0];
+            topic_data[2] = topic[1];
+            ASSERT(state(0,0, SBUF(topic_data)) == 0);
+
+            DONE("Governance: Emitted batch redemption.");
+        }
         case 'R':
         {
             // reward topics
