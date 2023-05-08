@@ -150,6 +150,8 @@ public:
     std::vector<std::string> IPS_FIXED;     // Fixed Peer IPs from rippled.cfg.
     std::vector<std::string> SNTP_SERVERS;  // SNTP servers from rippled.cfg.
 
+    std::vector<std::string> IMPORT_VL_KEYS;
+
     enum StartUpType { FRESH, NORMAL, LOAD, LOAD_FILE, REPLAY, NETWORK };
     StartUpType START_UP = NORMAL;
 

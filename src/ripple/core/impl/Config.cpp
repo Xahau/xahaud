@@ -929,6 +929,17 @@ Config::loadFromString(std::string const& fileContents)
             if (valListKeys)
                 section(SECTION_VALIDATOR_LIST_KEYS).append(*valListKeys);
 
+            if (auto importKeys =
+                    getInitFileSection(iniFile, SECTION_IMPORT_VL_KEYS))
+                IMPORT_VL_KEYS = *importKeys;
+            else
+                Throw<std::runtime_error>(
+                    "The file specified in [" SECTION_VALIDATORS_FILE
+                    "] "
+                    "does not contain a [" SECTION_IMPORT_VL_KEYS
+                    "] section: " +
+                    validatorsFile.string());
+
             if (!entries && !valKeyEntries && !valListKeys)
                 Throw<std::runtime_error>(
                     "The file specified in [" SECTION_VALIDATORS_FILE
