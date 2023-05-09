@@ -44,19 +44,6 @@ checkValidity(
     auto const id = tx.getTransactionID();
     auto const flags = router.getFlags(id);
 
-    bool const isImport = 
-        ctx.rules.enabled(featureImport) &&
-        ctx.tx.isFieldPresent(sfTransactionType) &&
-        ctx.tx.getFieldU16(sfTransactionType) == ttIMPORT;
-
-    if (isImport)
-    {
-        if (tx.isFieldPresent(sfSignature))
-            return {Validity::SigBad, "Import txn contains signature"};
-
-        return {Validity::Valid, ""};
-    }
-
     if (rules.enabled(featureHooks) && tx.isFieldPresent(sfEmitDetails))
     {
         // emitted transactions do not contain signatures

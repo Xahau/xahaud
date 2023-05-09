@@ -360,7 +360,8 @@ TxFormats::TxFormats()
     add(jss::Import,
         ttIMPORT,
         {
-            {sfBlob, seoREQUIRED}
+            {sfAmount, soeOPTIONAL},
+            {sfBlob, seoREQUIRED},
         },
         commonFields);
 

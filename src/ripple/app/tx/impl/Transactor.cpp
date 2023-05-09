@@ -104,13 +104,7 @@ preflight1(PreflightContext const& ctx)
         return ret;
 
     auto const id = ctx.tx.getAccountID(sfAccount);
-
-    bool const isImport = 
-        ctx.rules.enabled(featureImport) &&
-        ctx.tx.isFieldPresent(sfTransactionType) &&
-        ctx.tx.getFieldU16(sfTransactionType) == ttIMPORT;
-
-    if (id == beast::zero && !isImport || id != beast::zero && isImport)
+    if (id == beast::zero)
     {
         JLOG(ctx.j.warn()) << "preflight1: bad account id";
         return temBAD_SRC_ACCOUNT;
