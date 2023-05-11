@@ -23,9 +23,15 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <iostream>
-#include <json/json.h>
 #include <algorithm>
 #include <vector>
+#include <charconv>
+#include <ripple/json/json_value.h>
+#include <ripple/json/json_reader.h>
+#include <ripple/protocol/PublicKey.h>
+#include <ripple/protocol/STTx.h>
+#include <ripple/basics/base64.h>
+#include <ripple/app/misc/Manifest.h>
 
 namespace ripple {
 
@@ -65,7 +71,7 @@ parse_uint64(std::string const& str)
 }
 
 inline bool
-syntaxCheckProof(Json::Value const& proof, beast::Journal& j, int depth = 0)
+syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 0)
 {
     if (depth > 64)
         return false;
@@ -73,9 +79,9 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal& j, int depth = 0)
     if (proof.isArray())
     {
         // List form
-        if (proof.asArray().size() != 16)
+        if (proof.size() != 16)
         {
-            JLOG(j.warn() << "XPOP.transaction.proof list should be exactly 16 entries";
+            JLOG(j.warn()) << "XPOP.transaction.proof list should be exactly 16 entries";
             return false;
         }
         for (const auto& entry : proof)
@@ -141,13 +147,13 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal& j, int depth = 0)
 }
 // does not check signature etc
 inline
-std::opitonla<Json::Value>
-syntaxCheckXPOP(Blob const& blob,  beast::Journal& j)
+std::optional<Json::Value>
+syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
 {
     if (blob.empty())
         return {};
 
-    std::string strJson(blobJson.begin(), blobJson.end());
+    std::string strJson(blob.begin(), blob.end());
     if (strJson.empty())
         return {};
 
@@ -226,7 +232,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal& j)
         }
         else if (xpop["ledger"]["coins"].isString())
         {
-            if (!parse_uint64(xpop["ledger"]["coins"]))
+            if (!parse_uint64(xpop["ledger"]["coins"].asString()))
             {
                 JLOG(j.warn()) << "XPOP.ledger.coins missing or wrong format "
                               "(should be int or string)";
@@ -277,7 +283,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal& j)
             return {};
         }
 
-        if (!syntxCheckProof(xpop["transaction"]["proof"], j))
+        if (!syntaxCheckProof(xpop["transaction"]["proof"], j))
         {
             JLOG(j.warn()) << "XPOP.transaction.proof failed syntax check "
                           "(tree/list form)";
@@ -315,10 +321,18 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal& j)
             const auto& value = xpop["validation"]["unl"][key];
             if (key == "public_key")
             {
-                if (!value.isString() || !isPublicKey(value.asString()))
+                if (!value.isString() || !isHex(value.asString()))
                 {
                     JLOG(j.warn()) << "XPOP.validation.unl.public_key missing or "
-                                  "wrong format (should be base58 string)";
+                                  "wrong format (should be hex string)";
+                    return {};
+                }
+
+                auto pk = strUnHex(value.asString());
+
+                if (!publicKeyType(makeSlice(*pk)))
+                {
+                    JLOG(j.warn()) << "XPOP.validation.unl.public_key invalid key type.";
                     return {};
                 }
             }
@@ -393,7 +407,7 @@ Import::preflight(PreflightContext const& ctx)
 
     if (tx.getFieldVL(sfBlob).size() > (512 * 1024))
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: blob was more than 512kib "
             << tx.getTransactionID();
         return temMALFORMED;
@@ -401,9 +415,9 @@ Import::preflight(PreflightContext const& ctx)
 
     auto const amt = tx[~sfAmount];
 
-    if (amt && !isNative(*amt))
+    if (amt && !isXRP(*amt))
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: sfAmount field must be in drops. "
             << tx.getTransactionID();
         return temMALFORMED;
@@ -411,37 +425,37 @@ Import::preflight(PreflightContext const& ctx)
 
     // parse blob as json
     auto const xpop =
-        syntaxCheckXPOPBlob(tx.getFieldVL(sfBlob), ctx.j);
+        syntaxCheckXPOP(tx.getFieldVL(sfBlob), ctx.j);
 
     if (!xpop)
         return temMALFORMED;
 
     // check if we recognise the vl key
-    auto const& vlKeys = app_.config().IMPORT_VL_KEYS;
-    auto const found = std::ranges::find(vlkeys, xpop[jss::validation][jss::unl][jss::public_key].asString());
+    auto const& vlKeys = ctx.app.config().IMPORT_VL_KEYS;
+    auto const found = std::ranges::find(vlKeys, (*xpop)[jss::validation][jss::unl][jss::public_key].asString());
     if (found == vlKeys.end())
         return telIMPORT_VL_KEY_NOT_RECOGNISED;
 
     // extract the transaction for which this xpop is a proof
-    auto rawTx = strUnHex(xpop[jss::transaction][jss::blob].asString());
-    std::unique_ptr<STTx const> stpTrans;
-    try
+    auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
+
+    if (!rawTx)
     {
-        stpTrans = std::make_unique<STTx const>(SerialIter { rawTx.data(), rawTx.size() });
-    }
-    catch (std::exception& e)
-    {
-        JLOG(j.warn())
-            << "Import: failed to serialize tx blob inside xpop "
+        JLOG(ctx.j.warn())
+            << "Import: failed to deserialize tx blob inside xpop (invalid hex) "
             << tx.getTransactionID();
         return temMALFORMED;
     }
 
-    // check if the account matches the account in the xpop, if not bail early
-    if (stpTrans->getAccountID(sfAccount) != account_)
+    std::unique_ptr<STTx const> stpTrans;
+    try
     {
-        JLOG(j.warn())
-            << "Import: import and txn inside xpop must be signed by the same account "
+        stpTrans = std::make_unique<STTx const>(SerialIter { rawTx->data(), rawTx->size() });
+    }
+    catch (std::exception& e)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: failed to deserialize tx blob inside xpop "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -449,16 +463,26 @@ Import::preflight(PreflightContext const& ctx)
     // check if txn is emitted or a psuedo
     if (isPseudoTx(*stpTrans) || stpTrans->isFieldPresent(sfEmitDetails))
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: attempted to import xpop containing an emitted or pseudo txn. "
             << tx.getTransactionID();
         return temMALFORMED;
     }
+    
+    // check if the account matches the account in the xpop, if not bail early
+    if (stpTrans->getAccountID(sfAccount) != tx.getAccountID(sfAccount))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: import and txn inside xpop must be signed by the same account "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+
 
     // ensure inner txn is for networkid = 0 (network id must therefore be missing)
     if (stpTrans->isFieldPresent(sfNetworkID))
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: attempted to import xpop containing a txn with a sfNetworkID field. "
             << tx.getTransactionID();
         return temMALFORMED;
@@ -467,7 +491,7 @@ Import::preflight(PreflightContext const& ctx)
     // ensure the inner txn is an accountset
     if (stpTrans->getTxnType() != ttACCOUNT_SET)
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: inner txn must be an AccountSet transaction. "
             << tx.getTransactionID();
         return temMALFORMED;
@@ -477,7 +501,7 @@ Import::preflight(PreflightContext const& ctx)
     // is compatible with the burn amount
     if (amt && *amt > stpTrans->getFieldAmount(sfFee))
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: inner txn fee must be higher than outer txn amount field. "
             << tx.getTransactionID();
         return temMALFORMED;
@@ -494,10 +518,10 @@ Import::preflight(PreflightContext const& ctx)
             bool const outerHasSigners = tx.isFieldPresent(sfSigners);
             bool const innerHasSigners = stpTrans->isFieldPresent(sfSigners);
 
-            if (!(outerHashSigners && innerHasSigners) ||
+            if (!(outerHasSigners && innerHasSigners) ||
                 tx.getFieldArray(sfSigners) != stpTrans->getFieldArray(sfSigners))
             {
-                JLOG(j.warn())
+                JLOG(ctx.j.warn())
                     << "Import: outer and inner txns were (multi) signed with different keys. "
                     << tx.getTransactionID();
                 return temMALFORMED;
@@ -506,7 +530,7 @@ Import::preflight(PreflightContext const& ctx)
         }
         else if (outer != inner)
         {
-            JLOG(j.warn())
+            JLOG(ctx.j.warn())
                 << "Import: outer and inner txns were signed with different keys. "
                 << tx.getTransactionID();
             return temMALFORMED;
@@ -515,9 +539,10 @@ Import::preflight(PreflightContext const& ctx)
 
     // check inner txns signature
     // we do this with a custom ruleset which should be kept up to date with network 0's signing rules
-    if (!stpTrans->checkSign(RequireFullyCanonicalSig::yes, {{featureExpandedSignerList}}))
+    const std::unordered_set<uint256, beast::uhash<>> rulesFeatures {featureExpandedSignerList};
+    if (!stpTrans->checkSign(STTx::RequireFullyCanonicalSig::yes, Rules(rulesFeatures)))
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: inner txn signature verify failed "
             << tx.getTransactionID();
         return temMALFORMED;
@@ -535,7 +560,7 @@ Import::preflight(PreflightContext const& ctx)
 
     // check it was used to sign over the manifest
     auto const m =
-        deserializeManifest(base64_decode(xpop[jss::validation][jss::unl][jss::manifest]));
+        deserializeManifest(base64_decode((*xpop)[jss::validation][jss::unl][jss::manifest].asString()));
 
     if (!m)
     {
@@ -545,28 +570,28 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (to_string(m->masterkey) != *found)
+    if (strHex(m->masterKey) != *found)
     {
         JLOG(ctx.j.warn())
             << "Import: manifest master key did not match top level master key in unl section of xpop "
             << tx.getTransactionID();
-        return temMALOFRMED;
+        return temMALFORMED;
     }
 
-    if (!m->valid())
+    if (!m->verify())
     {
         JLOG(ctx.j.warn())
             << "Import: manifest signature invalid "
             << tx.getTransactionID();
-        return temMALOFRMED;
+        return temMALFORMED;
     }
 
     // manifest signing (ephemeral) key
     auto const signingKey = m->signingKey;
 
     // decode blob
-    auto const data = base64_decode(xpop[jss::validation][jss::unl][jss::blob]);
-    auto const sig = strUnHex(xpop[jss::validation][jss::unl][jss::signature]);
+    auto const data = base64_decode((*xpop)[jss::validation][jss::unl][jss::blob].asString());
+    auto const sig = strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
     if (!sig ||
         !ripple::verify(
             signingKey,
@@ -605,7 +630,7 @@ Import::preflight(PreflightContext const& ctx)
         list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
     auto const validUntil = TimeKeeper::time_point{
         TimeKeeper::duration{list[jss::expiration].asUInt()}};
-    auto const now = timeKeeper_.now();
+    auto const now = ctx.app.timeKeeper().now();
     if (validUntil <= validFrom)
     {
         JLOG(ctx.j.warn())
@@ -630,13 +655,23 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    auto const tx_blob = strUnHex(xpop[jss::transaction][jss::blob].asString());
-    auto const tx_meta = strUnHex(xpop[jss::transaction][jss::meta].asString());
-    auto const tx_hash = sha512Half(HashPrefix::transactionID, tx_blob);
+    auto const tx_meta = strUnHex((*xpop)[jss::transaction][jss::meta].asString());
+    
+    if (!tx_meta)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: tx meta not valid hex "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+    
+    auto const tx_hash = sha512Half(HashPrefix::transactionID, *rawTx);
 
-    Serializer s(txn->getDataLength() + metaData->getDataLength() + 16);
-    s.addVL(tx_blob);
-    s.addVL(tx_meta);
+
+
+    Serializer s(rawTx->size() + tx_meta->size() + 40);
+    s.addVL(*rawTx);
+    s.addVL(*tx_meta);
     s.addBitString(tx_hash);
 
     uint256 const computed_tx_hash_and_meta =
@@ -678,7 +713,7 @@ Import::preflight(PreflightContext const& ctx)
         };
 
         return proofContains(&proof, hash, 0, proofContains);
-    })(xpop[jss::transaction][jss::proof], strHex(computed_tx_hash_and_meta)))
+    })((*xpop)[jss::transaction][jss::proof], strHex(computed_tx_hash_and_meta)))
     {
         JLOG(ctx.j.warn())
            << "Import: xpop proof did not contain the specified txn "
@@ -741,13 +776,25 @@ Import::preflight(PreflightContext const& ctx)
             return static_cast<uint256>(h);
         };
         return hashProof(proof, 0, hashProof);
-    })(xpop[jss::transaction][jss::proof]);
+    })((*xpop)[jss::transaction][jss::proof]);
 
-    auto const& lgr = xpop[jss::ledger];
+    auto const& lgr = (*xpop)[jss::ledger];
     if (strHex(computedTxRoot) != lgr[jss::txroot])
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: computed txroot does not match xpop txroot, invalid xpop. "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+
+    auto coins = parse_uint64(lgr[jss::coins].asString());
+    auto phash = strUnHex(lgr[jss::phash].asString());
+    auto acroot = strUnHex(lgr[jss::acroot].asString());
+
+    if (!coins || !phash || !acroot)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: error parsing coins | phash | acroot in the ledger section of XPOP. "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -757,10 +804,10 @@ Import::preflight(PreflightContext const& ctx)
     sha512Half(
         HashPrefix::ledgerMaster,
         std::uint32_t(lgr[jss::index].asUInt()),
-        std::uint64_t(lgr[jss::coins].asUInt64()),
-        strUnHex(lgr[jss::phash].asString()),
+        *coins,
+        *phash,
         computedTxRoot,
-        strUnHex(lgr[jss::acroot].asString()),
+        *acroot,
         std::uint32_t(lgr[jss::pclose].asUInt()),
         std::uint32_t(lgr[jss::close].asUInt()),
         std::uint8_t(lgr[jss::cres].asUInt()),
@@ -806,7 +853,7 @@ Import::preflight(PreflightContext const& ctx)
 
 
         auto const m =
-            deserializeManifest(base64_decode(val[jss::manifest]));
+            deserializeManifest(base64_decode(val[jss::manifest].asString()));
 
         if (!m)
         {
@@ -816,7 +863,7 @@ Import::preflight(PreflightContext const& ctx)
             continue;
         }
 
-        if (to_string(m->masterkey) != val[jss::validation_public_key])
+        if (strHex(m->masterKey) != val[jss::validation_public_key])
         {
             JLOG(ctx.j.warn())
                 << "Import: unl blob list entry manifest master key did not match master key, skipping "
@@ -824,7 +871,7 @@ Import::preflight(PreflightContext const& ctx)
             continue;
         }
 
-        if (!m->valid())
+        if (!m->verify())
         {
             JLOG(ctx.j.warn())
                 << "Import: unl blob list entry manifest signature invalid, skipping "
@@ -834,7 +881,7 @@ Import::preflight(PreflightContext const& ctx)
 
         std::string const nodepub = toBase58(TokenType::NodePublic, m->signingKey);
         std::string const nodemaster = toBase58(TokenType::NodePublic, m->masterKey);
-        validators[nodepub] = m->signingKey;
+        validators[nodepub] = strHex(m->signingKey);
         validatorsMaster[nodemaster] = nodepub;
     }
 
@@ -846,9 +893,9 @@ Import::preflight(PreflightContext const& ctx)
 
     // count how many validations this ledger hash has
 
+    uint64_t validationCount { 0 };
     {
-        uint64_t validationCount { 0 };
-        auto const& data = xpop[jss::validation][jss::data];
+        auto const& data = (*xpop)[jss::validation][jss::data];
         std::set<std::string> used_key;
 
         for (const auto& key : data.getMemberNames())
@@ -859,16 +906,16 @@ Import::preflight(PreflightContext const& ctx)
             // if the specified node address (nodepub) is in the master address => regular address list
             // then make a note and replace it with the regular address
             auto regular = validatorsMaster.find(nodepub);
-            if (regular != validatorsMaster.end() && validators.find(*regular) != validators.end())
+            if (regular != validatorsMaster.end() && validators.find(regular->second) != validators.end())
             {
                 used_key.emplace(nodepub);
-                nodepub = *regular;
+                nodepub = regular->second;
             }
 
             auto const signingKey = validators.find(nodepub);
             if (signingKey == validators.end())
             {
-                JLOG(j.trace())
+                JLOG(ctx.j.trace())
                     << "Import: validator nodepub " << nodepub
                     << " did not appear in validator list but did appear in data section "
                     << tx.getTransactionID();
@@ -877,7 +924,7 @@ Import::preflight(PreflightContext const& ctx)
 
             if (used_key.find(nodepub) == used_key.end())
             {
-                JLOG(j.trace())
+                JLOG(ctx.j.trace())
                     << "Import: validator nodepub " << nodepub
                     << " key appears more than once in data section "
                     << tx.getTransactionID();
@@ -892,10 +939,19 @@ Import::preflight(PreflightContext const& ctx)
                 std::unique_ptr<STValidation> val;
                 auto const valBlob = strUnHex(data[datakey].asString());
 
-                SerialIter sit(makeSlice(valBlob));
+                if (!valBlob)
+                {
+                    JLOG(ctx.j.warn())
+                        << "Import: validation inside xpop was not valid hex "
+                        << "nodepub: " << nodepub << " txid: "
+                        << tx.getTransactionID();
+                    continue;
+                }
+
+                SerialIter sit(makeSlice(*valBlob));
                 val = std::make_unique<STValidation>(
                     std::ref(sit),
-                    [this](PublicKey const& pk) {
+                    [](PublicKey const& pk) {
                         return calcNodeID(pk);
                     },
                     false);
@@ -903,9 +959,9 @@ Import::preflight(PreflightContext const& ctx)
                 if (val->getLedgerHash() != computedLedgerHash)
                     continue;
                 
-                if (!(strHex(val->getSignerPublic()) == *signingKey))
+                if (!(strHex(val->getSignerPublic()) == signingKey->second))
                 {
-                    JLOG(j.warn())
+                    JLOG(ctx.j.warn())
                         << "Import: validation inside xpop was not signed with a signing key we recognise "
                         << "despite being listed against a nodepub we recognise. "
                         << "nodepub: " << nodepub << ". txid: " << tx.getTransactionID();
@@ -915,7 +971,7 @@ Import::preflight(PreflightContext const& ctx)
                 // signature check is expensive hence done after checking everything else
                 if (!val->isValid())
                 {
-                    JLOG(j.warn())
+                    JLOG(ctx.j.warn())
                         << "Import: validation inside xpop was not correctly signed "
                         << "nodepub: " << nodepub << " txid: "
                         << tx.getTransactionID();
@@ -927,7 +983,7 @@ Import::preflight(PreflightContext const& ctx)
             }
             catch (...)
             {
-                JLOG(j.warn())
+                JLOG(ctx.j.warn())
                     << "Import: validation inside xpop was not able to be parsed "
                     << "nodepub: " << nodepub << " txid: "
                     << tx.getTransactionID();
@@ -940,7 +996,7 @@ Import::preflight(PreflightContext const& ctx)
     // check if the validation count is adequate
     if (quorum > validationCount)
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: xpop did not contain an 80% quorum for the txn it purports to prove. "
             << tx.getTransactionID();
         return temMALFORMED;
@@ -971,7 +1027,7 @@ Import::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureImport))
         return temDISABLED;
 
-    auto const id = ctx.tx[sfAccount];
+/*    auto const id = ctx.tx[sfAccount];
 
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
@@ -982,116 +1038,20 @@ Import::preclaim(PreclaimContext const& ctx)
         if (!ctx.view.exists(keylet::account(ctx.tx[sfDestination])))
             return tecNO_TARGET;
     }
-
+*/
     return tesSUCCESS;
 }
 
 TER
 Import::doApply()
 {
-    // everything happens in the hooks!
     return tesSUCCESS;
 }
 
 XRPAmount
 Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    return 0;
+    return XRPAmount { 0 } ;
 }
 
 }  // namespace ripple
-/*
-    // xpop must be an object
-    if (!xpop.isObject())
-    {
-        DEBUG_XPOP << "XPOP isn't a JSON object\n";
-        return {};
-    }
-
-
-    // XLS41 format
-    if (!xpop.isMember(jss::ledger) ||
-        !xpop.isMember(jss::transaction) ||
-        !xpop.isMember(jss::validation))
-    {
-        DEBUG_XPOP << "XPOP missing ledger/transaction/validation key\n";
-        return {};
-    }
-
-    Json::Value const& ledger = xpop[jss::ledger];
-    Json::Value const& transaction = xpop[jss::transaction];
-    Json::Value const& validation = xpop[jss::validation];
-
-
-    // ledger section
-    if (!ledger.isMember(jss::acroot) ||
-        !ledger[jss::acroot].isString() ||
-        ledger[jss::acroot].asString().size() != 64)
-    {
-        DEBUG_XPOP << "XPOP.ledger.acroot missing or wrong format (should be hex
-string)\n"; return {};
-    }
-
-    if (!ledger.isMember(jss::txroot) ||
-        !ledger[jss::txroot].isString() ||
-        ledger[jss::txroot].asString().size() != 64)
-    {
-        DEBUG_XPOP << "XPOP.ledger.txroot missing or wrong format (should be hex
-string)\n"; return {};
-    }
-
-    if (!ledger.isMember(jss::close) || !ledger[jss::close].isNumeric())
-    {
-        DEBUG_XPOP << "XPOP.ledger.close missing or wrong format (should be
-int)\n"; return {};
-    }
-
-    if (!ledger.isMember(jss::coins))
-    {
-        DEBUG_XPOP << "XPOP.leder.coins missing\n";
-        return {};
-    }
-
-    if (ledger[jss::coins].isNumeric())
-    {
-       // pass
-    }
-    else if (ledger[jss::coins].isString())
-    {
-        // check if its an int
-        if (!parse_uint64(ledger[jss::coins].asString()))
-        {
-            DEBUG_XPOP << "XPOP.ledger.coins present but isn't parsable to a
-uint64\n"; return {};
-        }
-    }
-    else
-    {
-        DEBUG_XPOP << "XPOP.ledger.coins wrong format (should be int or
-string)\n"; return {};
-    }
-
-    || !(ledger[jss::coins].isNumeric() || ledger[jss::coins].isString()))
-
-
-    // validate transaction section
-    if (!transaction.isMember("blob") ||
-        !transaction.isMember("meta") ||
-        !transaction.isMember("proof"))
-    {
-        if (DEBUG_XPOP)
-            std::cout << "XPOP.transaction missing blob/meta/proof key\n";
-        return {};
-    }
-
-
-    // check validation section
-    if (!validation.isMember("data") ||
-        !validation.isMember("unl"))
-    {
-        if (DEBUG_XPOP)
-            std::cout << "XPOP.validation missing data/unl key\n";
-    }
-
-}
-*/

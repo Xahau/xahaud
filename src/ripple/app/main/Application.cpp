@@ -1324,6 +1324,13 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             return false;
         }
     }
+    
+    if (config_->IMPORT_VL_KEYS.empty())
+    {
+        JLOG(m_journal.fatal()) << "IMPORT_VL_KEYS section must be specified in validators file.";
+        return false;
+    }
+
     //----------------------------------------------------------------------
     //
     // Server

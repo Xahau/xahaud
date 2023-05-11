@@ -837,7 +837,7 @@ Config::loadFromString(std::string const& fileContents)
         BETA_RPC_API = beast::lexicalCastThrow<bool>(strTemp);
 
     // Do not load trusted validator configuration for standalone mode
-    if (!RUN_STANDALONE)
+    do
     {
         // If a file was explicitly specified, then throw if the
         // path is malformed or if the file does not exist or is
@@ -905,6 +905,21 @@ Config::loadFromString(std::string const& fileContents)
             }
 
             auto iniFile = parseIniFile(data, true);
+            
+            if (auto importKeys =
+                    getIniFileSection(iniFile, SECTION_IMPORT_VL_KEYS))
+                IMPORT_VL_KEYS = *importKeys;
+            else
+                Throw<std::runtime_error>(
+                    "The file specified in [" SECTION_VALIDATORS_FILE
+                    "] "
+                    "does not contain a [" SECTION_IMPORT_VL_KEYS
+                    "] section: " +
+                    validatorsFile.string());
+
+            if (RUN_STANDALONE)
+                break;
+
 
             auto entries = getIniFileSection(iniFile, SECTION_VALIDATORS);
 
@@ -929,17 +944,8 @@ Config::loadFromString(std::string const& fileContents)
             if (valListKeys)
                 section(SECTION_VALIDATOR_LIST_KEYS).append(*valListKeys);
 
-            if (auto importKeys =
-                    getInitFileSection(iniFile, SECTION_IMPORT_VL_KEYS))
-                IMPORT_VL_KEYS = *importKeys;
-            else
-                Throw<std::runtime_error>(
-                    "The file specified in [" SECTION_VALIDATORS_FILE
-                    "] "
-                    "does not contain a [" SECTION_IMPORT_VL_KEYS
-                    "] section: " +
-                    validatorsFile.string());
 
+       
             if (!entries && !valKeyEntries && !valListKeys)
                 Throw<std::runtime_error>(
                     "The file specified in [" SECTION_VALIDATORS_FILE
@@ -954,6 +960,7 @@ Config::loadFromString(std::string const& fileContents)
                     validatorsFile.string());
         }
 
+        
         // Consolidate [validator_keys] and [validators]
         section(SECTION_VALIDATORS)
             .append(section(SECTION_VALIDATOR_KEYS).lines());
@@ -965,7 +972,7 @@ Config::loadFromString(std::string const& fileContents)
                 "[" + std::string(SECTION_VALIDATOR_LIST_KEYS) +
                 "] config section is missing");
         }
-    }
+    } while (0);
 
     {
         auto const part = section("features");

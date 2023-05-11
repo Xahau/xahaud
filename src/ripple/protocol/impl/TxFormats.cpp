@@ -361,7 +361,7 @@ TxFormats::TxFormats()
         ttIMPORT,
         {
             {sfAmount, soeOPTIONAL},
-            {sfBlob, seoREQUIRED},
+            {sfBlob, soeREQUIRED},
         },
         commonFields);
 
