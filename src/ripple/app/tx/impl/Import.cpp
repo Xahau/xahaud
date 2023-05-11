@@ -35,6 +35,21 @@
 
 namespace ripple {
 
+TxConsequences
+Import::makeTxConsequences(PreflightContext const& ctx)
+{
+    auto calculate = [](STTx const& tx) -> XRPAmount
+    {
+        auto const amt = tx[~sfAmount];
+
+        if (!amt)
+            return beast::zero;
+
+        return amt->native() ? amt->xrp() : beast::zero;
+    };
+
+    return TxConsequences{ctx.tx, calculate(ctx.tx)};
+}
 
 inline bool
 isHex(std::string const& str)

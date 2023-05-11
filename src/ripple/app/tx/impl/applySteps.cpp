@@ -156,6 +156,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<NFTokenAcceptOffer>(ctx);
         case ttCLAIM_REWARD:
             return invoke_preflight_helper<ClaimReward>(ctx);
+        case ttIMPORT:
+            return invoke_preflight_helper<Import>(ctx);
         case ttINVOKE:
             return invoke_preflight_helper<Invoke>(ctx);
         case ttURITOKEN_MINT:
