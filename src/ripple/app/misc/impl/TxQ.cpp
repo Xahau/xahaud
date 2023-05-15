@@ -755,8 +755,14 @@ TxQ::apply(
     auto const account = (*tx)[sfAccount];
     Keylet const accountKey{keylet::account(account)};
     auto const sleAccount = view.read(accountKey);
+
     if (!sleAccount)
+    {
+        if (tx->getTxnType() == ttIMPORT)
+            return {telCAN_NOT_QUEUE_IMPORT, false};
+
         return {terNO_ACCOUNT, false};
+    }
 
     // If the transaction needs a Ticket is that Ticket in the ledger?
     SeqProxy const acctSeqProx = SeqProxy::sequence((*sleAccount)[sfSequence]);
@@ -1809,19 +1815,27 @@ TxQ::tryDirectApply(
     auto const account = (*tx)[sfAccount];
     auto const sleAccount = view.read(keylet::account(account));
 
+    const bool isFirstImport = !sleAccount && view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
+
     // Don't attempt to direct apply if the account is not in the ledger.
-    if (!sleAccount)
+    if (!sleAccount && !isFirstImport)
         return {};
 
-    SeqProxy const acctSeqProx = SeqProxy::sequence((*sleAccount)[sfSequence]);
-    SeqProxy const txSeqProx = tx->getSeqProxy();
+    std::optional<SeqProxy> txSeqProx;
 
-    // Can only directly apply if the transaction sequence matches the account
-    // sequence or if the transaction uses a ticket.
-    if (txSeqProx.isSeq() && txSeqProx != acctSeqProx)
-        return {};
+    if (!isFirstImport)
+    {
+        SeqProxy const acctSeqProx = SeqProxy::sequence((*sleAccount)[sfSequence]);
+        txSeqProx = tx->getSeqProxy();
 
-    FeeLevel64 const requiredFeeLevel = [this, &view, flags]() {
+        // Can only directly apply if the transaction sequence matches the account
+        // sequence or if the transaction uses a ticket.
+        if (txSeqProx->isSeq() && *txSeqProx != acctSeqProx)
+            return {};
+    }
+
+    FeeLevel64 const requiredFeeLevel = isFirstImport ? FeeLevel64 { 0 } :
+    [this, &view, flags]() {
         std::lock_guard lock(mutex_);
         return getRequiredFeeLevel(
             view, flags, feeMetrics_.getSnapshot(), lock);
@@ -1856,11 +1870,12 @@ TxQ::tryDirectApply(
             if (accountIter != byAccount_.end())
             {
                 TxQAccount& txQAcct = accountIter->second;
-                if (auto const existingIter =
-                        txQAcct.transactions.find(txSeqProx);
-                    existingIter != txQAcct.transactions.end())
+                if (txSeqProx)
                 {
-                    removeFromByFee(existingIter, tx);
+                    auto const existingIter =
+                        txQAcct.transactions.find(*txSeqProx);
+                    if (existingIter != txQAcct.transactions.end())
+                        removeFromByFee(existingIter, tx);
                 }
             }
         }

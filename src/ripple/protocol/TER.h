@@ -66,6 +66,7 @@ enum TELcodes : TERUnderlyingType {
     telNETWORK_ID_MAKES_TX_NON_CANONICAL,
     telNON_LOCAL_EMITTED_TXN,
     telIMPORT_VL_KEY_NOT_RECOGNISED,
+    telCAN_NOT_QUEUE_IMPORT,
 };
 
 //------------------------------------------------------------------------------

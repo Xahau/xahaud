@@ -127,6 +127,22 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
     else if (proof.isObject())
     {
         // Tree form
+        if (depth == 0) // root is special case
+        {
+            if (!proof["hash"].isString() ||
+                proof["hash"].asString().size() != 64 ||
+                !proof["key"].isString() ||
+                proof["key"].asString().size() != 64 ||
+                !proof["children"].isObject())
+            {
+                JLOG(j.warn())
+                    << "XPOP.transaction.proof tree node has wrong format (root)";
+                return false;
+            }
+
+            return syntaxCheckProof(proof["children"], j, depth + 1);
+        }
+
         for (const auto& branch : proof.getMemberNames())
         {
             if (branch.size() != 1 || !isHex(branch))
@@ -483,7 +499,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-    
+
     // check if the account matches the account in the xpop, if not bail early
     if (stpTrans->getAccountID(sfAccount) != tx.getAccountID(sfAccount))
     {
@@ -503,11 +519,13 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    // ensure the inner txn is an accountset
-    if (stpTrans->getTxnType() != ttACCOUNT_SET)
+    // ensure the inner txn is an accountset or signerlistset
+    auto const tt = stpTrans->getTxnType();
+
+    if (tt != ttACCOUNT_SET && tt != ttSIGNER_LIST_SET)
     {
         JLOG(ctx.j.warn())
-            << "Import: inner txn must be an AccountSet transaction. "
+            << "Import: inner txn must be an AccountSet or SignerListSet transaction. "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -533,13 +551,27 @@ Import::preflight(PreflightContext const& ctx)
             bool const outerHasSigners = tx.isFieldPresent(sfSigners);
             bool const innerHasSigners = stpTrans->isFieldPresent(sfSigners);
 
-            if (!(outerHasSigners && innerHasSigners) ||
-                tx.getFieldArray(sfSigners) != stpTrans->getFieldArray(sfSigners))
+            if (!(outerHasSigners && innerHasSigners))
             {
-                JLOG(ctx.j.warn())
-                    << "Import: outer and inner txns were (multi) signed with different keys. "
-                    << tx.getTransactionID();
-                return temMALFORMED;
+                auto const& outerSigners = tx.getFieldArray(sfSigners);
+                auto const& innerSigners = stpTrans->getFieldArray(sfSigners);
+
+                bool ok = outerSigners.size() == innerSigners.size();
+                for (uint64_t i = 0; ok && i < outerSigners.size(); ++i)
+                {
+                    if (outerSigners[i].getAccountID(sfAccount) != innerSigners[i].getAccountID(sfAccount) ||
+                        outerSigners[i].getFieldVL(sfSigningPubKey) != innerSigners[i].getFieldVL(sfSigningPubKey))
+                        ok = false;
+                }
+                    
+                if (!ok)
+                {
+                    JLOG(ctx.j.warn())
+                        << "Import: outer and inner txns were (multi) signed with different keys. "
+                        << tx.getTransactionID();
+                    return temMALFORMED;
+                }
+
             }
 
         }
@@ -653,7 +685,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-    
+
     if (validUntil <= now)
     {
         JLOG(ctx.j.warn())
@@ -671,7 +703,7 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     auto const tx_meta = strUnHex((*xpop)[jss::transaction][jss::meta].asString());
-    
+
     if (!tx_meta)
     {
         JLOG(ctx.j.warn())
@@ -679,10 +711,10 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-    
-    auto const tx_hash = sha512Half(HashPrefix::transactionID, *rawTx);
 
+    auto const tx_hash = stpTrans->getTransactionID();//sha512Half(HashPrefix::transactionID, *rawTx);
 
+    JLOG(ctx.j.trace()) << "tx_hash (computed): " << tx_hash;
 
     Serializer s(rawTx->size() + tx_meta->size() + 40);
     s.addVL(*rawTx);
@@ -731,7 +763,9 @@ Import::preflight(PreflightContext const& ctx)
     })((*xpop)[jss::transaction][jss::proof], strHex(computed_tx_hash_and_meta)))
     {
         JLOG(ctx.j.warn())
-           << "Import: xpop proof did not contain the specified txn "
+           << "Import: xpop proof did not contain the specified txn hash "
+           << strHex(computed_tx_hash_and_meta)
+           << " submitted in Import TXN "
            << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -803,10 +837,11 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     auto coins = parse_uint64(lgr[jss::coins].asString());
-    auto phash = strUnHex(lgr[jss::phash].asString());
-    auto acroot = strUnHex(lgr[jss::acroot].asString());
+    uint256 phash, acroot;
 
-    if (!coins || !phash || !acroot)
+    if (!coins ||
+        !phash.parseHex(lgr[jss::phash].asString()) ||
+        !acroot.parseHex(lgr[jss::acroot].asString()))
     {
         JLOG(ctx.j.warn())
             << "Import: error parsing coins | phash | acroot in the ledger section of XPOP. "
@@ -820,9 +855,9 @@ Import::preflight(PreflightContext const& ctx)
         HashPrefix::ledgerMaster,
         std::uint32_t(lgr[jss::index].asUInt()),
         *coins,
-        *phash,
+        phash,
         computedTxRoot,
-        *acroot,
+        acroot,
         std::uint32_t(lgr[jss::pclose].asUInt()),
         std::uint32_t(lgr[jss::close].asUInt()),
         std::uint8_t(lgr[jss::cres].asUInt()),
@@ -937,7 +972,7 @@ Import::preflight(PreflightContext const& ctx)
                 continue;
             }
 
-            if (used_key.find(nodepub) == used_key.end())
+            if (used_key.find(nodepub) != used_key.end())
             {
                 JLOG(ctx.j.trace())
                     << "Import: validator nodepub " << nodepub
@@ -972,8 +1007,15 @@ Import::preflight(PreflightContext const& ctx)
                     false);
 
                 if (val->getLedgerHash() != computedLedgerHash)
+                {
+                    JLOG(ctx.j.warn())
+                        << "Import: validation message was not for computed ledger hash "
+                        << computedLedgerHash
+                        << " it was for "
+                        << val->getLedgerHash();
                     continue;
-                
+                }
+
                 if (!(strHex(val->getSignerPublic()) == signingKey->second))
                 {
                     JLOG(ctx.j.warn())
@@ -994,7 +1036,7 @@ Import::preflight(PreflightContext const& ctx)
                 }
 
                 validationCount++;
-                
+
             }
             catch (...)
             {
@@ -1007,9 +1049,12 @@ Import::preflight(PreflightContext const& ctx)
         }
     }
 
+    JLOG(ctx.j.trace())
+        << "quorum: " << quorum
+        << " validation count: " << validationCount;
 
     // check if the validation count is adequate
-    if (quorum > validationCount)
+    if (quorum >= validationCount)
     {
         JLOG(ctx.j.warn())
             << "Import: xpop did not contain an 80% quorum for the txn it purports to prove. "
@@ -1042,24 +1087,80 @@ Import::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureImport))
         return temDISABLED;
 
-/*    auto const id = ctx.tx[sfAccount];
-
-    auto const sle = ctx.view.read(keylet::account(id));
-    if (!sle)
-        return terNO_ACCOUNT;
-
-    if (ctx.tx.isFieldPresent(sfDestination))
-    {
-        if (!ctx.view.exists(keylet::account(ctx.tx[sfDestination])))
-            return tecNO_TARGET;
-    }
-*/
     return tesSUCCESS;
 }
 
 TER
 Import::doApply()
 {
+
+    auto const id = ctx.tx[sfAccount];
+
+    std::optional<STArray> setSignerEntries;
+    std::optional<AccountID> setRegularKey;
+    bool signedWithMaster = false;
+
+    if (ctx.tx.getTxnType() == ttSIGNER_LIST_SET)
+    {
+        // multisign
+        setSignerEntries = ctx.tx.getFieldArray(sfSignerEntries);
+    }
+    else if (!ctx.tx.getSigningPubKey().empty())
+    {
+        // single signer
+        auto const signer = calcAccountID(PublicKey(makeSlice(pkSigner)));
+        if (signer != id)
+            setRegularKey = signer;
+        else
+            signedWithMaster = true;
+    }
+
+    auto const k = keylet::account(id)
+    auto const sle = ctx.view.read(k);
+    if (!sle)
+    {
+        // Create the account.
+        std::uint32_t const seqno{
+            view().rules().enabled(featureDeletableAccounts) ? view().seq()
+                                                             : 1};
+
+        sle = std::make_shared<SLE>(k);
+        sle->setAccountID(sfAccount, id);
+
+        if (!signedWithMaster && !setRegularKey && !setSignerEntries)
+        {
+            // no keying available
+            // disable master, set regular key to blackhole and credit burn
+            sle->setAccountID(sfRegularKey, ACCOUNT_ONE);
+            sle->setFieldU32(sfFlags, lsfDisableMaster);
+        }
+        else if (setSignerEntries)
+        {
+            sle->setFieldArray(sfSignerEntries, *setSignerEntries);
+            sle->setFieldU32(sfFlags, lsfDisableMaster);
+        }
+        else if (setRegularKey)
+        {
+            sle->setAccountID(sfRegularKey, *setRegularKey);
+            sle->setFieldU32(sfFlags, lsfDisableMaster);
+        }
+        else
+        {
+            // signedWithMaster
+            // do nothing with keying
+        }
+
+        // RH UPTO:
+        // credit burn
+        // check memo to see if they actually wanted things rekeyed
+        // deal with case where account does exist already
+        // ImportSequence
+        // manifest sequence needs to be recorded to prevent certain types of replay attack
+
+        view().insert(sleDst);
+    }
+     //   return terNO_ACCOUNT;
+
     return tesSUCCESS;
 }
 

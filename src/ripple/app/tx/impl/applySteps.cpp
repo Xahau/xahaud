@@ -197,7 +197,9 @@ invoke_preclaim(PreclaimContext const& ctx)
         if (result != tesSUCCESS)
             return result;
 
-        result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
+        result = 
+            ctx.tx.getTxnType() == ttIMPORT ? tesSUCCESS :
+            T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
         if (result != tesSUCCESS)
             return result;

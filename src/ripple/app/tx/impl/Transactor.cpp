@@ -401,7 +401,12 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     auto const id = ctx.tx.getAccountID(sfAccount);
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
+    {
+        if (ctx.tx.getTxnType() == ttIMPORT)
+            return tesSUCCESS;
+
         return terNO_ACCOUNT;
+    }
 
     auto const balance = (*sle)[sfBalance].xrp();
 
@@ -453,15 +458,27 @@ Transactor::checkSeqProxy(
 
     auto const sle = view.read(keylet::account(id));
 
+    SeqProxy const t_seqProx = tx.getSeqProxy();
     if (!sle)
     {
+
+        if (view.rules().enabled(featureImport) &&
+            tx.getTxnType() == ttIMPORT &&
+            t_seqProx.isSeq() &&
+            tx[sfSequence] == 0)
+        {
+            JLOG(j.trace())
+                << "applyTransaction: allowing first Import txn with seq=0 "
+                << toBase58(id);
+            return tesSUCCESS;
+        }
+
         JLOG(j.trace())
             << "applyTransaction: delay: source account does not exist "
             << toBase58(id);
         return terNO_ACCOUNT;
     }
 
-    SeqProxy const t_seqProx = tx.getSeqProxy();
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
 
     // pass all emitted tx provided their seq is 0
@@ -537,7 +554,8 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
 
     auto const sle = ctx.view.read(keylet::account(id));
 
-    if (!sle)
+    bool const isFirstImport = !sle && ctx.view.rules().enabled(featureImport) && ctx.tx.getTxnType() == ttIMPORT;
+    if (!sle && !isFirstImport)
     {
         JLOG(ctx.j.trace())
             << "applyTransaction: delay: source account does not exist "
@@ -545,10 +563,11 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         return terNO_ACCOUNT;
     }
 
-    if (ctx.tx.isFieldPresent(sfAccountTxnID) &&
-        (sle->getFieldH256(sfAccountTxnID) !=
-         ctx.tx.getFieldH256(sfAccountTxnID)))
-        return tefWRONG_PRIOR;
+    if (ctx.tx.isFieldPresent(sfAccountTxnID))
+    {
+        if (isFirstImport || sle->getFieldH256(sfAccountTxnID) != ctx.tx.getFieldH256(sfAccountTxnID))
+            return tefWRONG_PRIOR;
+    }
 
     if (ctx.tx.isFieldPresent(sfLastLedgerSequence) &&
         (ctx.view.seq() > ctx.tx.getFieldU32(sfLastLedgerSequence)))
@@ -653,8 +672,9 @@ Transactor::apply()
     auto const sle = view().peek(keylet::account(account_));
 
     // sle must exist except for transactions
-    // that allow zero account.
-    assert(sle != nullptr || account_ == beast::zero);
+    // that allow zero account. (and ttIMPORT)
+    assert(sle != nullptr || account_ == beast::zero || 
+            view().rules().enabled(featureImport) && ctx_.tx.getTxnType() == ttIMPORT);
 
     if (sle)
     {
@@ -694,6 +714,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
         return telNON_LOCAL_EMITTED_TXN;
     }
 
+    // pass ttIMPORTs, their signatures are checked at the preflight against the internal xpop txn
+    if (ctx.view.rules().enabled(featureImport) &&
+        ctx.tx.getTxnType() == ttIMPORT)
+        return tesSUCCESS;
+
     // If the pk is empty, then we must be multi-signing.
     if (ctx.tx.getSigningPubKey().empty())
         return checkMultiSign(ctx);
@@ -717,6 +742,7 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     auto const idSigner = calcAccountID(PublicKey(makeSlice(pkSigner)));
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
+
     if (!sleAccount)
         return terNO_ACCOUNT;
 
