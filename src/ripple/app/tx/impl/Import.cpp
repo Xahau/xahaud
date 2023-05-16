@@ -425,6 +425,46 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
     return {};
 }
 
+std::unique_ptr<STTx const>
+Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const* xpop)
+{
+    // parse blob as json
+    
+    std::optional<Json::Value> xpop_storage;
+   
+    if (!xpop)
+    {
+       xpop_storage = syntaxCheckXPOP(outer.getFieldVL(sfBlob), j);
+       xpop = &(*xpop_storage);
+    }
+
+    if (!xpop)
+        return {};
+
+    // extract the transaction for which this xpop is a proof
+    auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
+
+    if (!rawTx)
+    {
+        JLOG(j.warn())
+            << "Import: failed to deserialize tx blob inside xpop (invalid hex) "
+            << outer.getTransactionID();
+        return {};
+    }
+
+    try
+    {
+        return std::make_unique<STTx const>(SerialIter { rawTx->data(), rawTx->size() });
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.warn())
+            << "Import: failed to deserialize tx blob inside xpop "
+            << outer.getTransactionID();
+        return {};
+    }
+}
+
 NotTEC
 Import::preflight(PreflightContext const& ctx)
 {
@@ -467,6 +507,11 @@ Import::preflight(PreflightContext const& ctx)
     if (found == vlKeys.end())
         return telIMPORT_VL_KEY_NOT_RECOGNISED;
 
+    auto const stpTrans = getInnerTxn(tx, ctx.j, &(*xpop));
+
+    if (!stpTrans)
+        return temMALFORMED;
+/*
     // extract the transaction for which this xpop is a proof
     auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
 
@@ -490,6 +535,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
+    */
 
     // check if txn is emitted or a psuedo
     if (isPseudoTx(*stpTrans) || stpTrans->isFieldPresent(sfEmitDetails))
@@ -522,10 +568,10 @@ Import::preflight(PreflightContext const& ctx)
     // ensure the inner txn is an accountset or signerlistset
     auto const tt = stpTrans->getTxnType();
 
-    if (tt != ttACCOUNT_SET && tt != ttSIGNER_LIST_SET)
+    if (tt != ttACCOUNT_SET && tt != ttSIGNER_LIST_SET && tt != ttREGULAR_KEY_SET)
     {
         JLOG(ctx.j.warn())
-            << "Import: inner txn must be an AccountSet or SignerListSet transaction. "
+            << "Import: inner txn must be an AccountSet, SetRegularKey or SignerListSet transaction. "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -716,6 +762,7 @@ Import::preflight(PreflightContext const& ctx)
 
     JLOG(ctx.j.trace()) << "tx_hash (computed): " << tx_hash;
 
+    auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
     Serializer s(rawTx->size() + tx_meta->size() + 40);
     s.addVL(*rawTx);
     s.addVL(*tx_meta);
@@ -1076,6 +1123,17 @@ Import::preflight(PreflightContext const& ctx)
     // if it is less than the Account Sequence in the xpop then mint and
     // update sfImportSequence
 
+
+    if (!stpTrans->isFieldPresent(sfSequence) ||
+        !stpTrans->isFieldPresent(sfFee) ||
+        !isXRP(stpTrans->getFieldAmount(sfFee)))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: xpop inner txn did not contain a sequence number or fee. "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+
     return preflight2(ctx);
 }
 
@@ -1087,54 +1145,97 @@ Import::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureImport))
         return temDISABLED;
 
+
+    auto const stpTrans = getInnerTxn(ctx.tx, ctx.j);
+
+    if (!stpTrans || !stpTrans->isFieldPresent(sfSequence))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: during apply could not find importSequence, bailing.";
+        return tefINTERNAL;
+    }
+
+    if (auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount])); sle)
+    {
+        uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
+
+        // replay attempt
+        if (sleImportSequence >= stpTrans->getFieldU32(sfSequence))
+            return tefPAST_IMPORT_SEQ;
+    }
+
     return tesSUCCESS;
 }
 
 TER
 Import::doApply()
 {
+    if (!view().rules().enabled(featureImport))
+        return temDISABLED;
 
-    auto const id = ctx.tx[sfAccount];
+    auto const stpTrans = getInnerTxn(ctx_.tx, ctx_.journal);
+
+    if (!stpTrans || !stpTrans->isFieldPresent(sfSequence) || !stpTrans->isFieldPresent(sfFee))
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: during apply could not find importSequence or fee, bailing.";
+        return tefINTERNAL;
+    }
+
+    // why aren't transactors stateful, why does this need to be recomputed each time...
+    STAmount burn = stpTrans->getFieldAmount(sfFee);
+    uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
+
+    auto const id = ctx_.tx[sfAccount];
+
+    auto const k = keylet::account(id);
+
+    auto sle = view().peek(k);
 
     std::optional<STArray> setSignerEntries;
     std::optional<AccountID> setRegularKey;
-    bool signedWithMaster = false;
+    auto const signingKey = ctx_.tx.getSigningPubKey();
+    bool const signedWithMaster = !signingKey.empty() && calcAccountID(PublicKey(makeSlice(signingKey))) == id;
 
-    if (ctx.tx.getTxnType() == ttSIGNER_LIST_SET)
-    {
-        // multisign
-        setSignerEntries = ctx.tx.getFieldArray(sfSignerEntries);
-    }
-    else if (!ctx.tx.getSigningPubKey().empty())
-    {
-        // single signer
-        auto const signer = calcAccountID(PublicKey(makeSlice(pkSigner)));
-        if (signer != id)
-            setRegularKey = signer;
-        else
-            signedWithMaster = true;
-    }
+    auto const tt = ctx_.tx.getTxnType();
 
-    auto const k = keylet::account(id)
-    auto const sle = ctx.view.read(k);
+
+    if (tt == ttSIGNER_LIST_SET)
+    {
+        // key import: signer list
+        setSignerEntries = ctx_.tx.getFieldArray(sfSignerEntries);
+    }
+    else if (tt == ttREGULAR_KEY_SET)
+    {
+        // key import: regular key
+        setRegularKey = ctx_.tx.getAccountID(sfRegularKey);
+    }
+    
     if (!sle)
     {
         // Create the account.
         std::uint32_t const seqno{
             view().rules().enabled(featureDeletableAccounts) ? view().seq()
                                                              : 1};
-
         sle = std::make_shared<SLE>(k);
         sle->setAccountID(sfAccount, id);
 
-        if (!signedWithMaster && !setRegularKey && !setSignerEntries)
+        sle->setFieldU32(sfImportSequence, importSequence);
+        sle->setFieldU32(sfSequence, seqno);
+
+        STAmount initBal = STAmount(INITIAL_IMPORT_XRP) + burn;
+
+        if (initBal <= beast::zero)
         {
-            // no keying available
-            // disable master, set regular key to blackhole and credit burn
-            sle->setAccountID(sfRegularKey, ACCOUNT_ONE);
-            sle->setFieldU32(sfFlags, lsfDisableMaster);
+            JLOG(ctx_.journal.warn())
+                << "Import: inital balance <= 0";
+
+            return tefINTERNAL;
         }
-        else if (setSignerEntries)
+
+        sle->setFieldAmount(sfBalance, initBal);
+
+        if (setSignerEntries)
         {
             sle->setFieldArray(sfSignerEntries, *setSignerEntries);
             sle->setFieldU32(sfFlags, lsfDisableMaster);
@@ -1144,22 +1245,42 @@ Import::doApply()
             sle->setAccountID(sfRegularKey, *setRegularKey);
             sle->setFieldU32(sfFlags, lsfDisableMaster);
         }
-        else
+        else if (!signedWithMaster)
         {
-            // signedWithMaster
-            // do nothing with keying
+            // no keying available
+            // disable master, set regular key to blackhole and credit burn
+            sle->setAccountID(sfRegularKey, noAccount());
+            sle->setFieldU32(sfFlags, lsfDisableMaster);
         }
-
-        // RH UPTO:
-        // credit burn
-        // check memo to see if they actually wanted things rekeyed
-        // deal with case where account does exist already
-        // ImportSequence
-        // manifest sequence needs to be recorded to prevent certain types of replay attack
-
-        view().insert(sleDst);
+        view().insert(sle);
+        return tesSUCCESS;
     }
-     //   return terNO_ACCOUNT;
+
+    // account already exists
+
+    // make double sure import seq hasn't passed
+    if (sle->getFieldU32(sfImportSequence) >= importSequence)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: ImportSequence passed";
+        return tefINTERNAL;
+    }
+
+    sle->setFieldU32(sfImportSequence, importSequence);
+
+    // credit the PoB
+    if (burn > beast::zero)
+    {
+        STAmount startBal = sle->getFieldAmount(sfBalance);
+        STAmount finalBal = startBal + burn;
+        if (finalBal > startBal)
+            sle->setFieldAmount(sfBalance, finalBal);
+    }
+
+
+    view().update(sle);
+
+    // todo: manifest sequence needs to be recorded to prevent certain types of replay attack
 
     return tesSUCCESS;
 }

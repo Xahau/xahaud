@@ -30,7 +30,13 @@ namespace ripple {
 class Import : public Transactor
 {
 public:
+    // newly imported accounts get 2 XRP
+    static constexpr XRPAmount INITIAL_IMPORT_XRP{2 * DROPS_PER_XRP};
+
     static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
+
+    static std::unique_ptr<STTx const>
+    getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const* xpop = 0);
 
     explicit Import(ApplyContext& ctx) : Transactor(ctx)
     {

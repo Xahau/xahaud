@@ -27,6 +27,7 @@
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/SystemParameters.h>
 #include <ripple/protocol/nftPageMask.h>
+#include <ripple/app/tx/impl/Import.h>
 
 namespace ripple {
 
@@ -134,16 +135,42 @@ XRPNotCreated::visitEntry(
                 break;
         }
     }
+    
+    if (!before && after->getType() == ltACCOUNT_ROOT)
+        accountsCreated_++;
 }
 
 bool
 XRPNotCreated::finalize(
-    STTx const&,
+    STTx const& tx,
     TER const,
     XRPAmount const fee,
-    ReadView const&,
+    ReadView const& view,
     beast::Journal const& j)
 {
+
+    if (view.rules().enabled(featureImport) && tx.getTxnType() == ttIMPORT)
+    {
+        // different rules for ttIMPORT
+        auto inner = Import::getInnerTxn(tx, j);
+        if (!inner)
+            return false;
+
+        XRPAmount dropsAdded = inner->getFieldAmount(sfFee).xrp(); // burnt amount in PoB
+
+        if (accountsCreated_ == 1)
+                dropsAdded += Import::INITIAL_IMPORT_XRP;    // welcome amount for new imports
+
+        JLOG(j.trace())
+            << "Invariant XRPNotCreated Import: " 
+            << "dropsAdded: " << dropsAdded
+            << " fee.drops(): " << fee.drops() 
+            << " drops_: " << drops_ 
+            << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
+
+        return (drops_ == dropsAdded.drops() - fee.drops());
+    }
+
     // The net change should never be positive, as this would mean that the
     // transaction created XRP out of thin air. That's not possible.
     if (drops_ > 0)
@@ -493,7 +520,8 @@ ValidNewAccountRoot::finalize(
     }
 
     // From this point on we know exactly one account was created.
-    if (tx.getTxnType() == ttPAYMENT && result == tesSUCCESS)
+    auto tt = tx.getTxnType();
+    if ((tt == ttPAYMENT || tt == ttIMPORT) && result == tesSUCCESS)
     {
         std::uint32_t const startingSeq{
             view.rules().enabled(featureDeletableAccounts) ? view.seq() : 1};

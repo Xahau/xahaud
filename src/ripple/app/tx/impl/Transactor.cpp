@@ -434,6 +434,7 @@ Transactor::payFee()
     auto const feePaid = ctx_.tx[sfFee].xrp();
 
     auto const sle = view().peek(keylet::account(account_));
+    // RH NOTE: we don't need to check for ttIMPORT here because this function is skipped if the sle doesn't exist
     if (!sle)
         return tefINTERNAL;
 

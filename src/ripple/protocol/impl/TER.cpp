@@ -106,6 +106,7 @@ transResults()
         MAKE_ERROR(tefNO_AUTH_REQUIRED,            "Auth is not required."),
         MAKE_ERROR(tefNOT_MULTI_SIGNING,           "Account has no appropriate list of multi-signers."),
         MAKE_ERROR(tefPAST_SEQ,                    "This sequence number has already passed."),
+        MAKE_ERROR(tefPAST_IMPORT_SEQ,             "This import sequence number has already been used."),
         MAKE_ERROR(tefWRONG_PRIOR,                 "This previous transaction does not match."),
         MAKE_ERROR(tefBAD_AUTH_MASTER,             "Auth for unclaimed account needs correct master key."),
         MAKE_ERROR(tefINVARIANT_FAILED,            "Fee claim violated invariants for the transaction."),
