@@ -38,14 +38,17 @@ namespace ripple {
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
 {
-    auto calculate = [](STTx const& tx) -> XRPAmount
+    auto calculate = [](PreflightContext const& ctx) -> XRPAmount
     {
-        auto const amt = tx[~sfAmount];
-
-        if (!amt)
+        std::unique_ptr<STTx const> inner = getInnerTxn(ctx);
+        if (!inner || !inner->isFieldPresent(sfFee))
             return beast::zero;
 
-        return amt->native() ? amt->xrp() : beast::zero;
+        STAmount const innerFee = inner->getFieldAmount(sfFee);
+        if (!isXRP(innerFee))
+            return beast::zero;
+
+        return innerFee.xrp();
     };
 
     return TxConsequences{ctx.tx, calculate(ctx.tx)};
@@ -511,6 +514,7 @@ Import::preflight(PreflightContext const& ctx)
 
     if (!stpTrans)
         return temMALFORMED;
+
 /*
     // extract the transaction for which this xpop is a proof
     auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
@@ -572,16 +576,6 @@ Import::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn())
             << "Import: inner txn must be an AccountSet, SetRegularKey or SignerListSet transaction. "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
-    // if the user is trying to use burn to mint (as opposed to just settings import) check that the amount
-    // is compatible with the burn amount
-    if (amt && *amt > stpTrans->getFieldAmount(sfFee))
-    {
-        JLOG(ctx.j.warn())
-            << "Import: inner txn fee must be higher than outer txn amount field. "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -757,6 +751,48 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
+
+
+    // ensure that the txn was tesSUCCESS
+    try
+    {
+        auto const meta =
+            std::make_unique<STObject const>(SerialIter(tx_meta->data, tx_meta->size()), sfMetadata);
+        
+        if (!meta->isFieldPresent(sfTransactionResult))
+        {
+            JLOG(j.warn())
+                << "Import: inner txn lacked transaction result... "
+                << outer.getTransactionID();
+            return {};
+        }
+
+        uint8_t txres = meta->getFieldU8(sfTransactionResult);
+
+        if (txres == tesSUCCESS)
+        {
+            // pass
+        }
+        else if (tt == ttACCOUNT_SET && txres >= tecCLAIM && txres <= tecLAST_POSSIBLE_ENTRY)
+        {
+            // pass : proof of burn on account set can be done with a tec code
+        }
+        else
+        {
+            JLOG(j.warn())
+                << "Import: inner txn did not have a tesSUCCESS result "
+                << outer.getTransactionID();
+            return {};
+        }
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.warn())
+            << "Import: failed to deserialize tx meta inside xpop "
+            << outer.getTransactionID();
+        return {};
+    }
+
 
     auto const tx_hash = stpTrans->getTransactionID();//sha512Half(HashPrefix::transactionID, *rawTx);
 
