@@ -1197,20 +1197,18 @@ Import::doApply()
     auto const signingKey = ctx_.tx.getSigningPubKey();
     bool const signedWithMaster = !signingKey.empty() && calcAccountID(PublicKey(makeSlice(signingKey))) == id;
 
-    auto const tt = ctx_.tx.getTxnType();
+    auto const tt = stpTrans->getTxnType();
 
 
     if (tt == ttSIGNER_LIST_SET)
-    {
         // key import: signer list
-        setSignerEntries = ctx_.tx.getFieldArray(sfSignerEntries);
-    }
+        setSignerEntries = stpTrans->getFieldArray(sfSignerEntries);
     else if (tt == ttREGULAR_KEY_SET)
-    {
         // key import: regular key
-        setRegularKey = ctx_.tx.getAccountID(sfRegularKey);
-    }
+        setRegularKey = stpTrans->getAccountID(sfRegularKey);
     
+    bool const create = !sle;
+
     if (!sle)
     {
         // Create the account.
@@ -1235,20 +1233,25 @@ Import::doApply()
 
         sle->setFieldAmount(sfBalance, initBal);
 
-        if (setSignerEntries)
+    }
+    else if (sle->getFieldU32(sfImportSequence) >= importSequence)
+    {
+        // make double sure import seq hasn't passed
+        JLOG(ctx_.journal.warn())
+            << "Import: ImportSequence passed";
+        return tefINTERNAL;
+    }
+    
+    if (setSignerEntries)
+        sle->setFieldArray(sfSignerEntries, *setSignerEntries);
+    else if (setRegularKey)
+        sle->setAccountID(sfRegularKey, *setRegularKey);
+        
+    if (create)
+    {   
+        if (!signedWithMaster)
         {
-            sle->setFieldArray(sfSignerEntries, *setSignerEntries);
-            sle->setFieldU32(sfFlags, lsfDisableMaster);
-        }
-        else if (setRegularKey)
-        {
-            sle->setAccountID(sfRegularKey, *setRegularKey);
-            sle->setFieldU32(sfFlags, lsfDisableMaster);
-        }
-        else if (!signedWithMaster)
-        {
-            // no keying available
-            // disable master, set regular key to blackhole and credit burn
+            // disable master if the account is created using non-master key
             sle->setAccountID(sfRegularKey, noAccount());
             sle->setFieldU32(sfFlags, lsfDisableMaster);
         }
@@ -1257,15 +1260,6 @@ Import::doApply()
     }
 
     // account already exists
-
-    // make double sure import seq hasn't passed
-    if (sle->getFieldU32(sfImportSequence) >= importSequence)
-    {
-        JLOG(ctx_.journal.warn())
-            << "Import: ImportSequence passed";
-        return tefINTERNAL;
-    }
-
     sle->setFieldU32(sfImportSequence, importSequence);
 
     // credit the PoB
