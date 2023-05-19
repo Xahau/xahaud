@@ -40,7 +40,7 @@ Import::makeTxConsequences(PreflightContext const& ctx)
 {
     auto calculate = [](PreflightContext const& ctx) -> XRPAmount
     {
-        std::unique_ptr<STTx const> inner = getInnerTxn(ctx);
+        std::unique_ptr<STTx const> inner = getInnerTxn(ctx.tx, ctx.j);
         if (!inner || !inner->isFieldPresent(sfFee))
             return beast::zero;
 
@@ -51,7 +51,7 @@ Import::makeTxConsequences(PreflightContext const& ctx)
         return innerFee.xrp();
     };
 
-    return TxConsequences{ctx.tx, calculate(ctx.tx)};
+    return TxConsequences{ctx.tx, calculate(ctx)};
 }
 
 inline bool
@@ -462,7 +462,9 @@ Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const
     catch (std::exception& e)
     {
         JLOG(j.warn())
-            << "Import: failed to deserialize tx blob inside xpop "
+            << "Import: failed to deserialize tx blob inside xpop ("
+            << e.what()
+            << ") outer txid: "
             << outer.getTransactionID();
         return {};
     }
@@ -757,13 +759,13 @@ Import::preflight(PreflightContext const& ctx)
     try
     {
         auto const meta =
-            std::make_unique<STObject const>(SerialIter(tx_meta->data, tx_meta->size()), sfMetadata);
+            std::make_unique<STObject const>(SerialIter(tx_meta->data(), tx_meta->size()), sfMetadata);
         
         if (!meta->isFieldPresent(sfTransactionResult))
         {
-            JLOG(j.warn())
+            JLOG(ctx.j.warn())
                 << "Import: inner txn lacked transaction result... "
-                << outer.getTransactionID();
+                << tx.getTransactionID();
             return {};
         }
 
@@ -779,17 +781,17 @@ Import::preflight(PreflightContext const& ctx)
         }
         else
         {
-            JLOG(j.warn())
+            JLOG(ctx.j.warn())
                 << "Import: inner txn did not have a tesSUCCESS result "
-                << outer.getTransactionID();
+                << tx.getTransactionID();
             return {};
         }
     }
     catch (std::exception& e)
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Import: failed to deserialize tx meta inside xpop "
-            << outer.getTransactionID();
+            << tx.getTransactionID();
         return {};
     }
 
