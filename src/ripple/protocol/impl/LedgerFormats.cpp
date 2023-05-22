@@ -62,6 +62,7 @@ LedgerFormats::LedgerFormats()
             {sfRewardTime,           soeOPTIONAL},
             {sfRewardAccumulator,    soeOPTIONAL},
             {sfFirstNFTokenSequence, soeOPTIONAL},
+            {sfImportSequence,       soeOPTIONAL},
         },
         commonFields);
 

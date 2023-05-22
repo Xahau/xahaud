@@ -41,6 +41,7 @@
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/SetTrust.h>
 #include <ripple/app/tx/impl/SetHook.h>
+#include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/Invoke.h>
 #include <ripple/app/tx/impl/URIToken.h>
 
@@ -155,6 +156,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<NFTokenAcceptOffer>(ctx);
         case ttCLAIM_REWARD:
             return invoke_preflight_helper<ClaimReward>(ctx);
+        case ttIMPORT:
+            return invoke_preflight_helper<Import>(ctx);
         case ttINVOKE:
             return invoke_preflight_helper<Invoke>(ctx);
         case ttURITOKEN_MINT:
@@ -194,7 +197,9 @@ invoke_preclaim(PreclaimContext const& ctx)
         if (result != tesSUCCESS)
             return result;
 
-        result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
+        result = 
+            ctx.tx.getTxnType() == ttIMPORT ? tesSUCCESS :
+            T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
         if (result != tesSUCCESS)
             return result;
@@ -270,6 +275,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<NFTokenAcceptOffer>(ctx);
         case ttCLAIM_REWARD:
             return invoke_preclaim<ClaimReward>(ctx);
+        case ttIMPORT:
+            return invoke_preclaim<Import>(ctx);
         case ttINVOKE:
             return invoke_preclaim<Invoke>(ctx);
         case ttURITOKEN_MINT:
@@ -346,6 +353,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return NFTokenAcceptOffer::calculateBaseFee(view, tx);
         case ttCLAIM_REWARD:
             return ClaimReward::calculateBaseFee(view, tx);
+        case ttIMPORT:
+            return Import::calculateBaseFee(view, tx);
         case ttINVOKE:
             return Invoke::calculateBaseFee(view, tx);
         case ttURITOKEN_MINT:
@@ -514,6 +523,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttCLAIM_REWARD: {
             ClaimReward p(ctx);
+            return p();
+        }
+        case ttIMPORT: {
+            Import p(ctx);
             return p();
         }
         case ttINVOKE: {

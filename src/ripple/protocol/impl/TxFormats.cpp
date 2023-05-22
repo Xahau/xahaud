@@ -35,7 +35,6 @@ TxFormats::TxFormats()
         {sfLastLedgerSequence, soeOPTIONAL},
         {sfAccountTxnID, soeOPTIONAL},
         {sfFee, soeREQUIRED},
-        {sfOperationLimit, soeOPTIONAL},
         {sfMemos, soeOPTIONAL},
         {sfSigningPubKey, soeREQUIRED},
         {sfTxnSignature, soeOPTIONAL},
@@ -44,6 +43,7 @@ TxFormats::TxFormats()
         {sfFirstLedgerSequence, soeOPTIONAL},
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
+        {sfOperationLimit, soeOPTIONAL},
     };
 
     add(jss::AccountSet,
@@ -355,6 +355,13 @@ TxFormats::TxFormats()
             {sfNFTokenSellOffer, soeOPTIONAL},
             {sfNFTokenBrokerFee, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::Import,
+        ttIMPORT,
+        {
+            {sfBlob, soeREQUIRED},
         },
         commonFields);
 

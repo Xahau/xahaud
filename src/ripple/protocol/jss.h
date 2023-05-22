@@ -86,6 +86,7 @@ JSS(HookGrant);             // field
 JSS(isSerialized);          // out: RPC server_definitions
 JSS(isSigningField);        // out: RPC server_definitions
 JSS(isVLEncoded);           // out: RPC server_definitions
+JSS(Import);
 JSS(Invalid);               //
 JSS(Invoke);                // transaction type
 JSS(InvoiceID);             // field
@@ -163,6 +164,7 @@ JSS(account_history_tx_first);    // out: Account txn history subscribe
 JSS(accounts);                    // in: LedgerEntry, Subscribe,
                                   //     handlers/Ledger, Unsubscribe
 JSS(accounts_proposed);           // in: Subscribe, Unsubscribe
+JSS(acroot);
 JSS(action);
 JSS(acquiring);              // out: LedgerRequest
 JSS(address);                // out: PeerImp
@@ -231,7 +233,10 @@ JSS(converge_time_s);        // out: NetworkOPs
 JSS(cookie);                 // out: NetworkOPs
 JSS(count);                  // in: AccountTx*, ValidatorList
 JSS(counters);               // in/out: retrieve counters
+JSS(coins);
+JSS(children);
 JSS(ctid);                   // in/out: Tx RPC
+JSS(cres);
 JSS(currency_a);             // out: BookChanges
 JSS(currency_b);             // out: BookChanges
 JSS(currentShard);           // out: NodeToShardStatus
@@ -504,6 +509,7 @@ JSS(paths);                       // in: RipplePathFind
 JSS(paths_canonical);             // out: RipplePathFind
 JSS(paths_computed);              // out: PathRequest, RipplePathFind
 JSS(payment_channel);             // in: LedgerEntry
+JSS(pclose);
 JSS(peer);                        // in: AccountLines
 JSS(peer_authorized);             // out: AccountLines
 JSS(peer_id);                     // out: RCLCxPeerPos
@@ -511,6 +517,7 @@ JSS(peers);                       // out: InboundLedger, handlers/Peers, Overlay
 JSS(peer_disconnects);            // Severed peer connection counter.
 JSS(peer_disconnects_resources);  // Severed peer connections because of
                                   // excess resource consumption.
+JSS(phash);
 JSS(port);                        // in: Connect
 JSS(previous);                    // out: Reservations
 JSS(previous_ledger);             // out: LedgerPropose
@@ -643,6 +650,7 @@ JSS(treenode_track_size);     // out: GetCounts
 JSS(trusted);                 // out: UnlList
 JSS(trusted_validator_keys);  // out: ValidatorList
 JSS(tx);                      // out: STTx, AccountTx*
+JSS(txroot);
 JSS(tx_blob);                 // in/out: Submit,
                               // in: TransactionSign, AccountTx*
 JSS(tx_hash);                 // in: TransactionEntry
@@ -697,6 +705,7 @@ JSS(validation_private_key);  // out: ValidationCreate
 JSS(validation_public_key);   // out: ValidationCreate, ValidationSeed
 JSS(validation_quorum);       // out: NetworkOPs
 JSS(validation_seed);         // out: ValidationCreate, ValidationSeed
+JSS(validation);
 JSS(validations);             // out: AmendmentTableImpl
 JSS(validator_sites);         // out: ValidatorSites
 JSS(value);                   // out: STAmount

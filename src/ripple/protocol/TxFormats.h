@@ -146,6 +146,10 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
+    /** This transaciton accepts a proof of burn from an external network as a basis
+     * for minting according to featureImport */
+    ttIMPORT = 97,
+
     /** This transaction resets accumulator/counters and claims a reward for holding an average balance
      * from a specified hook */
     ttCLAIM_REWARD = 98,

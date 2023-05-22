@@ -106,6 +106,7 @@ transResults()
         MAKE_ERROR(tefNO_AUTH_REQUIRED,            "Auth is not required."),
         MAKE_ERROR(tefNOT_MULTI_SIGNING,           "Account has no appropriate list of multi-signers."),
         MAKE_ERROR(tefPAST_SEQ,                    "This sequence number has already passed."),
+        MAKE_ERROR(tefPAST_IMPORT_SEQ,             "This import sequence number has already been used."),
         MAKE_ERROR(tefWRONG_PRIOR,                 "This previous transaction does not match."),
         MAKE_ERROR(tefBAD_AUTH_MASTER,             "Auth for unclaimed account needs correct master key."),
         MAKE_ERROR(tefINVARIANT_FAILED,            "Fee claim violated invariants for the transaction."),
@@ -130,6 +131,7 @@ transResults()
         MAKE_ERROR(telREQUIRES_NETWORK_ID,    "Transactions submitted to this node/network must include a correct NetworkID field."),
         MAKE_ERROR(telNETWORK_ID_MAKES_TX_NON_CANONICAL, "Transactions submitted to this node/network must NOT include a NetworkID field."),
         MAKE_ERROR(telNON_LOCAL_EMITTED_TXN, "Emitted transaction cannot be applied because it was not generated locally."),
+        MAKE_ERROR(telCAN_NOT_QUEUE_IMPORT,   "Import transaction was not able to be directly applied and cannot be queued."),
 
         MAKE_ERROR(temMALFORMED,                 "Malformed transaction."),
         MAKE_ERROR(temBAD_AMOUNT,                "Can only send positive amounts."),
