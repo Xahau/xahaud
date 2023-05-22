@@ -40,8 +40,15 @@ Import::makeTxConsequences(PreflightContext const& ctx)
 {
     auto calculate = [](PreflightContext const& ctx) -> XRPAmount
     {
-        std::unique_ptr<STTx const> inner = getInnerTxn(ctx.tx, ctx.j);
+        auto const [inner, meta] = getInnerTxn(ctx.tx, ctx.j);
         if (!inner || !inner->isFieldPresent(sfFee))
+            return beast::zero;
+
+        if (!meta)
+            return beast::zero;
+
+        auto const result = meta->getFieldU8(sfTransactionResult);
+        if (result != tesSUCCESS && !(result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY))
             return beast::zero;
 
         STAmount const innerFee = inner->getFieldAmount(sfFee);
@@ -428,7 +435,9 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
     return {};
 }
 
-std::unique_ptr<STTx const>
+std::pair<
+    std::unique_ptr<STTx const>,            // txn
+    std::unique_ptr<STObject const>>        // meta
 Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const* xpop)
 {
     // parse blob as json
@@ -446,6 +455,7 @@ Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const
 
     // extract the transaction for which this xpop is a proof
     auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
+    auto meta = strUnHex((*xpop)[jss::transaction][jss::meta].asString());
 
     if (!rawTx)
     {
@@ -455,14 +465,25 @@ Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const
         return {};
     }
 
+    if (!meta)
+    {
+        JLOG(j.warn())
+            << "Import: failed to deserialize tx meta inside xpop (invalid hex) "
+            << outer.getTransactionID();
+        return {};
+    }
+
     try
     {
-        return std::make_unique<STTx const>(SerialIter { rawTx->data(), rawTx->size() });
+        return {
+            std::make_unique<STTx const>(SerialIter { rawTx->data(), rawTx->size() }, true),
+            std::make_unique<STObject const>(SerialIter(meta->data(), meta->size()), sfMetadata)
+        };
     }
     catch (std::exception& e)
     {
         JLOG(j.warn())
-            << "Import: failed to deserialize tx blob inside xpop ("
+            << "Import: failed to deserialize tx blob/meta inside xpop ("
             << e.what()
             << ") outer txid: "
             << outer.getTransactionID();
@@ -512,36 +533,10 @@ Import::preflight(PreflightContext const& ctx)
     if (found == vlKeys.end())
         return telIMPORT_VL_KEY_NOT_RECOGNISED;
 
-    auto const stpTrans = getInnerTxn(tx, ctx.j, &(*xpop));
+    auto const [stpTrans, meta] = getInnerTxn(tx, ctx.j, &(*xpop));
 
     if (!stpTrans)
         return temMALFORMED;
-
-/*
-    // extract the transaction for which this xpop is a proof
-    auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
-
-    if (!rawTx)
-    {
-        JLOG(ctx.j.warn())
-            << "Import: failed to deserialize tx blob inside xpop (invalid hex) "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
-    std::unique_ptr<STTx const> stpTrans;
-    try
-    {
-        stpTrans = std::make_unique<STTx const>(SerialIter { rawTx->data(), rawTx->size() });
-    }
-    catch (std::exception& e)
-    {
-        JLOG(ctx.j.warn())
-            << "Import: failed to deserialize tx blob inside xpop "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
-    */
 
     // check if txn is emitted or a psuedo
     if (isPseudoTx(*stpTrans) || stpTrans->isFieldPresent(sfEmitDetails))
@@ -550,6 +545,35 @@ Import::preflight(PreflightContext const& ctx)
             << "Import: attempted to import xpop containing an emitted or pseudo txn. "
             << tx.getTransactionID();
         return temMALFORMED;
+    }
+    
+    // ensure that the txn was tesSUCCESS / tec
+    if (!meta->isFieldPresent(sfTransactionResult))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: inner txn lacked transaction result... "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+    else
+    {
+        uint8_t innerResult = meta->getFieldU8(sfTransactionResult);
+
+        if (innerResult == tesSUCCESS)
+        {
+            // pass
+        }
+        else if (innerResult >= tecCLAIM && innerResult <= tecLAST_POSSIBLE_ENTRY)
+        {
+            // pass : proof of burn on account set can be done with a tec code
+        }
+        else
+        {
+            JLOG(ctx.j.warn())
+                << "Import: inner txn did not have a tesSUCCESS or tec result "
+                << tx.getTransactionID();
+            return temMALFORMED;
+        }
     }
 
     // check if the account matches the account in the xpop, if not bail early
@@ -569,6 +593,23 @@ Import::preflight(PreflightContext const& ctx)
             << "Import: attempted to import xpop containing a txn with a sfNetworkID field. "
             << tx.getTransactionID();
         return temMALFORMED;
+    }
+        
+    // ensure inner txn is destined for the network we're on, this is according to OperationLimit field
+    if (!stpTrans->isFieldPresent(sfOperationLimit))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: OperationLimit missing from inner xpop txn. outer txid: "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+    
+    if (stpTrans->getFieldU32(sfOperationLimit) != ctx.app.config().NETWORK_ID)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: Wrong network ID for OperationLimit in inner txn. outer txid: "
+            << tx.getTransactionID();
+        return telWRONG_NETWORK;
     }
 
     // ensure the inner txn is an accountset or signerlistset
@@ -642,6 +683,7 @@ Import::preflight(PreflightContext const& ctx)
     // 2. the inner txn has been checked for validity
     // 3. if the xpop itself is proven then the txn can go to preclaim
 
+    
 
     //
     // XPOP verify
@@ -744,63 +786,12 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    auto const tx_meta = strUnHex((*xpop)[jss::transaction][jss::meta].asString());
-
-    if (!tx_meta)
-    {
-        JLOG(ctx.j.warn())
-            << "Import: tx meta not valid hex "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
-
-    // ensure that the txn was tesSUCCESS
-    try
-    {
-        auto const meta =
-            std::make_unique<STObject const>(SerialIter(tx_meta->data(), tx_meta->size()), sfMetadata);
-        
-        if (!meta->isFieldPresent(sfTransactionResult))
-        {
-            JLOG(ctx.j.warn())
-                << "Import: inner txn lacked transaction result... "
-                << tx.getTransactionID();
-            return {};
-        }
-
-        uint8_t txres = meta->getFieldU8(sfTransactionResult);
-
-        if (txres == tesSUCCESS)
-        {
-            // pass
-        }
-        else if (tt == ttACCOUNT_SET && txres >= tecCLAIM && txres <= tecLAST_POSSIBLE_ENTRY)
-        {
-            // pass : proof of burn on account set can be done with a tec code
-        }
-        else
-        {
-            JLOG(ctx.j.warn())
-                << "Import: inner txn did not have a tesSUCCESS result "
-                << tx.getTransactionID();
-            return {};
-        }
-    }
-    catch (std::exception& e)
-    {
-        JLOG(ctx.j.warn())
-            << "Import: failed to deserialize tx meta inside xpop "
-            << tx.getTransactionID();
-        return {};
-    }
-
-
     auto const tx_hash = stpTrans->getTransactionID();//sha512Half(HashPrefix::transactionID, *rawTx);
 
     JLOG(ctx.j.trace()) << "tx_hash (computed): " << tx_hash;
 
     auto rawTx = strUnHex((*xpop)[jss::transaction][jss::blob].asString());
+    auto const tx_meta = strUnHex((*xpop)[jss::transaction][jss::meta].asString());
     Serializer s(rawTx->size() + tx_meta->size() + 40);
     s.addVL(*rawTx);
     s.addVL(*tx_meta);
@@ -1184,7 +1175,7 @@ Import::preclaim(PreclaimContext const& ctx)
         return temDISABLED;
 
 
-    auto const stpTrans = getInnerTxn(ctx.tx, ctx.j);
+    auto const [stpTrans, meta] = getInnerTxn(ctx.tx, ctx.j);
 
     if (!stpTrans || !stpTrans->isFieldPresent(sfSequence))
     {
@@ -1211,8 +1202,8 @@ Import::doApply()
     if (!view().rules().enabled(featureImport))
         return temDISABLED;
 
-    auto const stpTrans = getInnerTxn(ctx_.tx, ctx_.journal);
-
+    auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal);
+   
     if (!stpTrans || !stpTrans->isFieldPresent(sfSequence) || !stpTrans->isFieldPresent(sfFee))
     {
         JLOG(ctx_.journal.warn())
@@ -1237,13 +1228,21 @@ Import::doApply()
 
     auto const tt = stpTrans->getTxnType();
 
-
-    if (tt == ttSIGNER_LIST_SET)
-        // key import: signer list
-        setSignerEntries = stpTrans->getFieldArray(sfSignerEntries);
-    else if (tt == ttREGULAR_KEY_SET)
-        // key import: regular key
-        setRegularKey = stpTrans->getAccountID(sfRegularKey);
+    
+    // rekeying is only allowed on a tesSUCCESS, but minting is allowed on any tes or tec code. 
+    if (meta->getFieldU8(sfTransactionResult) == tesSUCCESS)
+    {
+        if (tt == ttSIGNER_LIST_SET)
+        {
+            // key import: signer list
+            setSignerEntries = stpTrans->getFieldArray(sfSignerEntries);
+        }
+        else if (tt == ttREGULAR_KEY_SET)
+        {
+            // key import: regular key
+            setRegularKey = stpTrans->getAccountID(sfRegularKey);
+        }
+    }
     
     bool const create = !sle;
 

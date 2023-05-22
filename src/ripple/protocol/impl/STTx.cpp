@@ -64,7 +64,7 @@ STTx::STTx(STObject&& object) : STObject(std::move(object))
     tid_ = getHash(HashPrefix::transactionID);
 }
 
-STTx::STTx(SerialIter& sit) : STObject(sfTransaction)
+STTx::STTx(SerialIter& sit, bool const allowExtraFields) : STObject(sfTransaction, allowExtraFields)
 {
     int length = sit.getBytesLeft();
 

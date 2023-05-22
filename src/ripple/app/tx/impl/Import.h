@@ -24,6 +24,7 @@
 #include <ripple/basics/Log.h>
 #include <ripple/core/Config.h>
 #include <ripple/protocol/Indexes.h>
+#include <memory>
 
 namespace ripple {
 
@@ -35,7 +36,9 @@ public:
 
     static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    static std::unique_ptr<STTx const>
+    static std::pair<
+        std::unique_ptr<STTx const>,
+        std::unique_ptr<STObject const>>
     getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const* xpop = 0);
 
     explicit Import(ApplyContext& ctx) : Transactor(ctx)

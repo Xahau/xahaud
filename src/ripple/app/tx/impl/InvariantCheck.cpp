@@ -152,11 +152,16 @@ XRPNotCreated::finalize(
     if (view.rules().enabled(featureImport) && tx.getTxnType() == ttIMPORT)
     {
         // different rules for ttIMPORT
-        auto inner = Import::getInnerTxn(tx, j);
-        if (!inner)
+        auto const [inner, meta] = Import::getInnerTxn(tx, j);
+        if (!inner || !meta)
             return false;
 
-        XRPAmount dropsAdded = inner->getFieldAmount(sfFee).xrp(); // burnt amount in PoB
+        auto const result = meta->getFieldU8(sfTransactionResult);
+
+        XRPAmount dropsAdded = 
+            result == tesSUCCESS || (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY)
+            ? inner->getFieldAmount(sfFee).xrp()        // burned in PoB
+            : beast::zero;                              // if the txn didnt burn a fee we add nothing
 
         if (accountsCreated_ == 1)
                 dropsAdded += Import::INITIAL_IMPORT_XRP;    // welcome amount for new imports

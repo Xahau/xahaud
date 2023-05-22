@@ -27,30 +27,33 @@
 namespace ripple {
 
 STObject::STObject(STObject&& other)
-    : STBase(other.getFName()), v_(std::move(other.v_)), mType(other.mType)
+    : STBase(other.getFName()), v_(std::move(other.v_)), mType(other.mType),
+        mAllowExtraFields(other.mAllowExtraFields)
 {
 }
 
-STObject::STObject(SField const& name) : STBase(name), mType(nullptr)
+STObject::STObject(SField const& name, bool const allowExtraFields) :
+    STBase(name), mType(nullptr), mAllowExtraFields(allowExtraFields)
 {
 }
 
-STObject::STObject(SOTemplate const& type, SField const& name) : STBase(name)
+STObject::STObject(SOTemplate const& type, SField const& name, bool const allowExtraFields) :
+    STBase(name), mAllowExtraFields(allowExtraFields)
 {
     set(type);
 }
 
-STObject::STObject(SOTemplate const& type, SerialIter& sit, SField const& name)
-    : STBase(name)
+STObject::STObject(SOTemplate const& type, SerialIter& sit, SField const& name, bool const allowExtraFields)
+    : STBase(name), mAllowExtraFields(allowExtraFields)
 {
     v_.reserve(type.size());
     set(sit);
-    applyTemplate(type);  // May throw
+    applyTemplate(type, allowExtraFields);  // May throw
 }
 
-STObject::STObject(SerialIter& sit, SField const& name, int depth) noexcept(
+STObject::STObject(SerialIter& sit, SField const& name, int depth, bool const allowExtraFields) noexcept(
     false)
-    : STBase(name), mType(nullptr)
+    : STBase(name), mType(nullptr), mAllowExtraFields(allowExtraFields)
 {
     if (depth > 10)
         Throw<std::runtime_error>("Maximum nesting depth of STObject exceeded");
@@ -113,7 +116,7 @@ STObject::set(const SOTemplate& type)
 }
 
 void
-STObject::applyTemplate(const SOTemplate& type)
+STObject::applyTemplate(const SOTemplate& type, bool const allowExtraFields)
 {
     auto throwFieldErr = [](std::string const& field, char const* description) {
         std::stringstream ss;
