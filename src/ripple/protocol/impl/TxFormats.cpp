@@ -43,7 +43,7 @@ TxFormats::TxFormats()
         {sfFirstLedgerSequence, soeOPTIONAL},
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
-//        {sfOperationLimit, soeOPTIONAL},
+        {sfOperationLimit, soeOPTIONAL},
     };
 
     add(jss::AccountSet,

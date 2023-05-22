@@ -65,8 +65,8 @@ public:
     STTx&
     operator=(STTx const& other) = delete;
 
-    explicit STTx(SerialIter& sit, bool const allowExtraFields = false);
-    explicit STTx(SerialIter&& sit, bool const allowExtraField = false);
+    explicit STTx(SerialIter& sit);
+    explicit STTx(SerialIter&& sit);
     explicit STTx(STObject&& object);
 
     /** Constructs a transaction.
@@ -171,7 +171,7 @@ sterilize(STTx const& stx);
 bool
 isPseudoTx(STObject const& tx);
 
-inline STTx::STTx(SerialIter&& sit, bool const allowExtraFields) : STTx(sit, allowExtraFields)
+inline STTx::STTx(SerialIter&& sit) : STTx(sit)
 {
 }
 

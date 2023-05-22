@@ -74,8 +74,6 @@ class STObject : public STBase, public CountedObject<STObject>
     list_type v_;
     SOTemplate const* mType;
 
-    bool mAllowExtraFields;
-
 public:
     using iterator = boost::
         transform_iterator<Transform, STObject::list_type::const_iterator>;
@@ -96,11 +94,11 @@ public:
     STObject&
     operator=(STObject&& other);
 
-    STObject(const SOTemplate& type, SField const& name, bool const allowExtraFields = false);
-    STObject(const SOTemplate& type, SerialIter& sit, SField const& name, bool const allowExtraFields = false);
-    STObject(SerialIter& sit, SField const& name, int depth = 0, bool const allowExtraFields = false);
-    STObject(SerialIter&& sit, SField const& name, bool const allowExtraFields = false);
-    explicit STObject(SField const& name, bool const allowExtraFields = false);
+    STObject(const SOTemplate& type, SField const& name);
+    STObject(const SOTemplate& type, SerialIter& sit, SField const& name);
+    STObject(SerialIter& sit, SField const& name, int depth = 0);
+    STObject(SerialIter&& sit, SField const& name);
+    explicit STObject(SField const& name);
 
     iterator
     begin() const;
@@ -115,7 +113,7 @@ public:
     reserve(std::size_t n);
 
     void
-    applyTemplate(const SOTemplate& type, bool const allowExtraFields = false);
+    applyTemplate(const SOTemplate& type);
 
     void
     applyTemplateFromSField(SField const&);
@@ -852,8 +850,8 @@ STObject::Transform::operator()(detail::STVar const& e) const
 
 //------------------------------------------------------------------------------
 
-inline STObject::STObject(SerialIter&& sit, SField const& name, bool const allowExtraFields)
-    : STObject(sit, name, allowExtraFields)
+inline STObject::STObject(SerialIter&& sit, SField const& name)
+    : STObject(sit, name)
 {
 }
 

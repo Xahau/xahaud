@@ -476,7 +476,7 @@ Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const
     try
     {
         return {
-            std::make_unique<STTx const>(SerialIter { rawTx->data(), rawTx->size() }, true),
+            std::make_unique<STTx const>(SerialIter { rawTx->data(), rawTx->size() }),
             std::make_unique<STObject const>(SerialIter(meta->data(), meta->size()), sfMetadata)
         };
     }
