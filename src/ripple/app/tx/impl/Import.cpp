@@ -1184,7 +1184,8 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
-    if (auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount])); sle)
+    if (auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
+        sle && sle->isFieldPresent(sfImportSequence))
     {
         uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
 
