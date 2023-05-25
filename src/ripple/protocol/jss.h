@@ -87,6 +87,7 @@ JSS(isSerialized);          // out: RPC server_definitions
 JSS(isSigningField);        // out: RPC server_definitions
 JSS(isVLEncoded);           // out: RPC server_definitions
 JSS(Import);
+JSS(ImportVLSequence);
 JSS(Invalid);               //
 JSS(Invoke);                // transaction type
 JSS(InvoiceID);             // field

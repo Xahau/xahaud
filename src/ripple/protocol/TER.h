@@ -183,6 +183,7 @@ enum TEFcodes : TERUnderlyingType {
     tefNO_TICKET,
     tefNFTOKEN_IS_NOT_TRANSFERABLE,
     tefPAST_IMPORT_SEQ,
+    tefPAST_IMPORT_VL_SEQ,
 };
 
 //------------------------------------------------------------------------------

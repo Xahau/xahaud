@@ -70,6 +70,7 @@ enum class LedgerNameSpace : std::uint16_t {
     NFTOKEN_BUY_OFFERS = 'h',
     NFTOKEN_SELL_OFFERS = 'i',
     URI_TOKEN = 'U',
+    IMPORT_VLSEQ = 'I',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -211,6 +212,13 @@ amendments() noexcept
         ltAMENDMENTS, indexHash(LedgerNameSpace::AMENDMENTS)};
     return ret;
 }
+
+Keylet
+import_vlseq(PublicKey const& key) noexcept
+{
+    return {ltIMPORT_VLSEQ, indexHash(LedgerNameSpace::IMPORT_VLSEQ, key)};
+}
+
 
 Keylet const&
 fees() noexcept

@@ -435,15 +435,48 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
     return {};
 }
 
+inline
+std::optional<
+    std::pair<
+        uint32_t,  // sequence
+        PublicKey  // master key
+    >>
+getVLInfo(Json::Value const& xpop, beast::Journal const& j)
+{  
+    auto const data = base64_decode(xpop[jss::validation][jss::unl][jss::blob].asString());
+    Json::Reader r;
+    Json::Value list;
+    if (!r.parse(data, list))
+    {
+        JLOG(j.warn())
+            << "Import: unl blob was not valid json (after base64 decoding)";
+        return {};
+    }
+    auto const sequence = list[jss::sequence].asUInt();
+    
+    auto const m =
+        deserializeManifest(base64_decode(xpop[jss::validation][jss::unl][jss::manifest].asString()));
+
+    if (!m)
+    {
+        JLOG(j.warn())
+            << "Import: failed to deserialize manifest";
+        return {};
+    }
+
+    return { {sequence, m->masterKey} };
+}
+
+
 std::pair<
     std::unique_ptr<STTx const>,            // txn
     std::unique_ptr<STObject const>>        // meta
 Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const* xpop)
 {
     // parse blob as json
-    
+
     std::optional<Json::Value> xpop_storage;
-   
+
     if (!xpop)
     {
        xpop_storage = syntaxCheckXPOP(outer.getFieldVL(sfBlob), j);
@@ -546,7 +579,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-    
+
     // ensure that the txn was tesSUCCESS / tec
     if (!meta->isFieldPresent(sfTransactionResult))
     {
@@ -594,7 +627,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-        
+
     // ensure inner txn is destined for the network we're on, this is according to OperationLimit field
     if (!stpTrans->isFieldPresent(sfOperationLimit))
     {
@@ -603,7 +636,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-    
+
     if (stpTrans->getFieldU32(sfOperationLimit) != ctx.app.config().NETWORK_ID)
     {
         JLOG(ctx.j.warn())
@@ -646,7 +679,7 @@ Import::preflight(PreflightContext const& ctx)
                         outerSigners[i].getFieldVL(sfSigningPubKey) != innerSigners[i].getFieldVL(sfSigningPubKey))
                         ok = false;
                 }
-                    
+
                 if (!ok)
                 {
                     JLOG(ctx.j.warn())
@@ -683,7 +716,7 @@ Import::preflight(PreflightContext const& ctx)
     // 2. the inner txn has been checked for validity
     // 3. if the xpop itself is proven then the txn can go to preclaim
 
-    
+
 
     //
     // XPOP verify
@@ -1168,24 +1201,35 @@ Import::preflight(PreflightContext const& ctx)
 
 // RH TODO: manifest serials should be kept on chain
 
+
 TER
 Import::preclaim(PreclaimContext const& ctx)
 {
     if (!ctx.view.rules().enabled(featureImport))
         return temDISABLED;
 
+    // parse blob as json
+    auto const xpop =
+        syntaxCheckXPOP(ctx.tx.getFieldVL(sfBlob), ctx.j);
+    
+    if (!xpop)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: during preclaim could not parse xpop, bailing.";
+        return tefINTERNAL;
+    }
 
-    auto const [stpTrans, meta] = getInnerTxn(ctx.tx, ctx.j);
+    auto const [stpTrans, meta] = getInnerTxn(ctx.tx, ctx.j, &(*xpop));
 
     if (!stpTrans || !stpTrans->isFieldPresent(sfSequence))
     {
         JLOG(ctx.j.warn())
-            << "Import: during apply could not find importSequence, bailing.";
+            << "Import: during preclaim could not find importSequence, bailing.";
         return tefINTERNAL;
     }
 
-    if (auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
-        sle && sle->isFieldPresent(sfImportSequence))
+    auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
+    if (sle && sle->isFieldPresent(sfImportSequence))
     {
         uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
 
@@ -1193,6 +1237,16 @@ Import::preclaim(PreclaimContext const& ctx)
         if (sleImportSequence >= stpTrans->getFieldU32(sfSequence))
             return tefPAST_IMPORT_SEQ;
     }
+
+    auto const vl = getVLInfo(*xpop, ctx.j);
+
+    if (!vl)
+        return tefINTERNAL;
+
+    auto const& sleVL = ctx.view.read(keylet::import_vlseq(vl->second));
+    
+    if (sleVL && sleVL->getFieldU32(sfImportSequence) > vl->first)
+        return tefPAST_IMPORT_VL_SEQ;
 
     return tesSUCCESS;
 }
@@ -1203,8 +1257,17 @@ Import::doApply()
     if (!view().rules().enabled(featureImport))
         return temDISABLED;
 
-    auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal);
-   
+    if (!ctx_.tx.isFieldPresent(sfBlob))
+        return tefINTERNAL;
+
+    auto const xpop =
+        syntaxCheckXPOP(ctx_.tx.getFieldVL(sfBlob), ctx_.journal);
+
+    if (!xpop)
+        return tefINTERNAL;
+
+    auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal, &(*xpop));
+
     if (!stpTrans || !stpTrans->isFieldPresent(sfSequence) || !stpTrans->isFieldPresent(sfFee))
     {
         JLOG(ctx_.journal.warn())
@@ -1229,8 +1292,8 @@ Import::doApply()
 
     auto const tt = stpTrans->getTxnType();
 
-    
-    // rekeying is only allowed on a tesSUCCESS, but minting is allowed on any tes or tec code. 
+
+    // rekeying is only allowed on a tesSUCCESS, but minting is allowed on any tes or tec code.
     if (meta->getFieldU8(sfTransactionResult) == tesSUCCESS)
     {
         if (tt == ttSIGNER_LIST_SET)
@@ -1244,7 +1307,7 @@ Import::doApply()
             setRegularKey = stpTrans->getAccountID(sfRegularKey);
         }
     }
-    
+
     bool const create = !sle;
 
     if (!sle)
@@ -1279,14 +1342,14 @@ Import::doApply()
             << "Import: ImportSequence passed";
         return tefINTERNAL;
     }
-    
+
     if (setSignerEntries)
         sle->setFieldArray(sfSignerEntries, *setSignerEntries);
     else if (setRegularKey)
         sle->setAccountID(sfRegularKey, *setRegularKey);
-        
+
     if (create)
-    {   
+    {
         if (!signedWithMaster)
         {
             // disable master if the account is created using non-master key
@@ -1294,25 +1357,62 @@ Import::doApply()
             sle->setFieldU32(sfFlags, lsfDisableMaster);
         }
         view().insert(sle);
-        return tesSUCCESS;
     }
-
-    // account already exists
-    sle->setFieldU32(sfImportSequence, importSequence);
-
-    // credit the PoB
-    if (burn > beast::zero)
+    else
     {
-        STAmount startBal = sle->getFieldAmount(sfBalance);
-        STAmount finalBal = startBal + burn;
-        if (finalBal > startBal)
-            sle->setFieldAmount(sfBalance, finalBal);
+        // account already exists
+        sle->setFieldU32(sfImportSequence, importSequence);
+
+        // credit the PoB
+        if (burn > beast::zero)
+        {
+            STAmount startBal = sle->getFieldAmount(sfBalance);
+            STAmount finalBal = startBal + burn;
+            if (finalBal > startBal)
+                sle->setFieldAmount(sfBalance, finalBal);
+        }
+
+        view().update(sle);
     }
 
-
-    view().update(sle);
 
     // todo: manifest sequence needs to be recorded to prevent certain types of replay attack
+    auto const infoVL = getVLInfo(*xpop, ctx_.journal);
+
+    if (!infoVL)
+        return tefINTERNAL;
+
+    auto const keyletVL = keylet::import_vlseq(infoVL->second);
+    auto sleVL = view().peek(keyletVL);
+    
+    if (!sleVL)
+    {
+        // create VL import seq counter
+        sleVL = std::make_shared<SLE>(keyletVL);
+        sleVL->setFieldU32(sfImportSequence, infoVL->first);
+        sleVL->setFieldVL(sfPublicKey, infoVL->second.slice());
+        view().insert(sleVL);
+    }
+    else
+    {
+        uint32_t current = sleVL->getFieldU32(sfImportSequence);
+
+        if (current > infoVL->first)
+        {
+            // should never happen
+            return tefINTERNAL;
+        }
+        else if (infoVL->first > current)
+        {
+            // perform an update because the sequence number is newer
+            sleVL->setFieldU32(sfImportSequence, infoVL->first);
+            view().update(sleVL);
+        }
+        else
+        {
+            // it's the same sequence number so leave it be
+        }
+    }
 
     return tesSUCCESS;
 }

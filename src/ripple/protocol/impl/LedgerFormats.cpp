@@ -155,6 +155,14 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::ImportVLSequence,
+        ltIMPORT_VLSEQ,
+        {
+            {sfPublicKey,            soeREQUIRED},
+            {sfImportSequence,       soeREQUIRED},
+        },
+        commonFields);
+
     add(jss::FeeSettings,
         ltFEE_SETTINGS,
         {

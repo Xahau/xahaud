@@ -285,6 +285,9 @@ Keylet
 nft_sells(uint256 const& id) noexcept;
 
 Keylet
+import_vlseq(PublicKey const& key) noexcept;
+
+Keylet
 uritoken(AccountID const& issuer, Blob const& uri);
 
 }  // namespace keylet

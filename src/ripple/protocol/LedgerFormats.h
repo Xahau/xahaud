@@ -117,6 +117,11 @@ enum LedgerEntryType : std::uint16_t
      */
     ltFEE_SETTINGS = 0x0073,
 
+    /** The ledger object which records the last (and largest) sequence for a validator list key
+     * as used in the Import amendment
+     */
+    ltIMPORT_VLSEQ = 0x0049,
+
     /** A ledger object describing a single escrow.
 
         \sa keylet::escrow
