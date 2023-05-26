@@ -28,6 +28,9 @@
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/TxFlags.h>
 #include <string_view>
+#include <ripple/app/hook/Guard.h> 
+#include <ripple/protocol/AccountID.h>
+#include <ripple/app/hook/applyHook.h>
 
 namespace ripple {
 
@@ -161,6 +164,228 @@ void
 Change::preCompute()
 {
     assert(account_ == beast::zero);
+}
+
+
+void
+Change::activateXahauGenesis()
+{
+    JLOG(j_.warn()) << "featureXahauGenesis amendment activation code starting";
+
+    constexpr XRPAmount GENESIS { 1'000'000 * DROPS_PER_XRP };
+
+    constexpr XRPAmount INFRA   { 10'000'000 * DROPS_PER_XRP};
+    constexpr XRPAmount EXCHANGE { 2'000'000 * DROPS_PER_XRP};
+
+    const static std::vector<std::pair<std::string, XRPAmount>>
+    initial_distribution =
+    {
+        {"rMYm3TY5D3rXYVAz6Zr2PDqEcjsTYbNiAT", INFRA},
+    };
+
+    const static std::vector<std::pair<uint256, std::vector<uint8_t>>>
+    genesis_hooks =
+    {
+        { ripple::uint256("0000000000000000000000000000000000000000000000000000000000000001"),
+          {0x0}
+        },
+    };
+
+
+    Sandbox sb(&view());
+
+    // Step 1: mint genesis distribution
+    for (auto const& [account, amount] : initial_distribution)
+    {
+        auto accid_raw = parseBase58<AccountID>(account);
+        if (!accid_raw)
+        {
+            JLOG(j_.warn())
+                << "featureXahauGenesis could not parse an r-address: " << account << ", bailing.";
+            return;
+        }
+
+        auto accid = *accid_raw;
+
+        auto const kl = keylet::account(accid);
+
+        auto sle = sb.peek(kl);
+        auto const exists = !!sle;
+
+        STAmount bal = exists ? sle->getFieldAmount(sfBalance) + STAmount{amount} : STAmount{amount};
+        if (bal <= beast::zero)
+        {
+            JLOG(j_.warn())
+                << "featureXahauGenesis tried to set <= 0 balance on " <<  account << ", bailing";
+            return;
+        }
+
+        // the account should not exist but if it does then handle it properly
+        if (!exists)
+        {
+            sle = std::make_shared<SLE>(kl);
+            sle->setAccountID(sfAccount, accid);
+
+            std::uint32_t const seqno{
+                sb.rules().enabled(featureDeletableAccounts) ? sb.seq()
+                                                             : 1};
+            sle->setFieldU32(sfSequence, seqno);
+
+        }
+
+        sle->setFieldAmount(sfBalance, bal);
+
+        if (exists)
+            sb.update(sle);
+        else
+            sb.insert(sle);
+
+    };
+
+    // Step 2: burn genesis funds to (almost) zero
+    static auto const accid = calcAccountID(
+        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+            .first);
+
+    auto const kl = keylet::account(accid);
+    auto sle = sb.peek(kl);
+    if (!sle)
+    {
+        JLOG(j_.warn())
+            << "featureXahauGenesis genesis account doesn't exist!!";
+
+        return;
+    }
+
+    sle->setFieldAmount(sfBalance, GENESIS);
+
+    // Step 3: blackhole genesis
+    sle->setAccountID(sfRegularKey, noAccount());
+    sle->setFieldU32(sfFlags, lsfDisableMaster);
+       
+
+    // Step 4: install genesis hooks
+
+    sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
+    sb.update(sle);
+
+    if (sb.exists(keylet::hook(accid)))
+    {
+        JLOG(j_.warn())
+            << "featureXahauGenesis genesis account already has hooks object in ledger, bailing";
+        return;
+    }
+
+    {
+        ripple::STArray hooks{sfHooks, genesis_hooks.size()};
+        int hookCount = 0;
+
+        for (auto const& [hookOn, wasmBytes] : genesis_hooks)
+        {
+
+            std::ostringstream loggerStream;
+            auto result =
+                validateGuards(
+                    wasmBytes,   // wasm to verify
+                    loggerStream,
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"
+                );
+
+            if (!result)
+            {
+                std::string s = loggerStream.str();
+
+                char* data = s.data();
+                size_t len = s.size();
+
+                char* last = data;
+                size_t i = 0;
+                for (; i < len; ++i)
+                {
+                    if (data[i] == '\n')
+                    {
+                        data[i] = '\0';
+                        j_.warn() << last;
+                        last = data + i;
+                    }
+                }
+
+                if (last < data + i)
+                    j_.warn() << last;
+
+                JLOG(j_.warn())
+                    << "featureXahauGenesis initial hook failed to validate guards, bailing";
+                    
+                return;
+            }
+
+            std::optional<std::string> result2 =
+                hook::HookExecutor::validateWasm(wasmBytes.data(), (size_t)wasmBytes.size());
+
+            if (result2)
+            {
+                JLOG(j_.warn())
+                    << "featureXahauGenesis tried to set a hook with invalid code. VM error: "
+                    << *result2 << ", bailing";
+                return;
+            }
+
+            auto hookHash = ripple::sha512Half_s(ripple::Slice(wasmBytes.data(), wasmBytes.size()));
+            auto const kl = keylet::hookDefinition(hookHash);
+            if (view().exists(kl))
+            {
+                JLOG(j_.warn())
+                    << "featureXahauGenesis genesis hookDefinition already exists !!! bailing";
+                return;
+            }
+
+            auto hookDef = std::make_shared<SLE>(kl);
+
+            hookDef->setFieldH256(sfHookHash, hookHash);
+            hookDef->setFieldH256(sfHookOn, hookOn);
+            hookDef->setFieldH256(sfHookNamespace, UINT256_BIT[hookCount++]);
+            hookDef->setFieldArray(sfHookParameters, STArray{});
+            hookDef->setFieldU8(sfHookApiVersion, 0);
+            hookDef->setFieldVL(sfCreateCode, wasmBytes);
+            hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
+            hookDef->setFieldU64(sfReferenceCount, 1);
+            hookDef->setFieldAmount(sfFee,
+                    XRPAmount {hook::computeExecutionFee(result->first)});
+            if (result->second > 0)
+                hookDef->setFieldAmount(sfHookCallbackFee, 
+                    XRPAmount {hook::computeExecutionFee(result->second)});
+
+            sb.insert(hookDef);
+
+            STObject hookObj {sfHook};
+            hookObj.setFieldH256(sfHookHash, hookHash);
+            hooks.push_back(hookObj);
+
+        }
+
+
+        auto sle = std::make_shared<SLE>(keylet::hook(accid));
+        sle->setFieldArray(sfHooks, hooks);
+        sle->setAccountID(sfAccount, accid);
+
+        auto const page = sb.dirInsert(
+            keylet::ownerDir(accid),
+            keylet::hook(accid),
+            describeOwnerDir(accid));
+
+        if (!page)
+        {
+            JLOG(j_.warn())
+                << "featureXahauGenesis genesis directory full when trying to insert hooks object, bailing";
+            return;
+        }
+        sle->setFieldU64(sfOwnerNode, *page);
+        sb.insert(sle);
+    }
+
+    JLOG(j_.warn()) << "featureXahauGenesis amendment executed successfully";
+    
+    sb.apply(ctx_.rawView());
 }
 
 void
@@ -323,6 +548,8 @@ Change::applyAmendment()
 
         if (amendment == fixTrustLinesToSelf)
             activateTrustLinesToSelfFix();
+        else if (amendment == featureXahauGenesis)
+            activateXahauGenesis();
 
         ctx_.app.getAmendmentTable().enable(amendment);
 
