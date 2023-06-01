@@ -131,6 +131,7 @@ transResults()
         MAKE_ERROR(telREQUIRES_NETWORK_ID,    "Transactions submitted to this node/network must include a correct NetworkID field."),
         MAKE_ERROR(telNETWORK_ID_MAKES_TX_NON_CANONICAL, "Transactions submitted to this node/network must NOT include a NetworkID field."),
         MAKE_ERROR(telNON_LOCAL_EMITTED_TXN, "Emitted transaction cannot be applied because it was not generated locally."),
+        MAKE_ERROR(telIMPORT_VL_KEY_NOT_RECOGNISED, "Import vl key was not recognized."),
         MAKE_ERROR(telCAN_NOT_QUEUE_IMPORT,   "Import transaction was not able to be directly applied and cannot be queued."),
 
         MAKE_ERROR(temMALFORMED,                 "Malformed transaction."),

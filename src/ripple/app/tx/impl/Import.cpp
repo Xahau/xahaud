@@ -554,7 +554,7 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     // parse blob as json
-    auto const xpop =
+    auto const xpop = 
         syntaxCheckXPOP(tx.getFieldVL(sfBlob), ctx.j);
 
     if (!xpop)
@@ -838,7 +838,7 @@ Import::preflight(PreflightContext const& ctx)
     if (!([](Json::Value const& proof, std::string hash) -> bool
     {
         auto const proofContains =
-        [](Json::Value const* proof, std::string hash, int depth = 0, auto proofContains) -> bool
+        [](Json::Value const* proof, std::string hash, int depth = 0, auto proofContains = nullptr) -> bool
         {
             if (depth > 32)
                 return false;
@@ -885,7 +885,7 @@ Import::preflight(PreflightContext const& ctx)
     ([](Json::Value const& proof) -> uint256
     {
         auto hashProof =
-        [](Json::Value const& proof, int depth = 0, auto const& hashProof) -> uint256
+        [](Json::Value const& proof, int depth = 0, auto const& hashProof = nullptr) -> uint256
         {
             const uint256 nullhash;
 
@@ -918,6 +918,7 @@ Import::preflight(PreflightContext const& ctx)
 
                 for (int x = 0; x < 16; ++x)
                 {
+                    // Duplicate / Sanity
                     std::string const nibble (1, "0123456789ABCDEF"[x]);
                     if (!proof[jss::children].isMember(nibble))
                         hash_append(h, nullhash);
@@ -948,6 +949,7 @@ Import::preflight(PreflightContext const& ctx)
     auto coins = parse_uint64(lgr[jss::coins].asString());
     uint256 phash, acroot;
 
+    // Duplicate / Sanity - syntaxCheckXPOP
     if (!coins ||
         !phash.parseHex(lgr[jss::phash].asString()) ||
         !acroot.parseHex(lgr[jss::acroot].asString()))
@@ -1044,10 +1046,18 @@ Import::preflight(PreflightContext const& ctx)
         validatorsMaster[nodemaster] = nodepub;
     }
 
+    JLOG(ctx.j.trace())
+        << "totalValidatorCount: " << totalValidatorCount;
+
     uint64_t quorum = totalValidatorCount * 0.8;
 
     if (quorum == 0)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: resetting quorum to 1. "
+            << tx.getTransactionID();
         quorum = 1;
+    }
 
 
     // count how many validations this ledger hash has
@@ -1185,7 +1195,7 @@ Import::preflight(PreflightContext const& ctx)
     // if it is less than the Account Sequence in the xpop then mint and
     // update sfImportSequence
 
-
+    // Duplicate / Sanity
     if (!stpTrans->isFieldPresent(sfSequence) ||
         !stpTrans->isFieldPresent(sfFee) ||
         !isXRP(stpTrans->getFieldAmount(sfFee)))
@@ -1238,14 +1248,14 @@ Import::preclaim(PreclaimContext const& ctx)
             return tefPAST_IMPORT_SEQ;
     }
 
-    auto const vl = getVLInfo(*xpop, ctx.j);
+    auto const vlInfo = getVLInfo(*xpop, ctx.j);
 
-    if (!vl)
+    if (!vlInfo)
         return tefINTERNAL;
 
-    auto const& sleVL = ctx.view.read(keylet::import_vlseq(vl->second));
+    auto const& sleVL = ctx.view.read(keylet::import_vlseq(vlInfo->second));
     
-    if (sleVL && sleVL->getFieldU32(sfImportSequence) > vl->first)
+    if (sleVL && sleVL->getFieldU32(sfImportSequence) > vlInfo->first)
         return tefPAST_IMPORT_VL_SEQ;
 
     return tesSUCCESS;
@@ -1298,11 +1308,13 @@ Import::doApply()
     {
         if (tt == ttSIGNER_LIST_SET)
         {
+            JLOG(ctx_.journal.warn()) << "SingerListSet";
             // key import: signer list
             setSignerEntries = stpTrans->getFieldArray(sfSignerEntries);
         }
         else if (tt == ttREGULAR_KEY_SET)
         {
+            JLOG(ctx_.journal.warn()) << "SetRegularKey";
             // key import: regular key
             setRegularKey = stpTrans->getAccountID(sfRegularKey);
         }
@@ -1310,9 +1322,10 @@ Import::doApply()
 
     bool const create = !sle;
 
-    if (!sle)
+    if (create)
     {
         // Create the account.
+        JLOG(ctx_.journal.warn()) << "create - create account";
         std::uint32_t const seqno{
             view().rules().enabled(featureDeletableAccounts) ? view().seq()
                                                              : 1};
@@ -1343,16 +1356,23 @@ Import::doApply()
         return tefINTERNAL;
     }
 
-    if (setSignerEntries)
+    if (setSignerEntries) {
+        JLOG(ctx_.journal.warn()) << "signer list set";
         sle->setFieldArray(sfSignerEntries, *setSignerEntries);
+    } 
     else if (setRegularKey)
+    {
+        JLOG(ctx_.journal.warn()) << "set regular key";
         sle->setAccountID(sfRegularKey, *setRegularKey);
+    }
 
     if (create)
     {
+        JLOG(ctx_.journal.warn()) << "create";
         if (!signedWithMaster)
         {
             // disable master if the account is created using non-master key
+            JLOG(ctx_.journal.warn()) << "create - disable master";
             sle->setAccountID(sfRegularKey, noAccount());
             sle->setFieldU32(sfFlags, lsfDisableMaster);
         }
@@ -1361,11 +1381,13 @@ Import::doApply()
     else
     {
         // account already exists
+        JLOG(ctx_.journal.warn()) << "update - import sequence";
         sle->setFieldU32(sfImportSequence, importSequence);
 
         // credit the PoB
         if (burn > beast::zero)
         {
+            JLOG(ctx_.journal.warn()) << "update - credit burn";
             STAmount startBal = sle->getFieldAmount(sfBalance);
             STAmount finalBal = startBal + burn;
             if (finalBal > startBal)
@@ -1388,6 +1410,7 @@ Import::doApply()
     if (!sleVL)
     {
         // create VL import seq counter
+        JLOG(ctx_.journal.warn()) << "create vl - insert import sequence + public key";
         sleVL = std::make_shared<SLE>(keyletVL);
         sleVL->setFieldU32(sfImportSequence, infoVL->first);
         sleVL->setFieldVL(sfPublicKey, infoVL->second.slice());
@@ -1395,6 +1418,7 @@ Import::doApply()
     }
     else
     {
+        JLOG(ctx_.journal.warn()) << "update vl - insert import sequence";
         uint32_t current = sleVL->getFieldU32(sfImportSequence);
 
         if (current > infoVL->first)
