@@ -47,9 +47,9 @@ namespace ripple {
 NotTEC
 preflight0(PreflightContext const& ctx)
 {
-    if (ctx.tx.isFieldPresent(sfEmitDetails))
+    if (ctx.tx.isFieldPresent(sfEmitDetails) || isPseudoTx(ctx.tx))
     {
-        // all emitted transactions are free to pass, do not need network id
+        // all emitted and pseudo transactions are free to pass, do not need network id
     }
     else
     {
