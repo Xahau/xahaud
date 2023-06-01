@@ -358,6 +358,14 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    add(jss::GenesisMint,
+        ttGENESIS_MINT,
+        {
+            {sfDestinations, soeREQUIRED},
+            {sfAmount, soeREQUIRED}
+        },
+        commonFields);
+
     add(jss::Import,
         ttIMPORT,
         {

@@ -10,6 +10,18 @@
 /**
  * Xahau Governance Hook
  *
+ *  The governance model is a 20 seat round table.
+ *  Each seat may be filled or empty (provided there is at least one filled seat.)
+ *  The primary governance table sits on the genesis account. This is also called the L1 table.
+ *  Seats at this table are called L1s or L1 members.
+ *  At L1, for votes relating to table membership 80% of the filled seats must vote in favour.
+ *  At L1, for votes relating to everything else 100% of the filled seats must vote in favour.
+ *  One or more L1 seats may contain an account that has this same governance hook installed on it and is blackholed.
+ *  This is referred to as an L2 table. The seats at the table are called L2s or L2 members.
+ *  There may be multiple L2 tables.
+ *  The same voting rules apply but the voting threshold is 60% for everything.
+ *  At L2, a successful vote is actioned by having the L1 seat that L2 table occupies cast an L1 vote.
+ *
  *  Hook Parameters:
  *      Parameter Name: {'I', 'M', 'C'}
  *      Parameter Value: Initial Member Count <1 byte>
@@ -29,7 +41,8 @@
  *      ...
  *  
  *  Topics:
- *      'H[0-9]'    - Hook Hash in positions 0-9 <32 byte hash>
+ *      'H[0-9]'    - Hook Hash in positions 0-9 <32 byte hash> on genesis
+ *      'h[0-9]'    - Hook Hash in positions 0-9 <32 byte hash> on local L2 table (when applicable)
  *      'RR'        - reward rate  <le xfl 8 bytes>
  *      'RD'        - reward delay <le xfl 8 bytes>
  *      'S[0-19]'   - who is a governance member occupying that seat <20 byte accid>
@@ -53,7 +66,7 @@
  *      State Key: {'V', 'H|R|S' <topic type>, '\0 + topic id', 0..0, <member accid>}
  *      State Data: A vote by a member for a topic and topic data
  *
- *      State Key: {'C', 'H|R|S' <topic type>, '\0 + topic id', 0*, <front truncated topic data>}
+ *      State Key: {'C', 'H|h|R|S' <topic type>, '\0 + topic id', 0*, <front truncated topic data>}
  *      State Data: The number of members who have voted for that topic data and topic combination <1 byte>
  *
  *  Hook Invocation:
@@ -66,7 +79,7 @@
  *
  *              Parameter Name: {'T'}
  *              Parameter Value: The topic to vote on <2 bytes>
- *                  { 'S|H' (seat, hook), '\0 + topic id' }, or
+ *                  { 'S|H|h' (seat, hook), '\0 + topic id' }, or
  *                  { 'R' (reward), 'R|D' (rate, delay) }
  *
  *              Parameter Name: {'V'}
@@ -83,11 +96,18 @@
 
 #define DEBUG 1
 
+// genesis account id
+uint8_t genesis[20] =
+    {0xB5U,0xF7U,0x62U,0x79U,0x8AU,0x53U,0xD5U,0x43U,0xA0U,0x14U,
+     0xCAU,0xF8U,0xB2U,0x97U,0xCFU,0xF8U,0xF2U,0xF9U,0x37U,0xE8U};
+
 int64_t hook(uint32_t r)
 {
     _g(1,1);
 
-    if (otxn_type() != 99)  // ttINVOKE
+    int64_t tt = otxn_type();
+
+    if (tt != 99 && tt != )  // ttINVOKE or ttGENESIS_MINT accepted
         DONE("Governance: Passing non-Invoke txn. HookOn should be changed to avoid this.");
 
     // get the account id
@@ -96,7 +116,9 @@ int64_t hook(uint32_t r)
 
     uint8_t hook_accid[20];
     hook_account(SBUF(hook_accid));
-    
+
+    int64_t is_L1 = BUFFER_EQUAL_20(hook_accid, genesis);
+
     int64_t member_count = state(0,0, "MC", 2);
     if (DEBUG)
         TRACEVAR(member_count);
@@ -127,25 +149,29 @@ int64_t hook(uint32_t r)
         int64_t imc, ida, irr, ird;
         if (hook_param(SVAR(imc), "IMC", 3) < 0)
             NOPE("Governance: Initial Member Count Parameter missing (IMC).");
-
-        if (hook_param(SVAR(ida), "IDA", 3) < 0)
-            NOPE("Governance: Initial Distribution Amount Prameter missing (IDA).");
-
-        if (hook_param(SVAR(irr), "IRR", 3) < 0)
-            NOPE("Governance: Initial Reward Rate Parameter missing (IRR).");
-
-        if (hook_param(SVAR(ird), "IRD", 3) < 0)
-            NOPE("Governance: Initial Reward Delay Parameter miss (IRD).");
-
-        // sanity check parameters
+        
         if (imc == 0)
             NOPE("Governance: Initial Member Count must be > 0.");
 
         if (imc > SEAT_COUNT)
             NOPE("Governance: Initial Member Count must be <= Seat Count (20).");
 
-        if (ird == 0)
-            NOPE("Governance: Initial Reward Delay must be > 0.");
+        if (is_L1)
+        {
+            if (hook_param(SVAR(ida), "IDA", 3) < 0)
+                NOPE("Governance: Initial Distribution Amount Prameter missing (IDA).");
+
+            if (hook_param(SVAR(irr), "IRR", 3) < 0)
+                NOPE("Governance: Initial Reward Rate Parameter missing (IRR).");
+
+            if (hook_param(SVAR(ird), "IRD", 3) < 0)
+                NOPE("Governance: Initial Reward Delay Parameter miss (IRD).");
+            
+            if (ird == 0)
+                NOPE("Governance: Initial Reward Delay must be > 0.");
+        }
+
+
 
         etxn_reserve(imc);
 
@@ -230,6 +256,7 @@ int64_t hook(uint32_t r)
     if (result != 2 || (
                 topic[0] != 'S' &&      // topic type: seat
                 topic[0] != 'H' &&      // topic type: hook
+                topic[0] != 'h' &&      // topic type: hook (L2)
                 topic[0] != 'R'))       // topic type: reward 
         NOPE("Governance: Valid TOPIC must be specified as otxn parameter.");
 
@@ -237,7 +264,7 @@ int64_t hook(uint32_t r)
     if (topic[0] == 'S' && topic[1] > (SEAT_COUNT - 1))
         NOPE("Governance: Valid seat topics are 0 through 19.");
 
-    if (topic[0] == 'H' && topic[1] > HOOK_MAX)
+    if ((topic[0] == 'H' || topic[0] == 'h') && topic[1] > HOOK_MAX)
         NOPE("Governance: Valid hook topics are 0 through 9.");
 
     if (topic[0] == 'R' && topic[1] != 'R' && topic[1] != 'D')
@@ -248,6 +275,7 @@ int64_t hook(uint32_t r)
     uint8_t topic_data[32];
     uint8_t topic_size = 
         topic[0] == 'H' ? 32 :      // hook topics are a 32 byte hook hash
+        topic[0] == 'h' ? 32 :      // hook topics are a 32 byte hook hash (L2)
         topic[0] == 'S' ? 20 :      // account topics are a 20 byte account ID
                           8;        // reward topics are an 8 byte le xfl
     
@@ -328,7 +356,10 @@ int64_t hook(uint32_t r)
     }
     
     // now check if we hit threshold
-    if (votes < (topic[0] == 'S' ? (member_count * 0.8) : member_count))
+    if (votes < 
+            !is_L1 ? member_count * 0.6 :               // L2s have 60% threshold for all topics
+            topic[0] == 'S' ? (member_count * 0.8) :    // L1s have 80% threshold for membership/seat voting
+            member_count)                               // L1s have 100% threshold for all other voting
         DONE("Governance: Vote recorded. Not yet enough votes to action.");
 
     // 100%/80% threshold as needed is reached

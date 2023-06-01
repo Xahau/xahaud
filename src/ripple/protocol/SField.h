@@ -603,6 +603,7 @@ extern SField const sfHookExecution;
 extern SField const sfHookParameters;
 extern SField const sfHooks;
 extern SField const sfHookGrants;
+extern SField const sfDestinations;
 
 //------------------------------------------------------------------------------
 
