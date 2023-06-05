@@ -59,6 +59,9 @@ private:
     void
     activateTrustLinesToSelfFix();
 
+    void
+    activateXahauGenesis();
+
     TER
     applyAmendment();
 
