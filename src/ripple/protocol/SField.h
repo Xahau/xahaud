@@ -594,6 +594,7 @@ extern SField const sfAffectedNodes;
 extern SField const sfMemos;
 extern SField const sfNFTokens;
 extern SField const sfHooks;
+extern SField const sfGenesisMint;
 
 // array of objects (uncommon)
 extern SField const sfMajorities;
@@ -603,7 +604,7 @@ extern SField const sfHookExecution;
 extern SField const sfHookParameters;
 extern SField const sfHooks;
 extern SField const sfHookGrants;
-extern SField const sfDestinations;
+extern SField const sfGenesisMints;
 
 //------------------------------------------------------------------------------
 

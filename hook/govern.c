@@ -107,7 +107,7 @@ int64_t hook(uint32_t r)
 
     int64_t tt = otxn_type();
 
-    if (tt != 99 && tt != )  // ttINVOKE or ttGENESIS_MINT accepted
+    if (tt != 99)  // ttINVOKE or ttGENESIS_MINT accepted
         DONE("Governance: Passing non-Invoke txn. HookOn should be changed to avoid this.");
 
     // get the account id
@@ -124,7 +124,6 @@ int64_t hook(uint32_t r)
         TRACEVAR(member_count);
     
     // outgoing txns to other hooks allowed
-    // but a self ttINVOKE means rewards hook is trying to get the governance hook to distribute governance rewards
     int64_t is_distribution = 0;
     int64_t is_setup = member_count == DOESNT_EXIST;
 

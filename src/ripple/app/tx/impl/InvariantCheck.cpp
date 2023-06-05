@@ -143,13 +143,15 @@ XRPNotCreated::visitEntry(
 bool
 XRPNotCreated::finalize(
     STTx const& tx,
-    TER const,
+    TER const res,
     XRPAmount const fee,
     ReadView const& view,
     beast::Journal const& j)
 {
 
-    if (view.rules().enabled(featureImport) && tx.getTxnType() == ttIMPORT)
+    auto const tt = tx.getTxnType();
+
+    if (view.rules().enabled(featureImport) && tt == ttIMPORT && res == tesSUCCESS)
     {
         // different rules for ttIMPORT
         auto const [inner, meta] = Import::getInnerTxn(tx, j);
@@ -168,6 +170,24 @@ XRPNotCreated::finalize(
 
         JLOG(j.trace())
             << "Invariant XRPNotCreated Import: " 
+            << "dropsAdded: " << dropsAdded
+            << " fee.drops(): " << fee.drops() 
+            << " drops_: " << drops_ 
+            << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
+
+        return (drops_ == dropsAdded.drops() - fee.drops());
+    }
+
+    if (view.rules().enabled(featureXahauGenesis) && tt == ttGENESIS_MINT && res == tesSUCCESS)
+    {
+        // different rules for ttGENESIS_MINT
+        auto const& dests = tx.getFieldArray(sfGenesisMints);
+        XRPAmount dropsAdded { beast::zero };
+        for (auto const& dest: dests)
+            dropsAdded += dest.getFieldAmount(sfAmount).xrp(); 
+        
+        JLOG(j.trace())
+            << "Invariant XRPNotCreated GenesisMint: " 
             << "dropsAdded: " << dropsAdded
             << " fee.drops(): " << fee.drops() 
             << " drops_: " << drops_ 
@@ -518,16 +538,16 @@ ValidNewAccountRoot::finalize(
     if (accountsCreated_ == 0)
         return true;
 
-    if (accountsCreated_ > 1)
+    auto tt = tx.getTxnType();
+
+    if (accountsCreated_ > 1 && tt != ttGENESIS_MINT)
     {
         JLOG(j.fatal()) << "Invariant failed: multiple accounts "
                            "created in a single transaction";
         return false;
     }
 
-    // From this point on we know exactly one account was created.
-    auto tt = tx.getTxnType();
-    if ((tt == ttPAYMENT || tt == ttIMPORT) && result == tesSUCCESS)
+    if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT) && result == tesSUCCESS)
     {
         std::uint32_t const startingSeq{
             view.rules().enabled(featureDeletableAccounts) ? view.seq() : 1};

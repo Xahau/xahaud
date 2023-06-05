@@ -361,8 +361,7 @@ TxFormats::TxFormats()
     add(jss::GenesisMint,
         ttGENESIS_MINT,
         {
-            {sfDestinations, soeREQUIRED},
-            {sfAmount, soeREQUIRED}
+            {sfGenesisMints, soeREQUIRED},
         },
         commonFields);
 

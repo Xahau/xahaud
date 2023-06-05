@@ -125,6 +125,13 @@ InnerObjectFormats::InnerObjectFormats()
             {sfNFTokenID, soeREQUIRED},
             {sfURI, soeOPTIONAL},
         });
+
+    add(sfGenesisMint.jsonName.c_str(),
+        sfGenesisMint.getCode(),
+        {
+            {sfDestination, soeREQUIRED},
+            {sfAmount, soeREQUIRED},
+        });
 }
 
 InnerObjectFormats const&
