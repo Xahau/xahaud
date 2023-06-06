@@ -4,61 +4,110 @@
 #define REWARD_MULTIPLIER_XFL 6038156834009797973ULL
 //0.00333333333f
 
+#define L1SEATS 20U
+#define L2SEATS 400U
+
 #define ASSERT(x)\
     if (!(x))\
         rollback(SBUF("Reward: Assertion failure."),__LINE__);
 
 #define DEBUG 1
 
-// this txn template is sent back to this account to distribute a duplicate reward to governance members
-// this distribution is handled by the governance reward hook
-uint8_t txn_loopback[235] =
+uint8_t txn_mint[13850] =
 {
 /* size,upto */
-/*   3,  0 */   0x12U, 0x00U, 0x63U,                                                                /* tt = Invoke */
+/*   3,  0 */   0x12U, 0x00U, 0x60U,                                                           /* tt = GenesisMint */
 /*   5,  3 */   0x22U, 0x80U, 0x00U, 0x00U, 0x00U,                                          /* flags = tfCanonical */
 /*   5,  8 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,                                                 /* sequence = 0 */
 /*   6, 13 */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,                                      /* first ledger seq */
 /*   6, 19 */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,                                       /* last ledger seq */
 /*   9, 25 */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,                         /* fee      */
 /*  35, 34 */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,       /* pubkey   */
-/*  22, 69 */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                                 /* src acc  */
+/*  22, 69 */   0x81U, 0x14U, 0xB5U,0xF7U,0x62U,0x79U,0x8AU,0x53U,0xD5U,0x43U,0xA0U,0x14U,
+                              0xCAU,0xF8U,0xB2U,0x97U,0xCFU,0xF8U,0xF2U,0xF9U,0x37U,0xE8U,             /* src acc  */
 
 /* 116, 91 */   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,    /* emit detail */
                 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 
-/*  28,207 */   0xF0U,0x13U,0xE0U,0x17U,0x70U,0x18U,0x06U,0x72U,                                    /* hook params */
-                0x65U,0x77U,0x61U,0x72U,0x64U,0x70U,0x19U,0x08U,                                    /* reward key  */
-    /* 223 */   0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,                                    /* value/drops */
-                0xE1U,0xF1U,0xE1U,0xF1                                                              /* end params  */
-/*     235 */
+/* 207, ... */  0xF0U, 0x60U,                                                                      /* gen mints arr */
+/* 34 bytes per entries + 1 tail byte
+    E060
+    61
+    4111111111111111                                // amount
+    8114
+    1234567891234567891234567891234567891234        // account
+    E1
+    ... repeat
+    F1                                              // tail byte
+ *
+ * */
+// 210 bytes + 34 bytes per entry * number of entries + any alignment padding desired
 };
 
-
-// this txn template is used to pay out rewards
-uint8_t txn_payment[238] =
-{
-/* size,upto */
-/*   3,  0 */   0x12U, 0x00U, 0x00U,                                                               /* tt = Payment */
-/*   5,  3*/    0x22U, 0x80U, 0x00U, 0x00U, 0x00U,                                          /* flags = tfCanonical */
-/*   5,  8 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,                                                 /* sequence = 0 */
-/*   6, 13 */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,                                      /* first ledger seq */
-/*   6, 19 */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,                                       /* last ledger seq */
-/*   9, 25 */   0x61U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,      /* amount field 9 bytes */
-/*   9, 34 */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,                         /* fee      */
-/*  35, 43 */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,       /* pubkey   */
-/*  22, 78 */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                                 /* src acc  */
-/*  22,100 */   0x83U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,                                 /* dst acc  */
-/* 116,122 */   /* emit details */
-/*   0,238 */
+uint8_t template1[40] = {
+/*  0,  2 */    0xE0U, 0x60U,          // obj start
+/*  2,  1 */    0x61U,                 // amount header
+/*  3,  8 */    0,0,0,0,0,0,0,0,       // amount payload
+/* 11,  2 */    0x83U, 0x14U,          // account header
+/* 13, 20 */    0,0,0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0,0,0,   // account payload
+/* 33,  1 */    0xE1U                  // obj end
 };
 
-#define HOOK_ACCOUNT    (txn_loopback +   71U)
-#define HOOK_ACCOUNT_2  (txn_payment  +   80U)
-#define ACC_FIELD       (txn_payment  +  102U)
-#define AMOUNT_OUT      (txn_payment  +   26U)
-#define AMOUNT_OUT_2    (txn_loopback +  223U)
+uint8_t template2[40] = {
+/*  0,  2 */    0xE0U, 0x60U,          // obj start
+/*  2,  1 */    0x61U,                 // amount header
+/*  3,  8 */    0,0,0,0,0,0,0,0,       // amount payload
+/* 11,  2 */    0x83U, 0x14U,          // account header
+/* 13, 20 */    0,0,0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0,0,0,   // account payload
+/* 33,  1 */    0xE1U                  // obj end
+};
+
+#define TEMPLATE1_DROPS(drops_tmp)\
+{\
+    uint8_t* b = template1 + 3U;\
+    *b++ = 0b01000000 + (( drops_tmp >> 56 ) & 0b00111111 );\
+    *b++ = (drops_tmp >> 48) & 0xFFU;\
+    *b++ = (drops_tmp >> 40) & 0xFFU;\
+    *b++ = (drops_tmp >> 32) & 0xFFU;\
+    *b++ = (drops_tmp >> 24) & 0xFFU;\
+    *b++ = (drops_tmp >> 16) & 0xFFU;\
+    *b++ = (drops_tmp >>  8) & 0xFFU;\
+    *b++ = (drops_tmp >>  0) & 0xFFU;\
+}
+
+#define TEMPLATE2_DROPS(drops_tmp)\
+{\
+    uint8_t* b = template2 + 3U;\
+    *b++ = 0b01000000 + (( drops_tmp >> 56 ) & 0b00111111 );\
+    *b++ = (drops_tmp >> 48) & 0xFFU;\
+    *b++ = (drops_tmp >> 40) & 0xFFU;\
+    *b++ = (drops_tmp >> 32) & 0xFFU;\
+    *b++ = (drops_tmp >> 24) & 0xFFU;\
+    *b++ = (drops_tmp >> 16) & 0xFFU;\
+    *b++ = (drops_tmp >>  8) & 0xFFU;\
+    *b++ = (drops_tmp >>  0) & 0xFFU;\
+}
+
+#define BE_DROPS(drops)\
+{\
+    uint64_t drops_tmp = drops;\
+    uint8_t* b = (uint8_t*)&drops;\
+    *b++ = 0b01000000 + (( drops_tmp >> 56 ) & 0b00111111 );\
+    *b++ = (drops_tmp >> 48) & 0xFFU;\
+    *b++ = (drops_tmp >> 40) & 0xFFU;\
+    *b++ = (drops_tmp >> 32) & 0xFFU;\
+    *b++ = (drops_tmp >> 24) & 0xFFU;\
+    *b++ = (drops_tmp >> 16) & 0xFFU;\
+    *b++ = (drops_tmp >>  8) & 0xFFU;\
+    *b++ = (drops_tmp >>  0) & 0xFFU;\
+}
+
+uint8_t member_count_key[2] = {'M', 'C'};
+
+
 
 uint8_t msg_buf[] = "You must wait 0000000 seconds";
 int64_t hook(uint32_t r)
@@ -70,21 +119,21 @@ int64_t hook(uint32_t r)
     if (otxn_type() != 98)
         accept(SBUF("Reward: Passing non-claim txn"), __LINE__);
 
+    uint8_t otxn_acc[20];
+    uint8_t hook_acc[20];
+
     // get the account id
-    otxn_field(ACC_FIELD, 20, sfAccount);
+    otxn_field(SBUF(otxn_acc), sfAccount);
 
     // write the hook account into the txn template
-    hook_account(HOOK_ACCOUNT, 20);
+    hook_account(SBUF(hook_acc));
 
-    // there are two txn templates so also write into the second template
-    hook_account(HOOK_ACCOUNT_2, 20);
-
-    if (BUFFER_EQUAL_20(HOOK_ACCOUNT, ACC_FIELD))
+    if (BUFFER_EQUAL_20(hook_acc, otxn_acc))
         accept(SBUF("Reward: Passing outgoing txn"), __LINE__);
 
     // get the account root keylet
     uint8_t kl[34];
-    util_keylet(SBUF(kl), KEYLET_ACCOUNT, ACC_FIELD, 20, 0,0,0,0);
+    util_keylet(SBUF(kl), KEYLET_ACCOUNT, SBUF(otxn_acc), 0,0,0,0);
 
     // slot the account root, this can't fail
     slot_set(SBUF(kl), 1);
@@ -184,39 +233,123 @@ int64_t hook(uint32_t r)
         TRACEVAR(xfl_reward);
 
 
-    // write drops to paymen txn
-    {
-        uint64_t drops = float_int(xfl_reward, 6, 1);                                                                     
-        uint8_t* b = AMOUNT_OUT;                                                                                   
-        *b++ = 0b01000000 + (( drops >> 56 ) & 0b00111111 );                                                           
-        *b++ = (drops >> 48) & 0xFFU;                                                                                  
-        *b++ = (drops >> 40) & 0xFFU;                                                                                  
-        *b++ = (drops >> 32) & 0xFFU;                                                                                  
-        *b++ = (drops >> 24) & 0xFFU;                                                                                  
-        *b++ = (drops >> 16) & 0xFFU;                                                                                  
-        *b++ = (drops >>  8) & 0xFFU;                                                                                  
-        *b++ = (drops >>  0) & 0xFFU;
+    uint64_t reward_drops = float_int(xfl_reward, 6, 1);
 
-        // copy to other template
-        *((uint64_t*)AMOUNT_OUT_2) = *((uint64_t*)AMOUNT_OUT);
+    uint64_t l1_drops = reward_drops / L1SEATS;
+
+    uint64_t l2_drops = reward_drops / L2SEATS;
+
+
+    otxn_slot(1);
+    slot_subfield(1, sfFee, 2);
+    int64_t xfl_fee = slot_float(2);
+
+    // user gets back the fee they spent running the hook
+    if (xfl_fee > 0)
+        reward_drops += float_int(xfl_fee, 6, 1);
+
+
+    TEMPLATE1_DROPS(reward_drops);
+
+    uint8_t* upto = txn_mint + 209U;
+    uint8_t* end = upto + (34U * (L2SEATS + 1));
+
+    // first account is always the rewardee
+    {
+        uint64_t* d = (uint64_t*)upto;
+        uint64_t* s = (uint64_t*)template1;
+        *d++ = *s++;
+        *d++ = *s++;
+        *(d+2) = *(s+2);
+        otxn_field(upto + 13, 20, sfAccount);
     }
 
-    // emit the payment transaction
+    // now iterate all possible seats in all possible tables
+    TEMPLATE1_DROPS(l1_drops);
+    TEMPLATE2_DROPS(l2_drops);
+
+    uint8_t table[20];
+
+    for (uint8_t l1_seat = 0, l2_seat = 0; GUARD(L2SEATS), upto < end && l1_seat < L1SEATS;)
+    {
+
+        if (l2_seat == 0)
+        {
+            // copy template 1 into next GenesisMints array position
+            uint64_t* d = (uint64_t*)upto;
+            uint64_t* s = (uint64_t*)template1;
+            *d++ = *s++;
+            *d++ = *s++;
+            *(d+2) = *(s+2);
+
+            // we're at an l1 seat in the iteration, check if it's filled and if so if it's filled with an L2 table
+            if (state(upto + 13, 20, &l1_seat, 1) == 20)
+            {
+                // l1 seat is filled but by what?
+                state(SBUF(table), &l1_seat, 1);
+                l1_seat++;
+
+                uint8_t dummy[1];
+                if(state_foreign(SBUF(dummy), SBUF(member_count_key), SBUF(dummy), SBUF(table)) == DOESNT_EXIST)
+                {
+                    // filled by a normal l1 member
+                    upto += 34;
+                    continue;
+                }
+
+                // filled by an l2 table... fall through
+            }
+        }
+
+        // we're iterating l2 seats
+        // copy template2 into next GenesisMints array position
+        uint64_t* d = (uint64_t*)upto;
+        uint64_t* s = (uint64_t*)template2;
+        *d++ = *s++;
+        *d++ = *s++;
+        *(d+2) = *(s+2);
+
+        uint8_t ns[32];
+        if (state_foreign(upto + 13, 20, l2_seat, 1, SBUF(ns), SBUF(table)) == 20)
+        {
+            // filled l2 seat
+            upto += 34;
+        }
+       
+        l2_seat = (l2_seat + 1) % L1SEATS;
+    }
+
+    *upto++ = 0xF1U;
+
+
+    // populate other txn fields
+    etxn_details(txn_mint + 91, 116);
+    int64_t fee = etxn_fee_base(txn_mint, upto - txn_mint);
+    BE_DROPS(fee);
+
+    *((uint64_t*)(txn_mint + 26)) = fee;
+
+    int64_t seq = ledger_seq() + 1;
+    txn_mint[15] = (seq >> 24U) & 0xFFU;
+    txn_mint[16] = (seq >> 16U) & 0xFFU;
+    txn_mint[17] = (seq >>  8U) & 0xFFU;
+    txn_mint[18] = seq & 0xFFU;
+
+    seq += 4;
+    txn_mint[21] = (seq >> 24U) & 0xFFU;
+    txn_mint[22] = (seq >> 16U) & 0xFFU;
+    txn_mint[23] = (seq >>  8U) & 0xFFU;
+    txn_mint[24] = seq & 0xFFU;
+
+
+    trace(SBUF("emit:"), txn_mint, upto-txn_mint, 1);
+
     uint8_t emithash[32];
-    int64_t emit_result = emit(SBUF(emithash), SBUF(txn_payment));
+    int64_t emit_result = emit(SBUF(emithash), txn_mint, upto - txn_mint);
 
     if (DEBUG)
         TRACEVAR(emit_result);
 
-    if (emit_result < 0)
-        rollback(SBUF("Reward: Emit reward failed."), __LINE__);
-
-    // emit the loopback txn
-    emit_result = emit(SBUF(emithash), SBUF(txn_loopback));
-    
-    if (DEBUG)
-        TRACEVAR(emit_result);
-    
     if (emit_result < 0)
         rollback(SBUF("Reward: Emit loopback failed."), __LINE__);
 
