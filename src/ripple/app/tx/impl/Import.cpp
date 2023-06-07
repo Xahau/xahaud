@@ -1292,6 +1292,7 @@ Import::doApply()
     auto const id = ctx_.tx[sfAccount];
 
     auto const k = keylet::account(id);
+    auto const ksl = keylet::signers(id);
 
     auto sle = view().peek(k);
 
@@ -1358,7 +1359,9 @@ Import::doApply()
 
     if (setSignerEntries) {
         JLOG(ctx_.journal.warn()) << "signer list set";
-        sle->setFieldArray(sfSignerEntries, *setSignerEntries);
+        auto signerList = std::make_shared<SLE>(ksl);
+        signerList->setFieldArray(sfSignerEntries, *setSignerEntries);
+        view().insert(signerList);
     } 
     else if (setRegularKey)
     {
