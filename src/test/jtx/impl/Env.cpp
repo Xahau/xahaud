@@ -425,6 +425,13 @@ Env::autofill_sig(JTx& jt)
 }
 
 void
+Env::nofill_sig(JTx& jt, Account account)
+{
+    auto& jv = jt.jv;
+    jtx::sign(jv, account);
+}
+
+void
 Env::autofill(JTx& jt)
 {
     auto& jv = jt.jv;

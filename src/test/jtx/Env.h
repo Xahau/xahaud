@@ -446,13 +446,13 @@ public:
     }
 
     /** Create a JTx from parameters. */
-    template <class JsonValue, class... FN>
+    template <class JsonValue, class Account, class... FN>
     JTx
-    jtnofill(JsonValue&& jv, FN const&... fN)
+    jtnofill(JsonValue&& jv, Account account, FN const&... fN)
     {
         JTx jt(std::forward<JsonValue>(jv));
         invoke(jt, fN...);
-        autofill_sig(jt);
+        nofill_sig(jt, account);
         jt.stx = st(jt);
         return jt;
     }
@@ -663,6 +663,9 @@ protected:
 
     void
     autofill_sig(JTx& jt);
+
+    void
+    nofill_sig(JTx& jt, Account account);
 
     virtual void
     autofill(JTx& jt);
