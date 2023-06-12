@@ -26,9 +26,6 @@
  *      Parameter Name: {'I', 'M', 'C'}
  *      Parameter Value: Initial Member Count <1 byte>
  *
- *      Parameter Name: {'I', 'D', 'A'}
- *      Parameter Value: Initial Distribution Amount to each initial member <8 byte BE drops>
- *
  *      Parameter Name: {'I', 'R', 'R'}
  *      Parameter Value: Initial Reward Rate <8 byte XFL fraction between 0 and 1, LE>
  *
@@ -79,7 +76,7 @@
  *
  *              Parameter Name: {'T'}
  *              Parameter Value: The topic to vote on <2 bytes>
- *                  { 'S|H|h' (seat, hook), '\0 + topic id' }, or
+ *                  { 'S|s|H|h' (seat L1, seat L2, hook L1, hook L2), '\0 + topic id' }, or
  *                  { 'R' (reward), 'R|D' (rate, delay) }
  *
  *              Parameter Name: {'V'}
@@ -101,51 +98,45 @@ uint8_t genesis[20] =
     {0xB5U,0xF7U,0x62U,0x79U,0x8AU,0x53U,0xD5U,0x43U,0xA0U,0x14U,
      0xCAU,0xF8U,0xB2U,0x97U,0xCFU,0xF8U,0xF2U,0xF9U,0x37U,0xE8U};
 
+uint8_t zero32[32];
+
 int64_t hook(uint32_t r)
 {
     _g(1,1);
 
     int64_t tt = otxn_type();
 
-    if (tt != 99)  // ttINVOKE or ttGENESIS_MINT accepted
+    if (tt != 99)  // ttINVOKE only
         DONE("Governance: Passing non-Invoke txn. HookOn should be changed to avoid this.");
 
     // get the account id
     uint8_t account_field[32];
     otxn_field(account_field + 12, 20, sfAccount);
 
-    uint8_t hook_accid[20];
-    hook_account(SBUF(hook_accid));
+    uint8_t hook_accid[32];
+    hook_account(hook_accid + 12, 20);
 
-    int64_t is_L1 = BUFFER_EQUAL_20(hook_accid, genesis);
+    // outgoing txns to other hooks allowed
+    if (BUFFER_EQUAL_20(hook_accid + 12, account_field + 12))
+    {
+        uint8_t dest_acc[20];
+        if (otxn_field(SBUF(dest_acc), sfDestination) == 20 && !BUFFER_EQUAL_20(hook_accid + 12, dest_acc))
+            DONE("Goverance: Passing outgoing txn.");
+    }
+    
+    int64_t is_L1 = BUFFER_EQUAL_20(hook_accid + 12, genesis);
 
     int64_t member_count = state(0,0, "MC", 2);
     if (DEBUG)
         TRACEVAR(member_count);
     
-    // outgoing txns to other hooks allowed
-    int64_t is_distribution = 0;
-    int64_t is_setup = member_count == DOESNT_EXIST;
-
-    if (BUFFER_EQUAL_20(hook_accid, account_field + 12))
-    {
-        uint8_t dest_acc[20];
-        if (otxn_field(SBUF(dest_acc), sfDestination) == 20 && !BUFFER_EQUAL_20(hook_accid, dest_acc))
-            DONE("Goverance: Passing outgoing txn.");
-    
-        is_distribution = 1;
-    }
 
     // initial execution, setup hook
-
-    int64_t distribution_amount;
-
-
-    if (is_setup)
+    if (member_count == DOESNT_EXIST)
     {
         // gather hook parameters
 
-        int64_t imc, ida, irr, ird;
+        int64_t imc, irr, ird;
         if (hook_param(SVAR(imc), "IMC", 3) < 0)
             NOPE("Governance: Initial Member Count Parameter missing (IMC).");
         
@@ -157,9 +148,6 @@ int64_t hook(uint32_t r)
 
         if (is_L1)
         {
-            if (hook_param(SVAR(ida), "IDA", 3) < 0)
-                NOPE("Governance: Initial Distribution Amount Prameter missing (IDA).");
-
             if (hook_param(SVAR(irr), "IRR", 3) < 0)
                 NOPE("Governance: Initial Reward Rate Parameter missing (IRR).");
 
@@ -168,83 +156,47 @@ int64_t hook(uint32_t r)
             
             if (ird == 0)
                 NOPE("Governance: Initial Reward Delay must be > 0.");
+            
+            // set reward rate
+            ASSERT(state_set(SVAR(irr), "RR", 2));
+    
+            // set reward delay
+            ASSERT(state_set(SVAR(ird), "RD", 2));
         }
 
-
-
-        etxn_reserve(imc);
 
         // set member count
         ASSERT(state_set(SBUF(imc), "MC", 2));
 
-        // set reward rate
-        ASSERT(state_set(SVAR(irr), "RR", 2));
-    
-        // set reward delay
-        ASSERT(state_set(SVAR(ird), "RD", 2));
 
-        distribution_amount = ida;
         member_count = imc;
-    }
-    else if (is_distribution)
-    {
-        ASSERT(member_count > 0);
 
-        uint8_t amt[8];
-        ASSERT(otxn_param(SBUF(amt), "reward", 5) == 8);
-        distribution_amount = INT64_FROM_BUF(amt);
-        distribution_amount /= member_count;
-        ASSERT(distribution_amount > 0);
-    }
-
-    if (is_setup || is_distribution)
-    {
         for (uint8_t i = 0; GUARD(SEAT_COUNT), i < member_count; ++i)
         {
             uint8_t member_acc[20];
-            if (is_setup)
-            {
-                uint8_t member_pkey[3] = {'I', 'S', i};
-                if (hook_param(SBUF(member_acc), member_pkey, 3) != 20)
-                    NOPE("Governance: One or more initial member account ID's is missing");
+            uint8_t member_pkey[3] = {'I', 'S', i};
+            if (hook_param(SBUF(member_acc), member_pkey, 3) != 20)
+                NOPE("Governance: One or more initial member account ID's is missing");
 
-                                                                // 0... X where X is member id started from 1
-                                                                // maps to the member's account ID
-                // reverse key 
-                ASSERT(state_set(SBUF(member_acc), SVAR(i)) == 20);
-            
-                                                                // 0, 0... ACCOUNT ID maps to member_id (as above)
-                // forward key
-                ASSERT(state_set(SVAR(i), SBUF(member_acc)) == 1);
-            }
-            else if (state(SBUF(member_acc), SVAR(i)) != 20)
-                break;
-
-            // emit initial
-            uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
-            PREPARE_PAYMENT_SIMPLE(tx, distribution_amount, member_acc, 0, 0);
-
-            // emit the transaction
-            uint8_t emithash[32];
-            int64_t emit_result = emit(SBUF(emithash), SBUF(tx));
-            ASSERT(emit_result > 0);
-
-            if (DEBUG)
-                TRACEVAR(emit_result);
-
+                                                            // 0... X where X is member id started from 1
+                                                            // maps to the member's account ID
+            // reverse key 
+            ASSERT(state_set(SBUF(member_acc), SVAR(i)) == 20);
+        
+                                                            // 0, 0... ACCOUNT ID maps to member_id (as above)
+            // forward key
+            ASSERT(state_set(SVAR(i), SBUF(member_acc)) == 1);
         }
 
-        DONE(is_setup
-            ? "Governance: Setup completed successfully."
-            : "Governance: Reward distribution completed successfully.");
+        DONE("Governance: Setup completed successfully.");
     }
-
+    
     // otherwise a normal execution (not initial)
     // first let's check if the invoking party is a member
     
     int64_t member_id = state(0,0,account_field + 12, 20);
     if (member_id < 0)
-        NOPE("Governance: You are not currently a governance member.");
+        NOPE("Governance: You are not currently a governance member at this table.");
 
     // the only thing a member can do is vote for a topic
     // so lets process their vote
@@ -252,30 +204,51 @@ int64_t hook(uint32_t r)
     // { 'S|H|R', '\0 + topicid' }
     uint8_t topic[2];
     int64_t result = otxn_param(SBUF(topic), "T", 1);
+    uint8_t t = topic[0];   // topic type
+    uint8_t n = topic[1];   // number (seats) (or R/D for reward rate/delay)
+
     if (result != 2 || (
-                topic[0] != 'S' &&      // topic type: seat
-                topic[0] != 'H' &&      // topic type: hook
-                topic[0] != 'h' &&      // topic type: hook (L2)
-                topic[0] != 'R'))       // topic type: reward 
+                t != 'S' &&      // topic type: seat (L1)
+                t != 's' &&      // topic type: seat (L2)
+                t != 'H' &&      // topic type: hook (L1)
+                t != 'h' &&      // topic type: hook (L2)
+                t != 'R'))       // topic type: reward 
         NOPE("Governance: Valid TOPIC must be specified as otxn parameter.");
 
    
-    if (topic[0] == 'S' && topic[1] > (SEAT_COUNT - 1))
+    if ((t == 'S' || t == 's') && n > (SEAT_COUNT - 1))
         NOPE("Governance: Valid seat topics are 0 through 19.");
 
-    if ((topic[0] == 'H' || topic[0] == 'h') && topic[1] > HOOK_MAX)
+    if ((t == 'H' || t == 'h') && n > HOOK_MAX)
         NOPE("Governance: Valid hook topics are 0 through 9.");
 
-    if (topic[0] == 'R' && topic[1] != 'R' && topic[1] != 'D')
+    if (t == 'R' && n != 'R' && n != 'D')
         NOPE("Governance: Valid reward topics are R (rate) and D (delay).");
    
-    // RH TODO: validate RR/RD xfl > 0
+    if (is_L1)
+    {
+        if (t == 'h' || t == 's')
+            NOPE("Governance: Cannot vote on topic `h` or `s` at L1 table (did you mean `H`/`S`?).");
 
+        // pass
+    }
+    else
+    if (t != 'h' && t != 's')
+    {
+        // check if this is a real L2 table (is it seated at an L1 seat?)
+        // only setup and voting on the local hook hash is allowed until it gets a seat
+        uint8_t dummy;
+        if (state_foreign(SVAR(dummy), hook_accid + 12, 20, SBUF(zero32), SBUF(genesis)) != 1)
+            NOPE("Governance: This L2 table is not seated at the L1 table, so only `h`/`s` topic voting is allowed.");
+    }
+
+    // RH TODO: validate RR/RD xfl > 0
     uint8_t topic_data[32];
     uint8_t topic_size = 
-        topic[0] == 'H' ? 32 :      // hook topics are a 32 byte hook hash
-        topic[0] == 'h' ? 32 :      // hook topics are a 32 byte hook hash (L2)
-        topic[0] == 'S' ? 20 :      // account topics are a 20 byte account ID
+        t == 'H' ? 32 :      // hook topics are a 32 byte hook hash
+        t == 'h' ? 32 :      // hook topics are a 32 byte hook hash (L2)
+        t == 'S' ? 20 :      // account topics are a 20 byte account ID
+        t == 's' ? 20 :
                           8;        // reward topics are an 8 byte le xfl
     
     uint8_t padding = 32 - topic_size;
@@ -287,8 +260,8 @@ int64_t hook(uint32_t r)
 
     // reuse account_field to create vote key
     account_field[0] = 'V';
-    account_field[1] = topic[0];
-    account_field[2] = topic[1];
+    account_field[1] = t;
+    account_field[2] = n;
 
     // get their previous vote if any on this topic
     uint8_t previous_topic_data[32];
@@ -312,8 +285,8 @@ int64_t hook(uint32_t r)
         uint8_t votes = 0;
         // override the first two bytes to turn it into a vote count key
         previous_topic_data[0] = 'C';
-        previous_topic_data[1] = topic[0];
-        previous_topic_data[2] = topic[1];
+        previous_topic_data[1] = t;
+        previous_topic_data[2] = n;
 
         if (state(&votes, 1, SBUF(previous_topic_data)) && votes > 0)
         {
@@ -330,8 +303,8 @@ int64_t hook(uint32_t r)
         // so store the first bytes 
         uint64_t saved_data = *((uint64_t*)topic_data);
         topic_data[0] = 'C';
-        topic_data[1] = topic[0];
-        topic_data[2] = topic[1];
+        topic_data[1] = t;
+        topic_data[2] = n;
 
         state(&votes, 1, SBUF(topic_data));
         votes++;
@@ -354,26 +327,91 @@ int64_t hook(uint32_t r)
         trace(SBUF("topic"), topic, 2, 1);
     }
     
-    // now check if we hit threshold
-    if (votes < 
-            !is_L1 ? member_count * 0.6 :               // L2s have 60% threshold for all topics
-            topic[0] == 'S' ? (member_count * 0.8) :    // L1s have 80% threshold for membership/seat voting
-            member_count)                               // L1s have 100% threshold for all other voting
-        DONE("Governance: Vote recorded. Not yet enough votes to action.");
 
-    // 100%/80% threshold as needed is reached
+    int64_t q80 = member_count * 0.8;
+    int64_t q66 = member_count * 0.66;
+
+    if (is_L1)
+    {
+        if (votes <
+            t == 'S'
+                ? q80                      // L1s have 80% threshold for membership/seat voting
+                : member_count)            // L1s have 100% threshold for all other voting
+        DONE("Governance: Vote recorded at L1. Not yet enough votes to action.");
+    }
+    else
+    {
+        // for the current topic have we already cast a vote to the L1 table previously?
+        // reuse hook_accid for this
+        //
+        if (t == 'h')
+        {
+            // local voting topics
+            if (votes < member_count)
+                DONE("Governance: Vote recorded at L2. Not yet enough votes to action (100% needed).");
+            t = 'H';
+            // otherwise fall through
+        }
+        else if (t == 's')
+        {
+            if (votes < q80)
+                DONE("Governance: Vote recorded at L2. Not yet enough votes to action (80% needed).");
+            t = 'S';
+            // otherwise fall through
+        }
+        else
+        {
+            // the vote is for an L1 topic. we need to check what vote might have already been registered
+            // at the L1 table
+            hook_accid[0] = 'V';
+            hook_accid[1] = t;
+            hook_accid[2] = n;
+
+            uint8_t previous_topic_data_l1[32];
+        
+            int64_t previous_topic_size_l1 = 
+                state_foreign(SBUF(previous_topic_data_l1), SBUF(hook_accid), SBUF(zero32), SBUF(genesis));
+    
+            if (previous_topic_size_l1 == topic_size && BUFFER_EQUAL_32(previous_topic_data_l1, topic_data))
+                DONE("Governance: Your whole-table's L1 vote is already cast this way for this topic.");
+
+            int64_t previous_topic_data_l1_zero =
+                BUFFER_EQUAL_32(previous_topic_data_l1, zero32);
+
+            // we need to check if this vote represents a lost majority status on the existing L1 topic data
+            previous_topic_data_l1[0] = 'C';
+            previous_topic_data_l1[1] = t;
+            previous_topic_data_l1[2] = n;
+
+            uint8_t existing_votes;
+            state(SVAR(existing_votes), SBUF(previous_topic_data_l1));
+
+            if (existing_votes < q66 && !previous_topic_data_l1_zero || votes >= q66)
+            {
+                // vacate the current vote at L1
+                uint8_t* td = votes < q66 ? zero32 : topic_data;
+                PREPARE_GENESIS_INVOKE(t,n, td); // rh upto 
+                DONE(
+                        votes < q66
+                        ? "Governance: Previous vote vacated at L1, vote recorded at L2. Not enough votes to action."
+                        : "Governance: Actioning vote at L1.");
+            }
+            else
+                DONE("Governance: Vote recorded at L2. Not yet enough votes to action.");
+    }
+
     // action vote
 
     if (DEBUG)
         TRACESTR("Actioning votes");
 
-    switch (topic[0])
+    switch (t)
     {
         case 'R':
         {
             // reward topics
             ASSERT(state_set(topic_data, 8, SBUF(topic)));      // interest rate is on the the FF, 0...0 key
-            if (topic[1] == 'R')
+            if (n == 'R')
                 DONE("Governance: Reward rate change actioned!");
             
             DONE("Governance: Reward delay change actioned!");
@@ -385,14 +423,14 @@ int64_t hook(uint32_t r)
 
             // first get the hook ledget object
             uint8_t keylet[34];
-            util_keylet(SBUF(keylet), KEYLET_HOOK, SBUF(hook_accid), 0,0,0,0);
+            util_keylet(SBUF(keylet), KEYLET_HOOK, hook_accid + 12, 20, 0,0,0,0);
             slot_set(SBUF(keylet), 5);
 
             // now get the hooks array
             slot_subfield(5, sfHooks, 6);
 
             // now check the entry
-            if (slot_subarray(6, topic[1], 7) == 7)
+            if (slot_subarray(6, n, 7) == 7)
             {
                 // it exists
                 // check if its identical
@@ -422,7 +460,7 @@ int64_t hook(uint32_t r)
 
 
             uint8_t* h[10];
-            h[topic[1]] = hookhash;
+            h[n] = hookhash;
 
             uint8_t emit_buf[1024];
             uint32_t emit_size = 0;
@@ -444,7 +482,7 @@ int64_t hook(uint32_t r)
         {
             // add / change member
             uint8_t previous_member[32];
-            int previous_present = (state(previous_member + 12, 20, topic[1], 1) == 20);
+            int previous_present = (state(previous_member + 12, 20, n, 1) == 20);
 
             if (previous_present && !topic_data_zero)
             {
@@ -508,10 +546,10 @@ int64_t hook(uint32_t r)
             {
                 // add the new member
                 // reverse key 
-                ASSERT(state_set(topic_data, 20, topic[1], 1) == 20);
+                ASSERT(state_set(topic_data, 20, n, 1) == 20);
                 
                 // forward key
-                ASSERT(state_set(topic[1], 1, SBUF(topic_data)) == 20);
+                ASSERT(state_set(n, 1, SBUF(topic_data)) == 20);
             }
 
             DONE("Governance: Action member change.");
