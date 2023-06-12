@@ -192,6 +192,14 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    add(jss::UNLReport,
+        ttUNL_REPORT,
+        {
+            {sfLedgerSequence, soeREQUIRED},
+            {sfActiveValidators, soeREQUIRED},
+        },
+        commonFields);
+
     add(jss::TicketCreate,
         ttTICKET_CREATE,
         {

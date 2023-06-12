@@ -154,6 +154,16 @@ private:
         std::shared_ptr<SHAMap> const& initialSet);
 
     /**
+     * As above, but make a report object instead of an n-unl
+     */
+    void
+    addReportingTx(
+        LedgerIndex seq,
+        hash_map<NodeID, std::uint32_t> const& scoreTable,
+        hash_map<NodeID, PublicKey> const& nidToKeyMap,
+        std::shared_ptr<SHAMap> const& initalSet);
+
+    /**
      * Pick one candidate from a vector of candidates.
      *
      * @param randomPadData the data used for picking a candidate.

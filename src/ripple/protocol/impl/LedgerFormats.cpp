@@ -298,6 +298,13 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::UNLReport,
+        ltUNL_REPORT,
+        {
+            {sfActiveValidators,    soeREQUIRED},
+        },
+        commonFields);
+
     add(jss::EmittedTxn,
         ltEMITTED_TXN,
         {

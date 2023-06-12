@@ -337,6 +337,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfHookDefinition,      "HookDefinition",       OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfHookParameter,       "HookParameter",        OBJECT,    23);
 CONSTRUCT_UNTYPED_SFIELD(sfHookGrant,           "HookGrant",            OBJECT,    24);
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMint,         "GenesisMint",          OBJECT,    96);
+CONSTRUCT_UNTYPED_SFIELD(sfActiveValidator,     "ActiveValidator",      OBJECT,    95);
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array
@@ -357,6 +358,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfDisabledValidators,  "DisabledValidators",   ARRAY,  
 CONSTRUCT_UNTYPED_SFIELD(sfHookExecutions,      "HookExecutions",       ARRAY,     18);
 CONSTRUCT_UNTYPED_SFIELD(sfHookParameters,      "HookParameters",       ARRAY,     19);
 CONSTRUCT_UNTYPED_SFIELD(sfHookGrants,          "HookGrants",           ARRAY,     20);
+CONSTRUCT_UNTYPED_SFIELD(sfActiveValidators,    "ActiveValidators",     ARRAY,     95);
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMints,        "GenesisMints",         ARRAY,     96);
 
 // clang-format on

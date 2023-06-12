@@ -71,6 +71,7 @@ enum class LedgerNameSpace : std::uint16_t {
     NFTOKEN_SELL_OFFERS = 'i',
     URI_TOKEN = 'U',
     IMPORT_VLSEQ = 'I',
+    UNL_REPORT = 'R',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -233,6 +234,14 @@ negativeUNL() noexcept
 {
     static Keylet const ret{
         ltNEGATIVE_UNL, indexHash(LedgerNameSpace::NEGATIVE_UNL)};
+    return ret;
+}
+
+Keylet const&
+UNLReport() noexcept
+{
+    static Keylet const ret{
+        ltUNL_REPORT, indexHash(LedgerNameSpace::UNL_REPORT)};
     return ret;
 }
 

@@ -141,6 +141,7 @@ invoke_preflight(PreflightContext const& ctx)
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return invoke_preflight_helper<Change>(ctx);
         case ttHOOK_SET:
@@ -264,6 +265,7 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return invoke_preclaim<Change>(ctx);
         case ttNFTOKEN_MINT:
@@ -344,6 +346,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return Change::calculateBaseFee(view, tx);
         case ttNFTOKEN_MINT:
@@ -503,7 +506,8 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttAMENDMENT:
         case ttFEE:
-        case ttUNL_MODIFY: 
+        case ttUNL_MODIFY:
+        case ttUNL_REPORT: 
         case ttEMIT_FAILURE: {
             Change p(ctx);
             return p();

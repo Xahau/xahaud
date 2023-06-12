@@ -111,6 +111,9 @@ fees() noexcept;
 Keylet const&
 negativeUNL() noexcept;
 
+Keylet const&
+UNLReport() noexcept;
+
 /** The beginning of an order book */
 struct book_t
 {

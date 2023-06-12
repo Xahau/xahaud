@@ -77,6 +77,13 @@ Change::preflight(PreflightContext const& ctx)
         return temDISABLED;
     }
 
+    if (ctx.tx.getTxnType() == ttUNL_REPORT &&
+        !ctx.rules.enabled(featureXahauGenesis))
+    {
+        JLOG(ctx.j.warn()) << "Change: UNLReport is not enabled.";
+        return temDISABLED;
+    }
+
     return tesSUCCESS;
 }
 
@@ -134,6 +141,7 @@ Change::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         case ttAMENDMENT:
         case ttUNL_MODIFY:
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return tesSUCCESS;
         default:
@@ -154,10 +162,32 @@ Change::doApply()
             return applyUNLModify();
         case ttEMIT_FAILURE:
             return applyEmitFailure();
+        case ttUNL_REPORT:
+            return applyUNLReport();
         default:
             assert(0);
             return tefFAILURE;
     }
+}
+
+TER
+Change::applyUNLReport()
+{
+    auto sle = view().peek(keylet::UNLReport());
+
+    bool const created = !!sle;
+
+    if (created)
+        sle = std::make_shared<SLE>(keylet::UNLReport());
+
+    sle->setFieldArray(sfActiveValidators, ctx_.tx.getFieldArray(sfActiveValidators));
+
+    if (created)
+        view().insert(sle);
+    else
+        view().update(sle);
+
+    return tesSUCCESS;
 }
 
 void
