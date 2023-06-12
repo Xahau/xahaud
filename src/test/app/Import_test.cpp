@@ -59,6 +59,22 @@ class Import_test : public beast::unit_test::suite
         return jv;
     }
 
+    static Json::Value
+    importNoAcc(ReadView const& view, jtx::Account const& account, Json::Value const& xpop)
+    {
+        using namespace jtx;
+        Json::Value jv;
+        std::string strJson = Json::FastWriter().write(xpop);
+        jv[jss::TransactionType] = jss::Import;
+        jv[jss::Account] = account.human();
+        jv[jss::LastLedgerSequence] = 10;
+        jv[jss::NetworkID] = 21337;
+        jv[jss::Sequence] = 0;
+        jv[jss::Fee] = 0;
+        jv[sfBlob.jsonName] = strHex(strJson);
+        return jv;
+    }
+
     void
     testIsHex(FeatureBitset features)
     {
@@ -1984,6 +2000,43 @@ class Import_test : public beast::unit_test::suite
         
     }
 
+    // static bool
+    // inOwnerDir(
+    //     ReadView const& view,
+    //     jtx::Account const& acct,
+    //     uint256 const& tid)
+    // {
+    //     auto const uritSle = view.read({ltURI_TOKEN, tid});
+    //     ripple::Dir const ownerDir(view, keylet::ownerDir(acct.id()));
+    //     return std::find(ownerDir.begin(), ownerDir.end(), uritSle) !=
+    //         ownerDir.end();
+    // }
+
+    // static std::size_t
+    // ownerDirCount(ReadView const& view, jtx::Account const& acct)
+    // {
+    //     ripple::Dir const ownerDir(view, keylet::ownerDir(acct.id()));
+    //     return std::distance(ownerDir.begin(), ownerDir.end());
+    // };
+
+    static std::pair<uint256, std::shared_ptr<SLE const>>
+    accountKeyAndSle(
+        ReadView const& view,
+        jtx::Account const& account)
+    {
+        auto const k = keylet::account(account);
+        return {k.key, view.read(k)};
+    }
+
+    static std::pair<uint256, std::shared_ptr<SLE const>>
+    signersKeyAndSle(
+        ReadView const& view,
+        jtx::Account const& account)
+    {
+        auto const k = keylet::signers(account);
+        return {k.key, view.read(k)};
+    }
+
     void
     testAccountSet(FeatureBitset features)
     {
@@ -1993,10 +2046,6 @@ class Import_test : public beast::unit_test::suite
         using namespace std::literals;
 
         test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
-        env.close();
 
         std::string strJson = R"json({
             "ledger": {
@@ -2121,13 +2170,28 @@ class Import_test : public beast::unit_test::suite
         Json::Reader reader;
         reader.parse(strJson, xpop);
 
-        Json::Value tmpXpop = xpop;
-        Json::Value tx = import(alice, tmpXpop);
-        env(tx, ter(tesSUCCESS));
+        // NO ACCOUNT
+        {
+            auto const alice = Account("alice");
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+            Json::Value tmpXpop = xpop;
+            Json::Value tx = importNoAcc(*env.current(), alice, tmpXpop);
+            auto jt = env.jtnofill(tx, alice);
+            Serializer s;
+            jt.stx->add(s);
+            auto const jr = env.rpc("submit", strHex(s.slice()))[jss::result];
+            BEAST_EXPECT(
+                jr.isMember(jss::engine_result) &&
+                jr[jss::engine_result] == "tesSUCCESS");
+            env.close();
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+        }
     }
 
     void
-    testSetRegularKeyTx(FeatureBitset features)
+    testSetRegularKey(FeatureBitset features)
     {
         testcase("set regular key tx");
 
@@ -2135,10 +2199,6 @@ class Import_test : public beast::unit_test::suite
         using namespace std::literals;
 
         test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
-        env.close();
 
         std::string strJson = R"json({
             "ledger": {
@@ -2186,13 +2246,33 @@ class Import_test : public beast::unit_test::suite
         Json::Reader reader;
         reader.parse(strJson, xpop);
 
-        Json::Value tmpXpop = xpop;
-        Json::Value tx = import(alice, tmpXpop);
-        env(tx, ter(tesSUCCESS));
+        // NO ACCOUNT
+        {
+            auto const alice = Account("alice");
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+            Json::Value tmpXpop = xpop;
+            Json::Value tx = importNoAcc(*env.current(), alice, tmpXpop);
+            auto jt = env.jtnofill(tx, alice);
+            Serializer s;
+            jt.stx->add(s);
+            auto const jr = env.rpc("submit", strHex(s.slice()))[jss::result];
+            BEAST_EXPECT(
+                jr.isMember(jss::engine_result) &&
+                jr[jss::engine_result] == "tesSUCCESS");
+            env.close();
+            auto const postAlice = env.balance(alice);
+            auto const feeDrops = env.current()->fees().base;
+            BEAST_EXPECT(postAlice == preAlice + XRP(2) + feeDrops);
+            std::cout << "POST: " << postAlice << "\n";
+            std::cout << "FEE: " << feeDrops << "\n";
+            auto const [acct, acctSle] = accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == alice.id());
+        }
     }
 
     void
-    testSignersListSetTx(FeatureBitset features)
+    testSignersListSet(FeatureBitset features)
     {
         testcase("signers list set tx");
 
@@ -2331,6 +2411,67 @@ class Import_test : public beast::unit_test::suite
         Json::Value tmpXpop = xpop;
         Json::Value tx = import(alice, tmpXpop);
         env(tx, ter(tesSUCCESS));
+
+        // NO ACCOUNT
+        {
+            auto const alice = Account("alice");
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+            Json::Value tmpXpop = xpop;
+            Json::Value tx = importNoAcc(*env.current(), alice, tmpXpop);
+            auto jt = env.jtnofill(tx, alice);
+            Serializer s;
+            jt.stx->add(s);
+            auto const jr = env.rpc("submit", strHex(s.slice()))[jss::result];
+            BEAST_EXPECT(
+                jr.isMember(jss::engine_result) &&
+                jr[jss::engine_result] == "tesSUCCESS");
+            env.close();
+            auto const postAlice = env.balance(alice);
+            auto const feeDrops = env.current()->fees().base;
+            BEAST_EXPECT(postAlice == preAlice + XRP(2) + feeDrops);
+            std::cout << "POST: " << postAlice << "\n";
+            std::cout << "FEE: " << feeDrops << "\n";
+            auto const [signers, signersSle] = signersKeyAndSle(*env.current(), alice);
+            auto const signerEntries = signersSle->getFieldArray(sfSignerEntries);
+            BEAST_EXPECT(signerEntries.size() == 1);
+            // auto const entry0 = signerEntries[0u][sfSignerEntry.jsonName];
+            // BEAST_EXPECT(entry0[sfSignerWeight.jsonName] == 1);
+            // BEAST_EXPECT(entry0[sfAccount.jsonName] == "");
+        }
+    }
+
+    void
+    testTmp(FeatureBitset features)
+    {
+        testcase("");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+        // tx[jss::LastLedgerSequence] = env.current()->info().seq + 2;
+        // auto jt = env.jtnofill(tx, alice);
+        // Serializer s;f
+        // jt.stx->add(s);
+        // auto const jr = env.rpc("submit", strHex(s.slice()));
+        // env.close();
+        // auto const postAlice = env.balance(alice);
+        // std::cout << "POST ALICE: " << postAlice << "\n";
+
+        // Json::Value jvn;
+        // jvn[jss::Account] = alice.human();
+        // jvn[jss::TransactionType] = jss::AccountSet;
+        // jvn[jss::Fee] = to_string(env.current()->fees().base);
+        // jvn[jss::Sequence] = env.seq(alice);
+        // jvn[jss::LastLedgerSequence] = env.current()->info().seq + 2;
+        
+        // auto jt = env.jtnofill(jvn);
+        // Serializer s;
+        // jt.stx->add(s);
+        // BEAST_EXPECT(env.rpc("submit", strHex(s.slice()))[jss::result][jss::engine_result] == "telREQUIRES_NETWORK_ID");
+        // env.close();
     }
 
 public:
@@ -2355,8 +2496,9 @@ public:
         // testEnabled(features);
         // testInvalid(features);
         // testAccountSet(features);
-        // testSetRegularKeyTx(features);
-        testSignersListSetTx(features);
+        // testSetRegularKey(features);
+        testSignersListSet(features);
+        // testTmp(features);
     }
 };
 
