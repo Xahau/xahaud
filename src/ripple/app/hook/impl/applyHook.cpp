@@ -2774,6 +2774,30 @@ DEFINE_HOOK_FUNCTION(
             }
 
             // keylets that take both a 20 byte account id and a 32 byte uint
+            case keylet_code::HOOK_STATE_DIR:
+            {
+                if (a == 0 || b == 0 || c == 0 || d == 0)
+                   return INVALID_ARGUMENT;
+
+
+                uint32_t aread_ptr = a, aread_len = b, nread_ptr = c, nread_len = d;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length))
+                   return OUT_OF_BOUNDS;
+
+                if (aread_len != 20 || nread_len != 32)
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl =
+                    ripple::keylet::hookStateDir(
+                            AccountID::fromVoid(memory + aread_ptr),
+                            ripple::base_uint<256>::fromVoid(memory + nread_ptr));
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take both a 20 byte account id and a 32 byte uint
             case keylet_code::HOOK_STATE:
             {
                 if (a == 0 || b == 0 || c == 0 || d == 0 || e == 0 || f == 0)

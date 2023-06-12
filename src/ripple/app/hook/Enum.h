@@ -169,7 +169,8 @@ namespace hook_api
             EMITTED_TXN = 22,
             NFT_OFFER = 23,
             HOOK_DEFINITION = 24,
-            LAST_KLTYPE = HOOK_DEFINITION
+            HOOK_STATE_DIR = 25,
+            LAST_KLTYPE = HOOK_STATE_DIR
         };
     }
 
