@@ -419,7 +419,6 @@ getVLInfo(Json::Value const& xpop, beast::Journal const& j)
     if (!r.parse(data, list))
     {
         JLOG(j.warn()) << "Import: unl blob was not valid json (after base64 decoding)";
-        std::cout << "Import: unl blob was not valid json (after base64 decoding)" << "\n";
         return {};
     }
     auto const sequence = list[jss::sequence].asUInt();
@@ -427,7 +426,6 @@ getVLInfo(Json::Value const& xpop, beast::Journal const& j)
     if (!m)
     {
         JLOG(j.warn()) << "Import: failed to deserialize manifest";
-        std::cout << "Import: failed to deserialize manifest" << "\n";
         return {};
     }
     return { {sequence, m->masterKey} };

@@ -133,7 +133,7 @@ Import::preflight(PreflightContext const& ctx)
     if (tx.getFieldU32(sfSequence) > 0 && tx.getFieldAmount(sfFee) == STAmount{0})
     {
         JLOG(ctx.j.warn())
-            << "Import: fee cannot be 0 "
+            << "Import: sfFee cannot be 0 "
             << tx.getTransactionID();
         return temBAD_FEE;
     }
@@ -813,7 +813,6 @@ Import::preflight(PreflightContext const& ctx)
 
 // RH TODO: manifest serials should be kept on chain
 
-
 TER
 Import::preclaim(PreclaimContext const& ctx)
 {
@@ -1014,7 +1013,7 @@ Import::doApply()
     if (!sleVL)
     {
         // create VL import seq counter
-        JLOG(ctx_.journal.warn()) << "create vl - insert import sequence + public key";
+        JLOG(ctx_.journal.warn()) << "create vl seq - insert import sequence + public key";
         sleVL = std::make_shared<SLE>(keyletVL);
         sleVL->setFieldU32(sfImportSequence, infoVL->first);
         sleVL->setFieldVL(sfPublicKey, infoVL->second.slice());

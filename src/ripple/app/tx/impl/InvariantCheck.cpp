@@ -167,10 +167,10 @@ XRPNotCreated::finalize(
                 dropsAdded += Import::INITIAL_IMPORT_XRP;    // welcome amount for new imports
 
         JLOG(j.trace())
-            << "Invariant XRPNotCreated Import: " 
+            << "Invariant XRPNotCreated Import: "
             << "dropsAdded: " << dropsAdded
-            << " fee.drops(): " << fee.drops() 
-            << " drops_: " << drops_ 
+            << " fee.drops(): " << fee.drops()
+            << " drops_: " << drops_
             << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
 
         return (drops_ == dropsAdded.drops() - fee.drops());
