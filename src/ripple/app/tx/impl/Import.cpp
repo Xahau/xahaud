@@ -130,6 +130,14 @@ Import::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
+    if (tx.getFieldU32(sfSequence) > 0 && tx.getFieldAmount(sfFee) == STAmount{0})
+    {
+        JLOG(ctx.j.warn())
+            << "Import: fee cannot be 0 "
+            << tx.getTransactionID();
+        return temBAD_FEE;
+    }
+
     if (tx.getFieldVL(sfBlob).size() > (512 * 1024))
     {
         JLOG(ctx.j.warn())
