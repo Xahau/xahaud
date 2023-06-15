@@ -301,7 +301,9 @@ LedgerFormats::LedgerFormats()
     add(jss::UNLReport,
         ltUNL_REPORT,
         {
-            {sfActiveValidators,    soeREQUIRED},
+            {sfActiveValidators,     soeREQUIRED},
+            {sfPreviousTxnID,        soeREQUIRED},
+            {sfPreviousTxnLgrSeq,    soeREQUIRED},
         },
         commonFields);
 

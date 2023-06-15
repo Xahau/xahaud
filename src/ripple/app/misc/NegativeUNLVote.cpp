@@ -117,7 +117,7 @@ NegativeUNLVote::addReportingTx(
     active.reserve(scoreTable.size());
     for (auto const& [n, score]: scoreTable)
     {
-        if (score > 240)
+        if (score > (FLAG_LEDGER_INTERVAL>>1))
         {
             active.emplace_back(sfActiveValidator);
             active.back().setFieldVL(sfPublicKey, nidToKeyMap.at(n));
@@ -130,6 +130,7 @@ NegativeUNLVote::addReportingTx(
         obj.setFieldU32(sfLedgerSequence, seq);
     });
 
+    
     uint256 txID = repUnlTx.getTransactionID();
     Serializer s;
     repUnlTx.add(s);
@@ -143,7 +144,9 @@ NegativeUNLVote::addReportingTx(
     else
     {
         JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
-                         << ", add a ttUNL_REPORT Tx with txID: " << txID;
+                         << ", add a ttUNL_REPORT Tx with txID: " << txID
+                         << ", size=" << s.size()
+                         << ", " << repUnlTx.getJson(JsonOptions::none);
     }
 }
 

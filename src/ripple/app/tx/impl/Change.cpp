@@ -175,12 +175,14 @@ Change::applyUNLReport()
 {
     auto sle = view().peek(keylet::UNLReport());
 
-    bool const created = !!sle;
+    bool const created = !sle;
 
     if (created)
         sle = std::make_shared<SLE>(keylet::UNLReport());
 
-    sle->setFieldArray(sfActiveValidators, ctx_.tx.getFieldArray(sfActiveValidators));
+    auto const av = ctx_.tx.getFieldArray(sfActiveValidators);
+
+    sle->setFieldArray(sfActiveValidators, av);
 
     if (created)
         view().insert(sle);

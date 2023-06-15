@@ -446,6 +446,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltNFTOKEN_OFFER:
             case ltURI_TOKEN:
             case ltIMPORT_VLSEQ:
+            case ltUNL_REPORT:
                 break;
             default:
                 invalidTypeAdded_ = true;
