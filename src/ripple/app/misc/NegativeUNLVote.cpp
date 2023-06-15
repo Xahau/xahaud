@@ -113,44 +113,40 @@ NegativeUNLVote::addReportingTx(
     hash_map<NodeID, PublicKey> const& nidToKeyMap,
     std::shared_ptr<SHAMap> const& initalSet)
 {
+    // RH NOTE: now that we use one key per txn with lots of txns
+    // this ordering step is probably not needed
     std::set<PublicKey> ordered;
-
     for (auto const& [n, score]: scoreTable)
     {
         if (score > (FLAG_LEDGER_INTERVAL>>1))
             ordered.emplace(nidToKeyMap.at(n));
     }
 
-    std::vector<STObject> av;
     for (auto const& k : ordered)
     {
-        av.emplace_back(sfActiveValidator);
-        av.back().setFieldVL(sfPublicKey, k);
-    }
+        STTx repUnlTx(ttUNL_REPORT, [&](auto& obj)
+        {
+            obj.setFieldVL(sfPublicKey, k);
+            obj.setFieldU32(sfLedgerSequence, seq);
+        });
 
-    STTx repUnlTx(ttUNL_REPORT, [&](auto& obj)
-    {
-        obj.setFieldArray(sfActiveValidators, STArray(av, sfActiveValidators));
-        obj.setFieldU32(sfLedgerSequence, seq);
-    });
-
-    
-    uint256 txID = repUnlTx.getTransactionID();
-    Serializer s;
-    repUnlTx.add(s);
-    if (!initalSet->addGiveItem(
-            SHAMapNodeType::tnTRANSACTION_NM,
-            std::make_shared<SHAMapItem>(txID, s.slice())))
-    {
-        JLOG(j_.warn()) << "R-UNL: ledger seq=" << seq
-                        << ", add ttUNL_REPORT tx failed";
-    }
-    else
-    {
-        JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
-                         << ", add a ttUNL_REPORT Tx with txID: " << txID
-                         << ", size=" << s.size()
-                         << ", " << repUnlTx.getJson(JsonOptions::none);
+        uint256 txID = repUnlTx.getTransactionID();
+        Serializer s;
+        repUnlTx.add(s);
+        if (!initalSet->addGiveItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                std::make_shared<SHAMapItem>(txID, s.slice())))
+        {
+            JLOG(j_.warn()) << "R-UNL: ledger seq=" << seq
+                            << ", add ttUNL_REPORT tx failed";
+        }
+        else
+        {
+            JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
+                             << ", add a ttUNL_REPORT Tx with txID: " << txID
+                             << ", size=" << s.size()
+                             << ", " << repUnlTx.getJson(JsonOptions::none);
+        }
     }
 }
 

@@ -175,14 +175,44 @@ Change::applyUNLReport()
 {
     auto sle = view().peek(keylet::UNLReport());
 
+    auto const seq = view().info().seq;
+
     bool const created = !sle;
 
     if (created)
         sle = std::make_shared<SLE>(keylet::UNLReport());
+    
+    auto const avExisting = 
+        (sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
+            sle->getFieldU32(sfPreviousTxnLgrSeq) < seq)
+        ? STArray(sfActiveValidators)
+        : sle->getFieldArray(sfActiveValidators);
 
-    auto const av = ctx_.tx.getFieldArray(sfActiveValidators);
+    // canonically order using std::set
+    std::set<PublicKey> ordered;
+    for (auto const& obj: avExisting)
+    {
+        auto pk = obj.getFieldVL(sfPublicKey);
+        if (!publicKeyType(makeSlice(pk)))
+            continue;
 
-    sle->setFieldArray(sfActiveValidators, av);
+        ordered.emplace(PublicKey(makeSlice(pk)));
+    };
+
+    auto pk = ctx_.tx.getFieldVL(sfPublicKey);
+    if (publicKeyType(makeSlice(pk)))
+        ordered.emplace(PublicKey(makeSlice(pk)));
+
+    std::vector<STObject> av;
+    av.reserve(ordered.size());
+    for (auto const& k: ordered)
+    {
+        av.emplace_back(sfActiveValidator);
+        av.back().setFieldVL(sfPublicKey, k);
+    }
+
+    // update
+    sle->setFieldArray(sfActiveValidators, STArray(av, sfActiveValidators));
 
     if (created)
         view().insert(sle);

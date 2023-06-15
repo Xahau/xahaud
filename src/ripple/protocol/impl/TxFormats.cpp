@@ -196,7 +196,7 @@ TxFormats::TxFormats()
         ttUNL_REPORT,
         {
             {sfLedgerSequence, soeREQUIRED},
-            {sfActiveValidators, soeREQUIRED},
+            {sfPublicKey, soeREQUIRED},
         },
         commonFields);
 
