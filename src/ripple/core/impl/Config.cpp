@@ -502,9 +502,6 @@ Config::loadFromString(std::string const& fileContents)
 
     std::string strTemp;
 
-    if (getSingleSection(secConfig, SECTION_XPOP_HISTORY, strTemp, j_))
-        XPOP_HISTORY = beast::lexicalCastThrow<uint32_t>(strTemp);
-    
     if (getSingleSection(secConfig, SECTION_NETWORK_ID, strTemp, j_))
     {
         if (strTemp == "main")

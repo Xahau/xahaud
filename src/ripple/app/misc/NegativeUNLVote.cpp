@@ -113,20 +113,24 @@ NegativeUNLVote::addReportingTx(
     hash_map<NodeID, PublicKey> const& nidToKeyMap,
     std::shared_ptr<SHAMap> const& initalSet)
 {
-    std::vector<STObject> active;
-    active.reserve(scoreTable.size());
+    std::set<PublicKey> ordered;
+
     for (auto const& [n, score]: scoreTable)
     {
         if (score > (FLAG_LEDGER_INTERVAL>>1))
-        {
-            active.emplace_back(sfActiveValidator);
-            active.back().setFieldVL(sfPublicKey, nidToKeyMap.at(n));
-        }
+            ordered.emplace(nidToKeyMap.at(n));
+    }
+
+    std::vector<STObject> av;
+    for (auto const& k : ordered)
+    {
+        av.emplace_back(sfActiveValidator);
+        av.back().setFieldVL(sfPublicKey, k);
     }
 
     STTx repUnlTx(ttUNL_REPORT, [&](auto& obj)
     {
-        obj.setFieldArray(sfActiveValidators, STArray(active, sfActiveValidators));
+        obj.setFieldArray(sfActiveValidators, STArray(av, sfActiveValidators));
         obj.setFieldU32(sfLedgerSequence, seq);
     });
 

@@ -416,7 +416,7 @@ private:
 /** A ledger wrapped in a CachedView. */
 using CachedLedger = CachedView<Ledger>;
 
-std::uint32_t constexpr FLAG_LEDGER_INTERVAL = 256;
+std::uint32_t constexpr FLAG_LEDGER_INTERVAL = 16;
 /** Returns true if the given ledgerIndex is a flag ledgerIndex */
 bool
 isFlagLedger(LedgerIndex seq);

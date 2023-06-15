@@ -202,6 +202,9 @@ Change::preCompute()
 void
 Change::activateXahauGenesis()
 {
+
+    return;
+
     JLOG(j_.warn()) << "featureXahauGenesis amendment activation code starting";
 
     constexpr XRPAmount GENESIS { 1'000'000 * DROPS_PER_XRP };

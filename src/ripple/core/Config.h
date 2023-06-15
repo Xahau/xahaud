@@ -176,10 +176,6 @@ public:
     int RELAY_UNTRUSTED_VALIDATIONS = 1;
     int RELAY_UNTRUSTED_PROPOSALS = 0;
 
-    // The number of ledgers worth of valdiations to keep for the purpose
-    // of servicing xpop requests these are lost on restart
-    std::optional<uint32_t> XPOP_HISTORY;
-
     // True to ask peers not to relay current IP.
     bool PEER_PRIVATE = false;
     // peers_max is a legacy configuration, which is going to be replaced
