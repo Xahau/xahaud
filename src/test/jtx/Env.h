@@ -446,13 +446,25 @@ public:
     }
 
     /** Create a JTx from parameters. */
+    template <class JsonValue, class... FN>
+    JTx
+    jt(JsonValue&& jv, Account account, FN const&... fN)
+    {
+        JTx jt(std::forward<JsonValue>(jv));
+        invoke(jt, fN...);
+        acct_autofill(jt, account);
+        jt.stx = st(jt);
+        return jt;
+    }
+
+    /** Create a JTx from parameters. */
     template <class JsonValue, class Account, class... FN>
     JTx
     jtnofill(JsonValue&& jv, Account account, FN const&... fN)
     {
         JTx jt(std::forward<JsonValue>(jv));
         invoke(jt, fN...);
-        nofill_sig(jt, account);
+        autofill_sig(jt, account);
         jt.stx = st(jt);
         return jt;
     }
@@ -517,6 +529,22 @@ public:
     operator()(JsonValue&& jv, FN const&... fN)
     {
         apply(std::forward<JsonValue>(jv), fN...);
+    }
+
+    /** Apply funclets and submit. */
+    /** @{ */
+    template <class JsonValue, class Account, class... FN>
+    void
+    apply(JsonValue&& jv, Account const& account = {}, FN const&... fN)
+    {
+        submit(jt(std::forward<JsonValue>(jv), account, fN...));
+    }
+
+    template <class JsonValue, class Account, class... FN>
+    void
+    operator()(JsonValue&& jv, Account const& account, FN const&... fN)
+    {
+        apply(std::forward<JsonValue>(jv), account, fN...);
     }
     /** @} */
 
@@ -662,10 +690,10 @@ protected:
         std::unordered_map<std::string, std::string> const& headers = {});
 
     void
-    autofill_sig(JTx& jt);
+    autofill_sig(JTx& jt, Account const& account);
 
-    void
-    nofill_sig(JTx& jt, Account account);
+    virtual void
+    acct_autofill(JTx& jt, Account const& account);
 
     virtual void
     autofill(JTx& jt);
