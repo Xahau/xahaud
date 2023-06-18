@@ -130,12 +130,12 @@ Import::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
-    if (tx.getFieldU32(sfSequence) > 0 && tx.getFieldAmount(sfFee) == STAmount{0})
+    if (tx.getFieldAmount(sfFee) != beast::zero)
     {
         JLOG(ctx.j.warn())
-            << "Import: sfFee cannot be 0 "
+            << "Import: sfFee must be 0 "
             << tx.getTransactionID();
-        return temBAD_FEE;
+        return temMALFORMED;
     }
 
     if (tx.getFieldVL(sfBlob).size() > (512 * 1024))
@@ -662,7 +662,6 @@ Import::preflight(PreflightContext const& ctx)
         quorum = 1;
     }
 
-
     // count how many validations this ledger hash has
 
     uint64_t validationCount { 0 };
@@ -946,6 +945,8 @@ Import::doApply()
             return tefINTERNAL;
         }
 
+        JLOG(ctx_.journal.warn()) << "Import: inital balance" << initBal;
+
         sle->setFieldAmount(sfBalance, initBal);
 
     }
@@ -1048,6 +1049,7 @@ XRPAmount
 Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     return XRPAmount { 0 } ;
+    // return Transactor::calculateBaseFee(view, tx);
 }
 
 }  // namespace ripple
