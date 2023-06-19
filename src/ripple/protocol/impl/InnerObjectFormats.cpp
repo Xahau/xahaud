@@ -130,7 +130,9 @@ InnerObjectFormats::InnerObjectFormats()
         sfGenesisMint.getCode(),
         {
             {sfDestination, soeREQUIRED},
-            {sfAmount, soeREQUIRED},
+            {sfAmount, soeOPTIONAL},
+            {sfGovernanceFlags, soeOPTIONAL},
+            {sfGovernanceMarks, soeOPTIONAL},
         });
 }
 

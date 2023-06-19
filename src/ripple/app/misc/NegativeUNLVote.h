@@ -91,7 +91,7 @@ public:
      * @param myId the NodeID of the local node
      * @param j log
      */
-    NegativeUNLVote(NodeID const& myId, beast::Journal j);
+    NegativeUNLVote(NodeID const& myId, beast::Journal j, Application& app);
     ~NegativeUNLVote() = default;
 
     /**
@@ -128,6 +128,7 @@ private:
     beast::Journal j_;
     mutable std::mutex mutex_;
     hash_map<NodeID, LedgerIndex> newValidators_;
+    Application& app_;
 
     /**
      * UNLModify Tx candidates

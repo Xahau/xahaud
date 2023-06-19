@@ -560,11 +560,28 @@ Import::preflight(PreflightContext const& ctx)
     if (!xpop)
         return temMALFORMED;
 
-    // check if we recognise the vl key
-    auto const& vlKeys = ctx.app.config().IMPORT_VL_KEYS;
-    auto const found = std::ranges::find(vlKeys, (*xpop)[jss::validation][jss::unl][jss::public_key].asString());
-    if (found == vlKeys.end())
-        return telIMPORT_VL_KEY_NOT_RECOGNISED;
+    // we will check if we recognise the vl key in preclaim because it may be from on-ledger object
+    std::optional<PublicKey> masterVLKey;
+    {
+        std::string strPk = (*xpop)[jss::validation][jss::unl][jss::public_key].asString();
+        auto pkHex = strUnHex(strPk);
+        if (!pkHex)
+        {
+            JLOG(ctx.j.warn())
+                << "Import: validation.unl.public_key was not valid hex.";
+            return temMALFORMED;
+        }
+        
+        auto const pkType = publicKeyType(makeSlice(*pkHex));
+        if (!pkType)
+        {
+            JLOG(ctx.j.warn())
+                << "Import: validation.unl.public_key was not a recognised public key type.";
+            return temMALFORMED;
+        }
+
+        masterVLKey = PublicKey(makeSlice(*pkHex));
+    }
 
     auto const [stpTrans, meta] = getInnerTxn(tx, ctx.j, &(*xpop));
 
@@ -734,7 +751,9 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (strHex(m->masterKey) != *found)
+    // we will check the master key matches a known one in preclaim, because the import vl key might be 
+    // from the on-ledger object
+    if (m->masterKey != masterVLKey)
     {
         JLOG(ctx.j.warn())
             << "Import: manifest master key did not match top level master key in unl section of xpop "
@@ -749,6 +768,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
+    
 
     // manifest signing (ephemeral) key
     auto const signingKey = m->signingKey;
@@ -1248,7 +1268,34 @@ Import::preclaim(PreclaimContext const& ctx)
     if (sleVL && sleVL->getFieldU32(sfImportSequence) > vl->first)
         return tefPAST_IMPORT_VL_SEQ;
 
-    return tesSUCCESS;
+    // check master VL key
+    std::string strPk = (*xpop)[jss::validation][jss::unl][jss::public_key].asString();
+
+    if (auto const& found = ctx.app.config().IMPORT_VL_KEYS.find(strPk);
+        found != ctx.app.config().IMPORT_VL_KEYS.end())
+        return tesSUCCESS;
+
+    // not found in our local VL keys
+    auto pkHex = strUnHex(strPk);
+    if (!pkHex)
+        return tefINTERNAL;
+    
+    auto const pkType = publicKeyType(makeSlice(*pkHex));
+    if (!pkType)
+        return tefINTERNAL;
+
+    PublicKey const pk (makeSlice(*pkHex));    
+
+    // check on ledger
+    if (auto const unlRep = ctx.view.read(keylet::UNLReport()); unlRep)
+    {
+        auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
+        for (auto const& k: vlKeys)
+            if (PublicKey(k[sfPublicKey]) == pk)
+                return tesSUCCESS;
+    }
+
+    return telIMPORT_VL_KEY_NOT_RECOGNISED;
 }
 
 TER

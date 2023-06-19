@@ -195,8 +195,10 @@ TxFormats::TxFormats()
     add(jss::UNLReport,
         ttUNL_REPORT,
         {
-            {sfLedgerSequence, soeREQUIRED},
-            {sfPublicKey, soeREQUIRED},
+            {sfLedgerSequence,  soeREQUIRED},
+            {sfActiveValidator, soeOPTIONAL},
+            {sfImportVLKey,     soeOPTIONAL},
+
         },
         commonFields);
 

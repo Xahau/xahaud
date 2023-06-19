@@ -77,11 +77,19 @@ Change::preflight(PreflightContext const& ctx)
         return temDISABLED;
     }
 
-    if (ctx.tx.getTxnType() == ttUNL_REPORT &&
-        !ctx.rules.enabled(featureXahauGenesis))
+    if (ctx.tx.getTxnType() == ttUNL_REPORT)
     {
-        JLOG(ctx.j.warn()) << "Change: UNLReport is not enabled.";
-        return temDISABLED;
+        if (!ctx.rules.enabled(featureXahauGenesis))
+        {
+            JLOG(ctx.j.warn()) << "Change: UNLReport is not enabled.";
+            return temDISABLED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfActiveValidator) && !ctx.tx.isFieldPresent(sfImportVLKey))
+        {
+            JLOG(ctx.j.warn()) << "Change: UNLReport must specify at least one of sfImportVLKey, sfActiveValidator";
+            return temMALFORMED;
+        }
     }
 
     return tesSUCCESS;
@@ -182,37 +190,63 @@ Change::applyUNLReport()
     if (created)
         sle = std::make_shared<SLE>(keylet::UNLReport());
     
-    auto const avExisting = 
-        (sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
-            sle->getFieldU32(sfPreviousTxnLgrSeq) < seq)
-        ? STArray(sfActiveValidators)
-        : sle->getFieldArray(sfActiveValidators);
+    bool const reset =
+        sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
+            sle->getFieldU32(sfPreviousTxnLgrSeq) < seq;
 
-    // canonically order using std::set
-    std::set<PublicKey> ordered;
-    for (auto const& obj: avExisting)
+    auto canonicalize = [&](SField const& arrayType, SField const& objType) -> std::vector<STObject>
     {
-        auto pk = obj.getFieldVL(sfPublicKey);
-        if (!publicKeyType(makeSlice(pk)))
-            continue;
+        auto const existing = 
+            reset
+            ? STArray(arrayType)
+            : sle->getFieldArray(arrayType);
 
-        ordered.emplace(PublicKey(makeSlice(pk)));
+        // canonically order using std::set
+        std::set<PublicKey> ordered;
+        for (auto const& obj: existing)
+        {
+            auto pk = obj.getFieldVL(sfPublicKey);
+            if (!publicKeyType(makeSlice(pk)))
+                continue;
+
+            ordered.emplace(PublicKey(makeSlice(pk)));
+        };
+
+        if (ctx_.tx.isFieldPresent(objType))
+        {
+            auto pk = 
+                const_cast<ripple::STTx&>(ctx_.tx)
+                    .getField(arrayType)
+                    .downcast<STObject>()
+                    .getFieldVL(sfPublicKey);
+
+            if (publicKeyType(makeSlice(pk)))
+                ordered.emplace(PublicKey(makeSlice(pk)));
+        }
+
+        std::vector<STObject> out;
+        out.reserve(ordered.size());
+        for (auto const& k: ordered)
+        {
+            out.emplace_back(sfActiveValidator);
+            out.back().setFieldVL(sfPublicKey, k);
+        }
+
+        return out;
     };
 
-    auto pk = ctx_.tx.getFieldVL(sfPublicKey);
-    if (publicKeyType(makeSlice(pk)))
-        ordered.emplace(PublicKey(makeSlice(pk)));
 
-    std::vector<STObject> av;
-    av.reserve(ordered.size());
-    for (auto const& k: ordered)
-    {
-        av.emplace_back(sfActiveValidator);
-        av.back().setFieldVL(sfPublicKey, k);
-    }
+    bool const hasAV = ctx_.tx.isFieldPresent(sfActiveValidator);
+    bool const hasVL = ctx_.tx.isFieldPresent(sfImportVLKey);
 
     // update
-    sle->setFieldArray(sfActiveValidators, STArray(av, sfActiveValidators));
+    if (hasAV)
+        sle->setFieldArray(sfActiveValidators,
+            STArray(canonicalize(sfActiveValidators, sfActiveValidator),sfActiveValidators));
+
+    if (hasVL)
+        sle->setFieldArray(sfImportVLKeys,
+            STArray(canonicalize(sfImportVLKeys, sfImportVLKey),sfImportVLKeys));
 
     if (created)
         view().insert(sle);

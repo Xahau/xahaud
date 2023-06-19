@@ -25,6 +25,7 @@
 #include <ripple/basics/base_uint.h>
 #include <ripple/beast/net/IPEndpoint.h>
 #include <ripple/beast/utility/Journal.h>
+#include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/SystemParameters.h>  // VFALCO Breaks levelization
 #include <boost/beast/core/string.hpp>
 #include <boost/filesystem.hpp>  // VFALCO FIX: This include should not be here
@@ -150,7 +151,7 @@ public:
     std::vector<std::string> IPS_FIXED;     // Fixed Peer IPs from rippled.cfg.
     std::vector<std::string> SNTP_SERVERS;  // SNTP servers from rippled.cfg.
 
-    std::vector<std::string> IMPORT_VL_KEYS;
+    std::map<std::string, PublicKey> IMPORT_VL_KEYS;    // hex string -> class PublicKey (for caching purposes)
 
     enum StartUpType { FRESH, NORMAL, LOAD, LOAD_FILE, REPLAY, NETWORK };
     StartUpType START_UP = NORMAL;

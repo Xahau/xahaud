@@ -904,15 +904,22 @@ Config::loadFromString(std::string const& fileContents)
             auto iniFile = parseIniFile(data, true);
             
             if (auto importKeys =
-                    getIniFileSection(iniFile, SECTION_IMPORT_VL_KEYS))
-                IMPORT_VL_KEYS = *importKeys;
-            else
-                Throw<std::runtime_error>(
-                    "The file specified in [" SECTION_VALIDATORS_FILE
-                    "] "
-                    "does not contain a [" SECTION_IMPORT_VL_KEYS
-                    "] section: " +
-                    validatorsFile.string());
+                    getIniFileSection(iniFile, SECTION_IMPORT_VL_KEYS); importKeys)
+            {
+                for (std::string const& strPk : *importKeys)
+                {
+                    auto pkHex = strUnHex(strPk);
+                    if (!pkHex)
+                        Throw<std::runtime_error>(
+                            "Import VL Key '" + strPk + "' was not valid hex.");
+                    
+                    auto const pkType = publicKeyType(makeSlice(*pkHex));
+                    if (!pkType)
+                        Throw<std::runtime_error>(
+                            "Import VL Key '" + strPk + "' was not a valid key type.");
+                    IMPORT_VL_KEYS.emplace(strPk,  makeSlice(*pkHex));
+                }
+            }
 
             if (RUN_STANDALONE)
                 break;

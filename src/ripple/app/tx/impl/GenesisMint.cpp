@@ -78,20 +78,37 @@ GenesisMint::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        auto const amt = dest.getFieldAmount(sfAmount);
-        if (!isXRP(amt))
+
+        bool const hasAmt = dest.isFieldPresent(sfAmount);
+        bool const hasMarks = dest.isFieldPresent(sfGovernanceMarks);
+        bool const hasFlags = dest.isFieldPresent(sfGovernanceFlags);
+
+        if (!hasAmt && !hasMarks && !hasFlags)
         {
             JLOG(ctx.j.warn())
-                << "GenesisMint: only native amounts can be minted.";
+                << "GenesisMint: each destination must have at least one of: "
+                << "sfAmount, sfGovernanceFlags, sfGovernance marks.";
             return temMALFORMED;
         }
 
-        if (amt <= beast::zero)
+        if (hasAmt)
         {
-            JLOG(ctx.j.warn())
-                << "GenesisMint: only positive amounts can be minted.";
-            return temMALFORMED;
+            auto const amt = dest.getFieldAmount(sfAmount);
+            if (!isXRP(amt))
+            {
+                JLOG(ctx.j.warn())
+                    << "GenesisMint: only native amounts can be minted.";
+                return temMALFORMED;
+            }
+
+            if (amt <= beast::zero)
+            {
+                JLOG(ctx.j.warn())
+                    << "GenesisMint: only positive amounts can be minted.";
+                return temMALFORMED;
+            }
         }
+
 
         auto const accid = dest.getAccountID(sfDestination);
 
@@ -139,11 +156,17 @@ GenesisMint::doApply()
 
     for (auto const& dest: dests)
     {
-        auto const amt = dest.getFieldAmount(sfAmount);
+        auto const amt = dest[~sfAmount];
+        auto const flags = dest[~sfGovernanceFlags];
+        auto const marks = dest[~sfGovernanceMarks];
+
         auto const id = dest.getAccountID(sfDestination);
         auto const k = keylet::account(id);
         auto sle = view().peek(k);
-        if (!sle)
+
+        bool const created = !sle;
+
+        if (created)
         {
             // Create the account.
             std::uint32_t const seqno{
@@ -153,26 +176,37 @@ GenesisMint::doApply()
             sle->setAccountID(sfAccount, id);
 
             sle->setFieldU32(sfSequence, seqno);
-            sle->setFieldAmount(sfBalance, amt);
 
-            view().insert(sle);
+            if (amt)
+                sle->setFieldAmount(sfBalance, *amt);
+            else    // give them 2 XRP if the account didn't exist, same as ttIMPORT
+                sle->setFieldAmount(sfBalance, XRPAmount {2 * DROPS_PER_XRP});
         }
-        else
+        else if (amt)
         {
             // Credit the account
             STAmount startBal = sle->getFieldAmount(sfBalance);
-            STAmount finalBal = startBal + amt;
+            STAmount finalBal = startBal + *amt;
             if (finalBal > startBal)
-            {
                 sle->setFieldAmount(sfBalance, finalBal);
-                view().update(sle);
-            }
             else
             {
                 JLOG(ctx_.journal.warn())
                     << "GenesisMint: cannot credit " << dest << " due to balance overflow";
             }
         }
+
+        // set flags and marks as applicable
+        if (flags)
+            sle->setFieldH256(sfGovernanceFlags, *flags);
+
+        if (marks)
+            sle->setFieldH256(sfGovernanceMarks, *marks);
+
+        if (created)
+            view().insert(sle);
+        else
+            view().update(sle);
     }
     
     return tesSUCCESS;
@@ -181,7 +215,7 @@ GenesisMint::doApply()
 XRPAmount
 GenesisMint::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    return Transactor::calculateBaseFee(view, tx);
+    return XRPAmount { 0 } ;
 }
 
 }  // namespace ripple
