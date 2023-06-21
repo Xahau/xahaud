@@ -339,7 +339,7 @@ struct PayChan_test : public beast::unit_test::suite
             // claim again
             preBob = env.balance(bob);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
-                ter(tecINSUFFICIENT_FUNDS));
+                ter(tecUNFUNDED_PAYMENT));
             BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
             BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
             BEAST_EXPECT(env.balance(bob) == preBob - feeDrops);
@@ -2121,7 +2121,7 @@ struct PayChan_test : public beast::unit_test::suite
             // A transaction that generates a tec still consumes its ticket.
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ticket::use(bobTicketSeq++),
-                ter(tecINSUFFICIENT_FUNDS));
+                ter(tecUNFUNDED_PAYMENT));
 
             env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
             BEAST_EXPECT(env.seq(bob) == bobSeq);
@@ -2315,7 +2315,7 @@ struct PayChan_test : public beast::unit_test::suite
             preBob = env.balance(bob, USD.issue());
             preLocked = -lockedAmount(env, alice, gw, USD);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
-                ter(tecINSUFFICIENT_FUNDS));
+                ter(tecUNFUNDED_PAYMENT));
             postLocked = -lockedAmount(env, alice, gw, USD);
             BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
             BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
@@ -4510,7 +4510,7 @@ struct PayChan_test : public beast::unit_test::suite
             // A transaction that generates a tec still consumes its ticket.
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ticket::use(bobTicketSeq++),
-                ter(tecINSUFFICIENT_FUNDS));
+                ter(tecUNFUNDED_PAYMENT));
 
             env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
             BEAST_EXPECT(env.seq(bob) == bobSeq);
