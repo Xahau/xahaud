@@ -6093,7 +6093,8 @@ public:
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
         testWithFeats(all - disallowIncoming);
-        testWithFeats(all - disallowIncoming - featurePaychanAndEscrowForTokens);
+        testWithFeats(
+            all - disallowIncoming - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
         testXLS34WithFeats(all - disallowIncoming);
         testXLS34WithFeats(all);
