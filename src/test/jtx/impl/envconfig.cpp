@@ -49,6 +49,9 @@ setupConfigForUnitTests(Config& cfg)
     cfg.FEES.account_reserve = XRP(200).value().xrp().drops();
     cfg.FEES.owner_reserve = XRP(50).value().xrp().drops();
 
+    // The Beta API (currently v2) is always available to tests
+    cfg.BETA_RPC_API = true;
+
     cfg.overwrite(ConfigSection::nodeDatabase(), "type", "rwdb");
     cfg.overwrite(ConfigSection::nodeDatabase(), "path", "main");
     cfg.overwrite(SECTION_RELATIONAL_DB, "backend", "rwdb");
