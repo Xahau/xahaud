@@ -381,13 +381,31 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (!(list.isMember(jss::sequence) && list[jss::sequence].isInt() &&
-        list.isMember(jss::expiration) && list[jss::expiration].isInt() &&
-        (!list.isMember(jss::effective) || list[jss::effective].isInt()) &&
-        list.isMember(jss::validators) && list[jss::validators].isArray()))
+    if (!list.isMember(jss::sequence) || !list[jss::sequence].isInt())
     {
         JLOG(ctx.j.warn())
-            << "Import: unl blob json (after base64 decoding) lacked required fields and/or types "
+            << "Import: unl blob json (after base64 decoding) lacked required field (sequence) and/or types "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+    if (!list.isMember(jss::expiration) || !list[jss::expiration].isInt())
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob json (after base64 decoding) lacked required field (expiration) and/or types "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+    if (list.isMember(jss::effective) && !list[jss::effective].isInt())
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob json (after base64 decoding) lacked required field (effective) and/or types "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+    if (!list.isMember(jss::validators) || !list[jss::validators].isArray())
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob json (after base64 decoding) lacked required field (validators) and/or types "
             << tx.getTransactionID();
         return temMALFORMED;
     }
