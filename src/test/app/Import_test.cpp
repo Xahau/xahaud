@@ -1712,7 +1712,7 @@ class Import_test : public beast::unit_test::suite
         reader.parse(strJson, xpop);
         Json::FastWriter writer;
 
-        // invalid UNL Blob after base 64 decode
+        // Import: unl blob was not valid json (after base64 decoding)
         {
             Json::Value tmpXpop = xpop;
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
@@ -1722,7 +1722,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(getVLInfo(*xpop, env.journal).has_value() == false);
         }
 
-        // invalid UNL Manifest parse
+        // Import: failed to deserialize manifest
         {
             Json::Value tmpXpop = xpop;
             tmpXpop[jss::validation][jss::unl][jss::manifest] = "YmFkSnNvbg==";
@@ -1732,7 +1732,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(getVLInfo(*xpop, env.journal).has_value() == false);
         }
 
-        // valid UNL blob & manifest
+        // Import: valid unl blob
         {
             Json::Value tmpXpop = xpop;
             std::string strJson = writer.write(tmpXpop);
@@ -1987,9 +1987,24 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: outer and inner txns were (multi) signed with
         // different keys.
+
         // temMALFORMED - Import: outer and inner txns were signed with
         // different keys.
+        {
+            Json::Value tmpXpop = accountSetXpop();
+            tmpXpop[jss::transaction][jss::blob] =
+                "12000322000000002400000002201B0000006C201D0000535968400000003B"
+                "9ACA007321EBA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
+                "ECAD0AE4A96C747440549A370E68DBB1947419D4CCDF90CAE0BCA9121593EC"
+                "C21B3C79EF0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF"
+                "3EC206AD3C5177C519560F8114AE123A8556F3CF91154711376AFB0F894F83"
+                "2B3D";
+            Json::Value tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
         // temMALFORMED - Import: inner txn signature verify failed
+        // DA: TODO: ASK FOR HELP
 
         // temMALFORMED - Import: failed to deserialize manifest on txid
         {
@@ -2041,16 +2056,33 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob was not valid json (after base64
         // decoding)
+        {
+            Json::Value tmpXpop = accountSetXpop();
+            tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
+            Json::Value tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+        
         // temMALFORMED - Import: unl blob json (after base64 decoding) lacked
         // required fields and/or types
-        // temMALFORMED - Import: unl blob validUnil <= validFrom
-        // temMALFORMED - Import: unl blob expired
-        // temMALFORMED - Import: unl blob not yet valid
+        // missing - 
+        {
+            Json::Value tmpXpop = accountSetXpop();
+            tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
+            Json::Value tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
-        // temMALFORMED - Import: depth > 32
-        // temMALFORMED - Import: !proof->isObject() && !proof->isArray()
-        // DA: Catchall Error
-        // temMALFORMED - Import: return false
+        // DA: YOU ARE HERE
+        
+        temMALFORMED - Import: unl blob validUnil <= validFrom
+        temMALFORMED - Import: unl blob expired
+        temMALFORMED - Import: unl blob not yet valid
+
+        temMALFORMED - Import: depth > 32
+        temMALFORMED - Import: !proof->isObject() && !proof->isArray()
+        DA: Catchall Error
+        temMALFORMED - Import: return false
 
         // temMALFORMED - Import: xpop proof did not contain the specified txn
         // hash
@@ -2589,23 +2621,23 @@ public:
     void
     testWithFeats(FeatureBitset features)
     {
-        // testIsHex(features);
-        // testIsBase58(features);
-        // testIsBase64(features);
-        // testParseUint64(features);
-        // testSyntaxCheckProofObject(features);
-        // testSyntaxCheckXPOP(features);
-        // testGetVLInfo(features);
-        // testEnabled(features);
-        // testInvalidPreflight(features);
-        // testInvalidPreclaim(features);
-        // testInvalidDoApply(features);
-        // testAccountSetNA(features);
-        // testAccountSetFA(features);
-        // testSetRegularKeyNA(features);
-        // testSetRegularKeyFA(features);
-        // testSignersListSetNA(features);
-        // testSignersListSetFA(features);
+        testIsHex(features);
+        testIsBase58(features);
+        testIsBase64(features);
+        testParseUint64(features);
+        testSyntaxCheckProofObject(features);
+        testSyntaxCheckXPOP(features);
+        testGetVLInfo(features);
+        testEnabled(features);
+        testInvalidPreflight(features);
+        testInvalidPreclaim(features);
+        testInvalidDoApply(features);
+        testAccountSetNA(features);
+        testAccountSetFA(features);
+        testSetRegularKeyNA(features);
+        testSetRegularKeyFA(features);
+        testSignersListSetNA(features);
+        testSignersListSetFA(features);
         testDoubleEntry(features);
     }
 };
