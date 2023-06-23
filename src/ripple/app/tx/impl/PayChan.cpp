@@ -481,6 +481,10 @@ PayChanFund::doApply()
         ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
     {
         // adjust transfer rate
+        if (slep->isFieldPresent(sfTransferRate))
+        {
+            return tecINTERNAL;
+        }
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
         auto const issuerAccID = amount.getIssuer();
         auto const xferRate = transferRate(view(), issuerAccID);
@@ -765,6 +769,9 @@ PayChanClaim::doApply()
                 return temDISABLED;
 
             // compute transfer fee, if any
+            if (!slep->isFieldPresent(sfTransferRate))
+                return tecINTERNAL;
+
             Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
             auto const issuerAccID = chanFunds.getIssuer();
             auto const xferRate = transferRate(view(), issuerAccID);
