@@ -1674,9 +1674,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenEnablement(FeatureBitset features)
+    testIOUEnablement(FeatureBitset features)
     {
-        testcase("Token Enablement");
+        testcase("IOU Enablement");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -1721,13 +1721,13 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenTiming(FeatureBitset features)
+    testIOUTiming(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
 
         {
-            testcase("Timing: Token Finish Only");
+            testcase("Timing: IOU Finish Only");
             Env env{*this, features};
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -1756,7 +1756,7 @@ struct Escrow_test : public beast::unit_test::suite
         }
 
         {
-            testcase("Timing: Token Cancel Only");
+            testcase("Timing: IOU Cancel Only");
             Env env{*this, features};
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -1797,7 +1797,7 @@ struct Escrow_test : public beast::unit_test::suite
         }
 
         {
-            testcase("Timing: Token Finish and Cancel -> Finish");
+            testcase("Timing: IOU Finish and Cancel -> Finish");
             Env env{*this, features};
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -1840,7 +1840,7 @@ struct Escrow_test : public beast::unit_test::suite
         }
 
         {
-            testcase("Timing: Token Finish and Cancel -> Cancel");
+            testcase("Timing: IOU Finish and Cancel -> Cancel");
             Env env{*this, features};
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -1892,9 +1892,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenTags(FeatureBitset features)
+    testIOUTags(FeatureBitset features)
     {
-        testcase("Token Tags");
+        testcase("IOU Tags");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -1934,9 +1934,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenDisallowXRP(FeatureBitset features)
+    testIOUDisallowXRP(FeatureBitset features)
     {
-        testcase("Token Disallow XRP");
+        testcase("IOU Disallow XRP");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -1976,13 +1976,13 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testToken1571(FeatureBitset features)
+    testIOU1571(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
 
         {
-            testcase("Token Implied Finish Time (without fix1571)");
+            testcase("IOU Implied Finish Time (without fix1571)");
 
             Env env(*this, supported_amendments() - fix1571);
             auto const alice = Account("alice");
@@ -2026,7 +2026,7 @@ struct Escrow_test : public beast::unit_test::suite
         }
 
         {
-            testcase("Token Implied Finish Time (with fix1571)");
+            testcase("IOU Implied Finish Time (with fix1571)");
 
             Env env{*this, features};
             auto const alice = Account("alice");
@@ -2066,9 +2066,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenFails(FeatureBitset features)
+    testIOUFails(FeatureBitset features)
     {
-        testcase("Token Failure Cases");
+        testcase("IOU Failure Cases");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -2222,9 +2222,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenLockup(FeatureBitset features)
+    testIOULockup(FeatureBitset features)
     {
-        testcase("Token Lockup");
+        testcase("IOU Lockup");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -2593,9 +2593,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenEscrowConditions(FeatureBitset features)
+    testIOUEscrowConditions(FeatureBitset features)
     {
-        testcase("Token Escrow with CryptoConditions");
+        testcase("IOU Escrow with CryptoConditions");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -3089,7 +3089,7 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenMetaAndOwnership(FeatureBitset features)
+    testIOUMetaAndOwnership(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
@@ -3100,7 +3100,7 @@ struct Escrow_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
         {
-            testcase("Token Metadata to self");
+            testcase("IOU Metadata to self");
 
             Env env{*this, features};
             env.fund(XRP(5000), alice, bob, carol, gw);
@@ -3181,7 +3181,7 @@ struct Escrow_test : public beast::unit_test::suite
             }
         }
         {
-            testcase("Token Metadata to other");
+            testcase("IOU Metadata to other");
 
             Env env{*this, features};
             env.fund(XRP(5000), alice, bob, carol, gw);
@@ -3280,9 +3280,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenConsequences(FeatureBitset features)
+    testIOUConsequences(FeatureBitset features)
     {
-        testcase("Token Consequences");
+        testcase("IOU Consequences");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -3354,9 +3354,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenEscrowWithTickets(FeatureBitset features)
+    testIOUEscrowWithTickets(FeatureBitset features)
     {
-        testcase("Token Escrow with tickets");
+        testcase("IOU Escrow with tickets");
 
         using namespace jtx;
         using namespace std::chrono;
@@ -3504,9 +3504,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenRippleState(FeatureBitset features)
+    testIOURippleState(FeatureBitset features)
     {
-        testcase("Token RippleState");
+        testcase("IOU RippleState");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -3893,9 +3893,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenGateway(FeatureBitset features)
+    testIOUGateway(FeatureBitset features)
     {
-        testcase("Token Gateway");
+        testcase("IOU Gateway");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -4166,9 +4166,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenLockedRate(FeatureBitset features)
+    testIOULockedRate(FeatureBitset features)
     {
-        testcase("Token Locked Rate");
+        testcase("IOU Locked Rate");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -4338,9 +4338,54 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenTLRequireAuth(FeatureBitset features)
+    testIOUTLLimitAmount(FeatureBitset features)
     {
-        testcase("Token Trustline Require Auth");
+        testcase("IOU Trustline Require Auth");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        // test LimitAmount
+        {
+            Env env{*this, features};
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(10000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
+            env.close();
+
+            // alice can create escrow
+            auto seq1 = env.seq(alice);
+            auto const delta = USD(125);
+            env(escrow(alice, bob, delta),
+                condition(cb1),
+                finish_time(env.now() + 1s),
+                fee(1500));
+            env.close();
+
+            // bob can finish
+            auto const preBobLimit = limitAmount(env, bob, gw, USD);
+            env(finish(bob, alice, seq1),
+                condition(cb1),
+                fulfillment(fb1),
+                fee(1500));
+            env.close();
+            auto const postBobLimit = limitAmount(env, bob, gw, USD);
+            // bobs limit is NOT changed
+            BEAST_EXPECT(postBobLimit == preBobLimit);
+        }
+    }
+
+    void
+    testIOUTLRequireAuth(FeatureBitset features)
+    {
+        testcase("IOU Trustline Require Auth");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -4400,9 +4445,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenTLFreeze(FeatureBitset features)
+    testIOUTLFreeze(FeatureBitset features)
     {
-        testcase("Token Trustline Freeze");
+        testcase("IOU Trustline Freeze");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -4539,9 +4584,9 @@ struct Escrow_test : public beast::unit_test::suite
         }
     }
     void
-    testTokenTLINSF(FeatureBitset features)
+    testIOUTLINSF(FeatureBitset features)
     {
-        testcase("Token Trustline Insuficient Funds");
+        testcase("IOU Trustline Insuficient Funds");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -4604,9 +4649,9 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testTokenPrecisionLoss(FeatureBitset features)
+    testIOUPrecisionLoss(FeatureBitset features)
     {
-        testcase("Token Precision Loss");
+        testcase("IOU Precision Loss");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -4678,7 +4723,7 @@ struct Escrow_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(1)));
             env.close();
 
-            // alice cannot create escrow for 1/10 token - precision loss
+            // alice cannot create escrow for 1/10 iou - precision loss
             env(escrow(alice, bob, USD(1)),
                 condition(cb1),
                 finish_time(env.now() + 1s),
@@ -4687,7 +4732,7 @@ struct Escrow_test : public beast::unit_test::suite
             env.close();
 
             auto const seq1 = env.seq(alice);
-            // alice can create escrow for 1000 token
+            // alice can create escrow for 1000 iou
             env(escrow(alice, bob, USD(1000)),
                 condition(cb1),
                 finish_time(env.now() + 1s),
@@ -4720,26 +4765,27 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
-    testXLS34WithFeats(FeatureBitset features)
+    testIOUWithFeats(FeatureBitset features)
     {
-        testTokenEnablement(features);
-        testTokenTiming(features);
-        testTokenTags(features);
-        testTokenDisallowXRP(features);
-        testToken1571(features);
-        testTokenFails(features);
-        testTokenLockup(features);
-        testTokenEscrowConditions(features);
-        testTokenMetaAndOwnership(features);
-        testTokenConsequences(features);
-        testTokenEscrowWithTickets(features);
-        testTokenRippleState(features);
-        testTokenGateway(features);
-        testTokenLockedRate(features);
-        testTokenTLRequireAuth(features);
-        testTokenTLFreeze(features);
-        testTokenTLINSF(features);
-        testTokenPrecisionLoss(features);
+        testIOUEnablement(features);
+        testIOUTiming(features);
+        testIOUTags(features);
+        testIOUDisallowXRP(features);
+        testIOU1571(features);
+        testIOUFails(features);
+        testIOULockup(features);
+        testIOUEscrowConditions(features);
+        testIOUMetaAndOwnership(features);
+        testIOUConsequences(features);
+        testIOUEscrowWithTickets(features);
+        testIOURippleState(features);
+        testIOUGateway(features);
+        testIOULockedRate(features);
+        testIOUTLLimitAmount(features);
+        testIOUTLRequireAuth(features);
+        testIOUTLFreeze(features);
+        testIOUTLINSF(features);
+        testIOUPrecisionLoss(features);
     }
 
 public:
@@ -4750,7 +4796,7 @@ public:
         FeatureBitset const all{supported_amendments()};
         testWithFeats(all - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
-        testXLS34WithFeats(all);
+        testIOUWithFeats(all);
     }
 };
 
