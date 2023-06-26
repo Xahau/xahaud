@@ -212,3 +212,4 @@
 #define sfHookExecutions ((15U << 16U) + 18U)
 #define sfHookParameters ((15U << 16U) + 19U)
 #define sfHookGrants ((15U << 16U) + 20U)
+#define sfActiveValidators ((15U << 16U) + 95U)

@@ -16,11 +16,9 @@
  *  Seats at this table are called L1s or L1 members.
  *  At L1, for votes relating to table membership 80% of the filled seats must vote in favour.
  *  At L1, for votes relating to everything else 100% of the filled seats must vote in favour.
- *  One or more L1 seats may contain an account that has this same governance hook installed on it and is blackholed.
+ *  One or more L1 seats may contain an account that has an L2 governance hook installed on it and is blackholed.
  *  This is referred to as an L2 table. The seats at the table are called L2s or L2 members.
  *  There may be multiple L2 tables.
- *  The same voting rules apply but the voting threshold is 60% for everything.
- *  At L2, a successful vote is actioned by having the L1 seat that L2 table occupies cast an L1 vote.
  *
  *  Hook Parameters:
  *      Parameter Name: {'I', 'M', 'C'}
@@ -63,7 +61,7 @@
  *      State Key: {'V', 'H|R|S' <topic type>, '\0 + topic id', 0..0, <member accid>}
  *      State Data: A vote by a member for a topic and topic data
  *
- *      State Key: {'C', 'H|h|R|S' <topic type>, '\0 + topic id', 0*, <front truncated topic data>}
+ *      State Key: {'C', 'H|R|S' <topic type>, '\0 + topic id', 0*, <front truncated topic data>}
  *      State Data: The number of members who have voted for that topic data and topic combination <1 byte>
  *
  *  Hook Invocation:
@@ -76,7 +74,7 @@
  *
  *              Parameter Name: {'T'}
  *              Parameter Value: The topic to vote on <2 bytes>
- *                  { 'S|s|H|h' (seat L1, seat L2, hook L1, hook L2), '\0 + topic id' }, or
+ *                  { 'S|H' (seat L1, hook L1), '\0 + topic id' }, or
  *                  { 'R' (reward), 'R|D' (rate, delay) }
  *
  *              Parameter Name: {'V'}
@@ -126,11 +124,14 @@ int64_t hook(uint32_t r)
     
     int64_t is_L1 = BUFFER_EQUAL_20(hook_accid + 12, genesis);
 
+    if (!is_L1)
+        NOPE("Governance: This is the L1 governance hook. It can only be used on genesis account.");
+
+
     int64_t member_count = state(0,0, "MC", 2);
     if (DEBUG)
         TRACEVAR(member_count);
     
-
     // initial execution, setup hook
     if (member_count == DOESNT_EXIST)
     {
@@ -146,28 +147,23 @@ int64_t hook(uint32_t r)
         if (imc > SEAT_COUNT)
             NOPE("Governance: Initial Member Count must be <= Seat Count (20).");
 
-        if (is_L1)
-        {
-            if (hook_param(SVAR(irr), "IRR", 3) < 0)
-                NOPE("Governance: Initial Reward Rate Parameter missing (IRR).");
+        if (hook_param(SVAR(irr), "IRR", 3) < 0)
+            NOPE("Governance: Initial Reward Rate Parameter missing (IRR).");
 
-            if (hook_param(SVAR(ird), "IRD", 3) < 0)
-                NOPE("Governance: Initial Reward Delay Parameter miss (IRD).");
-            
-            if (ird == 0)
-                NOPE("Governance: Initial Reward Delay must be > 0.");
-            
-            // set reward rate
-            ASSERT(state_set(SVAR(irr), "RR", 2));
-    
-            // set reward delay
-            ASSERT(state_set(SVAR(ird), "RD", 2));
-        }
+        if (hook_param(SVAR(ird), "IRD", 3) < 0)
+            NOPE("Governance: Initial Reward Delay Parameter miss (IRD).");
+        
+        if (ird == 0)
+            NOPE("Governance: Initial Reward Delay must be > 0.");
+        
+        // set reward rate
+        ASSERT(state_set(SVAR(irr), "RR", 2));
 
+        // set reward delay
+        ASSERT(state_set(SVAR(ird), "RD", 2));
 
         // set member count
         ASSERT(state_set(SBUF(imc), "MC", 2));
-
 
         member_count = imc;
 
@@ -209,47 +205,27 @@ int64_t hook(uint32_t r)
 
     if (result != 2 || (
                 t != 'S' &&      // topic type: seat (L1)
-                t != 's' &&      // topic type: seat (L2)
                 t != 'H' &&      // topic type: hook (L1)
-                t != 'h' &&      // topic type: hook (L2)
                 t != 'R'))       // topic type: reward 
         NOPE("Governance: Valid TOPIC must be specified as otxn parameter.");
 
    
-    if ((t == 'S' || t == 's') && n > (SEAT_COUNT - 1))
+    if (t == 'S' && n > (SEAT_COUNT - 1))
         NOPE("Governance: Valid seat topics are 0 through 19.");
 
-    if ((t == 'H' || t == 'h') && n > HOOK_MAX)
+    if (t == 'H' && n > HOOK_MAX)
         NOPE("Governance: Valid hook topics are 0 through 9.");
 
     if (t == 'R' && n != 'R' && n != 'D')
         NOPE("Governance: Valid reward topics are R (rate) and D (delay).");
    
-    if (is_L1)
-    {
-        if (t == 'h' || t == 's')
-            NOPE("Governance: Cannot vote on topic `h` or `s` at L1 table (did you mean `H`/`S`?).");
-
-        // pass
-    }
-    else
-    if (t != 'h' && t != 's')
-    {
-        // check if this is a real L2 table (is it seated at an L1 seat?)
-        // only setup and voting on the local hook hash is allowed until it gets a seat
-        uint8_t dummy;
-        if (state_foreign(SVAR(dummy), hook_accid + 12, 20, SBUF(zero32), SBUF(genesis)) != 1)
-            NOPE("Governance: This L2 table is not seated at the L1 table, so only `h`/`s` topic voting is allowed.");
-    }
 
     // RH TODO: validate RR/RD xfl > 0
     uint8_t topic_data[32];
     uint8_t topic_size = 
         t == 'H' ? 32 :      // hook topics are a 32 byte hook hash
-        t == 'h' ? 32 :      // hook topics are a 32 byte hook hash (L2)
         t == 'S' ? 20 :      // account topics are a 20 byte account ID
-        t == 's' ? 20 :
-                          8;        // reward topics are an 8 byte le xfl
+                    8;       // reward topics are an 8 byte le xfl
     
     uint8_t padding = 32 - topic_size;
 
@@ -265,7 +241,8 @@ int64_t hook(uint32_t r)
 
     // get their previous vote if any on this topic
     uint8_t previous_topic_data[32];
-    int64_t previous_topic_size = state(previous_topic_data + padding, topic_size, SBUF(account_field));
+    int64_t previous_topic_size =
+        state(previous_topic_data + padding, topic_size, SBUF(account_field));
 
     // check if the vote they're making has already been cast before,
     // if it is identical to their existing vote for this topic then just end with tesSUCCESS
@@ -329,79 +306,15 @@ int64_t hook(uint32_t r)
     
 
     int64_t q80 = member_count * 0.8;
-    int64_t q66 = member_count * 0.66;
 
-    if (is_L1)
-    {
-        if (votes <
-            t == 'S'
-                ? q80                      // L1s have 80% threshold for membership/seat voting
-                : member_count)            // L1s have 100% threshold for all other voting
+    if (votes <
+        t == 'S'
+            ? q80                      // L1s have 80% threshold for membership/seat voting
+            : member_count)            // L1s have 100% threshold for all other voting
+
         DONE("Governance: Vote recorded at L1. Not yet enough votes to action.");
-    }
-    else
-    {
-        // for the current topic have we already cast a vote to the L1 table previously?
-        // reuse hook_accid for this
-        //
-        if (t == 'h')
-        {
-            // local voting topics
-            if (votes < member_count)
-                DONE("Governance: Vote recorded at L2. Not yet enough votes to action (100% needed).");
-            t = 'H';
-            // otherwise fall through
-        }
-        else if (t == 's')
-        {
-            if (votes < q80)
-                DONE("Governance: Vote recorded at L2. Not yet enough votes to action (80% needed).");
-            t = 'S';
-            // otherwise fall through
-        }
-        else
-        {
-            // the vote is for an L1 topic. we need to check what vote might have already been registered
-            // at the L1 table
-            hook_accid[0] = 'V';
-            hook_accid[1] = t;
-            hook_accid[2] = n;
-
-            uint8_t previous_topic_data_l1[32];
-        
-            int64_t previous_topic_size_l1 = 
-                state_foreign(SBUF(previous_topic_data_l1), SBUF(hook_accid), SBUF(zero32), SBUF(genesis));
     
-            if (previous_topic_size_l1 == topic_size && BUFFER_EQUAL_32(previous_topic_data_l1, topic_data))
-                DONE("Governance: Your whole-table's L1 vote is already cast this way for this topic.");
-
-            int64_t previous_topic_data_l1_zero =
-                BUFFER_EQUAL_32(previous_topic_data_l1, zero32);
-
-            // we need to check if this vote represents a lost majority status on the existing L1 topic data
-            previous_topic_data_l1[0] = 'C';
-            previous_topic_data_l1[1] = t;
-            previous_topic_data_l1[2] = n;
-
-            uint8_t existing_votes;
-            state(SVAR(existing_votes), SBUF(previous_topic_data_l1));
-
-            if (existing_votes < q66 && !previous_topic_data_l1_zero || votes >= q66)
-            {
-                // vacate the current vote at L1
-                uint8_t* td = votes < q66 ? zero32 : topic_data;
-                PREPARE_GENESIS_INVOKE(t,n, td); // rh upto 
-                DONE(
-                        votes < q66
-                        ? "Governance: Previous vote vacated at L1, vote recorded at L2. Not enough votes to action."
-                        : "Governance: Actioning vote at L1.");
-            }
-            else
-                DONE("Governance: Vote recorded at L2. Not yet enough votes to action.");
-    }
-
     // action vote
-
     if (DEBUG)
         TRACESTR("Actioning votes");
 

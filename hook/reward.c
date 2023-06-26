@@ -1,11 +1,12 @@
 #include "hookapi.h"
 //#define REWARD_DELAY 2600000LL
-#define REWARD_DELAY 60LL
+#define REWARD_DELAY 5LL
 #define REWARD_MULTIPLIER_XFL 6038156834009797973ULL
 //0.00333333333f
 
 #define L1SEATS 20U
-#define L2SEATS 400U
+#define MAXUNL 128U
+#define SVAR(x) &(x), sizeof(x)
 
 #define ASSERT(x)\
     if (!(x))\
@@ -13,7 +14,7 @@
 
 #define DEBUG 1
 
-uint8_t txn_mint[13850] =
+uint8_t txn_mint[928] =
 {
 /* size,upto */
 /*   3,  0 */   0x12U, 0x00U, 0x60U,                                                           /* tt = GenesisMint */
@@ -45,7 +46,7 @@ uint8_t txn_mint[13850] =
 // 210 bytes + 34 bytes per entry * number of entries + any alignment padding desired
 };
 
-uint8_t template1[40] = {
+uint8_t template[40] = {
 /*  0,  2 */    0xE0U, 0x60U,          // obj start
 /*  2,  1 */    0x61U,                 // amount header
 /*  3,  8 */    0,0,0,0,0,0,0,0,       // amount payload
@@ -55,32 +56,10 @@ uint8_t template1[40] = {
 /* 33,  1 */    0xE1U                  // obj end
 };
 
-uint8_t template2[40] = {
-/*  0,  2 */    0xE0U, 0x60U,          // obj start
-/*  2,  1 */    0x61U,                 // amount header
-/*  3,  8 */    0,0,0,0,0,0,0,0,       // amount payload
-/* 11,  2 */    0x83U, 0x14U,          // account header
-/* 13, 20 */    0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,   // account payload
-/* 33,  1 */    0xE1U                  // obj end
-};
 
-#define TEMPLATE1_DROPS(drops_tmp)\
+#define TEMPLATE_DROPS(drops_tmp)\
 {\
-    uint8_t* b = template1 + 3U;\
-    *b++ = 0b01000000 + (( drops_tmp >> 56 ) & 0b00111111 );\
-    *b++ = (drops_tmp >> 48) & 0xFFU;\
-    *b++ = (drops_tmp >> 40) & 0xFFU;\
-    *b++ = (drops_tmp >> 32) & 0xFFU;\
-    *b++ = (drops_tmp >> 24) & 0xFFU;\
-    *b++ = (drops_tmp >> 16) & 0xFFU;\
-    *b++ = (drops_tmp >>  8) & 0xFFU;\
-    *b++ = (drops_tmp >>  0) & 0xFFU;\
-}
-
-#define TEMPLATE2_DROPS(drops_tmp)\
-{\
-    uint8_t* b = template2 + 3U;\
+    uint8_t* b = template + 3U;\
     *b++ = 0b01000000 + (( drops_tmp >> 56 ) & 0b00111111 );\
     *b++ = (drops_tmp >> 48) & 0xFFU;\
     *b++ = (drops_tmp >> 40) & 0xFFU;\
@@ -108,6 +87,13 @@ uint8_t template2[40] = {
 uint8_t member_count_key[2] = {'M', 'C'};
 
 
+uint8_t unlreport_keylet[32] = 
+{
+    0x61U,0xE3U,0x2EU,0x7AU,0x24U,0xA2U,0x38U,0xF1U,0xC6U,0x19U,
+    0xD5U,0xF9U,0xDDU,0xCCU,0x41U,0xA9U,0x4BU,0x33U,0xB6U,0x6CU,
+    0x01U,0x63U,0xF7U,0xEFU,0xCCU,0x8AU,0x19U,0xC9U,0xFDU,0x6FU,
+    0x28U,0xDCU
+};
 
 uint8_t msg_buf[] = "You must wait 0000000 seconds";
 int64_t hook(uint32_t r)
@@ -237,8 +223,6 @@ int64_t hook(uint32_t r)
 
     uint64_t l1_drops = reward_drops / L1SEATS;
 
-    uint64_t l2_drops = reward_drops / L2SEATS;
-
 
     otxn_slot(1);
     slot_subfield(1, sfFee, 2);
@@ -249,76 +233,72 @@ int64_t hook(uint32_t r)
         reward_drops += float_int(xfl_fee, 6, 1);
 
 
-    TEMPLATE1_DROPS(reward_drops);
+    TEMPLATE_DROPS(reward_drops);
 
     uint8_t* upto = txn_mint + 209U;
-    uint8_t* end = upto + (34U * (L2SEATS + 1));
+    uint8_t* end = upto + (34U * (L1SEATS + 1));
 
     // first account is always the rewardee
     {
         uint64_t* d = (uint64_t*)upto;
-        uint64_t* s = (uint64_t*)template1;
+        uint64_t* s = (uint64_t*)template;
         *d++ = *s++;
         *d++ = *s++;
         *(d+2) = *(s+2);
         otxn_field(upto + 13, 20, sfAccount);
     }
+    upto += 34U;
 
     // now iterate all possible seats in all possible tables
-    TEMPLATE1_DROPS(l1_drops);
-    TEMPLATE2_DROPS(l2_drops);
+    TEMPLATE_DROPS(l1_drops);
 
-    uint8_t table[20];
 
-    for (uint8_t l1_seat = 0, l2_seat = 0; GUARD(L2SEATS), upto < end && l1_seat < L1SEATS;)
+    // there are two conditions for L1 governance members to receive rewards:
+    // 1. they must be an L1 member
+    // 2. they must be an active validator
+
+    // load the UNLReport, this will let us know who has been validating and who hasn't 
+
+    uint64_t can_reward[L1SEATS];
+
+
+    uint8_t av_array[(34 * MAXUNL) + 3];
+    if (slot_set(SBUF(unlreport_keylet), 1) == 1 &&
+            slot_subfield(1, sfActiveValidators, 1) == 1 &&
+                slot(SBUF(av_array), 1) > 0)
     {
-
-        if (l2_seat == 0)
+        // at least some validators have been validating so those get a reward if they are on the governance table
+        // we are going to assume the UNL never exceeds 64
+        uint8_t seat = 0;
+        uint8_t* av_upto = av_array + 15 /* offset to the first account */;
+        uint64_t av_size = slot_count(1);
+        if (av_size > MAXUNL) av_size = MAXUNL;
+        for (uint64_t i = 0; GUARD(MAXUNL), i < av_size; ++i)
         {
+            if (state(SVAR(seat), av_upto, 20) != 1 || seat > L1SEATS)
+                continue;
+            can_reward[seat] = 1;
+            av_upto += 34U;
+        }
+
+        // iterate the seats at the table and add reward entries for the active validators
+        for (uint8_t l1_seat = 0; GUARD(L1SEATS), upto < end && l1_seat < L1SEATS;)
+        {
+            if (!can_reward[l1_seat])
+                continue;
+
             // copy template 1 into next GenesisMints array position
             uint64_t* d = (uint64_t*)upto;
-            uint64_t* s = (uint64_t*)template1;
+            uint64_t* s = (uint64_t*)template;
             *d++ = *s++;
             *d++ = *s++;
             *(d+2) = *(s+2);
 
-            // we're at an l1 seat in the iteration, check if it's filled and if so if it's filled with an L2 table
             if (state(upto + 13, 20, &l1_seat, 1) == 20)
-            {
-                // l1 seat is filled but by what?
-                state(SBUF(table), &l1_seat, 1);
-                l1_seat++;
-
-                uint8_t dummy[1];
-                if(state_foreign(SBUF(dummy), SBUF(member_count_key), SBUF(dummy), SBUF(table)) == DOESNT_EXIST)
-                {
-                    // filled by a normal l1 member
-                    upto += 34;
-                    continue;
-                }
-
-                // filled by an l2 table... fall through
-            }
+                upto += 34;
         }
 
-        // we're iterating l2 seats
-        // copy template2 into next GenesisMints array position
-        uint64_t* d = (uint64_t*)upto;
-        uint64_t* s = (uint64_t*)template2;
-        *d++ = *s++;
-        *d++ = *s++;
-        *(d+2) = *(s+2);
-
-        uint8_t ns[32];
-        if (state_foreign(upto + 13, 20, l2_seat, 1, SBUF(ns), SBUF(table)) == 20)
-        {
-            // filled l2 seat
-            upto += 34;
-        }
-       
-        l2_seat = (l2_seat + 1) % L1SEATS;
     }
-
     *upto++ = 0xF1U;
 
 
