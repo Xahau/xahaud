@@ -134,6 +134,20 @@ InnerObjectFormats::InnerObjectFormats()
             {sfGovernanceFlags, soeOPTIONAL},
             {sfGovernanceMarks, soeOPTIONAL},
         });
+    
+    add(sfActiveValidator.jsonName.c_str(),
+        sfActiveValidator.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfAccount, soeOPTIONAL},
+        });
+
+    add(sfImportVLKey.jsonName.c_str(),
+        sfImportVLKey.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfAccount, soeOPTIONAL},
+        });
 }
 
 InnerObjectFormats const&

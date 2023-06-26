@@ -194,7 +194,8 @@ Change::applyUNLReport()
         sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
             sle->getFieldU32(sfPreviousTxnLgrSeq) < seq;
 
-    auto canonicalize = [&](SField const& arrayType, SField const& objType) -> std::vector<STObject>
+    auto canonicalize = [&](SField const& arrayType, SField const& objType)
+        -> std::vector<STObject>
     {
         auto const existing = 
             reset || !sle->isFieldPresent(arrayType)
@@ -202,14 +203,16 @@ Change::applyUNLReport()
             : sle->getFieldArray(arrayType);
 
         // canonically order using std::set
-        std::set<PublicKey> ordered;
+        std::map<PublicKey, AccountID> ordered;
         for (auto const& obj: existing)
         {
             auto pk = obj.getFieldVL(sfPublicKey);
             if (!publicKeyType(makeSlice(pk)))
                 continue;
 
-            ordered.emplace(PublicKey(makeSlice(pk)));
+            PublicKey p(makeSlice(pk));
+            ordered.emplace(p,
+                    obj.isFieldPresent(sfAccount) ? obj.getAccountID(sfAccount) : calcAccountID(p));
         };
 
         if (ctx_.tx.isFieldPresent(objType))
@@ -221,15 +224,19 @@ Change::applyUNLReport()
                     .getFieldVL(sfPublicKey);
 
             if (publicKeyType(makeSlice(pk)))
-                ordered.emplace(PublicKey(makeSlice(pk)));
+            {
+                PublicKey p(makeSlice(pk));
+                ordered.emplace(p, calcAccountID(p));
+            }
         }
 
         std::vector<STObject> out;
         out.reserve(ordered.size());
-        for (auto const& k: ordered)
+        for (auto const& [k, a]: ordered)
         {
             out.emplace_back(objType);
             out.back().setFieldVL(sfPublicKey, k);
+            out.back().setAccountID(sfAccount, a);
         }
 
         return out;
