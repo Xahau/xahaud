@@ -1,0 +1,13 @@
+{
+  "C_Cpp.formatting": "clangFormat",
+  "C_Cpp.clang_format_path": "/Users/dustedfloor/projects/transia-rnd/rippled-icv2/.clang-format",
+  "C_Cpp.clang_format_fallbackStyle": "{ ColumnLimit: 0 }",
+  "[cpp]":{
+    "editor.wordBasedSuggestions": false,
+    "editor.suggest.insertMode": "replace",
+    "editor.semanticHighlighting.enabled": true,
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "xaver.clang-format",
+    "editor.formatOnSave": false
+  }
+}

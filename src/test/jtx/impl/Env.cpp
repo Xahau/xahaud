@@ -402,14 +402,14 @@ Env::txid() const
 }
 
 void
-Env::autofill_sig(JTx& jt)
+Env::autofill_sig(JTx& jt, Account const& account)
 {
     auto& jv = jt.jv;
     if (jt.signer)
         return jt.signer(*this, jt);
     if (!jt.fill_sig)
         return;
-    auto const account = lookup(jv[jss::Account].asString());
+
     if (!app().checkSigs())
     {
         jv[jss::SigningPubKey] = strHex(account.pk().slice());
@@ -425,6 +425,31 @@ Env::autofill_sig(JTx& jt)
 }
 
 void
+Env::acct_autofill(JTx& jt, Account const& account)
+{
+    auto& jv = jt.jv;
+    if (jt.fill_fee)
+        jtx::fill_fee(jv, *current());
+    if (jt.fill_seq)
+        jtx::fill_seq(jv, *current());
+
+    uint32_t networkID = app().config().NETWORK_ID;
+    if (!jv.isMember(jss::NetworkID) && networkID > 1024)
+        jv[jss::NetworkID] = std::to_string(networkID);
+
+    // Must come last
+    try
+    {
+        autofill_sig(jt, account);
+    }
+    catch (parse_error const&)
+    {
+        test.log << "parse failed:\n" << pretty(jv) << std::endl;
+        Rethrow();
+    }
+}
+
+void
 Env::autofill(JTx& jt)
 {
     auto& jv = jt.jv;
@@ -432,15 +457,16 @@ Env::autofill(JTx& jt)
         jtx::fill_fee(jv, *current());
     if (jt.fill_seq)
         jtx::fill_seq(jv, *current());
-    
+
     uint32_t networkID = app().config().NETWORK_ID;
     if (!jv.isMember(jss::NetworkID) && networkID > 1024)
         jv[jss::NetworkID] = std::to_string(networkID);
-    
+
     // Must come last
     try
     {
-        autofill_sig(jt);
+        auto const account = lookup(jv[jss::Account].asString());
+        autofill_sig(jt, account);
     }
     catch (parse_error const&)
     {
