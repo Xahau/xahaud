@@ -52,7 +52,21 @@ class Import_test : public beast::unit_test::suite
                     "{ \"command\": \"log_level\", \"severity\": \"warning\" "
                     "}");
             cfg->NETWORK_ID = networkID;
-            cfg->IMPORT_VL_KEYS = keys;
+
+            for (auto const& strPk : keys)
+            {
+                auto pkHex = strUnHex(strPk);
+                if (!pkHex)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk + "' was not valid hex.");
+
+                auto const pkType = publicKeyType(makeSlice(*pkHex));
+                if (!pkType)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk + "' was not a valid key type.");
+
+                cfg->IMPORT_VL_KEYS.emplace(strPk,  makeSlice(*pkHex));
+            }
             return cfg;
         });
     }
@@ -2062,10 +2076,10 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
-        
+
         // temMALFORMED - Import: unl blob json (after base64 decoding) lacked
         // required fields and/or types
-        // missing - 
+        // missing -
         {
             Json::Value tmpXpop = accountSetXpop();
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
@@ -2074,8 +2088,8 @@ class Import_test : public beast::unit_test::suite
         }
 
         // DA: YOU ARE HERE
-        
-        temMALFORMED - Import: unl blob validUnil <= validFrom
+
+        /*temMALFORMED - Import: unl blob validUnil <= validFrom
         temMALFORMED - Import: unl blob expired
         temMALFORMED - Import: unl blob not yet valid
 
@@ -2083,6 +2097,7 @@ class Import_test : public beast::unit_test::suite
         temMALFORMED - Import: !proof->isObject() && !proof->isArray()
         DA: Catchall Error
         temMALFORMED - Import: return false
+        */
 
         // temMALFORMED - Import: xpop proof did not contain the specified txn
         // hash
