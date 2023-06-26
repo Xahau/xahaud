@@ -2954,8 +2954,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto const preBobXrp = env.balance(bob);
             {
                 auto const delta = USD(500).value();
-                auto const sig =
-                    signClaimIOUAuth(pk, alice.sk(), chan, delta);
+                auto const sig = signClaimIOUAuth(pk, alice.sk(), chan, delta);
 
                 // alice claims with signature.  Fails since bob has
                 // lsfDepositAuth flag set.
@@ -2982,8 +2981,7 @@ struct PayChan_test : public beast::unit_test::suite
             {
                 // Explore the limits of deposit preauthorization.
                 auto const delta = USD(600).value();
-                auto const sig =
-                    signClaimIOUAuth(pk, alice.sk(), chan, delta);
+                auto const sig = signClaimIOUAuth(pk, alice.sk(), chan, delta);
 
                 // carol claims and fails.  Only channel participants (bob or
                 // alice) may claim.
@@ -5728,8 +5726,7 @@ struct PayChan_test : public beast::unit_test::suite
             auto reqBal = chanBal + delta;
             auto authAmt = reqBal + USD(100);
             env(claim(alice, chan, reqBal, authAmt), ter(tecFROZEN));
-            auto sig =
-                signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
+            auto sig = signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ter(tecFROZEN));
             env.close();
@@ -5795,8 +5792,7 @@ struct PayChan_test : public beast::unit_test::suite
             env(claim(alice, chan, reqBal, authAmt), ter(tecFROZEN));
 
             // bob claim paychan fails - frozen trustline
-            auto sig =
-                signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
+            auto sig = signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ter(tecFROZEN));
             env.close();
@@ -6024,8 +6020,7 @@ struct PayChan_test : public beast::unit_test::suite
 
             auto reqBal = USD(10);
             auto authAmt = reqBal + USD(10);
-            auto sig =
-                signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
+            auto sig = signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
                 ter(tecPRECISION_LOSS));
 
