@@ -87,9 +87,9 @@ uint8_t template[40] = {
 uint8_t member_count_key[2] = {'M', 'C'};
 
 
-uint8_t unlreport_keylet[32] = 
+uint8_t unlreport_keylet[34] = 
 {
-    0x61U,0xE3U,0x2EU,0x7AU,0x24U,0xA2U,0x38U,0xF1U,0xC6U,0x19U,
+    0,0,0x61U,0xE3U,0x2EU,0x7AU,0x24U,0xA2U,0x38U,0xF1U,0xC6U,0x19U,
     0xD5U,0xF9U,0xDDU,0xCCU,0x41U,0xA9U,0x4BU,0x33U,0xB6U,0x6CU,
     0x01U,0x63U,0xF7U,0xEFU,0xCCU,0x8AU,0x19U,0xC9U,0xFDU,0x6FU,
     0x28U,0xDCU
@@ -262,7 +262,7 @@ int64_t hook(uint32_t r)
     uint64_t can_reward[L1SEATS];
 
 
-    uint8_t av_array[(34 * MAXUNL) + 3];
+    uint8_t av_array[(60 * MAXUNL) + 4];
     if (slot_set(SBUF(unlreport_keylet), 1) == 1 &&
             slot_subfield(1, sfActiveValidators, 1) == 1 &&
                 slot(SBUF(av_array), 1) > 0)
@@ -270,20 +270,21 @@ int64_t hook(uint32_t r)
         // at least some validators have been validating so those get a reward if they are on the governance table
         // we are going to assume the UNL never exceeds 64
         uint8_t seat = 0;
-        uint8_t* av_upto = av_array + 15 /* offset to the first account */;
+        uint8_t* av_upto = av_array + 39 /* offset to the first key */;
         uint64_t av_size = slot_count(1);
         if (av_size > MAXUNL) av_size = MAXUNL;
-        for (uint64_t i = 0; GUARD(MAXUNL), i < av_size; ++i)
+        for (uint64_t i = 0; GUARD(MAXUNL), i < av_size; ++i, av_upto += 60U)
         {
+            trace(SBUF("av:"), av_upto, 20, 1);
             if (state(SVAR(seat), av_upto, 20) != 1 || seat > L1SEATS)
                 continue;
             can_reward[seat] = 1;
-            av_upto += 34U;
         }
 
         // iterate the seats at the table and add reward entries for the active validators
-        for (uint8_t l1_seat = 0; GUARD(L1SEATS), upto < end && l1_seat < L1SEATS;)
+        for (uint8_t l1_seat = 0; upto < end && l1_seat < L1SEATS; l1_seat++)
         {
+            GUARD(L1SEATS);
             if (!can_reward[l1_seat])
                 continue;
 

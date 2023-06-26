@@ -81,7 +81,7 @@
  *              Parameter Value: The data to vote for this topic (accid, hook hash, reward rate/delay)
  **/
 
-#define SVAR(x) x, sizeof(x)
+#define SVAR(x) &x, sizeof(x)
 
 #define DONE(x)\
     accept(SVAR(x),(uint32_t)__LINE__);
@@ -137,9 +137,12 @@ int64_t hook(uint32_t r)
     {
         // gather hook parameters
 
-        int64_t imc, irr, ird;
+        uint8_t imc;
+        uint64_t irr, ird;
+        TRACEVAR(imc);
         if (hook_param(SVAR(imc), "IMC", 3) < 0)
             NOPE("Governance: Initial Member Count Parameter missing (IMC).");
+        TRACEVAR(imc);
         
         if (imc == 0)
             NOPE("Governance: Initial Member Count must be > 0.");
@@ -166,6 +169,7 @@ int64_t hook(uint32_t r)
         ASSERT(state_set(SBUF(imc), "MC", 2));
 
         member_count = imc;
+        TRACEVAR(member_count);
 
         for (uint8_t i = 0; GUARD(SEAT_COUNT), i < member_count; ++i)
         {
@@ -176,6 +180,7 @@ int64_t hook(uint32_t r)
 
                                                             // 0... X where X is member id started from 1
                                                             // maps to the member's account ID
+            trace(SBUF("Member:"), SBUF(member_acc), 1);
             // reverse key 
             ASSERT(state_set(SBUF(member_acc), SVAR(i)) == 20);
         
