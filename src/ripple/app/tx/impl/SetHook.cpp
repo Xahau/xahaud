@@ -547,7 +547,7 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
                     (param.isFieldPresent(sfHookParameterValue) ?
                         param.getFieldVL(sfHookParameterValue).size() : 0);
             }
-            extraFee += XRPAmount { static_cast<XRPAmount>(paramBytes) };
+            extraFee += XRPAmount { paramBytes };
         }
     }
 

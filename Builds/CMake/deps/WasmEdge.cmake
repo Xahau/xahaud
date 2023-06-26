@@ -2,8 +2,6 @@
  NIH dep: wasmedge: web assembly runtime for hooks.
 #]===================================================================]
 
-find_package(Curses REQUIRED)
-include_directories(${CURSES_INCLUDE_DIR})
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -26,7 +24,6 @@ ExternalProject_Add (wasmedge_src
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     -DLLVM_DIR=${LLVM_DIR}
     -DLLVM_LIBRARY_DIR=${LLVM_LIBRARY_DIR}
-    -DLLVM_ENABLE_TERMINFO=OFF
     $<$<NOT:$<BOOL:${is_multiconfig}>>:-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}>
     $<$<BOOL:${MSVC}>:
       "-DCMAKE_C_FLAGS=-GR -Gd -fp:precise -FS -MP -march=native"
@@ -66,6 +63,4 @@ set_target_properties (wasmedge PROPERTIES
     "${wasmedge_src_BINARY_DIR}/include/api/"
 )
 target_link_libraries (ripple_libs INTERFACE wasmedge)
-target_link_libraries(ripple_libs INTERFACE ${CURSES_LIBRARY})
-target_link_libraries(ripple_libs INTERFACE xar)
 add_library (NIH::WasmEdge ALIAS wasmedge)
