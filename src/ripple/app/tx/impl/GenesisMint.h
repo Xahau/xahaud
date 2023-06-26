@@ -17,65 +17,39 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_CHANGE_H_INCLUDED
-#define RIPPLE_TX_CHANGE_H_INCLUDED
+#ifndef RIPPLE_TX_GENESISMINT_H_INCLUDED
+#define RIPPLE_TX_GENESISMINT_H_INCLUDED
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
+#include <ripple/core/Config.h>
 #include <ripple/protocol/Indexes.h>
 
 namespace ripple {
 
-class Change : public Transactor
+class GenesisMint : public Transactor
 {
 public:
-    static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    explicit Change(ApplyContext& ctx) : Transactor(ctx)
+    explicit GenesisMint(ApplyContext& ctx) : Transactor(ctx)
     {
     }
+    
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
+
+    static TxConsequences
+    makeTxConsequences(PreflightContext const& ctx);
 
     static NotTEC
     preflight(PreflightContext const& ctx);
 
-    TER
-    doApply() override;
-    void
-    preCompute() override;
-
-    static XRPAmount
-    calculateBaseFee(ReadView const& view, STTx const& tx)
-    {
-        return XRPAmount{0};
-    }
-
     static TER
     preclaim(PreclaimContext const& ctx);
 
-private:
-    void
-    activateTrustLinesToSelfFix();
-
-    void
-    activateXahauGenesis();
-
     TER
-    applyAmendment();
-
-    TER
-    applyFee();
-
-    TER
-    applyUNLModify();
-
-    TER
-    applyEmitFailure();
-
-    TER
-    applyUNLReport();
+    doApply() override;
 };
 
 }  // namespace ripple

@@ -192,6 +192,16 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    add(jss::UNLReport,
+        ttUNL_REPORT,
+        {
+            {sfLedgerSequence,  soeREQUIRED},
+            {sfActiveValidator, soeOPTIONAL},
+            {sfImportVLKey,     soeOPTIONAL},
+
+        },
+        commonFields);
+
     add(jss::TicketCreate,
         ttTICKET_CREATE,
         {
@@ -355,6 +365,13 @@ TxFormats::TxFormats()
             {sfNFTokenSellOffer, soeOPTIONAL},
             {sfNFTokenBrokerFee, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::GenesisMint,
+        ttGENESIS_MINT,
+        {
+            {sfGenesisMints, soeREQUIRED},
         },
         commonFields);
 

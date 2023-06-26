@@ -79,9 +79,6 @@ namespace ripple {
 
 class NetworkOPsImp final : public NetworkOPs
 {
-    // ledger_seq -> validator key -> validation message
-    std::map<uint32_t, std::map<PublicKey, STValidation>> xpop_history;
-
     /**
      * Transaction with input flags and results to be applied in batches.
      */
@@ -2340,37 +2337,6 @@ NetworkOPsImp::recvValidation(
         << "recvValidation " << val->getLedgerHash() << " from " << source;
 
     handleNewValidation(app_, val, source);
-
-    // manage xpop validation history
-    if (app_.config().XPOP_HISTORY)
-    {
-        if (val->isTrusted())
-        {
-            uint32_t seq = val->getFieldU32(sfLedgerSequence);
-
-            if (xpop_history.find(seq) == xpop_history.end())
-                xpop_history.emplace(seq, std::map<PublicKey, STValidation>{});
-
-            xpop_history[seq].emplace(val->getSignerPublic(), *val);
-        }
-
-        uint32_t delete_threshold = 
-            app_.getLedgerMaster().getValidLedgerIndex() + 1 - *(app_.config().XPOP_HISTORY);
-
-        if (xpop_history.find(delete_threshold) != xpop_history.end())
-            xpop_history.erase(delete_threshold);
-
-        if (xpop_history.size() > *(app_.config().XPOP_HISTORY))
-        {
-            std::unordered_set<uint32_t> to_delete;
-            for (auto const& kp : xpop_history)
-                if (kp.first < delete_threshold)
-                    to_delete.emplace(kp.first);
-
-            for (uint32_t td: to_delete)
-                xpop_history.erase(td);
-        }
-    }
 
     pubValidation(val);
 

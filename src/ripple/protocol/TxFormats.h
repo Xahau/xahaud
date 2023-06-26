@@ -146,7 +146,12 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
-    /** This transaciton accepts a proof of burn from an external network as a basis
+    /** This transaction can only be used by the genesis account, which is controlled exclusively by
+     * rewards/governance hooks, to print new XRP to be delivered directly to an array of destinations,
+     * according to reward schedule */
+    ttGENESIS_MINT = 96,
+
+    /** This transaction accepts a proof of burn from an external network as a basis
      * for minting according to featureImport */
     ttIMPORT = 97,
 
@@ -175,6 +180,7 @@ enum TxType : std::uint16_t
      */
     ttUNL_MODIFY = 102,
     ttEMIT_FAILURE = 103,
+    ttUNL_REPORT = 104,
 };
 // clang-format on
 

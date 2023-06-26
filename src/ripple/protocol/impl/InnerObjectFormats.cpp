@@ -125,6 +125,29 @@ InnerObjectFormats::InnerObjectFormats()
             {sfNFTokenID, soeREQUIRED},
             {sfURI, soeOPTIONAL},
         });
+
+    add(sfGenesisMint.jsonName.c_str(),
+        sfGenesisMint.getCode(),
+        {
+            {sfDestination, soeREQUIRED},
+            {sfAmount, soeOPTIONAL},
+            {sfGovernanceFlags, soeOPTIONAL},
+            {sfGovernanceMarks, soeOPTIONAL},
+        });
+    
+    add(sfActiveValidator.jsonName.c_str(),
+        sfActiveValidator.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfAccount, soeOPTIONAL},
+        });
+
+    add(sfImportVLKey.jsonName.c_str(),
+        sfImportVLKey.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfAccount, soeOPTIONAL},
+        });
 }
 
 InnerObjectFormats const&

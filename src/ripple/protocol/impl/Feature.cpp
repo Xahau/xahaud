@@ -454,9 +454,10 @@ REGISTER_FIX    (fixNonFungibleTokensV1_2,      Supported::yes, VoteBehavior::De
 REGISTER_FIX    (fixNFTokenRemint,              Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(Hooks,                         Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(BalanceRewards,                Supported::yes, VoteBehavior::DefaultYes);
-REGISTER_FEATURE(PaychanAndEscrowForTokens,     Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FEATURE(URIToken,                      Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FEATURE(Import,                        Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(PaychanAndEscrowForTokens,     Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(URIToken,                      Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(Import,                        Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(XahauGenesis,                  Supported::yes, VoteBehavior::DefaultYes);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

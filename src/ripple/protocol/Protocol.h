@@ -37,7 +37,7 @@ namespace ripple {
     @ingroup protocol
 */
 /** Smallest legal byte size of a transaction. */
-std::size_t constexpr txMinSizeBytes = 32;
+std::size_t constexpr txMinSizeBytes = 10;
 
 /** Largest legal byte size of a transaction. */
 std::size_t constexpr txMaxSizeBytes = megabytes(1);

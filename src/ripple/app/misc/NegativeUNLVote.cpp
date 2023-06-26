@@ -23,8 +23,8 @@
 
 namespace ripple {
 
-NegativeUNLVote::NegativeUNLVote(NodeID const& myId, beast::Journal j)
-    : myId_(myId), j_(j)
+NegativeUNLVote::NegativeUNLVote(NodeID const& myId, beast::Journal j, Application& app)
+    : myId_(myId), j_(j), app_(app)
 {
 }
 
@@ -99,7 +99,96 @@ NegativeUNLVote::doVoting(
             assert(nidToKeyMap.count(n));
             addTx(seq, nidToKeyMap[n], ToReEnable, initialSet);
         }
+
+        // do reporting when enabled
+        if (prevLedger->rules().enabled(featureXahauGenesis) && scoreTable->size() > 0)
+            addReportingTx(seq, *scoreTable, nidToKeyMap, initialSet);
     }
+}
+
+void
+NegativeUNLVote::addReportingTx(
+    LedgerIndex seq,
+    hash_map<NodeID, std::uint32_t> const& scoreTable,
+    hash_map<NodeID, PublicKey> const& nidToKeyMap,
+    std::shared_ptr<SHAMap> const& initalSet)
+{
+    // RH NOTE: now that we use one key per txn with lots of txns
+    // this ordering step is probably not needed
+    std::set<PublicKey> ordered;
+    for (auto const& [n, score]: scoreTable)
+    {
+        if (score > (FLAG_LEDGER_INTERVAL>>1))
+            ordered.emplace(nidToKeyMap.at(n));
+    }
+
+    for (auto const& pk : ordered)
+    {
+        STTx repUnlTx(ttUNL_REPORT, [&](auto& obj)
+        {
+            obj.set(([&]()
+            {
+                auto inner = std::make_unique<STObject>(sfActiveValidator);
+                inner->setFieldVL(sfPublicKey, pk);
+                return inner;
+            })());
+            obj.setFieldU32(sfLedgerSequence, seq);
+        });
+
+        uint256 txID = repUnlTx.getTransactionID();
+        Serializer s;
+        repUnlTx.add(s);
+        if (!initalSet->addGiveItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                std::make_shared<SHAMapItem>(txID, s.slice())))
+        {
+            JLOG(j_.warn()) << "R-UNL: ledger seq=" << seq
+                            << ", add ttUNL_REPORT tx failed";
+        }
+        else
+        {
+            JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
+                             << ", add a ttUNL_REPORT (active_val) Tx with txID: " << txID
+                             << ", size=" << s.size()
+                             << ", " << repUnlTx.getJson(JsonOptions::none);
+        }
+    }
+
+
+    // do import VL key voting
+    auto const& keyMap = app_.config().IMPORT_VL_KEYS;
+    for (auto const& [_, pk] : keyMap)
+    {
+        STTx repUnlTx(ttUNL_REPORT, [&](auto& obj)
+        {
+            obj.set(([&]()
+            {
+                auto inner = std::make_unique<STObject>(sfImportVLKey);
+                inner->setFieldVL(sfPublicKey, pk);
+                return inner;
+            })());
+            obj.setFieldU32(sfLedgerSequence, seq);
+        });
+
+        uint256 txID = repUnlTx.getTransactionID();
+        Serializer s;
+        repUnlTx.add(s);
+        if (!initalSet->addGiveItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                std::make_shared<SHAMapItem>(txID, s.slice())))
+        {
+            JLOG(j_.warn()) << "R-UNL: ledger seq=" << seq
+                            << ", add ttUNL_REPORT tx failed (import_vl_key)";
+        }
+        else
+        {
+            JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
+                             << ", add a ttUNL_REPORT (import_vl) Tx with txID: " << txID
+                             << ", size=" << s.size()
+                             << ", " << repUnlTx.getJson(JsonOptions::none);
+        }
+    }
+
 }
 
 void

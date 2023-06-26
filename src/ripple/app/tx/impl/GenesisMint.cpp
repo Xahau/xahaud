@@ -1,0 +1,221 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+    Copyright (c) 2012, 2013 Ripple Labs Inc.
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose  with  or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
+    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+//==============================================================================
+
+#include <ripple/app/tx/impl/GenesisMint.h>
+#include <ripple/basics/Log.h>
+#include <ripple/ledger/View.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Indexes.h>
+
+namespace ripple {
+
+TxConsequences
+GenesisMint::makeTxConsequences(PreflightContext const& ctx)
+{
+    // RH TODO: review this
+    return TxConsequences{ctx.tx, TxConsequences::normal};
+}
+
+NotTEC
+GenesisMint::preflight(PreflightContext const& ctx)
+{
+    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
+        return ret;
+
+    auto& tx = ctx.tx;
+
+    auto const id = ctx.tx[sfAccount];
+
+    static auto const genesisAccountId = calcAccountID(
+        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+            .first);
+                
+    if (id != genesisAccountId || !tx.isFieldPresent(sfEmitDetails))
+    {
+        JLOG(ctx.j.warn())
+            << "GenesisMint: can only be used by the genesis account in an emitted transaction.";
+        return temMALFORMED;
+    }
+
+    auto const& dests = tx.getFieldArray(sfGenesisMints);
+    if (dests.empty())
+    {
+        JLOG(ctx.j.warn())
+            << "GenesisMint: destinations array empty.";
+        return temMALFORMED;
+    }
+
+    if (dests.size() > 512)
+    {
+        JLOG(ctx.j.warn())
+            << "GenesisMint: destinations array exceeds 512 entries.";
+        return temMALFORMED;
+    }
+
+    std::unordered_set<AccountID> alreadySeen;
+    for (auto const& dest: dests)
+    {
+        if (dest.getFName() != sfGenesisMint)
+        {
+            JLOG(ctx.j.warn())
+                << "GenesisMint: destinations array contained an invalid entry.";
+            return temMALFORMED;
+        }
+
+
+        bool const hasAmt = dest.isFieldPresent(sfAmount);
+        bool const hasMarks = dest.isFieldPresent(sfGovernanceMarks);
+        bool const hasFlags = dest.isFieldPresent(sfGovernanceFlags);
+
+        if (!hasAmt && !hasMarks && !hasFlags)
+        {
+            JLOG(ctx.j.warn())
+                << "GenesisMint: each destination must have at least one of: "
+                << "sfAmount, sfGovernanceFlags, sfGovernance marks.";
+            return temMALFORMED;
+        }
+
+        if (hasAmt)
+        {
+            auto const amt = dest.getFieldAmount(sfAmount);
+            if (!isXRP(amt))
+            {
+                JLOG(ctx.j.warn())
+                    << "GenesisMint: only native amounts can be minted.";
+                return temMALFORMED;
+            }
+
+            if (amt <= beast::zero)
+            {
+                JLOG(ctx.j.warn())
+                    << "GenesisMint: only positive amounts can be minted.";
+                return temMALFORMED;
+            }
+        }
+
+
+        auto const accid = dest.getAccountID(sfDestination);
+
+        if (accid == noAccount() || accid == xrpAccount())
+        {
+            JLOG(ctx.j.warn())
+                << "GenesisMint: destinations includes disallowed account zero or one.";
+            return temMALFORMED;
+        }
+        
+        if (alreadySeen.find(accid) != alreadySeen.end())
+        {
+            JLOG(ctx.j.warn())
+                << "GenesisMint: duplicate in destinations.";
+            return temMALFORMED;
+        }
+
+        alreadySeen.emplace(accid);
+    }
+
+    return preflight2(ctx);
+}
+
+TER
+GenesisMint::preclaim(PreclaimContext const& ctx)
+{
+    if (!ctx.view.rules().enabled(featureHooks))
+        return temDISABLED;
+
+    if (!ctx.view.rules().enabled(featureXahauGenesis))
+        return temDISABLED;
+
+    // RH UPTO:
+    // check that printing won't exceed 200% of the total coins on the ledger
+    // this will act as a hard cap against malfunction
+    // modify the invariant checkers
+
+    return tesSUCCESS;
+}
+
+TER
+GenesisMint::doApply()
+{
+    auto const& dests = ctx_.tx.getFieldArray(sfGenesisMints);
+
+    for (auto const& dest: dests)
+    {
+        auto const amt = dest[~sfAmount];
+        auto const flags = dest[~sfGovernanceFlags];
+        auto const marks = dest[~sfGovernanceMarks];
+
+        auto const id = dest.getAccountID(sfDestination);
+        auto const k = keylet::account(id);
+        auto sle = view().peek(k);
+
+        bool const created = !sle;
+
+        if (created)
+        {
+            // Create the account.
+            std::uint32_t const seqno{
+                view().rules().enabled(featureDeletableAccounts) ? view().seq()
+                                                                 : 1};
+            sle = std::make_shared<SLE>(k);
+            sle->setAccountID(sfAccount, id);
+
+            sle->setFieldU32(sfSequence, seqno);
+
+            if (amt)
+                sle->setFieldAmount(sfBalance, *amt);
+            else    // give them 2 XRP if the account didn't exist, same as ttIMPORT
+                sle->setFieldAmount(sfBalance, XRPAmount {2 * DROPS_PER_XRP});
+        }
+        else if (amt)
+        {
+            // Credit the account
+            STAmount startBal = sle->getFieldAmount(sfBalance);
+            STAmount finalBal = startBal + *amt;
+            if (finalBal > startBal)
+                sle->setFieldAmount(sfBalance, finalBal);
+            else
+            {
+                JLOG(ctx_.journal.warn())
+                    << "GenesisMint: cannot credit " << dest << " due to balance overflow";
+            }
+        }
+
+        // set flags and marks as applicable
+        if (flags)
+            sle->setFieldH256(sfGovernanceFlags, *flags);
+
+        if (marks)
+            sle->setFieldH256(sfGovernanceMarks, *marks);
+
+        if (created)
+            view().insert(sle);
+        else
+            view().update(sle);
+    }
+    
+    return tesSUCCESS;
+}
+
+XRPAmount
+GenesisMint::calculateBaseFee(ReadView const& view, STTx const& tx)
+{
+    return XRPAmount { 0 } ;
+}
+
+}  // namespace ripple

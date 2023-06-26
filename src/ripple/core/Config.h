@@ -25,6 +25,7 @@
 #include <ripple/basics/base_uint.h>
 #include <ripple/beast/net/IPEndpoint.h>
 #include <ripple/beast/utility/Journal.h>
+#include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/SystemParameters.h>  // VFALCO Breaks levelization
 #include <boost/beast/core/string.hpp>
 #include <boost/filesystem.hpp>  // VFALCO FIX: This include should not be here
@@ -150,7 +151,7 @@ public:
     std::vector<std::string> IPS_FIXED;     // Fixed Peer IPs from rippled.cfg.
     std::vector<std::string> SNTP_SERVERS;  // SNTP servers from rippled.cfg.
 
-    std::vector<std::string> IMPORT_VL_KEYS;
+    std::map<std::string, PublicKey> IMPORT_VL_KEYS;    // hex string -> class PublicKey (for caching purposes)
 
     enum StartUpType { FRESH, NORMAL, LOAD, LOAD_FILE, REPLAY, NETWORK };
     StartUpType START_UP = NORMAL;
@@ -175,10 +176,6 @@ public:
     // process)
     int RELAY_UNTRUSTED_VALIDATIONS = 1;
     int RELAY_UNTRUSTED_PROPOSALS = 0;
-
-    // The number of ledgers worth of valdiations to keep for the purpose
-    // of servicing xpop requests these are lost on restart
-    std::optional<uint32_t> XPOP_HISTORY;
 
     // True to ask peers not to relay current IP.
     bool PEER_PRIVATE = false;

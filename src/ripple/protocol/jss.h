@@ -72,6 +72,7 @@ JSS(FeeSettings);           // ledger type.
 JSS(FIELDS);                // out: RPC server_definitions
 JSS(Flags);                 // in/out: TransactionSign; field.
 JSS(incomplete_shards);     // out: OverlayImpl, PeerImp
+JSS(GenesisMint);           // tt
 JSS(HookApiVersion);        // field
 JSS(HookHash);              // field
 JSS(HookNamespace);         // field
@@ -116,6 +117,7 @@ JSS(RippleState);           // ledger type.
 JSS(SLE_hit_rate);          // out: GetCounts.
 JSS(SetFee);                // transaction type.
 JSS(UNLModify);             // transaction type.
+JSS(UNLReport);             // transaction type.
 JSS(SettleDelay);           // in: TransactionSign
 JSS(SendMax);               // in: TransactionSign
 JSS(Sequence);              // in/out: TransactionSign; field.

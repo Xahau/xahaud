@@ -63,6 +63,8 @@ LedgerFormats::LedgerFormats()
             {sfRewardAccumulator,    soeOPTIONAL},
             {sfFirstNFTokenSequence, soeOPTIONAL},
             {sfImportSequence,       soeOPTIONAL},
+            {sfGovernanceFlags,      soeOPTIONAL},
+            {sfGovernanceMarks,      soeOPTIONAL},
         },
         commonFields);
 
@@ -295,6 +297,16 @@ LedgerFormats::LedgerFormats()
             {sfDisabledValidators,   soeOPTIONAL},
             {sfValidatorToDisable,   soeOPTIONAL},
             {sfValidatorToReEnable,  soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::UNLReport,
+        ltUNL_REPORT,
+        {
+            {sfImportVLKeys,         soeOPTIONAL},
+            {sfActiveValidators,     soeOPTIONAL},
+            {sfPreviousTxnID,        soeREQUIRED},
+            {sfPreviousTxnLgrSeq,    soeREQUIRED},
         },
         commonFields);
 

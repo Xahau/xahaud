@@ -1327,8 +1327,11 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     
     if (config_->IMPORT_VL_KEYS.empty())
     {
-        JLOG(m_journal.fatal()) << "IMPORT_VL_KEYS section must be specified in validators file.";
-        return false;
+        JLOG(m_journal.warn()) << "[import_vl_keys] section not specified validators file. "
+            << "Will attempt to use keys from ledger.";
+    }
+    else
+    {
     }
 
     //----------------------------------------------------------------------

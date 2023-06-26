@@ -44,6 +44,7 @@
 #include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/Invoke.h>
 #include <ripple/app/tx/impl/URIToken.h>
+#include <ripple/app/tx/impl/GenesisMint.h>
 
 namespace ripple {
 
@@ -140,6 +141,7 @@ invoke_preflight(PreflightContext const& ctx)
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return invoke_preflight_helper<Change>(ctx);
         case ttHOOK_SET:
@@ -156,6 +158,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<NFTokenAcceptOffer>(ctx);
         case ttCLAIM_REWARD:
             return invoke_preflight_helper<ClaimReward>(ctx);
+        case ttGENESIS_MINT:
+            return invoke_preflight_helper<GenesisMint>(ctx);
         case ttIMPORT:
             return invoke_preflight_helper<Import>(ctx);
         case ttINVOKE:
@@ -261,6 +265,7 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return invoke_preclaim<Change>(ctx);
         case ttNFTOKEN_MINT:
@@ -275,6 +280,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<NFTokenAcceptOffer>(ctx);
         case ttCLAIM_REWARD:
             return invoke_preclaim<ClaimReward>(ctx);
+        case ttGENESIS_MINT:
+            return invoke_preclaim<GenesisMint>(ctx);
         case ttIMPORT:
             return invoke_preclaim<Import>(ctx);
         case ttINVOKE:
@@ -339,6 +346,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return Change::calculateBaseFee(view, tx);
         case ttNFTOKEN_MINT:
@@ -353,6 +361,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return NFTokenAcceptOffer::calculateBaseFee(view, tx);
         case ttCLAIM_REWARD:
             return ClaimReward::calculateBaseFee(view, tx);
+        case ttGENESIS_MINT:
+            return GenesisMint::calculateBaseFee(view, tx);
         case ttIMPORT:
             return Import::calculateBaseFee(view, tx);
         case ttINVOKE:
@@ -496,7 +506,8 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttAMENDMENT:
         case ttFEE:
-        case ttUNL_MODIFY: 
+        case ttUNL_MODIFY:
+        case ttUNL_REPORT: 
         case ttEMIT_FAILURE: {
             Change p(ctx);
             return p();
@@ -523,6 +534,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttCLAIM_REWARD: {
             ClaimReward p(ctx);
+            return p();
+        }
+        case ttGENESIS_MINT: {
+            GenesisMint p(ctx);
             return p();
         }
         case ttIMPORT: {

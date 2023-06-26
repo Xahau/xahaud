@@ -91,7 +91,7 @@ public:
      * @param myId the NodeID of the local node
      * @param j log
      */
-    NegativeUNLVote(NodeID const& myId, beast::Journal j);
+    NegativeUNLVote(NodeID const& myId, beast::Journal j, Application& app);
     ~NegativeUNLVote() = default;
 
     /**
@@ -128,6 +128,7 @@ private:
     beast::Journal j_;
     mutable std::mutex mutex_;
     hash_map<NodeID, LedgerIndex> newValidators_;
+    Application& app_;
 
     /**
      * UNLModify Tx candidates
@@ -152,6 +153,16 @@ private:
         PublicKey const& vp,
         NegativeUNLModify modify,
         std::shared_ptr<SHAMap> const& initialSet);
+
+    /**
+     * As above, but make a report object instead of an n-unl
+     */
+    void
+    addReportingTx(
+        LedgerIndex seq,
+        hash_map<NodeID, std::uint32_t> const& scoreTable,
+        hash_map<NodeID, PublicKey> const& nidToKeyMap,
+        std::shared_ptr<SHAMap> const& initalSet);
 
     /**
      * Pick one candidate from a vector of candidates.
