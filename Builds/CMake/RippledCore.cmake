@@ -440,6 +440,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/CashCheck.cpp
   src/ripple/app/tx/impl/Change.cpp
   src/ripple/app/tx/impl/ClaimReward.cpp
+  src/ripple/app/tx/impl/Clawback.cpp
   src/ripple/app/tx/impl/CreateCheck.cpp
   src/ripple/app/tx/impl/CreateOffer.cpp
   src/ripple/app/tx/impl/CreateTicket.cpp
@@ -721,6 +722,7 @@ if (tests)
     src/test/app/BaseFee_test.cpp
     src/test/app/Check_test.cpp
     src/test/app/ClaimReward_test.cpp
+    src/test/app/Clawback_test.cpp
     src/test/app/CrossingLimits_test.cpp
     src/test/app/DeliverMin_test.cpp
     src/test/app/DepositAuth_test.cpp

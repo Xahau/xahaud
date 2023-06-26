@@ -139,6 +139,9 @@ enum TxType : std::uint16_t
     /** This transaction accepts an existing offer to buy or sell an existing  NFT. */
     ttNFTOKEN_ACCEPT_OFFER = 29,
 
+    /** This transaction claws back issued tokens. */
+    ttCLAWBACK = 30,
+
     /** This transaction mints/burns/buys/sells a URI TOKEN */
     ttURITOKEN_MINT = 45,
     ttURITOKEN_BURN = 46,
@@ -165,10 +168,10 @@ enum TxType : std::uint16_t
     /** This transaction resets accumulator/counters and claims a reward for holding an average balance
      * from a specified hook */
     ttCLAIM_REWARD = 98,
-    
+
     /** This transaction invokes a hook, providing arbitrary data. Essentially as a 0 drop payment. **/
     ttINVOKE = 99,
-    
+
     /** This system-generated transaction type is used to update the status of the various amendments.
 
         For details, see: https://xrpl.org/amendments.html
