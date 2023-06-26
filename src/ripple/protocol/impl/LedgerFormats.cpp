@@ -303,8 +303,8 @@ LedgerFormats::LedgerFormats()
     add(jss::UNLReport,
         ltUNL_REPORT,
         {
-            {sfImportVLKeys,         soeREQUIRED},
-            {sfActiveValidators,     soeREQUIRED},
+            {sfImportVLKeys,         soeOPTIONAL},
+            {sfActiveValidators,     soeOPTIONAL},
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED},
         },

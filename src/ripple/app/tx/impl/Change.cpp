@@ -197,7 +197,7 @@ Change::applyUNLReport()
     auto canonicalize = [&](SField const& arrayType, SField const& objType) -> std::vector<STObject>
     {
         auto const existing = 
-            reset
+            reset || !sle->isFieldPresent(arrayType)
             ? STArray(arrayType)
             : sle->getFieldArray(arrayType);
 
@@ -216,7 +216,7 @@ Change::applyUNLReport()
         {
             auto pk = 
                 const_cast<ripple::STTx&>(ctx_.tx)
-                    .getField(arrayType)
+                    .getField(objType)
                     .downcast<STObject>()
                     .getFieldVL(sfPublicKey);
 
@@ -228,7 +228,7 @@ Change::applyUNLReport()
         out.reserve(ordered.size());
         for (auto const& k: ordered)
         {
-            out.emplace_back(sfActiveValidator);
+            out.emplace_back(objType);
             out.back().setFieldVL(sfPublicKey, k);
         }
 
