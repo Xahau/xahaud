@@ -151,6 +151,9 @@ XRPNotCreated::finalize(
 
     auto const tt = tx.getTxnType();
 
+    if (tt == ttAMENDMENT && tx.getFieldH256(sfAmendment) == featureXahauGenesis)
+        return true;
+
     if (view.rules().enabled(featureImport) && tt == ttIMPORT && res == tesSUCCESS)
     {
         // different rules for ttIMPORT
@@ -195,6 +198,8 @@ XRPNotCreated::finalize(
 
         return (drops_ == dropsAdded.drops() - fee.drops());
     }
+    
+
 
     // The net change should never be positive, as this would mean that the
     // transaction created XRP out of thin air. That's not possible.
@@ -540,6 +545,9 @@ ValidNewAccountRoot::finalize(
         return true;
 
     auto tt = tx.getTxnType();
+    
+    if (tt == ttAMENDMENT && tx.getFieldH256(sfAmendment) == featureXahauGenesis)
+        return true;
 
     if (accountsCreated_ > 1 && tt != ttGENESIS_MINT)
     {

@@ -118,8 +118,10 @@ applyTransactions(
         {
             auto const txid = it->first.getTXID();
 
+#ifndef DEBUG
             try
             {
+#endif
                 if (pass == 0 && built->txExists(txid))
                 {
                     it = txns.erase(it);
@@ -142,6 +144,7 @@ applyTransactions(
                     case ApplyResult::Retry:
                         ++it;
                 }
+#ifndef DEBUG
             }
             catch (std::exception const& ex)
             {
@@ -150,6 +153,7 @@ applyTransactions(
                 failed.insert(txid);
                 it = txns.erase(it);
             }
+#endif
         }
 
         JLOG(j.debug()) << (certainRetry ? "Pass: " : "Final pass: ") << pass

@@ -386,6 +386,22 @@ Change::activateXahauGenesis()
 
     Sandbox sb(&view());
 
+    static auto const accid = calcAccountID(
+        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+            .first);
+    auto const kl = keylet::account(accid);
+    auto sle = sb.peek(kl);
+    if (!sle)
+    {
+        JLOG(j_.warn())
+            << "featureXahauGenesis genesis account doesn't exist!!";
+
+        return;
+    }
+
+    // running total of the amount of xrp we will burn from the genesis, less the initial distributions
+    auto destroyedXRP = sle->getFieldAmount(sfBalance).xrp() - GENESIS;
+
     // Step 1: mint genesis distribution
     for (auto const& [account, amount] : initial_distribution)
     {
@@ -427,6 +443,8 @@ Change::activateXahauGenesis()
 
         sle->setFieldAmount(sfBalance, bal);
 
+        destroyedXRP -= amount;
+
         if (exists)
             sb.update(sle);
         else
@@ -435,19 +453,6 @@ Change::activateXahauGenesis()
     };
 
     // Step 2: burn genesis funds to (almost) zero
-    static auto const accid = calcAccountID(
-        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
-            .first);
-
-    auto const kl = keylet::account(accid);
-    auto sle = sb.peek(kl);
-    if (!sle)
-    {
-        JLOG(j_.warn())
-            << "featureXahauGenesis genesis account doesn't exist!!";
-
-        return;
-    }
 
     sle->setFieldAmount(sfBalance, GENESIS);
 
@@ -550,7 +555,7 @@ Change::activateXahauGenesis()
                 hookDef->setFieldArray(sfHookParameters, STArray(vec, sfHookParameters));
             }
 
-            hookDef->setFieldU8(sfHookApiVersion, 0);
+            hookDef->setFieldU16(sfHookApiVersion, 0);
             hookDef->setFieldVL(sfCreateCode, wasmBytes);
             hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
             hookDef->setFieldU64(sfReferenceCount, 1);
@@ -589,7 +594,15 @@ Change::activateXahauGenesis()
 
     JLOG(j_.warn()) << "featureXahauGenesis amendment executed successfully";
     
+    if (destroyedXRP < beast::zero)
+    {
+        JLOG(j_.warn())
+            << "featureXahauGenesis: destroyed XRP tally was negative, bailing.";
+        return;
+    }
+
     sb.apply(ctx_.rawView());
+    ctx_.rawView().rawDestroyXRP(destroyedXRP);
 }
 
 void

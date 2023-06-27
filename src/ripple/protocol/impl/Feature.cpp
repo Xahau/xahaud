@@ -457,7 +457,7 @@ REGISTER_FEATURE(BalanceRewards,                Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(PaychanAndEscrowForTokens,     Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(URIToken,                      Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(Import,                        Supported::yes, VoteBehavior::DefaultYes);
-REGISTER_FEATURE(XahauGenesis,                  Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(XahauGenesis,                  Supported::yes, VoteBehavior::DefaultNo);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.
