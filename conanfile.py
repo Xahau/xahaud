@@ -152,4 +152,8 @@ class Xrpl(ConanFile):
             'libsecp256k1.a',
         ]
         libxrpl.includedirs = ['include']
-        libxrpl.requires = ['boost::boost']
+        libxrpl.requires = [
+            'boost::boost',
+            'openssl::crypto',
+            'date::date',
+        ]
