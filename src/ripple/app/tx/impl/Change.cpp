@@ -31,6 +31,7 @@
 #include <ripple/app/hook/Guard.h> 
 #include <ripple/protocol/AccountID.h>
 #include <ripple/app/hook/applyHook.h>
+#include <ripple/app/hook/xahau.h>
 
 namespace ripple {
 
@@ -270,31 +271,116 @@ Change::preCompute()
 }
 
 
+inline
+std::pair<
+    std::map<std::string, XRPAmount>,
+    std::map<std::vector<uint8_t>, std::vector<uint8_t>>>
+normalizeXahauGenesis(
+        std::map<std::string, XRPAmount> const& entries,
+        std::map<std::vector<uint8_t>, std::vector<uint8_t>> params,
+        beast::Journal const& j)
+{
+    std::map<std::string, XRPAmount> amounts;
+    uint8_t mc = 0;
+    for (auto const& [rn, x]: entries)
+    {
+        if (rn.c_str()[0] != 'n')
+        {
+            amounts.emplace(rn, x);
+            continue;
+        }
+
+        auto const pk = parseBase58<PublicKey>(TokenType::NodePublic, rn);
+        if (!pk)
+        {
+            JLOG(j.warn())
+                << "featureXahauGenesis could not parse nodepub: " << rn;
+            continue;
+        }
+
+        AccountID id = calcAccountID(*pk);
+        std::string idStr = toBase58(id);
+        amounts.emplace(idStr, x);
+        JLOG(j.warn())
+            << "featureXahauGenesis: "
+            << "initial validator: " << rn
+            << " =>accid: " << idStr;
+
+        // initial member enumeration
+        params.emplace(
+                std::vector<uint8_t>{'I', 'M', mc++},
+                std::vector<uint8_t>(id.data(), id.data() + 20));
+    }
+
+    // initial member count
+    params.emplace(
+            std::vector<uint8_t>{'I', 'M', 'C'},
+            std::vector<uint8_t>{mc});
+
+    return {amounts, params};
+};
+
+
 void
 Change::activateXahauGenesis()
 {
-
-    return;
-
     JLOG(j_.warn()) << "featureXahauGenesis amendment activation code starting";
 
     constexpr XRPAmount GENESIS { 1'000'000 * DROPS_PER_XRP };
-
     constexpr XRPAmount INFRA   { 10'000'000 * DROPS_PER_XRP};
     constexpr XRPAmount EXCHANGE { 2'000'000 * DROPS_PER_XRP};
 
-    const static std::vector<std::pair<std::string, XRPAmount>>
-    initial_distribution =
-    {
+    auto [initial_distribution, governance_hook_params] =
+    normalizeXahauGenesis({
+        // distribution targets and initial validators
+        // where a nodepub is specified then that is an initial governance member
+        // where an r-addr is specified they still get an initial distribution but don't go into the L1 table
         {"rMYm3TY5D3rXYVAz6Zr2PDqEcjsTYbNiAT", INFRA},
-    };
+        {"nHUG6WyZX5C6YPhxDEUiFdvRsWvbxdXuUcMkMxuqS9C3akrJtJQA", INFRA},
+        {"nHDDs26hxCgh74A6QE31CR5QoC17yXdJQXNDXezp8HW93mCYGPG7", INFRA},
+        {"nHUNFRAhqbfqBHYxfiAtJDxruSgbsEBUHR6v55MhdUtzTNyXLcR4", INFRA},
+        {"nHB4MVtevJBZF4vfdLTecKBxj5KsxERkfk7UNyL9iYtTZvjmMBXw", INFRA},
+        {"nHUB9Fh1JXvyMY4NhiCKgg6pkGrB3FoBTAz4dpvKC1fwCMjY1w5N", INFRA},
+        {"nHUdqajJr8S1ecKwqVkX4gQNUzQP9RTonZeEZH8vwg7664CZP3QF", INFRA},
+        {"nHDnr7GgwZWS7Qb517e5is3pxwVxsNgmmpmQYvrc1ngbPiURBa6B", INFRA},
+        {"nHBv6AqLDgWgEVLoNE7jEViv4XG17jj6tpuzTFm664Cc4mcpEgwb", INFRA},
+        {"nHUxeL9jgcjhTWepmFnbWpmobZmFBduLkceQddCJnAPghJejdRix", INFRA},
+        {"nHUubQ7fqxkwPtwS4pQb2ENZ6fdUcAt7aJRiYcPXjxbbkC778Zjk", INFRA},
+    },
+    // hook params
+    {
+        // initial reward rate is 1.003274 per month
+        // 1.003274 -xfl-> 6089869970204910592 -le-> 0x00E461EE78908354
+        {{'I', 'R', 'R'}, {0x00U, 0xE4U, 0x61U, 0xEEU, 0x78U, 0x90U, 0x83U, 0x54U}},
 
-    const static std::vector<std::pair<uint256, std::vector<uint8_t>>>
+        // initial reward delay is 365*24*60*60/12 = 2628000 = 0x2819A0 -LEu64-> A019280000000000
+        {{'I', 'R', 'D'}, {0xA0U, 0x19U, 0x28U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U}}
+
+        // other params are populated insie the noramlization function
+    }, j_);
+
+    const static std::vector<
+        std::tuple<
+            uint256,                        // hook on
+            std::vector<uint8_t>,           // hook code
+            std::map<
+                std::vector<uint8_t>,       // param name
+                std::vector<uint8_t>>>>     // param value
     genesis_hooks =
     {
-        { ripple::uint256("0000000000000000000000000000000000000000000000000000000000000001"),
-          {0x0}
+        {
+            // For the Governance Hook: HookOn is set to ttINVOKE only
+            ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF"),
+            XAHAU_GOVERNANCE_HOOK,
+            governance_hook_params
         },
+        
+        {
+            // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
+            ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF"),
+            XAHAU_REWARD_HOOK,
+            {}  // no params for this hook
+        }
     };
 
 
@@ -307,8 +393,8 @@ Change::activateXahauGenesis()
         if (!accid_raw)
         {
             JLOG(j_.warn())
-                << "featureXahauGenesis could not parse an r-address: " << account << ", bailing.";
-            return;
+                << "featureXahauGenesis could not parse an r-address: " << account;
+            continue;
         }
 
         auto accid = *accid_raw;
@@ -371,7 +457,6 @@ Change::activateXahauGenesis()
        
 
     // Step 4: install genesis hooks
-
     sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
     sb.update(sle);
 
@@ -386,7 +471,7 @@ Change::activateXahauGenesis()
         ripple::STArray hooks{sfHooks, genesis_hooks.size()};
         int hookCount = 0;
 
-        for (auto const& [hookOn, wasmBytes] : genesis_hooks)
+        for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)
         {
 
             std::ostringstream loggerStream;
@@ -450,7 +535,21 @@ Change::activateXahauGenesis()
             hookDef->setFieldH256(sfHookHash, hookHash);
             hookDef->setFieldH256(sfHookOn, hookOn);
             hookDef->setFieldH256(sfHookNamespace, UINT256_BIT[hookCount++]);
-            hookDef->setFieldArray(sfHookParameters, STArray{});
+
+            // parameters
+            {
+                std::vector<STObject> vec;
+                for (auto const& [k, v]: params)
+                {
+                    STObject param(sfHookParameter);
+                    param.setFieldVL(sfHookParameterName, k);
+                    param.setFieldVL(sfHookParameterValue, v);
+                    vec.emplace_back(std::move(param));
+                };
+            
+                hookDef->setFieldArray(sfHookParameters, STArray(vec, sfHookParameters));
+            }
+
             hookDef->setFieldU8(sfHookApiVersion, 0);
             hookDef->setFieldVL(sfCreateCode, wasmBytes);
             hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
@@ -468,7 +567,6 @@ Change::activateXahauGenesis()
             hooks.push_back(hookObj);
 
         }
-
 
         auto sle = std::make_shared<SLE>(keylet::hook(accid));
         sle->setFieldArray(sfHooks, hooks);
