@@ -67,8 +67,8 @@
 #include <ripple/rpc/BookChanges.h>
 #include <ripple/rpc/CTID.h>
 #include <ripple/rpc/DeliveredAmount.h>
+#include <ripple/rpc/ServerHandler.h>
 #include <ripple/rpc/impl/RPCHelpers.h>
-#include <ripple/rpc/impl/ServerHandlerImp.h>
 #include <ripple/rpc/impl/UDPInfoSub.h>
 #include <boost/asio/ip/host_name.hpp>
 #include <boost/asio/steady_timer.hpp>
