@@ -388,25 +388,12 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-    
 
     // manifest signing (ephemeral) key
     auto const signingKey = m->signingKey;
 
     // decode blob
     auto const data = base64_decode((*xpop)[jss::validation][jss::unl][jss::blob].asString());
-    auto const sig = strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
-    if (!sig ||
-        !ripple::verify(
-            signingKey,
-            makeSlice(data),
-            makeSlice(*sig)))
-    {
-        JLOG(ctx.j.warn())
-            << "Import: unl blob not signed correctly "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
 
     Json::Reader r;
     Json::Value list;
@@ -456,7 +443,7 @@ Import::preflight(PreflightContext const& ctx)
     if (validUntil <= validFrom)
     {
         JLOG(ctx.j.warn())
-            << "Import: unl blob validUnil <= validFrom "
+            << "Import: unl blob validUntil <= validFrom "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -473,6 +460,19 @@ Import::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn())
             << "Import: unl blob not yet valid "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+
+    auto const sig = strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
+    if (!sig ||
+        !ripple::verify(
+            signingKey,
+            makeSlice(data),
+            makeSlice(*sig)))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob not signed correctly "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -924,12 +924,12 @@ Import::preclaim(PreclaimContext const& ctx)
     auto pkHex = strUnHex(strPk);
     if (!pkHex)
         return tefINTERNAL;
-    
+
     auto const pkType = publicKeyType(makeSlice(*pkHex));
     if (!pkType)
         return tefINTERNAL;
 
-    PublicKey const pk (makeSlice(*pkHex));    
+    PublicKey const pk (makeSlice(*pkHex));
 
     // check on ledger
     if (auto const unlRep = ctx.view.read(keylet::UNLReport()); unlRep)
@@ -1045,7 +1045,6 @@ Import::doApply()
         }
         else if (tt == ttREGULAR_KEY_SET)
         {
-            JLOG(ctx_.journal.warn()) << "SetRegularKey";
             // key import: regular key
             setRegularKey = stpTrans->getAccountID(sfRegularKey);
         }
@@ -1068,7 +1067,6 @@ Import::doApply()
     if (create)
     {
         // Create the account.
-        JLOG(ctx_.journal.warn()) << "create - create account";
         std::uint32_t const seqno{
             view().rules().enabled(featureDeletableAccounts) ? view().seq()
                                                              : 1};
