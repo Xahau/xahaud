@@ -91,6 +91,15 @@ Change::preflight(PreflightContext const& ctx)
             JLOG(ctx.j.warn()) << "Change: UNLReport must specify at least one of sfImportVLKey, sfActiveValidator";
             return temMALFORMED;
         }
+
+        // if we do specify import_vl_keys in config then we won't approve keys that aren't on our list
+        if (ctx.tx.isFieldPresent(sfImportVLKey) && !ctx.app.config().IMPORT_VL_KEYS.empty())
+        {
+            auto const pk = ctx.tx.getFieldVL(sfImportVLKey);
+            std::string const strPk = strHex(makeSlice(pk));
+            if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) == ctx.app.config().IMPORT_VL_KEYS.end())
+                return telIMPORT_VL_KEY_NOT_RECOGNISED;
+        }
     }
 
     return tesSUCCESS;
