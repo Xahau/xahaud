@@ -35,6 +35,7 @@
 #include <vector>
 #include <ripple/app/hook/Enum.h>
 #include <ripple/app/hook/applyHook.h>
+#include <ripple/protocol/Rules.h>
 
 namespace ripple {
 
@@ -52,6 +53,7 @@ struct SetHookCtx
     beast::Journal j;
     STTx const& tx;
     Application& app;
+    Rules const& rules;
 };
 
 class SetHook : public Transactor

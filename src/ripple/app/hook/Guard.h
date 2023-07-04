@@ -759,7 +759,8 @@ std::pair<
 validateGuards(
     std::vector<uint8_t> const& wasm,
     GuardLog guardLog,
-    std::string guardLogAccStr)
+    std::string guardLogAccStr,
+    uint64_t rulesVersion = 0)
 {
     uint64_t byteCount = wasm.size();
 
@@ -915,11 +916,19 @@ validateGuards(
                 }
                 else if (hook_api::import_whitelist.find(import_name) == hook_api::import_whitelist.end())
                 {
-                    GUARDLOG(hook::log::IMPORT_ILLEGAL)
-                        << "Malformed transaction. "
-                        << "Hook attempted to import a function that does not "
-                        << "appear in the hook_api function set: `" << import_name << "`" << "\n";
-                    return {};
+                    if (rulesVersion > 0 &&
+                            hook_api::import_whitelist_1.find(import_name) != hook_api::import_whitelist_1.end())
+                    {
+                        // PASS, this is a version 1 api
+                    }
+                    else
+                    {
+                        GUARDLOG(hook::log::IMPORT_ILLEGAL)
+                            << "Malformed transaction. "
+                            << "Hook attempted to import a function that does not "
+                            << "appear in the hook_api function set: `" << import_name << "`" << "\n";
+                        return {};
+                    }
                 }
 
                 // add to import map

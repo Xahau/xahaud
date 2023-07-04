@@ -493,7 +493,8 @@ Change::activateXahauGenesis()
                 validateGuards(
                     wasmBytes,   // wasm to verify
                     loggerStream,
-                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"
+                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0
                 );
 
             if (!result)

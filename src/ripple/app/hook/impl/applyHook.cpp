@@ -2605,7 +2605,14 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 34)
         return TOO_SMALL;
 
-    if (keylet_type < 1 || keylet_type > keylet_code::LAST_KLTYPE)
+    bool const v1 = applyCtx.view().rules().enabled(featureHooksUpdate1);
+
+    if (keylet_type == 0)
+        return INVALID_ARGUMENT;
+
+    auto const last = v1 ? keylet_code::LAST_KLTYPE_V1 : keylet_code::LAST_KLTYPE_V0;
+
+    if (keylet_type > last)
         return INVALID_ARGUMENT;
 
     try
@@ -2794,6 +2801,31 @@ DEFINE_HOOK_FUNCTION(
                     ripple::keylet::hookState(
                             AccountID::fromVoid(memory + aread_ptr),
                             ripple::base_uint<256>::fromVoid(memory + kread_ptr),
+                            ripple::base_uint<256>::fromVoid(memory + nread_ptr));
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            case keylet_code::HOOK_STATE_DIR:
+            {
+                if (a == 0 || b == 0 || c == 0 || d == 0)
+                   return INVALID_ARGUMENT;
+                
+                if (e != 0 || f != 0)
+                   return INVALID_ARGUMENT;
+
+                uint32_t aread_ptr = a, aread_len = b, nread_ptr = c, nread_len = d;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length))
+                   return OUT_OF_BOUNDS;
+
+                if (aread_len != 20 || nread_len != 32)
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl =
+                    ripple::keylet::hookStateDir(
+                            AccountID::fromVoid(memory + aread_ptr),
                             ripple::base_uint<256>::fromVoid(memory + nread_ptr));
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);

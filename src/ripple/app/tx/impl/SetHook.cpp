@@ -450,7 +450,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     validateGuards(
                         hook,   // wasm to verify
                         logger,
-                        hsacc
+                        hsacc,
+                        ctx.rules.enabled(featureHooksUpdate1) ? 1 : 0
                     );
 
                 if (ctx.j.trace())
@@ -627,7 +628,8 @@ SetHook::preflight(PreflightContext const& ctx)
     {
        .j = ctx.j,
        .tx = ctx.tx,
-       .app = ctx.app
+       .app = ctx.app,
+       .rules = ctx.rules
     };
 
     bool allBlank = true;
@@ -1092,7 +1094,8 @@ SetHook::setHook()
     {
         .j = ctx_.app.journal("View"),
         .tx = ctx_.tx,
-        .app = ctx_.app
+        .app = ctx_.app,
+        .rules = ctx_.view().rules()
     };
 
     const int  blobMax = hook::maxHookWasmSize();

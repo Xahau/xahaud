@@ -169,7 +169,9 @@ namespace hook_api
             EMITTED_TXN = 22,
             NFT_OFFER = 23,
             HOOK_DEFINITION = 24,
-            LAST_KLTYPE = HOOK_DEFINITION
+            HOOK_STATE_DIR = 25,
+            LAST_KLTYPE_V0 = HOOK_DEFINITION,
+            LAST_KLTYPE_V1 = HOOK_STATE_DIR,
         };
     }
 
@@ -323,6 +325,12 @@ namespace hook_api
         {"otxn_slot",{0x7EU,0x7FU}},
         {"otxn_param",{0x7EU,0x7FU,0x7FU,0x7FU,0x7FU}},
         {"meta_slot",{0x7EU,0x7FU}}        
+    };
+
+    // featureHooks1
+    static const std::map<std::string, std::vector<uint8_t>> import_whitelist_1
+    {
+
     };
 };
 #endif
