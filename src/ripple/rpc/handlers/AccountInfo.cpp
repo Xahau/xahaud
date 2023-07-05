@@ -99,6 +99,9 @@ doAccountInfo(RPC::JsonContext& context)
                  {"disallowIncomingTrustline", lsfDisallowIncomingTrustline},
                  {"disallowIncomingRemit", lsfDisallowIncomingRemit}}};
 
+    static constexpr std::pair<std::string_view, LedgerSpecificFlags>
+        allowClawbackFlag{"allowClawback", lsfAllowClawback};
+
     auto const sleAccepted = ledger->read(keylet::account(accountID));
     if (sleAccepted)
     {
@@ -126,6 +129,11 @@ doAccountInfo(RPC::JsonContext& context)
             for (auto const& lsf : disallowIncomingFlags)
                 acctFlags[lsf.first.data()] = sleAccepted->isFlag(lsf.second);
         }
+
+        if (ledger->rules().enabled(featureClawback))
+            acctFlags[allowClawbackFlag.first.data()] =
+                sleAccepted->isFlag(allowClawbackFlag.second);
+
         result[jss::account_flags] = std::move(acctFlags);
 
         // The document states that signer_lists is a bool, however
