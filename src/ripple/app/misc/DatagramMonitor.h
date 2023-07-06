@@ -11,6 +11,7 @@
 #include <ripple/app/misc/ValidatorList.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/basics/UptimeClock.h>
+#include <ripple/basics/mulDiv.h>
 #include <ripple/ledger/CachedSLEs.h>
 #include <ripple/nodestore/Database.h>
 #include <ripple/nodestore/DatabaseShard.h>
@@ -834,7 +835,7 @@ private:
                     escalationMetrics.openLedgerFeeLevel,
                     loadBaseServer,
                     escalationMetrics.referenceFeeLevel)
-                    .second;
+                    .value_or(muldiv_max);
 
             header->load_factor = std::max(
                 safe_cast<std::uint64_t>(loadFactorServer),

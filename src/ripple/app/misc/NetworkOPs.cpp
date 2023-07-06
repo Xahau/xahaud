@@ -2055,7 +2055,7 @@ NetworkOPsImp::pubServer()
                     f.em->openLedgerFeeLevel,
                     f.loadBaseServer,
                     f.em->referenceFeeLevel)
-                    .second);
+                    .value_or(ripple::muldiv_max));
 
             jvObj[jss::load_factor] = trunc32(loadFactor);
             jvObj[jss::load_factor_fee_escalation] =
@@ -2549,7 +2549,7 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
                 escalationMetrics.openLedgerFeeLevel,
                 loadBaseServer,
                 escalationMetrics.referenceFeeLevel)
-                .second;
+                .value_or(ripple::muldiv_max);
 
         auto const loadFactor = std::max(
             safe_cast<std::uint64_t>(loadFactorServer),
