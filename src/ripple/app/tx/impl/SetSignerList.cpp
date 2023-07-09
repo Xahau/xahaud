@@ -312,70 +312,14 @@ SetSignerList::validateQuorumAndSignerEntries(
 TER
 SetSignerList::replaceSignerList()
 {
-    auto const accountKeylet = keylet::account(account_);
-    auto const ownerDirKeylet = keylet::ownerDir(account_);
-    auto const signerListKeylet = keylet::signers(account_);
-
-    // This may be either a create or a replace.  Preemptively remove any
-    // old signer list.  May reduce the reserve, so this is done before
-    // checking the reserve.
-    if (TER const ter = removeSignersFromLedger(
+    return replaceSignersFromLedger(
             ctx_.app,
-            view(),
-            accountKeylet,
-            ownerDirKeylet,
-            signerListKeylet,
-            j_))
-        return ter;
-
-    auto const sle = view().peek(accountKeylet);
-    if (!sle)
-        return tefINTERNAL;
-
-    // Compute new reserve.  Verify the account has funds to meet the reserve.
-    std::uint32_t const oldOwnerCount{(*sle)[sfOwnerCount]};
-
-    // The required reserve changes based on featureMultiSignReserve...
-    int addedOwnerCount{1};
-    std::uint32_t flags{lsfOneOwnerCount};
-    if (!ctx_.view().rules().enabled(featureMultiSignReserve))
-    {
-        addedOwnerCount = signerCountBasedOwnerCountDelta(
-            signers_.size(), ctx_.view().rules());
-        flags = 0;
-    }
-
-    XRPAmount const newReserve{
-        view().fees().accountReserve(oldOwnerCount + addedOwnerCount)};
-
-    // We check the reserve against the starting balance because we want to
-    // allow dipping into the reserve to pay fees.  This behavior is consistent
-    // with CreateTicket.
-    if (mPriorBalance < newReserve)
-        return tecINSUFFICIENT_RESERVE;
-
-    // Everything's ducky.  Add the ltSIGNER_LIST to the ledger.
-    auto signerList = std::make_shared<SLE>(signerListKeylet);
-    view().insert(signerList);
-    writeSignersToSLE(signerList, flags);
-
-    auto viewJ = ctx_.app.journal("View");
-    // Add the signer list to the account's directory.
-    auto const page = ctx_.view().dirInsert(
-        ownerDirKeylet, signerListKeylet, describeOwnerDir(account_));
-
-    JLOG(j_.trace()) << "Create signer list for account " << toBase58(account_)
-                     << ": " << (page ? "success" : "failure");
-
-    if (!page)
-        return tecDIR_FULL;
-
-    signerList->setFieldU64(sfOwnerNode, *page);
-
-    // If we succeeded, the new entry counts against the
-    // creator's reserve.
-    adjustOwnerCount(view(), sle, addedOwnerCount, viewJ);
-    return tesSUCCESS;
+            ctx_.view(),
+            j_,
+            account_,
+            quorum_,
+            signers_,
+            mPriorBalance);
 }
 
 TER
@@ -400,21 +344,24 @@ SetSignerList::destroySignerList()
 
 void
 SetSignerList::writeSignersToSLE(
+    ApplyView& view,
     SLE::pointer const& ledgerEntry,
-    std::uint32_t flags) const
+    std::uint32_t flags,
+    std::uint32_t quorum,
+    std::vector<SignerEntries::SignerEntry> const& signers)
 {
     // Assign the quorum, default SignerListID, and flags.
-    ledgerEntry->setFieldU32(sfSignerQuorum, quorum_);
+    ledgerEntry->setFieldU32(sfSignerQuorum, quorum);
     ledgerEntry->setFieldU32(sfSignerListID, defaultSignerListID_);
     if (flags)  // Only set flags if they are non-default (default is zero).
         ledgerEntry->setFieldU32(sfFlags, flags);
 
     bool const expandedSignerList =
-        ctx_.view().rules().enabled(featureExpandedSignerList);
+        view.rules().enabled(featureExpandedSignerList);
 
     // Create the SignerListArray one SignerEntry at a time.
-    STArray toLedger(signers_.size());
-    for (auto const& entry : signers_)
+    STArray toLedger(signers.size());
+    for (auto const& entry : signers)
     {
         toLedger.emplace_back(sfSignerEntry);
         STObject& obj = toLedger.back();

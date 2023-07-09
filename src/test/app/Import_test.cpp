@@ -33,7 +33,12 @@ getRaw) outer txid:
 #include <ripple/protocol/Import.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
-
+#define BEAST_REQUIRE(x)     \
+    {                        \
+        BEAST_EXPECT(!!(x)); \
+        if (!(x))            \
+            return;          \
+    }
 namespace ripple {
 namespace test {
 
@@ -2541,6 +2546,7 @@ class Import_test : public beast::unit_test::suite
                 postAlice == preAlice + feeDrops + XRP(2) + XRP(0.000002));
             auto const [signers, signersSle] =
                 signersKeyAndSle(*env.current(), alice);
+            BEAST_REQUIRE(!!signersSle);
             auto const signerEntries =
                 signersSle->getFieldArray(sfSignerEntries);
             BEAST_EXPECT(signerEntries.size() == 1);

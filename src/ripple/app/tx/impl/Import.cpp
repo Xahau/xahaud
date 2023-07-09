@@ -33,6 +33,7 @@
 #include <ripple/protocol/STTx.h>
 #include <ripple/basics/base64.h>
 #include <ripple/app/misc/Manifest.h>
+#include <ripple/app/tx/impl/SetSignerList.h>
 
 namespace ripple {
 
@@ -190,6 +191,13 @@ Import::preflight(PreflightContext const& ctx)
 
     if (!stpTrans)
         return temMALFORMED;
+
+    if (stpTrans->isFieldPresent(sfTicketSequence))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: cannot use TicketSequence XPOP.";
+        return temMALFORMED;
+    }
 
     // check if txn is emitted or a psuedo
     if (isPseudoTx(*stpTrans) || stpTrans->isFieldPresent(sfEmitDetails))
@@ -952,16 +960,24 @@ Import::doApply()
 
     // why aren't transactors stateful, why does this need to be recomputed each time...
     STAmount burn = stpTrans->getFieldAmount(sfFee);
+
+    if (!isXRP(burn) || burn < beast::zero)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: inner fee was not XRP value.";
+        return tefINTERNAL;
+    }
+
     uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
 
     auto const id = ctx_.tx[sfAccount];
 
     auto const k = keylet::account(id);
-    auto const ksl = keylet::signers(id);
-
     auto sle = view().peek(k);
 
-    std::optional<STArray> setSignerEntries;
+    std::optional<
+    std::vector<ripple::SignerEntries::SignerEntry>> setSignerEntries;
+    uint32_t setSignerQuorum { 0 };
     std::optional<AccountID> setRegularKey;
     auto const signingKey = ctx_.tx.getSigningPubKey();
     bool const signedWithMaster = !signingKey.empty() && calcAccountID(PublicKey(makeSlice(signingKey))) == id;
@@ -973,9 +989,50 @@ Import::doApply()
     {
         if (tt == ttSIGNER_LIST_SET)
         {
-            JLOG(ctx_.journal.warn()) << "SingerListSet";
-            // key import: signer list
-            setSignerEntries = stpTrans->getFieldArray(sfSignerEntries);
+            if (stpTrans->isFieldPresent(sfSignerQuorum) &&
+                stpTrans->isFieldPresent(sfSignerEntries))
+            {
+                auto const entries = stpTrans->getFieldArray(sfSignerEntries);
+
+                if (entries.empty())
+                {
+                    JLOG(ctx_.journal.warn()) << "Import: SignerListSet entires empty, skipping.";
+                }
+                else
+                {
+                    JLOG(ctx_.journal.trace()) << "Import: SingerListSet";
+                    // key import: signer list
+                    setSignerEntries.emplace();
+                    setSignerEntries->reserve(entries.size());
+                    for (auto const& e: entries)
+                    {
+                        if (!e.isFieldPresent(sfAccount) || !e.isFieldPresent(sfSignerWeight))
+                        {
+                            JLOG(ctx_.journal.warn())
+                                << "Import: SignerListSet entry lacked a required field (Account/SignerWeight). "
+                                << "Skipping SignerListSet.";
+                            setSignerEntries = std::nullopt;
+                            break;
+                        }
+
+                        std::optional<uint256> tag;
+                        if (e.isFieldPresent(sfWalletLocator))
+                            tag = e.getFieldH256(sfWalletLocator);
+
+                        setSignerEntries->emplace_back(
+                            e.getAccountID(sfAccount),
+                            e.getFieldU16(sfSignerWeight),
+                            tag);
+                    }
+                    setSignerQuorum = stpTrans->getFieldU32(sfSignerQuorum);
+                }
+            }
+            else
+            {
+                JLOG(ctx_.journal.warn())
+                    << "Import: SingerListSet lacked either populated SignerEntries or SignerQuorum, ignoring.";
+            }
+
         }
         else if (tt == ttREGULAR_KEY_SET)
         {
@@ -986,6 +1043,18 @@ Import::doApply()
     }
 
     bool const create = !sle;
+
+    // compute the amount they receive first because the amount is maybe needed for computing setsignerlist later
+    STAmount startBal = create ? STAmount(INITIAL_IMPORT_XRP) : sle->getFieldAmount(sfBalance);
+    STAmount finalBal = startBal + burn;
+
+    // this should never happen
+    if (finalBal < startBal)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: logic error finalBal < startBal.";
+        return tefINTERNAL;
+    }
 
     if (create)
     {
@@ -999,20 +1068,9 @@ Import::doApply()
 
         sle->setFieldU32(sfImportSequence, importSequence);
         sle->setFieldU32(sfSequence, seqno);
+        sle->setFieldU32(sfOwnerCount, 0);
 
-        STAmount initBal = STAmount(INITIAL_IMPORT_XRP) + burn;
-
-        if (initBal <= beast::zero)
-        {
-            JLOG(ctx_.journal.warn())
-                << "Import: inital balance <= 0";
-
-            return tefINTERNAL;
-        }
-
-        JLOG(ctx_.journal.warn()) << "Import: inital balance" << initBal;
-
-        sle->setFieldAmount(sfBalance, initBal);
+        sle->setFieldAmount(sfBalance, finalBal);
 
     }
     else if (sle->getFieldU32(sfImportSequence) >= importSequence)
@@ -1023,25 +1081,19 @@ Import::doApply()
         return tefINTERNAL;
     }
 
-    if (setSignerEntries) {
-        JLOG(ctx_.journal.warn()) << "signer list set";
-        auto signerList = std::make_shared<SLE>(ksl);
-        signerList->setFieldArray(sfSignerEntries, *setSignerEntries);
-        view().insert(signerList);
-    } 
-    else if (setRegularKey)
+    if (setRegularKey)
     {
-        JLOG(ctx_.journal.warn()) << "set regular key";
+        JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey " << *setRegularKey << " acc: " << id;
         sle->setAccountID(sfRegularKey, *setRegularKey);
     }
 
     if (create)
     {
-        JLOG(ctx_.journal.warn()) << "create";
+        JLOG(ctx_.journal.trace()) << "Import: creating account " << id;
         if (!signedWithMaster)
         {
             // disable master if the account is created using non-master key
-            JLOG(ctx_.journal.warn()) << "create - disable master";
+            JLOG(ctx_.journal.warn()) << "Import: keying of " << id << " is unclear - disable master";
             sle->setAccountID(sfRegularKey, noAccount());
             sle->setFieldU32(sfFlags, lsfDisableMaster);
         }
@@ -1050,22 +1102,12 @@ Import::doApply()
     else
     {
         // account already exists
-        JLOG(ctx_.journal.warn()) << "update - import sequence";
+        JLOG(ctx_.journal.trace()) << "Import: updating existing account " << id;
         sle->setFieldU32(sfImportSequence, importSequence);
-
-        // credit the PoB
-        if (burn > beast::zero)
-        {
-            JLOG(ctx_.journal.warn()) << "update - credit burn";
-            STAmount startBal = sle->getFieldAmount(sfBalance);
-            STAmount finalBal = startBal + burn;
-            if (finalBal > startBal)
-                sle->setFieldAmount(sfBalance, finalBal);
-        }
+        sle->setFieldAmount(sfBalance, finalBal);
 
         view().update(sle);
     }
-
 
     // todo: manifest sequence needs to be recorded to prevent certain types of replay attack
     auto const infoVL = getVLInfo(*xpop, ctx_.journal);
@@ -1079,7 +1121,7 @@ Import::doApply()
     if (!sleVL)
     {
         // create VL import seq counter
-        JLOG(ctx_.journal.warn()) << "create vl seq - insert import sequence + public key";
+        JLOG(ctx_.journal.trace()) << "Import: create vl seq - insert import sequence + public key";
         sleVL = std::make_shared<SLE>(keyletVL);
         sleVL->setFieldU32(sfImportSequence, infoVL->first);
         sleVL->setFieldVL(sfPublicKey, infoVL->second.slice());
@@ -1087,7 +1129,7 @@ Import::doApply()
     }
     else
     {
-        JLOG(ctx_.journal.warn()) << "update vl - insert import sequence";
+        JLOG(ctx_.journal.trace()) << "Import: update vl";
         uint32_t current = sleVL->getFieldU32(sfImportSequence);
 
         if (current > infoVL->first)
@@ -1106,6 +1148,40 @@ Import::doApply()
             // it's the same sequence number so leave it be
         }
     }
+
+    /// this logic is executed last after the account might have already been created    
+    if (setSignerEntries)
+    {
+        JLOG(ctx_.journal.trace())
+            << "Import: actioning SignerListSet "
+            << "quorum: " << setSignerQuorum << " "
+            << "size: " << setSignerEntries->size();
+    
+        Sandbox sb(&view());
+        TER result = 
+        SetSignerList::replaceSignersFromLedger(
+            ctx_.app,
+            sb,
+            ctx_.journal,
+            id,
+            setSignerQuorum,
+            *setSignerEntries,
+            finalBal.xrp());
+
+        if (result == tesSUCCESS)
+        {
+            JLOG(ctx_.journal.trace())
+                << "Import: successful SignerListSet";
+            sb.apply(ctx_.rawView());
+        }
+        else
+        {
+            JLOG(ctx_.journal.warn())
+                << "Import: SetSignerList failed with code "
+                << result << " acc: " << id;
+        }
+    } 
+
 
     return tesSUCCESS;
 }
