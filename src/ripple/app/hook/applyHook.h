@@ -212,6 +212,7 @@ namespace hook_api
                                                         uint32_t read_ptr,  uint32_t read_len);
 
     DECLARE_HOOK_FUNCTION(int64_t,  meta_slot,          uint32_t slot_no );
+    DECLARE_HOOK_FUNCTION(int64_t,  xpop_slot,          uint32_t slot_no_tx, uint32_t slot_no_meta );
 
 /*
     DECLARE_HOOK_FUNCTION(int64_t,  str_find,           uint32_t hread_ptr, uint32_t hread_len,
@@ -661,6 +662,7 @@ namespace hook
             ADD_HOOK_FUNCTION(trace_float, ctx);
 
             ADD_HOOK_FUNCTION(meta_slot, ctx);
+            ADD_HOOK_FUNCTION(xpop_slot, ctx);
 
             /*
             ADD_HOOK_FUNCTION(str_find, ctx);

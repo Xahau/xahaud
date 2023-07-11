@@ -5508,6 +5508,69 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xpop_slot,
+    uint32_t slot_into_tx, uint32_t slot_into_meta )
+{
+    HOOK_SETUP();
+
+    if (applyCtx.tx.getFieldU16(sfTransactionType) != ttIMPORT)
+        return PREREQUISITE_NOT_MET;
+    
+    if (slot_into_tx > hook_api::max_slots || slot_into_meta > hook_api::max_slots)
+        return INVALID_ARGUMENT;
+
+    size_t free_count = hookCtx.slot_free.size();
+
+    size_t needed_count = 
+        slot_into_tx == 0 && slot_into_meta == 0 ? 2 : slot_into_tx != 0 && slot_into_meta != 0 ? 0 : 1; 
+
+    if (free_count < needed_count)
+        return NO_FREE_SLOTS;
+
+    if (slot_into_tx == 0)
+    {   
+        if (no_free_slots(hookCtx))
+            return NO_FREE_SLOTS;
+
+        if (auto found = get_free_slot(hookCtx); found)
+            slot_into_tx = *found;
+        else
+            return NO_FREE_SLOTS;
+    }
+
+    if (slot_into_meta == 0)
+    {   
+        if (no_free_slots(hookCtx))
+            return NO_FREE_SLOTS;
+
+        if (auto found = get_free_slot(hookCtx); found)
+            slot_into_meta = *found;
+        else
+            return NO_FREE_SLOTS;
+    }
+
+   auto [tx, meta] = Import::getInnerTxn(applyCtx.tx, j);
+
+    hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into_tx, hook::SlotEntry {
+            .storage = std::move(tx),
+            .entry = 0
+    }});
+
+    hookCtx.slot[slot_into_tx].entry = &(*hookCtx.slot[slot_into_tx].storage);
+
+    hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into_meta, hook::SlotEntry {
+            .storage = std::move(meta),
+            .entry = 0
+    }});
+
+    hookCtx.slot[slot_into_meta].entry = &(*hookCtx.slot[slot_into_meta].storage);
+
+    return (slot_into_tx << 16U) + slot_into_meta;
+    
+    HOOK_TEARDOWN();
+}
 /*
     
 DEFINE_HOOK_FUNCTION(

@@ -324,13 +324,13 @@ namespace hook_api
         {"otxn_type",{0x7EU}},
         {"otxn_slot",{0x7EU,0x7FU}},
         {"otxn_param",{0x7EU,0x7FU,0x7FU,0x7FU,0x7FU}},
-        {"meta_slot",{0x7EU,0x7FU}}        
+        {"meta_slot",{0x7EU,0x7FU}}
     };
 
     // featureHooks1
     static const std::map<std::string, std::vector<uint8_t>> import_whitelist_1
     {
-
+        {"xpop_slot",{0x7EU,0x7FU,0x7FU}}        
     };
 };
 #endif
