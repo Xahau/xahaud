@@ -346,5 +346,7 @@ util_verify(
     uint32_t sread_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
+
+extern int64_t xpop_slot(uint32_t, uint32_t);
 #define HOOK_EXTERN
 #endif  // HOOK_EXTERN

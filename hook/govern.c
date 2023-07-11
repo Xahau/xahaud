@@ -37,7 +37,6 @@
  *  
  *  Topics:
  *      'H[0-9]'    - Hook Hash in positions 0-9 <32 byte hash> on genesis
- *      'h[0-9]'    - Hook Hash in positions 0-9 <32 byte hash> on local L2 table (when applicable)
  *      'RR'        - reward rate  <le xfl 8 bytes>
  *      'RD'        - reward delay <le xfl 8 bytes>
  *      'S[0-19]'   - who is a governance member occupying that seat <20 byte accid>

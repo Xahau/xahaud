@@ -164,3 +164,6 @@ mint:
 		-Oz
 	hook-cleaner mint.wasm
 	guard_checker mint.wasm
+xpop:
+	wasmcc xpop.c -o xpop.wasm -Oz -Wl,--allow-undefined  -I../
+	hook-cleaner xpop.wasm

@@ -136,11 +136,7 @@ int out_len = 0;\
         *(((uint64_t*)(buf1)) + 0) == *(((uint64_t*)(buf2)) + 0) &&\
         *(((uint64_t*)(buf1)) + 1) == *(((uint64_t*)(buf2)) + 1) &&\
         *(((uint64_t*)(buf1)) + 2) == *(((uint64_t*)(buf2)) + 2) &&\
-        *(((uint64_t*)(buf1)) + 3) == *(((uint64_t*)(buf2)) + 3) &&\
-        *(((uint64_t*)(buf1)) + 4) == *(((uint64_t*)(buf2)) + 4) &&\
-        *(((uint64_t*)(buf1)) + 5) == *(((uint64_t*)(buf2)) + 5) &&\
-        *(((uint64_t*)(buf1)) + 6) == *(((uint64_t*)(buf2)) + 6) &&\
-        *(((uint64_t*)(buf1)) + 7) == *(((uint64_t*)(buf2)) + 7))
+        *(((uint64_t*)(buf1)) + 3) == *(((uint64_t*)(buf2)) + 3))
 
 
 // when using this macro buf1len may be dynamic but buf2len must be static
