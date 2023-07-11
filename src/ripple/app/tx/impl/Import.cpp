@@ -133,10 +133,17 @@ Import::preflight(PreflightContext const& ctx)
 
     if (tx.getFieldAmount(sfFee) != beast::zero)
     {
-        JLOG(ctx.j.warn())
-            << "Import: sfFee must be 0 "
-            << tx.getTransactionID();
-        return temMALFORMED;
+        if (tx.isFieldPresent(sfIssuer))
+        {
+            // pass. Import against a Hook does pay a fee
+        }
+        else
+        {
+            JLOG(ctx.j.warn())
+                << "Import: sfFee must be 0 "
+                << tx.getTransactionID();
+            return temMALFORMED;
+        }
     }
 
     if (tx.getFieldVL(sfBlob).size() > (512 * 1024))
@@ -273,6 +280,7 @@ Import::preflight(PreflightContext const& ctx)
         return telWRONG_NETWORK;
     }
 
+/*
     // ensure the inner txn is an accountset or signerlistset
     auto const tt = stpTrans->getTxnType();
 
@@ -283,6 +291,7 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
+*/
 
     // check if the inner transaction is signed using the same keying as the outer txn
     {
@@ -1189,8 +1198,11 @@ Import::doApply()
 XRPAmount
 Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    return XRPAmount { 0 } ;
-    // return Transactor::calculateBaseFee(view, tx);
+    return 
+        !view.exists(keylet::account(tx.getAccountID(sfAccount))) &&
+        !tx.isFieldPresent(sfIssuer) 
+            ? XRPAmount { 0 }
+            : Transactor::calculateBaseFee(view, tx);
 }
 
 }  // namespace ripple

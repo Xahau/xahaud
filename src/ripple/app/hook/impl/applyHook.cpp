@@ -75,6 +75,12 @@ namespace hook
 
         switch (tt)
         {
+            case ttIMPORT:
+            {
+                if (tx.isFieldPresent(sfIssuer))
+                    ADD_TSH(tx.getAccountID(sfIssuer), canRollback);
+                break;
+            }
 
             case ttURITOKEN_BURN:
             {

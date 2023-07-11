@@ -79,6 +79,7 @@ namespace hook
         {ttURITOKEN_BUY,                tshROLLBACK },
         {ttURITOKEN_CREATE_SELL_OFFER,  tshROLLBACK },
         {ttURITOKEN_CANCEL_SELL_OFFER,  tshNONE     },
+        {ttIMPORT,                      tshROLLBACK },
     };
 
 

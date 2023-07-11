@@ -403,8 +403,16 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     if (!sle)
     {
         if (ctx.tx.getTxnType() == ttIMPORT)
-            return tesSUCCESS;
-
+        {
+            if (!ctx.tx.isFieldPresent(sfIssuer))
+                return tesSUCCESS;
+            else
+            {
+                JLOG(ctx.j.warn())
+                    << "checkFee: "
+                    << "Import transaction that specifies an Issuer must have a fee and an existing account.";
+            }
+        }
         return terNO_ACCOUNT;
     }
 
@@ -555,7 +563,11 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
 
     auto const sle = ctx.view.read(keylet::account(id));
 
-    bool const isFirstImport = !sle && ctx.view.rules().enabled(featureImport) && ctx.tx.getTxnType() == ttIMPORT;
+    bool const isFirstImport = !sle &&
+        ctx.view.rules().enabled(featureImport) &&
+        ctx.tx.getTxnType() == ttIMPORT &&
+        !ctx.tx.isFieldPresent(sfIssuer);
+
     if (!sle && !isFirstImport)
     {
         JLOG(ctx.j.trace())
@@ -674,8 +686,11 @@ Transactor::apply()
 
     // sle must exist except for transactions
     // that allow zero account. (and ttIMPORT)
-    assert(sle != nullptr || account_ == beast::zero || 
-            view().rules().enabled(featureImport) && ctx_.tx.getTxnType() == ttIMPORT);
+    assert(sle != nullptr ||
+            account_ == beast::zero || 
+            view().rules().enabled(featureImport) &&
+            ctx_.tx.getTxnType() == ttIMPORT &&
+            !ctx_.tx.isFieldPresent(sfIssuer));
 
     if (sle)
     {
