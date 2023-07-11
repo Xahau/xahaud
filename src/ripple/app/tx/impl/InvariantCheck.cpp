@@ -196,7 +196,13 @@ XRPNotCreated::finalize(
             << " drops_: " << drops_ 
             << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
 
-        return (drops_ == dropsAdded.drops() - fee.drops());
+        int64_t drops = dropsAdded.drops() - fee.drops();
+
+        // catch any overflow or funny business
+        if (drops > dropsAdded.drops() || drops > fee.drops())
+            return false;
+
+        return drops_ == drops;
     }
     
 

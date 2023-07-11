@@ -1109,8 +1109,11 @@ validateGuards(
                 {
                     for (auto const& [import_idx, api_name] : usage->second)
                     {
-                        auto const& api_signature =  
-                            hook_api::import_whitelist.find(api_name)->second;
+
+                        auto const& api_signature = 
+                            hook_api::import_whitelist.find(api_name) != hook_api::import_whitelist.end()
+                                ? hook_api::import_whitelist.find(api_name)->second 
+                                : hook_api::import_whitelist_1.find(api_name)->second;
 
                         if (!first_signature)
                         {

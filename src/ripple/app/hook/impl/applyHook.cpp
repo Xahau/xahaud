@@ -5521,7 +5521,7 @@ DEFINE_HOOK_FUNCTION(
     if (slot_into_tx > hook_api::max_slots || slot_into_meta > hook_api::max_slots)
         return INVALID_ARGUMENT;
 
-    size_t free_count = hookCtx.slot_free.size();
+    size_t free_count = hook_api::max_slots - hookCtx.slot.size();
 
     size_t needed_count = 
         slot_into_tx == 0 && slot_into_meta == 0 ? 2 : slot_into_tx != 0 && slot_into_meta != 0 ? 0 : 1; 

@@ -280,19 +280,6 @@ Import::preflight(PreflightContext const& ctx)
         return telWRONG_NETWORK;
     }
 
-/*
-    // ensure the inner txn is an accountset or signerlistset
-    auto const tt = stpTrans->getTxnType();
-
-    if (tt != ttACCOUNT_SET && tt != ttSIGNER_LIST_SET && tt != ttREGULAR_KEY_SET)
-    {
-        JLOG(ctx.j.warn())
-            << "Import: inner txn must be an AccountSet, SetRegularKey or SignerListSet transaction. "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
-*/
-
     // check if the inner transaction is signed using the same keying as the outer txn
     {
         auto outer = tx.getSigningPubKey();
@@ -838,20 +825,6 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    /*
-     * RH TODO: put this in preclaim, place sequence on an unowned object
-    else if (sequence < listCollection.current.sequence)
-    {
-        return ListDisposition::stale;
-    }
-    else if (sequence == listCollection.current.sequence)
-        return ListDisposition::same_sequence;
-    */
-    //
-    // finally in preclaim check the sfImportSequence field on the account
-    // if it is less than the Account Sequence in the xpop then mint and
-    // update sfImportSequence
-
     // Duplicate / Sanity
     if (!stpTrans->isFieldPresent(sfSequence) ||
         !stpTrans->isFieldPresent(sfFee) ||
@@ -862,10 +835,17 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
+
+    if (stpTrans->getFieldAmount(sfFee) < beast::zero)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: xpop contained negative fee. "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+
     return preflight2(ctx);
 }
-
-// RH TODO: manifest serials should be kept on chain
 
 TER
 Import::preclaim(PreclaimContext const& ctx)
