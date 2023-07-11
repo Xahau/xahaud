@@ -479,6 +479,7 @@ extern SF_UINT256 const sfEscrowID;
 extern SF_UINT256 const sfURITokenID;
 extern SF_UINT256 const sfGovernanceFlags;
 extern SF_UINT256 const sfGovernanceMarks;
+extern SF_UINT256 const sfEmittedTxnID;
 
 // currency amount (common)
 extern SF_AMOUNT const sfAmount;
@@ -585,6 +586,7 @@ extern SField const sfHookParameter;
 extern SField const sfHookGrant;
 extern SField const sfActiveValidator;
 extern SField const sfImportVLKey;
+extern SField const sfHookEmission;
 
 // array of objects (common)
 // ARRAY/1 is reserved for end of array
@@ -611,6 +613,7 @@ extern SField const sfHookGrants;
 extern SField const sfGenesisMints;
 extern SField const sfActiveValidators;
 extern SField const sfImportVLKeys;
+extern SField const sfHookEmissions;
 
 //------------------------------------------------------------------------------
 

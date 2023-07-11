@@ -122,16 +122,34 @@ public:
         return *mHookExecutions;
     }
 
+    STArray const&
+    getHookEmissions() const
+    {
+        return *mHookEmissions;
+    }
+
     void
     setHookExecutions(STArray const& hookExecutions)
     {
         mHookExecutions = hookExecutions;
     }
 
+    void
+    setHookEmissions(STArray const& hookEmissions)
+    {
+        mHookEmissions = hookEmissions;
+    }
+
     bool
     hasHookExecutions() const
     {
         return static_cast<bool>(mHookExecutions);
+    }
+
+    bool
+    hasHookEmissions() const
+    {
+        return static_cast<bool>(mHookEmissions);
     }
 
     STAmount
@@ -155,6 +173,7 @@ private:
 
     std::optional<STAmount> mDelivered;
     std::optional<STArray> mHookExecutions;
+    std::optional<STArray> mHookEmissions;
 
     STArray mNodes;
 };

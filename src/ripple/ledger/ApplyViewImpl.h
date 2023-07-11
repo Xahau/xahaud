@@ -79,9 +79,15 @@ public:
      * Takes ownership / use std::move
      */
     void
-    addHookMetaData(STObject&& hookExecution)
+    addHookExecutionMetaData(STObject&& hookExecution)
     {
         hookExecution_.push_back(std::move(hookExecution));
+    }
+
+    void
+    addHookEmissionMetaData(STObject&& hookEmission)
+    {
+        hookEmission_.push_back(std::move(hookEmission));
     }
 
     void
@@ -122,6 +128,7 @@ public:
 private:
     std::optional<STAmount> deliver_;
     std::vector<STObject> hookExecution_;
+    std::vector<STObject> hookEmission_;
 };
 
 }  // namespace ripple

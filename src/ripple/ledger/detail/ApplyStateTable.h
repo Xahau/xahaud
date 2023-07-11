@@ -74,6 +74,7 @@ public:
         STTx const& tx,
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
+        std::vector<STObject> const& hookEmission,
         beast::Journal j);
     
     void
@@ -83,6 +84,7 @@ public:
         TER ter,
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
+        std::vector<STObject> const& hookEmission,
         beast::Journal j);
 
     bool

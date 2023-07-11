@@ -1745,8 +1745,9 @@ finalizeHookResult(
     ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(applyCtx.view());
 
     uint16_t exec_index = avi.nextHookExecutionIndex();
-    uint16_t emission_count = 0;
     // apply emitted transactions to the ledger (by adding them to the emitted directory) if we are allowed to
+    std::vector<uint256> emission_txnid;
+
     if (doEmit)
     {
         DBG_PRINTF("emitted txn count: %d\n", hookResult.emittedTxn.size());
@@ -1766,7 +1767,7 @@ finalizeHookResult(
 
             if (!sleEmitted)
             {
-                ++emission_count;
+                emission_txnid.push_back(id);
                 sleEmitted = std::make_shared<SLE>(emittedId);
 
                 // RH TODO: add a new constructor to STObject to avoid this serder thing            
@@ -1801,24 +1802,39 @@ finalizeHookResult(
     }
 
     // add a metadata entry for this hook execution result
-    STObject meta { sfHookExecution };
-    meta.setFieldU8(sfHookResult, hookResult.exitType );
-    meta.setAccountID(sfHookAccount, hookResult.account);
+    {
+        STObject meta { sfHookExecution };
+        meta.setFieldU8(sfHookResult, hookResult.exitType );
+        meta.setAccountID(sfHookAccount, hookResult.account);
 
-    // RH NOTE: this is probably not necessary, a direct cast should always put the (negative) 1 bit at the MSB
-    // however to ensure this is consistent across different arch/compilers it's done explicitly here.
-    uint64_t unsigned_exit_code =
-        ( hookResult.exitCode >= 0 ? hookResult.exitCode :
-            0x8000000000000000ULL + (-1 * hookResult.exitCode ));
+        // RH NOTE: this is probably not necessary, a direct cast should always put the (negative) 1 bit at the MSB
+        // however to ensure this is consistent across different arch/compilers it's done explicitly here.
+        uint64_t unsigned_exit_code =
+            ( hookResult.exitCode >= 0 ? hookResult.exitCode :
+                0x8000000000000000ULL + (-1 * hookResult.exitCode ));
 
-    meta.setFieldU64(sfHookReturnCode, unsigned_exit_code);
-    meta.setFieldVL(sfHookReturnString, ripple::Slice{hookResult.exitReason.data(), hookResult.exitReason.size()});
-    meta.setFieldU64(sfHookInstructionCount, hookResult.instructionCount);
-    meta.setFieldU16(sfHookEmitCount, emission_count); // this will never wrap, hard limit
-    meta.setFieldU16(sfHookExecutionIndex, exec_index );
-    meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount );
-    meta.setFieldH256(sfHookHash, hookResult.hookHash);
-    avi.addHookMetaData(std::move(meta));
+        meta.setFieldU64(sfHookReturnCode, unsigned_exit_code);
+        meta.setFieldVL(sfHookReturnString, ripple::Slice{hookResult.exitReason.data(), hookResult.exitReason.size()});
+        meta.setFieldU64(sfHookInstructionCount, hookResult.instructionCount);
+        meta.setFieldU16(sfHookEmitCount, emission_txnid.size()); // this will never wrap, hard limit
+        meta.setFieldU16(sfHookExecutionIndex, exec_index );
+        meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount );
+        meta.setFieldH256(sfHookHash, hookResult.hookHash);
+        avi.addHookExecutionMetaData(std::move(meta));
+    }
+
+    // if any txns were emitted then add them to the HookEmissions
+    if (!emission_txnid.empty())
+    {
+        for (auto const& etxnid : emission_txnid)
+        {
+            STObject meta { sfHookEmission };
+            meta.setFieldH256(sfHookHash, hookResult.hookHash);
+            meta.setAccountID(sfHookAccount, hookResult.account);
+            meta.setFieldH256(sfEmittedTxnID, etxnid);
+            avi.addHookEmissionMetaData(std::move(meta));
+        }
+    }
 
     return tesSUCCESS;
 }

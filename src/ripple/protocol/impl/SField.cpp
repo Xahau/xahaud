@@ -232,6 +232,7 @@ CONSTRUCT_TYPED_SFIELD(sfEscrowID,              "EscrowID",             UINT256,
 CONSTRUCT_TYPED_SFIELD(sfURITokenID,            "URITokenID",           UINT256,   36);
 CONSTRUCT_TYPED_SFIELD(sfGovernanceFlags,       "GovernanceFlags",      UINT256,   99);
 CONSTRUCT_TYPED_SFIELD(sfGovernanceMarks,       "GovernanceMarks",      UINT256,   98);
+CONSTRUCT_TYPED_SFIELD(sfEmittedTxnID,          "EmittedTxnID",         UINT256,   97);
 
 // currency amount (common)
 CONSTRUCT_TYPED_SFIELD(sfAmount,                "Amount",               AMOUNT,     1);
@@ -341,6 +342,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfHookGrant,           "HookGrant",            OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMint,         "GenesisMint",          OBJECT,    96);
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidator,     "ActiveValidator",      OBJECT,    95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKey,         "ImportVLKey",          OBJECT,    94);
+CONSTRUCT_UNTYPED_SFIELD(sfHookEmission,        "HookEmission",         OBJECT,    93);
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array
@@ -361,6 +363,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfDisabledValidators,  "DisabledValidators",   ARRAY,  
 CONSTRUCT_UNTYPED_SFIELD(sfHookExecutions,      "HookExecutions",       ARRAY,     18);
 CONSTRUCT_UNTYPED_SFIELD(sfHookParameters,      "HookParameters",       ARRAY,     19);
 CONSTRUCT_UNTYPED_SFIELD(sfHookGrants,          "HookGrants",           ARRAY,     20);
+CONSTRUCT_UNTYPED_SFIELD(sfHookEmissions,       "HookEmissions",        ARRAY,     95);
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMints,        "GenesisMints",         ARRAY,     96);
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidators,    "ActiveValidators",     ARRAY,     95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKeys,        "ImportVLKeys",         ARRAY,     94);

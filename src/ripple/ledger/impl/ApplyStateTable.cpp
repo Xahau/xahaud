@@ -117,6 +117,7 @@ ApplyStateTable::generateTxMeta(
     STTx const& tx,
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
+    std::vector<STObject> const& hookEmission,
     beast::Journal j)
 {
     TxMeta meta(tx.getTransactionID(), to.seq());
@@ -125,6 +126,9 @@ ApplyStateTable::generateTxMeta(
 
     if (!hookExecution.empty())
         meta.setHookExecutions(STArray{hookExecution, sfHookExecutions});
+
+    if (!hookEmission.empty())
+        meta.setHookEmissions(STArray{hookEmission, sfHookEmissions});
 
     Mods newMod;
     for (auto& item : items_)
@@ -257,6 +261,7 @@ ApplyStateTable::apply(
     TER ter,
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
+    std::vector<STObject> const& hookEmission,
     beast::Journal j)
 {
     // Build metadata and insert
@@ -268,7 +273,7 @@ ApplyStateTable::apply(
 
         // generate meta
         auto [meta, newMod] =
-            generateTxMeta(to, tx, deliver, hookExecution, j);
+            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
 
         // add any new modified nodes to the modification set
         for (auto& mod : newMod)

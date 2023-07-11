@@ -31,7 +31,7 @@ ApplyViewImpl::ApplyViewImpl(ReadView const* base, ApplyFlags flags)
 void
 ApplyViewImpl::apply(OpenView& to, STTx const& tx, TER ter, beast::Journal j)
 {
-    items_.apply(to, tx, ter, deliver_, hookExecution_, j);
+    items_.apply(to, tx, ter, deliver_, hookExecution_, hookEmission_, j);
 }
 
 TxMeta
@@ -39,7 +39,7 @@ ApplyViewImpl::
 generateProvisionalMeta(OpenView const& to, STTx const& tx, beast::Journal j)
 {
     auto [meta, _] =
-        items_.generateTxMeta(to, tx, deliver_, hookExecution_, j);
+        items_.generateTxMeta(to, tx, deliver_, hookExecution_, hookEmission_, j);
 
     return meta;
 }

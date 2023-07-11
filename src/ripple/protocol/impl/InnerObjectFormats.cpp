@@ -78,6 +78,14 @@ InnerObjectFormats::InnerObjectFormats()
             {sfHookEmitCount,           soeREQUIRED}
         });
 
+    add(sfHookEmission.jsonName.c_str(),
+        sfHookEmission.getCode(),
+        {
+            {sfHookHash,                soeREQUIRED},
+            {sfHookAccount,             soeREQUIRED},
+            {sfEmittedTxnID,            soeREQUIRED}
+        });
+
     add(sfHookDefinition.jsonName.c_str(),
         sfHookDefinition.getCode(),
         {

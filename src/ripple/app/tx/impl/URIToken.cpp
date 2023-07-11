@@ -213,6 +213,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (ctx.view.exists(
                     keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
                 return tecDUPLICATE;
+
+            // check if destination is specified, and if it is then check if it exists
+            if (ctx.tx.isFieldPresent(sfDestination) && 
+                !ctx.view.exists(keylet::account(ctx.tx.getAccountID(sfDestination))))
+                return tecNO_DST;
+
             return tesSUCCESS;
         }
 
@@ -370,7 +376,16 @@ URIToken::doApply()
                 return tecDUPLICATE;
 
             sleU = std::make_shared<SLE>(*kl);
-            sleU->setAccountID(sfOwner, account_);
+
+            AccountID dest = 
+                ctx_.tx.isFieldPresent(sfDestination)
+                ? ctx_.tx.getAccountID(sfDestination)
+                : account_;
+
+            if (!view().exists(keylet::account(dest)))
+                return tecNO_DST;
+
+            sleU->setAccountID(sfOwner, dest);
             sleU->setAccountID(sfIssuer, account_);
             sleU->setFieldVL(sfURI, ctx_.tx.getFieldVL(sfURI));
 
@@ -381,7 +396,7 @@ URIToken::doApply()
                 sleU->setFlag(tfBurnable);
 
             auto const page = view().dirInsert(
-                keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
+                keylet::ownerDir(dest), *kl, describeOwnerDir(dest));
 
             JLOG(j_.trace())
                 << "Adding URIToken to owner directory " << to_string(kl->key)

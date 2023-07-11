@@ -225,6 +225,9 @@ TxMeta::getAsObject() const
     if (hasHookExecutions())
         metaData.setFieldArray(sfHookExecutions, getHookExecutions());
 
+    if (hasHookEmissions())
+        metaData.setFieldArray(sfHookEmissions, getHookEmissions());
+
     return metaData;
 }
 
