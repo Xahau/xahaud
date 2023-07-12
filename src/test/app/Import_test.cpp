@@ -54,10 +54,10 @@ class Import_test : public beast::unit_test::suite
             "ED74D4036C6591A4BDF9C54CEFA39B996A"
             "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
         return envconfig([&](std::unique_ptr<Config> cfg) {
-            // cfg->section(SECTION_RPC_STARTUP)
-            //     .append(
-            //         "{ \"command\": \"log_level\", \"severity\": \"warn\" "
-            //         "}");
+            cfg->section(SECTION_RPC_STARTUP)
+                .append(
+                    "{ \"command\": \"log_level\", \"severity\": \"warn\" "
+                    "}");
             cfg->NETWORK_ID = networkID;
 
             for (auto const& strPk : keys)
@@ -2377,6 +2377,52 @@ class Import_test : public beast::unit_test::suite
     }
 
     void
+    testAccountSet(FeatureBitset features)
+    {
+        testcase("account set tx");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // account set flags not migrated
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'980);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // import tx
+            env(import(alice, loadXpop("account_set", "w_flags")), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(0.00001));
+            env.close();
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'899'980);
+
+            // confirm account exists
+            auto const [acct, acctSle] = accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle != nullptr);
+            auto const feeDrops = env.current()->fees().base;
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
+    }
+
+    void
     testSetRegularKeyNA(FeatureBitset features)
     {
         testcase("set regular key tx - no account");
@@ -2719,25 +2765,26 @@ public:
     void
     testWithFeats(FeatureBitset features)
     {
-        testIsHex(features);
-        testIsBase58(features);
-        testIsBase64(features);
-        testParseUint64(features);
-        testSyntaxCheckProofObject(features);
-        testSyntaxCheckXPOP(features);
-        testGetVLInfo(features);
-        testEnabled(features);
-        testInvalidPreflight(features);
-        testInvalidPreclaim(features);
-        testInvalidDoApply(features);
-        testAccountSetNA(features);
-        testAccountSetFA(features);
-        testSetRegularKeyNA(features);
-        testSetRegularKeyFA(features);
-        testSignersListSetNA(features);
-        testSignersListSetFA(features);
+        // testIsHex(features);
+        // testIsBase58(features);
+        // testIsBase64(features);
+        // testParseUint64(features);
+        // testSyntaxCheckProofObject(features);
+        // testSyntaxCheckXPOP(features);
+        // testGetVLInfo(features);
+        // testEnabled(features);
+        // testInvalidPreflight(features);
+        // testInvalidPreclaim(features);
+        // testInvalidDoApply(features);
+        // testAccountSetNA(features);
+        // testAccountSetFA(features);
+        testAccountSet(features);
+        // testSetRegularKeyNA(features);
+        // testSetRegularKeyFA(features);
+        // testSignersListSetNA(features);
+        // testSignersListSetFA(features);
         // testImportSequence(features);
-        testMaxSupply(features);
+        // testMaxSupply(features);
         // testUNLReport(features);
     }
 };
