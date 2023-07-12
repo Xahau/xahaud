@@ -1824,7 +1824,7 @@ finalizeHookResult(
     }
 
     // if any txns were emitted then add them to the HookEmissions
-    if (!emission_txnid.empty())
+    if (applyCtx.view().rules().enabled(featureHooksUpdate1) && !emission_txnid.empty())
     {
         for (auto const& etxnid : emission_txnid)
         {

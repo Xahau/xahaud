@@ -126,6 +126,9 @@ Import::preflight(PreflightContext const& ctx)
     if (!ctx.rules.enabled(featureImport))
         return temDISABLED;
 
+    if (!ctx.rules.enabled(featureHooksUpdate1) && ctx.tx.isFieldPresent(sfIssuer))
+        return temDISABLED;
+
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
@@ -1164,11 +1167,14 @@ Import::doApply()
 XRPAmount
 Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    return 
-        !view.exists(keylet::account(tx.getAccountID(sfAccount))) &&
-        !tx.isFieldPresent(sfIssuer) 
-            ? XRPAmount { 0 }
-            : Transactor::calculateBaseFee(view, tx);
+    if (!view.rules().enabled(featureHooksUpdate1))
+        return XRPAmount { 0 };
+
+    if (!view.exists(keylet::account(tx.getAccountID(sfAccount))) &&
+        !tx.isFieldPresent(sfIssuer))
+        return XRPAmount { 0 };
+
+    return Transactor::calculateBaseFee(view, tx);
 }
 
 }  // namespace ripple
