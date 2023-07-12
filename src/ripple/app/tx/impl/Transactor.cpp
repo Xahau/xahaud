@@ -1021,11 +1021,12 @@ std::pair<TER, XRPAmount>
 Transactor::reset(XRPAmount fee)
 {
     ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
-    std::vector<STObject> hookMeta;
-    avi.copyHookMetaData(hookMeta);
+    std::vector<STObject> executions;
+    std::vector<STObject> emissions;
+    avi.copyHookMetaData(executions, emissions);
     ctx_.discard();
     ApplyViewImpl& avi2 = dynamic_cast<ApplyViewImpl&>(ctx_.view());
-    avi2.setHookMetaData(std::move(hookMeta));
+    avi2.setHookMetaData(std::move(executions), std::move(emissions));
 
     auto const txnAcct =
         view().peek(keylet::account(ctx_.tx.getAccountID(sfAccount)));

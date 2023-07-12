@@ -91,15 +91,17 @@ public:
     }
 
     void
-    setHookMetaData(std::vector<STObject>&& vec)
+    setHookMetaData(std::vector<STObject>&& executions, std::vector<STObject>&& emissions)
     {
-        hookExecution_ = std::move(vec);
+        hookExecution_ = std::move(executions);
+        hookEmission_ = std::move(emissions);
     }
 
     void
-    copyHookMetaData(std::vector<STObject>& into)
+    copyHookMetaData(std::vector<STObject>& execution /* in */, std::vector<STObject>& emission /* in */)
     {
-        std::copy(hookExecution_.begin(), hookExecution_.end(), std::back_inserter(into));
+        std::copy(hookExecution_.begin(), hookExecution_.end(), std::back_inserter(execution));
+        std::copy(hookEmission_.begin(), hookEmission_.end(), std::back_inserter(emission));
     }
 
     uint16_t

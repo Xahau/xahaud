@@ -131,20 +131,6 @@ Import::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
-    if (tx.getFieldAmount(sfFee) != beast::zero)
-    {
-        if (tx.isFieldPresent(sfIssuer))
-        {
-            // pass. Import against a Hook does pay a fee
-        }
-        else
-        {
-            JLOG(ctx.j.warn())
-                << "Import: sfFee must be 0 "
-                << tx.getTransactionID();
-            return temMALFORMED;
-        }
-    }
 
     if (tx.getFieldVL(sfBlob).size() > (512 * 1024))
     {

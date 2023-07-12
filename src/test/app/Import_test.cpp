@@ -2582,6 +2582,7 @@ class Import_test : public beast::unit_test::suite
 
             auto const [signers, signersSle] =
                 signersKeyAndSle(*env.current(), alice);
+            BEAST_REQUIRE(!!signersSle);
             auto const signerEntries =
                 signersSle->getFieldArray(sfSignerEntries);
             BEAST_EXPECT(signerEntries.size() == 1);
