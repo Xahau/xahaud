@@ -127,7 +127,7 @@ enum TEMcodes : TERUnderlyingType {
     temSEQ_AND_TICKET,
     temBAD_NFTOKEN_TRANSFER_FEE,
 
-    temAMM_BAD_TOKENS,  // RESERVED - AMM
+    temBAD_AMM_TOKENS,
 
     temXCHAIN_EQUAL_DOOR_ACCOUNTS,                   // RESERVED - XCHAIN
     temXCHAIN_BAD_PROOF,                             // RESERVED - XCHAIN
@@ -224,7 +224,7 @@ enum TERcodes : TERUnderlyingType {
     terNO_RIPPLE,    // Rippling not allowed
     terQUEUED,       // Transaction is being held in TxQ until fee drops
     terPRE_TICKET,   // Ticket is not yet in ledger but might be on its way
-    terNO_AMM,       // RESERVED - AMM
+    terNO_AMM,       // AMM doesn't exist for the asset pair
     terNO_HOOK       // Transaction requires a non-existent hook definition
                      // (referenced by sfHookHash)
 };
@@ -315,13 +315,11 @@ enum TECcodes : TERUnderlyingType {
     tecINSUFFICIENT_FUNDS = 159,
     tecOBJECT_NOT_FOUND = 160,
     tecINSUFFICIENT_PAYMENT = 161,
-    tecAMM_UNFUNDED = 162,         // RESERVED - AMM
-    tecAMM_BALANCE = 163,          // RESERVED - AMM
-    tecAMM_FAILED_DEPOSIT = 164,   // RESERVED - AMM
-    tecAMM_FAILED_WITHDRAW = 165,  // RESERVED - AMM
-    tecAMM_INVALID_TOKENS = 166,   // RESERVED - AMM
-    tecAMM_FAILED_BID = 167,       // RESERVED - AMM
-    tecAMM_FAILED_VOTE = 168,      // RESERVED - AMM
+    tecUNFUNDED_AMM = 162,
+    tecAMM_BALANCE = 163,
+    tecAMM_FAILED = 164,
+    tecAMM_INVALID_TOKENS = 165,
+    // 166-168: free
     tecREQUIRES_FLAG = 169,
     tecPRECISION_LOSS = 170,
     tecBAD_XCHAIN_TRANSFER_ISSUE = 171,           // RESERVED - XCHAIN

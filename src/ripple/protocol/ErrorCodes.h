@@ -145,7 +145,10 @@ enum error_code_i {
 
     rpcLEDGER_MISSING = 93,
 
-    rpcLAST = rpcLEDGER_MISSING  // rpcLAST should always equal the last code.=
+    // AMM
+    rpcISSUE_MALFORMED = 94,
+
+    rpcLAST = rpcISSUE_MALFORMED  // rpcLAST should always equal the last code.=
 };
 
 /** Codes returned in the `warnings` array of certain RPC commands.

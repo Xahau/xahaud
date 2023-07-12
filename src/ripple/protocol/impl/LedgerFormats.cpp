@@ -366,6 +366,19 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::AMM,
+        ltAMM,
+        {
+            {sfAccount, soeREQUIRED},
+            {sfTradingFee, soeDEFAULT},
+            {sfVoteSlots, soeOPTIONAL},
+            {sfAuctionSlot, soeOPTIONAL},
+            {sfLPTokenBalance, soeREQUIRED},
+            {sfAsset, soeREQUIRED},
+            {sfAsset2, soeREQUIRED}
+        },
+        commonFields);
+
     // clang-format on
 }
 

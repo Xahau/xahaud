@@ -142,6 +142,21 @@ enum TxType : std::uint16_t
     /** This transaction claws back issued tokens. */
     ttCLAWBACK = 30,
 
+    /** This transaction type creates an AMM instance */
+    ttAMM_CREATE = 35,
+
+    /** This transaction type deposits into an AMM instance */
+    ttAMM_DEPOSIT = 36,
+
+    /** This transaction type withdraws from an AMM instance */
+    ttAMM_WITHDRAW = 37,
+
+    /** This transaction type votes for the trading fee */
+    ttAMM_VOTE = 38,
+
+    /** This transaction type bids for the auction slot */
+    ttAMM_BID = 39,
+
     /** This transaction mints/burns/buys/sells a URI TOKEN */
     ttURITOKEN_MINT = 45,
     ttURITOKEN_BURN = 46,

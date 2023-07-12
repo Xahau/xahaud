@@ -26,6 +26,7 @@
 #include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/TestHelpers.h>
 
 namespace ripple {
 namespace test {
@@ -270,7 +271,7 @@ private:
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -279,7 +280,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(alice, alice, seq1), ter(tesSUCCESS));
+            env(cancel(alice, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -299,7 +300,7 @@ private:
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -308,7 +309,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(bob, alice, seq1), ter(tesSUCCESS));
+            env(cancel(bob, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -336,7 +337,7 @@ private:
         // create escrow
         NetClock::time_point const finishTime = env.now() + 1s;
         NetClock::time_point const cancelTime = env.now() + 2s;
-        auto createTx = escrow::create(alice, bob, XRP(10));
+        auto createTx = escrow(alice, bob, XRP(10));
         createTx[sfFinishAfter.jsonName] =
             finishTime.time_since_epoch().count();
         createTx[sfCancelAfter.jsonName] =
@@ -369,14 +370,14 @@ private:
             // create escrow
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
             env.close();
 
             // finish escrow
-            env(escrow::finish(alice, alice, seq1), ter(tesSUCCESS));
+            env(finish(alice, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -395,14 +396,14 @@ private:
             // create escrow
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
             env.close();
 
             // finish escrow
-            env(escrow::finish(bob, alice, seq1), ter(tesSUCCESS));
+            env(finish(bob, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch

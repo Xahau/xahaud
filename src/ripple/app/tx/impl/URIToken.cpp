@@ -533,7 +533,13 @@ URIToken::doApply()
 
                 // execute the funds transfer, we'll check reserves last
                 if (TER result = accountSend(
-                        sb, account_, *owner, purchaseAmount, j, false);
+                        sb,
+                        account_,
+                        *owner,
+                        purchaseAmount,
+                        j,
+                        WaiveTransferFee::No,
+                        false);
                     !isTesSuccess(result))
                     return result;
 

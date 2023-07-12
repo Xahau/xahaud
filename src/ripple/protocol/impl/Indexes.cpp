@@ -72,6 +72,7 @@ enum class LedgerNameSpace : std::uint16_t {
     URI_TOKEN = 'U',
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
+    AMM = 'A',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -441,6 +442,24 @@ uritoken(AccountID const& issuer, Blob const& uri)
         ltURI_TOKEN,
         indexHash(
             LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+}
+
+Keylet
+amm(Issue const& issue1, Issue const& issue2) noexcept
+{
+    auto const& [minI, maxI] = std::minmax(issue1, issue2);
+    return amm(indexHash(
+        LedgerNameSpace::AMM,
+        minI.account,
+        minI.currency,
+        maxI.account,
+        maxI.currency));
+}
+
+Keylet
+amm(uint256 const& id) noexcept
+{
+    return {ltAMM, id};
 }
 
 }  // namespace keylet

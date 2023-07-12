@@ -25,6 +25,7 @@
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <test/jtx/TestHelpers.h>
 
 #include <chrono>
 
@@ -33,16 +34,6 @@ namespace test {
 struct PayChan_test : public beast::unit_test::suite
 {
     FeatureBitset const disallowIncoming{featureDisallowIncoming};
-
-    static uint256
-    channel(
-        jtx::Account const& account,
-        jtx::Account const& dst,
-        std::uint32_t seqProxyValue)
-    {
-        auto const k = keylet::payChan(account, dst, seqProxyValue);
-        return k.key;
-    }
 
     static std::pair<uint256, std::shared_ptr<SLE const>>
     channelKeyAndSle(
@@ -84,22 +75,6 @@ struct PayChan_test : public beast::unit_test::suite
             authAmt.getCurrency(),
             authAmt.getIssuer());
         return sign(pk, sk, msg.slice());
-    }
-
-    static STAmount
-    channelBalance(ReadView const& view, uint256 const& chan)
-    {
-        auto const slep = view.read({ltPAYCHAN, chan});
-        if (!slep)
-            return XRPAmount{-1};
-        return (*slep)[sfBalance];
-    }
-
-    static bool
-    channelExists(ReadView const& view, uint256 const& chan)
-    {
-        auto const slep = view.read({ltPAYCHAN, chan});
-        return bool(slep);
     }
 
     static STAmount

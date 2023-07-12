@@ -561,8 +561,14 @@ Remit::doApply()
             }
 
             // action the transfer
-            if (TER result =
-                    accountSend(sb, srcAccID, dstAccID, amount, j, true);
+            if (TER result = accountSend(
+                    sb,
+                    srcAccID,
+                    dstAccID,
+                    amount,
+                    j,
+                    WaiveTransferFee::No,
+                    true);
                 !isTesSuccess(result))
                 return result;
         }

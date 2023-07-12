@@ -43,6 +43,8 @@ doAccountNamespace(RPC::JsonContext&);
 Json::Value
 doAccountTxJson(RPC::JsonContext&);
 Json::Value
+doAMMInfo(RPC::JsonContext&);
+Json::Value
 doBookOffers(RPC::JsonContext&);
 Json::Value
 doBookChanges(RPC::JsonContext&);

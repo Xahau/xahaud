@@ -45,6 +45,8 @@
 
 namespace ripple {
 
+enum class WaiveTransferFee { Yes, No };
+
 //------------------------------------------------------------------------------
 //
 // Observers
@@ -82,11 +84,33 @@ enum FreezeHandling { fhIGNORE_FREEZE, fhZERO_IF_FROZEN };
 isGlobalFrozen(ReadView const& view, AccountID const& issuer);
 
 [[nodiscard]] bool
+isIndividualFrozen(
+    ReadView const& view,
+    AccountID const& account,
+    Currency const& currency,
+    AccountID const& issuer);
+
+[[nodiscard]] inline bool
+isIndividualFrozen(
+    ReadView const& view,
+    AccountID const& account,
+    Issue const& issue)
+{
+    return isIndividualFrozen(view, account, issue.currency, issue.account);
+}
+
+[[nodiscard]] bool
 isFrozen(
     ReadView const& view,
     AccountID const& account,
     Currency const& currency,
     AccountID const& issuer);
+
+[[nodiscard]] inline bool
+isFrozen(ReadView const& view, AccountID const& account, Issue const& issue)
+{
+    return isFrozen(view, account, issue.currency, issue.account);
+}
 
 // Returns the amount an account can spend without going into debt.
 //
@@ -100,8 +124,16 @@ accountHolds(
     FreezeHandling zeroIfFrozen,
     beast::Journal j);
 
+[[nodiscard]] STAmount
+accountHolds(
+    ReadView const& view,
+    AccountID const& account,
+    Issue const& issue,
+    FreezeHandling zeroIfFrozen,
+    beast::Journal j);
+
 // Returns the amount an account can spend of the currency type saDefault, or
-// returns saDefault if this account is the issuer of the the currency in
+// returns saDefault if this account is the issuer of the currency in
 // question. Should be used in favor of accountHolds when questioning how much
 // an account can spend while also allowing currency issuers to spend
 // unlimited amounts of their own currency (since they can always issue more).
@@ -114,7 +146,7 @@ accountFunds(
     beast::Journal j);
 
 // Return the account's liquid (not reserved) XRP.  Generally prefer
-// calling accountHolds() over this interface.  However this interface
+// calling accountHolds() over this interface.  However, this interface
 // allows the caller to temporarily adjust the owner count should that be
 // necessary.
 //
@@ -396,6 +428,7 @@ accountSend(
     AccountID const& to,
     const STAmount& saAmount,
     beast::Journal j,
+    WaiveTransferFee waiveFee = WaiveTransferFee::No,
     bool const senderPaysXferFees = true);
 
 [[nodiscard]] TER
@@ -1061,6 +1094,13 @@ trustTransferLockedBalance(
     }
     return tesSUCCESS;
 }
+
+/** Check if the account requires authorization.
+ *   Return tecNO_AUTH or tecNO_LINE if it does
+ *   and tesSUCCESS otherwise.
+ */
+[[nodiscard]] TER
+requireAuth(ReadView const& view, Issue const& issue, AccountID const& account);
 }  // namespace ripple
 
 #endif

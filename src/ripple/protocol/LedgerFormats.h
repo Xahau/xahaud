@@ -179,6 +179,12 @@ enum LedgerEntryType : std::uint16_t
      */
     ltUNL_REPORT = 0x0052, 
 
+    /** The ledger object which tracks the AMM.
+
+       \sa keylet::amm
+    */
+    ltAMM = 0x0079,
+
     //---------------------------------------------------------------------------
     /** A special type, matching any ledger entry type.
 
@@ -289,7 +295,7 @@ enum LedgerSpecificFlags {
         0x80000000,
     lsfAMM [[maybe_unused]] = 0x0004000, // True, AMM account
     lsfAllowClawback =
-        0x00008000,               // True, enable clawback 
+        0x00008000,               // True, enable clawback
 
     // ltOFFER
     lsfPassive = 0x00010000,
@@ -304,6 +310,8 @@ enum LedgerSpecificFlags {
     lsfHighNoRipple = 0x00200000,
     lsfLowFreeze = 0x00400000,   // True, low side has set freeze flag
     lsfHighFreeze = 0x00800000,  // True, high side has set freeze flag
+    lsfAMMNode = 0x01000000,     // True, trust line to AMM. Used by client
+                                 // apps to identify payments via AMM.
 
     // ltSIGNER_LIST
     lsfOneOwnerCount = 0x00010000,  // True, uses only one OwnerCount

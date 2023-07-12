@@ -194,6 +194,26 @@ isGlobalFrozen(ReadView const& view, AccountID const& issuer)
     return false;
 }
 
+bool
+isIndividualFrozen(
+    ReadView const& view,
+    AccountID const& account,
+    Currency const& currency,
+    AccountID const& issuer)
+{
+    if (isXRP(currency))
+        return false;
+    if (issuer != account)
+    {
+        // Check if the issuer froze the line
+        auto const sle = view.read(keylet::line(account, issuer, currency));
+        if (sle &&
+            sle->isFlag((issuer > account) ? lsfHighFreeze : lsfLowFreeze))
+            return true;
+    }
+    return false;
+}
+
 // Can the specified account spend the specified currency issued by
 // the specified issuer or does the freeze flag prohibit it?
 bool
@@ -287,6 +307,18 @@ accountHolds(
 }
 
 STAmount
+accountHolds(
+    ReadView const& view,
+    AccountID const& account,
+    Issue const& issue,
+    FreezeHandling zeroIfFrozen,
+    beast::Journal j)
+{
+    return accountHolds(
+        view, account, issue.currency, issue.account, zeroIfFrozen, j);
+}
+
+STAmount
 accountFunds(
     ReadView const& view,
     AccountID const& id,
@@ -365,15 +397,17 @@ xrpLiquid(
     std::uint32_t const ownerCount = confineOwnerCount(
         view.ownerCountHook(id, sle->getFieldU32(sfOwnerCount)), ownerCountAdj);
 
-    auto const reserve = view.fees().accountReserve(ownerCount);
+    // AMMs have no reserve requirement
+    auto const reserve = (sle->getFlags() & lsfAMM)
+        ? XRPAmount{0}
+        : view.fees().accountReserve(ownerCount);
 
     auto const fullBalance = sle->getFieldAmount(sfBalance);
 
     auto const balance = view.balanceHook(id, xrpAccount(), fullBalance);
 
-    STAmount amount = balance - reserve;
-    if (balance < reserve)
-        amount.clear();
+    STAmount const amount =
+        (balance < reserve) ? STAmount{0} : balance - reserve;
 
     JLOG(j.trace()) << "accountHolds:"
                     << " account=" << to_string(id)
@@ -1158,6 +1192,7 @@ rippleSend(
     STAmount const& saAmount,
     STAmount& saActual,
     beast::Journal j,
+    WaiveTransferFee waiveFee,
     bool const senderPaysXferFees)
 {
     auto const issuer = saAmount.getIssuer();
@@ -1182,11 +1217,16 @@ rippleSend(
     // Calculate the amount to transfer accounting
     // for any transfer fees:
 
+    assert(waiveFee == WaiveTransferFee::No || senderPaysXferFees == true);
+
     STAmount senderPays = saAmount;
     STAmount destReceives = saAmount;
     if (senderPaysXferFees)
     {
-        senderPays = multiply(saAmount, transferRate(view, issuer));
+        // for any transfer fees if the fee is not waived:
+        senderPays = (waiveFee == WaiveTransferFee::Yes)
+            ? saAmount
+            : multiply(saAmount, transferRate(view, issuer));
         saActual = senderPays;
     }
     else
@@ -1216,6 +1256,7 @@ accountSend(
     AccountID const& uReceiverID,
     STAmount const& saAmount,
     beast::Journal j,
+    WaiveTransferFee waiveFee,
     bool const senderPaysXferFees)
 {
     assert(saAmount >= beast::zero);
@@ -1241,6 +1282,7 @@ accountSend(
             saAmount,
             saActual,
             j,
+            waiveFee,
             senderPaysXferFees);
     }
 
@@ -1579,6 +1621,26 @@ transferXRP(
     receiver->setFieldAmount(
         sfBalance, receiver->getFieldAmount(sfBalance) + amount);
     view.update(receiver);
+
+    return tesSUCCESS;
+}
+
+TER
+requireAuth(ReadView const& view, Issue const& issue, AccountID const& account)
+{
+    if (isXRP(issue) || issue.account == account)
+        return tesSUCCESS;
+    if (auto const issuerAccount = view.read(keylet::account(issue.account));
+        issuerAccount && (*issuerAccount)[sfFlags] & lsfRequireAuth)
+    {
+        if (auto const trustLine =
+                view.read(keylet::line(account, issue.account, issue.currency)))
+            return ((*trustLine)[sfFlags] &
+                    ((account > issue.account) ? lsfLowAuth : lsfHighAuth))
+                ? tesSUCCESS
+                : TER{tecNO_AUTH};
+        return TER{tecNO_LINE};
+    }
 
     return tesSUCCESS;
 }
