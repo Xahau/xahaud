@@ -398,6 +398,7 @@ TxFormats::TxFormats()
         {
             {sfURI, soeREQUIRED},
             {sfDigest, soeOPTIONAL},
+            {sfAmount, soeOPTIONAL},
             {sfDestination, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
         },

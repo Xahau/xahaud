@@ -5567,7 +5567,10 @@ DEFINE_HOOK_FUNCTION(
             return NO_FREE_SLOTS;
     }
 
-   auto [tx, meta] = Import::getInnerTxn(applyCtx.tx, j);
+    auto [tx, meta] = Import::getInnerTxn(applyCtx.tx, j);
+
+    if (!tx || !meta)
+        return INVALID_TXN;
 
     hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into_tx, hook::SlotEntry {
             .storage = std::move(tx),
