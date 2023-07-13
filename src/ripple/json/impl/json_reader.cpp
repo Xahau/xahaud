@@ -30,8 +30,6 @@ namespace Json {
 // Implementation of class Reader
 // ////////////////////////////////
 
-constexpr unsigned Reader::nest_limit;
-
 static std::string
 codePointToUTF8(unsigned int cp)
 {
