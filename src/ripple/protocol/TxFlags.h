@@ -92,7 +92,7 @@ enum AccountFlags : uint32_t {
     asfDisallowIncomingPayChan = 14,
     asfDisallowIncomingTrustline = 15,
     asfDisallowIncomingRemit = 16,
-    asfAllowClawback = 17,
+    asfAllowTrustLineClawback = 17,
 };
 
 // OfferCreate flags:

@@ -100,7 +100,8 @@ doAccountInfo(RPC::JsonContext& context)
                  {"disallowIncomingRemit", lsfDisallowIncomingRemit}}};
 
     static constexpr std::pair<std::string_view, LedgerSpecificFlags>
-        allowClawbackFlag{"allowClawback", lsfAllowClawback};
+        allowTrustLineClawbackFlag{
+            "allowTrustLineClawback", lsfAllowTrustLineClawback};
 
     auto const sleAccepted = ledger->read(keylet::account(accountID));
     if (sleAccepted)
@@ -131,8 +132,8 @@ doAccountInfo(RPC::JsonContext& context)
         }
 
         if (ledger->rules().enabled(featureClawback))
-            acctFlags[allowClawbackFlag.first.data()] =
-                sleAccepted->isFlag(allowClawbackFlag.second);
+            acctFlags[allowTrustLineClawbackFlag.first.data()] =
+                sleAccepted->isFlag(allowTrustLineClawbackFlag.second);
 
         result[jss::account_flags] = std::move(acctFlags);
 
