@@ -21,18 +21,22 @@
  *  There may be multiple L2 tables.
  *
  *  Hook Parameters:
+ *
+ *      // both table types uses these parameters V
+ *
  *      Parameter Name: {'I', 'M', 'C'}
  *      Parameter Value: Initial Member Count <1 byte>
+ *
+ *      Parameter Name:  {'I', 'S', '\0'}
+ *      Parameter Value: Initial seat #0's member's 20 byte Account ID.
+ *
+ *      // only L1 table uses these parameters V
  *
  *      Parameter Name: {'I', 'R', 'R'}
  *      Parameter Value: Initial Reward Rate <8 byte XFL fraction between 0 and 1, LE>
  *
  *      Parameter Name: {'I', 'R', 'D'}
  *      Parameter Value: Initial Reward Delay <8 byte LE int seconds between rewards>
- *
- *      Parameter Name:  {'I', 'S', '\0'}
- *      Parameter Value: Initial seat #0's member's 20 byte Account ID.
- *
  *      ...
  *  
  *  Topics:
@@ -46,10 +50,10 @@
  *      State Data: Current member count <1 byte>
  *
  *      State Key: {0..0, 'R', 'R'}
- *      State Data: Current reward rate <8 byte LE XFL>
+ *      State Data: Current reward rate <8 byte LE XFL> (L1 table only)
  *
  *      State Key: {0..0, 'R', 'D'}
- *      State Data: Current reward delay <8 byte LE int>
+ *      State Data: Current reward delay <8 byte LE int> (L1 table only)
  *
  *      State Key: {0..0, '\0 + seat id'}
  *      State Data: 20 byte account ID for the member who occupies this seat. If absent unoccupied.
@@ -57,10 +61,10 @@
  *      State Key: {0..0, <20 byte account id>}
  *      State Data: Seat number this member occupies <1 byte>
  *
- *      State Key: {'V', 'H|R|S' <topic type>, '\0 + topic id', 0..0, <member accid>}
+ *      State Key: {'V', 'H|R|S' <topic type>, '\0 + topic id', <layer>,  0..0, <member accid>}
  *      State Data: A vote by a member for a topic and topic data
  *
- *      State Key: {'C', 'H|R|S' <topic type>, '\0 + topic id', 0*, <front truncated topic data>}
+ *      State Key: {'C', 'H|R|S' <topic type>, '\0 + topic id', <layer>, 0*, <front truncated topic data>}
  *      State Data: The number of members who have voted for that topic data and topic combination <1 byte>
  *
  *  Hook Invocation:
@@ -72,7 +76,7 @@
  *              Behaviour: Vote on a topic, if the votes meet the topic vote threshold, action the topic.
  *  
  *              Parameter Name: {'L'}
- *              Parameter Value: Which layer the vote is inteded for
+ *              Parameter Value: Which layer the vote is inteded for (ONLY L2 TABLES USE THIS PARAMETER)
  *                  { '1' a vote cast by an L2 member about an L1 topic }, or
  *                  { '2' a vote cast by an L2 member about an L2 topic }
  *
@@ -156,20 +160,23 @@ int64_t hook(uint32_t r)
         if (imc > SEAT_COUNT)
             NOPE("Governance: Initial Member Count must be <= Seat Count (20).");
 
-        if (hook_param(SVAR(irr), "IRR", 3) < 0)
-            NOPE("Governance: Initial Reward Rate Parameter missing (IRR).");
-
-        if (hook_param(SVAR(ird), "IRD", 3) < 0)
-            NOPE("Governance: Initial Reward Delay Parameter miss (IRD).");
+        if (is_L1_table)
+        {
+            if (hook_param(SVAR(irr), "IRR", 3) < 0)
+                NOPE("Governance: Initial Reward Rate Parameter missing (IRR).");
+    
+            if (hook_param(SVAR(ird), "IRD", 3) < 0)
+                NOPE("Governance: Initial Reward Delay Parameter miss (IRD).");
         
-        if (ird == 0)
-            NOPE("Governance: Initial Reward Delay must be > 0.");
+            if (ird == 0)
+                NOPE("Governance: Initial Reward Delay must be > 0.");
         
-        // set reward rate
-        ASSERT(state_set(SVAR(irr), "RR", 2));
+            // set reward rate
+            ASSERT(state_set(SVAR(irr), "RR", 2));
 
-        // set reward delay
-        ASSERT(state_set(SVAR(ird), "RD", 2));
+            // set reward delay
+            ASSERT(state_set(SVAR(ird), "RD", 2));
+        }
 
         // set member count
         ASSERT(state_set(SBUF(imc), "MC", 2));
@@ -336,7 +343,9 @@ int64_t hook(uint32_t r)
         TRACEVAR(member_count);
         trace(SBUF("topic"), topic, 2, 1);
     }
-    
+   
+    // this flag is used to determine if a L2 table should send a "nulling" vote to remove its existing vote
+    // from the L1 table it sits at. 
     int64_t lost_majority = 0;
 
     int64_t q80 = member_count * 0.8;

@@ -1023,7 +1023,7 @@ Import::doApply()
     bool const create = !sle;
 
     // compute the amount they receive first because the amount is maybe needed for computing setsignerlist later
-    STAmount startBal = create ? STAmount(INITIAL_IMPORT_XRP) : sle->getFieldAmount(sfBalance);
+    STAmount startBal = create ? STAmount(computeStartingBonus(view())) : sle->getFieldAmount(sfBalance);
     STAmount finalBal = startBal + burn;
 
     // this should never happen

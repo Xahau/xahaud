@@ -169,7 +169,7 @@ XRPNotCreated::finalize(
             : beast::zero;                              // if the txn didnt burn a fee we add nothing
 
         if (accountsCreated_ == 1)
-                dropsAdded += Import::INITIAL_IMPORT_XRP;    // welcome amount for new imports
+                dropsAdded += Import::computeStartingBonus(view);
 
         JLOG(j.trace())
             << "Invariant XRPNotCreated Import: "
