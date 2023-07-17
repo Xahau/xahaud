@@ -45,6 +45,9 @@ transResults()
         MAKE_ERROR(tecAMM_BALANCE,                   "AMM has invalid balance."),
         MAKE_ERROR(tecAMM_INVALID_TOKENS,            "AMM invalid LP tokens."),
         MAKE_ERROR(tecAMM_FAILED,                    "AMM transaction failed."),
+        MAKE_ERROR(tecAMM_EMPTY,                     "AMM is in empty state."),
+        MAKE_ERROR(tecAMM_NOT_EMPTY,                 "AMM is not in empty state."),
+        MAKE_ERROR(tecAMM_ACCOUNT,                   "This operation is not allowed on an AMM Account."),
         MAKE_ERROR(tecCLAIM,                         "Fee claimed. Sequence used. No action."),
         MAKE_ERROR(tecDIR_FULL,                      "Can not add entry to full directory."),
         MAKE_ERROR(tecFAILED_PROCESSING,             "Failed to correctly process transaction."),
@@ -98,6 +101,8 @@ transResults()
         MAKE_ERROR(tecINSUF_RESERVE_SELLER,          "The seller of an object has insufficient reserves, and thus cannot complete the sale."),
         MAKE_ERROR(tecIMMUTABLE,                     "The remark is marked immutable on the object, and therefore cannot be updated."),
         MAKE_ERROR(tecTOO_MANY_REMARKS,              "The number of remarks on the object would exceed the limit of 32."),
+        MAKE_ERROR(tecINCOMPLETE,                    "Some work was completed, but more submissions required to finish."),
+
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),
         MAKE_ERROR(tefBAD_AUTH,                    "Transaction's public key is not authorized."),

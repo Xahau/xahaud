@@ -105,6 +105,7 @@ TxFormats::TxFormats()
             {sfEPrice, soeOPTIONAL},
             {sfLPTokenOut, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
+            {sfTradingFee, soeOPTIONAL},
         },
         commonFields);
 
@@ -139,6 +140,15 @@ TxFormats::TxFormats()
             {sfBidMin, soeOPTIONAL},
             {sfBidMax, soeOPTIONAL},
             {sfAuthAccounts, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::AMMDelete,
+        ttAMM_DELETE,
+        {
+            {sfAsset, soeREQUIRED},
+            {sfAsset2, soeREQUIRED},
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);

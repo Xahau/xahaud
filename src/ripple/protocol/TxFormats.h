@@ -157,6 +157,9 @@ enum TxType : std::uint16_t
     /** This transaction type bids for the auction slot */
     ttAMM_BID = 39,
 
+    /** This transaction type deletes AMM in the empty state */
+    ttAMM_DELETE = 40,
+
     /** This transaction mints/burns/buys/sells a URI TOKEN */
     ttURITOKEN_MINT = 45,
     ttURITOKEN_BURN = 46,

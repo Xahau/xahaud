@@ -293,7 +293,7 @@ enum LedgerSpecificFlags {
         0x40000000,               // True, has minted tokens in the past
     lsfDisallowIncomingRemit =    // True, no remits allowed to this account
         0x80000000,
-    lsfAMM [[maybe_unused]] = 0x0004000, // True, AMM account
+    // 0x0004000 is available
     lsfAllowTrustLineClawback =
         0x00008000,               // True, enable clawback
 

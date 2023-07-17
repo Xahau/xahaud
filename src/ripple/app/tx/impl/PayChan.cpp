@@ -319,7 +319,7 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
             ((*sled)[sfFlags] & lsfDisallowXRP))
             return tecNO_TARGET;
 
-        if (flags & lsfAMM)
+        if (sled->isFieldPresent(sfAMMID))
             return tecNO_PERMISSION;
     }
 

@@ -23,7 +23,6 @@
 #include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
-#include <test/jtx/TestHelpers.h>
 
 namespace ripple {
 
