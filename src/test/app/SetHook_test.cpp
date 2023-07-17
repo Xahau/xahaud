@@ -2347,7 +2347,7 @@ public:
         {    
             auto const ledger = env.closed();
             int txcount = 0;
-            for (auto& i : ledger->txs)
+            for ([[maybe_unused]] auto& i : ledger->txs)
                 txcount++;
             BEAST_EXPECT(txcount == 0);
         }
