@@ -957,7 +957,6 @@ Import::doApply()
     std::vector<ripple::SignerEntries::SignerEntry>> setSignerEntries;
     uint32_t setSignerQuorum { 0 };
     std::optional<AccountID> setRegularKey;
-    bool hasRegularKey;
     auto const signingKey = ctx_.tx.getSigningPubKey();
     bool const signedWithMaster = !signingKey.empty() && calcAccountID(PublicKey(makeSlice(signingKey))) == id;
 
@@ -1017,8 +1016,9 @@ Import::doApply()
         else if (tt == ttREGULAR_KEY_SET)
         {
             // key import: regular key
-            setRegularKey = stpTrans->getAccountID(sfRegularKey);
-            hasRegularKey = stpTrans->isFieldPresent(sfRegularKey);
+            setRegularKey = stpTrans->isFieldPresent(sfRegularKey) 
+                ? stpTrans->getAccountID(sfRegularKey) 
+                : noAccount();
         }
     }
 
@@ -1036,17 +1036,22 @@ Import::doApply()
         return tefINTERNAL;
     }
 
-    if (tt == ttREGULAR_KEY_SET)
+    if (setRegularKey)
     {
-        if (hasRegularKey)
+        if (*setRegularKey == noAccount())
         {
-            JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey " << *setRegularKey << " acc: " << id;
-            sle->setAccountID(sfRegularKey, *setRegularKey);
+            if (sle->isFieldPresent(sfRegularKey))
+            {
+                JLOG(ctx_.journal.warn()) << "Import: clearing SetRegularKey "
+                                          << " acc: " << id;
+                sle->makeFieldAbsent(sfRegularKey);
+            }
         }
         else
         {
-            JLOG(ctx_.journal.warn()) << "Import: clearing SetRegularKey " << " acc: " << id;
-            sle->makeFieldAbsent(sfRegularKey);
+            JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey "
+                                      << *setRegularKey << " acc: " << id;
+            sle->setAccountID(sfRegularKey, *setRegularKey);
         }
     }
 
