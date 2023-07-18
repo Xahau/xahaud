@@ -22,6 +22,7 @@
 #include <ripple/protocol/Rules.h>
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/STObject.h>
+#include <ripple/protocol/STTx.h>
 #include <cstdint>
 #include <optional>
 
@@ -65,5 +66,84 @@ SignerEntries::deserialize(
     }
     return accountVec;
 }
+
+std::tuple<
+    NotTEC,
+    std::uint32_t,
+    std::vector<SignerEntries::SignerEntry>,
+    SignerEntries::Operation>
+SignerEntries::determineOperation(
+    STTx const& tx,
+    ApplyFlags flags,
+    beast::Journal j)
+{
+    // Check the quorum.  A non-zero quorum means we're creating or replacing
+    // the list.  A zero quorum means we're destroying the list.
+    auto const quorum = tx[sfSignerQuorum];
+    std::vector<SignerEntries::SignerEntry> sign;
+    Operation op = unknown;
+
+    bool const hasSignerEntries(tx.isFieldPresent(sfSignerEntries));
+    if (quorum && hasSignerEntries)
+    {
+        auto signers = SignerEntries::deserialize(tx, j, "transaction");
+
+        if (!signers)
+            return std::make_tuple(signers.error(), quorum, sign, op);
+
+        std::sort(signers->begin(), signers->end());
+
+        // Save deserialized list for later.
+        sign = std::move(*signers);
+        op = set;
+    }
+    else if ((quorum == 0) && !hasSignerEntries)
+    {
+        op = destroy;
+    }
+
+    return std::make_tuple(tesSUCCESS, quorum, sign, op);
+}
+
+// NotTEC
+// SignerEntries::validateOperation(
+//     NotTEC const& ter, 
+//     std::uint32_t quorum, 
+//     std::vector<SignerEntries::SignerEntry> signers,
+//     SignerEntries::Operation op,
+//     STTx const& tx,
+//     beast::Journal j,
+//     Rules const& rules)
+// {
+    
+//     if (ter != tesSUCCESS)
+//         return ter;
+
+//     if (op == unknown)
+//     {
+//         // Neither a set nor a destroy.  Malformed.
+//         JLOG(j.trace())
+//             << "Malformed transaction: Invalid signer set list format.";
+//         return temMALFORMED;
+//     }
+
+//     if (op == set)
+//     {
+//         // Validate our settings.
+//         auto const account = tx.getAccountID(sfAccount);
+//         NotTEC const ter = validateQuorumAndSignerEntries(
+//             quorum,
+//             signers,
+//             account,
+//             j,
+//             rules);
+//         if (ter != tesSUCCESS)
+//         {
+//             return ter;
+//         }
+//     }
+
+//     return tesSUCCESS;
+// }
 
 }  // namespace ripple

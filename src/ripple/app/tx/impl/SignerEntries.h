@@ -28,6 +28,7 @@
 #include <ripple/protocol/TER.h>            // temMALFORMED
 #include <ripple/protocol/UintTypes.h>      // AccountID
 #include <optional>
+#include <vector>
 
 namespace ripple {
 
@@ -37,8 +38,13 @@ class STObject;
 // Support for SignerEntries that is needed by a few Transactors
 class SignerEntries
 {
+    
+
 public:
     explicit SignerEntries() = default;
+    // Values determined during preCompute for use later.
+    enum Operation { unknown, set, destroy };
+    Operation do_{unknown};
 
     struct SignerEntry
     {
@@ -74,6 +80,24 @@ public:
         STObject const& obj,
         beast::Journal journal,
         std::string const& annotation);
+
+    static std::tuple<
+        NotTEC,
+        std::uint32_t,
+        std::vector<SignerEntries::SignerEntry>,
+        Operation>
+    determineOperation(STTx const& tx, ApplyFlags flags, beast::Journal j);
+
+    // static NotTEC
+    // validateOperation(
+    //     NotTEC const& ter,
+    //     std::uint32_t quorum,
+    //     std::vector<SignerEntries::SignerEntry> signers,
+    //     SignerEntries::Operation op,
+    //     STTx const& tx,
+    //     beast::Journal j,
+    //     Rules const& rules
+    // );
 };
 
 }  // namespace ripple

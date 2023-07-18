@@ -957,6 +957,7 @@ Import::doApply()
     std::vector<ripple::SignerEntries::SignerEntry>> setSignerEntries;
     uint32_t setSignerQuorum { 0 };
     std::optional<AccountID> setRegularKey;
+    bool hasRegularKey;
     auto const signingKey = ctx_.tx.getSigningPubKey();
     bool const signedWithMaster = !signingKey.empty() && calcAccountID(PublicKey(makeSlice(signingKey))) == id;
 
@@ -967,6 +968,7 @@ Import::doApply()
     {
         if (tt == ttSIGNER_LIST_SET)
         {
+            // Determine Op & Validate
             if (stpTrans->isFieldPresent(sfSignerQuorum) &&
                 stpTrans->isFieldPresent(sfSignerEntries))
             {
@@ -1016,6 +1018,7 @@ Import::doApply()
         {
             // key import: regular key
             setRegularKey = stpTrans->getAccountID(sfRegularKey);
+            hasRegularKey = stpTrans->isFieldPresent(sfRegularKey);
         }
     }
 
@@ -1031,6 +1034,20 @@ Import::doApply()
         JLOG(ctx_.journal.warn())
             << "Import: logic error finalBal < startBal.";
         return tefINTERNAL;
+    }
+
+    if (tt == ttREGULAR_KEY_SET)
+    {
+        if (hasRegularKey)
+        {
+            JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey " << *setRegularKey << " acc: " << id;
+            sle->setAccountID(sfRegularKey, *setRegularKey);
+        }
+        else
+        {
+            JLOG(ctx_.journal.warn()) << "Import: clearing SetRegularKey " << " acc: " << id;
+            sle->makeFieldAbsent(sfRegularKey);
+        }
     }
 
     if (create)
@@ -1057,28 +1074,29 @@ Import::doApply()
         return tefINTERNAL;
     }
 
-    if (setRegularKey)
-    {
-        JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey " << *setRegularKey << " acc: " << id;
-        sle->setAccountID(sfRegularKey, *setRegularKey);
-    }
-
     if (create)
     {
-        JLOG(ctx_.journal.trace()) << "Import: creating account " << id;
+        // if the account is created using non-master key
         if (!signedWithMaster)
         {
-            // disable master if the account is created using non-master key
+            // set regular key to no account if not regular key tx
+            if (!setRegularKey)
+            {
+                sle->setAccountID(sfRegularKey, noAccount());
+            }
+            // disable master
             JLOG(ctx_.journal.warn()) << "Import: keying of " << id << " is unclear - disable master";
-            sle->setAccountID(sfRegularKey, noAccount());
             sle->setFieldU32(sfFlags, lsfDisableMaster);
+        }
+        if (setRegularKey)
+        {
+            sle->setFieldU32(sfFlags, lsfPasswordSpent);
         }
         view().insert(sle);
     }
     else
     {
         // account already exists
-        JLOG(ctx_.journal.trace()) << "Import: updating existing account " << id;
         sle->setFieldU32(sfImportSequence, importSequence);
         sle->setFieldAmount(sfBalance, finalBal);
 
@@ -1105,7 +1123,6 @@ Import::doApply()
     }
     else
     {
-        JLOG(ctx_.journal.trace()) << "Import: update vl";
         uint32_t current = sleVL->getFieldU32(sfImportSequence);
 
         if (current > infoVL->first)
@@ -1126,35 +1143,64 @@ Import::doApply()
     }
 
     /// this logic is executed last after the account might have already been created    
-    if (setSignerEntries)
+    if (tt == ttSIGNER_LIST_SET)
     {
-        JLOG(ctx_.journal.trace())
+        JLOG(ctx_.journal.warn())
             << "Import: actioning SignerListSet "
             << "quorum: " << setSignerQuorum << " "
             << "size: " << setSignerEntries->size();
-    
-        Sandbox sb(&view());
-        TER result = 
-        SetSignerList::replaceSignersFromLedger(
-            ctx_.app,
-            sb,
-            ctx_.journal,
-            id,
-            setSignerQuorum,
-            *setSignerEntries,
-            finalBal.xrp());
 
-        if (result == tesSUCCESS)
+        auto const result = SignerEntries::determineOperation(*stpTrans, ctx_.flags(), ctx_.journal);
+        SignerEntries::Operation op = std::get<3>(result);
+        std::cout << "OP: " << op << "\n";
+        Sandbox sb(&view());
+        if (op == SignerEntries::set)
         {
-            JLOG(ctx_.journal.trace())
-                << "Import: successful SignerListSet";
-            sb.apply(ctx_.rawView());
+            std::cout << "OP SET: " << "\n";
+            TER result =
+            SetSignerList::replaceSignersFromLedger(
+                ctx_.app,
+                sb,
+                ctx_.journal,
+                id,
+                setSignerQuorum,
+                *setSignerEntries,
+                finalBal.xrp());
+
+            if (result == tesSUCCESS)
+            {
+                JLOG(ctx_.journal.warn())
+                    << "Import: successful set SignerListSet";
+                sb.apply(ctx_.rawView());
+            }
+            else
+            {
+                JLOG(ctx_.journal.warn())
+                    << "Import: SetSignerList set failed with code "
+                    << result << " acc: " << id;
+            }
         }
-        else
+        if (op == SignerEntries::destroy)
         {
-            JLOG(ctx_.journal.warn())
-                << "Import: SetSignerList failed with code "
-                << result << " acc: " << id;
+            std::cout << "OP DESTROY: " << "\n";
+            TER result = SetSignerList::removeFromLedger(
+                ctx_.app,
+                sb,
+                id,
+                ctx_.journal
+            );
+            if (result == tesSUCCESS)
+            {
+                JLOG(ctx_.journal.warn())
+                    << "Import: successful destroy SignerListSet";
+                sb.apply(ctx_.rawView());
+            }
+            else
+            {
+                JLOG(ctx_.journal.warn())
+                    << "Import: SetSignerList destroy failed with code "
+                    << result << " acc: " << id;
+            }
         }
     } 
 
