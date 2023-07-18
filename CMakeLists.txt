@@ -97,8 +97,8 @@ if (NOT USE_CONAN)
   include(deps/Rocksdb)
   include(deps/Nudb)
   include(deps/date)
-  include(deps/Protobuf)
-  include(deps/gRPC)
+  # include(deps/Protobuf)
+  # include(deps/gRPC)
   include(deps/cassandra)
   include(deps/Postgres)
   include(deps/WasmEdge)
@@ -129,8 +129,6 @@ else()
   endif()
   find_package(nudb REQUIRED)
   find_package(date REQUIRED)
-  include(conan/Protobuf)
-  include(conan/gRPC)
     if(TARGET nudb::core)
     set(nudb nudb::core)
   elseif(TARGET NuDB::nudb)
@@ -154,8 +152,8 @@ else()
     lz4::lz4
     OpenSSL::Crypto
     OpenSSL::SSL
-    Ripple::grpc_pbufs
-    Ripple::pbufs
+    # Ripple::grpc_pbufs
+    # Ripple::pbufs
     secp256k1::secp256k1
     soci::soci
     SQLite::SQLite3
@@ -165,6 +163,13 @@ endif()
 ###
 
 include(RippledCore)
+if (NOT USE_CONAN)
+  include(deps/Protobuf)
+  include(deps/gRPC)
+else()
+  include(conan/Protobuf)
+  include(conan/gRPC)
+endif()
 include(RippledInstall)
 include(RippledCov)
 include(RippledMultiConfig)
