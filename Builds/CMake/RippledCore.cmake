@@ -741,6 +741,7 @@ if (tests)
     src/test/app/ValidatorList_test.cpp
     src/test/app/ValidatorSite_test.cpp
     src/test/app/SetHook_test.cpp
+    src/test/app/XahauGenesis_test.cpp
     src/test/app/tx/apply_test.cpp
     #[===============================[
        test sources:
