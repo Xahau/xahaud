@@ -143,16 +143,6 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    auto const amt = tx[~sfAmount];
-
-    if (amt && !isXRP(*amt))
-    {
-        JLOG(ctx.j.warn())
-            << "Import: sfAmount field must be in drops. "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
     // parse blob as json
     auto const xpop = 
         syntaxCheckXPOP(tx.getFieldVL(sfBlob), ctx.j);
@@ -830,7 +820,7 @@ Import::preflight(PreflightContext const& ctx)
         JLOG(ctx.j.warn())
             << "Import: xpop contained negative fee. "
             << tx.getTransactionID();
-        return temMALFORMED;
+        return temBAD_FEE;
     }
 
     return preflight2(ctx);
