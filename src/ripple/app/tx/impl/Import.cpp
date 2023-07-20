@@ -1163,7 +1163,7 @@ Import::doApply()
             << "size: " << setSignerEntries->size();
 
         Sandbox sb(&view());
-        if (SetSignerList)
+        if (setSignerEntries)
         {
             TER result =
             SetSignerList::replaceSignersFromLedger(
