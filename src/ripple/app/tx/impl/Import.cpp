@@ -1033,25 +1033,6 @@ Import::doApply()
         return tefINTERNAL;
     }
 
-    if (setRegularKey)
-    {
-        if (*setRegularKey == noAccount())
-        {
-            if (sle->isFieldPresent(sfRegularKey))
-            {
-                JLOG(ctx_.journal.warn()) << "Import: clearing SetRegularKey "
-                                          << " acc: " << id;
-                sle->makeFieldAbsent(sfRegularKey);
-            }
-        }
-        else
-        {
-            JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey "
-                                      << *setRegularKey << " acc: " << id;
-            sle->setAccountID(sfRegularKey, *setRegularKey);
-        }
-    }
-
     if (create)
     {
         // Create the account.
@@ -1076,23 +1057,39 @@ Import::doApply()
         return tefINTERNAL;
     }
 
+    if (tt == ttREGULAR_KEY_SET)
+    {
+        if (*setRegularKey == noAccount())
+        {
+            if (sle->isFieldPresent(sfRegularKey))
+            {
+                JLOG(ctx_.journal.warn()) << "Import: clearing SetRegularKey "
+                                          << " acc: " << id;
+                sle->makeFieldAbsent(sfRegularKey);
+            }
+        }
+        else
+        {
+            JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey "
+                                      << *setRegularKey << " acc: " << id;
+            sle->setAccountID(sfRegularKey, *setRegularKey);
+        }
+    }
+
     if (create)
     {
         // if the account is created using non-master key
         if (!signedWithMaster)
         {
-            // set regular key to no account if not regular key tx
-            if (!setRegularKey)
+            if (*setRegularKey == noAccount())
             {
+                // set regular key to no account if not regular key tx
+                JLOG(ctx_.journal.warn()) << "Import: keying of " << id << " is unclear - set regular key to noAccount()";
                 sle->setAccountID(sfRegularKey, noAccount());
             }
             // disable master
             JLOG(ctx_.journal.warn()) << "Import: keying of " << id << " is unclear - disable master";
             sle->setFieldU32(sfFlags, lsfDisableMaster);
-        }
-        if (setRegularKey && burn == beast::zero)
-        {
-            sle->setFieldU32(sfFlags, lsfPasswordSpent);
         }
         view().insert(sle);
     }
@@ -1101,6 +1098,12 @@ Import::doApply()
         // account already exists
         sle->setFieldU32(sfImportSequence, importSequence);
         sle->setFieldAmount(sfBalance, finalBal);
+        
+        // set password spent flag if user exists and fee is 0
+        if (burn == beast::zero)
+        {
+            sle->setFieldU32(sfFlags, lsfPasswordSpent);
+        }
 
         view().update(sle);
     }
