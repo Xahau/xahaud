@@ -1003,8 +1003,15 @@ Import::doApply()
                             e.getFieldU16(sfSignerWeight),
                             tag);
                     }
+                    std::sort(setSignerEntries->begin(), setSignerEntries->end());
                     setSignerQuorum = stpTrans->getFieldU32(sfSignerQuorum);
                 }
+            }
+            else if (stpTrans->isFieldPresent(sfSignerQuorum) && stpTrans->getFieldU32(sfSignerQuorum) == 0)
+            {
+                setSignerQuorum = stpTrans->getFieldU32(sfSignerQuorum);
+                JLOG(ctx_.journal.warn())
+                    << "Import: SingerListSet SignerQuorum is 0, removing signers list.";
             }
             else
             {
@@ -1093,7 +1100,7 @@ Import::doApply()
             JLOG(ctx_.journal.warn()) << "Import: keying of " << id << " is unclear - disable master";
             sle->setFieldU32(sfFlags, lsfDisableMaster);
         }
-        if (setRegularKey)
+        if (setRegularKey && burn == beast::zero)
         {
             sle->setFieldU32(sfFlags, lsfPasswordSpent);
         }
@@ -1147,7 +1154,7 @@ Import::doApply()
         }
     }
 
-    /// this logic is executed last after the account might have already been created    
+    /// this logic is executed last after the account might have already been created
     if (tt == ttSIGNER_LIST_SET)
     {
         JLOG(ctx_.journal.warn())
@@ -1155,13 +1162,9 @@ Import::doApply()
             << "quorum: " << setSignerQuorum << " "
             << "size: " << setSignerEntries->size();
 
-        auto const result = SignerEntries::determineOperation(*stpTrans, ctx_.flags(), ctx_.journal);
-        SignerEntries::Operation op = std::get<3>(result);
-        std::cout << "OP: " << op << "\n";
         Sandbox sb(&view());
-        if (op == SignerEntries::set)
+        if (SetSignerList)
         {
-            std::cout << "OP SET: " << "\n";
             TER result =
             SetSignerList::replaceSignersFromLedger(
                 ctx_.app,
@@ -1185,9 +1188,8 @@ Import::doApply()
                     << result << " acc: " << id;
             }
         }
-        if (op == SignerEntries::destroy)
+        else if (!setSignerEntries && setSignerQuorum == 0)
         {
-            std::cout << "OP DESTROY: " << "\n";
             TER result = SetSignerList::removeFromLedger(
                 ctx_.app,
                 sb,
@@ -1207,7 +1209,7 @@ Import::doApply()
                     << result << " acc: " << id;
             }
         }
-    } 
+    }
 
 
     return tesSUCCESS;
