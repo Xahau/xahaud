@@ -1330,9 +1330,6 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         JLOG(m_journal.warn()) << "[import_vl_keys] section not specified validators file. "
             << "Will attempt to use keys from ledger.";
     }
-    else
-    {
-    }
 
     //----------------------------------------------------------------------
     //

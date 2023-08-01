@@ -42,127 +42,133 @@ URIToken::preflight(PreflightContext const& ctx)
     uint32_t flags = ctx.tx.getFlags();
     uint16_t tt = ctx.tx.getFieldU16(sfTransactionType);
 
+    // the validation for amount is the same regardless of which txn is appears on
+    if (ctx.tx.isFieldPresent(sfAmount))
+    {
+        auto amt = ctx.tx.getFieldAmount(sfAmount);
+
+        if (!isLegalNet(amt) || amt.signum() < 0)
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction. Negative or "
+                                  "invalid amount/currency specified.";
+            return temBAD_AMOUNT;
+        }
+
+        if (badCurrency() == amt.getCurrency())
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction. Bad currency.";
+            return temBAD_CURRENCY;
+        }
+
+        if (amt == beast::zero && !ctx.tx.isFieldPresent(sfDestination))
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction. "
+                               << "If no sell-to destination is specified "
+                                  "then a non-zero price must be set.";
+            return temMALFORMED;
+        }
+    }
+
+    // the validation for the URI field is also the same regardless of the txn type
+    if (ctx.tx.isFieldPresent(sfURI))
+    {
+        auto const uri = ctx.tx.getFieldVL(sfURI);
+
+        if (uri.size() < 1 || uri.size() > 256)
+        {
+            JLOG(ctx.j.warn())
+                << "Malformed transaction. URI must be at least 1 "
+                   "character and no more than 256 characters.";
+            return temMALFORMED;
+        }
+
+        if (!([](std::vector<uint8_t> const& u) -> bool {
+                // this code is from
+                // https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c
+                uint8_t const* s = (uint8_t const*)u.data();
+                uint8_t const* end = s + u.size();
+                while (s < end)
+                {
+                    if (*s < 0x80)
+                        /* 0xxxxxxx */
+                        s++;
+                    else if ((s[0] & 0xe0) == 0xc0)
+                    {
+                        /* 110XXXXx 10xxxxxx */
+                        if ((s[1] & 0xc0) != 0x80 ||
+                            (s[0] & 0xfe) == 0xc0) /* overlong? */
+                            return false;
+                        else
+                            s += 2;
+                    }
+                    else if ((s[0] & 0xf0) == 0xe0)
+                    {
+                        /* 1110XXXX 10Xxxxxx 10xxxxxx */
+                        if ((s[1] & 0xc0) != 0x80 ||
+                            (s[2] & 0xc0) != 0x80 ||
+                            (s[0] == 0xe0 &&
+                             (s[1] & 0xe0) == 0x80) || /* overlong? */
+                            (s[0] == 0xed &&
+                             (s[1] & 0xe0) == 0xa0) || /* surrogate? */
+                            (s[0] == 0xef && s[1] == 0xbf &&
+                             (s[2] & 0xfe) == 0xbe)) /* U+FFFE or U+FFFF? */
+                            return false;
+                        else
+                            s += 3;
+                    }
+                    else if ((s[0] & 0xf8) == 0xf0)
+                    {
+                        /* 11110XXX 10XXxxxx 10xxxxxx 10xxxxxx */
+                        if ((s[1] & 0xc0) != 0x80 ||
+                            (s[2] & 0xc0) != 0x80 ||
+                            (s[3] & 0xc0) != 0x80 ||
+                            (s[0] == 0xf0 &&
+                             (s[1] & 0xf0) == 0x80) || /* overlong? */
+                            (s[0] == 0xf4 && s[1] > 0x8f) ||
+                            s[0] > 0xf4) /* > U+10FFFF? */
+                            return false;
+                        else
+                            s += 4;
+                    }
+                    else
+                        return false;
+                }
+                return true;
+            })(uri))
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction. URI must be a "
+                                  "valid utf-8 string.";
+            return temMALFORMED;
+        }
+    }
+
     switch (tt)
     {
         case ttURITOKEN_MINT: {
             if (flags & tfURITokenMintMask)
                 return temINVALID_FLAG;
-
-            auto const uri = ctx.tx.getFieldVL(sfURI);
-
-            if (uri.size() < 1 || uri.size() > 256)
-            {
-                JLOG(ctx.j.warn())
-                    << "Malformed transaction. URI must be at least 1 "
-                       "character and no more than 256 characters.";
-                return temMALFORMED;
-            }
-
-            if (!([](std::vector<uint8_t> const& u) -> bool {
-                    // this code is from
-                    // https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c
-                    uint8_t const* s = (uint8_t const*)u.data();
-                    uint8_t const* end = s + u.size();
-                    while (s < end)
-                    {
-                        if (*s < 0x80)
-                            /* 0xxxxxxx */
-                            s++;
-                        else if ((s[0] & 0xe0) == 0xc0)
-                        {
-                            /* 110XXXXx 10xxxxxx */
-                            if ((s[1] & 0xc0) != 0x80 ||
-                                (s[0] & 0xfe) == 0xc0) /* overlong? */
-                                return false;
-                            else
-                                s += 2;
-                        }
-                        else if ((s[0] & 0xf0) == 0xe0)
-                        {
-                            /* 1110XXXX 10Xxxxxx 10xxxxxx */
-                            if ((s[1] & 0xc0) != 0x80 ||
-                                (s[2] & 0xc0) != 0x80 ||
-                                (s[0] == 0xe0 &&
-                                 (s[1] & 0xe0) == 0x80) || /* overlong? */
-                                (s[0] == 0xed &&
-                                 (s[1] & 0xe0) == 0xa0) || /* surrogate? */
-                                (s[0] == 0xef && s[1] == 0xbf &&
-                                 (s[2] & 0xfe) == 0xbe)) /* U+FFFE or U+FFFF? */
-                                return false;
-                            else
-                                s += 3;
-                        }
-                        else if ((s[0] & 0xf8) == 0xf0)
-                        {
-                            /* 11110XXX 10XXxxxx 10xxxxxx 10xxxxxx */
-                            if ((s[1] & 0xc0) != 0x80 ||
-                                (s[2] & 0xc0) != 0x80 ||
-                                (s[3] & 0xc0) != 0x80 ||
-                                (s[0] == 0xf0 &&
-                                 (s[1] & 0xf0) == 0x80) || /* overlong? */
-                                (s[0] == 0xf4 && s[1] > 0x8f) ||
-                                s[0] > 0xf4) /* > U+10FFFF? */
-                                return false;
-                            else
-                                s += 4;
-                        }
-                        else
-                            return false;
-                    }
-                    return true;
-                })(uri))
-            {
-                JLOG(ctx.j.warn()) << "Malformed transaction. URI must be a "
-                                      "valid utf-8 string.";
-                return temMALFORMED;
-            }
-
             break;
         }
 
         case ttURITOKEN_CANCEL_SELL_OFFER:
-        case ttURITOKEN_BURN: {
-            if (flags & tfURITokenNonMintMask)
-                return temINVALID_FLAG;
-            break;
-        }
-
+        case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
         case ttURITOKEN_CREATE_SELL_OFFER: {
             if (flags & tfURITokenNonMintMask)
                 return temINVALID_FLAG;
 
-            auto amt = ctx.tx.getFieldAmount(sfAmount);
-
-            if (!isLegalNet(amt) || amt.signum() < 0)
-            {
-                JLOG(ctx.j.warn()) << "Malformed transaction. Negative or "
-                                      "invalid amount/currency specified.";
-                return temBAD_AMOUNT;
-            }
-
-            if (badCurrency() == amt.getCurrency())
-            {
-                JLOG(ctx.j.warn()) << "Malformed transaction. Bad currency.";
-                return temBAD_CURRENCY;
-            }
-
-            if (tt == ttURITOKEN_BUY)
-                break;
-
-            if (amt == beast::zero && !ctx.tx.isFieldPresent(sfDestination))
-            {
-                JLOG(ctx.j.warn()) << "Malformed transaction. "
-                                   << "If no sell-to destination is specified "
-                                      "then a non-zero price must be set.";
-                return temMALFORMED;
-            }
             break;
         }
 
         default:
             return tefINTERNAL;
     }
+
+    // specifying self as a destination is always an error
+    if (ctx.tx.isFieldPresent(sfDestination) &&
+            ctx.tx.getAccountID(sfAccount) == ctx.tx.getAccountID(sfDestination))
+        return temREDUNDANT;
+
 
     return preflight2(ctx);
 }
@@ -213,11 +219,6 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (ctx.view.exists(
                     keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
                 return tecDUPLICATE;
-
-            // check if destination is specified, and if it is then check if it exists
-            if (ctx.tx.isFieldPresent(sfDestination) && 
-                !ctx.view.exists(keylet::account(ctx.tx.getAccountID(sfDestination))))
-                return tecNO_DST;
 
             return tesSUCCESS;
         }
@@ -377,16 +378,21 @@ URIToken::doApply()
 
             sleU = std::make_shared<SLE>(*kl);
 
-            AccountID dest = 
-                ctx_.tx.isFieldPresent(sfDestination)
-                ? ctx_.tx.getAccountID(sfDestination)
-                : account_;
+            dest = ctx_.tx[~sfDestination];
+            saleAmount = ctx_.tx[~sfAmount];
 
-            if (!view().exists(keylet::account(dest)))
-                return tecNO_DST;
-
-            sleU->setAccountID(sfOwner, dest);
+            sleU->setAccountID(sfOwner, account_);
             sleU->setAccountID(sfIssuer, account_);
+            
+            if (dest && !saleAmount)
+                return tefINTERNAL;
+
+            if (dest)
+                sleU->setAccountID(sfDestination, *dest);
+        
+            if (saleAmount)
+                sleU->setFieldAmount(sfAmount, *saleAmount);
+
             sleU->setFieldVL(sfURI, ctx_.tx.getFieldVL(sfURI));
 
             if (ctx_.tx.isFieldPresent(sfDigest))
@@ -396,7 +402,7 @@ URIToken::doApply()
                 sleU->setFlag(tfBurnable);
 
             auto const page = view().dirInsert(
-                keylet::ownerDir(dest), *kl, describeOwnerDir(dest));
+                keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
 
             JLOG(j_.trace())
                 << "Adding URIToken to owner directory " << to_string(kl->key)
@@ -413,9 +419,12 @@ URIToken::doApply()
         }
 
         case ttURITOKEN_CANCEL_SELL_OFFER: {
-            sleU->makeFieldAbsent(sfAmount);
+            if (sleU->isFieldPresent(sfAmount))
+                sleU->makeFieldAbsent(sfAmount);
+            
             if (sleU->isFieldPresent(sfDestination))
                 sleU->makeFieldAbsent(sfDestination);
+
             view().update(sleU);
             return tesSUCCESS;
         }

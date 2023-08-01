@@ -3067,7 +3067,7 @@ DEFINE_HOOK_FUNCTION(
      * 1. Sequence: 0
      * 2. PubSigningKey: 000000000000000
      * 3. sfEmitDetails present and valid
-     * 4. No sfSignature
+     * 4. No sfTxnSignature
      * 5. LastLedgerSeq > current ledger, > firstledgerseq & LastLedgerSeq < seq + 5
      * 6. FirstLedgerSeq > current ledger
      * 7. Fee must be correctly high
@@ -3112,6 +3112,30 @@ DEFINE_HOOK_FUNCTION(
     {
         JLOG(j.trace())
             << "HookEmit[" << HC_ACC() << "]: sfSigningPubKey present but non-zero.";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 2.a: no signers
+    if (stpTrans->isFieldPresent(sfSigners))
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC() << "]: sfSigners not allowed in emitted txns.";
+        return EMISSION_FAILURE;
+    }
+    
+    // rule 2.b: ticketseq cannot be used
+    if (stpTrans->isFieldPresent(sfTicketSequence))
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC() << "]: sfTicketSequence not allowed in emitted txns.";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 2.c sfAccountTxnID not allowed
+    if (stpTrans->isFieldPresent(sfAccountTxnID))
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC() << "]: sfAccountTxnID not allowed in emitted txns.";
         return EMISSION_FAILURE;
     }
 
@@ -3208,11 +3232,11 @@ DEFINE_HOOK_FUNCTION(
         return EMISSION_FAILURE;
     }
 
-    // rule 4: sfSignature must be absent
-    if (stpTrans->isFieldPresent(sfSignature))
+    // rule 4: sfTxnSignature must be absent
+    if (stpTrans->isFieldPresent(sfTxnSignature))
     {
         JLOG(j.trace()) <<
-            "HookEmit[" << HC_ACC() << "]: sfSignature is present but should not be";
+            "HookEmit[" << HC_ACC() << "]: sfTxnSignature is present but should not be";
         return EMISSION_FAILURE;
     }
 
@@ -5567,7 +5591,10 @@ DEFINE_HOOK_FUNCTION(
             return NO_FREE_SLOTS;
     }
 
-   auto [tx, meta] = Import::getInnerTxn(applyCtx.tx, j);
+    auto [tx, meta] = Import::getInnerTxn(applyCtx.tx, j);
+
+    if (!tx || !meta)
+        return INVALID_TXN;
 
     hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into_tx, hook::SlotEntry {
             .storage = std::move(tx),

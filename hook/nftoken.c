@@ -174,14 +174,15 @@ int64_t hook(uint32_t r)
     {
         uint8_t* buf_out = txn_buf;
         uint32_t cls = (uint32_t)ledger_seq();
-        _01_02_ENCODE_TT                   (buf_out, ttURITOKEN_MINT                );      /* uint16  | size   3 */
-        _02_02_ENCODE_FLAGS                (buf_out, tfCANONICAL                    );      /* uint32  | size   5 */
-        _02_04_ENCODE_SEQUENCE             (buf_out, 0                              );      /* uint32  | size   5 */
-        _02_26_ENCODE_FLS                  (buf_out, cls + 1                        );      /* uint32  | size   6 */
-        _02_27_ENCODE_LLS                  (buf_out, cls + 5                        );      /* uint32  | size   6 */
+        _01_02_ENCODE_TT                   (buf_out, ttURITOKEN_MINT                );
+        _02_02_ENCODE_FLAGS                (buf_out, tfCANONICAL                    );
+        _02_04_ENCODE_SEQUENCE             (buf_out, 0                              );
+        _02_26_ENCODE_FLS                  (buf_out, cls + 1                        );
+        _02_27_ENCODE_LLS                  (buf_out, cls + 5                        );
+        _06_01_ENCODE_DROPS_AMOUNT         (buf_out, 0                              );
         uint8_t* fee_ptr = buf_out;
-        _06_08_ENCODE_DROPS_FEE            (buf_out, 0                              );      /* amount  | size   9 */
-        _07_03_ENCODE_SIGNING_PUBKEY_NULL  (buf_out                                 );      /* pk      | size  35 */
+        _06_08_ENCODE_DROPS_FEE            (buf_out, 0                              );
+        _07_03_ENCODE_SIGNING_PUBKEY_NULL  (buf_out                                 );
 
         // URI
         *buf_out++ = 0x75U;
@@ -189,9 +190,9 @@ int64_t hook(uint32_t r)
             *(((uint64_t*)buf_out) + i) = *(((uint64_t*)uri) + i);
         buf_out += urilen;
 
-        _08_01_ENCODE_ACCOUNT_SRC          (buf_out, hook_acc                       );      /* account | size  22 */
-        _08_03_ENCODE_ACCOUNT_DST          (buf_out, otxn_acc                       );      /* account | size  22 */
-        int64_t edlen = etxn_details((uint32_t)buf_out, 512);         /* emitdet | size 1?? */
+        _08_01_ENCODE_ACCOUNT_SRC          (buf_out, hook_acc                       );
+        _08_03_ENCODE_ACCOUNT_DST          (buf_out, otxn_acc                       );
+        int64_t edlen = etxn_details((uint32_t)buf_out, 512);
         trace_num(SBUF("edlen"), edlen);
         buf_out += edlen;
         txn_len = buf_out - txn_buf;
@@ -199,6 +200,8 @@ int64_t hook(uint32_t r)
         _06_08_ENCODE_DROPS_FEE            (fee_ptr, fee                            );
 
     }
+
+    trace(SBUF("emit txn"), txn_buf, txn_len, 1);
 
     uint8_t etxid[32];
     if (emit(SBUF(etxid), txn_buf, txn_len) < 0)

@@ -520,37 +520,53 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 XRPAmount
 SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    XRPAmount extraFee{0};
+    XRPAmount hookFee{0};
 
     auto const& hookSets = tx.getFieldArray(sfHooks);
 
     for (auto const& hookSetObj : hookSets)
     {
-        if (!hookSetObj.isFieldPresent(sfCreateCode))
-            continue;
+        XRPAmount createFee { 0 };
+        if (hookSetObj.isFieldPresent(sfCreateCode))
+            createFee = XRPAmount{
+                hook::computeCreationFee(
+                    hookSetObj.getFieldVL(sfCreateCode).size())};
 
-        extraFee += XRPAmount{
-            hook::computeCreationFee(
-                hookSetObj.getFieldVL(sfCreateCode).size())};
-
+        XRPAmount paramFee { 0 };
         // parameters are billed at the same rate as code bytes
         if (hookSetObj.isFieldPresent(sfHookParameters))
         {
-            uint64_t paramBytes = 0;
+            int64_t paramBytes = 0;
             auto const& params = hookSetObj.getFieldArray(sfHookParameters);
             for (auto const& param : params)
             {
-                paramBytes +=
+                int64_t entryBytes =
                     (param.isFieldPresent(sfHookParameterName) ?
-                        param.getFieldVL(sfHookParameterName).size() : 0) +
+                        param.getFieldVL(sfHookParameterName).size() : 0);
+                    +
                     (param.isFieldPresent(sfHookParameterValue) ?
                         param.getFieldVL(sfHookParameterValue).size() : 0);
+
+                if (paramBytes + entryBytes > paramBytes)
+                    paramBytes += entryBytes;
             }
-            extraFee += XRPAmount { paramBytes };
+
+            // one drop per byte
+            paramFee = XRPAmount { paramBytes };
         }
+
+        if (hookFee + paramFee > hookFee)
+            hookFee += paramFee;
+
+        if (hookFee + createFee > hookFee)
+            hookFee += createFee;
     }
 
-    return Transactor::calculateBaseFee(view, tx) + extraFee;
+    auto fee = Transactor::calculateBaseFee(view, tx);
+    if (fee + hookFee > fee)
+        fee += hookFee;
+
+    return fee;
 }
 
 TER

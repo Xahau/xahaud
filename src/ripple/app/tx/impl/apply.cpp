@@ -47,7 +47,7 @@ checkValidity(
     if (rules.enabled(featureHooks) && tx.isFieldPresent(sfEmitDetails))
     {
         // emitted transactions do not contain signatures
-        if (tx.isFieldPresent(sfSignature))
+        if (tx.isFieldPresent(sfTxnSignature))
             return {Validity::SigBad, "Emitted txn contains signature."};
 
         // and they must be either emitted here on this node

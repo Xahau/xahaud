@@ -519,16 +519,11 @@ int out_len = 0;\
 #define _07_03_ENCODE_SIGNING_PUBKEY(buf_out, pkey )\
     ENCODE_SIGNING_PUBKEY(buf_out, pkey );
 
-#define ENCODE_SIGNING_PUBKEY_NULL_SIZE 35
+#define ENCODE_SIGNING_PUBKEY_NULL_SIZE 2
 #define ENCODE_SIGNING_PUBKEY_NULL(buf_out )\
     {\
-        buf_out[0] = 0x73U;\
-        buf_out[1] = 0x21U;\
-        *(uint64_t*)(buf_out+2) = 0;\
-        *(uint64_t*)(buf_out+10) = 0;\
-        *(uint64_t*)(buf_out+18) = 0;\
-        *(uint64_t*)(buf_out+25) = 0;\
-        buf_out += ENCODE_SIGNING_PUBKEY_NULL_SIZE;\
+        *buf_out++ = 0x73U;\
+        *buf_out++ = 0x00U;\
     }
 
 #define _07_03_ENCODE_SIGNING_PUBKEY_NULL(buf_out )\

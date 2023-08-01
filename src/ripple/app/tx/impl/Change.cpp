@@ -31,7 +31,7 @@
 #include <ripple/app/hook/Guard.h> 
 #include <ripple/protocol/AccountID.h>
 #include <ripple/app/hook/applyHook.h>
-#include <ripple/app/hook/xahau.h>
+#include <ripple/app/tx/impl/XahauGenesis.h>
 
 namespace ripple {
 
@@ -335,38 +335,10 @@ Change::activateXahauGenesis()
 {
     JLOG(j_.warn()) << "featureXahauGenesis amendment activation code starting";
 
-    constexpr XRPAmount GENESIS { 1'000'000 * DROPS_PER_XRP };
-    constexpr XRPAmount INFRA   { 10'000'000 * DROPS_PER_XRP};
-    constexpr XRPAmount EXCHANGE { 2'000'000 * DROPS_PER_XRP};
+    using namespace XahauGenesis;
 
-    auto [initial_distribution, governance_hook_params] =
-    normalizeXahauGenesis({
-        // distribution targets and initial validators
-        // where a nodepub is specified then that is an initial governance member
-        // where an r-addr is specified they still get an initial distribution but don't go into the L1 table
-        {"rMYm3TY5D3rXYVAz6Zr2PDqEcjsTYbNiAT", INFRA},
-        {"nHUG6WyZX5C6YPhxDEUiFdvRsWvbxdXuUcMkMxuqS9C3akrJtJQA", INFRA},
-        {"nHDDs26hxCgh74A6QE31CR5QoC17yXdJQXNDXezp8HW93mCYGPG7", INFRA},
-        {"nHUNFRAhqbfqBHYxfiAtJDxruSgbsEBUHR6v55MhdUtzTNyXLcR4", INFRA},
-        {"nHB4MVtevJBZF4vfdLTecKBxj5KsxERkfk7UNyL9iYtTZvjmMBXw", INFRA},
-        {"nHUB9Fh1JXvyMY4NhiCKgg6pkGrB3FoBTAz4dpvKC1fwCMjY1w5N", INFRA},
-        {"nHUdqajJr8S1ecKwqVkX4gQNUzQP9RTonZeEZH8vwg7664CZP3QF", INFRA},
-        {"nHDnr7GgwZWS7Qb517e5is3pxwVxsNgmmpmQYvrc1ngbPiURBa6B", INFRA},
-        {"nHBv6AqLDgWgEVLoNE7jEViv4XG17jj6tpuzTFm664Cc4mcpEgwb", INFRA},
-        {"nHUxeL9jgcjhTWepmFnbWpmobZmFBduLkceQddCJnAPghJejdRix", INFRA},
-        {"nHUubQ7fqxkwPtwS4pQb2ENZ6fdUcAt7aJRiYcPXjxbbkC778Zjk", INFRA},
-    },
-    // hook params
-    {
-        // initial reward rate is 1.003274 per month
-        // 1.003274 -xfl-> 6089869970204910592 -le-> 0x00E461EE78908354
-        {{'I', 'R', 'R'}, {0x00U, 0xE4U, 0x61U, 0xEEU, 0x78U, 0x90U, 0x83U, 0x54U}},
-
-        // initial reward delay is 365*24*60*60/12 = 2628000 = 0x2819A0 -LEu64-> A019280000000000
-        {{'I', 'R', 'D'}, {0xA0U, 0x19U, 0x28U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U}}
-
-        // other params are populated insie the noramlization function
-    }, j_);
+    auto [initial_distribution, gov_params] =
+        normalizeXahauGenesis(Distribution, GovernanceParameters, j_);
 
     const static std::vector<
         std::tuple<
@@ -378,17 +350,14 @@ Change::activateXahauGenesis()
     genesis_hooks =
     {
         {
-            // For the Governance Hook: HookOn is set to ttINVOKE only
-            ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF"),
-            XAHAU_GOVERNANCE_HOOK,
-            governance_hook_params
+            GovernanceHookOn,
+            GovernanceHook,
+            gov_params
         },
-        
         {
-            // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
-            ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF"),
-            XAHAU_REWARD_HOOK,
-            {}  // no params for this hook
+            RewardHookOn,
+            RewardHook,
+            {}
         }
     };
 
@@ -409,9 +378,12 @@ Change::activateXahauGenesis()
     }
 
     // running total of the amount of xrp we will burn from the genesis, less the initial distributions
-    auto destroyedXRP = sle->getFieldAmount(sfBalance).xrp() - GENESIS;
+    auto destroyedXRP = sle->getFieldAmount(sfBalance).xrp() - GenesisAmount;
 
-    // Step 1: mint genesis distribution
+    // Step 1: burn genesis funds to (almost) zero
+    sle->setFieldAmount(sfBalance, GenesisAmount);
+
+    // Step 2: mint genesis distribution
     for (auto const& [account, amount] : initial_distribution)
     {
         auto accid_raw = parseBase58<AccountID>(account);
@@ -429,13 +401,9 @@ Change::activateXahauGenesis()
         auto sle = sb.peek(kl);
         auto const exists = !!sle;
 
-        STAmount bal = exists ? sle->getFieldAmount(sfBalance) + STAmount{amount} : STAmount{amount};
-        if (bal <= beast::zero)
-        {
-            JLOG(j_.warn())
-                << "featureXahauGenesis tried to set <= 0 balance on " <<  account << ", bailing";
-            return;
-        }
+        STAmount newBal = STAmount{amount};
+        STAmount existingBal = exists ? sle->getFieldAmount(sfBalance) : STAmount{XRPAmount{0}};
+        STAmount adjustment = newBal - existingBal;
 
         // the account should not exist but if it does then handle it properly
         if (!exists)
@@ -447,12 +415,11 @@ Change::activateXahauGenesis()
                 sb.rules().enabled(featureDeletableAccounts) ? sb.seq()
                                                              : 1};
             sle->setFieldU32(sfSequence, seqno);
-
         }
 
-        sle->setFieldAmount(sfBalance, bal);
+        sle->setFieldAmount(sfBalance, newBal);
 
-        destroyedXRP -= amount;
+        destroyedXRP -= adjustment.xrp();
 
         if (exists)
             sb.update(sle);
@@ -461,9 +428,6 @@ Change::activateXahauGenesis()
 
     };
 
-    // Step 2: burn genesis funds to (almost) zero
-
-    sle->setFieldAmount(sfBalance, GENESIS);
 
     // Step 3: blackhole genesis
     sle->setAccountID(sfRegularKey, noAccount());

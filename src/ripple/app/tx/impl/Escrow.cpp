@@ -218,7 +218,7 @@ EscrowCreate::doApply()
     auto const balance = STAmount((*sle)[sfBalance]).xrp();
     auto const reserve =
         ctx_.view().fees().accountReserve((*sle)[sfOwnerCount] + 1);
-    bool isIssuer = amount.getIssuer() == account;
+    bool const isIssuer = amount.getIssuer() == account;
 
     if (balance < reserve)
         return tecINSUFFICIENT_RESERVE;
@@ -237,7 +237,7 @@ EscrowCreate::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        TER result = trustTransferAllowed(
+        TER const result = trustTransferAllowed(
             ctx_.view(),
             {account, ctx_.tx[sfDestination]},
             amount.issue(),
@@ -263,7 +263,7 @@ EscrowCreate::doApply()
                 return tecNO_LINE;
 
             {
-                TER result = trustAdjustLockedBalance(
+                TER const result = trustAdjustLockedBalance(
                     ctx_.view(), sleLine, amount, 1, ctx_.journal, DryRun);
 
                 JLOG(ctx_.journal.trace())
@@ -296,19 +296,23 @@ EscrowCreate::doApply()
 
     // Create escrow in ledger.  Note that we we use the value from the
     // sequence or ticket.  For more explanation see comments in SeqProxy.h.
-    auto xferRate = transferRate(view(), amount.getIssuer());
     Keylet const escrowKeylet =
         keylet::escrow(account, seqID(ctx_));
     auto const slep = std::make_shared<SLE>(escrowKeylet);
     (*slep)[sfAmount] = ctx_.tx[sfAmount];
     (*slep)[sfAccount] = account;
-    (*slep)[sfTransferRate] = xferRate.value;
     (*slep)[~sfCondition] = ctx_.tx[~sfCondition];
     (*slep)[~sfSourceTag] = ctx_.tx[~sfSourceTag];
     (*slep)[sfDestination] = ctx_.tx[sfDestination];
     (*slep)[~sfCancelAfter] = ctx_.tx[~sfCancelAfter];
     (*slep)[~sfFinishAfter] = ctx_.tx[~sfFinishAfter];
     (*slep)[~sfDestinationTag] = ctx_.tx[~sfDestinationTag];
+
+    if (ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
+    {
+        auto const xferRate = transferRate(view(), amount.getIssuer());
+        (*slep)[~sfTransferRate] = xferRate.value;
+    }
 
     ctx_.view().insert(slep);
 
@@ -346,7 +350,7 @@ EscrowCreate::doApply()
                 return tecNO_LINE;
 
             // do the lock-up for real now
-            TER result = trustAdjustLockedBalance(
+            TER const result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 
             JLOG(ctx_.journal.trace())
@@ -469,7 +473,7 @@ EscrowFinish::doApply()
 
     AccountID const account = (*slep)[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
-    auto amount = slep->getFieldAmount(sfAmount);
+    auto const amount = slep->getFieldAmount(sfAmount);
 
     // If a cancel time is present, a finish operation should only succeed prior
     // to that time. fix1571 corrects a logic error in the check that would make
@@ -576,8 +580,11 @@ EscrowFinish::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
+        if (!slep->isFieldPresent(sfTransferRate))
+            return tecINTERNAL;
+
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
-        auto issuerAccID = amount.getIssuer();
+        auto const issuerAccID = amount.getIssuer();
         auto const xferRate = transferRate(view(), issuerAccID);
         // update if issuer rate is less than locked rate
         if (xferRate < lockedRate)
@@ -585,7 +592,7 @@ EscrowFinish::doApply()
 
         // perform a dry run of the transfer before we
         // change anything on-ledger
-        TER result = trustTransferLockedBalance(
+        TER const result = trustTransferLockedBalance(
             ctx_.view(),
             account_,  // txn signing account
             sle,       // src account
@@ -632,8 +639,11 @@ EscrowFinish::doApply()
     else
     {
         // compute transfer fee, if any
+        if (!slep->isFieldPresent(sfTransferRate))
+            return tecINTERNAL;
+
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
-        auto issuerAccID = amount.getIssuer();
+        auto const issuerAccID = amount.getIssuer();
         auto const xferRate = transferRate(view(), issuerAccID);
         // update if issuer rate is less than locked rate
         if (xferRate < lockedRate)
@@ -642,7 +652,7 @@ EscrowFinish::doApply()
         // all the significant complexity of checking the validity of this
         // transfer and ensuring the lines exist etc is hidden away in this
         // function, all we need to do is call it and return if unsuccessful.
-        TER result = trustTransferLockedBalance(
+        TER const result = trustTransferLockedBalance(
             ctx_.view(),
             account_,  // txn signing account
             sle,       // src account
@@ -733,8 +743,8 @@ EscrowCancel::doApply()
 
     AccountID const account = (*slep)[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
-    auto amount = slep->getFieldAmount(sfAmount);
-    bool isIssuer = amount.getIssuer() == account;
+    auto const amount = slep->getFieldAmount(sfAmount);
+    bool const isIssuer = amount.getIssuer() == account;
 
     std::shared_ptr<SLE> sleLine;
 
@@ -750,7 +760,7 @@ EscrowCancel::doApply()
                 account, amount.getIssuer(), amount.getCurrency()));
 
             // dry run before we make any changes to ledger
-            if (TER result = trustAdjustLockedBalance(
+            if (TER const result = trustAdjustLockedBalance(
                     ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun);
                 result != tesSUCCESS)
                 return result;
@@ -794,7 +804,7 @@ EscrowCancel::doApply()
         if (!isIssuer)
         {
             // unlock previously locked tokens from source line
-            TER result = trustAdjustLockedBalance(
+            TER const result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, -amount, -1, ctx_.journal, WetRun);
 
             JLOG(ctx_.journal.trace())

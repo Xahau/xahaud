@@ -169,7 +169,7 @@ XRPNotCreated::finalize(
             : beast::zero;                              // if the txn didnt burn a fee we add nothing
 
         if (accountsCreated_ == 1)
-                dropsAdded += Import::INITIAL_IMPORT_XRP;    // welcome amount for new imports
+                dropsAdded += Import::computeStartingBonus(view);
 
         JLOG(j.trace())
             << "Invariant XRPNotCreated Import: "
@@ -361,7 +361,7 @@ NoZeroEscrow::finalize(
     if (bad_ && rv.rules().enabled(featurePaychanAndEscrowForTokens) &&
         txn.isFieldPresent(sfTransactionType))
     {
-        uint16_t tt = txn.getFieldU16(sfTransactionType);
+        uint16_t const tt = txn.getFieldU16(sfTransactionType);
         if (tt == ttESCROW_CANCEL || tt == ttESCROW_FINISH)
             return true;
 
