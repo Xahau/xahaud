@@ -1164,7 +1164,7 @@ Import::doApply()
 
     bool const create = !sle;
 
-    STAmount startBal = create ? STAmount(INITIAL_IMPORT_XRP) : sle->getFieldAmount(sfBalance);
+    STAmount startBal = create ? STAmount(Import::computeStartingBonus(ctx_.view())) : sle->getFieldAmount(sfBalance);
     STAmount finalBal = startBal + burn;
 
     if (finalBal < startBal)
