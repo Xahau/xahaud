@@ -143,16 +143,6 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    auto const amt = tx[~sfAmount];
-
-    if (amt && !isXRP(*amt))
-    {
-        JLOG(ctx.j.warn())
-            << "Import: sfAmount field must be in drops. "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
     // parse blob as json
     auto const xpop = 
         syntaxCheckXPOP(tx.getFieldVL(sfBlob), ctx.j);
@@ -364,25 +354,12 @@ Import::preflight(PreflightContext const& ctx)
             << tx.getTransactionID();
         return temMALFORMED;
     }
-    
 
     // manifest signing (ephemeral) key
     auto const signingKey = m->signingKey;
 
     // decode blob
     auto const data = base64_decode((*xpop)[jss::validation][jss::unl][jss::blob].asString());
-    auto const sig = strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
-    if (!sig ||
-        !ripple::verify(
-            signingKey,
-            makeSlice(data),
-            makeSlice(*sig)))
-    {
-        JLOG(ctx.j.warn())
-            << "Import: unl blob not signed correctly "
-            << tx.getTransactionID();
-        return temMALFORMED;
-    }
 
     Json::Reader r;
     Json::Value list;
@@ -432,7 +409,7 @@ Import::preflight(PreflightContext const& ctx)
     if (validUntil <= validFrom)
     {
         JLOG(ctx.j.warn())
-            << "Import: unl blob validUnil <= validFrom "
+            << "Import: unl blob validUntil <= validFrom "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -449,6 +426,19 @@ Import::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn())
             << "Import: unl blob not yet valid "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
+
+    auto const sig = strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
+    if (!sig ||
+        !ripple::verify(
+            signingKey,
+            makeSlice(data),
+            makeSlice(*sig)))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob not signed correctly "
             << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -830,7 +820,7 @@ Import::preflight(PreflightContext const& ctx)
         JLOG(ctx.j.warn())
             << "Import: xpop contained negative fee. "
             << tx.getTransactionID();
-        return temMALFORMED;
+        return temBAD_FEE;
     }
 
     return preflight2(ctx);
@@ -893,12 +883,12 @@ Import::preclaim(PreclaimContext const& ctx)
     auto pkHex = strUnHex(strPk);
     if (!pkHex)
         return tefINTERNAL;
-    
+
     auto const pkType = publicKeyType(makeSlice(*pkHex));
     if (!pkType)
         return tefINTERNAL;
 
-    PublicKey const pk (makeSlice(*pkHex));    
+    PublicKey const pk (makeSlice(*pkHex));
 
     // check on ledger
     if (auto const unlRep = ctx.view.read(keylet::UNLReport()); unlRep)
@@ -912,182 +902,184 @@ Import::preclaim(PreclaimContext const& ctx)
     return telIMPORT_VL_KEY_NOT_RECOGNISED;
 }
 
+void
+Import::doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
+{
+    AccountID id = stpTrans.getAccountID(sfAccount);
+
+    JLOG(ctx_.journal.trace()) << "Import: doSignerList acc: " << id;
+
+    if (!stpTrans.isFieldPresent(sfSignerQuorum))
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: acc " << id << " tried to import signerlist without sfSignerQuorum, skipping";
+        return;
+    }
+
+    Sandbox sb(&view());
+
+    uint32_t quorum = stpTrans.getFieldU32(sfSignerQuorum);
+
+    if (quorum == 0)
+    {
+        // delete operation
+
+        TER result = SetSignerList::removeFromLedger(
+            ctx_.app,
+            sb,
+            id,
+            ctx_.journal
+        );
+        if (result == tesSUCCESS)
+        {
+            JLOG(ctx_.journal.warn())
+                << "Import: successful destroy SignerListSet";
+            sb.apply(ctx_.rawView());
+        }
+        else
+        {
+            JLOG(ctx_.journal.warn())
+                << "Import: SetSignerList destroy failed with code "
+                << result << " acc: " << id;
+        }
+        return;
+    }
+
+    if (!stpTrans.isFieldPresent(sfSignerEntries) || stpTrans.getFieldArray(sfSignerEntries).empty())
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: SetSignerList lacked populated array and quorum was non-zero. Ignoring. acc: " << id;
+        return;
+    }
+
+    //
+    // extract signer entires and sort them
+    //
+
+    std::vector<ripple::SignerEntries::SignerEntry> signers;
+    auto const entries = stpTrans.getFieldArray(sfSignerEntries);
+    signers.reserve(entries.size());
+    for (auto const& e: entries)
+    {
+        if (!e.isFieldPresent(sfAccount) || !e.isFieldPresent(sfSignerWeight))
+        {
+            JLOG(ctx_.journal.warn())
+                << "Import: SignerListSet entry lacked a required field (Account/SignerWeight). "
+                << "Skipping SignerListSet.";
+            return;
+        }
+
+        std::optional<uint256> tag;
+        if (e.isFieldPresent(sfWalletLocator))
+            tag = e.getFieldH256(sfWalletLocator);
+
+        signers.emplace_back(
+            e.getAccountID(sfAccount),
+            e.getFieldU16(sfSignerWeight),
+            tag);
+    }
+    std::sort(signers.begin(), signers.end());
+
+    //
+    // validate signer list
+    //
+
+    JLOG(ctx_.journal.warn())
+        << "Import: actioning SignerListSet "
+        << "quorum: " << quorum << " "
+        << "size: " << signers.size();
+
+    if (SetSignerList::
+            validateQuorumAndSignerEntries(quorum, signers, id, ctx_.journal, ctx_.view().rules())
+        != tesSUCCESS)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: validation of signer entries failed acc: " << id << ". Skipping.";
+        return;
+    }
+
+    // 
+    // install signerlist
+    //
+
+    // RH NOTE: this handles the ownercount
+    TER result =
+    SetSignerList::replaceSignersFromLedger(
+        ctx_.app,
+        sb,
+        ctx_.journal,
+        id,
+        quorum,
+        signers,
+        sle->getFieldAmount(sfBalance).xrp());
+
+    if (result == tesSUCCESS)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: successful set SignerListSet";
+        sb.apply(ctx_.rawView());
+    }
+    else
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: SetSignerList set failed with code "
+            << result << " acc: " << id;
+    }
+    return;
+}
+
+
+void
+Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
+{
+    AccountID id = stpTrans.getAccountID(sfAccount);
+
+    JLOG(ctx_.journal.trace()) << "Import: doRegularKey acc: " << id;
+
+    if (stpTrans.getFieldU16(sfTransactionType) != ttREGULAR_KEY_SET)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: doRegularKey called on non-regular key transaction.";
+        return;
+    }
+
+    if (!stpTrans.isFieldPresent(sfRegularKey))
+    {
+        // delete op
+        JLOG(ctx_.journal.trace()) << "Import: clearing SetRegularKey " << " acc: " << id;
+        if (sle->isFieldPresent(sfRegularKey))
+            sle->makeFieldAbsent(sfRegularKey);
+        return;
+    }
+
+    AccountID rk = stpTrans.getAccountID(sfRegularKey);
+    JLOG(ctx_.journal.trace()) << "Import: actioning SetRegularKey "
+                                      << rk << " acc: " << id;
+    sle->setAccountID(sfRegularKey, rk);
+
+    // always set this flag if they have done any regular keying
+    sle->setFlag(lsfPasswordSpent);
+
+    ctx_.view().update(sle);
+
+    return;
+}
+
 TER
 Import::doApply()
 {
     if (!view().rules().enabled(featureImport))
         return temDISABLED;
 
-    if (!ctx_.tx.isFieldPresent(sfBlob))
-        return tefINTERNAL;
-
+    //
+    // Before starting decode and validate XPOP, update ImportVL seq
+    // 
     auto const xpop =
         syntaxCheckXPOP(ctx_.tx.getFieldVL(sfBlob), ctx_.journal);
 
     if (!xpop)
         return tefINTERNAL;
 
-    auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal, &(*xpop));
-
-    if (!stpTrans || !stpTrans->isFieldPresent(sfSequence) || !stpTrans->isFieldPresent(sfFee))
-    {
-        JLOG(ctx_.journal.warn())
-            << "Import: during apply could not find importSequence or fee, bailing.";
-        return tefINTERNAL;
-    }
-
-    // why aren't transactors stateful, why does this need to be recomputed each time...
-    STAmount burn = stpTrans->getFieldAmount(sfFee);
-
-    if (!isXRP(burn) || burn < beast::zero)
-    {
-        JLOG(ctx_.journal.warn())
-            << "Import: inner fee was not XRP value.";
-        return tefINTERNAL;
-    }
-
-    uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
-
-    auto const id = ctx_.tx[sfAccount];
-
-    auto const k = keylet::account(id);
-    auto sle = view().peek(k);
-
-    std::optional<
-    std::vector<ripple::SignerEntries::SignerEntry>> setSignerEntries;
-    uint32_t setSignerQuorum { 0 };
-    std::optional<AccountID> setRegularKey;
-    auto const signingKey = ctx_.tx.getSigningPubKey();
-    bool const signedWithMaster = !signingKey.empty() && calcAccountID(PublicKey(makeSlice(signingKey))) == id;
-
-    auto const tt = stpTrans->getTxnType();
-
-    // rekeying is only allowed on a tesSUCCESS, but minting is allowed on any tes or tec code.
-    if (meta->getFieldU8(sfTransactionResult) == tesSUCCESS)
-    {
-        if (tt == ttSIGNER_LIST_SET)
-        {
-            if (stpTrans->isFieldPresent(sfSignerQuorum) &&
-                stpTrans->isFieldPresent(sfSignerEntries))
-            {
-                auto const entries = stpTrans->getFieldArray(sfSignerEntries);
-
-                if (entries.empty())
-                {
-                    JLOG(ctx_.journal.warn()) << "Import: SignerListSet entires empty, skipping.";
-                }
-                else
-                {
-                    JLOG(ctx_.journal.trace()) << "Import: SingerListSet";
-                    // key import: signer list
-                    setSignerEntries.emplace();
-                    setSignerEntries->reserve(entries.size());
-                    for (auto const& e: entries)
-                    {
-                        if (!e.isFieldPresent(sfAccount) || !e.isFieldPresent(sfSignerWeight))
-                        {
-                            JLOG(ctx_.journal.warn())
-                                << "Import: SignerListSet entry lacked a required field (Account/SignerWeight). "
-                                << "Skipping SignerListSet.";
-                            setSignerEntries = std::nullopt;
-                            break;
-                        }
-
-                        std::optional<uint256> tag;
-                        if (e.isFieldPresent(sfWalletLocator))
-                            tag = e.getFieldH256(sfWalletLocator);
-
-                        setSignerEntries->emplace_back(
-                            e.getAccountID(sfAccount),
-                            e.getFieldU16(sfSignerWeight),
-                            tag);
-                    }
-                    setSignerQuorum = stpTrans->getFieldU32(sfSignerQuorum);
-                }
-            }
-            else
-            {
-                JLOG(ctx_.journal.warn())
-                    << "Import: SingerListSet lacked either populated SignerEntries or SignerQuorum, ignoring.";
-            }
-
-        }
-        else if (tt == ttREGULAR_KEY_SET)
-        {
-            JLOG(ctx_.journal.warn()) << "SetRegularKey";
-            // key import: regular key
-            setRegularKey = stpTrans->getAccountID(sfRegularKey);
-        }
-    }
-
-    bool const create = !sle;
-
-    // compute the amount they receive first because the amount is maybe needed for computing setsignerlist later
-    STAmount startBal = create ? STAmount(computeStartingBonus(view())) : sle->getFieldAmount(sfBalance);
-    STAmount finalBal = startBal + burn;
-
-    // this should never happen
-    if (finalBal < startBal)
-    {
-        JLOG(ctx_.journal.warn())
-            << "Import: logic error finalBal < startBal.";
-        return tefINTERNAL;
-    }
-
-    if (create)
-    {
-        // Create the account.
-        JLOG(ctx_.journal.warn()) << "create - create account";
-        std::uint32_t const seqno{
-            view().rules().enabled(featureDeletableAccounts) ? view().seq()
-                                                             : 1};
-        sle = std::make_shared<SLE>(k);
-        sle->setAccountID(sfAccount, id);
-
-        sle->setFieldU32(sfImportSequence, importSequence);
-        sle->setFieldU32(sfSequence, seqno);
-        sle->setFieldU32(sfOwnerCount, 0);
-
-        sle->setFieldAmount(sfBalance, finalBal);
-
-    }
-    else if (sle->getFieldU32(sfImportSequence) >= importSequence)
-    {
-        // make double sure import seq hasn't passed
-        JLOG(ctx_.journal.warn())
-            << "Import: ImportSequence passed";
-        return tefINTERNAL;
-    }
-
-    if (setRegularKey)
-    {
-        JLOG(ctx_.journal.warn()) << "Import: actioning SetRegularKey " << *setRegularKey << " acc: " << id;
-        sle->setAccountID(sfRegularKey, *setRegularKey);
-    }
-
-    if (create)
-    {
-        JLOG(ctx_.journal.trace()) << "Import: creating account " << id;
-        if (!signedWithMaster)
-        {
-            // disable master if the account is created using non-master key
-            JLOG(ctx_.journal.warn()) << "Import: keying of " << id << " is unclear - disable master";
-            sle->setAccountID(sfRegularKey, noAccount());
-            sle->setFieldU32(sfFlags, lsfDisableMaster);
-        }
-        view().insert(sle);
-    }
-    else
-    {
-        // account already exists
-        JLOG(ctx_.journal.trace()) << "Import: updating existing account " << id;
-        sle->setFieldU32(sfImportSequence, importSequence);
-        sle->setFieldAmount(sfBalance, finalBal);
-
-        view().update(sle);
-    }
-
-    // todo: manifest sequence needs to be recorded to prevent certain types of replay attack
     auto const infoVL = getVLInfo(*xpop, ctx_.journal);
 
     if (!infoVL)
@@ -1107,7 +1099,6 @@ Import::doApply()
     }
     else
     {
-        JLOG(ctx_.journal.trace()) << "Import: update vl";
         uint32_t current = sleVL->getFieldU32(sfImportSequence);
 
         if (current > infoVL->first)
@@ -1126,40 +1117,109 @@ Import::doApply()
             // it's the same sequence number so leave it be
         }
     }
-
-    /// this logic is executed last after the account might have already been created    
-    if (setSignerEntries)
-    {
-        JLOG(ctx_.journal.trace())
-            << "Import: actioning SignerListSet "
-            << "quorum: " << setSignerQuorum << " "
-            << "size: " << setSignerEntries->size();
     
-        Sandbox sb(&view());
-        TER result = 
-        SetSignerList::replaceSignersFromLedger(
-            ctx_.app,
-            sb,
-            ctx_.journal,
-            id,
-            setSignerQuorum,
-            *setSignerEntries,
-            finalBal.xrp());
+    auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal, &(*xpop));
 
-        if (result == tesSUCCESS)
+    if (!stpTrans || !stpTrans->isFieldPresent(sfSequence) || !stpTrans->isFieldPresent(sfFee))
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: during apply could not find importSequence or fee, bailing.";
+        return tefINTERNAL;
+    }
+
+
+    //
+    // Now deal with the account creation and crediting
+    //
+
+    STAmount burn = stpTrans->getFieldAmount(sfFee);
+
+    if (!isXRP(burn) || burn < beast::zero)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: inner fee was not XRP value.";
+        return tefINTERNAL;
+    }
+    
+    // ensure header is not going to overflow
+    if (burn <= beast::zero || burn.xrp() + view().info().drops < view().info().drops)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: ledger header overflowed\n";
+        return tecINTERNAL;
+    }
+
+
+    uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
+    auto const id = ctx_.tx[sfAccount];
+    auto sle = view().peek(keylet::account(id));
+    
+    if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
+    {
+        // make double sure import seq hasn't passed
+        JLOG(ctx_.journal.warn())
+            << "Import: ImportSequence passed";
+        return tefINTERNAL;
+    }
+
+    bool const create = !sle;
+
+    STAmount startBal = create ? STAmount(INITIAL_IMPORT_XRP) : sle->getFieldAmount(sfBalance);
+    STAmount finalBal = startBal + burn;
+
+    if (finalBal < startBal)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: overflow finalBal < startBal.";
+        return tefINTERNAL;
+    }
+
+    if (create)
+    {
+        // Create the account.
+        std::uint32_t const seqno{
+            view().rules().enabled(featureDeletableAccounts) ? view().seq()
+                                                             : 1};
+        sle = std::make_shared<SLE>(keylet::account(id));
+        sle->setAccountID(sfAccount, id);
+
+        sle->setFieldU32(sfSequence, seqno);
+        sle->setFieldU32(sfOwnerCount, 0);
+    
+        if (ctx_.tx.getSigningPubKey().empty() ||
+            calcAccountID(PublicKey(makeSlice(ctx_.tx.getSigningPubKey()))) != id)
         {
-            JLOG(ctx_.journal.trace())
-                << "Import: successful SignerListSet";
-            sb.apply(ctx_.rawView());
-        }
-        else
-        {
+            // disable master unless the first Import is signed with master
+            sle->setFieldU32(sfFlags, lsfDisableMaster);
             JLOG(ctx_.journal.warn())
-                << "Import: SetSignerList failed with code "
-                << result << " acc: " << id;
+                << "Import: acc " << id << " created with disabled master key.";
         }
-    } 
+    }
+    
+    sle->setFieldU32(sfImportSequence, importSequence);
+    sle->setFieldAmount(sfBalance, finalBal);
 
+    if (create)
+        view().insert(sle);
+    else
+        view().update(sle);
+
+    //
+    // Handle any key imports, but only if a tes code
+    // these functions update the sle on their own
+    // 
+    if (meta->getFieldU8(sfTransactionResult) == tesSUCCESS)
+    {
+        auto const tt = stpTrans->getTxnType();
+        if (tt == ttSIGNER_LIST_SET)
+            doSignerList(sle, *stpTrans);
+        else if (tt == ttREGULAR_KEY_SET)
+            doRegularKey(sle, *stpTrans);
+    }
+
+
+    // update the ledger header
+    ctx_.rawView().rawDestroyXRP(-burn.xrp());
 
     return tesSUCCESS;
 }

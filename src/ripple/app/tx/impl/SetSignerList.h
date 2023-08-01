@@ -89,14 +89,6 @@ private:
         Operation>
     determineOperation(STTx const& tx, ApplyFlags flags, beast::Journal j);
 
-    static NotTEC
-    validateQuorumAndSignerEntries(
-        std::uint32_t quorum,
-        std::vector<SignerEntries::SignerEntry> const& signers,
-        AccountID const& account,
-        beast::Journal j,
-        Rules const&);
-
     TER
     replaceSignerList();
     TER
@@ -107,6 +99,14 @@ private:
         const;
 
 public:
+    static NotTEC
+    validateQuorumAndSignerEntries(
+        std::uint32_t quorum,
+        std::vector<SignerEntries::SignerEntry> const& signers,
+        AccountID const& account,
+        beast::Journal j,
+        Rules const&);
+
     template <typename V>
     static TER
     replaceSignersFromLedger(

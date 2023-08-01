@@ -17,14 +17,8 @@
 */
 //==============================================================================
 
-/*
-DENIS NOTES
 
-// DA: failed to deserialize tx blob/meta inside xpop (invalid SerialIter
-getRaw) outer txid:
-
-*/
-
+#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/json/json_reader.h>
 #include <ripple/json/json_writer.h>
@@ -33,6 +27,8 @@ getRaw) outer txid:
 #include <ripple/protocol/Import.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <boost/filesystem.hpp>
+
 #define BEAST_REQUIRE(x)     \
     {                        \
         BEAST_EXPECT(!!(x)); \
@@ -54,7 +50,7 @@ class Import_test : public beast::unit_test::suite
         return envconfig([&](std::unique_ptr<Config> cfg) {
             cfg->section(SECTION_RPC_STARTUP)
                 .append(
-                    "{ \"command\": \"log_level\", \"severity\": \"warning\" "
+                    "{ \"command\": \"log_level\", \"severity\": \"warn\" "
                     "}");
             cfg->NETWORK_ID = networkID;
 
@@ -68,9 +64,10 @@ class Import_test : public beast::unit_test::suite
                 auto const pkType = publicKeyType(makeSlice(*pkHex));
                 if (!pkType)
                     Throw<std::runtime_error>(
-                        "Import VL Key '" + strPk + "' was not a valid key type.");
+                        "Import VL Key '" + strPk +
+                        "' was not a valid key type.");
 
-                cfg->IMPORT_VL_KEYS.emplace(strPk,  makeSlice(*pkHex));
+                cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
             }
             return cfg;
         });
@@ -84,7 +81,6 @@ class Import_test : public beast::unit_test::suite
         std::string strJson = Json::FastWriter().write(xpop);
         jv[jss::TransactionType] = jss::Import;
         jv[jss::Account] = account.human();
-        jv[jss::Fee] = 0;
         jv[sfBlob.jsonName] = strHex(strJson);
         return jv;
     }
@@ -111,308 +107,56 @@ class Import_test : public beast::unit_test::suite
     };
 
     static Json::Value
-    accountSetXpop()
+    makeXpop(std::string tt, std::string tc, std::string strJson)
     {
-        std::string strJson = R"json({
-            "ledger": {
-                "acroot": "4300DFEC01D20F18FB8AD86A1A4EC619A5F3A5C248F3A91913C0EF04D8F29734",
-                "close": 739431052,
-                "coins": "99999998999999844",
-                "cres": 10,
-                "flags": 0,
-                "index": 41,
-                "pclose": 739431051,
-                "phash": "B8DB71F81667151FDD00CCADB209A777371A18F8F2BE9ADED7345D210CC5FDC1",
-                "txroot": "CD68159512E84E0DE430AA685A7574C57AACD5FB6DA511CB9B8F4276CFAB53B5"
-            },
-            "transaction": {
-                "blob": "12000322000000002400000002201B0000003B201D0000535968400000003B9ACA0073210388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C05274473045022100E3E45165E99720E0D9CA2F1101E619DC29F78DE310DEC25604A24F47D671860B02207626E36D9E5DBBB5BD33F892B0C1DF419A2E4511F164346341220627EB7FB41F8114AE123A8556F3CF91154711376AFB0F894F832B3D",
-                "meta": "201C00000005F8E5110061250000002955E110681DFD389BE1F7D3A1A08919C3FD16ABA78EE6A86FD7F8A2CD7512E0CBE05692FA6A9FC8EA6018D5D16532D7795C91BFB0831355BDFDA177E86C8BF997985FE624000000026240000000773593F4E1E7220000000024000000032D0000000162400000003B9AC9F48114AE123A8556F3CF91154711376AFB0F894F832B3DE1E1F1031000",
-                "proof": {
-                "children": {
-                    "0": {
-                    "children": {},
-                    "hash": "D73E14195A5FE5C00E71FAD095AF5EF2C1B7CEC47EF45F6751B84972C1956FF6",
-                    "key": "05137BD9679EDF737EE6CAA69427D243C53AE6945C97E41C462AE647D25B0B12"
-                    },
-                    "3": {
-                    "children": {},
-                    "hash": "00D9FDA1C18A1B3950750A43F6649BE81F06C565AE6513BB14F285A2DE7A9953",
-                    "key": "38EF03286B154F56882CF62F6AFB3B94624E6089040562E965A8243FF7397A7B"
-                    },
-                    "4": {
-                    "children": {},
-                    "hash": "32A91095374D7A4239301B5CE7F0A9066986913CFACF29E1B6C3CD07DED921F6",
-                    "key": "47D5B86F48B38FBB12E570778AA5FBD8126D2C6A452F135424E7061FA1C5CF42"
-                    },
-                    "5": {
-                    "children": {},
-                    "hash": "361C68190AB24629D15F44D13EFF57CC0A9CA6826D24DD840749ECDB4D8DC096",
-                    "key": "55616BC25786E929DC7B163F2DABAA17DEF3D4FC13D8BF484AA70022AE38954C"
-                    },
-                    "7": {
-                    "children": {},
-                    "hash": "6691A9F3EECDB5C1D4B9736DF300FFC22C3138DAD64D0D77C93A56CC5217682F",
-                    "key": "77AB1364F7C6D1C92A42CE737D5A5C749984AFD267230A69A05724602F92DD6A"
-                    },
-                    "8": {
-                    "children": {},
-                    "hash": "B0D13F5F9B7BA4E5963715BBCA6CD76A4A85AF3643784C1EC065E1325852E4F9",
-                    "key": "895F910AC4C59E4138623432F103A92E2092D458B020296715A7C86946BD0224"
-                    },
-                    "A": {
-                    "children": {},
-                    "hash": "50B49F162EB2D8EA2DE6646ED7B75C4AC181A8C281BFAE62FF9EB38BC26E4F87",
-                    "key": "AA8EB7038D77837CF9055B2AF13B1AACCCEDA792B9A07732549646925A97F462"
-                    },
-                    "D": {
-                    "children": {},
-                    "hash": "348754862F6E8ED4D23CA346FA53DF311375D42A3BA20C33D927FB74DF5DBC56",
-                    "key": "D146454960D401B9AB4C6DE32F8E9A9186765EFE76EE611B4A0D18D69242D51E"
-                    },
-                    "E": {
-                    "children": {
-                        "1": {
-                        "children": {},
-                        "hash": "4FA153CE29ECA36803CAC28CF27DEC73491398B64032E7030F8219179CDADCEA",
-                        "key": "E110681DFD389BE1F7D3A1A08919C3FD16ABA78EE6A86FD7F8A2CD7512E0CBE0"
-                        },
-                        "F": {
-                        "children": {},
-                        "hash": "0B316915D2F11B82EE9402A7C686C5AD576510C1C209AA36506A4AF5DED0DDA9",
-                        "key": "EFFD664A294E07A5BF939E8A2CAF19C54BB11949FCD1D28D74C3862A50CCBEE3"
-                        }
-                    },
-                    "hash": "0D7AC4E4D9BCBB51C279EC171A2FA672045A79FB1564B3ED87DAE809CD859148",
-                    "key": "E000000000000000000000000000000000000000000000000000000000000000"
-                    },
-                    "F": {
-                    "children": {
-                        "1": {
-                        "children": {},
-                        "hash": "15AFD9F20741B8768EF4E8B4DF351F777E3660EA71F399A66C30F6A5D42FFDFB",
-                        "key": "F11B47F322D2D1EFFA6CB6F7D3BEFE50AE152B87014CCF840886DB915FA40A13"
-                        },
-                        "3": {
-                        "children": {},
-                        "hash": "B663FD9DE6B4C98A4803C2ADAFA1590EF0EC8E1F9994059FF055890230BCA4EC",
-                        "key": "F34B5CEA1C4CDEE7B4C8788B0F667C4921A555E86FC23768E51DE880924CBBD6"
-                        },
-                        "A": {
-                        "children": {},
-                        "hash": "0610257AAFD2B633AF9DB57CF4BAC521D3D6CD62357340A121B875442D0E9926",
-                        "key": "FADD7A23E29B443A0F4B35B7CB0A17DACE13CA1CEAA08AF95B251701AAD81751"
-                        },
-                        "F": {
-                        "children": {},
-                        "hash": "F07D692BF72C72F5CC61F6FED04737A7C4E0CC8EBA0F52051C736B4FF233E9EC",
-                        "key": "FFF1E36E035C347F06C0A54DA45981CB8ABA91EEDB82D7C61E3952F698769D2B"
-                        }
-                    },
-                    "hash": "96AC68A145A7229869267AEF3D6AA4C2C56C30184CE3BB5C20FCC11161F7A49B",
-                    "key": "F000000000000000000000000000000000000000000000000000000000000000"
-                    }
-                },
-                "hash": "CD68159512E84E0DE430AA685A7574C57AACD5FB6DA511CB9B8F4276CFAB53B5",
-                "key": "0000000000000000000000000000000000000000000000000000000000000000"
-                }
-            },
-            "validation": {
-                "data": {
-                "n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN": "22800000012600000029292C12D28E514F1F56EB808B9DA5564AABB7019D3EA1692C3C5DFA49E975D56CC48963E941A25017F878F54DA3C37C554E7B5DF952E1BD1181A4D63CA05F1D6751DD1A129C4CEF4A732103D4A61C3C4E882313665E67471AE9DB28D6679823C760EBA1416B5389EB12A53B76473045022100F7BA251EBE7AC9DFC6C95BD6BA6F1372F09E90BCDC302D73E6AD5D32CA2FAA1702201234FF330B5F1C5AB53D67C50396BEDC20389F8BB9A71158FBAA2F937FB98528",
-                "n9KXYzdZD8YpsNiChtMjP6yhvQAhkkh5XeSTbvYyV1waF8wkNnBT": "22800000012600000029292C12D28E514F1F56EB808B9DA5564AABB7019D3EA1692C3C5DFA49E975D56CC48963E941A25017F878F54DA3C37C554E7B5DF952E1BD1181A4D63CA05F1D6751DD1A129C4CEF4A732102818C35CB205143702A8FA1EF385A5CA17E1C6C3A5E1123A032AB6A59189CC8CA76473045022100BC6CD6BE325712336C769D996F11107D145ED6732E7484B13FA8632752B3D9DF022017ABD68DC746273B2B175AACFCBB24EA1CD7DDA82D5FAA5C5BC4B054D5E94D79"
-                },
-                "unl": {
-                "blob": "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNERFNUMiLCJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEvV0lWbGlETUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0VnVGVYSE1oQW9HTU5jc2dVVU53S28raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxrWW5Naktka2N3UlFJaEFKN2NONEo2TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTkZjQzN6TU9qZ3dqQWlBYktJMGZiWGdTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3WEROM0F4cXlZM0FTUUN0MCt1L2lOU0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bVRwZmpSWXA0bE1vSS9oNDNwVVRqcDdWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3VFFFPSJ9LHsidmFsaWRhdGlvbl9wdWJsaWNfa2V5IjoiRURCRUUzMEZBRTkyRUVFODhFMUM0OTgwRDA5RUNGREU5OUExMTZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0MThFNDI4IiwibWFuaWZlc3QiOiJKQUFBQUFKeEllMis0dyt1a3U3b2poeEpnTkNlejk2Wm9SYlFlT3doaFgyeHRIdENaQmprS0hNaEE5U21IRHhPaUNNVFpsNW5SeHJwMnlqV1o1Z2p4MkRyb1VGclU0bnJFcVU3ZGtjd1JRSWhBTGRFRmVqWStwVW5nbGk3c1R2aWIwQm1ESFA3TjZpa1ZFQkk2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQxQVVnOVg4WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RTlTanVMUjZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9jeWNyRi9DdFNBND0ifV19",
-                "manifest": "JAAAAAFxIe101ANsZZGkvfnFTO+jm5lqXc5fhtEf2hh0SBzp1aHNwXMh7TN9+b62cZqTngaFYU5tbGpYHC8oYuI3G3vwj9OW2Z9gdkAnUjfY5zOEkhq31tU4338jcyUpVA5/VTsANFce7unDo+JeVoEhfuOb/Y8WA3Diu9XzuOD4U/ikfgf9SZOlOGcBcBJAw44PLjH+HUtEnwX45lIRmo0x5aINFMvZsBpE9QteSDBXKwYzLdnSW4e1bs21o+IILJIiIKU/+1Uxx0FRpQbMDA==",
-                "public_key": "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1",
-                "signature": "849F6B8DA6E11C213B561659C16F13D35385E8EA9E775483ADC84578F6D578943DE5EB681584B2C03EFFFDFD216F9E0B21576E482F941C7195893B72B5B1F70D",
-                "version": 1
-                }
-            }
-        })json";
-        Json::Value xpop;
+        Json::Value jsonValue;
         Json::Reader reader;
-        reader.parse(strJson, xpop);
-        return xpop;
+        reader.parse(strJson, jsonValue);
+        return jsonValue[tt][tc];
     }
 
     static Json::Value
-    setRegularKeyXpop()
+    loadXpop(std::string tt, std::string tc)
     {
-        std::string strJson = R"json({
-            "ledger": {
-                "acroot": "A8AAC3B6BE8027650DCA96F5FC59D2BCB961E43B8E69554DCDC3E7D5546BD973",
-                "close": 739435131,
-                "coins": "99999998999999832",
-                "cres": 10,
-                "flags": 0,
-                "index": 668,
-                "pclose": 739435130,
-                "phash": "E153F8A1286AAC8A3F0DA26DACCF52C2760FEA4DEB572CD2CEF0818618E84FA6",
-                "txroot": "2D27060F123E5D8D96AC3ADB5F21D62CE58EF193A5EE1FAE5649D682AF490CD5"
-            },
-            "transaction": {
-                "blob": "12000522000000002400000005201B000002AF201D0000535968400000000000000C73210388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C0527446304402205FC70E12E5638B25BD9662F22C16A3710247862CE06FC9E8D7E80DD1B97A1F5102204752F43F2F835748822EA74DA9B5AFB28BF8DDE7F8E88EDE2C72654364F5919A8114AE123A8556F3CF91154711376AFB0F894F832B3D8814AE123A8556F3CF91154711376AFB0F894F832B3D",
-                "meta": "201C00000000F8E511006125000000295505137BD9679EDF737EE6CAA69427D243C53AE6945C97E41C462AE647D25B0B125692FA6A9FC8EA6018D5D16532D7795C91BFB0831355BDFDA177E86C8BF997985FE6240000000562400000003B9AC9DCE1E7220001000024000000062D0000000462400000003B9AC9D08114AE123A8556F3CF91154711376AFB0F894F832B3D8814AE123A8556F3CF91154711376AFB0F894F832B3DE1E1F1031000",
-                "proof": {
-                "children": {
-                    "1": {
-                    "children": {},
-                    "hash": "98397F90D1A82985D12E58DDCF831F3D0B0299A920B2E5D51EC529D22CF02906",
-                    "key": "194CB1D80535AE884C7E3CAE200267F68B03BBCD0137C391D9F3B5499B11B6D3"
-                    }
-                },
-                "hash": "2D27060F123E5D8D96AC3ADB5F21D62CE58EF193A5EE1FAE5649D682AF490CD5",
-                "key": "0000000000000000000000000000000000000000000000000000000000000000"
-                }
-            },
-            "validation": {
-                "data": {
-                "n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN": "2280000001260000029C292C12E27B51A19C5772B28B6A73A5DFD27FA933622CA24475C1809E5A79C7C9953340D5FD9D5017CF34CE9E06B20CFC46167FA254D3C2245F64C702E7B889A82315E41B2E0AED74732103D4A61C3C4E882313665E67471AE9DB28D6679823C760EBA1416B5389EB12A53B7646304402201F9E79949D6E122EAE09EE39913F69F792C4FCA9D6B00D13C85533D9C188848002206AC93CCF23B1B6B2E97A5E021E267EF635DE1F242DEABAC5A699534C2D53F463",
-                "n9KXYzdZD8YpsNiChtMjP6yhvQAhkkh5XeSTbvYyV1waF8wkNnBT": "2280000001260000029C292C12E27B51A19C5772B28B6A73A5DFD27FA933622CA24475C1809E5A79C7C9953340D5FD9D5017CF34CE9E06B20CFC46167FA254D3C2245F64C702E7B889A82315E41B2E0AED74732102818C35CB205143702A8FA1EF385A5CA17E1C6C3A5E1123A032AB6A59189CC8CA76473045022100B93F0FAC8C9832F6CF67E0404B775BCCA205431616A221190666517DE3A39D9902206E244EFA5EDABE4B72BCF3C973C475B784BED3D44E4B00837580DC23B41129E1"
-                },
-                "unl": {
-                "blob": "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNERFNUMiLCJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEvV0lWbGlETUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0VnVGVYSE1oQW9HTU5jc2dVVU53S28raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxrWW5Naktka2N3UlFJaEFKN2NONEo2TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTkZjQzN6TU9qZ3dqQWlBYktJMGZiWGdTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3WEROM0F4cXlZM0FTUUN0MCt1L2lOU0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bVRwZmpSWXA0bE1vSS9oNDNwVVRqcDdWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3VFFFPSJ9LHsidmFsaWRhdGlvbl9wdWJsaWNfa2V5IjoiRURCRUUzMEZBRTkyRUVFODhFMUM0OTgwRDA5RUNGREU5OUExMTZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0MThFNDI4IiwibWFuaWZlc3QiOiJKQUFBQUFKeEllMis0dyt1a3U3b2poeEpnTkNlejk2Wm9SYlFlT3doaFgyeHRIdENaQmprS0hNaEE5U21IRHhPaUNNVFpsNW5SeHJwMnlqV1o1Z2p4MkRyb1VGclU0bnJFcVU3ZGtjd1JRSWhBTGRFRmVqWStwVW5nbGk3c1R2aWIwQm1ESFA3TjZpa1ZFQkk2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQxQVVnOVg4WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RTlTanVMUjZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9jeWNyRi9DdFNBND0ifV19",
-                "manifest": "JAAAAAFxIe101ANsZZGkvfnFTO+jm5lqXc5fhtEf2hh0SBzp1aHNwXMh7TN9+b62cZqTngaFYU5tbGpYHC8oYuI3G3vwj9OW2Z9gdkAnUjfY5zOEkhq31tU4338jcyUpVA5/VTsANFce7unDo+JeVoEhfuOb/Y8WA3Diu9XzuOD4U/ikfgf9SZOlOGcBcBJAw44PLjH+HUtEnwX45lIRmo0x5aINFMvZsBpE9QteSDBXKwYzLdnSW4e1bs21o+IILJIiIKU/+1Uxx0FRpQbMDA==",
-                "public_key": "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1",
-                "signature": "849F6B8DA6E11C213B561659C16F13D35385E8EA9E775483ADC84578F6D578943DE5EB681584B2C03EFFFDFD216F9E0B21576E482F941C7195893B72B5B1F70D",
-                "version": 1
-                }
+        std::string fn = "../src/test/app/Import_test.json";
+        try
+        {
+            // check if file exists and is not empty
+            if (!boost::filesystem::exists(fn) ||
+                boost::filesystem::file_size(fn) == 0)
+            {
+                std::cout << "file was zero size or didn't exist"
+                          << "\n";
+                return {};
             }
-        })json";
-        Json::Value xpop;
-        Json::Reader reader;
-        reader.parse(strJson, xpop);
-        return xpop;
-    }
 
-    static Json::Value
-    signersListSetXpop()
-    {
-        std::string strJson = R"json({
-            "ledger": {
-                "acroot": "4300DFEC01D20F18FB8AD86A1A4EC619A5F3A5C248F3A91913C0EF04D8F29734",
-                "close": 739431052,
-                "coins": "99999998999999844",
-                "cres": 10,
-                "flags": 0,
-                "index": 41,
-                "pclose": 739431051,
-                "phash": "B8DB71F81667151FDD00CCADB209A777371A18F8F2BE9ADED7345D210CC5FDC1",
-                "txroot": "CD68159512E84E0DE430AA685A7574C57AACD5FB6DA511CB9B8F4276CFAB53B5"
-            },
-            "transaction": {
-                "blob": "12000C22000000002400000004201B0000003B201D0000535920230000000168400000000000000C73210388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C05274473045022100E462E53C592D6756968203CB4D146539BA2B397BCE5909890592E9AB7AB63204022061895689FD8FAA3CA1E1072554DB65E873BB586ECB5B7A04789D2BEC0785E3008114AE123A8556F3CF91154711376AFB0F894F832B3DF4EB1300018114F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90FE1F1",
-                "meta": "201C00000007F8E311005356472CD116F1449F280243169C442271168E368750479CC7B20816170EDBDCA4E6E8202300000001F4EB1300018114F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90FE1F1E1E1E5110061250000002955F11B47F322D2D1EFFA6CB6F7D3BEFE50AE152B87014CCF840886DB915FA40A135692FA6A9FC8EA6018D5D16532D7795C91BFB0831355BDFDA177E86C8BF997985FE624000000042D0000000162400000003B9AC9E8E1E7220001000024000000052D0000000462400000003B9AC9DC8114AE123A8556F3CF91154711376AFB0F894F832B3D8814AE123A8556F3CF91154711376AFB0F894F832B3DE1E1E511006456A33EC6BB85FB5674074C4A3A43373BB17645308F3EAE1933E3E35252162B217DE7220000000058A33EC6BB85FB5674074C4A3A43373BB17645308F3EAE1933E3E35252162B217D8214AE123A8556F3CF91154711376AFB0F894F832B3DE1E1F1031000",
-                "proof": {
-                "children": {
-                    "0": {
-                    "children": {},
-                    "hash": "D73E14195A5FE5C00E71FAD095AF5EF2C1B7CEC47EF45F6751B84972C1956FF6",
-                    "key": "05137BD9679EDF737EE6CAA69427D243C53AE6945C97E41C462AE647D25B0B12"
-                    },
-                    "3": {
-                    "children": {},
-                    "hash": "00D9FDA1C18A1B3950750A43F6649BE81F06C565AE6513BB14F285A2DE7A9953",
-                    "key": "38EF03286B154F56882CF62F6AFB3B94624E6089040562E965A8243FF7397A7B"
-                    },
-                    "4": {
-                    "children": {},
-                    "hash": "32A91095374D7A4239301B5CE7F0A9066986913CFACF29E1B6C3CD07DED921F6",
-                    "key": "47D5B86F48B38FBB12E570778AA5FBD8126D2C6A452F135424E7061FA1C5CF42"
-                    },
-                    "5": {
-                    "children": {},
-                    "hash": "361C68190AB24629D15F44D13EFF57CC0A9CA6826D24DD840749ECDB4D8DC096",
-                    "key": "55616BC25786E929DC7B163F2DABAA17DEF3D4FC13D8BF484AA70022AE38954C"
-                    },
-                    "7": {
-                    "children": {},
-                    "hash": "6691A9F3EECDB5C1D4B9736DF300FFC22C3138DAD64D0D77C93A56CC5217682F",
-                    "key": "77AB1364F7C6D1C92A42CE737D5A5C749984AFD267230A69A05724602F92DD6A"
-                    },
-                    "8": {
-                    "children": {},
-                    "hash": "B0D13F5F9B7BA4E5963715BBCA6CD76A4A85AF3643784C1EC065E1325852E4F9",
-                    "key": "895F910AC4C59E4138623432F103A92E2092D458B020296715A7C86946BD0224"
-                    },
-                    "A": {
-                    "children": {},
-                    "hash": "50B49F162EB2D8EA2DE6646ED7B75C4AC181A8C281BFAE62FF9EB38BC26E4F87",
-                    "key": "AA8EB7038D77837CF9055B2AF13B1AACCCEDA792B9A07732549646925A97F462"
-                    },
-                    "D": {
-                    "children": {},
-                    "hash": "348754862F6E8ED4D23CA346FA53DF311375D42A3BA20C33D927FB74DF5DBC56",
-                    "key": "D146454960D401B9AB4C6DE32F8E9A9186765EFE76EE611B4A0D18D69242D51E"
-                    },
-                    "E": {
-                    "children": {
-                        "1": {
-                        "children": {},
-                        "hash": "4FA153CE29ECA36803CAC28CF27DEC73491398B64032E7030F8219179CDADCEA",
-                        "key": "E110681DFD389BE1F7D3A1A08919C3FD16ABA78EE6A86FD7F8A2CD7512E0CBE0"
-                        },
-                        "F": {
-                        "children": {},
-                        "hash": "0B316915D2F11B82EE9402A7C686C5AD576510C1C209AA36506A4AF5DED0DDA9",
-                        "key": "EFFD664A294E07A5BF939E8A2CAF19C54BB11949FCD1D28D74C3862A50CCBEE3"
-                        }
-                    },
-                    "hash": "0D7AC4E4D9BCBB51C279EC171A2FA672045A79FB1564B3ED87DAE809CD859148",
-                    "key": "E000000000000000000000000000000000000000000000000000000000000000"
-                    },
-                    "F": {
-                    "children": {
-                        "1": {
-                        "children": {},
-                        "hash": "15AFD9F20741B8768EF4E8B4DF351F777E3660EA71F399A66C30F6A5D42FFDFB",
-                        "key": "F11B47F322D2D1EFFA6CB6F7D3BEFE50AE152B87014CCF840886DB915FA40A13"
-                        },
-                        "3": {
-                        "children": {},
-                        "hash": "B663FD9DE6B4C98A4803C2ADAFA1590EF0EC8E1F9994059FF055890230BCA4EC",
-                        "key": "F34B5CEA1C4CDEE7B4C8788B0F667C4921A555E86FC23768E51DE880924CBBD6"
-                        },
-                        "A": {
-                        "children": {},
-                        "hash": "0610257AAFD2B633AF9DB57CF4BAC521D3D6CD62357340A121B875442D0E9926",
-                        "key": "FADD7A23E29B443A0F4B35B7CB0A17DACE13CA1CEAA08AF95B251701AAD81751"
-                        },
-                        "F": {
-                        "children": {},
-                        "hash": "F07D692BF72C72F5CC61F6FED04737A7C4E0CC8EBA0F52051C736B4FF233E9EC",
-                        "key": "FFF1E36E035C347F06C0A54DA45981CB8ABA91EEDB82D7C61E3952F698769D2B"
-                        }
-                    },
-                    "hash": "96AC68A145A7229869267AEF3D6AA4C2C56C30184CE3BB5C20FCC11161F7A49B",
-                    "key": "F000000000000000000000000000000000000000000000000000000000000000"
-                    }
-                },
-                "hash": "CD68159512E84E0DE430AA685A7574C57AACD5FB6DA511CB9B8F4276CFAB53B5",
-                "key": "0000000000000000000000000000000000000000000000000000000000000000"
-                }
-            },
-            "validation": {
-                "data": {
-                "n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN": "22800000012600000029292C12D28E514F1F56EB808B9DA5564AABB7019D3EA1692C3C5DFA49E975D56CC48963E941A25017F878F54DA3C37C554E7B5DF952E1BD1181A4D63CA05F1D6751DD1A129C4CEF4A732103D4A61C3C4E882313665E67471AE9DB28D6679823C760EBA1416B5389EB12A53B76473045022100F7BA251EBE7AC9DFC6C95BD6BA6F1372F09E90BCDC302D73E6AD5D32CA2FAA1702201234FF330B5F1C5AB53D67C50396BEDC20389F8BB9A71158FBAA2F937FB98528",
-                "n9KXYzdZD8YpsNiChtMjP6yhvQAhkkh5XeSTbvYyV1waF8wkNnBT": "22800000012600000029292C12D28E514F1F56EB808B9DA5564AABB7019D3EA1692C3C5DFA49E975D56CC48963E941A25017F878F54DA3C37C554E7B5DF952E1BD1181A4D63CA05F1D6751DD1A129C4CEF4A732102818C35CB205143702A8FA1EF385A5CA17E1C6C3A5E1123A032AB6A59189CC8CA76473045022100BC6CD6BE325712336C769D996F11107D145ED6732E7484B13FA8632752B3D9DF022017ABD68DC746273B2B175AACFCBB24EA1CD7DDA82D5FAA5C5BC4B054D5E94D79"
-                },
-                "unl": {
-                "blob": "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNERFNUMiLCJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEvV0lWbGlETUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0VnVGVYSE1oQW9HTU5jc2dVVU53S28raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxrWW5Naktka2N3UlFJaEFKN2NONEo2TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTkZjQzN6TU9qZ3dqQWlBYktJMGZiWGdTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3WEROM0F4cXlZM0FTUUN0MCt1L2lOU0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bVRwZmpSWXA0bE1vSS9oNDNwVVRqcDdWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3VFFFPSJ9LHsidmFsaWRhdGlvbl9wdWJsaWNfa2V5IjoiRURCRUUzMEZBRTkyRUVFODhFMUM0OTgwRDA5RUNGREU5OUExMTZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0MThFNDI4IiwibWFuaWZlc3QiOiJKQUFBQUFKeEllMis0dyt1a3U3b2poeEpnTkNlejk2Wm9SYlFlT3doaFgyeHRIdENaQmprS0hNaEE5U21IRHhPaUNNVFpsNW5SeHJwMnlqV1o1Z2p4MkRyb1VGclU0bnJFcVU3ZGtjd1JRSWhBTGRFRmVqWStwVW5nbGk3c1R2aWIwQm1ESFA3TjZpa1ZFQkk2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQxQVVnOVg4WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RTlTanVMUjZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9jeWNyRi9DdFNBND0ifV19",
-                "manifest": "JAAAAAFxIe101ANsZZGkvfnFTO+jm5lqXc5fhtEf2hh0SBzp1aHNwXMh7TN9+b62cZqTngaFYU5tbGpYHC8oYuI3G3vwj9OW2Z9gdkAnUjfY5zOEkhq31tU4338jcyUpVA5/VTsANFce7unDo+JeVoEhfuOb/Y8WA3Diu9XzuOD4U/ikfgf9SZOlOGcBcBJAw44PLjH+HUtEnwX45lIRmo0x5aINFMvZsBpE9QteSDBXKwYzLdnSW4e1bs21o+IILJIiIKU/+1Uxx0FRpQbMDA==",
-                "public_key": "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1",
-                "signature": "849F6B8DA6E11C213B561659C16F13D35385E8EA9E775483ADC84578F6D578943DE5EB681584B2C03EFFFDFD216F9E0B21576E482F941C7195893B72B5B1F70D",
-                "version": 1
-                }
+            // open file and read its content
+            std::ifstream inFile(fn, std::ios::in | std::ios::binary);
+            if (inFile)
+            {
+                std::string content(
+                    (std::istreambuf_iterator<char>(inFile)),
+                    std::istreambuf_iterator<char>());
+
+                return makeXpop(tt, tc, content);
             }
-        })json";
-
-        Json::Value xpop;
-        Json::Reader reader;
-        reader.parse(strJson, xpop);
-        return xpop;
+            else
+            {
+                std::cout << "failed to open file"
+                          << "\n";
+                return {};
+            }
+        }
+        catch (boost::filesystem::filesystem_error& e)
+        {
+            std::cout << "Failed to load file " + fn + " (" + e.what() + ")";
+            return {};
+        }
+        catch (std::runtime_error& e)
+        {
+            std::cout << e.what();
+            return {};
+        }
     }
 
     void
@@ -1773,9 +1517,6 @@ class Import_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        // setup env
-        auto const alice = Account("alice");
-
         for (bool const withImport : {false, true})
         {
             // If the Import amendment is not enabled, you should not be able
@@ -1783,6 +1524,8 @@ class Import_test : public beast::unit_test::suite
             auto const amend = withImport ? features : features - featureImport;
             Env env{*this, makeNetworkConfig(21337), amend};
 
+            // setup env
+            auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
             env.close();
 
@@ -1791,16 +1534,16 @@ class Import_test : public beast::unit_test::suite
             auto const ownerDir = withImport ? 1 : 0;
 
             // IMPORT - Account Set
-            env(import(alice, accountSetXpop()), txResult);
+            env(import(alice, loadXpop("account_set", "w_seed")), txResult);
             env.close();
 
-            // IMPORT - Signers List Set
-            env(import(alice, signersListSetXpop()), txResult);
-            env.close();
+            // // IMPORT - Set Regular Key
+            // env(import(alice, loadXpop("set_regular_key", "bob_carol")),
+            // txResult); env.close();
 
-            // IMPORT - Set Regular Key
-            env(import(alice, setRegularKeyXpop()), txResult);
-            env.close();
+            // // IMPORT - Signers List Set
+            // env(import(alice, loadXpop("signers_list_set", "bob_carol")),
+            // txResult); env.close();
         }
     }
 
@@ -1828,7 +1571,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - sfFee cannot be 0
         {
-            Json::Value tx = import(alice, accountSetXpop());
+            Json::Value tx = import(alice, loadXpop("account_set", "w_seed"));
             STAmount const& fee = XRP(10);
             tx[jss::Fee] = fee.getJson(JsonOptions::none);
             env(tx, ter(temMALFORMED));
@@ -1845,7 +1588,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - sfAmount field must be in drops
         {
-            Json::Value tx = import(alice, accountSetXpop());
+            Json::Value tx = import(alice, loadXpop("account_set", "w_seed"));
             STAmount const& amount = XRP(-1);
             tx[jss::Amount] = amount.getJson(JsonOptions::none);
             env(tx, ter(temMALFORMED));
@@ -1853,21 +1596,29 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - !xpop | XPOP.validation is not a JSON object
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
-        // telIMPORT_VL_KEY_NOT_RECOGNISED - Import: (fromchain) key does not
-        // match (tochain) key
+        // temMALFORMED - Import: validation.unl.public_key was not valid hex
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            tmpXpop[jss::validation][jss::unl][jss::public_key] = "not a hex";
+            Json::Value tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: validation.unl.public_key was not a recognised
+        // public key type
+        {
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::public_key] =
-                "ED84D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
+                "0084D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
                 "CDC1";
             Json::Value tx = import(alice, tmpXpop);
-            env(tx, ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
+            env(tx, ter(temMALFORMED));
         }
 
         // getInnerTxn - !xpop
@@ -1881,20 +1632,20 @@ class Import_test : public beast::unit_test::suite
 
         // getInnerTxn - failed to deserialize tx blob/meta inside xpop
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] = "DEADBEEF";
             tmpXpop[jss::transaction][jss::meta] = "DEADBEEF";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
-        // temMALFORMED - !stpTrans
-        // DA: Duplicate - getInnerTxn (Any Failure)
+        // // temMALFORMED - !stpTrans
+        // // DA: Duplicate - getInnerTxn (Any Failure)
 
         // temMALFORMED - Import: attempted to import xpop containing an emitted
         // or pseudo txn.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B00000069201D0000535968400000003B"
                 "9ACA0073210388935426E0D08083314842EDFBB2D517BD47699F9A4527318A"
@@ -1912,7 +1663,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: inner txn lacked transaction result
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::meta] =
                 "201C00000006F8E5110061250000005655463E39A6AFDDA77DBF3591BF3C2A"
                 "4BE9BB8D9113BF6D0797EB403C3D0D894FEF5692FA6A9FC8EA6018D5D16532"
@@ -1926,7 +1677,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: inner txn did not have a tesSUCCESS or tec
         // result
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::meta] =
                 "201C00000006F8E5110061250000005655463E39A6AFDDA77DBF3591BF3C2A"
                 "4BE9BB8D9113BF6D0797EB403C3D0D894FEF5692FA6A9FC8EA6018D5D16532"
@@ -1940,7 +1691,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: import and txn inside xpop must be signed by
         // the same account
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             Json::Value tx = import(bob, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
@@ -1948,7 +1699,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: attempted to import xpop containing a txn with
         // a sfNetworkID field.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "120003210000535922000000002400000002201B00000069201D0000535968"
                 "400000003B9ACA0073210388935426E0D08083314842EDFBB2D517BD47699F"
@@ -1963,7 +1714,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: OperationLimit missing from inner xpop txn.
         // outer txid:
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B0000006C68400000003B9ACA007321ED"
                 "A8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A96C"
@@ -1977,7 +1728,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: Wrong network ID for OperationLimit in inner
         // txn. outer txid:
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B0000006C201D0000535A68400000003B"
                 "9ACA007321EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
@@ -1992,7 +1743,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: inner txn must be an AccountSet, SetRegularKey
         // or SignerListSet transaction.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "12006322000000002400000002201B0000006C201D0000535968400000003B"
                 "9ACA007321EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
@@ -2010,7 +1761,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: outer and inner txns were signed with
         // different keys.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B0000006C201D0000535968400000003B"
                 "9ACA007321EBA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
@@ -2027,7 +1778,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: failed to deserialize manifest on txid
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::manifest] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -2036,7 +1787,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: manifest master key did not match top level
         // master key in unl section of xpop
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::manifest] =
                 "JAAAAAFxIe2E1ANsZZGkvfnFTO+jm5lqXc5fhtEf2hh0SBzp1aHNwXMh7TN9+"
                 "b62cZqTngaFYU5tbGpYHC8oYuI3G3vwj9OW2Z9gdkAnUjfY5zOEkhq31tU4338"
@@ -2050,7 +1801,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: manifest signature invalid
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::manifest] =
                 "JAAAAAFxIe101ANsZZGkvfnFTO+jm5lqXc5fhtEf2hh0SBzp1aHNwXMh7TN9+"
                 "b62cZqTngaFYU5tbGpYHC8oYuI3G3vwj9OW2Z9gdkA3UjfY5zOEkhq31tU4338"
@@ -2064,7 +1815,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob not signed correctly
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::signature] =
                 "949F6B8DA6E11C213B561659C16F13D35385E8EA9E775483ADC84578F6D578"
                 "943DE5EB681584B2C03EFFFDFD216F9E0B21576E482F941C7195893B72B5B1"
@@ -2073,41 +1824,130 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(temMALFORMED));
         }
 
+        // temMALFORMED - Import: unl blob not signed correctly
+        {
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            tmpXpop[jss::validation][jss::unl][jss::signature] = "not a hex";
+            Json::Value tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // DA: GOOD SIGNATURE NOT JSON
         // temMALFORMED - Import: unl blob was not valid json (after base64
         // decoding)
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
+        // DA: GOOD SIGNATURE GOOD JSON MISSING FIELDS
         // temMALFORMED - Import: unl blob json (after base64 decoding) lacked
         // required fields and/or types
-        // missing -
+
+        // temMALFORMED - Import: unl blob validUntil <= validFrom
         {
-            Json::Value tmpXpop = accountSetXpop();
-            tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MSwiZWZmZWN0aXZlIjowLCJleHBpcmF0aW9uIjowLCJ2YW"
+                "xpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVB"
+                "RkQ2MjE1OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMT"
+                "FDMTIwNERFNUMiLCJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEvV0lWbGlE"
+                "TUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0VnVGVYSE1oQW9HTU5jc2dVVU53S2"
+                "8raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxrWW5Naktka2N3UlFJaEFKN2NONEo2"
+                "TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTkZjQzN6TU9qZ3dqQWlBYktJMGZiWG"
+                "dTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3WEROM0F4cXlZM0FTUUN0MCt1L2lO"
+                "U0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bVRwZmpSWXA0bE1vSS9oNDNwVVRqcD"
+                "dWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3VFFFPSJ9LHsidmFsaWRhdGlv"
+                "bl9wdWJsaWNfa2V5IjoiRURCRUUzMEZBRTkyRUVFODhFMUM0OTgwRDA5RUNGRE"
+                "U5OUExMTZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0MThFNDI4IiwibWFuaWZlc3Qi"
+                "OiJKQUFBQUFKeEllMis0dyt1a3U3b2poeEpnTkNlejk2Wm9SYlFlT3doaFgyeH"
+                "RIdENaQmprS0hNaEE5U21IRHhPaUNNVFpsNW5SeHJwMnlqV1o1Z2p4MkRyb1VG"
+                "clU0bnJFcVU3ZGtjd1JRSWhBTGRFRmVqWStwVW5nbGk3c1R2aWIwQm1ESFA3Tj"
+                "Zpa1ZFQkk2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQx"
+                "QVVnOVg4WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RT"
+                "lTanVMUjZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9j"
+                "eWNyRi9DdFNBND0ifV19";
+            tmpXpop[jss::validation][jss::unl][jss::signature] =
+                "2B3C0ECB63C82454522188337354C480693A9BCD64E776B4DBAD4C61B9E72D"
+                "D4CC1DC237B06891E57C623C38506FE8E01B1914C9413471BCC160111E2829"
+                "7606";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
-        // DA: YOU ARE HERE
+        // temMALFORMED - Import: unl blob expired
+        {
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MSwiZWZmZWN0aXZlIjowLCJleHBpcmF0aW9uIjoxLCJ2YW"
+                "xpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVB"
+                "RkQ2MjE1OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMT"
+                "FDMTIwNERFNUMiLCJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEvV0lWbGlE"
+                "TUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0VnVGVYSE1oQW9HTU5jc2dVVU53S2"
+                "8raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxrWW5Naktka2N3UlFJaEFKN2NONEo2"
+                "TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTkZjQzN6TU9qZ3dqQWlBYktJMGZiWG"
+                "dTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3WEROM0F4cXlZM0FTUUN0MCt1L2lO"
+                "U0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bVRwZmpSWXA0bE1vSS9oNDNwVVRqcD"
+                "dWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3VFFFPSJ9LHsidmFsaWRhdGlv"
+                "bl9wdWJsaWNfa2V5IjoiRURCRUUzMEZBRTkyRUVFODhFMUM0OTgwRDA5RUNGRE"
+                "U5OUExMTZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0MThFNDI4IiwibWFuaWZlc3Qi"
+                "OiJKQUFBQUFKeEllMis0dyt1a3U3b2poeEpnTkNlejk2Wm9SYlFlT3doaFgyeH"
+                "RIdENaQmprS0hNaEE5U21IRHhPaUNNVFpsNW5SeHJwMnlqV1o1Z2p4MkRyb1VG"
+                "clU0bnJFcVU3ZGtjd1JRSWhBTGRFRmVqWStwVW5nbGk3c1R2aWIwQm1ESFA3Tj"
+                "Zpa1ZFQkk2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQx"
+                "QVVnOVg4WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RT"
+                "lTanVMUjZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9j"
+                "eWNyRi9DdFNBND0ifV19";
+            tmpXpop[jss::validation][jss::unl][jss::signature] =
+                "FA82662A23EC78E9644C65F752B7A58F61F35AC36C260F9E9D5CAC7D53D16D"
+                "5D615A02A6462F2618C162D089AD2E3BA7D656728392180517A81B4C47F86A"
+                "640D";
+            Json::Value tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
-        /*temMALFORMED - Import: unl blob validUnil <= validFrom
-        temMALFORMED - Import: unl blob expired
-        temMALFORMED - Import: unl blob not yet valid
+        // temMALFORMED - Import: unl blob not yet valid
+        {
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MSwiZWZmZWN0aXZlIjozNjAwLCJleHBpcmF0aW9uIjo4Nj"
+                "QwMCwidmFsaWRhdG9ycyI6W3sidmFsaWRhdGlvbl9wdWJsaWNfa2V5IjoiRUQz"
+                "OEJENDQ1QUZENjIxNTk2MjBDQzE5NkMyNjY4QTI2QjZGQkIzNkIwOTlFQjU1Qj"
+                "M4QTU4QzExQzEyMDRERTVDIiwibWFuaWZlc3QiOiJKQUFBQUFKeEllMDR2VVJh"
+                "L1dJVmxpRE1HV3dtYUtKcmI3czJzSm5yVmJPS1dNRWNFZ1RlWEhNaEFvR01OY3"
+                "NnVVVOd0tvK2g3emhhWEtGK0hHdzZYaEVqb0RLcmFsa1luTWpLZGtjd1JRSWhB"
+                "SjdjTjRKNk5kVmZwbnZFSS9aZXVXQ1R2bnBhSmlyS05GY0Mzek1Pamd3akFpQW"
+                "JLSTBmYlhnUzFSTGxvTmh4ZEhoVnE5b3pFV1ZFOWNJd1hETjNBeHF5WTNBU1FD"
+                "dDArdS9pTlNERDZiWHZVVHRkbXQ0TnJ0bGJ4NFZ6dW1UcGZqUllwNGxNb0kvaD"
+                "QzcFVUanA3VkZvWGJuS1dqVmhxTmFHbTU3N0s2SjY5N1haN1RRRT0ifSx7InZh"
+                "bGlkYXRpb25fcHVibGljX2tleSI6IkVEQkVFMzBGQUU5MkVFRTg4RTFDNDk4ME"
+                "QwOUVDRkRFOTlBMTE2RDA3OEVDMjE4NTdEQjFCNDdCNDI2NDE4RTQyOCIsIm1h"
+                "bmlmZXN0IjoiSkFBQUFBSnhJZTIrNHcrdWt1N29qaHhKZ05DZXo5NlpvUmJRZU"
+                "93aGhYMnh0SHRDWkJqa0tITWhBOVNtSER4T2lDTVRabDVuUnhycDJ5aldaNWdq"
+                "eDJEcm9VRnJVNG5yRXFVN2RrY3dSUUloQUxkRUZlalkrcFVuZ2xpN3NUdmliME"
+                "JtREhQN042aWtWRUJJNkg3SXdVMXpBaUJkc3lvU3FQY0MyTk1xZ0FuSFhIR2Rr"
+                "QUl3QlFEMUFVZzlYOFpKTHlmY3dIQVNRQ3QxYktWek9NeFJRbVIzd05LNGRLZG"
+                "9mSUdyeEU5U2p1TFI2UGE4QjVuMDhTWUo4SzYyZ2UrOWE2QnRaYWxFbS9IT2Rj"
+                "ejBOQUZPY3ljckYvQ3RTQTQ9In1dfQ";
+            tmpXpop[jss::validation][jss::unl][jss::signature] =
+                "9CCA07A3EDD1334D5ADCB3730D8F3F9BD1E0C338100384C7B15B6A910F96BE"
+                "4F46E3052B37E9FE2E7DC9918BD85B9E871923AE1BDD7144EE2A92F625064C"
+                "570C";
+            Json::Value tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
-        temMALFORMED - Import: depth > 32
-        temMALFORMED - Import: !proof->isObject() && !proof->isArray()
-        DA: Catchall Error
-        temMALFORMED - Import: return false
-        */
+        // temMALFORMED - Import: depth > 32
+        // temMALFORMED - Import: !proof->isObject() && !proof->isArray()
+        // DA: Catchall Error
+        // temMALFORMED - Import: return false
 
         // temMALFORMED - Import: xpop proof did not contain the specified txn
         // hash
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::proof][jss::children]["D"]
                    [jss::children]["7"][jss::hash] =
                        "12D47E7D543E15F1EDBA91CDF335722727851BDDA8C2FF8924772AD"
@@ -2116,14 +1956,14 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(temMALFORMED));
         }
 
-        // temMALFORMED - Import: depth > 32
-        // temMALFORMED - Import: !proof.isObject() && !proof.isArray()
-        // DA: CatchAll Error
+        // // temMALFORMED - Import: depth > 32
+        // // temMALFORMED - Import: !proof.isObject() && !proof.isArray()
+        // // DA: CatchAll Error
 
         // temMALFORMED - Import: computed txroot does not match xpop txroot,
         // invalid xpop.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::proof][jss::children]["3"]
                    [jss::hash] =
                        "22D47E7D543E15F1EDBA91CDF335722727851BDDA8C2FF8924772AD"
@@ -2138,7 +1978,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: unl blob contained invalid validator entry,
         // skipping
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::blob] =
                 "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
                 "JzIjpbeyJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEvV0lWbGlETUdXd21h"
@@ -2161,20 +2001,28 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob contained an invalid validator key,
         // skipping
+        // {
+
+        // }
         // temMALFORMED - Import: unl blob contained an invalid manifest,
         // skipping
-        // temMALFORMED - Import: unl blob list entry manifest master key did
-        // not match master key, skipping
-        // temMALFORMED - Import: unl blob list entry manifest signature
-        // invalid, skipping
-        // temMALFORMED - Import: validator nodepub did not appear in validator
-        // list but did appear
-        // temMALFORMED - Import: validator nodepub key appears more than once
-        // in data section
+        // {
+
+        // }
+        // // temMALFORMED - Import: unl blob list entry manifest master key did
+        // // not match master key, skipping
+        // // temMALFORMED - Import: unl blob list entry manifest signature
+        // // invalid, skipping
+        // // temMALFORMED - Import: validator nodepub did not appear in
+        // validator
+        // // list but did appear
+        // // temMALFORMED - Import: validator nodepub key appears more than
+        // once
+        // // in data section
 
         // temMALFORMED - Import: validation inside xpop was not valid hex
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "not a hex";
@@ -2186,7 +2034,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation message was not for computed ledger
         // hash
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "22800000012600000056292C0D012051A0829745427488A59B6525231634DC"
@@ -2203,7 +2051,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation inside xpop was not signed with a
         // signing key we recognise
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "22800000012600000056292C0D012051B0829745427488A59B6525231634DC"
@@ -2220,7 +2068,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation inside xpop was not correctly
         // signed
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "22800000012600000056292C0D012051B0829745427488A59B6525231634DC"
@@ -2241,7 +2089,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
         // it purports to prove.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "";
@@ -2255,7 +2103,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: xpop inner txn did not contain a sequence
         // number or fee No Sequence
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "1200632200000000201B0000006C201D0000535968400000003B9ACA007321"
                 "EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A9"
@@ -2267,7 +2115,7 @@ class Import_test : public beast::unit_test::suite
         }
         // No Fee
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "12006322000000002400000002201B0000006C201D000053597321EDA8D46E"
                 "11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A96C747440"
@@ -2303,7 +2151,7 @@ class Import_test : public beast::unit_test::suite
         // tefINTERNAL/temMALFORMED - during preclaim could not parse xpop,
         // bailing.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -2311,7 +2159,7 @@ class Import_test : public beast::unit_test::suite
         // tefINTERNAL/temMALFORMED - during preclaim could not find
         // importSequence, bailing.
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "1200632200000000201B0000006C201D0000535968400000003B9ACA007321"
                 "EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A9"
@@ -2323,21 +2171,34 @@ class Import_test : public beast::unit_test::suite
         }
         // tefPAST_IMPORT_SEQ -
         {
-            env(import(alice, setRegularKeyXpop()), ter(tesSUCCESS));
-            env(import(alice, accountSetXpop()), ter(tefPAST_IMPORT_SEQ));
+            env(import(alice, loadXpop("account_set", "w_seed")),
+                ter(tesSUCCESS));
+            env(import(alice, loadXpop("account_set", "min")),
+                ter(tefPAST_IMPORT_SEQ));
         }
 
         // tefINTERNAL/temMALFORMED - !vlInfo
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
         // tefPAST_IMPORT_VL_SEQ - sfImportSequence > vlInfo->first
         // {
-        //     Json::Value tx = import(alice, accountSetXpop());
-        //     env(tx, ter(tefPAST_IMPORT_SEQ));
+        //     Json::Value tx = import(alice, loadXpop("account_set",
+        //     "w_seed")); env(tx, ter(tefPAST_IMPORT_SEQ));
+        // }
+
+        // telIMPORT_VL_KEY_NOT_RECOGNISED - Import: (fromchain) key does not
+        // match (tochain) key
+        // {
+        //     Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+        //     tmpXpop[jss::validation][jss::unl][jss::public_key] =
+        //         "ED84D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
+        //         "CDC1";
+        //     Json::Value tx = import(alice, tmpXpop);
+        //     env(tx, ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
         // }
     }
 
@@ -2373,7 +2234,7 @@ class Import_test : public beast::unit_test::suite
 
         // tefINTERNAL/temMALFORMED - !xpop
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -2383,7 +2244,7 @@ class Import_test : public beast::unit_test::suite
         // or fee, bailing.
         // No Fee
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::transaction][jss::blob] =
                 "1200632200000000201B0000006C201D0000535968400000003B9ACA007321"
                 "EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A9"
@@ -2403,7 +2264,7 @@ class Import_test : public beast::unit_test::suite
 
         // tefINTERNAL/temMALFORMED - !infoVL
         {
-            Json::Value tmpXpop = accountSetXpop();
+            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -2414,221 +2275,1638 @@ class Import_test : public beast::unit_test::suite
     }
 
     void
-    testAccountSetNA(FeatureBitset features)
+    testAccountSet(FeatureBitset features)
     {
-        testcase("account set tx - no account");
+        testcase("account set tx");
 
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        // NO ACCOUNT
+        // w/ seed -> dne (bad signer)
         {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
             auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.memoize(alice);
+            env.memoize(bob);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
-            Json::Value tx = import(alice, accountSetXpop());
+
+            // import tx
+            auto const xpopJson = loadXpop("account_set", "w_seed");
+            Json::Value tx = import(bob, xpopJson);
             tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, bob, ter(temMALFORMED));
+            env.close();
+
+            // confirm fee was not minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice);
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins);
+
+            // confirm account does not exist
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle == nullptr);
+        }
+
+        // w/ seed -> dne
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.memoize(alice);
+            env.memoize(bob);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            Json::Value tx = import(alice, loadXpop("account_set", "w_seed"));
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+            // confirm account exists
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle != nullptr);
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ regular key other -> dne (bad signer)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.memoize(alice);
+            env.memoize(bob);
+            env.memoize(carol);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx - wrong regular key
+            Json::Value txBad =
+                import(alice, loadXpop("account_set", "w_regular_key"));
+            txBad[jss::Sequence] = 0;
+            txBad[jss::Fee] = 0;
+            env(txBad, alice, sig(carol), ter(temMALFORMED));
+            env.close();
+
+            // confirm fee was not minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice);
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins);
+
+            // confirm account does not exist
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle == nullptr);
+        }
+
+        // w/ regular key -> dne
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.memoize(alice);
+            env.memoize(bob);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            Json::Value tx =
+                import(alice, loadXpop("account_set", "w_regular_key"));
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+            // confirm account exists
+            auto const [acct, acctSle1] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle1 != nullptr);
+            // alice cannnot sign
+            env(noop(alice),
+                sig(alice),
+                fee(feeDrops),
+                ter(tefMASTER_DISABLED));
+            // bob cannot sign
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
+        }
+
+        // // w/ signers list -> dne
+        // {
+        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+        //     auto const feeDrops = env.current()->fees().base;
+
+        //     auto const master = Account("masterpassphrase");
+        //     env(noop(master), fee(100'000), ter(tesSUCCESS));
+        //     env.close();
+
+        //     // init env
+        //     auto const alice = Account("alice");
+        //     auto const bob = Account("bob");
+        //     auto const carol = Account("carol");
+        //     env.memoize(alice);
+        //     env.memoize(bob);
+        //     env.memoize(carol);
+
+        //     // confirm env
+        //     auto const preCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+        //     auto const preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(0));
+
+        //     // import tx
+        //     auto const xpopJson = loadXpop("account_set", "w_signers");
+        //     Json::Value tx = import(alice, xpopJson);
+        //     tx[jss::Sequence] = 0;
+        //     tx[jss::Fee] = 0;
+        //     env(
+        //         tx,
+        //         alice,
+        //         msig(bob, carol),
+        //         fee(3 * feeDrops),
+        //         ter(tesSUCCESS)
+        //     );
+        //     env.close();
+
+        //     // confirm fee was minted
+        //     auto const postAlice = env.balance(alice);
+        //     BEAST_EXPECT(postAlice == preAlice + XRP(0.00001) + XRP(2));
+        //     auto const postCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+        //     // confirm signers not set
+        //     auto const k = keylet::signers(bob);
+        //     BEAST_EXPECT(env.current()->read(k) == nullptr);
+        //     // alice cannnot sign
+        //     env(noop(alice), sig(alice), fee(feeDrops),
+        //     ter(tefMASTER_DISABLED));
+        // }
+
+        // w/ seed -> funded
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'980);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // import tx
+            env(import(alice, loadXpop("account_set", "w_seed")),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - XRP(0.00001));
+            std::cout << "postAlice: " << postAlice << "\n";
+            std::cout << "postAlice=: " << (preAlice + XRP(1000) - XRP(0.00001))
+                      << "\n";
+            env.close();
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'899'970);
+
+            // confirm account exists
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle != nullptr);
+            auto const feeDrops = env.current()->fees().base;
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ regular key -> funded
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'960);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // import tx
+            auto const xpopJson = loadXpop("account_set", "w_regular_key");
+            Json::Value tx = import(alice, xpopJson);
+            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - drops(1));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'899'950);
+            std::cout << "postAlice: " << postAlice << "\n";
+            std::cout << "postAlice=: " << (preAlice + XRP(1000) - drops(1))
+                      << "\n";
+
+            // confirm account exists bob can sign
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle != nullptr);
+            BEAST_EXPECT(!acctSle->isFieldPresent(sfRegularKey));
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ signers -> funded
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // import tx
+            auto const xpopJson = loadXpop("account_set", "w_signers");
+            Json::Value tx = import(alice, xpopJson);
+            env(tx,
+                alice,
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - drops(1));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'899'910);
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        }
+    }
+
+    void
+    testAccountSetFlags(FeatureBitset features)
+    {
+        testcase("account set flags");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // account set flags not migrated
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'980);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // import tx
+            env(import(alice, loadXpop("account_set", "w_flags")),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + drops(11));
+            env.close();
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'899'970);
+
+            // confirm account exists
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle != nullptr);
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
+    }
+
+    void
+    testSetRegularKey(FeatureBitset features)
+    {
+        testcase("set regular key tx");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // w/ seed -> dne
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.memoize(alice);
+            env.memoize(bob);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + drops(12) + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == bob.id());
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ regular key -> dne
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.memoize(alice);
+            env.memoize(bob);
+            env.memoize(carol);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_regular_key");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + drops(12) + XRP(2));
+
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins + feeDrops - feeDrops);
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == carol.id());
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ signers -> dne
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");
+            env.memoize(alice);
+            env.memoize(bob);
+            env.memoize(carol);
+            env.memoize(dave);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_signers");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(
+                tx,
+                alice,
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS)
+            );
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(2) + feeDrops +
+            XRP(0.000002)); std::cout << "POST ALICE: " << postAlice << "\n";
+            std::cout << "POST ALICE CALC: " << (preAlice + XRP(2) + feeDrops
+            + XRP(0.000002)) << "\n";
+
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins + feeDrops - feeDrops);
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+
+            // confirm regular key
+             auto const [acct, acctSle] =
+                 accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle && acctSle->isFieldPresent(sfRegularKey) && 
+                    acctSle->getAccountID(sfRegularKey) == dave.id());
+            env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ seed -> funded
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'960);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice - feeDrops + drops(12));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'899'950);
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == bob.id());
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ seed -> funded (update regular key)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the regular key
+            env(regkey(alice, carol));
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice - (3 * feeDrops) + drops(12));
+            auto const postCoins = env.current()->info().drops;
+            // BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == bob.id());
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ regular key -> funded (update regular key)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");
+            env.fund(XRP(1000), alice, bob, carol, dave);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'920);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the regular key
+            env(regkey(alice, dave));
+            env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_regular_key");
+            env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice - (3 * feeDrops) + drops(12));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == carol.id());
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ signers list -> funded (update regular key)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");
+            auto const elsa = Account("elsa");
+            env.fund(XRP(1000), alice, bob, carol, dave, elsa);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'900);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the regular key
+            env(regkey(alice, elsa));
+            env(noop(alice), sig(elsa), fee(feeDrops), ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_signers");
+            env(import(alice, xpopJson),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + drops(12) - feeDrops);
+            std::cout << "POST ALICE: " << postAlice << "\n";
+            std::cout << "POST ALICE CALC: " << (preAlice + drops(12)) <<
+            "\n"; std::cout << "POST ALICE CALC: " << (preAlice + drops(12) -
+            (2 * feeDrops)) << "\n";
+            auto const postCoins = env.current()->info().drops;
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == dave.id());
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // seed -> funded (empty regular key)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the regular key
+            env(regkey(alice, carol));
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_seed_empty");
+            env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice - (3 * feeDrops) + drops(12));
+            auto const postCoins = env.current()->info().drops;
+            // BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(!acctSle->isFieldPresent(sfRegularKey));
+        }
+
+        // w/ regular key -> funded (empty regular key)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the regular key
+            env(regkey(alice, carol));
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const xpopJson =
+                loadXpop("set_regular_key", "w_regular_key_empty");
+            env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + drops(12) - (3 * feeDrops));
+            auto const postCoins = env.current()->info().drops;
+            // BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(!acctSle->isFieldPresent(sfRegularKey));
+            env(noop(alice), sig(alice), fee(feeDrops), ter(tesSUCCESS));
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tefBAD_AUTH));
+        }
+
+        // w/ signers -> funded (empty regular key)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");
+            env.fund(XRP(1000), alice, bob, carol, dave);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'899'920);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the regular key
+            env(regkey(alice, dave));
+            env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const xpopJson =
+                loadXpop("set_regular_key", "w_signers_empty");
+            env(import(alice, xpopJson),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + drops(12) - (2 * feeDrops));
+            std::cout << "postAlice: " << postAlice << "\n";
+            std::cout << "postAlice=: " << (preAlice - (2 * feeDrops)) << "\n";
+            auto const postCoins = env.current()->info().drops;
+            // std::cout << "postCoins: " << postCoins << "\n";
+            // std::cout << "postCoins=: " << (preCoins - (5 * feeDrops)) << "\n";
+            // BEAST_EXPECT(postCoins == preCoins - (5 * feeDrops));
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(!acctSle->isFieldPresent(sfRegularKey));
+            env(noop(alice), sig(alice), fee(feeDrops), ter(tesSUCCESS));
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
+            env(noop(alice), sig(carol), fee(feeDrops), ter(tefBAD_AUTH));
+            env(noop(alice), sig(dave), fee(feeDrops), ter(tefBAD_AUTH));
+        }
+    }
+
+    void
+    testSetRegularKeyFlags(FeatureBitset features)
+    {
+        testcase("set regular key flags");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // dne -> dont set flag
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.memoize(alice);
+            env.memoize(bob);
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // confirm lsfPasswordSpent is set
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(
+                (acctSle->getFieldU32(sfFlags) & lsfPasswordSpent) == 0);
+        }
+
+        // funded -> set flag
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            // import tx
+            auto const xpopJson = loadXpop("set_regular_key", "w_seed_zero");
+            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env.close();
+
+            // confirm lsfPasswordSpent is not set
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(
+                (acctSle->getFieldU32(sfFlags) & lsfPasswordSpent) ==
+                lsfPasswordSpent);
+        }
+    }
+
+    void
+    testSignersListSet(FeatureBitset features)
+    {
+        testcase("signers list set tx");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // w/ seed -> dne w/ seed (Bad Fee)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.memoize(alice);
+            env.memoize(bob);
+            env.memoize(carol);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson =
+                loadXpop("signers_list_set", "w_seed_bad_fee");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(
+                postAlice == preAlice + drops(12) + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+            std::cout << "POST COINS: " << postCoins << "\n";
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        }
+
+        // w/ seed -> dne w/ seed
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.memoize(alice);
+            env.memoize(bob);
+            env.memoize(carol);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const burnAmt = XRP(2);
+            auto const xpopJson = loadXpop("signers_list_set", "w_seed");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice + drops(12) + burnAmt + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        }
+
+        // w/ regular key -> dne
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");
+            env.memoize(alice);
+            env.memoize(bob);
+            env.memoize(carol);
+            env.memoize(dave);
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const burnAmt = XRP(2);
+            auto const xpopJson = loadXpop("signers_list_set", "w_regular_key");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice + feeDrops + XRP(2) + XRP(0.000002) + burnAmt);
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        }
+
+        // // w/ signers -> dne
+        // {
+        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+        //     auto const feeDrops = env.current()->fees().base;
+
+        //     // burn 100,000 xrp
+        //     auto const master = Account("masterpassphrase");
+        //     env(noop(master), fee(100'000), ter(tesSUCCESS));
+        //     env.close();
+
+        //     // init env
+        //     auto const alice = Account("alice");
+        //     auto const bob = Account("bob");
+        //     auto const carol = Account("carol");
+        //     env.memoize(alice);
+        //     env.memoize(bob);
+        //     env.memoize(carol);
+
+        //     // confirm env
+        //     auto const preCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+        //     auto const preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(0));
+
+        //     // import tx
+        //     auto const burnAmt = XRP(2);
+        //     auto const xpopJson = loadXpop("signers_list_set", "w_signers");
+        //     Json::Value tx = import(alice, xpopJson);
+        //     tx[jss::Sequence] = 0;
+        //     tx[jss::Fee] = 0;
+        //     env(tx,
+        //         alice,
+        //         msig(bob, carol),
+        //         fee(3 * feeDrops),
+        //         ter(tesSUCCESS));
+        //     env.close();
+
+        //     // confirm fee was minted
+        //     auto const postAlice = env.balance(alice);
+        //     BEAST_EXPECT(
+        //         postAlice ==
+        //         preAlice + feeDrops + XRP(2) + XRP(0.000002) + burnAmt);
+        //     auto const postCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+        //     // confirm signers not set
+        //     auto const k = keylet::signers(alice);
+        //     BEAST_EXPECT(env.current()->read(k) == nullptr);
+        // }
+
+        // w/ seed -> funded
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            // auto const totalCoins = drops(100'000'000'000'000'000);
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            // BEAST_EXPECT(preCoins == totalCoins - drops(100'000) - (3 * (2 *
+            // feeDrops)));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // import tx
+            // auto const burnAmt = XRP(2);
+            auto const xpopJson = loadXpop("signers_list_set", "w_seed");
+            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee minted
+            auto const postAlice = env.balance(alice);
+            // BEAST_EXPECT(postAlice == preAlice + (2 * feeDrops));
+            std::cout << "POST ALICE: " << postAlice << "\n";
+            std::cout << "POST ALICE CALC: " << (preAlice + (2 * feeDrops))
+                      << "\n";
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins - feeDrops);
+
+            // confirm signers set
+            auto const [signers, signersSle] =
+                signersKeyAndSle(*env.current(), alice);
+            auto const signerEntries =
+                signersSle->getFieldArray(sfSignerEntries);
+            BEAST_EXPECT(signerEntries.size() == 2);
+            BEAST_EXPECT(signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
+            BEAST_EXPECT(
+                signerEntries[0u].getAccountID(sfAccount) == carol.id());
+            BEAST_EXPECT(signerEntries[1u].getFieldU16(sfSignerWeight) == 1);
+            BEAST_EXPECT(signerEntries[1u].getAccountID(sfAccount) == bob.id());
+
+            // confirm multisign tx
+            env.close();
+            auto const aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+            // BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+        }
+
+        // w/ seed (empty) -> funded (has entries)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            // auto const totalCoins = drops(100'000'000'000'000'000);
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            // BEAST_EXPECT(preCoins == totalCoins - drops(100'000) - (3 * (2 *
+            // feeDrops)));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the signers list
+            env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
+            env(noop(alice),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const burnAmt = XRP(2);
+            auto const xpopJson = loadXpop("signers_list_set", "w_seed_empty");
+            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice + burnAmt - (4 * feeDrops) + XRP(0.000002));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins - (5 * feeDrops));
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        }
+
+        // w/ regular key (empty) -> funded (has entries)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            // auto const totalCoins = drops(100'000'000'000'000'000);
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            // BEAST_EXPECT(preCoins == totalCoins...);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the regular key
+            env(regkey(alice, bob));
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tesSUCCESS));
+            env.close();
+
+            // set the signers list
+            env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
+            env(noop(alice),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const burnAmt = XRP(2);
+            auto const xpopJson =
+                loadXpop("signers_list_set", "w_regular_key_empty");
+            env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice + burnAmt - (6 * feeDrops) + XRP(0.000002));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins - (7 * feeDrops));
+
+            // confirm regular key
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == bob.id());
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tesSUCCESS));
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        }
+
+        // w/ signers (empty) -> funded (has entries)
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            // auto const totalCoins = drops(100'000'000'000'000'000);
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // confirm env
+            auto const preCoins = env.current()->info().drops;
+            // BEAST_EXPECT(preCoins == totalCoins...);
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+
+            // set the signers list
+            env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
+            env(noop(alice),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+
+            // import tx
+            auto const burnAmt = XRP(2);
+            auto const xpopJson =
+                loadXpop("signers_list_set", "w_signers_empty");
+            env(import(alice, xpopJson),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice + burnAmt - (2 * feeDrops) - XRP(0.000002));
+            auto const postCoins = env.current()->info().drops;
+            // BEAST_EXPECT(postCoins == preCoins - (7 * feeDrops));
+            // std::cout << "postCoins: " << postCoins << "\n";
+            // std::cout << "postCoins=: " << (preCoins - (7 * feeDrops)) <<
+            // "\n";
+
+            // confirm signers not set
+            auto const k = keylet::signers(alice);
+            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        }
+    }
+
+    void
+    testImportSequence(FeatureBitset features)
+    {
+        testcase("import sequence");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // test tefPAST_IMPORT_SEQ
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            auto preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+            env(import(alice, loadXpop("account_set", "w_seed")),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - feeDrops);
+
+            env(import(alice, loadXpop("account_set", "w_seed")),
+                ter(tefPAST_IMPORT_SEQ));
+            env.close();
+            auto const failedAlice = env.balance(alice);
+            BEAST_EXPECT(failedAlice == postAlice);
+        }
+    }
+
+    void
+    testMaxSupply(FeatureBitset features)
+    {
+        testcase("max supply");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // burn 100'000 coins
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            auto const envCoins = env.current()->info().drops;
+            auto const totalCoins = drops(100'000'000'000'000'000);
+            BEAST_EXPECT(envCoins == totalCoins);
+            // 100'000'000'000'000'000
+            // 100'000'000'000
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == totalCoins - drops(100'000));
+
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            auto preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+            auto const xpopJson = loadXpop("account_set", "w_seed");
+            
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+            
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins + XRP(10000));
+            std::cout << "===> postCoins: " << postCoins << "\n";
+            // 99'999'999'999'900'000 // <- postCoins is
+            // 99'999'999'999'910'000 // <- should be
+        }
+
+        // burn all coins
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            auto const envCoins = env.current()->info().drops;
+            auto const totalCoins = drops(100'000'000'000'000'000);
+            BEAST_EXPECT(envCoins == totalCoins);
+            // 100'000'000'000'000'000
+            // 100'000'000'000
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(totalCoins - drops(100'000)), ter(tesSUCCESS));
+            env.close();
+
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == totalCoins - (totalCoins - drops(1000)));
+
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            auto preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+            auto const xpopJson = loadXpop("account_set", "w_seed");
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
             env(tx, alice, ter(tesSUCCESS));
             env.close();
             auto const postAlice = env.balance(alice);
             BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins + XRP(1000));
+            // 1'000 // <- postCoins is
+            // 2'000 // <- should be
         }
     }
 
     void
-    testAccountSetFA(FeatureBitset features)
+    testMinMax(FeatureBitset features)
     {
-        testcase("account set tx - funded account");
+        testcase("min max");
 
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
-        env.close();
-
-        // FUNDED ACCOUNT
+        // w/ seed -> dne (min)
         {
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
-            env(import(alice, accountSetXpop()), ter(tesSUCCESS));
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            auto const envCoins = env.current()->info().drops;
+            auto const totalCoins = drops(100'000'000'000'000'000);
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000), ter(tesSUCCESS));
             env.close();
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000));
-        }
-    }
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == totalCoins - drops(100'000));
 
-    void
-    testSetRegularKeyNA(FeatureBitset features)
-    {
-        testcase("set regular key tx - no account");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        // NO ACCOUNT
-        {
+            // init env
             auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
-            Json::Value tx = import(alice, setRegularKeyXpop());
+
+            // import tx
+            auto const xpopJson = loadXpop("account_set", "min");
+            Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
             env(tx, alice, ter(tesSUCCESS));
             env.close();
+
+            // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            auto const feeDrops = env.current()->fees().base;
-            BEAST_EXPECT(
-                postAlice == preAlice + XRP(2) + feeDrops + XRP(0.000002));
+            BEAST_EXPECT(postAlice == preAlice + drops(1) + XRP(2));
+            auto const postCoins = env.current()->info().drops;
+            std::cout << "POST COINS: " << postCoins << "\n";
+            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+
+            // confirm account exists
             auto const [acct, acctSle] =
                 accountKeyAndSle(*env.current(), alice);
-            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == alice.id());
-        }
-    }
-
-    void
-    testSetRegularKeyFA(FeatureBitset features)
-    {
-        testcase("set regular key tx - funded account");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
-        env.close();
-
-        // FUNDED ACCOUNT
-        {
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
-            env(import(alice, setRegularKeyXpop()), ter(tesSUCCESS));
-            env.close();
-            auto const postAlice = env.balance(alice);
-            auto const feeDrops = env.current()->fees().base;
-            BEAST_EXPECT(postAlice == preAlice + feeDrops + XRP(0.000002));
-            auto const [acct, acctSle] =
-                accountKeyAndSle(*env.current(), alice);
-            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == alice.id());
-        }
-    }
-
-    void
-    testSignersListSetNA(FeatureBitset features)
-    {
-        testcase("signers list set tx - no account");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        // NO ACCOUNT
-        {
-            auto const alice = Account("alice");
-            auto const bob = Account("bob");
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(0));
-            Json::Value tx = import(alice, signersListSetXpop());
-            tx[jss::Sequence] = 0;
-            env(tx, alice, ter(tesSUCCESS));
-            env.close();
-            auto const postAlice = env.balance(alice);
-            auto const feeDrops = env.current()->fees().base;
-            BEAST_EXPECT(
-                postAlice == preAlice + feeDrops + XRP(2) + XRP(0.000002));
-            auto const [signers, signersSle] =
-                signersKeyAndSle(*env.current(), alice);
-            BEAST_REQUIRE(!!signersSle);
-            auto const signerEntries =
-                signersSle->getFieldArray(sfSignerEntries);
-            BEAST_EXPECT(signerEntries.size() == 1);
-            BEAST_EXPECT(signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
-            BEAST_EXPECT(signerEntries[0u].getAccountID(sfAccount) == bob.id());
-        }
-    }
-
-    void
-    testSignersListSetFA(FeatureBitset features)
-    {
-        testcase("signers list set tx - funded account");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-        env.fund(XRP(1000), alice, bob);
-        env.close();
-
-        // FUNDED ACCOUNT
-        {
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
-            env(import(alice, signersListSetXpop()), ter(tesSUCCESS));
-            env.close();
-            auto const postAlice = env.balance(alice);
-            auto const feeDrops = env.current()->fees().base;
-            BEAST_EXPECT(postAlice == preAlice + feeDrops + XRP(0.000002));
-
-            auto const [signers, signersSle] =
-                signersKeyAndSle(*env.current(), alice);
-            BEAST_REQUIRE(!!signersSle);
-            auto const signerEntries =
-                signersSle->getFieldArray(sfSignerEntries);
-            BEAST_EXPECT(signerEntries.size() == 1);
-            BEAST_EXPECT(signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
-            BEAST_EXPECT(signerEntries[0u].getAccountID(sfAccount) == bob.id());
-        }
-    }
-
-    void
-    testDoubleEntry(FeatureBitset features)
-    {
-        testcase("double entry");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-        env.fund(XRP(1000), alice, bob);
-        env.close();
-
-        auto const feeDrops = env.current()->fees().base;
-
-        // ACCOUNT SET
-        {
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
-            env(import(alice, accountSetXpop()), ter(tesSUCCESS));
-            env.close();
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + feeDrops);
+            BEAST_EXPECT(acctSle != nullptr);
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
         }
 
-        // DOUBLE ENTRY
-        {
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(2000) + feeDrops);
-            env(import(alice, accountSetXpop()), ter(tefPAST_IMPORT_SEQ));
-            env.close();
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice);
-        }
-        // DELETE ACCOUNT
-        // ACCOUNT SET
+        // // w/ seed -> dne (max)
+        // {
+        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+        //     auto const feeDrops = env.current()->fees().base;
+        //     auto const envCoins = env.current()->info().drops;
+        //     auto const totalCoins = drops(100'000'000'000'000'000);
+
+        //     // init env
+        //     auto const alice = Account("alice");
+        //     env.memoize(alice);
+
+        //     // confirm env
+        //     auto const preCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(preCoins == totalCoins);
+        //     auto const preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(0));
+
+        //     // import tx
+        //     auto const xpopJson = loadXpop("account_set", "max");
+        //     Json::Value tx = import(alice, xpopJson);
+        //     tx[jss::Sequence] = 0;
+        //     env(tx, alice, ter(tesSUCCESS));
+        //     env.close();
+
+        //     // confirm fee was minted
+        //     auto const postAlice = env.balance(alice);
+        //     BEAST_EXPECT(
+        //         postAlice == preAlice + XRP(999'999'999'999'000'000) + XRP(2));
+        //     auto const postCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(postCoins == 999'999'999'999'900'000);
+        //     // std::cout << "POST COINS: " << postCoins << "\n";
+
+        //     // confirm account exists
+        //     auto const [acct, acctSle] =
+        //         accountKeyAndSle(*env.current(), alice);
+        //     BEAST_EXPECT(acctSle != nullptr);
+        //     env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        // }
     }
 
 public:
@@ -2654,13 +3932,14 @@ public:
         testInvalidPreflight(features);
         testInvalidPreclaim(features);
         testInvalidDoApply(features);
-        testAccountSetNA(features);
-        testAccountSetFA(features);
-        testSetRegularKeyNA(features);
-        testSetRegularKeyFA(features);
-        testSignersListSetNA(features);
-        testSignersListSetFA(features);
-        testDoubleEntry(features);
+        testAccountSet(features);
+        testAccountSetFlags(features);
+        testSetRegularKey(features);
+        testSetRegularKeyFlags(features);
+        testSignersListSet(features);
+        testImportSequence(features);
+        testMaxSupply(features);
+        testMinMax(features);
     }
 };
 
