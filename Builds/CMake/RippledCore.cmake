@@ -13,18 +13,6 @@ if (unity)
   set_target_properties(xrpl_core PROPERTIES UNITY_BUILD ON)
 endif ()
 
-# Find the ACL library
-find_library(ACL_LIBRARY
-  NAMES acl
-)
-
-# Check that the ACL library was found
-if(ACL_LIBRARY)
-  message("ACL library found at ${ACL_LIBRARY}")
-else()
-  message(FATAL_ERROR "ACL library not found")
-endif()
-
 
 #[===============================[
     beast/legacy FILES:
@@ -1027,7 +1015,6 @@ target_link_libraries (rippled
   Ripple::opts
   Ripple::libs
   Ripple::xrpl_core
-  ${ACL_LIBRARY}
   )
 exclude_if_included (rippled)
 # define a macro for tests that might need to

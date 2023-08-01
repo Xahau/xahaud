@@ -27,7 +27,7 @@
 #include <ripple/protocol/Import.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
-#include <boost/filesystem.hpp>
+#include <test/app/Import_json.h>
 
 #define BEAST_REQUIRE(x)     \
     {                        \
@@ -107,56 +107,19 @@ class Import_test : public beast::unit_test::suite
     };
 
     static Json::Value
-    makeXpop(std::string tt, std::string tc, std::string strJson)
+    loadXpop(std::string content)
     {
+        // If the string is empty, return an empty Json::Value
+        if (content.empty())
+        {
+            std::cout << "JSON string was empty" << "\n";
+            return {};
+        }
+
         Json::Value jsonValue;
         Json::Reader reader;
-        reader.parse(strJson, jsonValue);
-        return jsonValue[tt][tc];
-    }
-
-    static Json::Value
-    loadXpop(std::string tt, std::string tc)
-    {
-        std::string fn = "../src/test/app/Import_test.json";
-        try
-        {
-            // check if file exists and is not empty
-            if (!boost::filesystem::exists(fn) ||
-                boost::filesystem::file_size(fn) == 0)
-            {
-                std::cout << "file was zero size or didn't exist"
-                          << "\n";
-                return {};
-            }
-
-            // open file and read its content
-            std::ifstream inFile(fn, std::ios::in | std::ios::binary);
-            if (inFile)
-            {
-                std::string content(
-                    (std::istreambuf_iterator<char>(inFile)),
-                    std::istreambuf_iterator<char>());
-
-                return makeXpop(tt, tc, content);
-            }
-            else
-            {
-                std::cout << "failed to open file"
-                          << "\n";
-                return {};
-            }
-        }
-        catch (boost::filesystem::filesystem_error& e)
-        {
-            std::cout << "Failed to load file " + fn + " (" + e.what() + ")";
-            return {};
-        }
-        catch (std::runtime_error& e)
-        {
-            std::cout << e.what();
-            return {};
-        }
+        reader.parse(content, jsonValue);
+        return jsonValue;
     }
 
     void
@@ -1534,16 +1497,9 @@ class Import_test : public beast::unit_test::suite
             auto const ownerDir = withImport ? 1 : 0;
 
             // IMPORT - Account Set
-            env(import(alice, loadXpop("account_set", "w_seed")), txResult);
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)), txResult);
             env.close();
 
-            // // IMPORT - Set Regular Key
-            // env(import(alice, loadXpop("set_regular_key", "bob_carol")),
-            // txResult); env.close();
-
-            // // IMPORT - Signers List Set
-            // env(import(alice, loadXpop("signers_list_set", "bob_carol")),
-            // txResult); env.close();
         }
     }
 
@@ -1571,7 +1527,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - sfFee cannot be 0
         {
-            Json::Value tx = import(alice, loadXpop("account_set", "w_seed"));
+            Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
             STAmount const& fee = XRP(10);
             tx[jss::Fee] = fee.getJson(JsonOptions::none);
             env(tx, ter(temMALFORMED));
@@ -1588,7 +1544,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - sfAmount field must be in drops
         {
-            Json::Value tx = import(alice, loadXpop("account_set", "w_seed"));
+            Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
             STAmount const& amount = XRP(-1);
             tx[jss::Amount] = amount.getJson(JsonOptions::none);
             env(tx, ter(temMALFORMED));
@@ -1596,7 +1552,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - !xpop | XPOP.validation is not a JSON object
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -1604,7 +1560,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: validation.unl.public_key was not valid hex
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::public_key] = "not a hex";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -1613,7 +1569,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation.unl.public_key was not a recognised
         // public key type
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::public_key] =
                 "0084D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
                 "CDC1";
@@ -1632,7 +1588,7 @@ class Import_test : public beast::unit_test::suite
 
         // getInnerTxn - failed to deserialize tx blob/meta inside xpop
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] = "DEADBEEF";
             tmpXpop[jss::transaction][jss::meta] = "DEADBEEF";
             Json::Value tx = import(alice, tmpXpop);
@@ -1645,7 +1601,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: attempted to import xpop containing an emitted
         // or pseudo txn.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B00000069201D0000535968400000003B"
                 "9ACA0073210388935426E0D08083314842EDFBB2D517BD47699F9A4527318A"
@@ -1663,7 +1619,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: inner txn lacked transaction result
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::meta] =
                 "201C00000006F8E5110061250000005655463E39A6AFDDA77DBF3591BF3C2A"
                 "4BE9BB8D9113BF6D0797EB403C3D0D894FEF5692FA6A9FC8EA6018D5D16532"
@@ -1677,7 +1633,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: inner txn did not have a tesSUCCESS or tec
         // result
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::meta] =
                 "201C00000006F8E5110061250000005655463E39A6AFDDA77DBF3591BF3C2A"
                 "4BE9BB8D9113BF6D0797EB403C3D0D894FEF5692FA6A9FC8EA6018D5D16532"
@@ -1691,7 +1647,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: import and txn inside xpop must be signed by
         // the same account
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import(bob, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
@@ -1699,7 +1655,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: attempted to import xpop containing a txn with
         // a sfNetworkID field.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "120003210000535922000000002400000002201B00000069201D0000535968"
                 "400000003B9ACA0073210388935426E0D08083314842EDFBB2D517BD47699F"
@@ -1714,7 +1670,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: OperationLimit missing from inner xpop txn.
         // outer txid:
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B0000006C68400000003B9ACA007321ED"
                 "A8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A96C"
@@ -1728,7 +1684,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: Wrong network ID for OperationLimit in inner
         // txn. outer txid:
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B0000006C201D0000535A68400000003B"
                 "9ACA007321EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
@@ -1743,7 +1699,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: inner txn must be an AccountSet, SetRegularKey
         // or SignerListSet transaction.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "12006322000000002400000002201B0000006C201D0000535968400000003B"
                 "9ACA007321EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
@@ -1761,7 +1717,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: outer and inner txns were signed with
         // different keys.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "12000322000000002400000002201B0000006C201D0000535968400000003B"
                 "9ACA007321EBA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
@@ -1778,7 +1734,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: failed to deserialize manifest on txid
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::manifest] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -1787,7 +1743,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: manifest master key did not match top level
         // master key in unl section of xpop
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::manifest] =
                 "JAAAAAFxIe2E1ANsZZGkvfnFTO+jm5lqXc5fhtEf2hh0SBzp1aHNwXMh7TN9+"
                 "b62cZqTngaFYU5tbGpYHC8oYuI3G3vwj9OW2Z9gdkAnUjfY5zOEkhq31tU4338"
@@ -1801,7 +1757,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: manifest signature invalid
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::manifest] =
                 "JAAAAAFxIe101ANsZZGkvfnFTO+jm5lqXc5fhtEf2hh0SBzp1aHNwXMh7TN9+"
                 "b62cZqTngaFYU5tbGpYHC8oYuI3G3vwj9OW2Z9gdkA3UjfY5zOEkhq31tU4338"
@@ -1815,7 +1771,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob not signed correctly
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::signature] =
                 "949F6B8DA6E11C213B561659C16F13D35385E8EA9E775483ADC84578F6D578"
                 "943DE5EB681584B2C03EFFFDFD216F9E0B21576E482F941C7195893B72B5B1"
@@ -1826,7 +1782,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob not signed correctly
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::signature] = "not a hex";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -1836,7 +1792,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: unl blob was not valid json (after base64
         // decoding)
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -1848,7 +1804,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob validUntil <= validFrom
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] =
                 "eyJzZXF1ZW5jZSI6MSwiZWZmZWN0aXZlIjowLCJleHBpcmF0aW9uIjowLCJ2YW"
                 "xpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVB"
@@ -1879,7 +1835,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob expired
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] =
                 "eyJzZXF1ZW5jZSI6MSwiZWZmZWN0aXZlIjowLCJleHBpcmF0aW9uIjoxLCJ2YW"
                 "xpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVB"
@@ -1910,7 +1866,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: unl blob not yet valid
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] =
                 "eyJzZXF1ZW5jZSI6MSwiZWZmZWN0aXZlIjozNjAwLCJleHBpcmF0aW9uIjo4Nj"
                 "QwMCwidmFsaWRhdG9ycyI6W3sidmFsaWRhdGlvbl9wdWJsaWNfa2V5IjoiRUQz"
@@ -1947,7 +1903,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: xpop proof did not contain the specified txn
         // hash
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::proof][jss::children]["D"]
                    [jss::children]["7"][jss::hash] =
                        "12D47E7D543E15F1EDBA91CDF335722727851BDDA8C2FF8924772AD"
@@ -1963,7 +1919,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: computed txroot does not match xpop txroot,
         // invalid xpop.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::proof][jss::children]["3"]
                    [jss::hash] =
                        "22D47E7D543E15F1EDBA91CDF335722727851BDDA8C2FF8924772AD"
@@ -1978,7 +1934,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: unl blob contained invalid validator entry,
         // skipping
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] =
                 "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
                 "JzIjpbeyJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEvV0lWbGlETUdXd21h"
@@ -2022,7 +1978,7 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: validation inside xpop was not valid hex
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "not a hex";
@@ -2034,7 +1990,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation message was not for computed ledger
         // hash
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "22800000012600000056292C0D012051A0829745427488A59B6525231634DC"
@@ -2051,7 +2007,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation inside xpop was not signed with a
         // signing key we recognise
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "22800000012600000056292C0D012051B0829745427488A59B6525231634DC"
@@ -2068,7 +2024,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation inside xpop was not correctly
         // signed
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "22800000012600000056292C0D012051B0829745427488A59B6525231634DC"
@@ -2089,7 +2045,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
         // it purports to prove.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value valData;
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "";
@@ -2103,7 +2059,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: xpop inner txn did not contain a sequence
         // number or fee No Sequence
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "1200632200000000201B0000006C201D0000535968400000003B9ACA007321"
                 "EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A9"
@@ -2115,7 +2071,7 @@ class Import_test : public beast::unit_test::suite
         }
         // No Fee
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "12006322000000002400000002201B0000006C201D000053597321EDA8D46E"
                 "11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A96C747440"
@@ -2151,7 +2107,7 @@ class Import_test : public beast::unit_test::suite
         // tefINTERNAL/temMALFORMED - during preclaim could not parse xpop,
         // bailing.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -2159,7 +2115,7 @@ class Import_test : public beast::unit_test::suite
         // tefINTERNAL/temMALFORMED - during preclaim could not find
         // importSequence, bailing.
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "1200632200000000201B0000006C201D0000535968400000003B9ACA007321"
                 "EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A9"
@@ -2171,29 +2127,28 @@ class Import_test : public beast::unit_test::suite
         }
         // tefPAST_IMPORT_SEQ -
         {
-            env(import(alice, loadXpop("account_set", "w_seed")),
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 ter(tesSUCCESS));
-            env(import(alice, loadXpop("account_set", "min")),
+            env(import(alice, loadXpop(ImportTCAccountSet::min)),
                 ter(tefPAST_IMPORT_SEQ));
         }
 
         // tefINTERNAL/temMALFORMED - !vlInfo
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
         // tefPAST_IMPORT_VL_SEQ - sfImportSequence > vlInfo->first
         // {
-        //     Json::Value tx = import(alice, loadXpop("account_set",
-        //     "w_seed")); env(tx, ter(tefPAST_IMPORT_SEQ));
+        //     Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed)); env(tx, ter(tefPAST_IMPORT_SEQ));
         // }
 
         // telIMPORT_VL_KEY_NOT_RECOGNISED - Import: (fromchain) key does not
         // match (tochain) key
         // {
-        //     Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
         //     tmpXpop[jss::validation][jss::unl][jss::public_key] =
         //         "ED84D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
         //         "CDC1";
@@ -2234,7 +2189,7 @@ class Import_test : public beast::unit_test::suite
 
         // tefINTERNAL/temMALFORMED - !xpop
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -2244,7 +2199,7 @@ class Import_test : public beast::unit_test::suite
         // or fee, bailing.
         // No Fee
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "1200632200000000201B0000006C201D0000535968400000003B9ACA007321"
                 "EDA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62ECAD0AE4A9"
@@ -2264,7 +2219,7 @@ class Import_test : public beast::unit_test::suite
 
         // tefINTERNAL/temMALFORMED - !infoVL
         {
-            Json::Value tmpXpop = loadXpop("account_set", "w_seed");
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
             Json::Value tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
@@ -2303,7 +2258,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            auto const xpopJson = loadXpop("account_set", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import(bob, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -2345,7 +2300,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            Json::Value tx = import(alice, loadXpop("account_set", "w_seed"));
+            Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
             env(tx, alice, ter(tesSUCCESS));
@@ -2390,7 +2345,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx - wrong regular key
             Json::Value txBad =
-                import(alice, loadXpop("account_set", "w_regular_key"));
+                import(alice, loadXpop(ImportTCAccountSet::w_regular_key));
             txBad[jss::Sequence] = 0;
             txBad[jss::Fee] = 0;
             env(txBad, alice, sig(carol), ter(temMALFORMED));
@@ -2432,7 +2387,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             Json::Value tx =
-                import(alice, loadXpop("account_set", "w_regular_key"));
+                import(alice, loadXpop(ImportTCAccountSet::w_regular_key));
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
             env(tx, alice, sig(bob), ter(tesSUCCESS));
@@ -2482,7 +2437,7 @@ class Import_test : public beast::unit_test::suite
         //     BEAST_EXPECT(preAlice == XRP(0));
 
         //     // import tx
-        //     auto const xpopJson = loadXpop("account_set", "w_signers");
+        //     auto const xpopJson = loadXpop(ImportTCAccountSet::w_signers);
         //     Json::Value tx = import(alice, xpopJson);
         //     tx[jss::Sequence] = 0;
         //     tx[jss::Fee] = 0;
@@ -2529,7 +2484,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(1000));
 
             // import tx
-            env(import(alice, loadXpop("account_set", "w_seed")),
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 ter(tesSUCCESS));
             env.close();
 
@@ -2574,7 +2529,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(1000));
 
             // import tx
-            auto const xpopJson = loadXpop("account_set", "w_regular_key");
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_regular_key);
             Json::Value tx = import(alice, xpopJson);
             env(tx, alice, sig(bob), ter(tesSUCCESS));
             env.close();
@@ -2621,7 +2576,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(1000));
 
             // import tx
-            auto const xpopJson = loadXpop("account_set", "w_signers");
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_signers);
             Json::Value tx = import(alice, xpopJson);
             env(tx,
                 alice,
@@ -2672,7 +2627,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(1000));
 
             // import tx
-            env(import(alice, loadXpop("account_set", "w_flags")),
+            env(import(alice, loadXpop(ImportTCAccountSet::w_flags)),
                 ter(tesSUCCESS));
             env.close();
 
@@ -2723,7 +2678,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -2769,7 +2724,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_regular_key");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_regular_key);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -2818,7 +2773,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_signers");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_signers);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -2876,7 +2831,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(1000));
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed);
             env(import(alice, xpopJson), ter(tesSUCCESS));
             env.close();
 
@@ -2922,7 +2877,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed);
             env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
             env.close();
 
@@ -2969,7 +2924,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_regular_key");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_regular_key);
             env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
             env.close();
 
@@ -3017,7 +2972,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_signers");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_signers);
             env(import(alice, xpopJson),
                 msig(bob, carol),
                 fee(3 * feeDrops),
@@ -3069,7 +3024,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_seed_empty");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed_empty);
             env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
             env.close();
 
@@ -3115,7 +3070,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                loadXpop("set_regular_key", "w_regular_key_empty");
+                loadXpop(ImportTCSetRegularKey::w_regular_key_empty);
             env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
             env.close();
 
@@ -3165,7 +3120,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                loadXpop("set_regular_key", "w_signers_empty");
+                loadXpop(ImportTCSetRegularKey::w_signers_empty);
             env(import(alice, xpopJson),
                 msig(bob, carol),
                 fee(3 * feeDrops),
@@ -3213,7 +3168,7 @@ class Import_test : public beast::unit_test::suite
             env.memoize(bob);
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -3239,7 +3194,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // import tx
-            auto const xpopJson = loadXpop("set_regular_key", "w_seed_zero");
+            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed_zero);
             env(import(alice, xpopJson), ter(tesSUCCESS));
             env.close();
 
@@ -3287,7 +3242,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                loadXpop("signers_list_set", "w_seed_bad_fee");
+                loadXpop(ImportTCSignersListSet::w_seed_bad_fee);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -3334,7 +3289,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const burnAmt = XRP(2);
-            auto const xpopJson = loadXpop("signers_list_set", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -3383,7 +3338,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const burnAmt = XRP(2);
-            auto const xpopJson = loadXpop("signers_list_set", "w_regular_key");
+            auto const xpopJson = loadXpop(ImportTCSignersListSet::w_regular_key);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -3430,7 +3385,7 @@ class Import_test : public beast::unit_test::suite
 
         //     // import tx
         //     auto const burnAmt = XRP(2);
-        //     auto const xpopJson = loadXpop("signers_list_set", "w_signers");
+        //     auto const xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
         //     Json::Value tx = import(alice, xpopJson);
         //     tx[jss::Sequence] = 0;
         //     tx[jss::Fee] = 0;
@@ -3481,7 +3436,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             // auto const burnAmt = XRP(2);
-            auto const xpopJson = loadXpop("signers_list_set", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed);
             env(import(alice, xpopJson), ter(tesSUCCESS));
             env.close();
 
@@ -3552,7 +3507,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const burnAmt = XRP(2);
-            auto const xpopJson = loadXpop("signers_list_set", "w_seed_empty");
+            auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed_empty);
             env(import(alice, xpopJson), ter(tesSUCCESS));
             env.close();
 
@@ -3609,7 +3564,7 @@ class Import_test : public beast::unit_test::suite
             // import tx
             auto const burnAmt = XRP(2);
             auto const xpopJson =
-                loadXpop("signers_list_set", "w_regular_key_empty");
+                loadXpop(ImportTCSignersListSet::w_regular_key_empty);
             env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
             env.close();
 
@@ -3667,7 +3622,7 @@ class Import_test : public beast::unit_test::suite
             // import tx
             auto const burnAmt = XRP(2);
             auto const xpopJson =
-                loadXpop("signers_list_set", "w_signers_empty");
+                loadXpop(ImportTCSignersListSet::w_signers_empty);
             env(import(alice, xpopJson),
                 msig(bob, carol),
                 fee(3 * feeDrops),
@@ -3711,7 +3666,7 @@ class Import_test : public beast::unit_test::suite
 
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
-            env(import(alice, loadXpop("account_set", "w_seed")),
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 ter(tesSUCCESS));
             env.close();
 
@@ -3719,7 +3674,7 @@ class Import_test : public beast::unit_test::suite
             auto const postAlice = env.balance(alice);
             BEAST_EXPECT(postAlice == preAlice + XRP(1000) - feeDrops);
 
-            env(import(alice, loadXpop("account_set", "w_seed")),
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 ter(tefPAST_IMPORT_SEQ));
             env.close();
             auto const failedAlice = env.balance(alice);
@@ -3759,14 +3714,14 @@ class Import_test : public beast::unit_test::suite
 
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
-            auto const xpopJson = loadXpop("account_set", "w_seed");
-            
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
             env(tx, alice, ter(tesSUCCESS));
             env.close();
-            
+
             auto const postAlice = env.balance(alice);
             BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
             auto const postCoins = env.current()->info().drops;
@@ -3800,7 +3755,7 @@ class Import_test : public beast::unit_test::suite
 
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
-            auto const xpopJson = loadXpop("account_set", "w_seed");
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -3847,7 +3802,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            auto const xpopJson = loadXpop("account_set", "min");
+            auto const xpopJson = loadXpop(ImportTCAccountSet::min);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -3887,7 +3842,7 @@ class Import_test : public beast::unit_test::suite
         //     BEAST_EXPECT(preAlice == XRP(0));
 
         //     // import tx
-        //     auto const xpopJson = loadXpop("account_set", "max");
+        //     auto const xpopJson = loadXpop(ImportTCAccountSet::max);
         //     Json::Value tx = import(alice, xpopJson);
         //     tx[jss::Sequence] = 0;
         //     env(tx, alice, ter(tesSUCCESS));
