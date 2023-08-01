@@ -1204,6 +1204,15 @@ Import::doApply()
         }
     }
 
+    // update ledger header
+    if (burn <= beast::zero || burn.xrp() + view().info().drops < view().info().drops)
+    {
+        JLOG(ctx_.journal.warn())
+            << "Import: ledger header overflowed\n";
+        return tecINTERNAL;
+    }
+
+    ctx_.rawView().rawDestroyXRP(-burn.xrp());
 
     return tesSUCCESS;
 }

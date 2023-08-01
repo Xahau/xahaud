@@ -22,6 +22,7 @@
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/app/tx/impl/Import.h>
 
 namespace ripple {
 
@@ -154,9 +155,17 @@ GenesisMint::doApply()
 {
     auto const& dests = ctx_.tx.getFieldArray(sfGenesisMints);
 
+    STAmount dropsAdded { 0 };
     for (auto const& dest: dests)
     {
         auto const amt = dest[~sfAmount];
+
+        if (amt && !isXRP(*amt))
+        {
+            JLOG(ctx_.journal.warn()) << "GenesisMint: Non-xrp amount.";
+            return tecINTERNAL;
+        }
+
         auto const flags = dest[~sfGovernanceFlags];
         auto const marks = dest[~sfGovernanceMarks];
 
@@ -178,22 +187,30 @@ GenesisMint::doApply()
             sle->setFieldU32(sfSequence, seqno);
 
             if (amt)
+            {
                 sle->setFieldAmount(sfBalance, *amt);
+                dropsAdded += *amt;
+            }
             else    // give them 2 XRP if the account didn't exist, same as ttIMPORT
-                sle->setFieldAmount(sfBalance, XRPAmount {2 * DROPS_PER_XRP});
+            {
+                sle->setFieldAmount(sfBalance, Import::INITIAL_IMPORT_XRP);
+                dropsAdded += Import::INITIAL_IMPORT_XRP;
+            }
         }
         else if (amt)
         {
             // Credit the account
             STAmount startBal = sle->getFieldAmount(sfBalance);
             STAmount finalBal = startBal + *amt;
-            if (finalBal > startBal)
-                sle->setFieldAmount(sfBalance, finalBal);
-            else
+            if (finalBal <= startBal)
             {
                 JLOG(ctx_.journal.warn())
                     << "GenesisMint: cannot credit " << dest << " due to balance overflow";
+                return tecINTERNAL;
             }
+
+            sle->setFieldAmount(sfBalance, finalBal);
+            dropsAdded += *amt;
         }
 
         // set flags and marks as applicable
@@ -208,7 +225,17 @@ GenesisMint::doApply()
         else
             view().update(sle);
     }
-    
+
+    // update ledger header
+    if (dropsAdded <= beast::zero || dropsAdded.xrp() + view().info().drops < view().info().drops)
+    {
+        JLOG(ctx_.journal.warn())
+            << "GenesisMint: dropsAdded overflowed\n";
+        return tecINTERNAL;
+    }
+
+    ctx_.rawView().rawDestroyXRP(-dropsAdded.xrp());
+
     return tesSUCCESS;
 }
 

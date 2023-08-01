@@ -3770,7 +3770,8 @@ class Import_test : public beast::unit_test::suite
             auto const postAlice = env.balance(alice);
             BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
             auto const postCoins = env.current()->info().drops;
-            // BEAST_EXPECT(postCoins == preCoins + XRP(10000));
+            BEAST_EXPECT(postCoins == preCoins + XRP(10000));
+            std::cout << "===> postCoins: " << postCoins << "\n";
             // 99'999'999'999'900'000 // <- postCoins is
             // 99'999'999'999'910'000 // <- should be
         }
