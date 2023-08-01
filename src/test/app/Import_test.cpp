@@ -27,6 +27,7 @@
 #include <ripple/protocol/Import.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <boost/filesystem.hpp>
 
 #define BEAST_REQUIRE(x)     \
     {                        \
@@ -121,8 +122,8 @@ class Import_test : public beast::unit_test::suite
         try
         {
             // check if file exists and is not empty
-            if (!std::filesystem::exists(fn) ||
-                std::filesystem::file_size(fn) == 0)
+            if (!boost::filesystem::exists(fn) ||
+                boost::filesystem::file_size(fn) == 0)
             {
                 std::cout << "file was zero size or didn't exist"
                           << "\n";
@@ -146,7 +147,7 @@ class Import_test : public beast::unit_test::suite
                 return {};
             }
         }
-        catch (std::filesystem::filesystem_error& e)
+        catch (boost::filesystem::filesystem_error& e)
         {
             std::cout << "Failed to load file " + fn + " (" + e.what() + ")";
             return {};
