@@ -18,6 +18,7 @@
 //==============================================================================
 
 
+#include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/json/json_reader.h>
@@ -53,6 +54,13 @@ class Import_test : public beast::unit_test::suite
                     "{ \"command\": \"log_level\", \"severity\": \"warn\" "
                     "}");
             cfg->NETWORK_ID = networkID;
+            Section config;
+            config.append(
+                {"reference_fee = 50",
+                 "account_reserve = 1000000",
+                 "owner_reserve = 200000"});
+            auto setup = setup_FeeVote(config);
+            cfg->FEES = setup;
 
             for (auto const& strPk : keys)
             {
@@ -123,6 +131,23 @@ class Import_test : public beast::unit_test::suite
     }
 
     void
+    testComputeStartingBalance(FeatureBitset features)
+    {
+        testcase("import header - computeStartingBonus");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{*this, makeNetworkConfig(11111)};
+        
+        // old fee
+        XRPAmount const value = Import::computeStartingBonus(*env.current());
+        BEAST_EXPECT(value == drops(2000000));
+
+        // todo: new fee
+    }
+
+    void
     testIsHex(FeatureBitset features)
     {
         testcase("import utils - isHex");
@@ -174,6 +199,7 @@ class Import_test : public beast::unit_test::suite
     testSyntaxCheckProofArray(FeatureBitset features)
     {
     }
+
     void
     testSyntaxCheckProofObject(FeatureBitset features)
     {
@@ -3696,26 +3722,26 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
             auto const envCoins = env.current()->info().drops;
-            auto const totalCoins = drops(100'000'000'000'000'000);
-            BEAST_EXPECT(envCoins == totalCoins);
-            // 100'000'000'000'000'000
-            // 100'000'000'000
+            BEAST_EXPECT(envCoins == 100'000'000'000'000'000);
+            // 100'000'000'000'000'000 - drops
+            // 100'000'000'000 - xrp
 
             // burn 100,000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(100'000'000'000), ter(tesSUCCESS));
             env.close();
 
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == totalCoins - drops(100'000));
-
+            BEAST_EXPECT(preCoins == envCoins - drops(100'000'000'000));
+ 
             auto const alice = Account("alice");
             env.memoize(alice);
 
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
+            
+            STAmount burnFee = XRP(1000) + XRP(2);
             auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
-
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -3723,12 +3749,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+            BEAST_EXPECT(postAlice == preAlice + burnFee);
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins + XRP(10000));
-            std::cout << "===> postCoins: " << postCoins << "\n";
-            // 99'999'999'999'900'000 // <- postCoins is
-            // 99'999'999'999'910'000 // <- should be
+            BEAST_EXPECT(postCoins == preCoins + burnFee);
         }
 
         // burn all coins
@@ -3737,34 +3760,36 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
             auto const envCoins = env.current()->info().drops;
-            auto const totalCoins = drops(100'000'000'000'000'000);
-            BEAST_EXPECT(envCoins == totalCoins);
+            BEAST_EXPECT(envCoins == 100'000'000'000'000'000);
             // 100'000'000'000'000'000
             // 100'000'000'000
 
-            // burn 100,000 xrp
+            // burn all but 1,000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(totalCoins - drops(100'000)), ter(tesSUCCESS));
+            env(noop(master), fee(envCoins - drops(1'000'000'000)), ter(tesSUCCESS));
             env.close();
 
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == totalCoins - (totalCoins - drops(1000)));
+            BEAST_EXPECT(preCoins == XRP(1000));
 
             auto const alice = Account("alice");
             env.memoize(alice);
 
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
+            
+            STAmount burnFee = XRP(1000) + XRP(2);
             auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
             env(tx, alice, ter(tesSUCCESS));
             env.close();
+            
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+            BEAST_EXPECT(postAlice == preAlice + burnFee);
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins + XRP(1000));
+            BEAST_EXPECT(postCoins == preCoins + burnFee);
             // 1'000 // <- postCoins is
             // 2'000 // <- should be
         }
@@ -3876,6 +3901,7 @@ public:
     void
     testWithFeats(FeatureBitset features)
     {
+        testComputeStartingBalance(features);
         testIsHex(features);
         testIsBase58(features);
         testIsBase64(features);
