@@ -3761,8 +3761,6 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             auto const envCoins = env.current()->info().drops;
             BEAST_EXPECT(envCoins == 100'000'000'000'000'000);
-            // 100'000'000'000'000'000
-            // 100'000'000'000
 
             // burn all but 1,000 xrp
             auto const master = Account("masterpassphrase");
@@ -3790,8 +3788,37 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postAlice == preAlice + burnFee);
             auto const postCoins = env.current()->info().drops;
             BEAST_EXPECT(postCoins == preCoins + burnFee);
-            // 1'000 // <- postCoins is
-            // 2'000 // <- should be
+        }
+
+        // burn no coins
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == 100'000'000'000'000'000);
+
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == XRP(100'000'000'000));
+
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            auto preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+            
+            STAmount burnFee = XRP(1000) + XRP(2);
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tefINTERNAL));
+            env.close();
+            
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice);
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins);
         }
     }
 
