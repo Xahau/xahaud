@@ -1164,7 +1164,8 @@ Import::doApply()
 
     bool const create = !sle;
 
-    STAmount startBal = create ? STAmount(Import::computeStartingBonus(ctx_.view())) : sle->getFieldAmount(sfBalance);
+    XRPAmount const bonusAmount = Import::computeStartingBonus(ctx_.view());
+    STAmount startBal = create ? STAmount(bonusAmount) : sle->getFieldAmount(sfBalance);
     STAmount finalBal = startBal + burn;
 
     if (finalBal < startBal)
@@ -1219,7 +1220,8 @@ Import::doApply()
 
 
     // update the ledger header
-    ctx_.rawView().rawDestroyXRP(-burn.xrp());
+    XRPAmount totalBurn = XRPAmount{(burn.xrp() + bonusAmount)};
+    ctx_.rawView().rawDestroyXRP(-totalBurn);
 
     return tesSUCCESS;
 }
