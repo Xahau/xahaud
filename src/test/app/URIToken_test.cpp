@@ -263,9 +263,14 @@ struct URIToken_test : public beast::unit_test::suite
         Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
 
-        env.fund(XRP(200), alice);
+        env.fund(XRP(200), gw, alice);
         env.close();
+        env.trust(USD(100'000), alice);
+        env.close();
+        env(pay(gw, alice, USD(10'000)));
 
         std::string const uri(2, '?');
         auto const tid = tokenid(alice, uri);
@@ -275,6 +280,35 @@ struct URIToken_test : public beast::unit_test::suite
         // preflight
 
         {
+            // temBAD_AMOUNT - !isLegalNet - !value.native()
+            // temBAD_AMOUNT - !isLegalNet - value.mantissa() <= cMaxNativeN
+
+            // temBAD_AMOUNT - negative XRP
+            Json::Value negXrpTx = mint(alice, uri);
+            negXrpTx[jss::Amount] = XRP(-100).value().getJson(JsonOptions::none);
+            env(negXrpTx, ter(temBAD_AMOUNT));
+            env.close();
+
+            IOU const BAD{bob, badCurrency()};
+            // temBAD_CURRENCY - bad currency
+            Json::Value badXrpTx = mint(alice, uri);
+            badXrpTx[jss::Amount] = BAD(100).value().getJson(JsonOptions::none);
+            env(badXrpTx, ter(temBAD_CURRENCY));
+            env.close();
+
+            // temMALFORMED - XRP must cannot be 0 without sfDestination
+            Json::Value nodestTx = mint(alice, uri);
+            nodestTx[jss::Amount] = XRP(0).value().getJson(JsonOptions::none);
+            env(nodestTx, ter(temMALFORMED));
+            env.close();
+    
+            // temREDUNDANT - sfDestination cannot be sfAccount
+            Json::Value destSameTx = mint(alice, uri);
+            destSameTx[jss::Destination] = alice.human();
+            destSameTx[jss::Amount] = XRP(0).value().getJson(JsonOptions::none);
+            env(destSameTx, ter(temREDUNDANT));
+            env.close();
+
             // temINVALID_FLAG - invalid flags
             env(mint(alice, uri), txflags(tfAllowXRP), ter(temINVALID_FLAG));
             env.close();
@@ -708,6 +742,24 @@ struct URIToken_test : public beast::unit_test::suite
             env(burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+        }
+        // has amount and destination
+        {
+            Json::Value tx = mint(alice, uri);
+            tx[jss::Destination] = bob.human();
+            tx[jss::Amount] = XRP(10).value().getJson(JsonOptions::none);
+            // mint
+            env(tx, txflags(tfBurnable), ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            // buy
+            env(buy(bob, hexid, XRP(10)));
+            env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            // cleanup
+            env(burn(bob, hexid));
+            env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
         }
     }
 
