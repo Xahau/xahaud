@@ -13,6 +13,15 @@ if (unity)
   set_target_properties(xrpl_core PROPERTIES UNITY_BUILD ON)
 endif ()
 
+# Try to find the ACL library
+find_library(ACL_LIBRARY NAMES acl)
+
+# Check if ACL was found
+if(ACL_LIBRARY)
+  message(STATUS "Found ACL: ${ACL_LIBRARY}")
+else()
+  message(STATUS "ACL not found, continuing without ACL support")
+endif()
 
 #[===============================[
     beast/legacy FILES:
@@ -1038,3 +1047,7 @@ if (tests)
     src/test/rpc/ShardArchiveHandler_test.cpp
     PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
 endif () #tests
+
+if(ACL_LIBRARY)
+  target_link_libraries(rippled ${ACL_LIBRARY})
+endif()
