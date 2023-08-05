@@ -178,6 +178,19 @@ XRPNotCreated::finalize(
             << " drops_: " << drops_
             << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
 
+        // We should never allow more than the max supply in totalCoins.
+        XRPAmount const newTotal = view.info().drops + dropsAdded;
+        if (newTotal > INITIAL_XRP)
+        {
+            JLOG(j.fatal()) << "Invariant failed Import: total coins paid exceeds "
+                            << "system limit: "<< INITIAL_XRP
+                            << "dropsAdded: " << dropsAdded
+                            << " fee.drops(): " << fee.drops()
+                            << " info().drops: " << view.info().drops
+                            << " newTotal: " << newTotal;
+            return false;
+        }
+
         return (drops_ == dropsAdded.drops() - fee.drops());
     }
 
@@ -190,10 +203,10 @@ XRPNotCreated::finalize(
             dropsAdded += dest.getFieldAmount(sfAmount).xrp(); 
         
         JLOG(j.trace())
-            << "Invariant XRPNotCreated GenesisMint: " 
+            << "Invariant XRPNotCreated GenesisMint: "
             << "dropsAdded: " << dropsAdded
-            << " fee.drops(): " << fee.drops() 
-            << " drops_: " << drops_ 
+            << " fee.drops(): " << fee.drops()
+            << " drops_: " << drops_
             << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
 
         int64_t drops = dropsAdded.drops() - fee.drops();
@@ -202,10 +215,21 @@ XRPNotCreated::finalize(
         if (drops > dropsAdded.drops() || drops > fee.drops())
             return false;
 
+        // We should never allow more than the max supply in totalCoins.
+        XRPAmount const newTotal = view.info().drops + dropsAdded;
+        if (newTotal > INITIAL_XRP)
+        {
+            JLOG(j.fatal()) << "Invariant failed GenesisMint: total coins exceeds "
+                            << "system limit: "<< INITIAL_XRP
+                            << "dropsAdded: " << dropsAdded
+                            << " fee.drops(): " << fee.drops()
+                            << " info().drops: " << view.info().drops
+                            << " newTotal: " << newTotal;
+            return false;
+        }
+
         return drops_ == drops;
     }
-    
-
 
     // The net change should never be positive, as this would mean that the
     // transaction created XRP out of thin air. That's not possible.
