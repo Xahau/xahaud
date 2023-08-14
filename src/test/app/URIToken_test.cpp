@@ -24,6 +24,7 @@
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <ripple/core/ConfigSections.h>
 
 #include <chrono>
 
@@ -452,10 +453,6 @@ struct URIToken_test : public beast::unit_test::suite
         IOU const BAD{gw, badCurrency()};
         env(sell(alice, id, BAD(10)), ter(temBAD_CURRENCY));
 
-        // temMALFORMED - no destination and 0 value
-        env(sell(alice, id, USD(0)), ter(temMALFORMED));
-        env.close();
-
         //----------------------------------------------------------------------
         // preclaim
         // tecNO_PERMISSION - invalid account
@@ -743,10 +740,48 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
         }
+
+        // 0 amount and destination
+        {
+            Json::Value tx = mint(alice, uri);
+            tx[jss::Destination] = bob.human();
+            tx[jss::Amount] = XRP(0).value().getJson(JsonOptions::none);
+            // mint
+            env(tx, txflags(tfBurnable), ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            // buy
+            env(buy(bob, hexid, XRP(0)));
+            env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            // cleanup
+            env(burn(bob, hexid));
+            env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+        }
+
         // has amount and destination
         {
             Json::Value tx = mint(alice, uri);
             tx[jss::Destination] = bob.human();
+            tx[jss::Amount] = XRP(10).value().getJson(JsonOptions::none);
+            // mint
+            env(tx, txflags(tfBurnable), ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            // buy
+            env(buy(bob, hexid, XRP(10)));
+            env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            // cleanup
+            env(burn(bob, hexid));
+            env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+        }
+
+        // has amount and no destination
+        {
+            Json::Value tx = mint(alice, uri);
             tx[jss::Amount] = XRP(10).value().getJson(JsonOptions::none);
             // mint
             env(tx, txflags(tfBurnable), ter(tesSUCCESS));
