@@ -193,8 +193,9 @@ GenesisMint::doApply()
             }
             else    // give them 2 XRP if the account didn't exist, same as ttIMPORT
             {
-                sle->setFieldAmount(sfBalance, Import::INITIAL_IMPORT_XRP);
-                dropsAdded += Import::INITIAL_IMPORT_XRP;
+                XRPAmount const initialXrp = Import::computeStartingBonus(ctx_.view());
+                sle->setFieldAmount(sfBalance, initialXrp);
+                dropsAdded += initialXrp;
             }
         }
         else if (amt)
