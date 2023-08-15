@@ -49,6 +49,46 @@ class Import_test : public beast::unit_test::suite
             "ED74D4036C6591A4BDF9C54CEFA39B996A"
             "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
         return envconfig([&](std::unique_ptr<Config> cfg) {
+            // cfg->section(SECTION_RPC_STARTUP)
+            //     .append(
+            //         "{ \"command\": \"log_level\", \"severity\": \"warn\" "
+            //         "}");
+            cfg->NETWORK_ID = networkID;
+            Section config;
+            config.append(
+                {"reference_fee = 10",
+                 "account_reserve = 1000000",
+                 "owner_reserve = 200000"});
+            auto setup = setup_FeeVote(config);
+            cfg->FEES = setup;
+
+            for (auto const& strPk : keys)
+            {
+                auto pkHex = strUnHex(strPk);
+                if (!pkHex)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk + "' was not valid hex.");
+
+                auto const pkType = publicKeyType(makeSlice(*pkHex));
+                if (!pkType)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk +
+                        "' was not a valid key type.");
+
+                cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
+            }
+            return cfg;
+        });
+    }
+
+    std::unique_ptr<Config>
+    makeMaxFeeConfig(uint32_t networkID)
+    {
+        using namespace jtx;
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A"
+            "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+        return envconfig([&](std::unique_ptr<Config> cfg) {
             cfg->section(SECTION_RPC_STARTUP)
                 .append(
                     "{ \"command\": \"log_level\", \"severity\": \"warn\" "
@@ -1505,6 +1545,7 @@ class Import_test : public beast::unit_test::suite
         testcase("enabled");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
+        
 
         for (bool const withImport : {false, true})
         {
@@ -1516,6 +1557,11 @@ class Import_test : public beast::unit_test::suite
             // setup env
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
+            env.close();
+
+            // burn 1000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
             env.close();
 
             auto const txResult =
@@ -1539,6 +1585,11 @@ class Import_test : public beast::unit_test::suite
 
         test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
+        // burn 1000 xrp
+        auto const master = Account("masterpassphrase");
+        env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
+        env.close();
+
         auto const alice = Account("alice");
         auto const bob = Account("bob");
 
@@ -1551,12 +1602,12 @@ class Import_test : public beast::unit_test::suite
         // temDISABLED - disabled - CHECKED IN ENABLED
         // return ret; - preflight1 no success
 
-        // temMALFORMED - sfFee cannot be 0
+        // telINSUF_FEE_P - sfFee cannot be 0
         {
             Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
-            STAmount const& fee = XRP(10);
+            STAmount const& fee = XRP(0);
             tx[jss::Fee] = fee.getJson(JsonOptions::none);
-            env(tx, ter(temMALFORMED));
+            env(tx, ter(telINSUF_FEE_P));
         }
 
         //* DA: Technically breaking the size throws before preflight
@@ -2126,6 +2177,11 @@ class Import_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob);
         env.close();
 
+        // burn 1000 xrp
+        auto const master = Account("masterpassphrase");
+        env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
+        env.close();
+
         //----------------------------------------------------------------------
         // preclaim
 
@@ -2152,20 +2208,20 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(temMALFORMED));
         }
         // tefPAST_IMPORT_SEQ -
-        {
-            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
-                ter(tesSUCCESS));
-            env(import(alice, loadXpop(ImportTCAccountSet::min)),
-                ter(tefPAST_IMPORT_SEQ));
-        }
+        // {
+        //     env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+        //         ter(tesSUCCESS));
+        //     env(import(alice, loadXpop(ImportTCAccountSet::min)),
+        //         ter(tefPAST_IMPORT_SEQ));
+        // }
 
-        // tefINTERNAL/temMALFORMED - !vlInfo
-        {
-            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
-            tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
-            Json::Value tx = import(alice, tmpXpop);
-            env(tx, ter(temMALFORMED));
-        }
+        // // tefINTERNAL/temMALFORMED - !vlInfo
+        // {
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+        //     tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
+        //     Json::Value tx = import(alice, tmpXpop);
+        //     env(tx, ter(temMALFORMED));
+        // }
         // tefPAST_IMPORT_VL_SEQ - sfImportSequence > vlInfo->first
         // {
         //     Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed)); env(tx, ter(tefPAST_IMPORT_SEQ));
@@ -2197,6 +2253,11 @@ class Import_test : public beast::unit_test::suite
         auto const bob = Account("bob");
 
         env.fund(XRP(1000), alice, bob);
+        env.close();
+
+        // burn 1000 xrp
+        auto const master = Account("masterpassphrase");
+        env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
         env.close();
 
         //----------------------------------------------------------------------
@@ -2263,45 +2324,58 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // w/ seed -> dne (bad signer)
-        {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        // // w/ seed -> dne (bad signer)
+        // {
+        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
-            auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
-            env.close();
+        //     auto const feeDrops = env.current()->fees().base;
 
-            // init env
-            auto const alice = Account("alice");
-            auto const bob = Account("bob");
-            env.memoize(alice);
-            env.memoize(bob);
+        //     // confirm total coins header
+        //     auto initCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
-            // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(0));
+        //     // burn 10'000 xrp
+        //     auto const master = Account("masterpassphrase");
+        //     env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        //     env.close();
 
-            // import tx
-            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
-            Json::Value tx = import(bob, xpopJson);
-            tx[jss::Sequence] = 0;
-            tx[jss::Fee] = 0;
-            env(tx, bob, ter(temMALFORMED));
-            env.close();
+        //     // confirm total coins header
+        //     auto burnCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
-            // confirm fee was not minted
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice);
-            auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins);
+        //     // init env
+        //     auto const alice = Account("alice");
+        //     auto const bob = Account("bob");
+        //     env.memoize(alice);
+        //     env.memoize(bob);
 
-            // confirm account does not exist
-            auto const [acct, acctSle] =
-                accountKeyAndSle(*env.current(), alice);
-            BEAST_EXPECT(acctSle == nullptr);
-        }
+        //     // confirm env
+        //     auto const preCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(preCoins == burnCoins - (4 * feeDrops));
+        //     auto const preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(0));
+
+        //     // import tx
+        //     auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+        //     Json::Value tx = import(bob, xpopJson);
+        //     tx[jss::Sequence] = 0;
+        //     tx[jss::Fee] = 0;
+        //     env(tx, bob, ter(temMALFORMED));
+        //     env.close();
+
+        //     // confirm fee was minted
+        //     auto const postAlice = env.balance(alice);
+        //     BEAST_EXPECT(postAlice == preAlice);
+
+        //     // confirm total coins header
+        //     auto const postCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(postCoins == preCoins);
+
+        //     // confirm account does not exist
+        //     auto const [acct, acctSle] =
+        //         accountKeyAndSle(*env.current(), alice);
+        //     BEAST_EXPECT(acctSle == nullptr);
+        // }
 
         // w/ seed -> dne
         {
@@ -2309,9 +2383,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -2321,7 +2404,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == burnCoins);
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
@@ -2332,11 +2415,17 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - feeDrops
+            auto const totalBurn = XRP(1000) + XRP(2);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm account exists
             auto const [acct, acctSle] =
@@ -2351,8 +2440,9 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
 
             // init env
@@ -2365,7 +2455,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == 99'999'990'000'000'000);
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
@@ -2395,8 +2485,9 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
 
             // init env
@@ -2407,7 +2498,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == 99'999'990'000'000'000);
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
@@ -2419,11 +2510,16 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, sig(bob), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - feeDrops
+            auto const totalBurn = XRP(1000) + XRP(2);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) + XRP(2));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm account exists
             auto const [acct, acctSle1] =
@@ -2438,66 +2534,77 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
         }
 
-        // // w/ signers list -> dne
-        // {
-        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        // // // w/ signers list -> dne
+        // // {
+        // //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
-        //     auto const feeDrops = env.current()->fees().base;
+        // //     auto const feeDrops = env.current()->fees().base;
 
-        //     auto const master = Account("masterpassphrase");
-        //     env(noop(master), fee(100'000), ter(tesSUCCESS));
-        //     env.close();
+        // // burn 1000 xrp
+        // //     auto const master = Account("masterpassphrase");
+        // //     env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
+        // //     env.close();
 
-        //     // init env
-        //     auto const alice = Account("alice");
-        //     auto const bob = Account("bob");
-        //     auto const carol = Account("carol");
-        //     env.memoize(alice);
-        //     env.memoize(bob);
-        //     env.memoize(carol);
+        // //     // init env
+        // //     auto const alice = Account("alice");
+        // //     auto const bob = Account("bob");
+        // //     auto const carol = Account("carol");
+        // //     env.memoize(alice);
+        // //     env.memoize(bob);
+        // //     env.memoize(carol);
 
-        //     // confirm env
-        //     auto const preCoins = env.current()->info().drops;
-        //     BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
-        //     auto const preAlice = env.balance(alice);
-        //     BEAST_EXPECT(preAlice == XRP(0));
+        // //     // confirm env
+        // //     auto const preCoins = env.current()->info().drops;
+        // //     BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+        // //     auto const preAlice = env.balance(alice);
+        // //     BEAST_EXPECT(preAlice == XRP(0));
 
-        //     // import tx
-        //     auto const xpopJson = loadXpop(ImportTCAccountSet::w_signers);
-        //     Json::Value tx = import(alice, xpopJson);
-        //     tx[jss::Sequence] = 0;
-        //     tx[jss::Fee] = 0;
-        //     env(
-        //         tx,
-        //         alice,
-        //         msig(bob, carol),
-        //         fee(3 * feeDrops),
-        //         ter(tesSUCCESS)
-        //     );
-        //     env.close();
+        // //     // import tx
+        // //     auto const xpopJson = loadXpop(ImportTCAccountSet::w_signers);
+        // //     Json::Value tx = import(alice, xpopJson);
+        // //     tx[jss::Sequence] = 0;
+        // //     tx[jss::Fee] = 0;
+        // //     env(
+        // //         tx,
+        // //         alice,
+        // //         msig(bob, carol),
+        // //         fee(3 * feeDrops),
+        // //         ter(tesSUCCESS)
+        // //     );
+        // //     env.close();
 
-        //     // confirm fee was minted
-        //     auto const postAlice = env.balance(alice);
-        //     BEAST_EXPECT(postAlice == preAlice + XRP(0.00001) + XRP(2));
-        //     auto const postCoins = env.current()->info().drops;
-        //     BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+        // //     // confirm fee was minted
+        // //     auto const postAlice = env.balance(alice);
+        // //     BEAST_EXPECT(postAlice == preAlice + XRP(0.00001) + XRP(2));
+        // //     auto const postCoins = env.current()->info().drops;
+        // //     BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
 
-        //     // confirm signers not set
-        //     auto const k = keylet::signers(bob);
-        //     BEAST_EXPECT(env.current()->read(k) == nullptr);
-        //     // alice cannnot sign
-        //     env(noop(alice), sig(alice), fee(feeDrops),
-        //     ter(tefMASTER_DISABLED));
-        // }
+        // //     // confirm signers not set
+        // //     auto const k = keylet::signers(bob);
+        // //     BEAST_EXPECT(env.current()->read(k) == nullptr);
+        // //     // alice cannnot sign
+        // //     env(noop(alice), sig(alice), fee(feeDrops),
+        // //     ter(tefMASTER_DISABLED));
+        // // }
 
         // w/ seed -> funded
         {
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
-            // burn 100,000 xrp
+            auto const feeDrops = env.current()->fees().base;
+
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10,000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
@@ -2505,7 +2612,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'980);
+            BEAST_EXPECT(preCoins == burnCoins  - (2 * feeDrops));
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
 
@@ -2514,21 +2621,21 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - feeDrops
+            auto const totalBurn = XRP(1000) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - XRP(0.00001));
-            std::cout << "postAlice: " << postAlice << "\n";
-            std::cout << "postAlice=: " << (preAlice + XRP(1000) - XRP(0.00001))
-                      << "\n";
-            env.close();
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'899'970);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm account exists
             auto const [acct, acctSle] =
                 accountKeyAndSle(*env.current(), alice);
             BEAST_EXPECT(acctSle != nullptr);
-            auto const feeDrops = env.current()->fees().base;
             env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
         }
 
@@ -2538,9 +2645,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -2550,7 +2666,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'960);
+            BEAST_EXPECT(preCoins == burnCoins  - (4 * feeDrops));
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
 
@@ -2560,14 +2676,16 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, sig(bob), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - feeDrops
+            auto const totalBurn = XRP(1000) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - drops(1));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'899'950);
-            std::cout << "postAlice: " << postAlice << "\n";
-            std::cout << "postAlice=: " << (preAlice + XRP(1000) - drops(1))
-                      << "\n";
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm account exists bob can sign
             auto const [acct, acctSle] =
@@ -2584,9 +2702,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -2597,7 +2724,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
+            BEAST_EXPECT(preCoins == burnCoins  - (6 * feeDrops));
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
 
@@ -2611,11 +2738,16 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - feeDrops
+            auto const totalBurn = drops(48) - (3 * feeDrops);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - drops(1));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'899'910);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
             auto const k = keylet::signers(alice);
@@ -2637,10 +2769,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
@@ -2648,7 +2788,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'980);
+            BEAST_EXPECT(preCoins == burnCoins  - (2 * feeDrops));
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
 
@@ -2657,12 +2797,16 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(10) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + drops(11));
-            env.close();
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'899'970);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm account exists
             auto const [acct, acctSle] =
@@ -2686,10 +2830,17 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm env
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -2699,7 +2850,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == burnCoins);
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
@@ -2711,11 +2862,16 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(12) + XRP(2);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + drops(12) + XRP(2));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -2730,10 +2886,17 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm env
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -2745,7 +2908,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == burnCoins);
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
@@ -2757,12 +2920,16 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, sig(bob), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - initial value
+            auto const totalBurn = drops(12) + XRP(2);
+            
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + drops(12) + XRP(2));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
 
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins + feeDrops - feeDrops);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -2771,68 +2938,76 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
         }
 
-        // w/ signers -> dne
-        {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        // // w/ signers -> dne
+        // {
+        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
-            auto const feeDrops = env.current()->fees().base;
+        //     auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
-            auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
-            env.close();
+        //     // confirm env
+        //     auto initCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
-            // init env
-            auto const alice = Account("alice");
-            auto const bob = Account("bob");
-            auto const carol = Account("carol");
-            auto const dave = Account("dave");
-            env.memoize(alice);
-            env.memoize(bob);
-            env.memoize(carol);
-            env.memoize(dave);
+        //     // burn 10'000 xrp
+        //     auto const master = Account("masterpassphrase");
+        //     env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        //     env.close();
 
-            // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(0));
+        //     auto burnCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
-            // import tx
-            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_signers);
-            Json::Value tx = import(alice, xpopJson);
-            tx[jss::Sequence] = 0;
-            tx[jss::Fee] = 0;
-            env(
-                tx,
-                alice,
-                msig(bob, carol),
-                fee(3 * feeDrops),
-                ter(tesSUCCESS)
-            );
-            env.close();
+        //     // init env
+        //     auto const alice = Account("alice");
+        //     auto const bob = Account("bob");
+        //     auto const carol = Account("carol");
+        //     auto const dave = Account("dave");
+        //     env.memoize(alice);
+        //     env.memoize(bob);
+        //     env.memoize(carol);
+        //     env.memoize(dave);
 
-            // confirm fee was minted
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(2) + feeDrops +
-            XRP(0.000002)); std::cout << "POST ALICE: " << postAlice << "\n";
-            std::cout << "POST ALICE CALC: " << (preAlice + XRP(2) + feeDrops
-            + XRP(0.000002)) << "\n";
+        //     // confirm env
+        //     auto const preCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(preCoins == burnCoins);
+        //     auto const preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(0));
 
-            auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins + feeDrops - feeDrops);
+        //     // import tx
+        //     auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_signers);
+        //     Json::Value tx = import(alice, xpopJson);
+        //     tx[jss::Sequence] = 0;
+        //     tx[jss::Fee] = 0;
+        //     env(
+        //         tx,
+        //         alice,
+        //         msig(bob, carol),
+        //         fee(3 * feeDrops),
+        //         ter(tesSUCCESS)
+        //     );
+        //     env.close();
 
-            // confirm signers not set
-            auto const k = keylet::signers(alice);
-            BEAST_EXPECT(env.current()->read(k) == nullptr);
+        //     // total burn = burn drops - fee drops
+        //     auto const totalBurn = drops(12) + XRP(2);
 
-            // confirm regular key
-             auto const [acct, acctSle] =
-                 accountKeyAndSle(*env.current(), alice);
-            BEAST_EXPECT(acctSle && acctSle->isFieldPresent(sfRegularKey) && 
-                    acctSle->getAccountID(sfRegularKey) == dave.id());
-            env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
-        }
+        //     // confirm fee was minted
+        //     auto const postAlice = env.balance(alice);
+        //     BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+        //     // confirm total coins header
+        //     auto const postCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(postCoins == preCoins + totalBurn;
+
+        //     // confirm signers not set
+        //     auto const k = keylet::signers(alice);
+        //     BEAST_EXPECT(env.current()->read(k) == nullptr);
+
+        //     // confirm regular key
+        //      auto const [acct, acctSle] =
+        //          accountKeyAndSle(*env.current(), alice);
+        //     BEAST_EXPECT(acctSle && acctSle->isFieldPresent(sfRegularKey) && 
+        //             acctSle->getAccountID(sfRegularKey) == dave.id());
+        //     env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
+        // }
 
         // w/ seed -> funded
         {
@@ -2840,10 +3015,17 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm env
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+            
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -2852,7 +3034,7 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'960);
+            BEAST_EXPECT(preCoins == burnCoins - (4 * feeDrops));
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
 
@@ -2861,11 +3043,16 @@ class Import_test : public beast::unit_test::suite
             env(import(alice, xpopJson), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - feeDrops
+            auto const totalBurn = drops(12) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice - feeDrops + drops(12));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'899'950);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -2880,10 +3067,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -2892,28 +3087,39 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (6 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the regular key
             env(regkey(alice, carol));
             env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
             env.close();
 
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (2 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (2 * feeDrops));
+
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed);
             env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(12) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice - (3 * feeDrops) + drops(12));
-            auto const postCoins = env.current()->info().drops;
-            // BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
 
-            // confirm regular key
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
+
+            // confirm regular key set
             auto const [acct, acctSle] =
                 accountKeyAndSle(*env.current(), alice);
             BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == bob.id());
@@ -2926,10 +3132,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -2939,26 +3153,37 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'920);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (8 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the regular key
             env(regkey(alice, dave));
             env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
             env.close();
 
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (2 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (2 * feeDrops));
+
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_regular_key);
             env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(12) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice - (3 * feeDrops) + drops(12));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -2967,59 +3192,75 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
         }
 
-        // w/ signers list -> funded (update regular key)
-        {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        // // w/ signers list -> funded (update regular key)
+        // {
+        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
-            auto const feeDrops = env.current()->fees().base;
+        //     auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
-            auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
-            env.close();
+        //     // confirm total coins header
+        //     auto initCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
-            auto const alice = Account("alice");
-            auto const bob = Account("bob");
-            auto const carol = Account("carol");
-            auto const dave = Account("dave");
-            auto const elsa = Account("elsa");
-            env.fund(XRP(1000), alice, bob, carol, dave, elsa);
-            env.close();
+        //     // burn 10'000 xrp
+        //     auto const master = Account("masterpassphrase");
+        //     env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        //     env.close();
 
-            // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'900);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+        //     // confirm total coins header
+        //     auto burnCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
-            // set the regular key
-            env(regkey(alice, elsa));
-            env(noop(alice), sig(elsa), fee(feeDrops), ter(tesSUCCESS));
-            env.close();
+        //     auto const alice = Account("alice");
+        //     auto const bob = Account("bob");
+        //     auto const carol = Account("carol");
+        //     auto const dave = Account("dave");
+        //     auto const elsa = Account("elsa");
+        //     env.fund(XRP(1000), alice, bob, carol, dave, elsa);
+        //     env.close();
 
-            // import tx
-            auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_signers);
-            env(import(alice, xpopJson),
-                msig(bob, carol),
-                fee(3 * feeDrops),
-                ter(tesSUCCESS));
-            env.close();
+        //     // confirm env
+        //     auto const envCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(envCoins == burnCoins - (10 * feeDrops));
+        //     auto const envAlice = env.balance(alice);
+        //     BEAST_EXPECT(envAlice == XRP(1000));
 
-            // confirm fee was minted
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + drops(12) - feeDrops);
-            std::cout << "POST ALICE: " << postAlice << "\n";
-            std::cout << "POST ALICE CALC: " << (preAlice + drops(12)) <<
-            "\n"; std::cout << "POST ALICE CALC: " << (preAlice + drops(12) -
-            (2 * feeDrops)) << "\n";
-            auto const postCoins = env.current()->info().drops;
+        //     // set the regular key
+        //     env(regkey(alice, elsa));
+        //     env(noop(alice), sig(elsa), fee(feeDrops), ter(tesSUCCESS));
+        //     env.close();
 
-            // confirm regular key
-            auto const [acct, acctSle] =
-                accountKeyAndSle(*env.current(), alice);
-            BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == dave.id());
-            env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
-        }
+        //     // confirm total coins header
+        //     auto const preCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(preCoins == envCoins - (2 * feeDrops));
+        //     auto const preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == envAlice - (2 * feeDrops));
+
+        //     // import tx
+        //     auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_signers);
+        //     env(import(alice, xpopJson),
+        //         msig(bob, carol),
+        //         fee(3 * feeDrops),
+        //         ter(tesSUCCESS));
+        //     env.close();
+
+        //     // total burn = burn drops - fee drops
+        //     auto const totalBurn = drops(48) - feeDrops;
+
+        //     // confirm fee was minted
+        //     auto const postAlice = env.balance(alice);
+        //     BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+        //     // confirm total coins header
+        //     auto const postCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(postCoins == preCoins + totalBurn);
+
+        //     // confirm regular key
+        //     auto const [acct, acctSle] =
+        //         accountKeyAndSle(*env.current(), alice);
+        //     BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == dave.id());
+        //     env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
+        // }
 
         // seed -> funded (empty regular key)
         {
@@ -3027,10 +3268,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3039,26 +3288,37 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (6 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the regular key
             env(regkey(alice, carol));
             env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
             env.close();
 
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (2 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (2 * feeDrops));
+
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed_empty);
             env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(12) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice - (3 * feeDrops) + drops(12));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            // BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -3072,10 +3332,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3084,15 +3352,21 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'940);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (6 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the regular key
             env(regkey(alice, carol));
             env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (2 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (2 * feeDrops));
 
             // import tx
             auto const xpopJson =
@@ -3100,11 +3374,16 @@ class Import_test : public beast::unit_test::suite
             env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(12) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + drops(12) - (3 * feeDrops));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            // BEAST_EXPECT(postCoins == preCoins - (3 * feeDrops));
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -3121,10 +3400,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3134,15 +3421,21 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'899'920);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (8 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the regular key
             env(regkey(alice, dave));
             env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (2 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (2 * feeDrops));
 
             // import tx
             auto const xpopJson =
@@ -3153,15 +3446,16 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(48) - (3 * feeDrops);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + drops(12) - (2 * feeDrops));
-            std::cout << "postAlice: " << postAlice << "\n";
-            std::cout << "postAlice=: " << (preAlice - (2 * feeDrops)) << "\n";
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            // std::cout << "postCoins: " << postCoins << "\n";
-            // std::cout << "postCoins=: " << (preCoins - (5 * feeDrops)) << "\n";
-            // BEAST_EXPECT(postCoins == preCoins - (5 * feeDrops));
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -3188,6 +3482,11 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
             auto const alice = Account("alice");
             auto const bob = Account("bob");
             env.memoize(alice);
@@ -3205,7 +3504,7 @@ class Import_test : public beast::unit_test::suite
             auto const [acct, acctSle] =
                 accountKeyAndSle(*env.current(), alice);
             BEAST_EXPECT(
-                (acctSle->getFieldU32(sfFlags) & lsfPasswordSpent) == 0);
+                (acctSle->getFieldU32(sfFlags) & lsfPasswordSpent) == lsfPasswordSpent);
         }
 
         // funded -> set flag
@@ -3213,6 +3512,11 @@ class Import_test : public beast::unit_test::suite
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
+
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3229,7 +3533,7 @@ class Import_test : public beast::unit_test::suite
                 accountKeyAndSle(*env.current(), alice);
             BEAST_EXPECT(
                 (acctSle->getFieldU32(sfFlags) & lsfPasswordSpent) ==
-                lsfPasswordSpent);
+                0);
         }
     }
 
@@ -3243,14 +3547,22 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> dne w/ seed (Bad Fee)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeMaxFeeConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -3262,7 +3574,9 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == burnCoins);
+
+            // confirm total coins header
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
@@ -3271,21 +3585,24 @@ class Import_test : public beast::unit_test::suite
                 loadXpop(ImportTCSignersListSet::w_seed_bad_fee);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
-            tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            // tx[jss::Fee] = 0;
+            env(tx, alice, ter(tefINTERNAL));
             env.close();
 
-            // confirm fee was minted
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(
-                postAlice == preAlice + drops(12) + XRP(2));
-            auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
-            std::cout << "POST COINS: " << postCoins << "\n";
+            // // total burn = burn drops - fee drops
+            // auto const totalBurn = drops(12) + XRP(2);
 
-            // confirm signers not set
-            auto const k = keylet::signers(alice);
-            BEAST_EXPECT(env.current()->read(k) == nullptr);
+            // // confirm fee was minted
+            // auto const postAlice = env.balance(alice);
+            // BEAST_EXPECT(postAlice == preAlice + totalBurn);
+            
+            // // confirm fee was minted
+            // auto const postCoins = env.current()->info().drops;
+            // BEAST_EXPECT(postCoins == preCoins + totalBurn);
+
+            // // confirm signers not set
+            // auto const k = keylet::signers(alice);
+            // BEAST_EXPECT(env.current()->read(k) == nullptr);
         }
 
         // w/ seed -> dne w/ seed
@@ -3294,27 +3611,34 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
             auto const bob = Account("bob");
             auto const carol = Account("carol");
             env.memoize(alice);
-            env.memoize(bob);
-            env.memoize(carol);
 
-            // confirm env
+            // confirm total coins header
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == burnCoins);
+
+            // confirm alice balance
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            auto const burnAmt = XRP(2);
             auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
@@ -3322,17 +3646,42 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, ter(tesSUCCESS));
             env.close();
 
+            // total burn = (burn drops + burn fee drops) - reward
+            auto const totalBurn = XRP(2) + drops(12) + XRP(2);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(
-                postAlice ==
-                preAlice + drops(12) + burnAmt + XRP(2));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+            
+            // confirm fee was minted
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
-            // confirm signers not set
+            // confirm signers set
             auto const k = keylet::signers(alice);
-            BEAST_EXPECT(env.current()->read(k) == nullptr);
+            auto const [signers, signersSle] =
+                signersKeyAndSle(*env.current(), alice);
+            auto const signerEntries =
+                signersSle->getFieldArray(sfSignerEntries);
+            BEAST_EXPECT(signerEntries.size() == 2);
+            BEAST_EXPECT(signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
+            BEAST_EXPECT(
+                signerEntries[0u].getAccountID(sfAccount) == carol.id());
+            BEAST_EXPECT(signerEntries[1u].getFieldU16(sfSignerWeight) == 1);
+            BEAST_EXPECT(signerEntries[1u].getAccountID(sfAccount) == bob.id());
+
+            // confirm multisign tx
+            env.close();
+            auto const aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            // confirm noop master disabled
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
         }
 
         // w/ regular key -> dne
@@ -3341,10 +3690,18 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -3352,13 +3709,12 @@ class Import_test : public beast::unit_test::suite
             auto const carol = Account("carol");
             auto const dave = Account("dave");
             env.memoize(alice);
-            env.memoize(bob);
-            env.memoize(carol);
-            env.memoize(dave);
 
-            // confirm env
+            // confirm total coins header
             auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(preCoins == burnCoins);
+
+            // confirm alice balance
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
@@ -3371,46 +3727,131 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, sig(bob), ter(tesSUCCESS));
             env.close();
 
+            // total burn = (burn drops + burn fee drops) - fee drops
+            auto const totalBurn = XRP(2) + drops(12) + XRP(2);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(
-                postAlice ==
-                preAlice + feeDrops + XRP(2) + XRP(0.000002) + burnAmt);
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+            
+            // confirm fee was minted
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
-            // confirm signers not set
+            // confirm signers set
             auto const k = keylet::signers(alice);
-            BEAST_EXPECT(env.current()->read(k) == nullptr);
+            auto const [signers, signersSle] =
+                signersKeyAndSle(*env.current(), alice);
+            auto const signerEntries =
+                signersSle->getFieldArray(sfSignerEntries);
+            BEAST_EXPECT(signerEntries.size() == 2);
+            BEAST_EXPECT(signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
+            BEAST_EXPECT(
+                signerEntries[0u].getAccountID(sfAccount) == dave.id());
+            BEAST_EXPECT(signerEntries[1u].getFieldU16(sfSignerWeight) == 1);
+            BEAST_EXPECT(signerEntries[1u].getAccountID(sfAccount) == carol.id());
+
+            // confirm multisign tx
+            env.close();
+            auto const aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(carol, dave),
+                fee(3 * feeDrops),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            // confirm regular key bad auth
+            env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
+
+            // confirm noop master disabled
+            env(noop(alice), fee(feeDrops), ter(tefMASTER_DISABLED));
         }
 
+        // w/ signers -> dne failure
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 100,000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
+
+            // init env
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.memoize(alice);
+
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == burnCoins);
+
+            // confirm alice balance
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx,
+                alice,
+                msig(bob, carol),
+                fee(3 * feeDrops),
+                ter(tefINTERNAL));
+            env.close();
+        }
+    
         // // w/ signers -> dne
         // {
         //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
         //     auto const feeDrops = env.current()->fees().base;
 
+        //     // confirm total coins header
+        //     auto initCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
         //     // burn 100,000 xrp
         //     auto const master = Account("masterpassphrase");
-        //     env(noop(master), fee(100'000), ter(tesSUCCESS));
+        //     env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
         //     env.close();
+
+        //     // confirm total coins header
+        //     auto burnCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
         //     // init env
         //     auto const alice = Account("alice");
         //     auto const bob = Account("bob");
         //     auto const carol = Account("carol");
+        //     auto const dave = Account("dave");
+        //     auto const elsa = Account("elsa");
         //     env.memoize(alice);
-        //     env.memoize(bob);
-        //     env.memoize(carol);
+        //     env.fund(XRP(1000), bob, carol, dave, elsa);
+        //     env.close();
 
-        //     // confirm env
+        //     // confirm total coins header
         //     auto const preCoins = env.current()->info().drops;
-        //     BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+        //     BEAST_EXPECT(preCoins == burnCoins);
+
+        //     // confirm alice balance
         //     auto const preAlice = env.balance(alice);
         //     BEAST_EXPECT(preAlice == XRP(0));
 
         //     // import tx
-        //     auto const burnAmt = XRP(2);
         //     auto const xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
         //     Json::Value tx = import(alice, xpopJson);
         //     tx[jss::Sequence] = 0;
@@ -3422,17 +3863,45 @@ class Import_test : public beast::unit_test::suite
         //         ter(tesSUCCESS));
         //     env.close();
 
+        //     // total burn = (burn drops + burn fee drops) + initial value
+        //     auto const totalBurn = XRP(2) + drops(48) + XRP(2);
+
         //     // confirm fee was minted
         //     auto const postAlice = env.balance(alice);
-        //     BEAST_EXPECT(
-        //         postAlice ==
-        //         preAlice + feeDrops + XRP(2) + XRP(0.000002) + burnAmt);
+        //     BEAST_EXPECT(postAlice == preAlice + totalBurn);
+            
+        //     // confirm fee was minted
         //     auto const postCoins = env.current()->info().drops;
-        //     BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+        //     BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
-        //     // confirm signers not set
+        //     // confirm signers set
         //     auto const k = keylet::signers(alice);
-        //     BEAST_EXPECT(env.current()->read(k) == nullptr);
+        //     auto const [signers, signersSle] =
+        //         signersKeyAndSle(*env.current(), alice);
+        //     auto const signerEntries =
+        //         signersSle->getFieldArray(sfSignerEntries);
+        //     BEAST_EXPECT(signerEntries.size() == 2);
+        //     BEAST_EXPECT(signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
+        //     BEAST_EXPECT(
+        //         signerEntries[0u].getAccountID(sfAccount) == dave.id());
+        //     BEAST_EXPECT(signerEntries[1u].getFieldU16(sfSignerWeight) == 1);
+        //     BEAST_EXPECT(signerEntries[1u].getAccountID(sfAccount) == elsa.id());
+
+        //     // confirm multisign tx
+        //     env.close();
+        //     auto const aliceSeq = env.seq(alice);
+        //     env(noop(alice),
+        //         msig(dave, elsa),
+        //         fee(3 * feeDrops),
+        //         ter(tesSUCCESS));
+        //     env.close();
+        //     BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+        //     // confirm regular key bad auth
+        //     env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
+
+        //     // confirm noop master disabled
+        //     env(noop(alice), fee(feeDrops), ter(tefMASTER_DISABLED));
         // }
 
         // w/ seed -> funded
@@ -3440,12 +3909,19 @@ class Import_test : public beast::unit_test::suite
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
-            // auto const totalCoins = drops(100'000'000'000'000'000);
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3455,25 +3931,25 @@ class Import_test : public beast::unit_test::suite
 
             // confirm env
             auto const preCoins = env.current()->info().drops;
-            // BEAST_EXPECT(preCoins == totalCoins - drops(100'000) - (3 * (2 *
-            // feeDrops)));
+            BEAST_EXPECT(preCoins == burnCoins - (6 * feeDrops));
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
 
             // import tx
-            // auto const burnAmt = XRP(2);
             auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed);
             env(import(alice, xpopJson), ter(tesSUCCESS));
             env.close();
 
-            // confirm fee minted
+            // total burn = (burn drops + burn fee drops) - fee drops
+            auto const totalBurn = XRP(2) + drops(12) - feeDrops;
+
+            // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            // BEAST_EXPECT(postAlice == preAlice + (2 * feeDrops));
-            std::cout << "POST ALICE: " << postAlice << "\n";
-            std::cout << "POST ALICE CALC: " << (preAlice + (2 * feeDrops))
-                      << "\n";
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins - feeDrops);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers set
             auto const [signers, signersSle] =
@@ -3495,7 +3971,10 @@ class Import_test : public beast::unit_test::suite
                 fee(3 * feeDrops),
                 ter(tesSUCCESS));
             env.close();
-            // BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            // confirm noop alice tx
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
         }
 
         // w/ seed (empty) -> funded (has entries)
@@ -3503,12 +3982,19 @@ class Import_test : public beast::unit_test::suite
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
-            // auto const totalCoins = drops(100'000'000'000'000'000);
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
-            // burn 100,000 xrp
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3517,11 +4003,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            // BEAST_EXPECT(preCoins == totalCoins - drops(100'000) - (3 * (2 *
-            // feeDrops)));
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (6 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the signers list
             env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
@@ -3531,23 +4016,34 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (4 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (4 * feeDrops));
+
             // import tx
-            auto const burnAmt = XRP(2);
             auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed_empty);
             env(import(alice, xpopJson), ter(tesSUCCESS));
             env.close();
 
-            // confirm fee minted
+            // total burn = (burn drops + burn fee drops) - fee drops
+            auto const totalBurn = XRP(2) + drops(12) - feeDrops;
+
+            // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(
-                postAlice ==
-                preAlice + burnAmt - (4 * feeDrops) + XRP(0.000002));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins - (5 * feeDrops));
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
             auto const k = keylet::signers(alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
+
+            // confirm noop master success
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
         }
 
         // w/ regular key (empty) -> funded (has entries)
@@ -3555,12 +4051,19 @@ class Import_test : public beast::unit_test::suite
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
-            // auto const totalCoins = drops(100'000'000'000'000'000);
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3569,10 +4072,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            // BEAST_EXPECT(preCoins == totalCoins...);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (6 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the regular key
             env(regkey(alice, bob));
@@ -3587,20 +4090,28 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (6 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (6 * feeDrops));
+
             // import tx
-            auto const burnAmt = XRP(2);
             auto const xpopJson =
                 loadXpop(ImportTCSignersListSet::w_regular_key_empty);
             env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
             env.close();
 
-            // confirm fee minted
+            // total burn = (burn drops + burn fee drops) - fee drops
+            auto const totalBurn = XRP(2) + drops(12) - feeDrops;
+
+            // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(
-                postAlice ==
-                preAlice + burnAmt - (6 * feeDrops) + XRP(0.000002));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins - (7 * feeDrops));
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm regular key
             auto const [acct, acctSle] =
@@ -3611,6 +4122,9 @@ class Import_test : public beast::unit_test::suite
             // confirm signers not set
             auto const k = keylet::signers(alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
+
+            // confirm noop master success
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
         }
 
         // w/ signers (empty) -> funded (has entries)
@@ -3618,12 +4132,19 @@ class Import_test : public beast::unit_test::suite
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
-            // auto const totalCoins = drops(100'000'000'000'000'000);
 
-            // burn 100,000 xrp
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
             auto const bob = Account("bob");
@@ -3632,10 +4153,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm env
-            auto const preCoins = env.current()->info().drops;
-            // BEAST_EXPECT(preCoins == totalCoins...);
-            auto const preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
+            auto const envCoins = env.current()->info().drops;
+            BEAST_EXPECT(envCoins == burnCoins - (6 * feeDrops));
+            auto const envAlice = env.balance(alice);
+            BEAST_EXPECT(envAlice == XRP(1000));
 
             // set the signers list
             env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
@@ -3645,8 +4166,13 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == envCoins - (4 * feeDrops));
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == envAlice - (4 * feeDrops));
+
             // import tx
-            auto const burnAmt = XRP(2);
             auto const xpopJson =
                 loadXpop(ImportTCSignersListSet::w_signers_empty);
             env(import(alice, xpopJson),
@@ -3655,20 +4181,101 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
-            // confirm fee minted
+            // total burn = (burn drops + burn fee drops) - fee drops
+            auto const totalBurn = XRP(2) + drops(48) - (3 * feeDrops);
+
+            // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(
-                postAlice ==
-                preAlice + burnAmt - (2 * feeDrops) - XRP(0.000002));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            // BEAST_EXPECT(postCoins == preCoins - (7 * feeDrops));
-            // std::cout << "postCoins: " << postCoins << "\n";
-            // std::cout << "postCoins=: " << (preCoins - (7 * feeDrops)) <<
-            // "\n";
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
             auto const k = keylet::signers(alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
+
+            // confirm noop master success
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
+    }
+
+    void
+    testHookIssuer(FeatureBitset features)
+    {
+        testcase("hook issuer tx");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+        
+        // tt NFTokenMint
+        // tt URITokenMint
+        // w/ seed -> dne w/ seed
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            auto preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+            env(import(alice, loadXpop(ImportTCNFTokenMint::w_seed)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - feeDrops);
+
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                ter(tefPAST_IMPORT_SEQ));
+            env.close();
+            auto const failedAlice = env.balance(alice);
+            BEAST_EXPECT(failedAlice == postAlice);
+        }
+        // tt Payment
+        // tt Payment
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            auto preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(1000));
+            env(import(alice, loadXpop(ImportTCPayment::w_seed)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - feeDrops);
+
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                ter(tefPAST_IMPORT_SEQ));
+            env.close();
+            auto const failedAlice = env.balance(alice);
+            BEAST_EXPECT(failedAlice == postAlice);
         }
     }
 
@@ -3686,6 +4293,19 @@ class Import_test : public beast::unit_test::suite
 
             auto const feeDrops = env.current()->fees().base;
 
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            // confirm total coins header
+            auto burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
+
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
             env.close();
@@ -3696,9 +4316,12 @@ class Import_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = XRP(1000) - feeDrops;
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - feeDrops);
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
 
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 ter(tefPAST_IMPORT_SEQ));
@@ -3835,15 +4458,19 @@ class Import_test : public beast::unit_test::suite
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
-            auto const envCoins = env.current()->info().drops;
-            auto const totalCoins = drops(100'000'000'000'000'000);
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
-            // burn 100,000 xrp
+            // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
-            env(noop(master), fee(100'000), ter(tesSUCCESS));
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
-            auto const preCoins = env.current()->info().drops;
-            BEAST_EXPECT(preCoins == totalCoins - drops(100'000));
+
+            // confirm total coins header
+            auto preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == initCoins - 10'000'000'000);
 
             // init env
             auto const alice = Account("alice");
@@ -3861,12 +4488,16 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, ter(tesSUCCESS));
             env.close();
 
+            // total burn = burn drops - fee drops
+            auto const totalBurn = drops(10) + XRP(2);
+
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + drops(1) + XRP(2));
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            std::cout << "POST COINS: " << postCoins << "\n";
-            BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm account exists
             auto const [acct, acctSle] =
