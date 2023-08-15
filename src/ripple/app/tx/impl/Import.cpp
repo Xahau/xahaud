@@ -1262,9 +1262,8 @@ Import::doApply()
 
 
     // update the ledger header
-    XRPAmount totalBurn =
-        XRPAmount{(burn.xrp() + (create ? bonusAmount : beast::zero))};
-    ctx_.rawView().rawDestroyXRP(-totalBurn);
+    STAmount added = finalBal - startBal;
+    ctx_.rawView().rawDestroyXRP(-added.xrp());
 
     return tesSUCCESS;
 }
