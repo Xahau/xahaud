@@ -589,7 +589,10 @@ ValidNewAccountRoot::finalize(
     if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT) && result == tesSUCCESS)
     {
         std::uint32_t const startingSeq{
-            view.rules().enabled(featureDeletableAccounts) ? view.seq() : 1};
+            view.rules().enabled(featureDeletableAccounts) &&
+            !view.rules().enabled(featureXahauGenesis)
+                ? view.seq() 
+                : 1};
 
         if (accountSeq_ != startingSeq)
         {

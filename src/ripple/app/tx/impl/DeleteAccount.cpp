@@ -36,6 +36,9 @@ namespace ripple {
 NotTEC
 DeleteAccount::preflight(PreflightContext const& ctx)
 {
+    if (ctx.rules.enabled(featureXahauGenesis))
+        return temDISABLED;
+
     if (!ctx.rules.enabled(featureDeletableAccounts))
         return temDISABLED;
 

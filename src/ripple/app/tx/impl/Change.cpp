@@ -410,11 +410,7 @@ Change::activateXahauGenesis()
         {
             sle = std::make_shared<SLE>(kl);
             sle->setAccountID(sfAccount, accid);
-
-            std::uint32_t const seqno{
-                sb.rules().enabled(featureDeletableAccounts) ? sb.seq()
-                                                             : 1};
-            sle->setFieldU32(sfSequence, seqno);
+            sle->setFieldU32(sfSequence, 1);
         }
 
         sle->setFieldAmount(sfBalance, newBal);

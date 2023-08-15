@@ -179,8 +179,13 @@ GenesisMint::doApply()
         {
             // Create the account.
             std::uint32_t const seqno{
-                view().rules().enabled(featureDeletableAccounts) ? view().seq()
-                                                                 : 1};
+                view().rules().enabled(featureDeletableAccounts) &&
+                !view().rules().enabled(featureXahauGenesis) 
+                    // RH NOTE: this condition is impossible, but left for completeness and consistency with other
+                    // code, and defensively against future changes.
+                    ? view().seq() 
+                    : 1};
+
             sle = std::make_shared<SLE>(k);
             sle->setAccountID(sfAccount, id);
 

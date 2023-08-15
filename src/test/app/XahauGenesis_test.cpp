@@ -103,6 +103,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
         }
 
         BEAST_EXPECT(env.app().getLedgerMaster().getClosedLedger()->info().drops == total);
+
+        // RH TODO:
+        // check hookdefinitions
+        // check hookparameters
+        // check wasm hash
+        // check gensis hooks array
     }
 
     void

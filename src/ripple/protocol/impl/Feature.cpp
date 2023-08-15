@@ -428,7 +428,7 @@ REGISTER_FIX    (fixTakerDryOfferRemoval,       Supported::yes, VoteBehavior::De
 REGISTER_FIX    (fixMasterKeyAsRegularKey,      Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixCheckThreading,             Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixPayChanRecipientOwnerDir,   Supported::yes, VoteBehavior::DefaultYes);
-REGISTER_FEATURE(DeletableAccounts,             Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(DeletableAccounts,             Supported::yes, VoteBehavior::DefaultNo);
 // fixQualityUpperBound should be activated before FlowCross
 REGISTER_FIX    (fixQualityUpperBound,          Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(RequireFullyCanonicalSig,      Supported::yes, VoteBehavior::DefaultYes);

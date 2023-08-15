@@ -1,4 +1,7 @@
 all: reward govern mint
+accept:
+	wasmcc accept.c -o accept.wasm -Oz -Wl,--allow-undefined  -I../
+	hook-cleaner accept.wasm
 reward:
 	wasmcc reward.c -o reward.wasm -Oz -Wl,--allow-undefined  -I../
 	wasm-opt reward.wasm -o reward.wasm \

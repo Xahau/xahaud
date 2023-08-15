@@ -334,8 +334,10 @@ Payment::doApply()
     if (!sleDst)
     {
         std::uint32_t const seqno{
-            view().rules().enabled(featureDeletableAccounts) ? view().seq()
-                                                             : 1};
+            view().rules().enabled(featureDeletableAccounts) &&
+            !view().rules().enabled(featureXahauGenesis) 
+                ? view().seq() 
+                : 1};
 
         // Create the account.
         sleDst = std::make_shared<SLE>(k);

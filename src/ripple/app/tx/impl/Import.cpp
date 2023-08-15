@@ -1221,8 +1221,11 @@ Import::doApply()
     {
         // Create the account.
         std::uint32_t const seqno{
-            view().rules().enabled(featureDeletableAccounts) ? view().seq()
-                                                             : 1};
+            view().rules().enabled(featureDeletableAccounts) &&
+            !view().rules().enabled(featureXahauGenesis)
+                ? view().seq()
+                : 1};
+
         sle = std::make_shared<SLE>(keylet::account(id));
         sle->setAccountID(sfAccount, id);
 
