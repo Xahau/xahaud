@@ -163,7 +163,7 @@ XRPNotCreated::finalize(
 
         auto const result = meta->getFieldU8(sfTransactionResult);
 
-        XRPAmount dropsAdded = 
+        XRPAmount maxDropsAdded = 
             result == tesSUCCESS || (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY)
             ? inner->getFieldAmount(sfFee).xrp()        // burned in PoB
             : beast::zero;                              // if the txn didnt burn a fee we add nothing
@@ -176,9 +176,9 @@ XRPNotCreated::finalize(
             << "dropsAdded: " << dropsAdded
             << " fee.drops(): " << fee.drops()
             << " drops_: " << drops_
-            << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
+            << " <= dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
 
-        return (drops_ == dropsAdded.drops() - fee.drops());
+        return (drops_ <= maxDropsAdded.drops() - fee.drops());
     }
 
     if (view.rules().enabled(featureXahauGenesis) && tt == ttGENESIS_MINT && res == tesSUCCESS)

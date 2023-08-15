@@ -1162,10 +1162,52 @@ Import::doApply()
         return tefINTERNAL;
     }
 
+    // get xahau genesis start ledger, or just assume the current ledger is the start seq if it's not set.
+    uint32_t curLgrSeq = view()->info->seq;
+    uint32_t startLgrSeq = curLgrSeq;
+    auto sleFees = view().read(keylet::fees());
+    if (sleFees && sleFees->isFieldPresent(sfXahauActivationLgrSeq))
+        startLgrSeq = sleFees->getFieldU32(sfXahauActivationLgrSeq);
+
+    uint32_t elasped = curLgrSeq - startLgrSeq;
+
     bool const create = !sle;
 
     STAmount startBal = create ? STAmount(INITIAL_IMPORT_XRP) : sle->getFieldAmount(sfBalance);
-    STAmount finalBal = startBal + burn;
+    
+    uint64_t creditDrops = burn.xrp().drops();
+    if (elapsed < 2'000'000)
+    {
+        // first 2MM ledgers 
+        // the ratio is 1:1
+    }
+    else if (elapsed < 6'000'000)   
+    {
+        // next 4MM ledgers
+        // the ratio is 2:1
+        creditDrops >>= 1U;
+    }
+    else if (elapsed < 14'000'000)
+    {
+        // next 8MM ledgers
+        // the ratio is 4:1
+        creditDrops >>= 2U;
+    }
+    else if (elapsed < 30'000'000)
+    {
+        // next 16MM ledgers
+        // the ratio is 8:1
+        creditDrops >>= 8U;
+    }
+    else
+    {
+        // thereafter
+        // B2M xrp is disabled
+        creditDrops = 0;
+    }
+
+    STAmount finalBal = 
+        startBal + STAmount(XRPAmount(creditDrops));
 
     if (finalBal < startBal)
     {

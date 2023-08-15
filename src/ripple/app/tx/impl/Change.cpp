@@ -575,6 +575,11 @@ Change::activateXahauGenesis()
         return;
     }
 
+    // record the start ledger
+    auto sleFees = sb.peek(keylet::fees());
+    sleFees->setFieldU32(sfXahauActivationLgrSeq, sb.info->seq);
+    sb.update(sleFees);
+
     sb.apply(ctx_.rawView());
     ctx_.rawView().rawDestroyXRP(destroyedXRP);
 }

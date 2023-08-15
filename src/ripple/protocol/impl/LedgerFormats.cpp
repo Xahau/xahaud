@@ -177,6 +177,7 @@ LedgerFormats::LedgerFormats()
             {sfBaseFeeDrops,           soeOPTIONAL},
             {sfReserveBaseDrops,       soeOPTIONAL},
             {sfReserveIncrementDrops,  soeOPTIONAL},
+            {sfXahauActivationLgrSeq,  soeOPTIONAL},
         },
         commonFields);
 
