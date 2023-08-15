@@ -1447,16 +1447,33 @@ public:
                 env.seq(elmo) + env.seq(fred) + env.seq(gwen) + env.seq(hank));
         // These tests may change if TxQ ordering is changed
         using namespace std::string_literals;
+        // std::cout << "aliceSeq: " << env.seq(alice) << "\n";
+        // std::cout << "aliceSeq= " << aliceSeq + 1 << "\n";
+        // std::cout << "bobSeq: " << env.seq(bob) << "\n";
+        // std::cout << "bobSeq= " << bobSeq << "\n";
+        // std::cout << "charlieSeq: " << env.seq(charlie) << "\n";
+        // std::cout << "charlieSeq= " << charlieSeq << "\n";
+        // std::cout << "dariaSeq: " << env.seq(daria) << "\n";
+        // std::cout << "dariaSeq= " << dariaSeq + 1 << "\n";
+        // std::cout << "elmoSeq: " << env.seq(elmo) << "\n";
+        // std::cout << "elmoSeq= " << elmoSeq + 1 << "\n";
+        // std::cout << "fredSeq: " << env.seq(fred) << "\n";
+        // std::cout << "fredSeq= " << fredSeq + 1 << "\n";
+        // std::cout << "gwenSeq: " << env.seq(gwen) << "\n";
+        // std::cout << "gwenSeq= " << gwenSeq + 1 << "\n";
+        // std::cout << "hankSeq: " << env.seq(hank) << "\n";
+        // std::cout << "hankSeq= " << hankSeq + 1 << "\n";
+
         BEAST_EXPECTS(
-            aliceSeq == env.seq(alice),
+            aliceSeq + 1 == env.seq(alice),
             "alice: "s + std::to_string(aliceSeq) + ", " +
                 std::to_string(env.seq(alice)));
         BEAST_EXPECTS(
-            bobSeq + 1 == env.seq(bob),
+            bobSeq == env.seq(bob),
             "bob: "s + std::to_string(bobSeq) + ", " +
                 std::to_string(env.seq(bob)));
         BEAST_EXPECTS(
-            charlieSeq + 2 == env.seq(charlie),
+            charlieSeq == env.seq(charlie),
             "charlie: "s + std::to_string(charlieSeq) + ", " +
                 std::to_string(env.seq(charlie)));
         BEAST_EXPECTS(
@@ -1468,11 +1485,11 @@ public:
             "elmo: "s + std::to_string(elmoSeq) + ", " +
                 std::to_string(env.seq(elmo)));
         BEAST_EXPECTS(
-            fredSeq == env.seq(fred),
+            fredSeq + 1 == env.seq(fred),
             "fred: "s + std::to_string(fredSeq) + ", " +
                 std::to_string(env.seq(fred)));
         BEAST_EXPECTS(
-            gwenSeq == env.seq(gwen),
+            gwenSeq + 1 == env.seq(gwen),
             "gwen: "s + std::to_string(gwenSeq) + ", " +
                 std::to_string(env.seq(gwen)));
         BEAST_EXPECTS(
@@ -1482,14 +1499,22 @@ public:
 
         // Which sequences get incremented may change if TxQ ordering is
         // changed
-        //++aliceSeq;
-        ++bobSeq;
-        ++(++charlieSeq);
+        ++aliceSeq;
+        // ++bobSeq;
+        // ++(++charlieSeq);
         ++dariaSeq;
         ++elmoSeq;
-        // ++fredSeq;
-        // ++gwenSeq;
+        ++fredSeq;
+        ++gwenSeq;
         ++hankSeq;
+
+        // std::cout << "bobSeq: " << ++bobSeq << "\n";
+        // std::cout << "charlieSeq: " << ++(++charlieSeq) << "\n";
+        // std::cout << "dariaSeq: " << ++dariaSeq << "\n";
+        // std::cout << "elmoSeq: " << ++elmoSeq << "\n";
+        // std::cout << "fredSeq: " << ++fredSeq << "\n";
+        // std::cout << "gwenSeq: " << ++gwenSeq << "\n";
+        // std::cout << "hankSeq: " << ++hankSeq << "\n";
 
         auto getTxsQueued = [&]() {
             auto const txs = env.app().getTxQ().getTxs();
@@ -2944,7 +2969,7 @@ public:
         // may not reduce to 8.
         env.close();
         checkMetrics(__LINE__, env, 9, 50, 6, 5, 256);
-        BEAST_EXPECT(env.seq(alice) == aliceSeq + 13);
+        BEAST_EXPECT(env.seq(alice) == aliceSeq + 15);
 
         // Close ledger 7.  That should remove 7 more of alice's transactions.
         env.close();

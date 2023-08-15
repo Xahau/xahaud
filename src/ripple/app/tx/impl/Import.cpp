@@ -1163,17 +1163,18 @@ Import::doApply()
     }
 
     // get xahau genesis start ledger, or just assume the current ledger is the start seq if it's not set.
-    uint32_t curLgrSeq = view()->info->seq;
+    uint32_t curLgrSeq = view().info().seq;
     uint32_t startLgrSeq = curLgrSeq;
     auto sleFees = view().read(keylet::fees());
     if (sleFees && sleFees->isFieldPresent(sfXahauActivationLgrSeq))
         startLgrSeq = sleFees->getFieldU32(sfXahauActivationLgrSeq);
 
-    uint32_t elasped = curLgrSeq - startLgrSeq;
+    uint32_t elapsed = curLgrSeq - startLgrSeq;
 
     bool const create = !sle;
 
-    STAmount startBal = create ? STAmount(INITIAL_IMPORT_XRP) : sle->getFieldAmount(sfBalance);
+    XRPAmount const bonusAmount = Import::computeStartingBonus(ctx_.view());
+    STAmount startBal = create ? STAmount(bonusAmount) : sle->getFieldAmount(sfBalance);
     
     uint64_t creditDrops = burn.xrp().drops();
     if (elapsed < 2'000'000)
@@ -1261,7 +1262,8 @@ Import::doApply()
 
 
     // update the ledger header
-    ctx_.rawView().rawDestroyXRP(-burn.xrp());
+    XRPAmount totalBurn = XRPAmount{(burn.xrp() + bonusAmount)};
+    ctx_.rawView().rawDestroyXRP(-totalBurn);
 
     return tesSUCCESS;
 }
