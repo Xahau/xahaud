@@ -54,6 +54,10 @@ public:
     bool
     enabled(uint256 const& feature) const
     {
+        if (feature == featureDeletableAccounts &&
+            (presets_.count(featureXahauGenesis) > 0 || set_.count(featureXahauGenesis)))
+            return false;
+
         if (presets_.count(feature) > 0)
             return true;
         return set_.count(feature) > 0;

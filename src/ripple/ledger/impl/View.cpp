@@ -1169,8 +1169,7 @@ rippleSend(
         // Direct send: redeeming IOUs and/or sending own IOUs.
         auto const ter =
             rippleCredit(view, uSenderID, uReceiverID, saAmount, false, j);
-        if (view.rules().enabled(featureDeletableAccounts) &&
-                !view.rules().enabled(featureXahauGenesis) && ter != tesSUCCESS)
+        if (view.rules().enabled(featureDeletableAccounts) && ter != tesSUCCESS)
             return ter;
         saActual = saAmount;
         return tesSUCCESS;

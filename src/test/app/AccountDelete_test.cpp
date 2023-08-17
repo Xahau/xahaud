@@ -104,13 +104,24 @@ private:
 
 public:
     void
-    testBasics()
+    testBasics(FeatureBitset features)
     {
         using namespace jtx;
 
         testcase("Basics");
 
-        Env env{*this};
+        // test that XahauGenesis disables DeletableAccounts
+        {
+            Env env(*this, features | featureXahauGenesis);
+            Account const alice("alice");
+
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            env(acctdelete(alice, alice), ter(temDISABLED));
+        }
+
+        Env env(*this, features);
         Account const alice("alice");
         Account const becky("becky");
         Account const carol("carol");
@@ -259,7 +270,7 @@ public:
     }
 
     void
-    testDirectories()
+    testDirectories(FeatureBitset features)
     {
         // The code that deletes consecutive directory entries uses a
         // peculiarity of the implementation.  Make sure that peculiarity
@@ -268,7 +279,7 @@ public:
 
         testcase("Directories");
 
-        Env env{*this};
+        Env env(*this, features);
         Account const alice("alice");
         Account const gw("gw");
 
@@ -305,7 +316,7 @@ public:
     }
 
     void
-    testOwnedTypes()
+    testOwnedTypes(FeatureBitset features)
     {
         using namespace jtx;
 
@@ -316,7 +327,7 @@ public:
         //  o New-styled PayChannels with the backlink.
         // So we start the test using old-style PayChannels.  Then we pass
         // the amendment to get new-style PayChannels.
-        Env env{*this, supported_amendments() - fixPayChanRecipientOwnerDir};
+        Env env{*this, features - fixPayChanRecipientOwnerDir};
         Account const alice("alice");
         Account const becky("becky");
         Account const gw("gw");
@@ -469,7 +480,7 @@ public:
     }
 
     void
-    testResurrection()
+    testResurrection(FeatureBitset features)
     {
         // Create an account with an old-style PayChannel.  Delete the
         // destination of the PayChannel then resurrect the destination.
@@ -480,7 +491,7 @@ public:
 
         // We need an old-style PayChannel that doesn't provide a backlink
         // from the destination.  So don't enable the amendment with that fix.
-        Env env{*this, supported_amendments() - fixPayChanRecipientOwnerDir};
+        Env env{*this, features - fixPayChanRecipientOwnerDir};
         Account const alice("alice");
         Account const becky("becky");
 
@@ -548,7 +559,7 @@ public:
     }
 
     void
-    testAmendmentEnable()
+    testAmendmentEnable(FeatureBitset features)
     {
         // Start with the featureDeletableAccounts amendment disabled.
         // Then enable the amendment and delete an account.
@@ -556,7 +567,7 @@ public:
 
         testcase("Amendment enable");
 
-        Env env{*this, supported_amendments() - featureDeletableAccounts};
+        Env env{*this, features - featureDeletableAccounts};
         Account const alice("alice");
         Account const becky("becky");
 
@@ -602,14 +613,14 @@ public:
     }
 
     void
-    testTooManyOffers()
+    testTooManyOffers(FeatureBitset features)
     {
         // Put enough offers in an account that we refuse to delete the account.
         using namespace jtx;
 
         testcase("Too many offers");
 
-        Env env{*this};
+        Env env(*this, features);
         Account const alice("alice");
         Account const gw("gw");
 
@@ -708,7 +719,7 @@ public:
     }
 
     void
-    testImplicitlyCreatedTrustline()
+    testImplicitlyCreatedTrustline(FeatureBitset features)
     {
         // Show that a trust line that is implicitly created by offer crossing
         // prevents an account from being deleted.
@@ -716,7 +727,7 @@ public:
 
         testcase("Implicitly created trust line");
 
-        Env env{*this};
+        Env env(*this, features);
         Account const alice{"alice"};
         Account const gw{"gw"};
         auto const BUX{gw["BUX"]};
@@ -753,7 +764,7 @@ public:
     }
 
     void
-    testBalanceTooSmallForFee()
+    testBalanceTooSmallForFee(FeatureBitset features)
     {
         // See what happens when an account with a balance less than the
         // incremental reserve tries to delete itself.
@@ -761,7 +772,7 @@ public:
 
         testcase("Balance too small for fee");
 
-        Env env{*this};
+        Env env(*this, features);
         Account const alice("alice");
 
         // Note that the fee structure for unit tests does not match the fees
@@ -806,7 +817,7 @@ public:
     }
 
     void
-    testWithTickets()
+    testWithTickets(FeatureBitset features)
     {
         testcase("With Tickets");
 
@@ -815,7 +826,7 @@ public:
         Account const alice{"alice"};
         Account const bob{"bob"};
 
-        Env env{*this};
+        Env env(*this, features);
         env.fund(XRP(100000), alice, bob);
         env.close();
 
@@ -857,7 +868,7 @@ public:
     }
 
     void
-    testDest()
+    testDest(FeatureBitset features)
     {
         testcase("Destination Constraints");
 
@@ -868,7 +879,7 @@ public:
         Account const carol{"carol"};
         Account const daria{"daria"};
 
-        Env env{*this};
+        Env env(*this, features);
         env.fund(XRP(100000), alice, becky, carol);
         env.close();
 
@@ -914,16 +925,24 @@ public:
     void
     run() override
     {
-        testBasics();
-        testDirectories();
-        testOwnedTypes();
-        testResurrection();
-        testAmendmentEnable();
-        testTooManyOffers();
-        testImplicitlyCreatedTrustline();
-        testBalanceTooSmallForFee();
-        testWithTickets();
-        testDest();
+
+        auto testWithFeatures = [this](FeatureBitset features)
+        {
+            testBasics(features);
+            testDirectories(features);
+            testOwnedTypes(features);
+            testResurrection(features);
+            testAmendmentEnable(features);
+            testTooManyOffers(features);
+            testImplicitlyCreatedTrustline(features);
+            testBalanceTooSmallForFee(features);
+            testWithTickets(features);
+            testDest(features);
+        };
+
+        using namespace test::jtx;
+        auto const sa = supported_amendments();
+        testWithFeatures(sa - featureXahauGenesis);
     }
 };
 

@@ -334,8 +334,7 @@ Payment::doApply()
     if (!sleDst)
     {
         std::uint32_t const seqno{
-            view().rules().enabled(featureDeletableAccounts) &&
-            !view().rules().enabled(featureXahauGenesis) 
+            view().rules().enabled(featureDeletableAccounts)
                 ? view().seq() 
                 : 1};
 
