@@ -40,7 +40,7 @@ URIToken::preflight(PreflightContext const& ctx)
         return ret;
 
     uint32_t flags = ctx.tx.getFlags();
-    uint16_t tt = ctx.tx.getFieldU16(sfTransactionType);
+    auto const tt = ctx.tx.getTxnType();
 
     // the validation for amount is the same regardless of which txn is appears on
     if (ctx.tx.isFieldPresent(sfAmount))
@@ -60,13 +60,20 @@ URIToken::preflight(PreflightContext const& ctx)
             return temBAD_CURRENCY;
         }
 
-        if (tt == ttURITOKEN_MINT && amt == beast::zero &&
-            !ctx.tx.isFieldPresent(sfDestination))
+        if (amt == beast::zero && !ctx.tx.isFieldPresent(sfDestination))
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction. "
-                               << "If no sell-to destination is specified "
-                                  "then a non-zero price must be set.";
-            return temMALFORMED;
+            if (tt == ttURITOKEN_BUY)
+            {
+                // buy operation does not specify a destination, and can have a zero amount
+                // pass
+            }
+            else
+            {
+                JLOG(ctx.j.warn()) << "Malformed transaction. "
+                                   << "If no sell-to destination is specified "
+                                      "then a non-zero price must be set.";
+                return temMALFORMED;
+            }
         }
     }
 

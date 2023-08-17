@@ -331,12 +331,35 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                     calculateHookChainFee(view, tx, keylet::hook(tshAcc));
     }
 
+    XRPAmount accumulator = baseFee;
+
+    // fee based on memos, 1 drop per byte
+    if (tx.isFieldPresent(sfMemos))
+    {
+        auto const& memos = tx.getFieldArray(sfMemos);
+        for (auto const& memo : memos)
+        {
+            auto memoObj = dynamic_cast<STObject const*>(&memo);
+            for (auto const& memoElement : *memoObj)
+            {
+                auto const charCount =
+                    const_cast<ripple::STBase&>(memoElement).downcast<ripple::STBlob>().size();
+
+                // handle overflow (should be impossible)
+                if (accumulator + charCount < accumulator)
+
+                    return XRPAmount{INITIAL_XRP.drops()};
+
+                accumulator += charCount;
+            }
+        }
+    }
+
     // RH NOTE: hookExecutionFee = 0, burden = 1 if hooks is not enabled
 
-    // The calculation is (baseFee * burden) + (signerCount * baseFee) + hookExecutionFee
+    // The calculation is (baseFee * burden) + (signerCount * baseFee) + hookExecutionFee + memoBytes
     // To ensure there are no overflows or illegal negatives we will do each operation with an overflow check
     // between and if there is a problem then return the highest possible fee to fail to the transaction.
-    XRPAmount accumulator = baseFee;
     do
     {
         if (accumulator * burden < accumulator)

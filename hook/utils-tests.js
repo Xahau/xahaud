@@ -233,7 +233,8 @@ module.exports = {
                                 let base_drops = fees.base_fee
 
                                 delete txn_to_send['SigningPubKey']
-                                txn_to_send['Fee'] = base_drops + '';
+                                if (txn_to_send['Fee'] === undefined)
+                                    txn_to_send['Fee'] = base_drops + '';
 
                                 api.request(
                                 {
