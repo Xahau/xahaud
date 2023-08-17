@@ -1265,7 +1265,7 @@ Import::doApply()
 
 
     // update the ledger header
-    STAmount added = finalBal - startBal;
+    STAmount added = create ? finalBal : finalBal - startBal;
     ctx_.rawView().rawDestroyXRP(-added.xrp());
 
     return tesSUCCESS;
