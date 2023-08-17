@@ -65,6 +65,7 @@ LedgerFormats::LedgerFormats()
             {sfImportSequence,       soeOPTIONAL},
             {sfGovernanceFlags,      soeOPTIONAL},
             {sfGovernanceMarks,      soeOPTIONAL},
+            {sfAccountIndex,         soeOPTIONAL},
         },
         commonFields);
 
@@ -178,6 +179,7 @@ LedgerFormats::LedgerFormats()
             {sfReserveBaseDrops,       soeOPTIONAL},
             {sfReserveIncrementDrops,  soeOPTIONAL},
             {sfXahauActivationLgrSeq,  soeOPTIONAL},
+            {sfAccountCount,           soeOPTIONAL},
         },
         commonFields);
 

@@ -343,6 +343,15 @@ Payment::doApply()
         sleDst->setAccountID(sfAccount, uDstAccountID);
         sleDst->setFieldU32(sfSequence, seqno);
 
+        auto sleFees = view().peek(keylet::fees());
+        if (sleFees)
+        {
+            auto actIdx = sleFees->isFieldPresent(sfAccountCount) ? sleFees->getFieldU64(sfAccountCount) : 0;
+            sleDst->setFieldU64(sfAccountIndex, actIdx);
+            sleFees->setFieldU64(sfAccountCount, actIdx + 1);
+            view().update(sleFees);
+        }
+
         view().insert(sleDst);
     }
     else

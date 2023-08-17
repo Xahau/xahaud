@@ -1169,9 +1169,10 @@ Import::doApply()
     // get xahau genesis start ledger, or just assume the current ledger is the start seq if it's not set.
     uint32_t curLgrSeq = view().info().seq;
     uint32_t startLgrSeq = curLgrSeq;
-    auto sleFees = view().read(keylet::fees());
+    auto sleFees = view().peek(keylet::fees());
     if (sleFees && sleFees->isFieldPresent(sfXahauActivationLgrSeq))
         startLgrSeq = sleFees->getFieldU32(sfXahauActivationLgrSeq);
+
 
     uint32_t elapsed = curLgrSeq - startLgrSeq;
 
@@ -1234,6 +1235,12 @@ Import::doApply()
 
         sle->setFieldU32(sfSequence, seqno);
         sle->setFieldU32(sfOwnerCount, 0);
+        if (sleFees)
+        {
+            uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount) ? sleFees->getFieldU64(sfAccountCount) : 0;
+            sle->setFieldU64(sfAccountIndex, accIdx);
+            sleFees->setFieldU64(sfAccountCount, accIdx + 1);
+        }
     
         if (ctx_.tx.getSigningPubKey().empty() ||
             calcAccountID(PublicKey(makeSlice(ctx_.tx.getSigningPubKey()))) != id)
@@ -1249,7 +1256,11 @@ Import::doApply()
     sle->setFieldAmount(sfBalance, finalBal);
 
     if (create)
+    {
         view().insert(sle);
+        if (sleFees)
+            view().update(sleFees);
+    }
     else
         view().update(sle);
 

@@ -36,7 +36,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
     {
         testcase("Test activation");
         using namespace jtx;
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr, 
+        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
             beast::severities::kTrace
         };
 
@@ -46,29 +46,29 @@ struct XahauGenesis_test : public beast::unit_test::suite
             if (!obj)
                 return false;
             STVector256 amendments = obj->getFieldV256(sfAmendments);
-            return  
+            return
                 std::find(amendments.begin(), amendments.end(), featureXahauGenesis) != amendments.end();
         };
 
         BEAST_EXPECT(!isEnabled());
-        
-        // insert a ttAMENDMENT pseudo into the open ledger    
+
+        // insert a ttAMENDMENT pseudo into the open ledger
         env.app().openLedger().modify(
             [&](OpenView& view, beast::Journal j) -> bool {
-        
+
                 STTx tx (ttAMENDMENT, [&](auto& obj) {
                     obj.setAccountID(sfAccount, AccountID());
                     obj.setFieldH256(sfAmendment, featureXahauGenesis);
                     obj.setFieldU32(sfLedgerSequence, env.app().getLedgerMaster().getClosedLedger()->info().seq + 1);
                 });
-                
+
                 uint256 txID = tx.getTransactionID();
                 auto s = std::make_shared<ripple::Serializer>();
                 tx.add(*s);
                 env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
                 view.rawTxInsert(txID, std::move(s), nullptr);
-               
-                return true; 
+
+                return true;
             });
 
         // close the ledger
@@ -92,7 +92,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             }
 
             BEAST_EXPECT(!!id);
-                    
+
             auto const root = env.le(keylet::account(*id));
 
             BEAST_EXPECT(root);
@@ -104,8 +104,72 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         BEAST_EXPECT(env.app().getLedgerMaster().getClosedLedger()->info().drops == total);
 
+        // ensure the definitions are correctly set
+        {
+            auto const govHash = ripple::sha512Half_s(ripple::Slice(GovernanceHook.data(), GovernanceHook.size()));
+            auto const govKL = keylet::hookDefinition(govHash);
+            auto govSLE = env.le(govKL);
+
+            std::cout << "01\n";
+            BEAST_EXPECT(!!govSLE);
+            std::cout << "02\n";
+            BEAST_EXPECT(govSLE->getFieldH256(sfHookHash) == govHash);
+
+            auto const govVL = govSLE->getFieldVL(sfCreateCode);
+            std::cout << "03\n";
+            BEAST_EXPECT(govHash == ripple::sha512Half_s(ripple::Slice(govVL.data(), govVL.size())));
+            std::cout << "04\n";
+            BEAST_EXPECT(govSLE->getFieldU64(sfReferenceCount) == 1);
+            std::cout << "05\n";
+            BEAST_EXPECT(govSLE->getFieldH256(sfHookOn) ==
+                ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF"));
+            std::cout << "06\n";
+            BEAST_EXPECT(govSLE->getFieldH256(sfHookNamespace) ==
+                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000001"));
+            std::cout << "07\n";
+            BEAST_EXPECT(govSLE->getFieldU16(sfHookApiVersion) == 0);
+            auto const govFee = govSLE->getFieldAmount(sfFee);
+
+            std::cout << "08\n";
+            BEAST_EXPECT(isXRP(govFee) && govFee > beast::zero);
+            std::cout << "09\n";
+            BEAST_EXPECT(!govSLE->isFieldPresent(sfHookCallbackFee));
+            std::cout << "10\n";
+            BEAST_EXPECT(govSLE->getFieldH256(sfHookSetTxnID) != beast::zero);
+
+            auto const rwdHash = ripple::sha512Half_s(ripple::Slice(RewardHook.data(), RewardHook.size()));
+            auto const rwdKL = keylet::hookDefinition(rwdHash);
+            auto rwdSLE = env.le(rwdKL);
+
+            std::cout << "11\n";
+            BEAST_EXPECT(!!rwdSLE);
+            std::cout << "12\n";
+            BEAST_EXPECT(rwdSLE->getFieldH256(sfHookHash) == rwdHash);
+
+            auto const rwdVL = rwdSLE->getFieldVL(sfCreateCode);
+            std::cout << "13\n";
+            BEAST_EXPECT(rwdHash == ripple::sha512Half_s(ripple::Slice(rwdVL.data(), rwdVL.size())));
+            std::cout << "14\n";
+            BEAST_EXPECT(rwdSLE->getFieldU64(sfReferenceCount) == 1);
+            std::cout << "15\n";
+            BEAST_EXPECT(rwdSLE->getFieldH256(sfHookOn) ==
+                ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF"));
+            std::cout << "16\n";
+            BEAST_EXPECT(rwdSLE->getFieldH256(sfHookNamespace) ==
+                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000010"));
+            std::cout << "17\n";
+            BEAST_EXPECT(rwdSLE->getFieldU16(sfHookApiVersion) == 0);
+            auto const rwdFee = rwdSLE->getFieldAmount(sfFee);
+            std::cout << "18\n";
+            BEAST_EXPECT(isXRP(rwdFee) && rwdFee > beast::zero);
+            std::cout << "19\n";
+            BEAST_EXPECT(!rwdSLE->isFieldPresent(sfHookCallbackFee));
+            std::cout << "20\n";
+            BEAST_EXPECT(rwdSLE->getFieldH256(sfHookSetTxnID) != beast::zero);
+            std::cout << "21\n";
+        }
+
         // RH TODO:
-        // check hookdefinitions
         // check hookparameters
         // check wasm hash
         // check gensis hooks array
