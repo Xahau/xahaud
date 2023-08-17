@@ -36,6 +36,8 @@
         if (!(x))            \
             return;          \
     }
+#define M(m) memo(m, "", "")
+
 namespace ripple {
 namespace test {
 
@@ -2534,58 +2536,62 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
         }
 
-        // // // w/ signers list -> dne
-        // // {
-        // //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        // w/ signers list -> dne
+         {
+//             test::jtx::Env env{*this, makeNetworkConfig(21337)};
+             test::jtx::Env env{*this, makeNetworkConfig(21337), supported_amendments(), nullptr, 
+                beast::severities::kTrace
+             };
 
-        // //     auto const feeDrops = env.current()->fees().base;
+             auto const feeDrops = env.current()->fees().base;
 
-        // // burn 1000 xrp
-        // //     auto const master = Account("masterpassphrase");
-        // //     env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
-        // //     env.close();
+             // burn 1000 xrp
+             auto const master = Account("masterpassphrase");
+             env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
+             env.close();
 
-        // //     // init env
-        // //     auto const alice = Account("alice");
-        // //     auto const bob = Account("bob");
-        // //     auto const carol = Account("carol");
-        // //     env.memoize(alice);
-        // //     env.memoize(bob);
-        // //     env.memoize(carol);
+             // init env
+             auto const alice = Account("alice");
+             auto const bob = Account("bob");
+             auto const carol = Account("carol");
+             env.memoize(alice);
+             env.memoize(bob);
+             env.memoize(carol);
 
-        // //     // confirm env
-        // //     auto const preCoins = env.current()->info().drops;
-        // //     BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
-        // //     auto const preAlice = env.balance(alice);
-        // //     BEAST_EXPECT(preAlice == XRP(0));
+             // confirm env
+             auto const preCoins = env.current()->info().drops;
+             BEAST_EXPECT(preCoins == 99'999'999'999'900'000);
+             auto const preAlice = env.balance(alice);
+             BEAST_EXPECT(preAlice == XRP(0));
 
-        // //     // import tx
-        // //     auto const xpopJson = loadXpop(ImportTCAccountSet::w_signers);
-        // //     Json::Value tx = import(alice, xpopJson);
-        // //     tx[jss::Sequence] = 0;
-        // //     tx[jss::Fee] = 0;
-        // //     env(
-        // //         tx,
-        // //         alice,
-        // //         msig(bob, carol),
-        // //         fee(3 * feeDrops),
-        // //         ter(tesSUCCESS)
-        // //     );
-        // //     env.close();
+             // import tx
+             auto const xpopJson = loadXpop(ImportTCAccountSet::w_signers);
+             Json::Value tx = import(alice, xpopJson);
+             tx[jss::Sequence] = 0;
+             tx[jss::Fee] = 0;
+             env(
+                 tx,
+                 alice,
+                 msig(bob, carol),
+                 M("accountset with signers 2573"),
+                 fee(3 * feeDrops),
+                 ter(tesSUCCESS)
+             );
+             env.close();
 
-        // //     // confirm fee was minted
-        // //     auto const postAlice = env.balance(alice);
-        // //     BEAST_EXPECT(postAlice == preAlice + XRP(0.00001) + XRP(2));
-        // //     auto const postCoins = env.current()->info().drops;
-        // //     BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
+             // confirm fee was minted
+             auto const postAlice = env.balance(alice);
+             BEAST_EXPECT(postAlice == preAlice + XRP(0.00001) + XRP(2));
+             auto const postCoins = env.current()->info().drops;
+             BEAST_EXPECT(postCoins == 99'999'999'999'900'000);
 
-        // //     // confirm signers not set
-        // //     auto const k = keylet::signers(bob);
-        // //     BEAST_EXPECT(env.current()->read(k) == nullptr);
-        // //     // alice cannnot sign
-        // //     env(noop(alice), sig(alice), fee(feeDrops),
-        // //     ter(tefMASTER_DISABLED));
-        // // }
+             // confirm signers not set
+             auto const k = keylet::signers(bob);
+             BEAST_EXPECT(env.current()->read(k) == nullptr);
+             // alice cannnot sign
+             env(noop(alice), sig(alice), fee(feeDrops),
+             ter(tefMASTER_DISABLED));
+         }
 
         // w/ seed -> funded
         {

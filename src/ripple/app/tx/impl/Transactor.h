@@ -94,8 +94,8 @@ protected:
     beast::Journal const j_;
 
     AccountID const account_;
-    XRPAmount mPriorBalance;   // Balance before fees.
-    XRPAmount mSourceBalance;  // Balance after fees.
+    XRPAmount mPriorBalance { 0 };   // Balance before fees.
+    XRPAmount mSourceBalance { 0 };  // Balance after fees.
 
     virtual ~Transactor() = default;
     Transactor(Transactor const&) = delete;

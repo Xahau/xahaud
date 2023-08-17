@@ -862,6 +862,10 @@ Import::preclaim(PreclaimContext const& ctx)
             return tefPAST_IMPORT_SEQ;
     }
 
+    // when importing for the first time the fee must be zero
+    if (!sle && ctx.tx.getFieldAmount(sfFee) != beast::zero)
+        return temBAD_FEE;
+
     auto const vlInfo = getVLInfo(*xpop, ctx.j);
 
     if (!vlInfo)
@@ -1174,7 +1178,7 @@ Import::doApply()
     bool const create = !sle;
 
     XRPAmount const bonusAmount = Import::computeStartingBonus(ctx_.view());
-    STAmount startBal = create ? STAmount(bonusAmount) : sle->getFieldAmount(sfBalance);
+    STAmount startBal = create ? STAmount(bonusAmount) : STAmount(mSourceBalance);
     
     uint64_t creditDrops = burn.xrp().drops();
     if (elapsed < 2'000'000)
@@ -1274,9 +1278,6 @@ Import::doApply()
 XRPAmount
 Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    if (!view.rules().enabled(featureHooksUpdate1))
-        return XRPAmount { 0 };
-
     if (!view.exists(keylet::account(tx.getAccountID(sfAccount))) &&
         !tx.isFieldPresent(sfIssuer))
         return XRPAmount { 0 };
