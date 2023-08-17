@@ -60,7 +60,8 @@ URIToken::preflight(PreflightContext const& ctx)
             return temBAD_CURRENCY;
         }
 
-        if (amt == beast::zero && !ctx.tx.isFieldPresent(sfDestination))
+        if (tt == ttURITOKEN_MINT && amt == beast::zero &&
+            !ctx.tx.isFieldPresent(sfDestination))
         {
             JLOG(ctx.j.warn()) << "Malformed transaction. "
                                << "If no sell-to destination is specified "
