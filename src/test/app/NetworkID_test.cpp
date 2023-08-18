@@ -68,14 +68,9 @@ public:
                 jv[jss::Destination] = alice.human();
                 jv[jss::TransactionType] = "Payment";
                 jv[jss::Amount] = "10000000000";
-                if (env.app().config().NETWORK_ID > 1024)
-                    jv[jss::NetworkID] =
-                        std::to_string(env.app().config().NETWORK_ID);
-
                 env(jv, fee(1000), sig(env.master));
             }
 
-            // run tx
             env(jv, fee(1000), ter(expectedOutcome));
             env.close();
         };
@@ -127,7 +122,6 @@ public:
         {
             test::jtx::Env env{*this, makeNetworkConfig(1025)};
             BEAST_EXPECT(env.app().config().NETWORK_ID == 1025);
-
             // try to submit a txn without network id, this should not work
             {
                 env.fund(XRP(200), alice);
