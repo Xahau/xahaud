@@ -125,7 +125,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF"));
             std::cout << "06\n";
             BEAST_EXPECT(govSLE->getFieldH256(sfHookNamespace) ==
-                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000001"));
+                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000000"));
             std::cout << "07\n";
             BEAST_EXPECT(govSLE->getFieldU16(sfHookApiVersion) == 0);
             auto const govFee = govSLE->getFieldAmount(sfFee);
@@ -154,9 +154,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             std::cout << "15\n";
             BEAST_EXPECT(rwdSLE->getFieldH256(sfHookOn) ==
                 ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF"));
-            std::cout << "16\n";
+            std::cout << "16 :: " << rwdSLE->getFieldH256(sfHookNamespace) << "\n";
             BEAST_EXPECT(rwdSLE->getFieldH256(sfHookNamespace) ==
-                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000010"));
+                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000000"));
             std::cout << "17\n";
             BEAST_EXPECT(rwdSLE->getFieldU16(sfHookApiVersion) == 0);
             auto const rwdFee = rwdSLE->getFieldAmount(sfFee);
@@ -171,9 +171,52 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // RH TODO:
         // check hookparameters
-        // check wasm hash
         // check gensis hooks array
         // check start ledger
+
+        // governance hook tests:
+        //  last member tries to remove themselves
+        //  try to add more than 20 members
+        //  add a member normally
+        //  remove a member normally
+        //  add a member normally then re-action by adding another vote
+        //  add a member normally then ensure it's not undone by removing one of the votes
+        //  remove a member normally then re-action by adding another vote
+        //  remove a member normally then ensure it's not undone when removing one of the votes
+        //  action a hook change
+        //  action a hook change to a non-existent hook
+        //  action a reward rate change
+        //  action a reward delay change
+        //  L2 versions of all of the above
+        
+        // reward hook tests:
+        //  test claim reward before time
+        //  test claim reward after time
+        //  test claim reward when UNL report empty
+        //  test claim reward when UNL report full
+
+        // genesis mint tests:
+        //  test send from non-genesis account emitted txn
+        //  test send from non-genesis account non-emitted txn
+        //  test send from genesis account emitted txn
+        //  test send from genesis account non-emitted txn
+        //  test send to account that doesn't exist
+        //  test send an overflow amount
+        //  test set governance flags
+        //  test no-destinations specified
+
+        // unl report test:
+        //  test several validators all get on the list
+        //  test several validators all vote different vl import keys
+        //  test badly behaved validators dont get on the list
+        //  test no validators on list
+        //  test whole unl on list
+        
+        // account counter
+        //  test import created accounts get a sequence
+        //  test payment created accounts get a sequence
+        //  test genesis mint created accounts get a sequence
+        //  test rpc
     }
 
     void

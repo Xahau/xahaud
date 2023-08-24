@@ -470,6 +470,7 @@ OverlayImpl::remove(std::shared_ptr<PeerFinder::Slot> const& slot)
 void
 OverlayImpl::start()
 {
+
     PeerFinder::Config config = PeerFinder::Config::makeConfig(
         app_.config(),
         serverHandler_.setup().overlay.port,
@@ -479,58 +480,50 @@ OverlayImpl::start()
     m_peerFinder->setConfig(config);
     m_peerFinder->start();
 
-    // Populate our boot cache: if there are no entries in [ips] then we use
-    // the entries in [ips_fixed].
-    auto bootstrapIps =
-        app_.config().IPS.empty() ? app_.config().IPS_FIXED : app_.config().IPS;
-
-    if (bootstrapIps.empty())
-        // bootstrapIps.push_back("0.0.0.0 21337");
-        bootstrapIps.push_back("bacab.alloy.ee 21337");
-
-    m_resolver.resolve(
-        bootstrapIps,
-        [this](
-            std::string const& name,
-            std::vector<beast::IP::Endpoint> const& addresses) {
-            std::vector<std::string> ips;
-            ips.reserve(addresses.size());
-            for (auto const& addr : addresses)
-            {
-                if (addr.port() == 0)
-                    ips.push_back(to_string(addr.at_port(DEFAULT_PEER_PORT)));
-                else
-                    ips.push_back(to_string(addr));
-            }
-
-            std::string const base("config: ");
-            if (!ips.empty())
-                m_peerFinder->addFallbackStrings(base + name, ips);
-        });
-
-    // Add the ips_fixed from the rippled.cfg file
-    if (!app_.config().standalone() && !app_.config().IPS_FIXED.empty())
+    auto addIps = [&](std::vector<std::string> bootstrapIps) -> void
     {
+
+        beast::Journal const& j = app_.journal("Overlay");
+        for (auto& ip : bootstrapIps)
+        {
+            std::size_t pos = ip.find('#');
+            if (pos != std::string::npos)
+                ip.erase(pos);
+
+            JLOG(j.trace()) << "Found boostrap IP: " << ip;
+        }
+
         m_resolver.resolve(
-            app_.config().IPS_FIXED,
-            [this](
+            bootstrapIps,
+            [&](
                 std::string const& name,
                 std::vector<beast::IP::Endpoint> const& addresses) {
-                std::vector<beast::IP::Endpoint> ips;
+                std::vector<std::string> ips;
                 ips.reserve(addresses.size());
-
-                for (auto& addr : addresses)
+                beast::Journal const& j = app_.journal("Overlay");
+                for (auto const& addr : addresses)
                 {
-                    if (addr.port() == 0)
-                        ips.emplace_back(addr.address(), DEFAULT_PEER_PORT);
-                    else
-                        ips.emplace_back(addr);
+                    std::string addrStr = 
+                        addr.port() == 0
+                            ?   to_string(addr.at_port(DEFAULT_PEER_PORT))
+                            :   to_string(addr);
+                    JLOG(j.trace()) << "Parsed boostrap IP: " << addrStr;
+                    ips.push_back(addrStr);
                 }
 
+                std::string const base("config: ");
                 if (!ips.empty())
-                    m_peerFinder->addFixedPeer(name, ips);
+                    m_peerFinder->addFallbackStrings(base + name, ips);
+
             });
-    }
+    };
+    
+    if (!app_.config().IPS.empty())
+        addIps(app_.config().IPS);
+    
+    if (!app_.config().IPS_FIXED.empty())
+        addIps(app_.config().IPS_FIXED);
+       
     auto const timer = std::make_shared<Timer>(*this);
     std::lock_guard lock(mutex_);
     list_.emplace(timer.get(), timer);

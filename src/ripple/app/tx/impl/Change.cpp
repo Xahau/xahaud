@@ -509,7 +509,8 @@ Change::activateXahauGenesis()
 
             hookDef->setFieldH256(sfHookHash, hookHash);
             hookDef->setFieldH256(sfHookOn, hookOn);
-            hookDef->setFieldH256(sfHookNamespace, UINT256_BIT[hookCount++]);
+            hookDef->setFieldH256(sfHookNamespace,
+                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000000"));
 
             // parameters
             {
