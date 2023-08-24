@@ -512,20 +512,6 @@ Change::activateXahauGenesis()
             hookDef->setFieldH256(sfHookNamespace,
                 ripple::uint256("0000000000000000000000000000000000000000000000000000000000000000"));
 
-            // parameters
-            {
-                std::vector<STObject> vec;
-                for (auto const& [k, v]: params)
-                {
-                    STObject param(sfHookParameter);
-                    param.setFieldVL(sfHookParameterName, k);
-                    param.setFieldVL(sfHookParameterValue, v);
-                    vec.emplace_back(std::move(param));
-                };
-            
-                hookDef->setFieldArray(sfHookParameters, STArray(vec, sfHookParameters));
-            }
-
             hookDef->setFieldU16(sfHookApiVersion, 0);
             hookDef->setFieldVL(sfCreateCode, wasmBytes);
             hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
@@ -540,6 +526,20 @@ Change::activateXahauGenesis()
 
             STObject hookObj {sfHook};
             hookObj.setFieldH256(sfHookHash, hookHash);
+            // parameters
+            {
+                std::vector<STObject> vec;
+                for (auto const& [k, v]: params)
+                {
+                    STObject param(sfHookParameter);
+                    param.setFieldVL(sfHookParameterName, k);
+                    param.setFieldVL(sfHookParameterValue, v);
+                    vec.emplace_back(std::move(param));
+                };
+            
+                hookObj.setFieldArray(sfHookParameters, STArray(vec, sfHookParameters));
+            }
+
             hooks.push_back(hookObj);
 
         }

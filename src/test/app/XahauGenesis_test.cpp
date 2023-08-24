@@ -40,6 +40,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
             beast::severities::kTrace
         };
 
+        AccountID const genesisAccID = calcAccountID(
+        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+            .first);
+
         auto isEnabled = [&](void)->bool
         {
             auto const obj = env.le(keylet::amendments());
@@ -52,6 +56,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         BEAST_EXPECT(!isEnabled());
 
+        uint32_t const startLgr = env.app().getLedgerMaster().getClosedLedger()->info().seq + 1;
+
         // insert a ttAMENDMENT pseudo into the open ledger
         env.app().openLedger().modify(
             [&](OpenView& view, beast::Journal j) -> bool {
@@ -59,7 +65,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 STTx tx (ttAMENDMENT, [&](auto& obj) {
                     obj.setAccountID(sfAccount, AccountID());
                     obj.setFieldH256(sfAmendment, featureXahauGenesis);
-                    obj.setFieldU32(sfLedgerSequence, env.app().getLedgerMaster().getClosedLedger()->info().seq + 1);
+                    obj.setFieldU32(sfLedgerSequence, startLgr);
                 });
 
                 uint256 txID = tx.getTransactionID();
@@ -80,29 +86,21 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         XRPAmount total { GenesisAmount };
         for (auto const& [node, amt] : Distribution)
-        {
-            std::optional<AccountID> id;
-            if (node.c_str()[0] == 'r')
-                id = parseBase58<AccountID>(node);
-            else
-            {
-                auto const pk = parseBase58<PublicKey>(TokenType::NodePublic, node);
-                if (pk)
-                    id = calcAccountID(*pk);
-            }
-
-            BEAST_EXPECT(!!id);
-
-            auto const root = env.le(keylet::account(*id));
-
-            BEAST_EXPECT(root);
-
-            BEAST_EXPECT(root->getFieldAmount(sfBalance).xrp() == amt);
-
             total += amt;
-        }
 
         BEAST_EXPECT(env.app().getLedgerMaster().getClosedLedger()->info().drops == total);
+
+        // is the hook array present 
+        auto genesisHooksLE = env.le(keylet::hook(genesisAccID));
+        BEAST_REQUIRE(!!genesisHooksLE);
+        auto genesisHookArray = genesisHooksLE->getFieldArray(sfHooks);
+        BEAST_EXPECT(genesisHookArray.size() == 2);
+
+        // make sure the account root exists and has the correct balance and ownercount
+        auto genesisAccRoot = env.le(keylet::account(genesisAccID));
+        BEAST_REQUIRE(!!genesisAccRoot);
+        BEAST_EXPECT(genesisAccRoot->getFieldAmount(sfBalance) == XahauGenesis::GenesisAmount);
+        BEAST_EXPECT(genesisAccRoot->getFieldU32(sfOwnerCount) == 2);
 
         // ensure the definitions are correctly set
         {
@@ -110,69 +108,128 @@ struct XahauGenesis_test : public beast::unit_test::suite
             auto const govKL = keylet::hookDefinition(govHash);
             auto govSLE = env.le(govKL);
 
-            std::cout << "01\n";
             BEAST_EXPECT(!!govSLE);
-            std::cout << "02\n";
             BEAST_EXPECT(govSLE->getFieldH256(sfHookHash) == govHash);
 
             auto const govVL = govSLE->getFieldVL(sfCreateCode);
-            std::cout << "03\n";
             BEAST_EXPECT(govHash == ripple::sha512Half_s(ripple::Slice(govVL.data(), govVL.size())));
-            std::cout << "04\n";
             BEAST_EXPECT(govSLE->getFieldU64(sfReferenceCount) == 1);
-            std::cout << "05\n";
             BEAST_EXPECT(govSLE->getFieldH256(sfHookOn) ==
                 ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF"));
-            std::cout << "06\n";
             BEAST_EXPECT(govSLE->getFieldH256(sfHookNamespace) ==
                 ripple::uint256("0000000000000000000000000000000000000000000000000000000000000000"));
-            std::cout << "07\n";
             BEAST_EXPECT(govSLE->getFieldU16(sfHookApiVersion) == 0);
             auto const govFee = govSLE->getFieldAmount(sfFee);
 
-            std::cout << "08\n";
             BEAST_EXPECT(isXRP(govFee) && govFee > beast::zero);
-            std::cout << "09\n";
             BEAST_EXPECT(!govSLE->isFieldPresent(sfHookCallbackFee));
-            std::cout << "10\n";
             BEAST_EXPECT(govSLE->getFieldH256(sfHookSetTxnID) != beast::zero);
+
+            BEAST_EXPECT(genesisHookArray[0].getFieldH256(sfHookHash) == govHash);
+
 
             auto const rwdHash = ripple::sha512Half_s(ripple::Slice(RewardHook.data(), RewardHook.size()));
             auto const rwdKL = keylet::hookDefinition(rwdHash);
             auto rwdSLE = env.le(rwdKL);
 
-            std::cout << "11\n";
             BEAST_EXPECT(!!rwdSLE);
-            std::cout << "12\n";
             BEAST_EXPECT(rwdSLE->getFieldH256(sfHookHash) == rwdHash);
 
             auto const rwdVL = rwdSLE->getFieldVL(sfCreateCode);
-            std::cout << "13\n";
             BEAST_EXPECT(rwdHash == ripple::sha512Half_s(ripple::Slice(rwdVL.data(), rwdVL.size())));
-            std::cout << "14\n";
             BEAST_EXPECT(rwdSLE->getFieldU64(sfReferenceCount) == 1);
-            std::cout << "15\n";
             BEAST_EXPECT(rwdSLE->getFieldH256(sfHookOn) ==
                 ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF"));
-            std::cout << "16 :: " << rwdSLE->getFieldH256(sfHookNamespace) << "\n";
             BEAST_EXPECT(rwdSLE->getFieldH256(sfHookNamespace) ==
                 ripple::uint256("0000000000000000000000000000000000000000000000000000000000000000"));
-            std::cout << "17\n";
             BEAST_EXPECT(rwdSLE->getFieldU16(sfHookApiVersion) == 0);
             auto const rwdFee = rwdSLE->getFieldAmount(sfFee);
-            std::cout << "18\n";
             BEAST_EXPECT(isXRP(rwdFee) && rwdFee > beast::zero);
-            std::cout << "19\n";
             BEAST_EXPECT(!rwdSLE->isFieldPresent(sfHookCallbackFee));
-            std::cout << "20\n";
             BEAST_EXPECT(rwdSLE->getFieldH256(sfHookSetTxnID) != beast::zero);
-            std::cout << "21\n";
+
+            BEAST_EXPECT(genesisHookArray[1].getFieldH256(sfHookHash) == rwdHash);
         }
 
+        // check distribution amounts and hook parameters
+        {
+            uint8_t member_count = 0;
+            std::map<std::vector<uint8_t>, std::vector<uint8_t>> params = XahauGenesis::GovernanceParameters;
+            for (auto const& [rn, x]: XahauGenesis::Distribution)
+            {
+                const char first = rn.c_str()[0];
+                BEAST_EXPECT(
+                    (first == 'r' &&
+                    !!parseBase58<AccountID>(rn)) ||
+                    first == 'n' &&
+                    !!parseBase58<PublicKey>(TokenType::NodePublic, rn));
+
+                if (first == 'r')
+                {
+                    auto acc = env.le(keylet::account(*parseBase58<AccountID>(rn)));
+                    BEAST_EXPECT(!!acc);
+                    auto bal = acc->getFieldAmount(sfBalance);
+                    BEAST_EXPECT(bal == STAmount(x));
+                    continue;
+                }
+
+                // node based addresses
+                auto const pk = parseBase58<PublicKey>(TokenType::NodePublic, rn);
+                BEAST_EXPECT(!!pk);
+
+                AccountID id = calcAccountID(*pk);
+                auto acc = env.le(keylet::account(id));
+                BEAST_EXPECT(!!acc);
+                auto bal = acc->getFieldAmount(sfBalance);
+                BEAST_EXPECT(bal == STAmount(x));
+
+                // initial member enumeration
+                params.emplace(
+                    std::vector<uint8_t>{'I', 'M', member_count++},
+                    std::vector<uint8_t>(id.data(), id.data() + 20));
+            }
+
+            // initial member count
+            params.emplace(
+                std::vector<uint8_t>{'I', 'M', 'C'},
+                std::vector<uint8_t>{member_count});
+
+
+            // check parameters
+            BEAST_REQUIRE(genesisHookArray[0].isFieldPresent(sfHookParameters));
+            auto leParams = genesisHookArray[0].getFieldArray(sfHookParameters);
+            BEAST_EXPECT(leParams.size() == params.size());
+            // these should be recorded in the same order
+            std::set<std::vector<uint8_t>> keys_used;
+            for (auto& param : leParams)
+            {
+                auto key = param.getFieldVL(sfHookParameterName);
+                auto val = param.getFieldVL(sfHookParameterValue);
+
+                // no duplicates allowed                
+                BEAST_EXPECT(keys_used.find(key) == keys_used.end());
+
+                // should be in our precomputed params
+                BEAST_EXPECT(params.find(key) != params.end());
+
+                // value should match
+                BEAST_EXPECT(params[key] == val);
+
+                // add key to used set
+                keys_used.emplace(key);
+            }
+        }
+
+        // check fees object correctly recordsed activation seq
+        auto fees = env.le(keylet::fees());
+        BEAST_REQUIRE(!!fees);
+        BEAST_EXPECT(fees->isFieldPresent(sfXahauActivationLgrSeq) &&
+            fees->getFieldU32(sfXahauActivationLgrSeq) == startLgr); 
+
         // RH TODO:
-        // check hookparameters
-        // check gensis hooks array
-        // check start ledger
+        // ensure no signerlist
+        // ensure correctly blackholed
+
 
         // governance hook tests:
         //  last member tries to remove themselves
@@ -188,7 +245,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         //  action a reward rate change
         //  action a reward delay change
         //  L2 versions of all of the above
-        
+
         // reward hook tests:
         //  test claim reward before time
         //  test claim reward after time
@@ -211,7 +268,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         //  test badly behaved validators dont get on the list
         //  test no validators on list
         //  test whole unl on list
-        
+
         // account counter
         //  test import created accounts get a sequence
         //  test payment created accounts get a sequence

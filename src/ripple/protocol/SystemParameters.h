@@ -70,7 +70,7 @@ static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
 
 /** The XRP Ledger mainnet's earliest ledger with a FeeSettings object. Only
  * used in asserts and tests. */
-static constexpr std::uint32_t XRP_LEDGER_EARLIEST_FEES{562177u};
+static constexpr std::uint32_t XRP_LEDGER_EARLIEST_FEES{1u};
 
 /** The number of ledgers in a shard */
 static constexpr std::uint32_t DEFAULT_LEDGERS_PER_SHARD{16384u};
