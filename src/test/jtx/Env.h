@@ -433,6 +433,11 @@ public:
     std::shared_ptr<SLE const>
     le(Keylet const& k) const;
 
+    /** Return a mutable ledger entry.
+     */
+    std::shared_ptr<SLE>
+    peek(Keylet const& k);
+
     /** Create a JTx from parameters. */
     template <class JsonValue, class... FN>
     JTx

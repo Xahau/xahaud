@@ -31,15 +31,14 @@ namespace test {
 
 struct XahauGenesis_test : public beast::unit_test::suite
 {
-    void
-    testActivation()
-    {
-        testcase("Test activation");
-        using namespace jtx;
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-            beast::severities::kTrace
-        };
 
+
+    // the test cases in this test suite are based on changing the state of the ledger before
+    // xahaugenesis is activated, to do this they call this templated function with an "execute-first" lambda
+    void
+    activate(jtx::Env& env, bool burnedViaTest = false, bool skipTests = false)
+    {
+        using namespace jtx;
         AccountID const genesisAccID = calcAccountID(
         generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
             .first);
@@ -82,15 +81,18 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         BEAST_EXPECT(isEnabled());
 
+        if (skipTests)
+            return;
+
         // sum the initial distribution balances, these should equal total coins in the closed ledger
 
         XRPAmount total { GenesisAmount };
         for (auto const& [node, amt] : Distribution)
             total += amt;
 
-        BEAST_EXPECT(env.app().getLedgerMaster().getClosedLedger()->info().drops == total);
+        BEAST_EXPECT(burnedViaTest || env.app().getLedgerMaster().getClosedLedger()->info().drops == total);
 
-        // is the hook array present 
+        // is the hook array present
         auto genesisHooksLE = env.le(keylet::hook(genesisAccID));
         BEAST_REQUIRE(!!genesisHooksLE);
         auto genesisHookArray = genesisHooksLE->getFieldArray(sfHooks);
@@ -185,7 +187,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
                 // initial member enumeration
                 params.emplace(
-                    std::vector<uint8_t>{'I', 'M', member_count++},
+                    std::vector<uint8_t>{'I', 'S', member_count++},
                     std::vector<uint8_t>(id.data(), id.data() + 20));
             }
 
@@ -206,7 +208,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto key = param.getFieldVL(sfHookParameterName);
                 auto val = param.getFieldVL(sfHookParameterValue);
 
-                // no duplicates allowed                
+                // no duplicates allowed
                 BEAST_EXPECT(keys_used.find(key) == keys_used.end());
 
                 // should be in our precomputed params
@@ -224,11 +226,153 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto fees = env.le(keylet::fees());
         BEAST_REQUIRE(!!fees);
         BEAST_EXPECT(fees->isFieldPresent(sfXahauActivationLgrSeq) &&
-            fees->getFieldU32(sfXahauActivationLgrSeq) == startLgr); 
+            fees->getFieldU32(sfXahauActivationLgrSeq) == startLgr);
+
+        // ensure no signerlist
+        BEAST_EXPECT(!env.le(keylet::signers(genesisAccID)));
+
+        // ensure correctly blackholed
+        BEAST_EXPECT(genesisAccRoot->isFieldPresent(sfRegularKey) &&
+            genesisAccRoot->getAccountID(sfRegularKey) == noAccount() &&
+            genesisAccRoot->getFieldU32(sfFlags) & lsfDisableMaster);
+
+
+    }
+
+    void
+    testPlainActivation()
+    {
+        testcase("Test activation");
+        using namespace jtx;
+        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
+            beast::severities::kTrace
+        };
+
+        activate(env);
+    }
+
+    void
+    testWithSignerList()
+    {
+        using namespace jtx;
+        testcase("Test signerlist");
+        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
+            beast::severities::kTrace
+        };
+
+        Account const alice{"alice", KeyType::ed25519};
+        env.fund(XRP(1000), alice);
+        env.memoize(env.master);
+        env(signers(env.master, 1, {{alice, 1}}));
+        env.close();
+
+        activate(env, true);
+    }
+
+    void
+    testWithRegularKey()
+    {
+        using namespace jtx;
+        testcase("Test regkey");
+        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
+            beast::severities::kTrace
+        };
+
+        env.memoize(env.master);
+        Account const alice("alice");
+        env.fund(XRP(10000), alice);
+        env(regkey(env.master, alice));
+        env.close();
+
+        activate(env, true);
+    }
+
+
+    void
+    setupGov(jtx::Env& env, std::vector<AccountID> const members)
+    {
+        using namespace jtx;
+
+        auto const invoker = Account("invoker");
+        env.fund(XRP(10000), invoker);
+
+        activate(env, true, true);
+
+        AccountID const genesisAccID = calcAccountID(
+            generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+                .first);
+
+        // gov hook is installed but not yet activated, so we can still change the parameters
+        auto hookSLE = env.le(keylet::hook(genesisAccID));
+        SLE& hooks = const_cast<SLE&>(*hookSLE);
+        STArray hooksArray = hooks.getFieldArray(sfHookParameters);
+
+        // keep first two entries
+        auto it = hooksArray.begin();
+        it++; it++;
+        // erase further entries
+        hooksArray.erase(it, hooksArray.end());
+
+        // add participants
+        uint8_t mc = 0;
+        for (AccountID const& id : members)
+        {
+            STObject param(sfHookParameter);
+            param.setFieldVL(sfHookParameterName,  std::vector<uint8_t>{'I', 'S', mc});
+            param.setFieldVL(sfHookParameterValue, std::vector<uint8_t>(id.data(), id.data() + 20));
+            hooksArray[mc + 2] = param;
+            mc++;
+        }
+
+        STObject param(sfHookParameter);
+        param.setFieldVL(sfHookParameterName, std::vector<uint8_t>{'I', 'M', 'C'});
+        param.setFieldVL(sfHookParameterValue, std::vector<uint8_t>{mc});
+        hooksArray[mc + 2] = param;
+
+        hooks.setFieldArray(sfHooks, hooksArray);
+
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal)
+        {
+            view.rawReplace(std::make_shared<SLE>(*hookSLE));
+            return true;
+        });
+
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = invoker.human();
+        env(invoke, fee(XRP(1)));
+    }
+
+    void
+    testGovernance()
+    {
+        using namespace jtx;
+        testcase("Test governance hook");
+
+        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
+            beast::severities::kTrace
+        };
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+
+        setupGov(env, {alice.id(), bob.id(), carol.id(), david.id(), edward.id()});
+
+
+        BEAST_EXPECT(true);
+    }
+
+
+
+//        auto hooksArray =
 
         // RH TODO:
-        // ensure no signerlist
-        // ensure correctly blackholed
 
 
         // governance hook tests:
@@ -245,6 +389,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         //  action a reward rate change
         //  action a reward delay change
         //  L2 versions of all of the above
+
+
 
         // reward hook tests:
         //  test claim reward before time
@@ -274,13 +420,15 @@ struct XahauGenesis_test : public beast::unit_test::suite
         //  test payment created accounts get a sequence
         //  test genesis mint created accounts get a sequence
         //  test rpc
-    }
 
     void
     run() override
     {
         using namespace test::jtx;
-        testActivation();
+        testPlainActivation();
+        testWithSignerList();
+        testWithRegularKey();
+        testGovernance();
     }
 };
 

@@ -32,6 +32,7 @@
 #include <ripple/protocol/AccountID.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
+#include <ripple/app/tx/impl/SetSignerList.h> 
 
 namespace ripple {
 
@@ -317,7 +318,7 @@ normalizeXahauGenesis(
 
         // initial member enumeration
         params.emplace(
-                std::vector<uint8_t>{'I', 'M', mc++},
+                std::vector<uint8_t>{'I', 'S', mc++},
                 std::vector<uint8_t>(id.data(), id.data() + 20));
     }
 
@@ -428,6 +429,10 @@ Change::activateXahauGenesis()
     // Step 3: blackhole genesis
     sle->setAccountID(sfRegularKey, noAccount());
     sle->setFieldU32(sfFlags, lsfDisableMaster);
+
+    // if somehow there's a signerlist we need to delete it
+    if (sb.exists(keylet::signers(accid)))
+        SetSignerList::removeFromLedger(ctx_.app, sb, accid, j_);
        
 
     // Step 4: install genesis hooks

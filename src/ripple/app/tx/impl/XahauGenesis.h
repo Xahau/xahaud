@@ -10,7 +10,7 @@ namespace XahauGenesis
     constexpr XRPAmount ExchangeAmount         {  2'000'000 * DROPS_PER_XRP };
 
     inline
-    std::map<std::string, XRPAmount>
+    std::map<std::string, XRPAmount> const
     Distribution
     {
         {"rMYm3TY5D3rXYVAz6Zr2PDqEcjsTYbNiAT", InfraAmount},
@@ -29,11 +29,11 @@ namespace XahauGenesis
 
     // For the Governance Hook: HookOn is set to ttINVOKE only    
     inline
-    const ripple::uint256
+    ripple::uint256 const
     GovernanceHookOn("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF");
 
     inline
-    std::map<std::vector<uint8_t>, std::vector<uint8_t>>
+    std::map<std::vector<uint8_t>, std::vector<uint8_t>> const
     GovernanceParameters
     {
             // 1.003274 -xfl-> 6089869970204910592 -le-> 0x00E461EE78908354
@@ -45,7 +45,7 @@ namespace XahauGenesis
 
     // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
     inline
-    const ripple::uint256
+    ripple::uint256 const
     RewardHookOn("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF");
     
 }
