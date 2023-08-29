@@ -322,9 +322,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
     }
 
+
     void
     testGovernance()
     {
+
         using namespace jtx;
         testcase("Test governance hook");
 
@@ -340,6 +342,48 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob, carol, david, edward);
 
         setupGov(env, {alice.id(), bob.id(), carol.id(), david.id(), edward.id()});
+
+        auto vote = [](uint8_t topic1, 
+            std::optional<uint8_t> topic2,
+            std::vector<uint8_t> data,
+            std::optional<uint8_t> layer,
+            Json::Value& txn)
+        {
+            auto charToHex = [](uint8_t inp) -> std::string 
+            {
+                std::string s;
+                s.reserve(2);
+                s += "0123456789ABCDEF"[inp >> 4];
+                s += "0123456789ABCDEF"[inp >> 0];
+                return s;
+            };
+
+            txn[jss::HookParameters] = Json::arrayValue;
+            txn[jss::HookParameters][0u][jss::HookParameter] = Json::objectValue;
+            txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterName] =
+                "54"; // 'T'
+            txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterValue] =
+                charToHex(topic1) + (topic2 ? charToHex(*topic2) : "");
+
+            txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterName] = 
+                "56"; // 'V'
+
+            std::string strData;
+            strData.reserve(data.size() << 1U);
+            for (uint8_t c : data)
+                strData += charToHex(c);
+
+            txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterValue] = strData;
+
+
+            if (layer)
+            {
+                txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "4C";
+                txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = charToHex(*layer);
+            }
+        };
+
+
 
 
         BEAST_EXPECT(true);
