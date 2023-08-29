@@ -294,32 +294,48 @@ normalizeXahauGenesis(
     uint8_t mc = 0;
     for (auto const& [rn, x]: entries)
     {
-        if (rn.c_str()[0] != 'n')
-        {
-            amounts.emplace(rn, x);
-            continue;
-        }
+        auto getID = [](std::string const& rn) -> std::optional<std::pair<std::string, AccountID>> 
+        {        
+            if (rn.c_str()[0] == 'r')
+            {
+                auto parsed = parseBase58<AccountID>(rn);
+                if (!parsed)
+                    return {};
+                return {{toBase58(*parsed), *parsed}};
+            }
+            
+            if (rn.c_str()[0] == 'n')
+            {
+                auto const parsed = parseBase58<PublicKey>(TokenType::NodePublic, rn);
+                if (!parsed)
+                    return {};
+                AccountID id = calcAccountID(*parsed);
+                return {{toBase58(id), id}};
+            }
+            
+            return {};
+        };
 
-        auto const pk = parseBase58<PublicKey>(TokenType::NodePublic, rn);
-        if (!pk)
+        if (auto parsed = getID(rn); parsed)
         {
+            std::string& idStr = parsed->first;
+            AccountID& id = parsed->second;
+
+            amounts.emplace(idStr, x);
             JLOG(j.warn())
-                << "featureXahauGenesis could not parse nodepub: " << rn;
+                << "featureXahauGenesis: "
+                << "initial validator: " << rn
+                << " =>accid: " << idStr;
+
+            // initial member enumeration
+            params.emplace(
+                    std::vector<uint8_t>{'I', 'S', mc++},
+                    std::vector<uint8_t>(id.data(), id.data() + 20));
             continue;
         }
 
-        AccountID id = calcAccountID(*pk);
-        std::string idStr = toBase58(id);
-        amounts.emplace(idStr, x);
         JLOG(j.warn())
-            << "featureXahauGenesis: "
-            << "initial validator: " << rn
-            << " =>accid: " << idStr;
-
-        // initial member enumeration
-        params.emplace(
-                std::vector<uint8_t>{'I', 'S', mc++},
-                std::vector<uint8_t>(id.data(), id.data() + 20));
+            << "featureXahauGenesis could not parse distribution address: " << rn;
     }
 
     // initial member count
@@ -339,7 +355,11 @@ Change::activateXahauGenesis()
     using namespace XahauGenesis;
 
     auto [initial_distribution, gov_params] =
-        normalizeXahauGenesis(Distribution, GovernanceParameters, j_);
+        normalizeXahauGenesis(
+            ctx_.tx.getFlags() & tfTestSuite
+                ? TestDistribution
+                : Distribution, 
+        GovernanceParameters, j_);
 
     const static std::vector<
         std::tuple<

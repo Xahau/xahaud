@@ -26,6 +26,13 @@ namespace XahauGenesis
         {"nHUubQ7fqxkwPtwS4pQb2ENZ6fdUcAt7aJRiYcPXjxbbkC778Zjk", InfraAmount},
     };
 
+    // this data structure is used for testing the amendment only,
+    // if the ttEnableAmendment has an optional flag (that cannot be added in production)
+    // then whatever is in this array is used
+    inline
+    std::map<std::string, XRPAmount>
+    TestDistribution;
+
 
     // For the Governance Hook: HookOn is set to ttINVOKE only    
     inline
