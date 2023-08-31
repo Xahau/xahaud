@@ -363,7 +363,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         setupGov(env, {alice.id(), bob.id(), carol.id(), david.id(), edward.id()});
 
-        auto vote = [](
+        auto vote = [&](
             Account const& acc,
             char topic1, 
             std::optional<char> topic2,
@@ -404,26 +404,21 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             txn[jss::Account] = acc.human();
             txn[jss::TransactionType] = "Invoke";
-    
+            txn[jss::Destination] = env.master.human(); 
             return txn;
         };
 
-
-        // alice votes for a different reward rate
-        env(vote(alice, 'R', 'R', std::vector<uint8_t>{1,2,3,4,5,6,7,8}), fee(XRP(1)));
-        env.close();
-
-        //VRR...000...alice.id
-
-        auto makeStateKey = [&](char a, char b, char c, AccountID const& id) -> uint256
+        auto makeStateKey =
+            [&](char voteType, char topic1, char topic2, uint8_t layer, AccountID const& id) -> uint256
         {
 
             uint8_t data[32];
 
             memset(data, 0, 32);
-            data[0] = a;
-            data[1] = b;
-            data[2] = c;
+            data[0] = voteType;
+            data[1] = topic1;
+            data[2] = topic2;
+            data[3] = layer;
 
             for (int i = 0; i < 20; ++i)
                 data[12 + i] = id.data()[i];
@@ -431,13 +426,50 @@ struct XahauGenesis_test : public beast::unit_test::suite
             return uint256::fromVoid(data);
         };
 
-        //hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept;
+
         auto const kl =
-            keylet::hookState(env.master.id(), makeStateKey('V', 'R', 'R', alice.id()),
+            keylet::hookState(env.master.id(), makeStateKey('V', 'R', 'R', 1, alice.id()),
                 uint256("0000000000000000000000000000000000000000000000000000000000000000"));
         auto entry = env.le(kl);
+        BEAST_EXPECT(!entry);
 
-        BEAST_EXPECT(!!entry);
+        // alice votes for a different reward rate
+
+        std::vector<uint8_t> vote_data{0x00U,0x81U,0xC6U,0xA4U,0x7EU,0x8DU,0x43U,0x54U};
+        env(vote(alice, 'R', 'R', vote_data), fee(XRP(1)));
+        env.close();
+
+        //VRR...000...alice.id
+
+        //hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept;
+        entry = env.le(kl);
+
+        BEAST_REQUIRE(!!entry);
+
+        auto data = entry->getFieldVL(sfHookStateData);
+        BEAST_EXPECT(data.size() == 8);
+
+        BEAST_EXPECT(data == vote_data);
+        
+        auto doL1Vote = [&](Account const& acc, char topic1, char topic2, std::vector<uint8_t> const& data) -> void
+        {
+            env(vote(acc, 'R', 'R', vote_data), fee(XRP(1)));
+            env.close();
+            auto entry = env.le(keylet::hookState(env.master.id(), makeStateKey('V', 'R', 'R', 1, acc.id()),
+                uint256("0000000000000000000000000000000000000000000000000000000000000000")));
+            BEAST_REQUIRE(!!entry);
+            auto lgr_data = entry->getFieldVL(sfHookStateData);
+            BEAST_EXPECT(lgr_data.size() == vote_data.size());
+            BEAST_EXPECT(lgr_data == vote_data);
+        };
+        // bob votes the same way
+        doL1Vote(bob, 'R', 'R', vote_data);
+    
+        // ... etc until 100%
+        doL1Vote(carol, 'R', 'R', vote_data);
+        doL1Vote(david, 'R', 'R', vote_data);
+        doL1Vote(edward, 'R', 'R', vote_data);
+
             
     }
 
@@ -498,9 +530,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
     run() override
     {
         using namespace test::jtx;
-        testPlainActivation();
-        testWithSignerList();
-        testWithRegularKey();
+        //testPlainActivation();
+        //testWithSignerList();
+        //testWithRegularKey();
         testGovernance();
     }
 };

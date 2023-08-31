@@ -1,6 +1,6 @@
 #include "hookapi.h"
 #define ASSERT(x)\
-    if (!(x))\
+    if ((x) < 0)\
         rollback(SBUF("Govern: Assertion failed."),__LINE__);
 
 #define SEAT_COUNT 20
@@ -139,9 +139,7 @@ int64_t hook(uint32_t r)
         trace(SBUF("Governance: Starting governance logic on L1 table."), 0,0,0);
 
     int64_t member_count = state(0,0, "MC", 2);
-    if (DEBUG)
-        TRACEVAR(member_count);
-    
+   
     // initial execution, setup hook
     if (member_count == DOESNT_EXIST)
     {
@@ -149,10 +147,16 @@ int64_t hook(uint32_t r)
 
         uint8_t imc;
         uint64_t irr, ird;
-        TRACEVAR(imc);
         if (hook_param(SVAR(imc), "IMC", 3) < 0)
             NOPE("Governance: Initial Member Count Parameter missing (IMC).");
         TRACEVAR(imc);
+        
+        // set member count
+        ASSERT(state_set(SVAR(imc), "MC", 2));
+
+        member_count = imc;
+        TRACEVAR(member_count);
+
         
         if (imc == 0)
             NOPE("Governance: Initial Member Count must be > 0.");
@@ -178,12 +182,6 @@ int64_t hook(uint32_t r)
             ASSERT(state_set(SVAR(ird), "RD", 2));
         }
 
-        // set member count
-        ASSERT(state_set(SBUF(imc), "MC", 2));
-
-        member_count = imc;
-        TRACEVAR(member_count);
-
         for (uint8_t i = 0; GUARD(SEAT_COUNT), i < member_count; ++i)
         {
             uint8_t member_acc[20];
@@ -204,6 +202,10 @@ int64_t hook(uint32_t r)
 
         DONE("Governance: Setup completed successfully.");
     }
+    
+    if (DEBUG)
+        TRACEVAR(member_count);
+    
     
     // otherwise a normal execution (not initial)
     // first let's check if the invoking party is a member
@@ -290,7 +292,7 @@ int64_t hook(uint32_t r)
     // and we will have to increment the new voting
 
     // write vote to their voting key
-    ASSERT(state_set(topic_data, topic_size, SBUF(account_field)) == topic_size);
+    ASSERT(state_set(topic_data + padding, topic_size, SBUF(account_field)) == topic_size);
     
     uint8_t previous_votes = 0;
     // decrement old vote counter for this option
@@ -323,9 +325,9 @@ int64_t hook(uint32_t r)
         topic_data[2] = n;
         topic_data[3] = l;
 
-        state(&votes, 1, SBUF(topic_data));
+        state(&votes, 1, topic_data, 32);
         votes++;
-        ASSERT(state_set(&votes, 1, SBUF(topic_data)));
+        ASSERT(state_set(&votes, 1, topic_data, 32));
 
         // restore the saved bytes
         *((uint64_t*)topic_data) = saved_data;
@@ -374,7 +376,7 @@ int64_t hook(uint32_t r)
     if (DEBUG)
         TRACESTR("Actioning votes");
 
-    if (l == 1)
+    if (l == 2)
     {
     
 
@@ -459,7 +461,7 @@ int64_t hook(uint32_t r)
         case 'R':
         {
             // reward topics
-            ASSERT(state_set(topic_data, 8, SBUF(topic)));      // interest rate is on the the FF, 0...0 key
+            ASSERT(state_set(topic_data + padding, topic_size, SBUF(topic)));
             if (n == 'R')
                 DONE("Governance: Reward rate change actioned!");
             
@@ -597,7 +599,7 @@ int64_t hook(uint32_t r)
                 ASSERT(state_set(topic_data, 20, n, 1) == 20);
                 
                 // forward key
-                ASSERT(state_set(n, 1, SBUF(topic_data)) == 20);
+                ASSERT(state_set(n, 1, topic_data, 32) == 20);
             }
 
             DONE("Governance: Action member change.");
