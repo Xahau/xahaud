@@ -18,6 +18,7 @@
 #include <ripple/app/tx/apply.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/STAccount.h>
+#include <ripple/protocol/Indexes.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
 #include <string>
@@ -171,10 +172,15 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
                 if (first == 'r')
                 {
-                    auto acc = env.le(keylet::account(*parseBase58<AccountID>(rn)));
+                    AccountID id = *parseBase58<AccountID>(rn);
+                    auto acc = env.le(keylet::account(id));
                     BEAST_EXPECT(!!acc);
                     auto bal = acc->getFieldAmount(sfBalance);
                     BEAST_EXPECT(bal == STAmount(x));
+                
+                    params.emplace(
+                        std::vector<uint8_t>{'I', 'S', member_count++},
+                        std::vector<uint8_t>(id.data(), id.data() + 20));
                     continue;
                 }
 
@@ -201,6 +207,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // check parameters
             auto leParams = genesisHookArray[0].getFieldArray(sfHookParameters);
+
             BEAST_EXPECT(leParams.size() == params.size());
 
             // these should be recorded in the same order
@@ -307,7 +314,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         for (auto& m: members)
         {
             std::string acc = toBase58(m);
-            XahauGenesis::TestDistribution[acc] =  XRPAmount(10000);
+            XahauGenesis::TestDistribution[acc] =  XRPAmount(10000000000);
         }
 
         activate(env, true, true, true);
@@ -322,6 +329,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
     }
 
+
+    inline
+    static
+    std::string
+    charToHex(uint8_t inp)
+    {
+        std::string ret("00");
+        ret.data()[0] = "0123456789ABCDEF"[inp >> 4];
+        ret.data()[1] = "0123456789ABCDEF"[(inp >> 0) & 0xFU];
+        return ret;
+    }
 
     void
     testGovernance()
@@ -341,30 +359,31 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         env.fund(XRP(10000), alice, bob, carol, david, edward);
 
+        env.close();
+
         setupGov(env, {alice.id(), bob.id(), carol.id(), david.id(), edward.id()});
 
-        auto vote = [](uint8_t topic1, 
-            std::optional<uint8_t> topic2,
+        auto vote = [](
+            Account const& acc,
+            char topic1, 
+            std::optional<char> topic2,
             std::vector<uint8_t> data,
-            std::optional<uint8_t> layer,
-            Json::Value& txn)
+            std::optional<uint8_t> layer = std::nullopt)
         {
-            auto charToHex = [](uint8_t inp) -> std::string 
-            {
-                std::string s;
-                s.reserve(2);
-                s += "0123456789ABCDEF"[inp >> 4];
-                s += "0123456789ABCDEF"[inp >> 0];
-                return s;
-            };
+
+            Json::Value txn (Json::objectValue);
 
             txn[jss::HookParameters] = Json::arrayValue;
+            txn[jss::HookParameters][0u] = Json::objectValue;
+
             txn[jss::HookParameters][0u][jss::HookParameter] = Json::objectValue;
             txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterName] =
                 "54"; // 'T'
-            txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterValue] =
-                charToHex(topic1) + (topic2 ? charToHex(*topic2) : "");
+            std::string val = charToHex(topic1) + (topic2 ? charToHex(*topic2) : "");
+            std::cout << "val: `" << val << "`\n";
+            txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterValue] = val;
 
+            txn[jss::HookParameters][1u] = Json::objectValue;
             txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterName] = 
                 "56"; // 'V'
 
@@ -378,15 +397,48 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             if (layer)
             {
+                txn[jss::HookParameters][2u] = Json::objectValue;
                 txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "4C";
                 txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = charToHex(*layer);
             }
+
+            txn[jss::Account] = acc.human();
+            txn[jss::TransactionType] = "Invoke";
+    
+            return txn;
         };
 
 
+        // alice votes for a different reward rate
+        env(vote(alice, 'R', 'R', std::vector<uint8_t>{1,2,3,4,5,6,7,8}), fee(XRP(1)));
+        env.close();
 
+        //VRR...000...alice.id
 
-        BEAST_EXPECT(true);
+        auto makeStateKey = [&](char a, char b, char c, AccountID const& id) -> uint256
+        {
+
+            uint8_t data[32];
+
+            memset(data, 0, 32);
+            data[0] = a;
+            data[1] = b;
+            data[2] = c;
+
+            for (int i = 0; i < 20; ++i)
+                data[12 + i] = id.data()[i];
+
+            return uint256::fromVoid(data);
+        };
+
+        //hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept;
+        auto const kl =
+            keylet::hookState(env.master.id(), makeStateKey('V', 'R', 'R', alice.id()),
+                uint256("0000000000000000000000000000000000000000000000000000000000000000"));
+        auto entry = env.le(kl);
+
+        BEAST_EXPECT(!!entry);
+            
     }
 
 

@@ -356,7 +356,7 @@ Change::activateXahauGenesis()
 
     auto [initial_distribution, gov_params] =
         normalizeXahauGenesis(
-            ctx_.tx.getFlags() & tfTestSuite
+            ctx_.tx.getFlags() & tfTestSuite && ctx_.app.config().standalone()
                 ? TestDistribution
                 : Distribution, 
         GovernanceParameters, j_);
