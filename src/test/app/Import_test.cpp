@@ -4508,6 +4508,113 @@ class Import_test : public beast::unit_test::suite
         // }
     }
 
+    std::unique_ptr<Config>
+    makeGenesisConfig(
+        uint32_t networkID,
+        std::string fee,
+        std::string a_res,
+        std::string o_res,
+        std::string filepath)
+    {
+        using namespace jtx;
+
+        // IMPORT VL KEY
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A"
+            "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+
+        return envconfig([&](std::unique_ptr<Config> cfg) {
+            cfg->NETWORK_ID = networkID;
+            cfg->START_LEDGER = filepath;
+            cfg->START_UP = Config::LOAD_FILE;
+            Section config;
+            config.append(
+                {"reference_fee = " + fee,
+                    "account_reserve = " + a_res,
+                    "owner_reserve = " + o_res});
+            auto setup = setup_FeeVote(config);
+            cfg->FEES = setup;
+
+            for (auto const& strPk : keys)
+            {
+                auto pkHex = strUnHex(strPk);
+                if (!pkHex)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk + "' was not valid hex.");
+
+                auto const pkType = publicKeyType(makeSlice(*pkHex));
+                if (!pkType)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk +
+                        "' was not a valid key type.");
+
+                cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
+            }
+            return cfg;
+        });
+    }
+
+    void
+    testHalving(FeatureBitset features)
+    {
+        testcase("halving");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // Halving 1:1
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    "../src/test/app/halve_1_1.json"
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            auto initSeq = env.current()->info().seq;
+            std::cout << "initSeq: " << initSeq << "\n";
+            BEAST_EXPECT(initSeq == 1'999'999);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::min);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = drops(10) + XRP(2);
+            std::cout << "creditDrops: " << creditDrops << "\n";
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+    }
+
+
 public:
     void
     run() override
@@ -4540,6 +4647,7 @@ public:
         testImportSequence(features);
         testMaxSupply(features);
         testMinMax(features);
+        testHalving(features);
     }
 };
 
