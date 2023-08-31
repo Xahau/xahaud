@@ -1187,23 +1187,13 @@ Import::doApply()
         // first 2MM ledgers 
         // the ratio is 1:1
     }
-    else if (elapsed < 6'000'000)   
+    else if (elapsed < 30'000'000)   
     {
-        // next 4MM ledgers
-        // the ratio is 2:1
-        creditDrops >>= 1U;
-    }
-    else if (elapsed < 14'000'000)
-    {
-        // next 8MM ledgers
-        // the ratio is 4:1
-        creditDrops >>= 2U;
-    }
-    else if (elapsed < 30'000'000)
-    {
-        // next 16MM ledgers
-        // the ratio is 8:1
-        creditDrops >>= 8U;
+        // there is a linear decline over 28MM ledgers
+        double x = elapsed - 2000000.0;
+        double y = 1.0 - x/28000000.0;
+        y = std::clamp(y, 0.0, 1.0);
+        creditDrops *= y;
     }
     else
     {
