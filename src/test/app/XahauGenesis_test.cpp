@@ -427,49 +427,198 @@ struct XahauGenesis_test : public beast::unit_test::suite
         };
 
 
-        auto const kl =
-            keylet::hookState(env.master.id(), makeStateKey('V', 'R', 'R', 1, alice.id()),
-                uint256("0000000000000000000000000000000000000000000000000000000000000000"));
-        auto entry = env.le(kl);
-        BEAST_EXPECT(!entry);
-
-        // alice votes for a different reward rate
-
-        std::vector<uint8_t> vote_data{0x00U,0x81U,0xC6U,0xA4U,0x7EU,0x8DU,0x43U,0x54U};
-        env(vote(alice, 'R', 'R', vote_data), fee(XRP(1)));
-        env.close();
-
-        //VRR...000...alice.id
-
-        //hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept;
-        entry = env.le(kl);
-
-        BEAST_REQUIRE(!!entry);
-
-        auto data = entry->getFieldVL(sfHookStateData);
-        BEAST_EXPECT(data.size() == 8);
-
-        BEAST_EXPECT(data == vote_data);
-        
-        auto doL1Vote = [&](Account const& acc, char topic1, char topic2, std::vector<uint8_t> const& data) -> void
+        auto doL1Vote = [&](Account const& acc, char topic1, char topic2, 
+                            std::vector<uint8_t> const& vote_data,
+                            std::vector<uint8_t> const& old_data,
+                            bool actioned = true, bool const shouldFail = false)
         {
-            env(vote(acc, 'R', 'R', vote_data), fee(XRP(1)));
-            env.close();
-            auto entry = env.le(keylet::hookState(env.master.id(), makeStateKey('V', 'R', 'R', 1, acc.id()),
-                uint256("0000000000000000000000000000000000000000000000000000000000000000")));
-            BEAST_REQUIRE(!!entry);
-            auto lgr_data = entry->getFieldVL(sfHookStateData);
-            BEAST_EXPECT(lgr_data.size() == vote_data.size());
-            BEAST_EXPECT(lgr_data == vote_data);
-        };
-        // bob votes the same way
-        doL1Vote(bob, 'R', 'R', vote_data);
-    
-        // ... etc until 100%
-        doL1Vote(carol, 'R', 'R', vote_data);
-        doL1Vote(david, 'R', 'R', vote_data);
-        doL1Vote(edward, 'R', 'R', vote_data);
 
+            if (shouldFail)
+                actioned = false;
+
+            uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, topic1, topic2};
+            // check actioning prior to vote
+            {
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero)); 
+                BEAST_EXPECT((old_data.empty() && !entry) || 
+                    (entry && entry->getFieldVL(sfHookStateData) == old_data));
+            }    
+
+            // perform and check vote
+            {
+                env(vote(acc, topic1, topic2, vote_data), fee(XRP(1)),
+                    shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
+                env.close();
+                auto entry =
+                    env.le(keylet::hookState(env.master.id(), makeStateKey('V', topic1, topic2, 1, acc.id()),
+                        beast::zero));
+                if (!shouldFail)
+                {
+                    BEAST_REQUIRE(!!entry);
+                    auto lgr_data = entry->getFieldVL(sfHookStateData);
+                    BEAST_EXPECT(lgr_data.size() == vote_data.size());
+                    BEAST_EXPECT(lgr_data == vote_data);
+                }
+            }
+
+            // check actioning
+            {
+                // if the vote count isn't high enough it will be hte old value if it's high enough it will be the
+                // new value
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
+            
+                bool isZero = true;
+                for (auto&  x: vote_data)
+                if (x != 0)
+                {
+                    isZero = false;
+                    break;
+                }
+                    
+
+                if (!actioned && old_data.empty())
+                {
+                    BEAST_EXPECT(!entry);
+                    return;
+                }
+
+                if (actioned)
+                {
+                    if (isZero)
+                        BEAST_EXPECT(!entry);
+                    else
+                        BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
+                }
+                else
+                {
+                    std::cout << "old data: " << strHex(entry->getFieldVL(sfHookStateData)) << "\n";
+                    BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == old_data);
+                }
+            }
+        };
+
+            
+        // 100% vote for a different reward rate
+        {
+            // this will be the new reward rate
+            std::vector<uint8_t> vote_data {0x00U,0x81U,0xC6U,0xA4U,0x7EU,0x8DU,0x43U,0x54U};
+            
+            // this is the default reward rate
+            std::vector<uint8_t> const original_data {0x00U,0xE4U,0x61U,0xEEU,0x78U,0x90U,0x83U,0x54U};
+            
+            doL1Vote(alice, 'R', 'R', vote_data, original_data, false);                
+            doL1Vote(bob, 'R', 'R', vote_data, original_data, false);
+            doL1Vote(carol, 'R', 'R', vote_data, original_data, false);
+            doL1Vote(david, 'R', 'R', vote_data, original_data, false);
+            doL1Vote(edward, 'R', 'R', vote_data, original_data, true);
+
+            // reverting a vote should not undo the action
+            doL1Vote(carol, 'R', 'R', original_data, vote_data, false);
+
+            // submitting a null vote should delete the vote, and should not undo the action
+            std::vector<uint8_t> const null_data {0,0,0,0,0,0,0,0};
+            doL1Vote(david, 'R', 'R', null_data, vote_data, false);
+        }
+
+        
+        uint8_t const member_count_key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,'M','C'};
+        std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+        // four of the 5 vote to remove alice
+        {
+            std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+            std::vector<uint8_t> id;
+            id.reserve(20);
+            memcpy(id.data(), alice.id().data(), 20);
+            doL1Vote(bob, 'S', 0, null_acc_id, id, false);
+            doL1Vote(carol, 'S', 0, null_acc_id, id, false);
+            doL1Vote(david, 'S', 0, null_acc_id, id, false);
+            doL1Vote(edward, 'S', 0, null_acc_id, id, true);
+        }
+
+
+        // check the membercount is now 4
+        {
+            auto entry = env.le(keylet::hookState(env.master.id(),
+                uint256::fromVoid(member_count_key), beast::zero));
+            std::vector<uint8_t> const expected_data {0x04U};
+            BEAST_REQUIRE(!!entry);
+            BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
+        }
+
+        // continue to remove members (david)
+        {
+            std::vector<uint8_t> id;
+            id.reserve(20);
+            memcpy(id.data(), david.id().data(), 20);
+            doL1Vote(bob, 'S', 3, null_acc_id, id, false);
+            doL1Vote(carol, 'S', 3, null_acc_id, id, false);
+            doL1Vote(edward, 'S', 3, null_acc_id, id, true);
+        }
+
+        // check the membercount is now 3
+        {
+            auto entry = env.le(keylet::hookState(env.master.id(),
+                uint256::fromVoid(member_count_key), beast::zero));
+            std::vector<uint8_t> const expected_data {0x03U};
+            BEAST_REQUIRE(!!entry);
+            BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
+        }
+
+        // continue to remove members (carol)
+        {
+            std::vector<uint8_t> id;
+            id.reserve(20);
+            memcpy(id.data(), carol.id().data(), 20);
+            doL1Vote(bob, 'S', 2, null_acc_id, id, false);
+            doL1Vote(edward, 'S', 2, null_acc_id, id, true);
+        }
+        
+        // check the membercount is now 2
+        {
+            auto entry = env.le(keylet::hookState(env.master.id(),
+                uint256::fromVoid(member_count_key), beast::zero));
+            std::vector<uint8_t> const expected_data {0x02U};
+            BEAST_REQUIRE(!!entry);
+            BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
+        }
+
+        // member count can't fall below 2
+        // try to vote out edward using 2/2 votes
+        {
+            std::vector<uint8_t> id;
+            id.reserve(20);
+            memcpy(id.data(), edward.id().data(), 20);
+            doL1Vote(bob, 'S', 4, null_acc_id, id, true);
+            doL1Vote(edward, 'S', 4, null_acc_id, id, false, true);
+        }
+
+        // check the membercount is now 2
+        {
+            auto entry = env.le(keylet::hookState(env.master.id(),
+                uint256::fromVoid(member_count_key), beast::zero));
+            std::vector<uint8_t> const expected_data {0x02U};
+            BEAST_REQUIRE(!!entry);
+            BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
+        }
+
+        // try to remove bob using 1/2 votes
+        {
+            std::vector<uint8_t> id;
+            id.reserve(20);
+            memcpy(id.data(), bob.id().data(), 20);
+            doL1Vote(bob, 'S', 1, null_acc_id, id, false, false);
+        }
+
+        // that shoul fail
+        // check the membercount is now 2
+        {
+            auto entry = env.le(keylet::hookState(env.master.id(),
+                uint256::fromVoid(member_count_key), beast::zero));
+            std::vector<uint8_t> const expected_data {0x02U};
+            BEAST_REQUIRE(!!entry);
+            BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
+        }
             
     }
 

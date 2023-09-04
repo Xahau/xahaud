@@ -1,6 +1,6 @@
 #include "hookapi.h"
 #define ASSERT(x)\
-    if ((x) < 0)\
+    if (!(x))\
         rollback(SBUF("Govern: Assertion failed."),__LINE__);
 
 #define SEAT_COUNT 20
@@ -152,7 +152,7 @@ int64_t hook(uint32_t r)
         TRACEVAR(imc);
         
         // set member count
-        ASSERT(state_set(SVAR(imc), "MC", 2));
+        ASSERT(0 < state_set(SVAR(imc), "MC", 2));
 
         member_count = imc;
         TRACEVAR(member_count);
@@ -176,10 +176,10 @@ int64_t hook(uint32_t r)
                 NOPE("Governance: Initial Reward Delay must be > 0.");
         
             // set reward rate
-            ASSERT(state_set(SVAR(irr), "RR", 2));
+            ASSERT(0 < state_set(SVAR(irr), "RR", 2));
 
             // set reward delay
-            ASSERT(state_set(SVAR(ird), "RD", 2));
+            ASSERT(0 < state_set(SVAR(ird), "RD", 2));
         }
 
         for (uint8_t i = 0; GUARD(SEAT_COUNT), i < member_count; ++i)
@@ -327,7 +327,7 @@ int64_t hook(uint32_t r)
 
         state(&votes, 1, topic_data, 32);
         votes++;
-        ASSERT(state_set(&votes, 1, topic_data, 32));
+        ASSERT(0 < state_set(&votes, 1, topic_data, 32));
 
         // restore the saved bytes
         *((uint64_t*)topic_data) = saved_data;
@@ -335,8 +335,12 @@ int64_t hook(uint32_t r)
    
 
     // set this flag if the topic data is all zeros
-    uint8_t zero[32];
-    int topic_data_zero = BUFFER_EQUAL_32(topic_data, zero); 
+    int topic_data_zero = 
+        *((uint64_t*)topic_data + 0) == 0 &&
+        *((uint64_t*)topic_data + 8) == 0 &&
+        *((uint64_t*)topic_data + 16) == 0 &&
+        *((uint64_t*)topic_data + 24) == 0;
+
 
     if (DEBUG)
     {
@@ -353,21 +357,27 @@ int64_t hook(uint32_t r)
     int64_t q80 = member_count * 0.8;
     int64_t q51 = member_count * 0.51;
 
-    if (l == 2)
+    if (q80 < 2)
+        q80 = 2;
+    
+    if (q51 < 2)
+        q51 = 2;
+
+    if (l == 1)
     {
        if (votes <
             (t == 'S'
                 ? q80                      // L1s have 80% threshold for membership/seat voting
                 : member_count))            // L1s have 100% threshold for all other voting
-        DONE("Governance: Vote for L2 topic recorded. Not yet enough votes to action.");
+        DONE("Governance: L1 vote record. Not yet enough votes to action.");
     }
-    else    // l == 1
+    else    // l == 2
     {
         lost_majority = previous_votes >= q51 && votes < q51;
         if (lost_majority)
-            trace(SBUF("Governance: Majority lost, undoing L1 vote."),0,0,0);
+            trace(SBUF("Governance: L2 vote recorded. Majority lost, undoing L1 vote."),0,0,0);
         else if (votes < q51)
-            DONE("Governance: Vote for L1 topic recorded. Not yet enough votes to action.");
+            DONE("Governance: L2 vote recorded. Not yet enough votes to action L1 vote..");
     }
 
     
@@ -461,7 +471,9 @@ int64_t hook(uint32_t r)
         case 'R':
         {
             // reward topics
-            ASSERT(state_set(topic_data + padding, topic_size, SBUF(topic)));
+            int64_t result = state_set(topic_data + padding, topic_size, SBUF(topic));
+            TRACEVAR(result);
+            ASSERT(0 < result);
             if (n == 'R')
                 DONE("Governance: Reward rate change actioned!");
             
@@ -537,7 +549,7 @@ int64_t hook(uint32_t r)
             if (previous_present && !topic_data_zero)
             {
                 // we will not change member count, we're adding a member and removing a member
-                
+                trace(SBUF("previous_present && !topic_data_zero"),0,0,0);
                 // pass
             }
             else
@@ -547,10 +559,13 @@ int64_t hook(uint32_t r)
                     member_count--;
                 else
                     member_count++;
-                
-                ASSERT(member_count > 0);   // just bail out if the last member is trying to self remove
+   
+                TRACEVAR(member_count);
 
-                ASSERT(state_set(&member_count, 1, SBUF(zero)) == 1);
+                ASSERT(member_count > 1);   // just bail out if the second last member is being removed
+
+                uint8_t mc = member_count;
+                ASSERT(state_set(&mc, 1, "MC", 2) == 1);
             }
 
             // we need to garbage collect all their votes

@@ -34,6 +34,7 @@
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/jss.h>
+#include <ripple/app/hook/applyHook.h>
 #include <boost/format.hpp>
 #include <array>
 #include <memory>
@@ -425,6 +426,46 @@ STTx::checkMultiSign(
 static bool
 isMemoOkay(STObject const& st, std::string& reason)
 {
+
+    auto const maxKey = hook::maxHookParameterKeySize();
+    auto const maxVal = hook::maxHookParameterValueSize();
+
+    // piggyback otxn hookparameter checking here
+    if (st.isFieldPresent(sfHookParameters))
+    {
+        auto const& params = st.getFieldArray(sfHookParameters);
+        if (params.size() > 16)
+        {
+            reason = "hookParameter count must be less than 17.";
+            return false;
+        }
+
+        for (auto const& param : params)
+        {
+            auto paramObj = dynamic_cast<STObject const*>(&param);
+
+            if (!paramObj || (paramObj->getFName() != sfHookParameter))
+            {
+                reason = "A HookParameters array may contain only HookParameter objects.";
+                return false;
+            }
+
+            if (!paramObj->isFieldPresent(sfHookParameterName) ||
+                    paramObj->getFieldVL(sfHookParameterName).size() > maxKey)
+            {
+                reason = "HookParameterName cannot exceed 32 bytes.";
+                return false;
+            }
+
+            if (!paramObj->isFieldPresent(sfHookParameterValue) ||
+                    paramObj->getFieldVL(sfHookParameterValue).size() > maxVal)
+            {
+                reason = "HookParameterValue cannot exceed 128 bytes.";
+                return false;
+            }
+        }
+    }
+
     if (!st.isFieldPresent(sfMemos))
         return true;
 
