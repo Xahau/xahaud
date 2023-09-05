@@ -4511,52 +4511,6 @@ class Import_test : public beast::unit_test::suite
 
     std::unique_ptr<Config>
     makeGenesisConfig(
-        uint32_t networkID,
-        std::string fee,
-        std::string a_res,
-        std::string o_res,
-        std::string filepath)
-    {
-        using namespace jtx;
-
-        // IMPORT VL KEY
-        std::vector<std::string> const keys = {
-            "ED74D4036C6591A4BDF9C54CEFA39B996A"
-            "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
-
-        return envconfig([&](std::unique_ptr<Config> cfg) {
-            cfg->NETWORK_ID = networkID;
-            cfg->START_LEDGER = filepath;
-            cfg->START_UP = Config::LOAD_FILE;
-            Section config;
-            config.append(
-                {"reference_fee = " + fee,
-                    "account_reserve = " + a_res,
-                    "owner_reserve = " + o_res});
-            auto setup = setup_FeeVote(config);
-            cfg->FEES = setup;
-
-            for (auto const& strPk : keys)
-            {
-                auto pkHex = strUnHex(strPk);
-                if (!pkHex)
-                    Throw<std::runtime_error>(
-                        "Import VL Key '" + strPk + "' was not valid hex.");
-
-                auto const pkType = publicKeyType(makeSlice(*pkHex));
-                if (!pkType)
-                    Throw<std::runtime_error>(
-                        "Import VL Key '" + strPk +
-                        "' was not a valid key type.");
-
-                cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
-            }
-            return cfg;
-        });
-    }
-
-    std::unique_ptr<Config>
-    makeGenesisConfig(
         FeatureBitset features,
         uint32_t networkID,
         std::string fee,
@@ -4575,17 +4529,15 @@ class Import_test : public beast::unit_test::suite
         Json::Reader reader;
         reader.parse(ImportTCHalving::base_genesis, jsonValue);
 
-        for (size_t i = 0; i < features.size(); ++i)
-        {
-            uint256 const& feature = bitsetIndexToFeature(i);
+        foreachFeature(features, [&](uint256 const& feature) {                                                         
             std::string featureName = featureToName(feature);
             std::optional<uint256> featureHash = getRegisteredFeature(featureName);
-            if (featureHash.has_value() && feature != featureOwnerPaysFee)
+            if (featureHash.has_value())
             {
                 std::string hashString = to_string(featureHash.value());
                 jsonValue["ledger"]["accountState"][1]["Amendments"].append(hashString);
             }
-        }
+        });
 
         jsonValue["ledger_current_index"] = ledgerID;
         jsonValue["ledger"]["ledger_index"] = to_string(ledgerID);
@@ -4641,7 +4593,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     1999998
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
@@ -4691,7 +4644,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     1999998
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
@@ -4742,7 +4696,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     1999998
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
@@ -4794,7 +4749,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     4999999
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
@@ -4844,7 +4800,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     19999999
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
@@ -4894,7 +4851,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     29999998
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
@@ -4944,7 +4902,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     29999998
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
@@ -4995,7 +4954,8 @@ class Import_test : public beast::unit_test::suite
                     "1000000",
                     "200000",
                     50000000
-                )
+                ),
+                features
             };
 
             auto const feeDrops = env.current()->fees().base;
