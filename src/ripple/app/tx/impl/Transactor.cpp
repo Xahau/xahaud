@@ -272,7 +272,14 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     // The computation has two parts:
     //  * The base fee, which is the same for most transactions.
     //  * The additional cost of each multisignature on the transaction.
-    XRPAmount const baseFee = view.fees().base;
+    XRPAmount baseFee = view.fees().base;
+
+    if (tx.getFieldU16(sfTransactionType) == ttIMPORT)
+    {
+        XRPAmount const importFee = baseFee * 10;
+        if (importFee > baseFee)
+            baseFee = importFee;
+    }
 
     // Each signer adds one more baseFee to the minimum required fee
     // for the transaction.

@@ -10,7 +10,7 @@ namespace XahauGenesis
     constexpr XRPAmount ExchangeAmount         {  2'000'000 * DROPS_PER_XRP };
 
     inline
-    std::map<std::string, XRPAmount> const
+    std::vector<std::pair<std::string, XRPAmount>> const
     Distribution
     {
         {"rMYm3TY5D3rXYVAz6Zr2PDqEcjsTYbNiAT", InfraAmount},
@@ -30,8 +30,7 @@ namespace XahauGenesis
     // if the ttEnableAmendment has an optional flag (that cannot be added in production)
     // then whatever is in this array is used
     inline
-    std::map<std::string, XRPAmount>
-    TestDistribution;
+    std::vector<std::pair<std::string, XRPAmount>> TestDistribution;
 
 
     // For the Governance Hook: HookOn is set to ttINVOKE only    
@@ -40,7 +39,7 @@ namespace XahauGenesis
     GovernanceHookOn("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF");
 
     inline
-    std::map<std::vector<uint8_t>, std::vector<uint8_t>> const
+    std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> const
     GovernanceParameters
     {
             // 1.003274 -xfl-> 6089869970204910592 -le-> 0x00E461EE78908354

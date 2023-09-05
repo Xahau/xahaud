@@ -283,14 +283,14 @@ Change::preCompute()
 
 inline
 std::pair<
-    std::map<std::string, XRPAmount>,
-    std::map<std::vector<uint8_t>, std::vector<uint8_t>>>
+    std::vector<std::pair<std::string, XRPAmount>>,
+    std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>>
 normalizeXahauGenesis(
-        std::map<std::string, XRPAmount> const& entries,
-        std::map<std::vector<uint8_t>, std::vector<uint8_t>> params,
+        std::vector<std::pair<std::string, XRPAmount>> const& entries,
+        std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params,
         beast::Journal const& j)
 {
-    std::map<std::string, XRPAmount> amounts;
+    std::vector<std::pair<std::string, XRPAmount>> amounts;
     uint8_t mc = 0;
     for (auto const& [rn, x]: entries)
     {
@@ -321,14 +321,14 @@ normalizeXahauGenesis(
             std::string& idStr = parsed->first;
             AccountID& id = parsed->second;
 
-            amounts.emplace(idStr, x);
+            amounts.emplace_back(idStr, x);
             JLOG(j.warn())
                 << "featureXahauGenesis: "
                 << "initial validator: " << rn
                 << " =>accid: " << idStr;
 
             // initial member enumeration
-            params.emplace(
+            params.emplace_back(
                     std::vector<uint8_t>{'I', 'S', mc++},
                     std::vector<uint8_t>(id.data(), id.data() + 20));
             continue;
@@ -339,7 +339,7 @@ normalizeXahauGenesis(
     }
 
     // initial member count
-    params.emplace(
+    params.emplace_back(
             std::vector<uint8_t>{'I', 'M', 'C'},
             std::vector<uint8_t>{mc});
 
@@ -365,9 +365,10 @@ Change::activateXahauGenesis()
         std::tuple<
             uint256,                        // hook on
             std::vector<uint8_t>,           // hook code
-            std::map<
-                std::vector<uint8_t>,       // param name
-                std::vector<uint8_t>>>>     // param value
+            std::vector<
+                std::pair<
+                    std::vector<uint8_t>,        // param name
+                    std::vector<uint8_t>>>>>     // param value
     genesis_hooks =
     {
         {

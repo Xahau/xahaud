@@ -544,7 +544,7 @@ int64_t hook(uint32_t r)
         {
             // add / change member
             uint8_t previous_member[32];
-            int previous_present = (state(previous_member + 12, 20, n, 1) == 20);
+            int previous_present = (state(previous_member + 12, 20, &n, 1) == 20);
 
             if (previous_present && !topic_data_zero)
             {
@@ -554,9 +554,13 @@ int64_t hook(uint32_t r)
             }
             else
             {
+
                 // adjust member count
                 if (previous_present)
+                {
+                    trace(SBUF("Previous present:"), previous_member, 32, 1);
                     member_count--;
+                }
                 else
                     member_count++;
    
@@ -607,14 +611,24 @@ int64_t hook(uint32_t r)
                 }
             }
 
-            if (!topic_data_zero)
+            if (topic_data_zero)
+            {
+                // delete the old member
+                // reverse key 
+                ASSERT(state_set(0,0, &n, 1) == 0);
+                
+                // forward key
+                ASSERT(state_set(0, 0, topic_data + 12, 20) == 0);
+
+            }
+            else
             {
                 // add the new member
                 // reverse key 
-                ASSERT(state_set(topic_data, 20, n, 1) == 20);
+                ASSERT(state_set(topic_data, 20, &n, 1) == 20);
                 
                 // forward key
-                ASSERT(state_set(n, 1, topic_data, 32) == 20);
+                ASSERT(state_set(n, 1, topic_data + 12, 20) == 20);
             }
 
             DONE("Governance: Action member change.");
