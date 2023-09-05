@@ -29,6 +29,7 @@
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
 #include <test/app/Import_json.h>
+#include <ripple/app/misc/AmendmentTable.h>
 
 #define BEAST_REQUIRE(x)     \
     {                        \
@@ -4554,6 +4555,73 @@ class Import_test : public beast::unit_test::suite
         });
     }
 
+    std::unique_ptr<Config>
+    makeGenesisConfig(
+        FeatureBitset features,
+        uint32_t networkID,
+        std::string fee,
+        std::string a_res,
+        std::string o_res,
+        uint32_t ledgerID)
+    {
+        using namespace jtx;
+
+        // IMPORT VL KEY
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A"
+            "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+
+        Json::Value jsonValue;
+        Json::Reader reader;
+        reader.parse(ImportTCHalving::base_genesis, jsonValue);
+
+        for (size_t i = 0; i < features.size(); ++i)
+        {
+            uint256 const& feature = bitsetIndexToFeature(i);
+            std::string featureName = featureToName(feature);
+            std::optional<uint256> featureHash = getRegisteredFeature(featureName);
+            if (featureHash.has_value() && feature != featureOwnerPaysFee)
+            {
+                std::string hashString = to_string(featureHash.value());
+                jsonValue["ledger"]["accountState"][1]["Amendments"].append(hashString);
+            }
+        }
+
+        jsonValue["ledger_current_index"] = ledgerID;
+        jsonValue["ledger"]["ledger_index"] = to_string(ledgerID);
+        jsonValue["ledger"]["seqNum"] = to_string(ledgerID);
+
+        return envconfig([&](std::unique_ptr<Config> cfg) {
+            cfg->NETWORK_ID = networkID;
+            cfg->START_LEDGER = jsonValue.toStyledString();
+            cfg->START_UP = Config::LOAD_JSON;
+            Section config;
+            config.append(
+                {"reference_fee = " + fee,
+                    "account_reserve = " + a_res,
+                    "owner_reserve = " + o_res});
+            auto setup = setup_FeeVote(config);
+            cfg->FEES = setup;
+
+            for (auto const& strPk : keys)
+            {
+                auto pkHex = strUnHex(strPk);
+                if (!pkHex)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk + "' was not valid hex.");
+
+                auto const pkType = publicKeyType(makeSlice(*pkHex));
+                if (!pkType)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk +
+                        "' was not a valid key type.");
+
+                cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
+            }
+            return cfg;
+        });
+    }
+
     void
     testHalving(FeatureBitset features)
     {
@@ -4562,16 +4630,17 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // Halving 1:1
+        // Halving @ ledger seq 1'999'999
         {
             test::jtx::Env env{
                 *this,
                 makeGenesisConfig(
+                    features,
                     21337,
                     "10",
                     "1000000",
                     "200000",
-                    "../src/test/app/halve_1_1.json"
+                    1999998
                 )
             };
 
@@ -4581,7 +4650,6 @@ class Import_test : public beast::unit_test::suite
             auto initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
             auto initSeq = env.current()->info().seq;
-            std::cout << "initSeq: " << initSeq << "\n";
             BEAST_EXPECT(initSeq == 1'999'999);
 
             // init env
@@ -4593,7 +4661,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(preAlice == XRP(0));
 
             // import tx
-            auto const xpopJson = loadXpop(ImportTCAccountSet::min);
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -4601,8 +4669,361 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + Init Reward
-            auto const creditDrops = drops(10) + XRP(2);
-            std::cout << "creditDrops: " << creditDrops << "\n";
+            auto const creditDrops = XRP(1'000) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+
+        // Halving @ ledger seq 2'000'000
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    features,
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    1999998
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            env.close();
+            auto initSeq = env.current()->info().seq;
+            BEAST_EXPECT(initSeq == 2'000'000);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = XRP(1'000) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+
+        // Halving @ ledger seq 2'000'001
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    features,
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    1999998
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            env.close();
+            env.close();
+            auto initSeq = env.current()->info().seq;
+            BEAST_EXPECT(initSeq == 2'000'001);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = drops(999999964) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+
+        // Halving @ ledger seq 5'000'000
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    features,
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    4999999
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            auto initSeq = env.current()->info().seq;
+            BEAST_EXPECT(initSeq == 5'000'000);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = drops(892857142) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+
+        // Halving @ ledger seq 20'000'000
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    features,
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    19999999
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            auto initSeq = env.current()->info().seq;
+            BEAST_EXPECT(initSeq == 20'000'000);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = drops(357142857) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+
+        // Halving @ ledger seq 29'999'998
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    features,
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    29999998
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            auto initSeq = env.current()->info().seq;
+            BEAST_EXPECT(initSeq == 29'999'999);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = drops(35) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+
+        // Halving @ ledger seq 30'000'000
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    features,
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    29999998
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            env.close();
+            auto initSeq = env.current()->info().seq;
+            BEAST_EXPECT(initSeq == 30'000'000);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = drops(0) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + creditDrops);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == initCoins + creditDrops);
+        }
+
+        // Halving @ ledger seq 50'000'001
+        {
+            test::jtx::Env env{
+                *this,
+                makeGenesisConfig(
+                    features,
+                    21337,
+                    "10",
+                    "1000000",
+                    "200000",
+                    50000000
+                )
+            };
+
+            auto const feeDrops = env.current()->fees().base;
+            
+            // confirm total coins header
+            auto initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 0);
+            auto initSeq = env.current()->info().seq;
+            BEAST_EXPECT(initSeq == 50'000'001);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + Init Reward
+            auto const creditDrops = drops(0) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4613,7 +5034,6 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == initCoins + creditDrops);
         }
     }
-
 
 public:
     void
@@ -4647,7 +5067,7 @@ public:
         testImportSequence(features);
         testMaxSupply(features);
         testMinMax(features);
-        testHalving(features);
+        testHalving(features - featureOwnerPaysFee);
     }
 };
 

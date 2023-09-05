@@ -153,7 +153,7 @@ public:
 
     std::map<std::string, PublicKey> IMPORT_VL_KEYS;    // hex string -> class PublicKey (for caching purposes)
 
-    enum StartUpType { FRESH, NORMAL, LOAD, LOAD_FILE, REPLAY, NETWORK };
+    enum StartUpType { FRESH, NORMAL, LOAD, LOAD_FILE, REPLAY, NETWORK, LOAD_JSON };
     StartUpType START_UP = NORMAL;
 
     bool START_VALID = false;
