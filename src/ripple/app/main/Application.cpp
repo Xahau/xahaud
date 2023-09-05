@@ -1105,8 +1105,11 @@ private:
     std::shared_ptr<Ledger>
     loadLedgerFromFile(std::string const& ledgerID);
 
+    std::shared_ptr<Ledger>
+    loadLedgerFromJson(std::string const& jsonValue);
+
     bool
-    loadOldLedger(std::string const& ledgerID, bool replay, bool isFilename);
+    loadOldLedger(std::string const& ledgerID, bool replay, bool isFilename, bool isJson);
 
     void
     setMaxDisallowedLedger();
@@ -1234,14 +1237,15 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         }
         else if (
             startUp == Config::LOAD || startUp == Config::LOAD_FILE ||
-            startUp == Config::REPLAY)
+            startUp == Config::REPLAY || startUp == Config::LOAD_JSON)
         {
             JLOG(m_journal.info()) << "Loading specified Ledger";
 
             if (!loadOldLedger(
                     config_->START_LEDGER,
                     startUp == Config::REPLAY,
-                    startUp == Config::LOAD_FILE))
+                    startUp == Config::LOAD_FILE,
+                    startUp == Config::LOAD_JSON))
             {
                 JLOG(m_journal.error())
                     << "The specified ledger could not be loaded.";
@@ -1907,17 +1911,153 @@ ApplicationImp::loadLedgerFromFile(std::string const& name)
     }
 }
 
+std::shared_ptr<Ledger>
+ApplicationImp::loadLedgerFromJson(std::string const& jsonValue)
+{
+    try
+    {
+        Json::Reader reader;
+        Json::Value jLedger;
+
+        if (!reader.parse(jsonValue, jLedger))
+        {
+            JLOG(m_journal.fatal()) << "Unable to parse ledger JSON";
+            return nullptr;
+        }
+
+        std::reference_wrapper<Json::Value> ledger(jLedger);
+
+        // accept a wrapped ledger
+        if (ledger.get().isMember("result"))
+            ledger = ledger.get()["result"];
+
+        if (ledger.get().isMember("ledger"))
+            ledger = ledger.get()["ledger"];
+
+        std::uint32_t seq = 1;
+        auto closeTime = timeKeeper().closeTime();
+        using namespace std::chrono_literals;
+        auto closeTimeResolution = 30s;
+        bool closeTimeEstimated = false;
+        std::uint64_t totalDrops = 0;
+
+        if (ledger.get().isMember("accountState"))
+        {
+            if (ledger.get().isMember(jss::ledger_index))
+            {
+                seq = ledger.get()[jss::ledger_index].asUInt();
+            }
+
+            if (ledger.get().isMember("close_time"))
+            {
+                using tp = NetClock::time_point;
+                using d = tp::duration;
+                closeTime = tp{d{ledger.get()["close_time"].asUInt()}};
+            }
+            if (ledger.get().isMember("close_time_resolution"))
+            {
+                using namespace std::chrono;
+                closeTimeResolution =
+                    seconds{ledger.get()["close_time_resolution"].asUInt()};
+            }
+            if (ledger.get().isMember("close_time_estimated"))
+            {
+                closeTimeEstimated =
+                    ledger.get()["close_time_estimated"].asBool();
+            }
+            if (ledger.get().isMember("total_coins"))
+            {
+                totalDrops = beast::lexicalCastThrow<std::uint64_t>(
+                    ledger.get()["total_coins"].asString());
+            }
+
+            ledger = ledger.get()["accountState"];
+        }
+
+        if (!ledger.get().isArrayOrNull())
+        {
+            JLOG(m_journal.fatal()) << "State nodes must be an array";
+            return nullptr;
+        }
+
+        auto loadLedger =
+            std::make_shared<Ledger>(seq, closeTime, *config_, nodeFamily_);
+        loadLedger->setTotalDrops(totalDrops);
+
+        for (Json::UInt index = 0; index < ledger.get().size(); ++index)
+        {
+            Json::Value& entry = ledger.get()[index];
+
+            if (!entry.isObjectOrNull())
+            {
+                JLOG(m_journal.fatal()) << "Invalid entry in ledger";
+                return nullptr;
+            }
+
+            uint256 uIndex;
+
+            if (!uIndex.parseHex(entry[jss::index].asString()))
+            {
+                JLOG(m_journal.fatal()) << "Invalid entry in ledger";
+                return nullptr;
+            }
+
+            entry.removeMember(jss::index);
+
+            STParsedJSONObject stp("sle", ledger.get()[index]);
+
+            if (!stp.object || uIndex.isZero())
+            {
+                JLOG(m_journal.fatal()) << "Invalid entry in ledger";
+                return nullptr;
+            }
+
+            // VFALCO TODO This is the only place that
+            //             constructor is used, try to remove it
+            STLedgerEntry sle(*stp.object, uIndex);
+
+            if (!loadLedger->addSLE(sle))
+            {
+                JLOG(m_journal.fatal())
+                    << "Couldn't add serialized ledger: " << uIndex;
+                return nullptr;
+            }
+        }
+
+        loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
+
+        assert(
+            loadLedger->info().seq < XRP_LEDGER_EARLIEST_FEES ||
+            loadLedger->read(keylet::fees()));
+        loadLedger->setAccepted(
+            closeTime, closeTimeResolution, !closeTimeEstimated);
+
+        return loadLedger;
+    }
+    catch (std::exception const& x)
+    {
+        JLOG(m_journal.fatal()) << "Ledger contains invalid data: " << x.what();
+        return nullptr;
+    }
+}
+
 bool
 ApplicationImp::loadOldLedger(
     std::string const& ledgerID,
     bool replay,
-    bool isFileName)
+    bool isFileName,
+    bool isJson)
 {
     try
     {
         std::shared_ptr<Ledger const> loadLedger, replayLedger;
 
-        if (isFileName)
+        if (isJson)
+        {
+            if (!ledgerID.empty())
+                loadLedger = loadLedgerFromJson(ledgerID);
+        }
+        else if (isFileName)
         {
             if (!ledgerID.empty())
                 loadLedger = loadLedgerFromFile(ledgerID);
@@ -1999,7 +2139,7 @@ ApplicationImp::loadOldLedger(
         using namespace std::chrono_literals;
         using namespace date;
         static constexpr NetClock::time_point ledgerWarnTimePoint{
-            sys_days{January / 1 / 2018} - sys_days{January / 1 / 2000}};
+            sys_days{January / 1 / 2000} - sys_days{January / 1 / 2000}};
         if (loadLedger->info().closeTime < ledgerWarnTimePoint)
         {
             JLOG(m_journal.fatal())
