@@ -270,6 +270,17 @@ int64_t hook(uint32_t r)
     if (result != topic_size)
         NOPE("Governance: Missing or incorrect size of VOTE data for TOPIC type.");
 
+    // set this flag if the topic data is all zeros
+    int topic_data_zero = 
+        (*((uint64_t*)(topic_data +  0)) == 0) &&
+        (*((uint64_t*)(topic_data +  8)) == 0) &&
+        (*((uint64_t*)(topic_data + 16)) == 0) &&
+        (*((uint64_t*)(topic_data + 24)) == 0);
+
+    trace(SBUF("topic_data_raw:"), topic_data, 56, 1);
+    trace_num(SBUF("topic_padding:"), padding);
+    trace_num(SBUF("topic_size:"), topic_size);
+    trace(SBUF("topic_data:"), topic_data + padding, topic_size, 1);
 
     // reuse account_field to create vote key
     account_field[0] = 'V';
@@ -310,7 +321,7 @@ int64_t hook(uint32_t r)
             previous_votes = votes;
             votes--;
             // delete the state entry if votes hit zero
-            ASSERT(state_set(votes == 0 ? 0 : &votes, votes == 0 ? 0 : 1, SBUF(previous_topic_data)));
+            ASSERT(state_set(votes == 0 ? 0 : &votes, votes == 0 ? 0 : 1, SBUF(previous_topic_data)) >= 0);
         }
     }
     
@@ -333,13 +344,6 @@ int64_t hook(uint32_t r)
         *((uint64_t*)topic_data) = saved_data;
     }
    
-
-    // set this flag if the topic data is all zeros
-    int topic_data_zero = 
-        *((uint64_t*)topic_data + 0) == 0 &&
-        *((uint64_t*)topic_data + 8) == 0 &&
-        *((uint64_t*)topic_data + 16) == 0 &&
-        *((uint64_t*)topic_data + 24) == 0;
 
 
     if (DEBUG)
@@ -546,6 +550,9 @@ int64_t hook(uint32_t r)
             uint8_t previous_member[32];
             int previous_present = (state(previous_member + 12, 20, &n, 1) == 20);
 
+            if (BUFFER_EQUAL_20((previous_member + 12), (topic_data + 12)))
+                DONE("Governance: Actioning seat change, but seat already contains the new member.");
+
             if (previous_present && !topic_data_zero)
             {
                 // we will not change member count, we're adding a member and removing a member
@@ -563,7 +570,9 @@ int64_t hook(uint32_t r)
                 }
                 else
                     member_count++;
-   
+
+                TRACEVAR(previous_present);
+                TRACEVAR(topic_data_zero); 
                 TRACEVAR(member_count);
 
                 ASSERT(member_count > 1);   // just bail out if the second last member is being removed
@@ -623,12 +632,17 @@ int64_t hook(uint32_t r)
             }
             else
             {
+
+                // if the seat was occupied we need to remove their forward key
+                if (previous_present)
+                    ASSERT(state_set(0,0, previous_member + 12, 20) == 0);
+
                 // add the new member
                 // reverse key 
-                ASSERT(state_set(topic_data, 20, &n, 1) == 20);
+                ASSERT(state_set(topic_data + 12, 20, &n, 1) == 20);
                 
                 // forward key
-                ASSERT(state_set(n, 1, topic_data + 12, 20) == 20);
+                ASSERT(state_set(&n, 1, topic_data + 12, 20) == 1);
             }
 
             DONE("Governance: Action member change.");

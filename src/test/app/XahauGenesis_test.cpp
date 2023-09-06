@@ -25,6 +25,20 @@
 #include <test/jtx.h>
 #include <vector>
 
+// Function to handle integer types
+template<typename T>
+std::string maybe_to_string(T val, std::enable_if_t<std::is_integral_v<T>, int> = 0) {
+    return std::to_string(val);
+}
+
+// Overload to handle non-integer types
+template<typename T>
+std::string maybe_to_string(T val, std::enable_if_t<!std::is_integral_v<T>, int> = 0) {
+    return val;
+}
+
+#define M(m) memo(maybe_to_string(m), "", "")
+
 using namespace XahauGenesis;
 
 namespace ripple {
@@ -375,6 +389,27 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto const m19 = Account("m19");
         auto const m20 = Account("m20");
 
+        auto vecFromAcc = [](Account const& acc) -> std::vector<uint8_t>
+        {
+            uint8_t const* data = acc.id().data();
+            std::vector<uint8_t> ret(data, data+20);
+            std::cout << "ret: `" << strHex(ret) << "`, size: " << ret.size() << "\n";
+            return ret;
+        };  
+/*           
+        std::array<Account*, 20> accounts = {
+            &alice, &bob, &carol, &david, &edward,
+            &m6, &m7, &m8, &m9, &m10, &m11, &m12,
+            &m13, &m14, &m15, &m16, &m17, &m18, &m19, &m20
+        };
+        
+        std::map<Account*, std::vector<uint8_t>> idmap;
+
+        idmap.reserve(20);
+        for (Account* x: accounts)
+            idmap[x] = vecFromAcc(*x);
+*/
+
         env.fund(XRP(10000), alice, bob, carol, david, edward,
             m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20);
 
@@ -449,7 +484,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         };
 
 
-        auto doL1Vote = [&](Account const& acc, char topic1, char topic2, 
+        auto doL1Vote = [&](uint64_t lineno, Account const& acc, char topic1, char topic2, 
                             std::vector<uint8_t> const& vote_data,
                             std::vector<uint8_t> const& old_data,
                             bool actioned = true, bool const shouldFail = false)
@@ -480,7 +515,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             {
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
                 std::cout 
-                        << "topic vote precheck: \n" 
+                        << "topic vote precheck: " << lineno << "L\n" 
                         << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
                         << "\tshouldFail: " << (shouldFail ? "true": "false") << "\n"
                         << "\ttopic: " << topic1 << "," << (topic2 < 48 ? topic2 + '1' : topic2) << "\n"
@@ -491,7 +526,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
                         << "\tnew_data: " << strHex(vote_data) << "\n"
                         << "\t(isOldDataZero && !entry): " << (isOldDataZero && !entry ? "true" : "false") << "\n"
                         << "\t(entry && entry->getFieldVL(sfHookStateData) == old_data): " << 
-                            (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n";
+                            (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n"
+                        << ((isOldDataZero && !entry) ||
+                            (entry && entry->getFieldVL(sfHookStateData) == old_data) ? "" : "\tfailed: ^^^\n");
                     
                 BEAST_EXPECT((isOldDataZero && !entry) || 
                     (entry && entry->getFieldVL(sfHookStateData) == old_data));
@@ -499,7 +536,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // perform and check vote
             {
-                env(vote(acc, topic1, topic2, vote_data), fee(XRP(1)),
+                env(vote(acc, topic1, topic2, vote_data), M(lineno), fee(XRP(1)),
                     shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
                 env.close();
                 auto entry =
@@ -550,15 +587,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
             }
         };
 
-        auto vecFromAcc = [](Account const& acc) -> std::vector<uint8_t>
-        {
-            uint8_t const* data = acc.id().data();
-            std::vector<uint8_t> ret(data, data+20);
-            std::cout << "ret: `" << strHex(ret) << "`, size: " << ret.size() << "\n";
-            return ret;
-        };  
-           
- 
         // 100% vote for a different reward rate
         {
             // this will be the new reward rate
@@ -567,18 +595,18 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // this is the default reward rate
             std::vector<uint8_t> const original_data {0x00U,0xE4U,0x61U,0xEEU,0x78U,0x90U,0x83U,0x54U};
             
-            doL1Vote(alice, 'R', 'R', vote_data, original_data, false);                
-            doL1Vote(bob, 'R', 'R', vote_data, original_data, false);
-            doL1Vote(carol, 'R', 'R', vote_data, original_data, false);
-            doL1Vote(david, 'R', 'R', vote_data, original_data, false);
-            doL1Vote(edward, 'R', 'R', vote_data, original_data, true);
+            doL1Vote(__LINE__, alice, 'R', 'R', vote_data, original_data, false);                
+            doL1Vote(__LINE__, bob, 'R', 'R', vote_data, original_data, false);
+            doL1Vote(__LINE__, carol, 'R', 'R', vote_data, original_data, false);
+            doL1Vote(__LINE__, david, 'R', 'R', vote_data, original_data, false);
+            doL1Vote(__LINE__, edward, 'R', 'R', vote_data, original_data, true);
 
             // reverting a vote should not undo the action
-            doL1Vote(carol, 'R', 'R', original_data, vote_data, false);
+            doL1Vote(__LINE__, carol, 'R', 'R', original_data, vote_data, false);
 
             // submitting a null vote should delete the vote, and should not undo the action
             std::vector<uint8_t> const null_data {0,0,0,0,0,0,0,0};
-            doL1Vote(david, 'R', 'R', null_data, vote_data, false);
+            doL1Vote(__LINE__, david, 'R', 'R', null_data, vote_data, false);
         }
 
         
@@ -592,10 +620,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
             
             std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
             std::vector<uint8_t> id = vecFromAcc(alice);
-            doL1Vote(bob, 'S', 0, null_acc_id, id, false);
-            doL1Vote(carol, 'S', 0, null_acc_id, id, false);
-            doL1Vote(david, 'S', 0, null_acc_id, id, false);
-            doL1Vote(edward, 'S', 0, null_acc_id, id, true);
+            doL1Vote(__LINE__, bob, 'S', 0, null_acc_id, id, false);
+            doL1Vote(__LINE__, carol, 'S', 0, null_acc_id, id, false);
+            doL1Vote(__LINE__, david, 'S', 0, null_acc_id, id, false);
+            doL1Vote(__LINE__, edward, 'S', 0, null_acc_id, id, true);
         }
 
         // check the membercount is now 4
@@ -610,9 +638,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // continue to remove members (david)
         {
             std::vector<uint8_t> id = vecFromAcc(david);
-            doL1Vote(bob, 'S', 3, null_acc_id, id, false);
-            doL1Vote(carol, 'S', 3, null_acc_id, id, false);
-            doL1Vote(edward, 'S', 3, null_acc_id, id, true);
+            doL1Vote(__LINE__, bob, 'S', 3, null_acc_id, id, false);
+            doL1Vote(__LINE__, carol, 'S', 3, null_acc_id, id, false);
+            doL1Vote(__LINE__, edward, 'S', 3, null_acc_id, id, true);
         }
 
         {
@@ -632,8 +660,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // continue to remove members (carol)
         {
             std::vector<uint8_t> id = vecFromAcc(carol);
-            doL1Vote(bob, 'S', 2, null_acc_id, id, false);
-            doL1Vote(edward, 'S', 2, null_acc_id, id, true);
+            doL1Vote(__LINE__, bob, 'S', 2, null_acc_id, id, false);
+            doL1Vote(__LINE__, edward, 'S', 2, null_acc_id, id, true);
         }
         
         // check the membercount is now 2
@@ -649,8 +677,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // try to vote out edward using 2/2 votes
         {
             std::vector<uint8_t> id = vecFromAcc(edward);
-            doL1Vote(bob, 'S', 4, null_acc_id, id, false);
-            doL1Vote(edward, 'S', 4, null_acc_id, id, false, true);
+            doL1Vote(__LINE__, bob, 'S', 4, null_acc_id, id, false);
+            doL1Vote(__LINE__, edward, 'S', 4, null_acc_id, id, false, true);
         }
 
         // check the membercount is now 2
@@ -665,7 +693,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // try to remove bob using 1/2 votes
         {
             std::vector<uint8_t> id = vecFromAcc(bob);
-            doL1Vote(bob, 'S', 1, null_acc_id, id, false, false);
+            doL1Vote(__LINE__, bob, 'S', 1, null_acc_id, id, false, false);
         }
 
         // that shoul fail
@@ -680,11 +708,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // replace edward with alice
         {
-            std::vector<uint8_t> id = vecFromAcc(alice);
-            doL1Vote(bob, 'S', 4, null_acc_id, id, false);
-            doL1Vote(edward, 'S', 4, null_acc_id, id, true);
+            std::vector<uint8_t> alice_id = vecFromAcc(alice);
+            std::vector<uint8_t> edward_id = vecFromAcc(edward);
+            doL1Vote(__LINE__, bob, 'S', 4, alice_id, edward_id, false);
+            doL1Vote(__LINE__, edward, 'S', 4, alice_id, edward_id, true);
             // subsequent edward vote should fail because he's not a member anymore
-            doL1Vote(edward, 'S', 4, null_acc_id, id, false, true);
+            doL1Vote(__LINE__, edward, 'S', 4, null_acc_id, alice_id, false, true);
         }
         
         // check the membercount is now 2
@@ -696,19 +725,20 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
         }
 
-        auto doSeatVote = [&](uint8_t seat_no, uint8_t final_count,
-            AccountID const& candidate, AccountID const& previous,
+        auto doSeatVote = [&](uint64_t lineno, uint8_t seat_no, uint8_t final_count,
+            AccountID const& candidate, std::optional<AccountID const> previous,
             std::vector<Account const*> const& voters)
         {
             std::vector<uint8_t> previd { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
-            memcpy(previd.data(), previous.data(), 20);
+            if (previous)
+                memcpy(previd.data(), previous->data(), 20);
 
             std::vector<uint8_t> id { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
             memcpy(id.data(), candidate.data(), 20);
 
             int count = voters.size();
             for (Account const* voter : voters)
-                doL1Vote(*voter, 'S', seat_no, id, previd, --count <= 0);
+                doL1Vote(lineno, *voter, 'S', seat_no, id, previd, --count <= 0);
             
             {
                 auto entry = env.le(keylet::hookState(env.master.id(),
@@ -722,7 +752,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         std::cout << "Put edward back into seat 0\n";
 
         // put edward into seat 0 previously occupied by alice
-        doSeatVote(0, 3, edward.id(), noAccount(), {&alice, &bob});
+        doSeatVote(__LINE__, 0, 3, edward.id(), {}, {&alice, &bob});
             
     }
 
