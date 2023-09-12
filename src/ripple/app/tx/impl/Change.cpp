@@ -96,7 +96,8 @@ Change::preflight(PreflightContext const& ctx)
         // if we do specify import_vl_keys in config then we won't approve keys that aren't on our list
         if (ctx.tx.isFieldPresent(sfImportVLKey) && !ctx.app.config().IMPORT_VL_KEYS.empty())
         {
-            auto const pk = ctx.tx.getFieldVL(sfImportVLKey);
+            auto const& inner = const_cast<ripple::STTx&>(ctx.tx).getField(sfImportVLKey).downcast<STObject>();
+            auto const pk = inner.getFieldVL(sfPublicKey);
             std::string const strPk = strHex(makeSlice(pk));
             if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) == ctx.app.config().IMPORT_VL_KEYS.end())
                 return telIMPORT_VL_KEY_NOT_RECOGNISED;
