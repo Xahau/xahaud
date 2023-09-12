@@ -388,6 +388,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto const m18 = Account("m18");
         auto const m19 = Account("m19");
         auto const m20 = Account("m20");
+        auto const m21 = Account("m21");
 
         auto vecFromAcc = [](Account const& acc) -> std::vector<uint8_t>
         {
@@ -411,7 +412,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 */
 
         env.fund(XRP(10000), alice, bob, carol, david, edward,
-            m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20);
+            m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
 
         env.close();
 
@@ -421,6 +422,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         setupGov(env, initial_members_ids);
 
         auto vote = [&](
+            uint16_t lineno,
             Account const& acc,
             char topic1, 
             std::optional<char> topic2,
@@ -444,12 +446,24 @@ struct XahauGenesis_test : public beast::unit_test::suite
             txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterName] = 
                 "56"; // 'V'
 
-            std::string strData;
-            strData.reserve(data.size() << 1U);
-            for (uint8_t c : data)
-                strData += charToHex(c);
+            {
+                std::string strData;
+                strData.reserve(data.size() << 1U);
+                for (uint8_t c : data)
+                    strData += charToHex(c);
 
-            txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterValue] = strData;
+                txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterValue] = strData;
+            }
+
+            // add a line number for debugging
+            txn[jss::HookParameters][2u] = Json::objectValue;
+            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "44"; // D
+            {
+                std::string strData;
+                strData += charToHex((uint8_t)(lineno >> 8U));
+                strData += charToHex((uint8_t)(lineno & 0xFFU));
+                txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = strData;
+            }            
 
 
             if (layer)
@@ -536,7 +550,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // perform and check vote
             {
-                env(vote(acc, topic1, topic2, vote_data), M(lineno), fee(XRP(1)),
+                env(vote(lineno, acc, topic1, topic2, vote_data), M(lineno), fee(XRP(1)),
                     shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
                 env.close();
                 auto entry =
@@ -727,7 +741,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         auto doSeatVote = [&](uint64_t lineno, uint8_t seat_no, uint8_t final_count,
             AccountID const& candidate, std::optional<AccountID const> previous,
-            std::vector<Account const*> const& voters)
+            std::vector<Account const*> const& voters, bool shouldSucceed = true)
         {
             std::vector<uint8_t> previd { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
             if (previous)
@@ -738,13 +752,19 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             int count = voters.size();
             for (Account const* voter : voters)
-                doL1Vote(lineno, *voter, 'S', seat_no, id, previd, --count <= 0);
+                doL1Vote(lineno, *voter, 'S', seat_no, id, previd, --count <= 0 && shouldSucceed);
             
             {
                 auto entry = env.le(keylet::hookState(env.master.id(),
                     uint256::fromVoid(member_count_key), beast::zero));
                 std::vector<uint8_t> const expected_data {final_count};
                 BEAST_REQUIRE(!!entry);
+                if (entry->getFieldVL(sfHookStateData) != expected_data)
+                    std::cout 
+                        << "doSeatVote failed " << lineno <<"L. entry data: `" 
+                        << strHex(entry->getFieldVL(sfHookStateData)) << "` "
+                        << "expected data: `" << strHex(expected_data) << "`\n";
+ 
                 BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
             }
         };
@@ -753,7 +773,43 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // put edward into seat 0 previously occupied by alice
         doSeatVote(__LINE__, 0, 3, edward.id(), {}, {&alice, &bob});
-            
+        
+        // at this point the governance table looks like
+        // 0 - edward
+        // 1 - bob
+        // 2 - empty
+        // 3 - empty
+        // 4 - alice
+ 
+        // fill seats 2,3 with accounts m6 and m7. this should take 2 votes only
+        // alice's vote alone is not enough
+        doSeatVote(__LINE__, 2, 3, m6.id(), {}, {&alice}, false);
+        // edward's vote makes 2/3 which is floor(0.8 * members)
+        doSeatVote(__LINE__, 2, 4, m6.id(), {}, {&edward});
+
+        // now we will need 3 votes to put m7 into seat 3
+        doSeatVote(__LINE__, 3, 4, m7.id(), {}, {&m6}, false);
+        doSeatVote(__LINE__, 3, 4, m7.id(), {}, {&alice}, false);
+        doSeatVote(__LINE__, 3, 5, m7.id(), {}, {&bob}, true);
+
+        // now we have: ed, bob, m6, m7, alice
+        // let's try moving ed to another seat, this should succeed
+        doSeatVote(__LINE__, 5, 5, edward.id(), {}, {&alice, &bob, &edward, &m7});
+
+        // now lets move edward over the top of bob
+        doSeatVote(__LINE__, 1, 4, edward.id(), bob, {&alice, &bob, &m6, &m7});
+
+        // first put bob in where edward was
+        doSeatVote(__LINE__, 0, 5, bob.id(), {}, {&alice, &edward, &m6});
+    
+        // now we have: bob, ed, m6, m7, alice
+        // we're going to fill the remaining seats up to 20
+        doSeatVote(__LINE__, 5, 6, carol.id(), {}, {&alice, &edward, &m6, &m7});
+        doSeatVote(__LINE__, 6, 7, david.id(), {}, {&alice, &edward, &m6, &m7});
+
+        
+
+  
     }
 
 

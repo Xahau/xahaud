@@ -113,6 +113,16 @@ int64_t hook(uint32_t r)
 
     etxn_reserve(1);
 
+    // in debug mode the test case can supply a line number that the hook will then print here.
+    {
+        uint8_t ln[2];
+        if (otxn_param(SBUF(ln), "D", 1) == 2)
+        {
+            uint16_t lineno = (((uint16_t)ln[0]) << 8U) + ln[1];
+            trace_num(SBUF("DBGLN"), lineno);
+        }
+    }
+
     int64_t tt = otxn_type();
 
     if (tt != 99)  // ttINVOKE only
@@ -549,26 +559,53 @@ int64_t hook(uint32_t r)
             // add / change member
             uint8_t previous_member[32];
             int previous_present = (state(previous_member + 12, 20, &n, 1) == 20);
+            if (previous_present)
+            {
+                trace(SBUF("Previous present==:"), previous_member, 32, 1);
+            }
+
 
             if (BUFFER_EQUAL_20((previous_member + 12), (topic_data + 12)))
                 DONE("Governance: Actioning seat change, but seat already contains the new member.");
 
-            if (previous_present && !topic_data_zero)
-            {
-                // we will not change member count, we're adding a member and removing a member
-                trace(SBUF("previous_present && !topic_data_zero"),0,0,0);
-                // pass
-            }
-            else
-            {
+            int64_t existing_member = state(0,0, topic_data + 12, 20);
 
-                // adjust member count
-                if (previous_present)
-                {
-                    trace(SBUF("Previous present:"), previous_member, 32, 1);
+            int existing_member_moving = existing_member >= 0;
+            if (existing_member_moving)
+                trace(SBUF("Governance: Moving existing member to new seat."), 0,0,0);
+
+
+            uint8_t op = ((!previous_present) << 2U) +
+                    (topic_data_zero << 1U) + existing_member_moving;
+
+            ASSERT(op != 0b011U && op != 0b111U && op < 8);
+
+            // logic table:
+            // E/!E - seat is empty/filled
+            // Z/!Z - topic data is zero non zero (zero = member deletion)
+            // M/!M - topic is an existing member who is moving
+            //
+            // E|Z|M
+            // -+-+-
+            // 0 0 0    - seat is full, vote is for a member, an existing member is not moving              MC
+            // 0 0 1    - seat is full, vote is for a member, an existing member is moving                  MC--
+            // 0 1 0    - seat is full, vote is for deletion, an existing member is not moving              MC--
+            // 0 1 1    - seat is full, vote is for deletion, an existing member is moving (impossible)
+            // 1 0 0    - seat is empty, vote is for a member, member is not an existing member             MC++
+            // 1 0 1    - seat is empty, vote is for a member, member is an existing member                 MC
+            // 1 1 0    - seat is empty, vote is for deletion, not an existing member moving                MC
+            // 1 1 1    - seat is empty, vote is for deletion, an existing member moving (impossible)
+
+            TRACEVAR(op);
+            trace_num(SBUF("E"), !previous_present);
+            trace_num(SBUF("Z"), topic_data_zero);
+            trace_num(SBUF("M"), existing_member_moving);
+
+            // adjust member count
+            {
+                if (op == 0b001U || op == 0b010U)
                     member_count--;
-                }
-                else
+                else if (op == 0b100U)
                     member_count++;
 
                 TRACEVAR(previous_present);
@@ -579,6 +616,20 @@ int64_t hook(uint32_t r)
 
                 uint8_t mc = member_count;
                 ASSERT(state_set(&mc, 1, "MC", 2) == 1);
+            }
+
+            // if an existing member is moving we need to delete them before re-adding them
+            if (existing_member_moving)
+            {
+
+                // delete the old member
+                // reverse key 
+                uint8_t m = (uint8_t)existing_member;
+                ASSERT(state_set(0,0, &m, 1) == 0);
+                
+                // forward key
+                ASSERT(state_set(0, 0, topic_data + 12, 20) == 0);
+                
             }
 
             // we need to garbage collect all their votes
@@ -618,25 +669,17 @@ int64_t hook(uint32_t r)
                         ASSERT(state_set(0,0, SBUF(previous_member)) == 0);
                     }
                 }
-            }
 
-            if (topic_data_zero)
-            {
                 // delete the old member
                 // reverse key 
                 ASSERT(state_set(0,0, &n, 1) == 0);
                 
                 // forward key
-                ASSERT(state_set(0, 0, topic_data + 12, 20) == 0);
-
+                ASSERT(state_set(0, 0, previous_member + 12, 20) == 0);
             }
-            else
+
+            if (!topic_data_zero)
             {
-
-                // if the seat was occupied we need to remove their forward key
-                if (previous_present)
-                    ASSERT(state_set(0,0, previous_member + 12, 20) == 0);
-
                 // add the new member
                 // reverse key 
                 ASSERT(state_set(topic_data + 12, 20, &n, 1) == 20);

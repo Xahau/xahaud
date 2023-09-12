@@ -1147,12 +1147,20 @@ DEFINE_HOOK_FUNCTION(
     if (read_len > 128)
         read_len = 128;
 
-    if (read_len > 0)
+    while (read_len > 0)
     {
+        // skip \0 if present at the end
+        if (*((const char*)memory + read_ptr + read_len - 1) == '\0')
+            read_len--;
+
+        if (read_len == 0)
+            break;
+
         j.trace()
             << "HookTrace[" << HC_ACC() << "]: "
             << std::string_view((const char*)memory + read_ptr, read_len)
-            << " " << number;
+            << ": " << number;
+
         return 0;
     }
     
@@ -1193,6 +1201,11 @@ DEFINE_HOOK_FUNCTION(
     {
         memcpy(output, memory + mread_ptr, mread_len);
         out_len += mread_len;
+        
+        // skip \0's 
+        if (output[out_len-1] == '\0')
+            out_len--;
+
         output[out_len++] = ':';
         output[out_len++] = ' ';
     }
@@ -4435,12 +4448,16 @@ DEFINE_HOOK_FUNCTION(
     if (read_len > 128)
         read_len = 128;
 
+    // omit \0 if present
+    if (read_len > 0 && *((const char*)memory + read_ptr + read_len - 1) == '\0')
+        read_len--;
+
     if (float1 == 0)
     {
         j.trace()
             << "HookTrace[" << HC_ACC() << "]:"
             << (read_len == 0 ? "" : std::string_view((const char*)memory + read_ptr, read_len))
-            << " Float 0*10^(0) <ZERO>";
+            << ": Float 0*10^(0) <ZERO>";
         return 0;
     }
     
@@ -4452,14 +4469,14 @@ DEFINE_HOOK_FUNCTION(
         j.trace()
             << "HookTrace[" << HC_ACC() << "]:"
             << (read_len == 0 ? "" : std::string_view((const char*)memory + read_ptr, read_len))
-            << " Float <INVALID>";
+            << ": Float <INVALID>";
         return 0;
     }
 
     j.trace()
         << "HookTrace[" << HC_ACC() << "]:"
         << (read_len == 0 ? "" : std::string_view((const char*)memory + read_ptr, read_len))
-        << " Float " << (neg ? "-" : "") << man << "*10^(" << exp << ")";
+        << ": Float " << (neg ? "-" : "") << man << "*10^(" << exp << ")";
     return 0;
     
     HOOK_TEARDOWN();
