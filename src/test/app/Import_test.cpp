@@ -1540,7 +1540,6 @@ class Import_test : public beast::unit_test::suite
         testcase("enabled");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
-        
 
         for (bool const withImport : {false, true})
         {
@@ -1548,6 +1547,8 @@ class Import_test : public beast::unit_test::suite
             // to import.
             auto const amend = withImport ? features : features - featureImport;
             Env env{*this, makeNetworkConfig(21337), amend};
+
+            auto const feeDrops = env.current()->fees().base;
 
             // setup env
             auto const alice = Account("alice");
@@ -1564,7 +1565,7 @@ class Import_test : public beast::unit_test::suite
             auto const ownerDir = withImport ? 1 : 0;
 
             // IMPORT - Account Set
-            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)), txResult);
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)), fee(feeDrops * 10), txResult);
             env.close();
 
         }
@@ -2647,11 +2648,12 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                fee(10 * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = XRP(1000) - feeDrops;
+            auto const totalBurn = XRP(1000) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -2702,11 +2704,11 @@ class Import_test : public beast::unit_test::suite
             // import tx
             auto const xpopJson = loadXpop(ImportTCAccountSet::w_regular_key);
             Json::Value tx = import(alice, xpopJson);
-            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env(tx, alice, sig(bob), fee(10 * 10), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = XRP(1000) - feeDrops;
+            auto const totalBurn = XRP(1000) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -2763,12 +2765,12 @@ class Import_test : public beast::unit_test::suite
             env(tx,
                 alice,
                 msig(bob, carol),
-                fee(3 * feeDrops),
+                fee((3 * feeDrops) * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = drops(48) - (3 * feeDrops);
+            auto const totalBurn = drops(48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -2831,11 +2833,12 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             env(import(alice, loadXpop(ImportTCAccountSet::w_flags)),
+                fee(feeDrops * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(10) - feeDrops;
+            auto const totalBurn = drops(10) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3074,11 +3077,11 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed);
-            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = drops(12) - feeDrops;
+            auto const totalBurn = drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3139,11 +3142,11 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed);
-            env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), sig(alice), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - feeDrops;
+            auto const totalBurn = drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3205,11 +3208,11 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_regular_key);
-            env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), sig(bob), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - feeDrops;
+            auto const totalBurn = drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3274,12 +3277,12 @@ class Import_test : public beast::unit_test::suite
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_signers);
             env(import(alice, xpopJson),
                 msig(bob, carol),
-                fee(3 * feeDrops),
+                fee((3 * feeDrops) * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(48) - (3 * feeDrops);
+            auto const totalBurn = drops(48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3344,11 +3347,11 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed_empty);
-            env(import(alice, xpopJson), sig(alice), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), sig(alice), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - feeDrops;
+            auto const totalBurn = drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3409,11 +3412,11 @@ class Import_test : public beast::unit_test::suite
             // import tx
             auto const xpopJson =
                 loadXpop(ImportTCSetRegularKey::w_regular_key_empty);
-            env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), sig(bob), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - feeDrops;
+            auto const totalBurn = drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3480,12 +3483,12 @@ class Import_test : public beast::unit_test::suite
                 loadXpop(ImportTCSetRegularKey::w_signers_empty);
             env(import(alice, xpopJson),
                 msig(bob, carol),
-                fee(3 * feeDrops),
+                fee((3 * feeDrops) * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(48) - (3 * feeDrops);
+            auto const totalBurn = drops(48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3563,7 +3566,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCSetRegularKey::w_seed_zero);
-            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), ter(tesSUCCESS));
             env.close();
 
             // confirm lsfPasswordSpent is not set
@@ -3899,11 +3902,11 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed);
-            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), ter(tesSUCCESS));
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(12) - feeDrops;
+            auto const totalBurn = XRP(2) + drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3986,11 +3989,11 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCSignersListSet::w_seed_empty);
-            env(import(alice, xpopJson), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), ter(tesSUCCESS));
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(12) - feeDrops;
+            auto const totalBurn = XRP(2) + drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4061,11 +4064,11 @@ class Import_test : public beast::unit_test::suite
             // import tx
             auto const xpopJson =
                 loadXpop(ImportTCSignersListSet::w_regular_key_empty);
-            env(import(alice, xpopJson), sig(bob), ter(tesSUCCESS));
+            env(import(alice, xpopJson), fee(feeDrops * 10), sig(bob), ter(tesSUCCESS));
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(12) - feeDrops;
+            auto const totalBurn = XRP(2) + drops(12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4139,12 +4142,12 @@ class Import_test : public beast::unit_test::suite
                 loadXpop(ImportTCSignersListSet::w_signers_empty);
             env(import(alice, xpopJson),
                 msig(bob, carol),
-                fee(3 * feeDrops),
+                fee((3 * feeDrops) * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(48) - (3 * feeDrops);
+            auto const totalBurn = XRP(2) + drops(48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4199,12 +4202,13 @@ class Import_test : public beast::unit_test::suite
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
             env(import(alice, loadXpop(ImportTCNFTokenMint::w_seed)),
+                fee(feeDrops * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - feeDrops);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - (feeDrops * 10));
 
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 ter(tefPAST_IMPORT_SEQ));
@@ -4226,12 +4230,13 @@ class Import_test : public beast::unit_test::suite
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
             env(import(alice, loadXpop(ImportTCPayment::w_seed)),
+                fee(feeDrops * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - feeDrops);
+            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - (feeDrops * 10));
 
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 ter(tefPAST_IMPORT_SEQ));
@@ -4275,17 +4280,19 @@ class Import_test : public beast::unit_test::suite
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                fee(feeDrops * 10),
                 ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = XRP(1000) - feeDrops;
+            auto const totalBurn = XRP(1000) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
             BEAST_EXPECT(postAlice == preAlice + totalBurn);
 
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                fee(feeDrops * 10),
                 ter(tefPAST_IMPORT_SEQ));
             env.close();
             auto const failedAlice = env.balance(alice);
