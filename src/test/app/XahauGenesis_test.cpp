@@ -397,19 +397,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
             std::cout << "ret: `" << strHex(ret) << "`, size: " << ret.size() << "\n";
             return ret;
         };  
-/*           
-        std::array<Account*, 20> accounts = {
-            &alice, &bob, &carol, &david, &edward,
-            &m6, &m7, &m8, &m9, &m10, &m11, &m12,
-            &m13, &m14, &m15, &m16, &m17, &m18, &m19, &m20
-        };
-        
-        std::map<Account*, std::vector<uint8_t>> idmap;
-
-        idmap.reserve(20);
-        for (Account* x: accounts)
-            idmap[x] = vecFromAcc(*x);
-*/
 
         env.fund(XRP(10000), alice, bob, carol, david, edward,
             m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
@@ -741,7 +728,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         auto doSeatVote = [&](uint64_t lineno, uint8_t seat_no, uint8_t final_count,
             AccountID const& candidate, std::optional<AccountID const> previous,
-            std::vector<Account const*> const& voters, bool shouldSucceed = true)
+            std::vector<Account const*> const& voters, bool actioned = true, bool shouldFail = false)
         {
             std::vector<uint8_t> previd { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
             if (previous)
@@ -752,12 +739,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             int count = voters.size();
             for (Account const* voter : voters)
-                doL1Vote(lineno, *voter, 'S', seat_no, id, previd, --count <= 0 && shouldSucceed);
-            
+                doL1Vote(lineno, *voter, 'S', seat_no, id, previd, --count <= 0 && actioned, shouldFail);
+           
+            if (!shouldFail) 
             {
                 auto entry = env.le(keylet::hookState(env.master.id(),
                     uint256::fromVoid(member_count_key), beast::zero));
                 std::vector<uint8_t> const expected_data {final_count};
+
                 BEAST_REQUIRE(!!entry);
                 if (entry->getFieldVL(sfHookStateData) != expected_data)
                     std::cout 
@@ -787,6 +776,30 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // edward's vote makes 2/3 which is floor(0.8 * members)
         doSeatVote(__LINE__, 2, 4, m6.id(), {}, {&edward});
 
+        // re-action should succeed
+        doSeatVote(__LINE__, 2, 4, m6.id(), m6, {&alice});
+
+        // re-voting for something else should not change the action outcome
+        doSeatVote(__LINE__, 2, 4, m11.id(), m6, {&alice}, false);
+
+        // check that m6 is still in seat 2
+        {
+            uint8_t key[32] = {
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0
+            };
+
+            for (int i = 12; i < 32; ++i)
+                key[i] = m6.id().data()[i-12];
+    
+            auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
+            BEAST_EXPECT(!!entry &&
+                entry->getFieldVL(sfHookStateData) == std::vector<uint8_t>{0x02U});
+        }
+
+
         // now we will need 3 votes to put m7 into seat 3
         doSeatVote(__LINE__, 3, 4, m7.id(), {}, {&m6}, false);
         doSeatVote(__LINE__, 3, 4, m7.id(), {}, {&alice}, false);
@@ -807,8 +820,107 @@ struct XahauGenesis_test : public beast::unit_test::suite
         doSeatVote(__LINE__, 5, 6, carol.id(), {}, {&alice, &edward, &m6, &m7});
         doSeatVote(__LINE__, 6, 7, david.id(), {}, {&alice, &edward, &m6, &m7});
 
+
+        // { bob, ed, m6, m7, alice, carol, david }
+
+        // quorum = floor(0.8*7) = 5
+        doSeatVote(__LINE__, 7, 8, m8.id(), {}, {&alice, &edward, &m6, &m7, &carol});
+
+        // q = floor(0.8*8) = 6
+        doSeatVote(__LINE__, 8, 9, m9.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8});
+
+        // q = floor(0.8*9) = 7
+        doSeatVote(__LINE__, 9, 10, m10.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9});
+
+        // q = floor(0.8*10) = 8
+        doSeatVote(__LINE__, 10, 11, m11.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10});
+
+        // q = floor(0.8*11) = 8
+        doSeatVote(__LINE__, 11, 12, m12.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10});
+
+        // q = floor(0.8*12) = 9
+        doSeatVote(__LINE__, 12, 13, m13.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11});
+
+        // q = floor(0.8*13) = 10
+        doSeatVote(__LINE__, 13, 14, m14.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12});
+
+        // q = floor(0.8*14) = 11
+        doSeatVote(__LINE__, 14, 15, m15.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12, &m13});
+
+        // q = floor(0.8*15) = 12
+        doSeatVote(__LINE__, 15, 16, m16.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12, &m13, &m14});
+
+        // q = floor(0.8*16) = 12
+        doSeatVote(__LINE__, 16, 17, m17.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12, &m13, &m14});
+
+        // q = floor(0.8*17) = 13
+        doSeatVote(__LINE__, 17, 18, m18.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15});
+
+        // q = floor(0.8*18) = 14
+        doSeatVote(__LINE__, 18, 19, m19.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15, &m16});
+
+        // q = floor(0.8*19) = 15
+        doSeatVote(__LINE__, 19, 20, m20.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15, &m16, &m17});
+
+        // q = floor(0.8*20) = 16
+        // voting for seat 20 is invalid, only seats 0 to 19 are valid
+        doSeatVote(__LINE__, 20, 21, m21.id(), {}, {&alice, &edward, &m6, &m7, &carol, &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15, &m16, &m17, &m18}, false, true);
+
+
+        // voting for another random high seat
+        doSeatVote(__LINE__, 255, 21, m21.id(), {}, {&alice}, false, true);
+        doSeatVote(__LINE__, 101, 21, m21.id(), {}, {&alice}, false, true);
         
 
+        // RH TODO: check state count 
+
+        // membership:
+        // { bob, ed, m6, m7, alice, carol, david, m8, ... m20 }
+        // check this is the case forward and reverse keys
+
+        auto const checkSeat = [&](uint8_t seat, Account const& acc)
+        {
+            uint8_t key[32] = {
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0
+            };
+
+            // seatno => accid
+            {
+                key[31] = seat;
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
+                if (!entry)
+                    std::cout << "checkSeat failed, seatno->accid missing for seat: " << seat << "\n";
+                else if (entry->getFieldVL(sfHookStateData) != vecFromAcc(acc))
+                    std::cout << "checkSeat failed, seatno->accid incorrect for seat: " << seat << "\n";
+                BEAST_EXPECT(!!entry &&
+                    entry->getFieldVL(sfHookStateData) == vecFromAcc(acc));
+            }
+            
+            // accid => seatno
+            {
+                for (int i = 12; i < 32; ++i)
+                key[i] = acc.id().data()[i-12];
+    
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
+
+                if (!entry)
+                    std::cout << "checkSeat failed, accid->seatno missing for seat: " << seat << "\n";
+                else if (entry->getFieldVL(sfHookStateData) != std::vector<uint8_t>{seat})
+                    std::cout << "checkSeat failed, accid->seatno incorrect for seat: " << seat << "\n";
+
+                BEAST_EXPECT(!!entry &&
+                    entry->getFieldVL(sfHookStateData) == std::vector<uint8_t>{seat});
+            }
+        };
+
+        std::vector<Account const*> finalSeats {
+                &bob, &edward, &m6, &m7, &alice, &carol, &david, 
+                &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15, &m16, &m17, &m18, &m19, &m20};
+        for (int i = 0; i < 20; ++i)
+            checkSeat(i, *(finalSeats[i]));
   
     }
 
@@ -820,14 +932,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
 
         // governance hook tests:
-        //  last member tries to remove themselves
-        //  try to add more than 20 members
-        //  add a member normally
-        //  remove a member normally
-        //  add a member normally then re-action by adding another vote
-        //  add a member normally then ensure it's not undone by removing one of the votes
-        //  remove a member normally then re-action by adding another vote
-        //  remove a member normally then ensure it's not undone when removing one of the votes
+        
         //  action a hook change
         //  action a hook change to a non-existent hook
         //  action a reward rate change
