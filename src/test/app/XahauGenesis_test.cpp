@@ -609,6 +609,28 @@ struct XahauGenesis_test : public beast::unit_test::suite
             std::vector<uint8_t> const null_data {0,0,0,0,0,0,0,0};
             doL1Vote(__LINE__, david, 'R', 'R', null_data, vote_data, false);
         }
+        
+        // 100% vote for a different reward delay
+        {
+            // this will be the new reward delay
+            std::vector<uint8_t> vote_data {0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x55U};
+            
+            // this is the default reward delay
+            std::vector<uint8_t> const original_data {0x00U,0x80U,0x6AU,0xACU,0xAFU,0x3CU,0x09U,0x56U};
+
+            doL1Vote(__LINE__, edward, 'R', 'D', vote_data, original_data, false);                
+            doL1Vote(__LINE__, david, 'R', 'D', vote_data, original_data, false);
+            doL1Vote(__LINE__, carol, 'R', 'D', vote_data, original_data, false);
+            doL1Vote(__LINE__, bob, 'R', 'D', vote_data, original_data, false);
+            doL1Vote(__LINE__, alice, 'R', 'D', vote_data, original_data, true);
+
+            // reverting a vote should not undo the action
+            doL1Vote(__LINE__, david, 'R', 'D', original_data, vote_data, false);
+
+            // submitting a null vote should delete the vote, and should not undo the action
+            std::vector<uint8_t> const null_data {0,0,0,0,0,0,0,0};
+            doL1Vote(__LINE__, alice, 'R', 'D', null_data, vote_data, false);
+        }
 
         
         uint8_t const member_count_key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,'M','C'};

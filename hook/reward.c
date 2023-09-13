@@ -1,7 +1,6 @@
 #include "hookapi.h"
-//#define REWARD_DELAY 2600000LL
-#define REWARD_DELAY 5LL
-#define REWARD_MULTIPLIER_XFL 6038156834009797973ULL
+#define DEFAULT_REWARD_DELAY 6199553087261802496ULL
+#define DEFAULT_REWARD_RATE 6038156834009797973ULL
 //0.00333333333f
 
 #define L1SEATS 20U
@@ -117,6 +116,25 @@ int64_t hook(uint32_t r)
     if (BUFFER_EQUAL_20(hook_acc, otxn_acc))
         accept(SBUF("Reward: Passing outgoing txn"), __LINE__);
 
+    // the default rate and delay are used if somehow the keys are missing from hook state (graceful failure)
+    int64_t xfl_rr = DEFAULT_REWARD_RATE;
+    int64_t xfl_rd = DEFAULT_REWARD_DELAY;
+   
+    // load state if it exists (which it should)
+    state(&xfl_rr, 8, "RR", 2);
+    state(&xfl_rd, 8, "RD", 2);
+
+    // if either of these is 0 that's disabled
+    if (xfl_rr <= 0 || xfl_rd <= 0 )
+        rollback(SBUF("Reward: Rewards are disabled by governance."), __LINE__);
+
+    int64_t required_delay = float_int(xfl_rd, 0, 0);
+
+    if (required_delay < 0 || float_sign(xfl_rr) != 0 ||
+            float_compare(xfl_rr, float_one(), COMPARE_GREATER) ||
+            float_compare(xfl_rd, float_one(), COMPARE_GREATER))
+        rollback(SBUF("Reward: Rewards incorrectly configured by governance or unrecoverable error."), __LINE__);
+
     // get the account root keylet
     uint8_t kl[34];
     util_keylet(SBUF(kl), KEYLET_ACCOUNT, SBUF(otxn_acc), 0,0,0,0);
@@ -137,10 +155,12 @@ int64_t hook(uint32_t r)
     int64_t time = slot(0,0,6);
 
     int64_t time_elapsed = ledger_last_time() - time;
-    if (time_elapsed < REWARD_DELAY)
+
+
+    if (time_elapsed < required_delay)
     {
         //2 600 000
-        time_elapsed = REWARD_DELAY - time_elapsed;
+        time_elapsed = required_delay - time_elapsed;
         msg_buf[14] += (time_elapsed / 1000000) % 10;
         msg_buf[15] += (time_elapsed /  100000) % 10;
         msg_buf[16] += (time_elapsed /   10000) % 10;
@@ -191,20 +211,6 @@ int64_t hook(uint32_t r)
     if (DEBUG)
         TRACEVAR(accumulator);
 
-    // reward hook shares the same namespace as governance hook, so we can request the RR key directly
-    uint8_t key[2] = {'R', 'R'};
-
-    // mr = monthly reward rate
-    int64_t xfl_mr =
-        state(0,0, SBUF(key));
-
-    if (xfl_mr <= 0 || // invalid xfl
-        float_compare(xfl_mr, 0, COMPARE_LESS) ||  // negative xfl
-        float_compare(xfl_mr, float_one(), COMPARE_GREATER)) // greater than 100%
-        xfl_mr = REWARD_MULTIPLIER_XFL;
-    {
-        ASSERT(xfl_mr > 0);
-    }
 
     int64_t xfl_accum = float_set(0, accumulator);
     ASSERT(xfl_accum > 0);
@@ -213,7 +219,7 @@ int64_t hook(uint32_t r)
     ASSERT(xfl_elapsed > 0);
 
     int64_t xfl_reward = float_divide(xfl_accum, xfl_elapsed);
-    xfl_reward = float_multiply(xfl_mr, xfl_reward);
+    xfl_reward = float_multiply(xfl_rr, xfl_reward);
 
     if (DEBUG)
         TRACEVAR(xfl_reward);

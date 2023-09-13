@@ -45,8 +45,9 @@ namespace XahauGenesis
             // 1.003274 -xfl-> 6089869970204910592 -le-> 0x00E461EE78908354
             {{'I', 'R', 'R'}, {0x00U, 0xE4U, 0x61U, 0xEEU, 0x78U, 0x90U, 0x83U, 0x54U}},
 
-            // initial reward delay is 365*24*60*60/12 = 2628000 = 0x2819A0 -LEu64-> A019280000000000
-            {{'I', 'R', 'D'}, {0xA0U, 0x19U, 0x28U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U}}
+            // initial reward delay is xfl le -> 00806AACAF3C0956 -> 2600000 dec
+            {{'I', 'R', 'D'}, {0x00U, 0x80U, 0x6AU, 0xACU, 0xAFU, 0x3CU, 0x09U, 0x56U}}
+
     };
 
     // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
