@@ -512,20 +512,25 @@ int64_t hook(uint32_t r)
                 // it exists
                 // check if its identical
                 uint8_t existing_hook[32];
-                slot_subfield(7, sfHookHash, 8);
-                ASSERT(slot(SBUF(existing_hook), 8) == 32);
+                if (slot_subfield(7, sfHookHash, 8) == 8)
+                {
+                    ASSERT(slot(SBUF(existing_hook), 8) == 32);
 
-                // if it is then do nothing
-                if (BUFFER_EQUAL_32(existing_hook, topic_data))
-                    DONE("Goverance: Target hook is already the same as actioned hook.");
+                    // if it is then do nothing
+                    if (BUFFER_EQUAL_32(existing_hook, topic_data))
+                        DONE("Goverance: Target hook is already the same as actioned hook.");
+                }
             }
 
             // generate the hook definition keylet
-            util_keylet(SBUF(keylet), KEYLET_HOOK_DEFINITION, topic_data, 32, 0,0,0,0);
+            if (!topic_data_zero)
+            {
+                util_keylet(SBUF(keylet), KEYLET_HOOK_DEFINITION, topic_data, 32, 0,0,0,0);
 
-            // check if the ledger contains such a hook definition
-            if (slot_set(SBUF(keylet), 9) != 9)
-                NOPE("Goverance: Hook Hash doesn't exist on ledger while actioning hook.");
+                // check if the ledger contains such a hook definition
+                if (slot_set(SBUF(keylet), 9) != 9)
+                    NOPE("Goverance: Hook Hash doesn't exist on ledger while actioning hook.");
+            }
 
             // it does so now we can do the emit
 
@@ -542,15 +547,18 @@ int64_t hook(uint32_t r)
             uint32_t emit_size = 0;
             PREPARE_HOOKSET(emit_buf, sizeof(emit_buf), h, emit_size);
 
+            trace(SBUF("EmittedTxn"), emit_buf, emit_size, 1);
+
             uint8_t emithash[32];
             int64_t emit_result = emit(SBUF(emithash), emit_buf, emit_size);
 
             if (DEBUG)
                 TRACEVAR(emit_result);
 
-            if (emit_result != emit_size)
+            if (emit_result != 32)
                 NOPE("Governance: Emit failed during hook actioning.");
 
+            trace(SBUF("EmittedTxnHash"), emithash, 32, 1);
             DONE("Governance: Hook actioned.");
         }
 

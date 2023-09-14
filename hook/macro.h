@@ -552,7 +552,8 @@ int out_len = 0;\
             }\
             else\
             {\
-                *buf_out++ = 0x1FU; /* HookHash */\
+                *buf_out++ = 0x50U; /* HookHash */\
+                *buf_out++ = 0x1FU;\
                 uint64_t* d = (uint64_t*)buf_out;\
                 uint64_t* s = (uint64_t*)hook0;\
                 *d++ = *s++;\
