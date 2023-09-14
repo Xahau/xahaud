@@ -64,6 +64,7 @@ JSS(Asset2);         // in: AMM Asset2
 JSS(AuthAccount);    // in: AMM Auction Slot
 JSS(AuthAccounts);   // in: AMM Auction Slot
 JSS(Blob);
+JSS(Bridge);             // ledger type.
 JSS(Check);              // ledger type.
 JSS(CheckCancel);        // transaction type.
 JSS(CheckCash);          // transaction type.
@@ -176,7 +177,17 @@ JSS(URITokenBuy);              // tx type
 JSS(URITokenCreateSellOffer);  // tx type
 JSS(URITokenCancelSellOffer);  // tx type
 JSS(VoteSlots);                // out: AMM Vote
-JSS(aborted);                  // out: InboundLedger
+JSS(XChainAddAccountCreateAttestation);  // transaction type.
+JSS(XChainAddClaimAttestation);          // transaction type.
+JSS(XChainAccountCreateCommit);          // transaction type.
+JSS(XChainClaim);                        // transaction type.
+JSS(XChainCommit);                       // transaction type.
+JSS(XChainCreateBridge);                 // transaction type.
+JSS(XChainCreateClaimID);                // transaction type.
+JSS(XChainModifyBridge);                 // transaction type.
+JSS(XChainOwnedClaimID);                 // ledger type.
+JSS(XChainOwnedCreateAccountClaimID);    // ledger type.
+JSS(aborted);                            // out: InboundLedger
 JSS(accepted);               // out: LedgerToJson, OwnerInfo, SubmitTransaction
 JSS(account);                // in/out: many
 JSS(accountState);           // out: LedgerToJson
@@ -193,44 +204,48 @@ JSS(account_sequence_next);  // out: SubmitTransaction
 JSS(account_sequence_available);  // out: SubmitTransaction
 JSS(account_history_tx_stream);   // in: Subscribe, Unsubscribe
 JSS(account_history_tx_index);    // out: Account txn history subscribe
-JSS(account_history_tx_first);    // out: Account txn history subscribe
-JSS(accounts);                    // in: LedgerEntry, Subscribe,
-                                  //     handlers/Ledger, Unsubscribe
-JSS(accounts_proposed);           // in: Subscribe, Unsubscribe
+
+JSS(account_history_tx_first);  // out: Account txn history subscribe
+JSS(account_history_boundary);  // out: Account txn history subscribe
+JSS(accounts);                  // in: LedgerEntry, Subscribe,
+                                //     handlers/Ledger, Unsubscribe
+JSS(accounts_proposed);         // in: Subscribe, Unsubscribe
 JSS(acroot);
 JSS(action);
-JSS(acquiring);           // out: LedgerRequest
-JSS(address);             // out: PeerImp
-JSS(affected);            // out: AcceptedLedgerTx
-JSS(age);                 // out: NetworkOPs, Peers
-JSS(alternatives);        // out: PathRequest, RipplePathFind
-JSS(amendment_blocked);   // out: NetworkOPs
-JSS(amendments);          // in: AccountObjects, out: NetworkOPs
-JSS(amm);                 // out: amm_info
-JSS(amm_account);         // in: amm_info
-JSS(amount);              // out: AccountChannels, amm_info
-JSS(amount2);             // out: amm_info
-JSS(api_version);         // in: many, out: Version
-JSS(api_version_low);     // out: Version
-JSS(applied);             // out: SubmitTransaction
-JSS(asks);                // out: Subscribe
-JSS(asset);               // in: amm_info
-JSS(asset2);              // in: amm_info
-JSS(assets);              // out: GatewayBalances
-JSS(asset_frozen);        // out: amm_info
-JSS(asset2_frozen);       // out: amm_info
-JSS(auction_slot);        // out: amm_info
-JSS(authorized);          // out: AccountLines
-JSS(auth_accounts);       // out: amm_info
-JSS(auth_change);         // out: AccountInfo
-JSS(auth_change_queued);  // out: AccountInfo
-JSS(available);           // out: ValidatorList
-JSS(avg_bps_recv);        // out: Peers
-JSS(avg_bps_sent);        // out: Peers
-JSS(balance);             // out: AccountLines
-JSS(balances);            // out: GatewayBalances
-JSS(base);                // out: LogLevel
-JSS(base_fee);            // out: NetworkOPs
+JSS(acquiring);                   // out: LedgerRequest
+JSS(address);                     // out: PeerImp
+JSS(affected);                    // out: AcceptedLedgerTx
+JSS(age);                         // out: NetworkOPs, Peers
+JSS(alternatives);                // out: PathRequest, RipplePathFind
+JSS(amendment_blocked);           // out: NetworkOPs
+JSS(amendments);                  // in: AccountObjects, out: NetworkOPs
+JSS(amm);                         // out: amm_info
+JSS(amm_account);                 // in: amm_info
+JSS(amount);                      // out: AccountChannels, amm_info
+JSS(amount2);                     // out: amm_info
+JSS(api_version);                 // in: many, out: Version
+JSS(api_version_low);             // out: Version
+JSS(applied);                     // out: SubmitTransaction
+JSS(asks);                        // out: Subscribe
+JSS(asset);                       // in: amm_info
+JSS(asset2);                      // in: amm_info
+JSS(assets);                      // out: GatewayBalances
+JSS(asset_frozen);                // out: amm_info
+JSS(asset2_frozen);               // out: amm_info
+JSS(attestations);                //
+JSS(attestation_reward_account);  //
+JSS(auction_slot);                // out: amm_info
+JSS(authorized);                  // out: AccountLines
+JSS(auth_accounts);               // out: amm_info
+JSS(auth_change);                 // out: AccountInfo
+JSS(auth_change_queued);          // out: AccountInfo
+JSS(available);                   // out: ValidatorList
+JSS(avg_bps_recv);                // out: Peers
+JSS(avg_bps_sent);                // out: Peers
+JSS(balance);                     // out: AccountLines
+JSS(balances);                    // out: GatewayBalances
+JSS(base);                        // out: LogLevel
+JSS(base_fee);                    // out: NetworkOPs
 JSS(base_fee_no_hooks);
 JSS(base_fee_xrp);     // out: NetworkOPs
 JSS(base_fee_native);  // out: NetworkOPs
@@ -244,6 +259,8 @@ JSS(books);            // in: Subscribe, Unsubscribe
 JSS(both);             // in: Subscribe, Unsubscribe
 JSS(both_sides);       // in: Subscribe, Unsubscribe
 JSS(broadcast);        // out: SubmitTransaction
+JSS(bridge);           // in: LedgerEntry
+JSS(bridge_account);   // in: LedgerEntry
 JSS(build_path);       // in: TransactionSign
 JSS(build_version);    // out: NetworkOPs
 JSS(bytes_written);
@@ -807,8 +824,10 @@ JSS(vote_weight);      // out: amm_info
 JSS(warning);          // rpc:
 JSS(warnings);         // out: server_info, server_state
 JSS(workers);
-JSS(write_load);   // out: GetCounts
-JSS(NegativeUNL);  // out: ValidatorList; ledger type
+JSS(write_load);                            // out: GetCounts
+JSS(xchain_owned_claim_id);                 // in: LedgerEntry, AccountObjects
+JSS(xchain_owned_create_account_claim_id);  // in: LedgerEntry
+JSS(NegativeUNL);                           // out: ValidatorList; ledger type
 #undef JSS
 
 }  // namespace jss

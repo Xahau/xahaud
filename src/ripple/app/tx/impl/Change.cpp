@@ -577,7 +577,8 @@ Change::activateXahauGenesis()
     }
 
     {
-        ripple::STArray hooks{sfHooks, static_cast<int>(genesis_hooks.size())};
+        ripple::STArray hooks{
+            sfHooks, static_cast<std::size_t>(genesis_hooks.size())};
         int hookCount = 0;
 
         for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)

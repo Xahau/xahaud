@@ -167,6 +167,30 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
+    /** This transactions creates a crosschain sequence number */
+    ttXCHAIN_CREATE_CLAIM_ID = 50,
+
+    /** This transactions initiates a crosschain transaction */
+    ttXCHAIN_COMMIT = 51,
+
+    /** This transaction completes a crosschain transaction */
+    ttXCHAIN_CLAIM = 52,
+
+    /** This transaction initiates a crosschain account create transaction */
+    ttXCHAIN_ACCOUNT_CREATE_COMMIT = 53,
+
+    /** This transaction adds an attestation to a claimid*/
+    ttXCHAIN_ADD_CLAIM_ATTESTATION = 54,
+
+    /** This transaction adds an attestation to a claimid*/
+    ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION = 55,
+
+    /** This transaction modifies a sidechain */
+    ttXCHAIN_MODIFY_BRIDGE = 56,
+
+    /** This transactions creates a sidechain */
+    ttXCHAIN_CREATE_BRIDGE = 57,
+
     /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
     ttREMARKS_SET = 94,
 

@@ -1110,7 +1110,8 @@ updateHookParameters(
         return tecINTERNAL;
     }
 
-    STArray newParameters{sfHookParameters, parameterCount};
+    STArray newParameters{
+        sfHookParameters, static_cast<std::size_t>(parameterCount)};
     for (const auto& [parameterName, parameterValue] : parameters)
     {
         if (!parameterValue)

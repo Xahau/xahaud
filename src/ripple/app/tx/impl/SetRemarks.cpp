@@ -386,7 +386,7 @@ SetRemarks::doApply()
 
     std::sort(keys.begin(), keys.end());
 
-    STArray newRemarks{sfRemarks, static_cast<int>(keys.size())};
+    STArray newRemarks{sfRemarks, static_cast<std::size_t>(keys.size())};
     for (auto const& k : keys)
     {
         STObject remark{sfRemark};

@@ -96,6 +96,7 @@ CONSTRUCT_TYPED_SFIELD(sfTransactionResult,     "TransactionResult",    UINT8,  
 CONSTRUCT_TYPED_SFIELD(sfTickSize,              "TickSize",             UINT8,     16);
 CONSTRUCT_TYPED_SFIELD(sfUNLModifyDisabling,    "UNLModifyDisabling",   UINT8,     17);
 CONSTRUCT_TYPED_SFIELD(sfHookResult,            "HookResult",           UINT8,     18);
+CONSTRUCT_TYPED_SFIELD(sfWasLockingChainSend,   "WasLockingChainSend",  UINT8,     19);
 
 // 16-bit integers
 CONSTRUCT_TYPED_SFIELD(sfLedgerEntryType,       "LedgerEntryType",      UINT16,     1, SField::sMD_Never);
@@ -192,6 +193,9 @@ CONSTRUCT_TYPED_SFIELD(sfEmitBurden,            "EmitBurden",           UINT64, 
 CONSTRUCT_TYPED_SFIELD(sfHookInstructionCount,  "HookInstructionCount", UINT64,    17);
 CONSTRUCT_TYPED_SFIELD(sfHookReturnCode,        "HookReturnCode",       UINT64,    18);
 CONSTRUCT_TYPED_SFIELD(sfReferenceCount,        "ReferenceCount",       UINT64,    19);
+CONSTRUCT_TYPED_SFIELD(sfXChainClaimID,            "XChainClaimID",            UINT64, 20);
+CONSTRUCT_TYPED_SFIELD(sfXChainAccountCreateCount, "XChainAccountCreateCount", UINT64, 21);
+CONSTRUCT_TYPED_SFIELD(sfXChainAccountClaimCount,  "XChainAccountClaimCount",  UINT64, 22);
 CONSTRUCT_TYPED_SFIELD(sfTouchCount,            "TouchCount",           UINT64,    97);
 CONSTRUCT_TYPED_SFIELD(sfAccountIndex,          "AccountIndex",         UINT64,    98);
 CONSTRUCT_TYPED_SFIELD(sfAccountCount,          "AccountCount",         UINT64,    99);
@@ -283,7 +287,8 @@ CONSTRUCT_TYPED_SFIELD(sfLPTokenOut,            "LPTokenOut",           AMOUNT, 
 CONSTRUCT_TYPED_SFIELD(sfLPTokenIn,             "LPTokenIn",            AMOUNT,    26);
 CONSTRUCT_TYPED_SFIELD(sfEPrice,                "EPrice",               AMOUNT,    27);
 CONSTRUCT_TYPED_SFIELD(sfPrice,                 "Price",                AMOUNT,    28);
-// 29 and 30 are reserved for side-chains
+CONSTRUCT_TYPED_SFIELD(sfSignatureReward,       "SignatureReward",      AMOUNT,    29);
+CONSTRUCT_TYPED_SFIELD(sfMinAccountCreateAmount, "MinAccountCreateAmount", AMOUNT, 30);
 CONSTRUCT_TYPED_SFIELD(sfLPTokenBalance,        "LPTokenBalance",       AMOUNT,    31);
 
 // variable length (common)
@@ -331,6 +336,12 @@ CONSTRUCT_TYPED_SFIELD(sfEmitCallback,          "EmitCallback",         ACCOUNT,
 
 // account (uncommon)
 CONSTRUCT_TYPED_SFIELD(sfHookAccount,           "HookAccount",          ACCOUNT,   16);
+CONSTRUCT_TYPED_SFIELD(sfOtherChainSource,      "OtherChainSource",     ACCOUNT,   18);
+CONSTRUCT_TYPED_SFIELD(sfOtherChainDestination, "OtherChainDestination",ACCOUNT,   19);
+CONSTRUCT_TYPED_SFIELD(sfAttestationSignerAccount, "AttestationSignerAccount", ACCOUNT, 20);
+CONSTRUCT_TYPED_SFIELD(sfAttestationRewardAccount, "AttestationRewardAccount", ACCOUNT, 21);
+CONSTRUCT_TYPED_SFIELD(sfLockingChainDoor,      "LockingChainDoor",     ACCOUNT,   22);
+CONSTRUCT_TYPED_SFIELD(sfIssuingChainDoor,      "IssuingChainDoor",     ACCOUNT,   23);
 CONSTRUCT_TYPED_SFIELD(sfInform,                "Inform",               ACCOUNT,   99);
 
 // vector of 256-bit
@@ -345,9 +356,14 @@ CONSTRUCT_TYPED_SFIELD(sfURITokenIDs,           "URITokenIDs",          VECTOR25
 CONSTRUCT_UNTYPED_SFIELD(sfPaths,               "Paths",                PATHSET,    1);
 
 // issue
+CONSTRUCT_TYPED_SFIELD(sfLockingChainIssue,     "LockingChainIssue",    ISSUE,      1);
+CONSTRUCT_TYPED_SFIELD(sfIssuingChainIssue,     "IssuingChainIssue",    ISSUE,      2);
 CONSTRUCT_TYPED_SFIELD(sfAsset,                 "Asset",                ISSUE,      3);
 CONSTRUCT_TYPED_SFIELD(sfAsset2,                "Asset2",               ISSUE,      4);
 
+// Bridge
+CONSTRUCT_TYPED_SFIELD(sfXChainBridge,           "XChainBridge",        XCHAIN_BRIDGE,
+                                                                               1);
 // inner object
 // OBJECT/1 is reserved for end of object
 CONSTRUCT_UNTYPED_SFIELD(sfTransactionMetaData, "TransactionMetaData",  OBJECT,     2);
@@ -377,6 +393,16 @@ CONSTRUCT_UNTYPED_SFIELD(sfHookGrant,           "HookGrant",            OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfVoteEntry,           "VoteEntry",            OBJECT,    25);
 CONSTRUCT_UNTYPED_SFIELD(sfAuctionSlot,         "AuctionSlot",          OBJECT,    26);
 CONSTRUCT_UNTYPED_SFIELD(sfAuthAccount,         "AuthAccount",          OBJECT,    27);
+CONSTRUCT_UNTYPED_SFIELD(sfXChainClaimProofSig, "XChainClaimProofSig",  OBJECT,    28);
+CONSTRUCT_UNTYPED_SFIELD(sfXChainCreateAccountProofSig,
+                                                "XChainCreateAccountProofSig",
+                                                                        OBJECT,    29);
+CONSTRUCT_UNTYPED_SFIELD(sfXChainClaimAttestationCollectionElement,
+                                                 "XChainClaimAttestationCollectionElement",
+                                                                        OBJECT,    30);
+CONSTRUCT_UNTYPED_SFIELD(sfXChainCreateAccountAttestationCollectionElement,
+                                                 "XChainCreateAccountAttestationCollectionElement",
+                                                                        OBJECT,    31);
 CONSTRUCT_UNTYPED_SFIELD(sfRemark,              "Remark",               OBJECT,    97);
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMint,         "GenesisMint",          OBJECT,    96);
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidator,     "ActiveValidator",      OBJECT,    95);
@@ -405,7 +431,13 @@ CONSTRUCT_UNTYPED_SFIELD(sfDisabledValidators,  "DisabledValidators",   ARRAY,  
 CONSTRUCT_UNTYPED_SFIELD(sfHookExecutions,      "HookExecutions",       ARRAY,     18);
 CONSTRUCT_UNTYPED_SFIELD(sfHookParameters,      "HookParameters",       ARRAY,     19);
 CONSTRUCT_UNTYPED_SFIELD(sfHookGrants,          "HookGrants",           ARRAY,     20);
-// 21-24 is reserved for side-chains
+CONSTRUCT_UNTYPED_SFIELD(sfXChainClaimAttestations,
+                                                 "XChainClaimAttestations",
+                                                                        ARRAY,     21);
+CONSTRUCT_UNTYPED_SFIELD(sfXChainCreateAccountAttestations,
+                                                 "XChainCreateAccountAttestations",
+                                                                        ARRAY,     22);
+// 23 and 24 are unused and available for use
 CONSTRUCT_UNTYPED_SFIELD(sfAuthAccounts,        "AuthAccounts",         ARRAY,     25);
 CONSTRUCT_UNTYPED_SFIELD(sfRemarks,             "Remarks",              ARRAY,     97);
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMints,        "GenesisMints",         ARRAY,     96);

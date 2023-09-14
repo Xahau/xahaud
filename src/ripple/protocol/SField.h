@@ -49,6 +49,7 @@ template <int>
 class STBitString;
 template <class>
 class STInteger;
+class STXChainBridge;
 class STVector256;
 class Definitions;
 
@@ -80,6 +81,7 @@ enum SerializedTypeID {
     STI_UINT384 = 22,
     STI_UINT512 = 23,
     STI_ISSUE = 24,
+    STI_XCHAIN_BRIDGE = 25,
 
     // high level types
     // cannot be serialized inside other types
@@ -320,6 +322,7 @@ using SF_AMOUNT = TypedField<STAmount>;
 using SF_ISSUE = TypedField<STIssue>;
 using SF_VL = TypedField<STBlob>;
 using SF_VECTOR256 = TypedField<STVector256>;
+using SF_XCHAIN_BRIDGE = TypedField<STXChainBridge>;
 
 //------------------------------------------------------------------------------
 
@@ -334,6 +337,7 @@ extern SField const sfMetadata;
 extern SF_UINT8 const sfCloseResolution;
 extern SF_UINT8 const sfMethod;
 extern SF_UINT8 const sfTransactionResult;
+extern SF_UINT8 const sfWasLockingChainSend;
 
 // 8-bit integers (uncommon)
 extern SF_UINT8 const sfTickSize;
@@ -435,6 +439,9 @@ extern SF_UINT64 const sfRewardAccumulator;
 extern SF_UINT64 const sfAccountCount;
 extern SF_UINT64 const sfAccountIndex;
 extern SF_UINT64 const sfTouchCount;
+extern SF_UINT64 const sfXChainClaimID;
+extern SF_UINT64 const sfXChainAccountCreateCount;
+extern SF_UINT64 const sfXChainAccountClaimCount;
 
 // 128-bit
 extern SF_UINT128 const sfEmailHash;
@@ -521,6 +528,8 @@ extern SF_AMOUNT const sfLPTokenIn;
 extern SF_AMOUNT const sfBaseFeeDrops;
 extern SF_AMOUNT const sfReserveBaseDrops;
 extern SF_AMOUNT const sfReserveIncrementDrops;
+extern SF_AMOUNT const sfSignatureReward;
+extern SF_AMOUNT const sfMinAccountCreateAmount;
 
 // variable length (common)
 extern SF_VL const sfPublicKey;
@@ -568,6 +577,12 @@ extern SF_ACCOUNT const sfEmitCallback;
 extern SF_ACCOUNT const sfHookAccount;
 extern SF_ACCOUNT const sfNFTokenMinter;
 extern SF_ACCOUNT const sfInform;
+extern SF_ACCOUNT const sfOtherChainSource;
+extern SF_ACCOUNT const sfOtherChainDestination;
+extern SF_ACCOUNT const sfAttestationSignerAccount;
+extern SF_ACCOUNT const sfAttestationRewardAccount;
+extern SF_ACCOUNT const sfLockingChainDoor;
+extern SF_ACCOUNT const sfIssuingChainDoor;
 
 // path set
 extern SField const sfPaths;
@@ -575,6 +590,11 @@ extern SField const sfPaths;
 // issue
 extern SF_ISSUE const sfAsset;
 extern SF_ISSUE const sfAsset2;
+extern SF_ISSUE const sfLockingChainIssue;
+extern SF_ISSUE const sfIssuingChainIssue;
+
+// bridge
+extern SF_XCHAIN_BRIDGE const sfXChainBridge;
 
 // vector of 256-bit
 extern SF_VECTOR256 const sfIndexes;
@@ -617,6 +637,10 @@ extern SField const sfHookEmission;
 extern SField const sfMintURIToken;
 extern SField const sfAmountEntry;
 extern SField const sfRemark;
+extern SField const sfXChainClaimProofSig;
+extern SField const sfXChainCreateAccountProofSig;
+extern SField const sfXChainClaimAttestationCollectionElement;
+extern SField const sfXChainCreateAccountAttestationCollectionElement;
 
 // array of objects (common)
 // ARRAY/1 is reserved for end of array
@@ -648,6 +672,8 @@ extern SField const sfImportVLKeys;
 extern SField const sfHookEmissions;
 extern SField const sfAmounts;
 extern SField const sfRemarks;
+extern SField const sfXChainClaimAttestations;
+extern SField const sfXChainCreateAccountAttestations;
 
 //------------------------------------------------------------------------------
 

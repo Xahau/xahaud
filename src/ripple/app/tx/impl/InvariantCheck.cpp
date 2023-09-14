@@ -28,6 +28,7 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/SystemParameters.h>
+#include <ripple/protocol/TxFormats.h>
 #include <ripple/protocol/nftPageMask.h>
 
 namespace ripple {
@@ -507,6 +508,9 @@ LedgerEntryTypesMatch::visitEntry(
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
             case ltAMM:
+            case ltBRIDGE:
+            case ltXCHAIN_OWNED_CLAIM_ID:
+            case ltXCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID:
                 break;
             default:
                 invalidTypeAdded_ = true;
@@ -614,7 +618,9 @@ ValidNewAccountRoot::finalize(
 
     // From this point on we know exactly one account was created.
     if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT ||
-         tt == ttREMIT || tt == ttAMM_CREATE) &&
+         tt == ttREMIT || tt == ttAMM_CREATE ||
+         tt == ttXCHAIN_ADD_CLAIM_ATTESTATION ||
+         tt == ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION) &&
         isTesSuccess(result))
     {
         std::uint32_t const startingSeq{
