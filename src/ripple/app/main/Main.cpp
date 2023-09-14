@@ -21,9 +21,9 @@
 #include <ripple/app/rdb/Vacuum.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/StringUtilities.h>
-#include <ripple/basics/ThreadUtilities.h>
 #include <ripple/basics/contract.h>
 #include <ripple/beast/clock/basic_seconds_clock.h>
+#include <ripple/beast/core/CurrentThreadName.h>
 #include <ripple/core/Config.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/core/TimeKeeper.h>
@@ -347,7 +347,8 @@ run(int argc, char** argv)
 {
     using namespace std;
 
-    this_thread::set_name("Xahaud: main " + BuildInfo::getVersionString());
+    beast::setCurrentThreadName(
+        "xahaud: main " + BuildInfo::getVersionString());
 
     po::variables_map vm;
 
@@ -825,7 +826,7 @@ run(int argc, char** argv)
     }
 
     // We have an RPC command to process:
-    this_thread::set_name("xahaud: rpc");
+    beast::setCurrentThreadName("xahaud: rpc");
     return RPCCall::fromCommandLine(
         *config, vm["parameters"].as<std::vector<std::string>>(), *logs);
 }

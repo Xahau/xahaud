@@ -34,6 +34,7 @@ add_library(xrpl::libxrpl ALIAS libxrpl)
 #]===============================]
 target_sources (xrpl_core PRIVATE
   src/ripple/beast/clock/basic_seconds_clock.cpp
+  src/ripple/beast/core/CurrentThreadName.cpp
   src/ripple/beast/core/SemanticVersion.cpp
   src/ripple/beast/hash/impl/xxhash.cpp
   src/ripple/beast/insight/impl/Collector.cpp
@@ -65,7 +66,6 @@ target_sources (xrpl_core PRIVATE
   src/ripple/basics/impl/Log.cpp
   src/ripple/basics/impl/Number.cpp
   src/ripple/basics/impl/StringUtilities.cpp
-  src/ripple/basics/impl/ThreadUtilities.cpp
   #[===============================[
     main sources:
       subdir: json
@@ -213,7 +213,6 @@ install (
     src/ripple/basics/TaggedCache.h
     src/ripple/basics/tagged_integer.h
     src/ripple/basics/ThreadSafetyAnalysis.h
-    src/ripple/basics/ThreadUtilities.h
     src/ripple/basics/ToString.h
     src/ripple/basics/UnorderedContainers.h
     src/ripple/basics/UptimeClock.h
@@ -325,6 +324,7 @@ install (
   DESTINATION include/ripple/beast/clock)
 install (
   FILES
+    src/ripple/beast/core/CurrentThreadName.h
     src/ripple/beast/core/LexicalCast.h
     src/ripple/beast/core/List.h
     src/ripple/beast/core/SemanticVersion.h
@@ -885,7 +885,6 @@ if (tests)
     src/test/basics/Slice_test.cpp
     src/test/basics/StringUtilities_test.cpp
     src/test/basics/TaggedCache_test.cpp
-    src/test/basics/ThreadName_test.cpp
     src/test/basics/XRPAmount_test.cpp
     src/test/basics/base64_test.cpp
     src/test/basics/base_uint_test.cpp
@@ -903,6 +902,7 @@ if (tests)
     src/test/beast/LexicalCast_test.cpp
     src/test/beast/SemanticVersion_test.cpp
     src/test/beast/aged_associative_container_test.cpp
+    src/test/beast/beast_CurrentThreadName_test.cpp
     src/test/beast/beast_Journal_test.cpp
     src/test/beast/beast_PropertyStream_test.cpp
     src/test/beast/beast_Zero_test.cpp
