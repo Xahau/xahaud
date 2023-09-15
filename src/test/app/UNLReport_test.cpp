@@ -23,22 +23,6 @@
 #include <test/jtx.h>
 #include <vector>
 
-// 1. Test IMPORT KEY VL
-// 2. Test Amendment
-
-// 1. NO VL IMPORT KEY IN CONFIG - UNLReport sets VL KEY
-// 2. 
-
-// preflight
-// temDISABLED
-// temMALFORMED
-// telIMPORT_VL_KEY_NOT_RECOGNISED
-// doApply
-// created && !created (hasAV)
-// reset && !reset
-// existing && !existing
-
-
 namespace ripple {
 namespace test {
 
