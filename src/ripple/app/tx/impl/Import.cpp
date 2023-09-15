@@ -134,7 +134,6 @@ Import::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
-
     if (tx.getFieldVL(sfBlob).size() > (512 * 1024))
     {
         JLOG(ctx.j.warn())
@@ -869,12 +868,19 @@ Import::preclaim(PreclaimContext const& ctx)
     auto const vlInfo = getVLInfo(*xpop, ctx.j);
 
     if (!vlInfo)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: during preclaim could not parse vlInfo, bailing.";
         return tefINTERNAL;
+    }
 
     auto const& sleVL = ctx.view.read(keylet::import_vlseq(vlInfo->second));
-    
     if (sleVL && sleVL->getFieldU32(sfImportSequence) > vlInfo->first)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: import vl sequence already used, bailing.";
         return tefPAST_IMPORT_VL_SEQ;
+    }
 
     // check master VL key
     std::string strPk = (*xpop)[jss::validation][jss::unl][jss::public_key].asString();
@@ -883,7 +889,6 @@ Import::preclaim(PreclaimContext const& ctx)
         found != ctx.app.config().IMPORT_VL_KEYS.end())
         return tesSUCCESS;
 
-    // not found in our local VL keys
     auto pkHex = strUnHex(strPk);
     if (!pkHex)
         return tefINTERNAL;
@@ -903,6 +908,8 @@ Import::preclaim(PreclaimContext const& ctx)
                 return tesSUCCESS;
     }
 
+    JLOG(ctx.j.warn()) 
+        << "Import: import vl key not recognized, bailing.";
     return telIMPORT_VL_KEY_NOT_RECOGNISED;
 }
 
@@ -1091,7 +1098,7 @@ Import::doApply()
 
     auto const keyletVL = keylet::import_vlseq(infoVL->second);
     auto sleVL = view().peek(keyletVL);
-    
+
     if (!sleVL)
     {
         // create VL import seq counter
@@ -1231,7 +1238,7 @@ Import::doApply()
             sle->setFieldU64(sfAccountIndex, accIdx);
             sleFees->setFieldU64(sfAccountCount, accIdx + 1);
         }
-    
+
         if (ctx_.tx.getSigningPubKey().empty() ||
             calcAccountID(PublicKey(makeSlice(ctx_.tx.getSigningPubKey()))) != id)
         {
