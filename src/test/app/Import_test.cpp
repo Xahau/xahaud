@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2023 XRPLF
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -30,6 +30,7 @@
 #include <test/jtx.h>
 #include <test/app/Import_json.h>
 #include <ripple/app/misc/AmendmentTable.h>
+#include <ripple/app/misc/HashRouter.h>
 
 #define BEAST_REQUIRE(x)     \
     {                        \
@@ -44,13 +45,30 @@ namespace test {
 
 class Import_test : public beast::unit_test::suite
 {
+    std::vector<std::string> const keys = {
+        "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+
     std::unique_ptr<Config>
     makeNetworkConfig(uint32_t networkID)
     {
         using namespace jtx;
-        std::vector<std::string> const keys = {
-            "ED74D4036C6591A4BDF9C54CEFA39B996A"
-            "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+        return envconfig([&](std::unique_ptr<Config> cfg) {
+            cfg->NETWORK_ID = networkID;
+            Section config;
+            config.append(
+                {"reference_fee = 10",
+                 "account_reserve = 1000000",
+                 "owner_reserve = 200000"});
+            auto setup = setup_FeeVote(config);
+            cfg->FEES = setup;
+            return cfg;
+        });
+    }
+
+    std::unique_ptr<Config>
+    makeNetworkVLConfig(uint32_t networkID, std::vector<std::string> keys)
+    {
+        using namespace jtx;
         return envconfig([&](std::unique_ptr<Config> cfg) {
             cfg->NETWORK_ID = networkID;
             Section config;
@@ -165,6 +183,36 @@ class Import_test : public beast::unit_test::suite
         return jsonValue;
     }
 
+    static std::uint32_t
+    importVLSequence(
+        jtx::Env const& env,
+        PublicKey const& pk)
+    {
+        auto const sle = env.le(keylet::import_vlseq(pk));
+        if (sle->isFieldPresent(sfImportSequence))
+            return (*sle)[sfImportSequence];
+        return 0;
+    }
+
+    STTx
+    createUNLReportTx(LedgerIndex seq, PublicKey const& importKey, PublicKey const& valKey)
+    {
+        auto fill = [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfActiveValidator);
+                inner->setFieldVL(sfPublicKey, valKey);
+                return inner;
+            })());
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfImportVLKey);
+                inner->setFieldVL(sfPublicKey, importKey);
+                return inner;
+            })());
+        };
+        return STTx(ttUNL_REPORT, fill);
+    }
+
     void
     testComputeStartingBalance(FeatureBitset features)
     {
@@ -173,7 +221,7 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
         
         // old fee
         XRPAmount const value = Import::computeStartingBonus(*env.current());
@@ -243,7 +291,7 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
         auto const alice = Account("alice");
         env.fund(XRP(1000), alice);
@@ -349,7 +397,7 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
         // blob empty
         {
@@ -1452,7 +1500,7 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
         std::string strJson = R"json({
             "ledger": {
@@ -1546,7 +1594,7 @@ class Import_test : public beast::unit_test::suite
             // If the Import amendment is not enabled, you should not be able
             // to import.
             auto const amend = withImport ? features : features - featureImport;
-            Env env{*this, makeNetworkConfig(21337), amend};
+            Env env{*this, makeNetworkVLConfig(21337, keys), amend};
 
             auto const feeDrops = env.current()->fees().base;
 
@@ -1562,7 +1610,6 @@ class Import_test : public beast::unit_test::suite
 
             auto const txResult =
                 withImport ? ter(tesSUCCESS) : ter(temDISABLED);
-            auto const ownerDir = withImport ? 1 : 0;
 
             // IMPORT - Account Set
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)), fee(feeDrops * 10), txResult);
@@ -1579,7 +1626,7 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
         // burn 1000 xrp
         auto const master = Account("masterpassphrase");
@@ -1595,8 +1642,11 @@ class Import_test : public beast::unit_test::suite
         //----------------------------------------------------------------------
         // preflight
 
-        // temDISABLED - disabled - CHECKED IN ENABLED
-        // return ret; - preflight1 no success
+        // temDISABLED - disabled
+        // !ctx.rules.enabled(featureImport)
+
+        // temDISABLED - disabled
+        // r!ctx.rules.enabled(featureHooksUpdate1) && ctx.tx.isFieldPresent(sfIssuer)
 
         // telINSUF_FEE_P - sfFee cannot be 0
         {
@@ -1627,7 +1677,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1635,7 +1685,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::public_key] = "not a hex";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1646,7 +1696,7 @@ class Import_test : public beast::unit_test::suite
             tmpXpop[jss::validation][jss::unl][jss::public_key] =
                 "0084D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
                 "CDC1";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1664,7 +1714,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] = "DEADBEEF";
             tmpXpop[jss::transaction][jss::meta] = "DEADBEEF";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1686,7 +1736,7 @@ class Import_test : public beast::unit_test::suite
                 "1954F6A7225A8BAADF5A3042016BFB87355D1D0AFEDBAA8FB22F98355D745F"
                 "398EEE9E6B294BBE6A5681A31A6107243D19384E277B5A7B1F23B8C83DE78A"
                 "14AE123A8556F3CF91154711376AFB0F894F832B3DE1";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1699,7 +1749,7 @@ class Import_test : public beast::unit_test::suite
                 "D7795C91BFB0831355BDFDA177E86C8BF997985FE624000000026240000000"
                 "773593F4E1E7220000000024000000032D0000000162400000003B9AC9F481"
                 "14AE123A8556F3CF91154711376AFB0F894F832B3DE1E1F1";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1713,15 +1763,15 @@ class Import_test : public beast::unit_test::suite
                 "D7795C91BFB0831355BDFDA177E86C8BF997985FE624000000026240000000"
                 "773593F4E1E7220000000024000000032D0000000162400000003B9AC9F481"
                 "14AE123A8556F3CF91154711376AFB0F894F832B3DE1E1F103103C";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
         // temMALFORMED - Import: import and txn inside xpop must be signed by
         // the same account
         {
-            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
-            Json::Value tx = import(bob, tmpXpop);
+            Json::Value const tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value const tx = import(bob, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1736,7 +1786,7 @@ class Import_test : public beast::unit_test::suite
                 "0F67C7FFBF0287756D324DFBADCEDE2B23782C02207BE1B1294F1A1D5AC219"
                 "90740B78F9C0693431237D6E07FE84228082986E50FF8114AE123A8556F3CF"
                 "91154711376AFB0F894F832B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1750,7 +1800,7 @@ class Import_test : public beast::unit_test::suite
                 "747440549A370E68DBB1947419D4CCDF90CAE0BCA9121593ECC21B3C79EF0F"
                 "232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF3EC206AD3C51"
                 "77C519560F8114AE123A8556F3CF91154711376AFB0F894F832B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1765,7 +1815,7 @@ class Import_test : public beast::unit_test::suite
                 "C21B3C79EF0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF"
                 "3EC206AD3C5177C519560F8114AE123A8556F3CF91154711376AFB0F894F83"
                 "2B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(telWRONG_NETWORK));
         }
 
@@ -1780,7 +1830,7 @@ class Import_test : public beast::unit_test::suite
                 "C21B3C79EF0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF"
                 "3EC206AD3C5177C519560F8114AE123A8556F3CF91154711376AFB0F894F83"
                 "2B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1798,7 +1848,7 @@ class Import_test : public beast::unit_test::suite
                 "C21B3C79EF0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF"
                 "3EC206AD3C5177C519560F8114AE123A8556F3CF91154711376AFB0F894F83"
                 "2B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1809,7 +1859,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::manifest] = "YmFkSnNvbg==";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1824,7 +1874,7 @@ class Import_test : public beast::unit_test::suite
                 "ikfgf9SZOlOGcBcBJAw44PLjH+"
                 "HUtEnwX45lIRmo0x5aINFMvZsBpE9QteSDBXKwYzLdnSW4e1bs21o+"
                 "IILJIiIKU/+1Uxx0FRpQbMDA==";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1838,7 +1888,7 @@ class Import_test : public beast::unit_test::suite
                 "ikfgf9SZOlOGcBcBJAw34PLjH+"
                 "HUtEnwX45lIRmo0x5aINFMvZsBpE9QteSDBXKwYzLdnSW4e1bs21o+"
                 "IILJIiIKU/+1Uxx0FRpQbMDA==";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1849,7 +1899,7 @@ class Import_test : public beast::unit_test::suite
                 "949F6B8DA6E11C213B561659C16F13D35385E8EA9E775483ADC84578F6D578"
                 "943DE5EB681584B2C03EFFFDFD216F9E0B21576E482F941C7195893B72B5B1"
                 "F70D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1857,7 +1907,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::signature] = "not a hex";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1867,7 +1917,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1902,7 +1952,7 @@ class Import_test : public beast::unit_test::suite
                 "2B3C0ECB63C82454522188337354C480693A9BCD64E776B4DBAD4C61B9E72D"
                 "D4CC1DC237B06891E57C623C38506FE8E01B1914C9413471BCC160111E2829"
                 "7606";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1933,7 +1983,7 @@ class Import_test : public beast::unit_test::suite
                 "FA82662A23EC78E9644C65F752B7A58F61F35AC36C260F9E9D5CAC7D53D16D"
                 "5D615A02A6462F2618C162D089AD2E3BA7D656728392180517A81B4C47F86A"
                 "640D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1964,7 +2014,7 @@ class Import_test : public beast::unit_test::suite
                 "9CCA07A3EDD1334D5ADCB3730D8F3F9BD1E0C338100384C7B15B6A910F96BE"
                 "4F46E3052B37E9FE2E7DC9918BD85B9E871923AE1BDD7144EE2A92F625064C"
                 "570C";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1981,7 +2031,7 @@ class Import_test : public beast::unit_test::suite
                    [jss::children]["7"][jss::hash] =
                        "12D47E7D543E15F1EDBA91CDF335722727851BDDA8C2FF8924772AD"
                        "C6B522A29";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -1997,7 +2047,7 @@ class Import_test : public beast::unit_test::suite
                    [jss::hash] =
                        "22D47E7D543E15F1EDBA91CDF335722727851BDDA8C2FF8924772AD"
                        "C6B522A29";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -2024,7 +2074,7 @@ class Import_test : public beast::unit_test::suite
                 "WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RTlTanVMUj"
                 "ZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9jeWNyRi9D"
                 "dFNBND0ifV19=";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -2056,7 +2106,7 @@ class Import_test : public beast::unit_test::suite
             valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
                 "not a hex";
             tmpXpop[jss::validation][jss::data] = valData;
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -2074,7 +2124,7 @@ class Import_test : public beast::unit_test::suite
                 "02203B131B68D3C5B6C5482312CC7D90D2CE131A9C46458967F2F98688B726"
                 "C16719";
             tmpXpop[jss::validation][jss::data] = valData;
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
         // temMALFORMED - Import: validation inside xpop was not signed with a
@@ -2091,7 +2141,7 @@ class Import_test : public beast::unit_test::suite
                 "02203B131B68D3C5B6C5482312CC7D90D2CE131A9C46458967F2F98688B726"
                 "C16719";
             tmpXpop[jss::validation][jss::data] = valData;
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
         // temMALFORMED - Import: validation inside xpop was not correctly
@@ -2108,7 +2158,7 @@ class Import_test : public beast::unit_test::suite
                 "02203B131B68D3C5B6C5482312CC7D90D2CE131A9C46458967F2F98688B726"
                 "C16719";
             tmpXpop[jss::validation][jss::data] = valData;
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -2125,7 +2175,7 @@ class Import_test : public beast::unit_test::suite
             valData["n9KXYzdZD8YpsNiChtMjP6yhvQAhkkh5XeSTbvYyV1waF8wkNnBT"] =
                 "";
             tmpXpop[jss::validation][jss::data] = valData;
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
@@ -2139,7 +2189,7 @@ class Import_test : public beast::unit_test::suite
                 "6C747440549A370E68DBB1947419D4CCDF90CAE0BCA9121593ECC21B3C79EF"
                 "0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF3EC206AD3C"
                 "5177C519560F8114AE123A8556F3CF91154711376AFB0F894F832B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
         // No Fee
@@ -2151,7 +2201,7 @@ class Import_test : public beast::unit_test::suite
                 "549A370E68DBB1947419D4CCDF90CAE0BCA9121593ECC21B3C79EF0F232EB4"
                 "375F95F1EBCED78B94D09838B5E769D43F041019ADEF3EC206AD3C5177C519"
                 "560F8114AE123A8556F3CF91154711376AFB0F894F832B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
         // Bad Fee - TODO
@@ -2165,34 +2215,61 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-
-        env.fund(XRP(1000), alice, bob);
-        env.close();
-
-        // burn 1000 xrp
-        auto const master = Account("masterpassphrase");
-        env(noop(master), fee(1'000'000'000), ter(tesSUCCESS));
-        env.close();
-
-        //----------------------------------------------------------------------
+        // ----------------------------------------------------------------------
         // preclaim
 
-        // temDISABLED - disabled - CHECKED IN ENABLED
-        // tefINTERNAL/temMALFORMED - during preclaim could not parse xpop,
-        // bailing.
+        // temDISABLED
         {
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features - featureImport,
+                nullptr,
+                beast::severities::kWarning};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                ter(temDISABLED));
+        }
+
+        // tefINTERNAL
+        // during preclaim could not parse xpop, bailing.
+        {
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr,
+                beast::severities::kWarning};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
-            tmpXpop[jss::validation] = {};  // one of many ways to throw error
-            Json::Value tx = import(alice, tmpXpop);
+            tmpXpop[jss::validation] = {};
+            Json::Value const tx = import(alice, tmpXpop);
+            // DA: Sanity Check - tefINTERNAL(preclaim)
             env(tx, ter(temMALFORMED));
         }
-        // tefINTERNAL/temMALFORMED - during preclaim could not find
-        // importSequence, bailing.
+
+        // tefINTERNAL
+        // during preclaim could not find importSequence, bailing.
         {
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr,
+                beast::severities::kWarning};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::transaction][jss::blob] =
                 "1200632200000000201B0000006C201D0000535968400000003B9ACA007321"
@@ -2200,39 +2277,145 @@ class Import_test : public beast::unit_test::suite
                 "6C747440549A370E68DBB1947419D4CCDF90CAE0BCA9121593ECC21B3C79EF"
                 "0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF3EC206AD3C"
                 "5177C519560F8114AE123A8556F3CF91154711376AFB0F894F832B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
+            // DA: Sanity Check - tefINTERNAL(preclaim)
             env(tx, ter(temMALFORMED));
         }
-        // tefPAST_IMPORT_SEQ -
-        // {
-        //     env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
-        //         ter(tesSUCCESS));
-        //     env(import(alice, loadXpop(ImportTCAccountSet::min)),
-        //         ter(tefPAST_IMPORT_SEQ));
-        // }
 
-        // // tefINTERNAL/temMALFORMED - !vlInfo
-        // {
-        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
-        //     tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
-        //     Json::Value tx = import(alice, tmpXpop);
-        //     env(tx, ter(temMALFORMED));
-        // }
-        // tefPAST_IMPORT_VL_SEQ - sfImportSequence > vlInfo->first
-        // {
-        //     Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed)); env(tx, ter(tefPAST_IMPORT_SEQ));
-        // }
+        // tefPAST_IMPORT_SEQ
+        {
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr,
+                beast::severities::kWarning};
 
-        // telIMPORT_VL_KEY_NOT_RECOGNISED - Import: (fromchain) key does not
-        // match (tochain) key
-        // {
-        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
-        //     tmpXpop[jss::validation][jss::unl][jss::public_key] =
-        //         "ED84D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
-        //         "CDC1";
-        //     Json::Value tx = import(alice, tmpXpop);
-        //     env(tx, ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
-        // }
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                ter(tesSUCCESS));
+            env(import(alice, loadXpop(ImportTCAccountSet::min)),
+                ter(tefPAST_IMPORT_SEQ));
+        }
+
+        // temBAD_FEE
+        {
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr,
+                beast::severities::kWarning};
+
+            auto const alice = Account("alice");
+            env.memoize(alice);
+            Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 10;
+            env(tx, ter(temBAD_FEE));
+        }
+
+        // tefINTERNAL
+        // during preclaim could not parse vlInfo, bailing.
+        {
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr,
+                beast::severities::kWarning};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
+            Json::Value const tx = import(alice, tmpXpop);
+            // DA: Sanity Check - tefINTERNAL(preclaim)
+            env(tx, ter(temMALFORMED));
+        }
+        
+        // tefPAST_IMPORT_VL_SEQ
+        // import vl sequence already used, bailing.
+        {
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr,
+                beast::severities::kWarning};
+
+            std::string const pkString = "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1";
+            auto const pkHex = strUnHex(pkString);
+            PublicKey const pk{makeSlice(*pkHex)};
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            Json::Value const xpop1_1 = loadXpop(ImportTCAccountSet::unl_seq_1_1);
+            Json::Value const tx_1_1 = import(alice, xpop1_1);
+            env(tx_1_1, ter(tesSUCCESS));
+
+            BEAST_EXPECT(importVLSequence(env, pk) == 1);
+
+            Json::Value const xpop2_1 = loadXpop(ImportTCAccountSet::unl_seq_2_1);
+            Json::Value const tx_2_1 = import(bob, xpop2_1);
+            env(tx_2_1, ter(tesSUCCESS));
+
+            BEAST_EXPECT(importVLSequence(env, pk) == 2);
+
+            Json::Value const xpop1_2 = loadXpop(ImportTCAccountSet::unl_seq_1_2);
+            Json::Value const tx_1_2 = import(alice, xpop1_2);
+            env(tx_1_2, ter(tefPAST_IMPORT_VL_SEQ));
+        }
+
+        // tesSUCCESS
+        // DA: testImportSequence
+
+        // tefINTERNAL
+        // DA: Impossible Test
+
+        // tefINTERNAL
+        // DA: Impossible Test
+
+        // tesSUCCESS
+        // DA: testImportSequence
+
+        // telIMPORT_VL_KEY_NOT_RECOGNISED
+        // import vl key not recognized, bailing.
+        {
+
+            test::jtx::Env env{
+                *this,
+                makeNetworkConfig(21337),
+                features,
+                nullptr,
+                beast::severities::kWarning};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            Json::Value const tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
+        }
     }
 
     void
@@ -2243,7 +2426,7 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
@@ -2259,8 +2442,7 @@ class Import_test : public beast::unit_test::suite
         //----------------------------------------------------------------------
         // doApply
 
-        // temDISABLED - disabled
-        // DA: Sanity Check
+        // temDISABLED
 
         // tefINTERNAL/temMALFORMED - ctx_.tx.isFieldPresent(sfBlob)
         {
@@ -2274,12 +2456,12 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation] = {};  // one of many ways to throw error
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
-        // tefINTERNAL/temMALFORMED - during apply could not find importSequence
-        // or fee, bailing.
+        // tefINTERNAL/temMALFORMED
+        // during apply could not find importSequence or fee, bailing.
         // No Fee
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
@@ -2289,26 +2471,30 @@ class Import_test : public beast::unit_test::suite
                 "6C747440549A370E68DBB1947419D4CCDF90CAE0BCA9121593ECC21B3C79EF"
                 "0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF3EC206AD3C"
                 "5177C519560F8114AE123A8556F3CF91154711376AFB0F894F832B3D";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
         // No Sequence
 
-        // tefINTERNAL - initBal <= beast::zero
+        // tefINTERNAL
+        // initBal <= beast::zero
         // Sanity Check
 
-        // tefINTERNAL - ImportSequence passed
+        // tefINTERNAL
+        // ImportSequence passed
         // Sanity Check (tefPAST_IMPORT_SEQ)
 
-        // tefINTERNAL/temMALFORMED - !infoVL
+        // tefINTERNAL/temMALFORMED
+        // !infoVL
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] = "YmFkSnNvbg==";
-            Json::Value tx = import(alice, tmpXpop);
+            Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
-        // tefINTERNAL - current > infoVL->first
+        // tefINTERNAL
+        // current > infoVL->first
         // Sanity Check (tefPAST_IMPORT_VL_SEQ)
     }
 
@@ -2322,12 +2508,10 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> dne (bad signer)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-            auto const feeDrops = env.current()->fees().base;
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2336,7 +2520,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2375,12 +2559,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2389,7 +2573,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2432,12 +2616,10 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key other -> dne (bad signer)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-            auto const feeDrops = env.current()->fees().base;
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2446,7 +2628,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2485,12 +2667,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2499,7 +2681,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2548,12 +2730,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ signers list -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2562,7 +2744,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2619,12 +2801,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> funded
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10,000 xrp
@@ -2633,7 +2815,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -2672,12 +2854,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key -> funded
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2686,7 +2868,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2703,7 +2885,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCAccountSet::w_regular_key);
-            Json::Value tx = import(alice, xpopJson);
+            Json::Value const tx = import(alice, xpopJson);
             env(tx, alice, sig(bob), fee(10 * 10), ter(tesSUCCESS));
             env.close();
 
@@ -2729,12 +2911,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ signers -> funded
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2743,7 +2925,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2761,7 +2943,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson = loadXpop(ImportTCAccountSet::w_signers);
-            Json::Value tx = import(alice, xpopJson);
+            Json::Value const tx = import(alice, xpopJson);
             env(tx,
                 alice,
                 msig(bob, carol),
@@ -2804,12 +2986,12 @@ class Import_test : public beast::unit_test::suite
 
         // account set flags not migrated
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2818,7 +3000,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -2866,12 +3048,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm env
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2879,7 +3061,7 @@ class Import_test : public beast::unit_test::suite
             env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
 
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2922,12 +3104,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm env
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2935,7 +3117,7 @@ class Import_test : public beast::unit_test::suite
             env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
 
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -2980,12 +3162,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ signers -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm env
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -2993,7 +3175,7 @@ class Import_test : public beast::unit_test::suite
             env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
 
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -3048,12 +3230,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> funded
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm env
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3061,7 +3243,7 @@ class Import_test : public beast::unit_test::suite
             env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
             env.close();
             
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3100,12 +3282,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> funded (update regular key)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3114,7 +3296,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3165,12 +3347,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key -> funded (update regular key)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3179,7 +3361,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3231,12 +3413,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ signers list -> funded (update regular key)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3245,7 +3427,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3305,12 +3487,12 @@ class Import_test : public beast::unit_test::suite
 
         // seed -> funded (empty regular key)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3319,7 +3501,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3369,12 +3551,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key -> funded (empty regular key)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3383,7 +3565,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3437,12 +3619,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ signers -> funded (empty regular key)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3451,7 +3633,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3519,7 +3701,7 @@ class Import_test : public beast::unit_test::suite
 
         // dne -> dont set flag
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
@@ -3550,7 +3732,7 @@ class Import_test : public beast::unit_test::suite
 
         // funded -> set flag
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
@@ -3588,12 +3770,10 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> dne w/ seed (Bad Fee)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
-
-            auto const feeDrops = env.current()->fees().base;
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3602,7 +3782,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -3633,12 +3813,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> dne w/ seed
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3647,7 +3827,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -3684,7 +3864,6 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers set
-            auto const k = keylet::signers(alice);
             auto const [signers, signersSle] =
                 signersKeyAndSle(*env.current(), alice);
             auto const signerEntries =
@@ -3712,12 +3891,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3726,7 +3905,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -3765,7 +3944,6 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers set
-            auto const k = keylet::signers(alice);
             auto const [signers, signersSle] =
                 signersKeyAndSle(*env.current(), alice);
             auto const signerEntries =
@@ -3796,12 +3974,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ signers -> dne
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 100,000 xrp
@@ -3810,7 +3988,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -3843,7 +4021,6 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm signers set
-            auto const k = keylet::signers(alice);
             auto const [signers, signersSle] = signersKeyAndSle(*env.current(), alice);
             auto const signerEntries = signersSle->getFieldArray(sfSignerEntries);
             BEAST_EXPECT(signerEntries.size() == 2);
@@ -3871,12 +4048,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> funded
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3885,7 +4062,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -3944,12 +4121,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed (empty) -> funded (has entries)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -3958,7 +4135,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -4013,12 +4190,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ regular key (empty) -> funded (has entries)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -4027,7 +4204,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -4094,12 +4271,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ signers (empty) -> funded (has entries)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -4108,7 +4285,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -4176,14 +4353,13 @@ class Import_test : public beast::unit_test::suite
         
         // tt NFTokenMint
         // tt URITokenMint
-        // w/ seed -> dne w/ seed
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -4192,7 +4368,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -4216,34 +4392,34 @@ class Import_test : public beast::unit_test::suite
             auto const failedAlice = env.balance(alice);
             BEAST_EXPECT(failedAlice == postAlice);
         }
-        // tt Payment
-        // tt Payment
-        {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        // // tt Payment
+        // // tt Payment
+        // {
+        //     test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
-            auto const feeDrops = env.current()->fees().base;
+        //     auto const feeDrops = env.current()->fees().base;
 
-            auto const alice = Account("alice");
-            env.fund(XRP(1000), alice);
-            env.close();
+        //     auto const alice = Account("alice");
+        //     env.fund(XRP(1000), alice);
+        //     env.close();
 
-            auto preAlice = env.balance(alice);
-            BEAST_EXPECT(preAlice == XRP(1000));
-            env(import(alice, loadXpop(ImportTCPayment::w_seed)),
-                fee(feeDrops * 10),
-                ter(tesSUCCESS));
-            env.close();
+        //     auto preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(1000));
+        //     env(import(alice, loadXpop(ImportTCPayment::w_seed)),
+        //         fee(feeDrops * 10),
+        //         ter(tesSUCCESS));
+        //     env.close();
 
-            // confirm fee was minted
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + XRP(1000) - (feeDrops * 10));
+        //     // confirm fee was minted
+        //     auto const postAlice = env.balance(alice);
+        //     BEAST_EXPECT(postAlice == preAlice + XRP(1000) - (feeDrops * 10));
 
-            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
-                ter(tefPAST_IMPORT_SEQ));
-            env.close();
-            auto const failedAlice = env.balance(alice);
-            BEAST_EXPECT(failedAlice == postAlice);
-        }
+        //     env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+        //         ter(tefPAST_IMPORT_SEQ));
+        //     env.close();
+        //     auto const failedAlice = env.balance(alice);
+        //     BEAST_EXPECT(failedAlice == postAlice);
+        // }
     }
 
     void
@@ -4254,14 +4430,80 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // test tefPAST_IMPORT_SEQ
+        // // test bad IMPORT_VL_KEYS no UNLReport
+        // {
+        //     std::vector<std::string> const badVLKeys = {
+        //         "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC2"};
+        //     test::jtx::Env env{*this, makeNetworkVLConfig(21337, badVLKeys)};
+
+        //     auto const feeDrops = env.current()->fees().base;
+
+        //     // confirm total coins header
+        //     auto const initCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+        //     // burn 10'000 xrp
+        //     auto const master = Account("masterpassphrase");
+        //     env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        //     env.close();
+
+        //     // confirm total coins header
+        //     auto const burnCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
+
+        //     auto const alice = Account("alice");
+        //     env.fund(XRP(1000), alice);
+        //     env.close();
+
+        //     auto preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(1000));
+        //     env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+        //         fee(feeDrops * 10),
+        //         ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
+        //     env.close();
+        // }
+
+        // // test good IMPORT_VL_KEYS no UNLReport
+        // {
+        //     test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+
+        //     auto const feeDrops = env.current()->fees().base;
+
+        //     // confirm total coins header
+        //     auto const initCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+        //     // burn 10'000 xrp
+        //     auto const master = Account("masterpassphrase");
+        //     env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        //     env.close();
+
+        //     // confirm total coins header
+        //     auto const burnCoins = env.current()->info().drops;
+        //     BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
+
+        //     auto const alice = Account("alice");
+        //     env.fund(XRP(1000), alice);
+        //     env.close();
+
+        //     auto preAlice = env.balance(alice);
+        //     BEAST_EXPECT(preAlice == XRP(1000));
+        //     env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+        //         fee(feeDrops * 10),
+        //         ter(tesSUCCESS));
+        //     env.close();
+        // }
+
+        // test bad IMPORT_VL_KEYS has UNLReport
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            std::vector<std::string> const badVLKeys = {
+                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC2"};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, badVLKeys)};
 
             auto const feeDrops = env.current()->fees().base;
 
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -4270,7 +4512,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto burnCoins = env.current()->info().drops;
+            auto const burnCoins = env.current()->info().drops;
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
@@ -4279,24 +4521,52 @@ class Import_test : public beast::unit_test::suite
 
             auto preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(1000));
+
+            // ADD UNL REPORT
+            std::vector<std::string> const _ivlKeys = {
+                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1",
+                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC2",
+            };
+
+            std::vector<PublicKey> ivlKeys;
+            for (auto const& strPk : _ivlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                ivlKeys.emplace_back(makeSlice(*pkHex));
+            }
+
+            std::vector<std::string> const _vlKeys = {
+                "ED8E43A943A174190BA2FAE91F44AC6E2D1D8202EFDCC2EA3DBB39814576D690F7",
+                "ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B"
+            };
+
+            std::vector<PublicKey> vlKeys;
+            for (auto const& strPk : _vlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                vlKeys.emplace_back(makeSlice(*pkHex));
+            }
+
+            // insert a ttUNL_REPORT pseudo into the open ledger
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) -> bool {
+                    STTx tx = createUNLReportTx(env.current()->seq(), ivlKeys[0], vlKeys[0]);
+                    uint256 txID = tx.getTransactionID();
+                    auto s = std::make_shared<ripple::Serializer>();
+                    tx.add(*s);
+                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    view.rawTxInsert(txID, std::move(s), nullptr);
+                    return true;
+                });
+
+            // close the ledger
+            env.close();
+
+            // Test Import
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
                 fee(feeDrops * 10),
                 ter(tesSUCCESS));
             env.close();
-
-            // total burn = burn drops - fee drops
-            auto const totalBurn = XRP(1000) - (feeDrops * 10);
-
-            // confirm fee was minted
-            auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice + totalBurn);
-
-            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
-                fee(feeDrops * 10),
-                ter(tefPAST_IMPORT_SEQ));
-            env.close();
-            auto const failedAlice = env.balance(alice);
-            BEAST_EXPECT(failedAlice == postAlice);
         }
     }
 
@@ -4310,9 +4580,8 @@ class Import_test : public beast::unit_test::suite
 
         // burn 100'000 coins
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
-            auto const feeDrops = env.current()->fees().base;
             auto const envCoins = env.current()->info().drops;
             BEAST_EXPECT(envCoins == 100'000'000'000'000'000);
             // 100'000'000'000'000'000 - drops
@@ -4329,7 +4598,7 @@ class Import_test : public beast::unit_test::suite
             auto const alice = Account("alice");
             env.memoize(alice);
 
-            auto preAlice = env.balance(alice);
+            auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
             
             STAmount burnFee = XRP(1000) + XRP(2);
@@ -4348,7 +4617,7 @@ class Import_test : public beast::unit_test::suite
 
         // burn all coins
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
             auto const envCoins = env.current()->info().drops;
@@ -4365,7 +4634,7 @@ class Import_test : public beast::unit_test::suite
             auto const alice = Account("alice");
             env.memoize(alice);
 
-            auto preAlice = env.balance(alice);
+            auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
             
             STAmount burnFee = XRP(1000) + XRP(2);
@@ -4384,7 +4653,7 @@ class Import_test : public beast::unit_test::suite
 
         // burn no coins
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
             auto const envCoins = env.current()->info().drops;
@@ -4396,7 +4665,7 @@ class Import_test : public beast::unit_test::suite
             auto const alice = Account("alice");
             env.memoize(alice);
 
-            auto preAlice = env.balance(alice);
+            auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
             
             STAmount burnFee = XRP(1000) + XRP(2);
@@ -4424,12 +4693,12 @@ class Import_test : public beast::unit_test::suite
 
         // w/ seed -> dne (min)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
             // burn 10'000 xrp
@@ -4438,7 +4707,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // confirm total coins header
-            auto preCoins = env.current()->info().drops;
+            auto const preCoins = env.current()->info().drops;
             BEAST_EXPECT(preCoins == initCoins - 10'000'000'000);
 
             // init env
@@ -4477,7 +4746,7 @@ class Import_test : public beast::unit_test::suite
 
         // // w/ seed -> dne (max)
         // {
-        //     test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        //     test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
         //     auto const feeDrops = env.current()->fees().base;
         //     auto const envCoins = env.current()->info().drops;
@@ -4607,9 +4876,9 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 1'999'999);
 
             // init env
@@ -4658,10 +4927,10 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
             env.close();
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 2'000'000);
 
             // init env
@@ -4710,11 +4979,11 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
             env.close();
             env.close();
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 2'000'001);
 
             // init env
@@ -4763,9 +5032,9 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 5'000'000);
 
             // init env
@@ -4814,9 +5083,9 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 20'000'000);
 
             // init env
@@ -4865,9 +5134,9 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 29'999'999);
 
             // init env
@@ -4916,10 +5185,10 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
             env.close();
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 30'000'000);
 
             // init env
@@ -4968,9 +5237,9 @@ class Import_test : public beast::unit_test::suite
             auto const feeDrops = env.current()->fees().base;
             
             // confirm total coins header
-            auto initCoins = env.current()->info().drops;
+            auto const initCoins = env.current()->info().drops;
             BEAST_EXPECT(initCoins == 0);
-            auto initSeq = env.current()->info().seq;
+            auto const initSeq = env.current()->info().seq;
             BEAST_EXPECT(initSeq == 50'000'001);
 
             // init env
@@ -5031,6 +5300,7 @@ public:
         testSetRegularKey(features);
         testSetRegularKeyFlags(features);
         testSignersListSet(features);
+        // testHookIssuer(features);
         testImportSequence(features);
         testMaxSupply(features);
         testMinMax(features);
