@@ -1209,7 +1209,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         // { bob, ed, m6, m7, alice, carol, david, m8, ... m20 }
         // check this is the case forward and reverse keys
 
-        auto const checkSeat = [&](uint8_t seat, Account const& acc)
+        auto const checkSeat = [&](uint8_t seat, Account const* acc)
         {
             uint8_t key[32] = {
                 0,0,0,0,0,0,0,
@@ -1222,18 +1222,28 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             {
                 key[31] = seat;
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
+
+                if (!acc)
+                {
+                    if (entry)
+                        std::cout << "checkSeat failed, seatno->accid present (but should be empty) for seat: " 
+                            << seat << "\n";
+                    BEAST_EXPECT(!entry);
+                    return;
+                }
+
                 if (!entry)
                     std::cout << "checkSeat failed, seatno->accid missing for seat: " << seat << "\n";
-                else if (entry->getFieldVL(sfHookStateData) != vecFromAcc(acc))
+                else if (entry->getFieldVL(sfHookStateData) != vecFromAcc(*acc))
                     std::cout << "checkSeat failed, seatno->accid incorrect for seat: " << seat << "\n";
                 BEAST_EXPECT(!!entry &&
-                    entry->getFieldVL(sfHookStateData) == vecFromAcc(acc));
+                    entry->getFieldVL(sfHookStateData) == vecFromAcc(*acc));
             }
             
             // accid => seatno
             {
                 for (int i = 12; i < 32; ++i)
-                key[i] = acc.id().data()[i-12];
+                key[i] = acc->id().data()[i-12];
     
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
 
@@ -1247,12 +1257,14 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             }
         };
 
-        std::vector<Account const*> finalSeats {
-                &bob, &edward, &m6, &m7, &alice, &carol, &david, 
-                &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15, &m16, &m17, &m18, &m19, &m20};
+        {
+            std::vector<Account const*> finalSeats {
+                    &bob, &edward, &m6, &m7, &alice, &carol, &david, 
+                    &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15, &m16, &m17, &m18, &m19, &m20};
 
-        for (int i = 0; i < 20; ++i)
-            checkSeat(i, *(finalSeats[i]));
+            for (int i = 0; i < 20; ++i)
+                checkSeat(i, finalSeats[i]);
+        }
 
         // go back to the original 5 in their original seats: alice, bob, carol, david, edward
 
@@ -1305,8 +1317,90 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         
         // {alice, bob, carol, david, edward, blank, blank, m8, ...}
 
+        // remove all higher members
+
+        AccountID const null_acc;
+
+        // floor(18*0.8) = 14
+        doSeatVote(__LINE__, 7, 17, null_acc, m8, {
+                &alice, &bob, &carol, &david, &edward,
+                &m8, &m9, &m10, &m11, &m12, 
+                &m13, &m14, &m15, &m16 }, true);
+        
+        // floor(17*0.8) = 13
+        doSeatVote(__LINE__, 8, 16, null_acc, m9, {
+                &alice, &bob, &carol, &david, &edward,
+                &m9, &m10, &m11, &m12, 
+                &m13, &m14, &m15, &m16 }, true);
+
+        // floor(16*0.8)=12
+        doSeatVote(__LINE__, 9, 15, null_acc, m10, {
+                &alice, &bob, &carol, &david, &edward,
+                &m10, &m11, &m12, 
+                &m13, &m14, &m15, &m16 }, true);
+
+        // floor(15*0.8)=12
+        doSeatVote(__LINE__, 10, 14, null_acc, m11, {
+                &alice, &bob, &carol, &david, &edward,
+                &m11, &m12, 
+                &m13, &m14, &m15, &m16, &m17 }, true);
 
 
+        // floor(14*0.8)=11
+        doSeatVote(__LINE__, 11, 13, null_acc, m12, {
+                &alice, &bob, &carol, &david, &edward,
+                &m12, 
+                &m13, &m14, &m15, &m16, &m17 }, true);
+
+
+        // floor(13*0.8)=10
+        doSeatVote(__LINE__, 12, 12, null_acc, m13, {
+                &alice, &bob, &carol, &david, &edward,
+                &m13, &m14, &m15, &m16, &m17 }, true);
+
+        // floor(12*0.8)=9
+        doSeatVote(__LINE__, 13, 11, null_acc, m14, {
+                &alice, &bob, &carol, &david, &edward,
+                &m14, &m15, &m16, &m17 }, true);
+
+        // floor(11*0.8)=8
+        doSeatVote(__LINE__, 14, 10, null_acc, m15, {
+                &alice, &bob, &carol, &david, &edward,
+                &m15, &m16, &m17 }, true);
+
+        // floor(10*0.8)=8
+        doSeatVote(__LINE__, 15, 9, null_acc, m16, {
+                &alice, &bob, &carol, &david, &edward,
+                &m17, &m18, &m19 }, true);
+
+        // floor(9*0.8)=7
+        doSeatVote(__LINE__, 16, 8, null_acc, m17, {
+                &alice, &bob, &carol, &david, &edward,
+                &m19, &m20 }, true);
+        
+        // floor(8*0.8)=6
+        doSeatVote(__LINE__, 17, 7, null_acc, m18, {
+                &alice, &bob, &carol, &david, &edward,
+                &m20 }, true);
+        
+        // floor(7*0.8)=5
+        doSeatVote(__LINE__, 18, 6, null_acc, m19, {
+                &alice, &bob, &carol, &david, &edward}, true);
+        
+        // floor(6*0.8)=4
+        doSeatVote(__LINE__, 19, 5, null_acc, m20, {
+                &alice, &bob, &carol, &david}, true);
+
+
+        // check the seats are correct        
+        {
+            std::vector<Account const*> finalSeats {
+                    &alice, &bob, &carol, &david, &edward};
+
+            for (int i = 0; i < 20; ++i)
+                checkSeat(i, i < 5 ? finalSeats[i] : NULL);
+        }
+    
         // add a layer 2 table at m14 with m1 and m2 as members
 /*
         {
