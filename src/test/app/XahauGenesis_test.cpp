@@ -373,6 +373,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto const david = Account("david");
         auto const edward = Account("edward");
 
+        auto const m1 = Account("m1");
+        auto const m2 = Account("m2");
+
         auto const m6 = Account("m6");
         auto const m7 = Account("m7");
         auto const m8 = Account("m8");
@@ -398,7 +401,66 @@ struct XahauGenesis_test : public beast::unit_test::suite
             return ret;
         };  
 
-        env.fund(XRP(10000), alice, bob, carol, david, edward,
+/*
+        auto printAcc = [](const char* name, Account const& acc) -> void
+        {
+            std::cout << name << ": " << strHex(acc.id()) << ", " << acc.human() << "\n";
+
+        };
+
+        #define PRINTACC(a) printAcc(#a, a)
+
+        PRINTACC(alice);
+        PRINTACC(bob);
+        PRINTACC(carol);
+        PRINTACC(david);
+        PRINTACC(edward);
+        PRINTACC(m1);
+        PRINTACC(m2);
+        PRINTACC(m6);
+        PRINTACC(m7);
+        PRINTACC(m8);
+        PRINTACC(m9);
+        PRINTACC(m10);
+        PRINTACC(m11);
+        PRINTACC(m12);
+        PRINTACC(m13);
+        PRINTACC(m14);
+        PRINTACC(m15);
+        PRINTACC(m16);
+        PRINTACC(m17);
+        PRINTACC(m18);
+        PRINTACC(m19);
+        PRINTACC(m20);
+        PRINTACC(m21);
+
+alice: AE123A8556F3CF91154711376AFB0F894F832B3D, rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn                                    
+bob: F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90F, rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK                                      
+carol: B389FBCED0AF9DCDFF62900BFAEFA3EB872D8A96, rH4KEcG9dEwGwpn6AyoWK9cZPLL4RLSmWW                                    
+david: 0F4BFC99EC975E3F753927A69713889359C7100E, rpPtwXbmeXxznrUvnMuGhUqTu4Vvk4V98i                                    
+edward: 98D3AAD96D5D3F32C3723B6550A49DEE4DD9D4AC, rNAnHhommqNJvV3mLieHADNJU6mfdRqXKp                                   
+m1: 1EF5C53AC2B0E1CDEAF960833A9B7B6814879152, rsF66BeCcW5dxrDhPbCqm4ReU5MjkmshQo                                       
+m2: 0D20E8D13A89AA84F2334F57331903D21CCC866C, rpURDnkgizBF1ksJr9DmDTNLhds2NBYNbC                                       
+m6: F41810565A673D2C45C63B7A51FEA139221DFB1B, rPEe68FWPYpfEYeL3TtdVGXR8WDET24h6e                                       
+m7: 52C947B84E2412B5BD2211639E2B9DEDF3ECB5F4, r3YjXvPbu1srxx22tQefDwhXJS8qjCAgxg                                       
+m8: 3392382F09E5EA935D5624D52919C683B661238A, rn6gdHFFtieGK748TioK8cZ8SPrHsWAfe3                                       
+m9: 62F73BE6E7718B3328DEB497F8298B1C42FFD3D8, rwpHPvGwiJAFStN3KqVTeTLBTczFyK6Z6D                                       
+m10: 971B25036F1EAAEEC7A0C299E15F60AB4C465B37, rNmyZrJEtbg5p84PSKGurNs1efdDNLhb8D                                      
+m11: B79B324A56425919D0BF64FA4560C7B616F08509, rHjF2LuJKSRerNHtQMtyDUVXpQKmT18XuC                                      
+m12: 8C3AA72EBB3172726BE9FDE2A91C9CE2C9F766E5, rD8T19Nz2gkAtKKEeLpXLkTb57AS7nJ45b                                      
+m13: 3B8292604D9CF9C679E70CCD0ED5C9DC1DF84607, raRCHchPDpP8qAysxsmehC279GH613iGiM                                      
+m14: E77F5DFE960C4DA9524389F946BCD13AC26AB0D0, r4fsCASeoGzhD2ZeFgcJj1c2tmDsm1re3r                                      
+m15: D300D94BA59F55426889E144B423CFEE8F685450, rLNgbTE2HVk5CJG7SHrpSD8gsFcwu5cG1a                                      
+m16: D9C6AC46D87BCFE374BE4F59C280CEC377E67788, rLiVdCesA2rV2NjC6HZPVK7k1VpvGwCbjx                                      
+m17: A620E154D56E38B12AD76A094A214A25AD8B87A1, rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa                                      
+m18: 7A5A72F059F6DCDD6E938DAFBCFFB0541E0A7481, rU9A8u622H6fxGQjux8uDgomks5D8QySfS                                      
+m19: F6C06C3D86A9D39FF813AEF6B839AD041651BE7D, rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU                                      
+m20: 1B4D3113C2AB370293A0ACEA4D68C1B29A01A013, rsVM5ZaK9QMCgrW9UKyXLguESpDpsJnRbu                                      
+m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4gD   
+*/
+
+        
+        env.fund(XRP(10000), alice, bob, carol, david, edward, m1, m2,
             m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
 
         env.close();
@@ -1191,6 +1253,73 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         for (int i = 0; i < 20; ++i)
             checkSeat(i, *(finalSeats[i]));
+
+        // go back to the original 5 in their original seats: alice, bob, carol, david, edward
+
+        // set alice into position 0, this frees up spot 4 bringing count down to 19
+        // floor (20*0.8) = 16
+        doSeatVote(__LINE__, 0, 19, alice.id(), bob, {
+                &bob, &edward, &m6, &m7,
+                &alice, &carol, &david,  &m8, 
+                &m9, &m10, &m11, &m12, 
+                &m13, &m14, &m15, &m16}, true);
+
+        // now seating is:
+        // {alice, edward, m6, m7, blank, carol, david, m8, ... }
+
+        // edward into position 4, this frees up spot 1, and moves into a blank spot thus keeps count at 19
+        // note floor(19*0.8) = 15
+        doSeatVote(__LINE__, 4, 19, edward.id(), {}, {
+                &alice, &edward, &m6, &m7,
+                &m16, &carol, &david,  &m8, 
+                &m9, &m10, &m11, &m12, 
+                &m13, &m14, &m15}, true);
+        
+        // now seating is:
+        // {alice, blank, m6, m7, edward, carol, david, m8, ...}
+
+        // bob into position 1, the count becomes 20
+        doSeatVote(__LINE__, 1, 20, bob.id(), {}, {
+                &alice, &edward, &m6, &m7,
+                &m16, &carol, &david,  &m8, 
+                &m9, &m10, &m11, &m12, 
+                &m13, &m14, &m15}, true);
+        
+        // {alice, bob, m6, m7, edward, carol, david, m8, ...}
+
+        // carol into position 2, this frees up seat 5, bringing count to 19
+        doSeatVote(__LINE__, 2, 19, carol.id(), m6, {
+                &alice, &bob, &m6, &m7,
+                &m16, &carol, &david,  &m8, 
+                &m9, &m10, &m11, &m12, 
+                &m13, &m14, &m15, &m17}, true);
+        
+        // {alice, bob, carol, m7, edward, blank, david, m8, ...}
+
+        // david into position 3, this frees up seat 6, bringing count to 18
+        doSeatVote(__LINE__, 3, 18, david.id(), m7, {
+                &alice, &bob, &m18, &m17,
+                &m16, &carol, &david,  &m8, 
+                &m9, &m10, &m11, &m12, 
+                &m13, &m14, &m15}, true);
+        
+        // {alice, bob, carol, david, edward, blank, blank, m8, ...}
+
+
+
+        // add a layer 2 table at m14 with m1 and m2 as members
+/*
+        {
+            Json::Value tx (Json::objectValue);
+
+            tx[jss::TranscationType] = "SetHook";
+            tx[jss::Hooks] = Json::arrayValue;
+            tx[jss::Hooks][0u] = Json::objectValue;
+            tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
+            tx[jss::Hooks][0u][jss::Hook][jss:HookHash] = strHex(governHookHash);
+
+        }
+*/
 
     }
 

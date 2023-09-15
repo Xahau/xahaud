@@ -305,6 +305,10 @@ int64_t hook(uint32_t r)
 
     // check if the vote they're making has already been cast before,
     // if it is identical to their existing vote for this topic then just end with tesSUCCESS
+    trace(SBUF("previous_topic_data"), previous_topic_data, 32, 1);
+    trace(SBUF("topic_data"), topic_data, 32, 1);
+    trace_num(SBUF("previous_topic_size"), previous_topic_size);
+    trace_num(SBUF("topic_size"), topic_size);
     if (previous_topic_size == topic_size && BUFFER_EQUAL_32(previous_topic_data, topic_data))
         DONE("Governance: Your vote is already cast this way for this topic.");
 
@@ -326,13 +330,12 @@ int64_t hook(uint32_t r)
         previous_topic_data[2] = n;
         previous_topic_data[3] = l;
 
-        if (state(&votes, 1, SBUF(previous_topic_data)) && votes > 0)
-        {
-            previous_votes = votes;
-            votes--;
-            // delete the state entry if votes hit zero
-            ASSERT(state_set(votes == 0 ? 0 : &votes, votes == 0 ? 0 : 1, SBUF(previous_topic_data)) >= 0);
-        }
+        ASSERT(state(&votes, 1, SBUF(previous_topic_data)) == 1);
+        ASSERT(votes > 0);
+        previous_votes = votes;
+        votes--;
+        // delete the state entry if votes hit zero
+        ASSERT(state_set(votes == 0 ? 0 : &votes, votes == 0 ? 0 : 1, SBUF(previous_topic_data)) >= 0);
     }
     
     // increment new counter 
@@ -648,7 +651,11 @@ int64_t hook(uint32_t r)
                 for (int i = 1; GUARD(32), i < 32; ++i)
                 {
                     previous_member[1] = i < 2 ? 'R' : i < 12 ? 'H' : 'S';
-                    previous_member[2] = i < 2 ? i : i < 12 ? i - 2 : i - 12;
+                    previous_member[2] = 
+                        i == 0 ? 'R' :
+                        i == 1 ? 'D' :
+                        i < 12 ? i - 2 :
+                        i - 12;
 
                     uint8_t vote_key[32];
                     if (state(SBUF(vote_key), SBUF(previous_member)) == 32)
@@ -665,16 +672,19 @@ int64_t hook(uint32_t r)
                             if (vote_count <= 1)
                             {
                                 ASSERT(state_set(0,0, SBUF(vote_key)) == 0);
+                                trace_num(SBUF("Decrement vote count deleted"), vote_count);
                             }
                             else    // otherwise decrement
                             {
                                 vote_count--;
                                 ASSERT(state_set(&vote_count, 1, SBUF(vote_key)) == 1);
+                                trace_num(SBUF("Decrement vote count to"), vote_count);
                             }
                         }
 
                         // delete the vote entry
                         ASSERT(state_set(0,0, SBUF(previous_member)) == 0);
+                        trace(SBUF("Vote entry deleted"), vote_key, 32, 1);
                     }
                 }
 
