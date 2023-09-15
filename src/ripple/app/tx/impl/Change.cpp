@@ -281,40 +281,55 @@ Change::preCompute()
 }
 
 
+
+struct L2Table
+{
+    std::string account;
+    AccountID id;
+    std::vector<std::string> members;
+    std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params;
+};
+        
+
 inline
-std::pair<
-    std::vector<std::pair<std::string, XRPAmount>>,
+std::tuple<
+    std::vector<std::pair<std::string, XRPAmount>>,                         // initial distribution
+    std::vector<L2Table>,
     std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>>
 normalizeXahauGenesis(
-        std::vector<std::pair<std::string, XRPAmount>> const& entries,
+        std::vector<std::pair<std::string, XRPAmount>> const& distribution,
+        std::vector<std::pair<std::string, std::vector<std::string>>> l2entries,
         std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params,
         beast::Journal const& j)
 {
+    auto getID = [](std::string const& rn) -> std::optional<std::pair<std::string, AccountID>> 
+    {        
+        if (rn.c_str()[0] == 'r')
+        {
+            auto parsed = parseBase58<AccountID>(rn);
+            if (!parsed)
+                return {};
+            return {{toBase58(*parsed), *parsed}};
+        }
+        
+        if (rn.c_str()[0] == 'n')
+        {
+            auto const parsed = parseBase58<PublicKey>(TokenType::NodePublic, rn);
+            if (!parsed)
+                return {};
+            AccountID id = calcAccountID(*parsed);
+            return {{toBase58(id), id}};
+        }
+        
+        return {};
+    };
+
+    std::set<AccountID> L1Seats;
+
     std::vector<std::pair<std::string, XRPAmount>> amounts;
     uint8_t mc = 0;
-    for (auto const& [rn, x]: entries)
+    for (auto const& [rn, x]: distribution)
     {
-        auto getID = [](std::string const& rn) -> std::optional<std::pair<std::string, AccountID>> 
-        {        
-            if (rn.c_str()[0] == 'r')
-            {
-                auto parsed = parseBase58<AccountID>(rn);
-                if (!parsed)
-                    return {};
-                return {{toBase58(*parsed), *parsed}};
-            }
-            
-            if (rn.c_str()[0] == 'n')
-            {
-                auto const parsed = parseBase58<PublicKey>(TokenType::NodePublic, rn);
-                if (!parsed)
-                    return {};
-                AccountID id = calcAccountID(*parsed);
-                return {{toBase58(id), id}};
-            }
-            
-            return {};
-        };
 
         if (auto parsed = getID(rn); parsed)
         {
@@ -331,19 +346,59 @@ normalizeXahauGenesis(
             params.emplace_back(
                     std::vector<uint8_t>{'I', 'S', mc++},
                     std::vector<uint8_t>(id.data(), id.data() + 20));
+
+            L1Seats.emplace(id);
             continue;
         }
 
         JLOG(j.warn())
             << "featureXahauGenesis could not parse distribution address: " << rn;
     }
-
+    
     // initial member count
     params.emplace_back(
             std::vector<uint8_t>{'I', 'M', 'C'},
             std::vector<uint8_t>{mc});
 
-    return {amounts, params};
+    std::vector<L2Table> tables;
+    for (auto const& [table, members] : l2entries)
+    {
+        if (auto parsed = getID(table); parsed)
+        {
+            if (L1Seats.find(parsed->second) == L1Seats.end())
+            {
+                JLOG(j.warn())
+                    << "featureXahauGenesis L2Table does not sit at an L1 seat. skipping.";
+                continue;
+            }
+
+            L2Table t;
+            t.account = parsed->first;
+            t.id = parsed->second;
+            uint8_t mc = 0;
+            for (auto const& m: members)
+            {
+                if (auto parsed = getID(m); parsed)
+                {
+                    t.members.push_back(parsed->first);
+                    t.params.emplace_back(
+                        std::vector<uint8_t>{'I', 'S', mc++},
+                        std::vector<uint8_t>(parsed->second.data(), parsed->second.data() + 20));
+                }
+                else
+                    JLOG(j.warn())
+                        << "featureXahauGenesis L2Table member: " << m << " unable to be parsed. skipping.";
+            }
+
+            t.params.emplace_back(std::vector<uint8_t>{'I', 'M', 'C'}, std::vector<uint8_t>{mc});
+            tables.push_back(t);
+        }
+        else
+            JLOG(j.warn())
+                << "featureXahauGenesis could not parse L2 table address: " << table;
+    }
+
+    return {amounts, tables, params};
 };
 
 
@@ -354,11 +409,16 @@ Change::activateXahauGenesis()
 
     using namespace XahauGenesis;
 
-    auto [initial_distribution, gov_params] =
+    bool const isTest = ctx_.tx.getFlags() & tfTestSuite && ctx_.app.config().standalone();
+
+    auto [initial_distribution, tables, gov_params] =
         normalizeXahauGenesis(
-            ctx_.tx.getFlags() & tfTestSuite && ctx_.app.config().standalone()
+            isTest
                 ? TestDistribution
                 : Distribution, 
+            isTest
+                ? TestL2Membership
+                : L2Membership,
         GovernanceParameters, j_);
 
     const static std::vector<
@@ -446,7 +506,6 @@ Change::activateXahauGenesis()
 
     };
 
-
     // Step 3: blackhole genesis
     sle->setAccountID(sfRegularKey, noAccount());
     sle->setFieldU32(sfFlags, lsfDisableMaster);
@@ -521,8 +580,10 @@ Change::activateXahauGenesis()
                     << *result2 << ", bailing";
                 return;
             }
+            
+            auto const hookHash = 
+                ripple::sha512Half_s(ripple::Slice(wasmBytes.data(), wasmBytes.size()));
 
-            auto hookHash = ripple::sha512Half_s(ripple::Slice(wasmBytes.data(), wasmBytes.size()));
             auto const kl = keylet::hookDefinition(hookHash);
             if (view().exists(kl))
             {
@@ -541,7 +602,8 @@ Change::activateXahauGenesis()
             hookDef->setFieldU16(sfHookApiVersion, 0);
             hookDef->setFieldVL(sfCreateCode, wasmBytes);
             hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
-            hookDef->setFieldU64(sfReferenceCount, 1);
+            // governance hook is referenced by the l2tables
+            hookDef->setFieldU64(sfReferenceCount, (hookCount == 0 ? tables.size() : 0) + 1);
             hookDef->setFieldAmount(sfFee,
                     XRPAmount {hook::computeExecutionFee(result->first)});
             if (result->second > 0)
@@ -567,7 +629,6 @@ Change::activateXahauGenesis()
             }
 
             hooks.push_back(hookObj);
-
         }
 
         auto sle = std::make_shared<SLE>(keylet::hook(accid));
@@ -589,6 +650,73 @@ Change::activateXahauGenesis()
         sb.insert(sle);
     }
 
+    // install hooks on layer 2 tables
+    auto const governHash =
+        ripple::sha512Half_s(ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
+    for (auto const& t : tables)
+    {
+
+        JLOG(j_.trace())
+            << "featureXahauGenesis: installing L2 table at: " 
+            << t.account << " with " << t.members.size() << " members\n";
+
+        auto const hookKL = keylet::hook(t.id);
+        if (sb.exists(hookKL))
+        {
+            JLOG(j_.warn())
+                << "featureXahauGenesis layer2 table account already has hooks object in ledger, bailing";
+            return;
+        }
+            
+        ripple::STArray hooks{sfHooks, 1};
+        STObject hookObj {sfHook};
+        hookObj.setFieldH256(sfHookHash, governHash);
+        // parameters
+        {
+            std::vector<STObject> vec;
+            for (auto const& [k, v]: t.params)
+            {
+                STObject param(sfHookParameter);
+                param.setFieldVL(sfHookParameterName, k);
+                param.setFieldVL(sfHookParameterValue, v);
+                vec.emplace_back(std::move(param));
+            };
+        
+            hookObj.setFieldArray(sfHookParameters, STArray(vec, sfHookParameters));
+        }
+
+        hooks.push_back(hookObj);
+
+        auto sle = std::make_shared<SLE>(hookKL);
+        sle->setFieldArray(sfHooks, hooks);
+        sle->setAccountID(sfAccount, t.id);
+
+        auto const page = sb.dirInsert(
+            keylet::ownerDir(t.id),
+            keylet::hook(t.id),
+            describeOwnerDir(t.id));
+
+        if (!page)
+        {
+            JLOG(j_.warn())
+                << "featureXahauGenesis layer2 table directory full when trying to insert hooks object, bailing";
+            return;
+        }
+        sle->setFieldU64(sfOwnerNode, *page);
+        sb.insert(sle);
+
+        // blackhole the l2 account
+        {
+            auto const kl = keylet::account(t.id);
+            auto sle = sb.peek(kl);
+    
+            sle->setAccountID(sfRegularKey, noAccount());
+            sle->setFieldU32(sfFlags, lsfDisableMaster);
+            sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + 1);
+            sb.update(sle);
+        } 
+    }
+
     JLOG(j_.warn()) << "featureXahauGenesis amendment executed successfully";
     
     if (destroyedXRP < beast::zero)
@@ -597,6 +725,8 @@ Change::activateXahauGenesis()
             << "featureXahauGenesis: destroyed XRP tally was negative, bailing.";
         return;
     }
+
+
 
     // record the start ledger
     auto sleFees = sb.peek(keylet::fees());

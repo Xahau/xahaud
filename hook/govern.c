@@ -147,6 +147,8 @@ int64_t hook(uint32_t r)
 
     if (is_L1_table)
         trace(SBUF("Governance: Starting governance logic on L1 table."), 0,0,0);
+    else
+        trace(SBUF("Governance: Starting governance logic on L2 table."), 0,0,0);
 
     int64_t member_count = state(0,0, "MC", 2);
    

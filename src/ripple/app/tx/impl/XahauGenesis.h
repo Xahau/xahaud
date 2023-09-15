@@ -50,6 +50,22 @@ namespace XahauGenesis
 
     };
 
+
+    inline
+    std::vector<std::pair<std::string, std::vector<std::string>>>
+    TestL2Membership;
+
+    inline
+    std::vector<std::pair<
+        std::string,                // L2 table account
+        std::vector<std::string>>>  // list of initial members
+    const
+    L2Membership
+    {
+        {"nHUubQ7fqxkwPtwS4pQb2ENZ6fdUcAt7aJRiYcPXjxbbkC778Zjk",
+            {"rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa", "rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU"}}
+    };
+
     // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
     inline
     ripple::uint256 const

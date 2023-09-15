@@ -192,7 +192,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     BEAST_EXPECT(!!acc);
                     auto bal = acc->getFieldAmount(sfBalance);
                     BEAST_EXPECT(bal == STAmount(x));
-                
+
                     params.emplace_back(
                         std::vector<uint8_t>{'I', 'S', member_count++},
                         std::vector<uint8_t>(id.data(), id.data() + 20));
@@ -317,7 +317,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
 
     void
-    setupGov(jtx::Env& env, std::vector<AccountID> const members)
+    setupGov(jtx::Env& env, 
+        std::vector<AccountID> const members,
+        std::map<AccountID, std::vector<AccountID>> const tables = {})
     {
         using namespace jtx;
 
@@ -326,6 +328,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         XahauGenesis::TestDistribution.clear();
+        XahauGenesis::TestL2Membership.clear();
 
         for (auto& m: members)
         {
@@ -333,9 +336,23 @@ struct XahauGenesis_test : public beast::unit_test::suite
             XahauGenesis::TestDistribution.emplace_back(acc, XRPAmount(10000000000));
         }
 
+        for(auto& [t, members] : tables)
+        {
+            std::vector<std::string> membersStr;
+            for (auto& m : members)
+                membersStr.emplace_back(toBase58(m));
+
+            XahauGenesis::TestL2Membership.emplace_back(
+                toBase58(t), membersStr);
+
+        }
+
         activate(env, true, true, true);
 
+        env.close();
+
         XahauGenesis::TestDistribution.clear();
+        XahauGenesis::TestL2Membership.clear();
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
@@ -343,6 +360,18 @@ struct XahauGenesis_test : public beast::unit_test::suite
         invoke[jss::Destination] = env.master.human();
         env(invoke, fee(XRP(1)));
         env.close();
+
+        for (auto& [t, members] : tables)
+        {
+            // setup each L2 table
+            Json::Value invoke;
+            invoke[jss::TransactionType] = "Invoke";
+            invoke[jss::Account] = invoker.human();
+            invoke[jss::Destination] = toBase58(t);
+            env(invoke, fee(XRP(1)));
+            env.close();
+            std::cout << "invoke: " << invoke << "\n";
+        }
     }
 
 
@@ -356,6 +385,16 @@ struct XahauGenesis_test : public beast::unit_test::suite
         ret.data()[1] = "0123456789ABCDEF"[(inp >> 0) & 0xFU];
         return ret;
     }
+        
+    inline
+    static
+    std::vector<uint8_t>
+    vecFromAcc(jtx::Account const& acc)
+    {
+        uint8_t const* data = acc.id().data();
+        return std::vector<uint8_t>(data, data+20);
+    };
+
 
     void
     testGovernanceL1()
@@ -393,14 +432,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto const m20 = Account("m20");
         auto const m21 = Account("m21");
 
-        auto vecFromAcc = [](Account const& acc) -> std::vector<uint8_t>
-        {
-            uint8_t const* data = acc.id().data();
-            std::vector<uint8_t> ret(data, data+20);
-            std::cout << "ret: `" << strHex(ret) << "`, size: " << ret.size() << "\n";
-            return ret;
-        };  
-
 /*
         auto printAcc = [](const char* name, Account const& acc) -> void
         {
@@ -410,61 +441,38 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         #define PRINTACC(a) printAcc(#a, a)
 
-        PRINTACC(alice);
-        PRINTACC(bob);
-        PRINTACC(carol);
-        PRINTACC(david);
-        PRINTACC(edward);
-        PRINTACC(m1);
-        PRINTACC(m2);
-        PRINTACC(m6);
-        PRINTACC(m7);
-        PRINTACC(m8);
-        PRINTACC(m9);
-        PRINTACC(m10);
-        PRINTACC(m11);
-        PRINTACC(m12);
-        PRINTACC(m13);
-        PRINTACC(m14);
-        PRINTACC(m15);
-        PRINTACC(m16);
-        PRINTACC(m17);
-        PRINTACC(m18);
-        PRINTACC(m19);
-        PRINTACC(m20);
-        PRINTACC(m21);
+        alice: AE123A8556F3CF91154711376AFB0F894F832B3D, rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn
+        bob: F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90F, rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK
+        carol: B389FBCED0AF9DCDFF62900BFAEFA3EB872D8A96, rH4KEcG9dEwGwpn6AyoWK9cZPLL4RLSmWW
+        david: 0F4BFC99EC975E3F753927A69713889359C7100E, rpPtwXbmeXxznrUvnMuGhUqTu4Vvk4V98i
+        edward: 98D3AAD96D5D3F32C3723B6550A49DEE4DD9D4AC, rNAnHhommqNJvV3mLieHADNJU6mfdRqXKp
+        m1: 1EF5C53AC2B0E1CDEAF960833A9B7B6814879152, rsF66BeCcW5dxrDhPbCqm4ReU5MjkmshQo
+        m2: 0D20E8D13A89AA84F2334F57331903D21CCC866C, rpURDnkgizBF1ksJr9DmDTNLhds2NBYNbC
+        m6: F41810565A673D2C45C63B7A51FEA139221DFB1B, rPEe68FWPYpfEYeL3TtdVGXR8WDET24h6e
+        m7: 52C947B84E2412B5BD2211639E2B9DEDF3ECB5F4, r3YjXvPbu1srxx22tQefDwhXJS8qjCAgxg
+        m8: 3392382F09E5EA935D5624D52919C683B661238A, rn6gdHFFtieGK748TioK8cZ8SPrHsWAfe3
+        m9: 62F73BE6E7718B3328DEB497F8298B1C42FFD3D8, rwpHPvGwiJAFStN3KqVTeTLBTczFyK6Z6D
+        m10: 971B25036F1EAAEEC7A0C299E15F60AB4C465B37, rNmyZrJEtbg5p84PSKGurNs1efdDNLhb8D
+        m11: B79B324A56425919D0BF64FA4560C7B616F08509, rHjF2LuJKSRerNHtQMtyDUVXpQKmT18XuC
+        m12: 8C3AA72EBB3172726BE9FDE2A91C9CE2C9F766E5, rD8T19Nz2gkAtKKEeLpXLkTb57AS7nJ45b
+        m13: 3B8292604D9CF9C679E70CCD0ED5C9DC1DF84607, raRCHchPDpP8qAysxsmehC279GH613iGiM
+        m14: E77F5DFE960C4DA9524389F946BCD13AC26AB0D0, r4fsCASeoGzhD2ZeFgcJj1c2tmDsm1re3r
+        m15: D300D94BA59F55426889E144B423CFEE8F685450, rLNgbTE2HVk5CJG7SHrpSD8gsFcwu5cG1a
+        m16: D9C6AC46D87BCFE374BE4F59C280CEC377E67788, rLiVdCesA2rV2NjC6HZPVK7k1VpvGwCbjx
+        m17: A620E154D56E38B12AD76A094A214A25AD8B87A1, rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa
+        m18: 7A5A72F059F6DCDD6E938DAFBCFFB0541E0A7481, rU9A8u622H6fxGQjux8uDgomks5D8QySfS
+        m19: F6C06C3D86A9D39FF813AEF6B839AD041651BE7D, rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU
+        m20: 1B4D3113C2AB370293A0ACEA4D68C1B29A01A013, rsVM5ZaK9QMCgrW9UKyXLguESpDpsJnRbu
+        m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4gD
 
-alice: AE123A8556F3CF91154711376AFB0F894F832B3D, rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn                                    
-bob: F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90F, rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK                                      
-carol: B389FBCED0AF9DCDFF62900BFAEFA3EB872D8A96, rH4KEcG9dEwGwpn6AyoWK9cZPLL4RLSmWW                                    
-david: 0F4BFC99EC975E3F753927A69713889359C7100E, rpPtwXbmeXxznrUvnMuGhUqTu4Vvk4V98i                                    
-edward: 98D3AAD96D5D3F32C3723B6550A49DEE4DD9D4AC, rNAnHhommqNJvV3mLieHADNJU6mfdRqXKp                                   
-m1: 1EF5C53AC2B0E1CDEAF960833A9B7B6814879152, rsF66BeCcW5dxrDhPbCqm4ReU5MjkmshQo                                       
-m2: 0D20E8D13A89AA84F2334F57331903D21CCC866C, rpURDnkgizBF1ksJr9DmDTNLhds2NBYNbC                                       
-m6: F41810565A673D2C45C63B7A51FEA139221DFB1B, rPEe68FWPYpfEYeL3TtdVGXR8WDET24h6e                                       
-m7: 52C947B84E2412B5BD2211639E2B9DEDF3ECB5F4, r3YjXvPbu1srxx22tQefDwhXJS8qjCAgxg                                       
-m8: 3392382F09E5EA935D5624D52919C683B661238A, rn6gdHFFtieGK748TioK8cZ8SPrHsWAfe3                                       
-m9: 62F73BE6E7718B3328DEB497F8298B1C42FFD3D8, rwpHPvGwiJAFStN3KqVTeTLBTczFyK6Z6D                                       
-m10: 971B25036F1EAAEEC7A0C299E15F60AB4C465B37, rNmyZrJEtbg5p84PSKGurNs1efdDNLhb8D                                      
-m11: B79B324A56425919D0BF64FA4560C7B616F08509, rHjF2LuJKSRerNHtQMtyDUVXpQKmT18XuC                                      
-m12: 8C3AA72EBB3172726BE9FDE2A91C9CE2C9F766E5, rD8T19Nz2gkAtKKEeLpXLkTb57AS7nJ45b                                      
-m13: 3B8292604D9CF9C679E70CCD0ED5C9DC1DF84607, raRCHchPDpP8qAysxsmehC279GH613iGiM                                      
-m14: E77F5DFE960C4DA9524389F946BCD13AC26AB0D0, r4fsCASeoGzhD2ZeFgcJj1c2tmDsm1re3r                                      
-m15: D300D94BA59F55426889E144B423CFEE8F685450, rLNgbTE2HVk5CJG7SHrpSD8gsFcwu5cG1a                                      
-m16: D9C6AC46D87BCFE374BE4F59C280CEC377E67788, rLiVdCesA2rV2NjC6HZPVK7k1VpvGwCbjx                                      
-m17: A620E154D56E38B12AD76A094A214A25AD8B87A1, rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa                                      
-m18: 7A5A72F059F6DCDD6E938DAFBCFFB0541E0A7481, rU9A8u622H6fxGQjux8uDgomks5D8QySfS                                      
-m19: F6C06C3D86A9D39FF813AEF6B839AD041651BE7D, rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU                                      
-m20: 1B4D3113C2AB370293A0ACEA4D68C1B29A01A013, rsVM5ZaK9QMCgrW9UKyXLguESpDpsJnRbu                                      
-m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4gD   
-*/
+        */
 
-        
+
         env.fund(XRP(10000), alice, bob, carol, david, edward, m1, m2,
             m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
 
         env.close();
-        
+
         std::vector<Account> initial_members {alice, bob, carol, david, edward};
         std::vector<AccountID> initial_members_ids { alice.id(), bob.id(), carol.id(), david.id(), edward.id() };
 
@@ -473,7 +481,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         auto vote = [&](
             uint16_t lineno,
             Account const& acc,
-            char topic1, 
+            char topic1,
             std::optional<char> topic2,
             std::vector<uint8_t> data,
             std::optional<uint8_t> layer = std::nullopt)
@@ -492,7 +500,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterValue] = val;
 
             txn[jss::HookParameters][1u] = Json::objectValue;
-            txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterName] = 
+            txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterName] =
                 "56"; // 'V'
 
             {
@@ -512,7 +520,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                 strData += charToHex((uint8_t)(lineno >> 8U));
                 strData += charToHex((uint8_t)(lineno & 0xFFU));
                 txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = strData;
-            }            
+            }
 
 
             if (layer)
@@ -524,7 +532,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
             txn[jss::Account] = acc.human();
             txn[jss::TransactionType] = "Invoke";
-            txn[jss::Destination] = env.master.human(); 
+            txn[jss::Destination] = env.master.human();
             return txn;
         };
 
@@ -547,7 +555,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         };
 
 
-        auto doL1Vote = [&](uint64_t lineno, Account const& acc, char topic1, char topic2, 
+        auto doL1Vote = [&](uint64_t lineno, Account const& acc, char topic1, char topic2,
                             std::vector<uint8_t> const& vote_data,
                             std::vector<uint8_t> const& old_data,
                             bool actioned = true, bool const shouldFail = false)
@@ -570,15 +578,15 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             {
                 isOldDataZero = false;
                 break;
-            }                    
+            }
 
-            uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 
+            uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                 topic1 == 'S' ? 0 : topic1, topic2};
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
-                std::cout 
-                        << "topic vote precheck: " << lineno << "L\n" 
+                std::cout
+                        << "topic vote precheck: " << lineno << "L\n"
                         << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
                         << "\tshouldFail: " << (shouldFail ? "true": "false") << "\n"
                         << "\ttopic: " << topic1 << "," << (topic2 < 48 ? topic2 + '1' : topic2) << "\n"
@@ -588,14 +596,14 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                         << "\tlgr_data: " << (!entry ? "doesn't exist" : strHex(entry->getFieldVL(sfHookStateData))) << "\n"
                         << "\tnew_data: " << strHex(vote_data) << "\n"
                         << "\t(isOldDataZero && !entry): " << (isOldDataZero && !entry ? "true" : "false") << "\n"
-                        << "\t(entry && entry->getFieldVL(sfHookStateData) == old_data): " << 
+                        << "\t(entry && entry->getFieldVL(sfHookStateData) == old_data): " <<
                             (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n"
                         << ((isOldDataZero && !entry) ||
                             (entry && entry->getFieldVL(sfHookStateData) == old_data) ? "" : "\tfailed: ^^^\n");
-                    
-                BEAST_EXPECT((isOldDataZero && !entry) || 
+
+                BEAST_EXPECT((isOldDataZero && !entry) ||
                     (entry && entry->getFieldVL(sfHookStateData) == old_data));
-            }    
+            }
 
             // perform and check vote
             {
@@ -620,7 +628,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                 // if the vote count isn't high enough it will be hte old value if it's high enough it will be the
                 // new value
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
-            
+
                 if (!actioned && isOldDataZero)
                 {
                     BEAST_EXPECT(!entry || entry->getFieldVL(sfHookStateData) == old_data);
@@ -634,7 +642,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                     else
                     {
                         std::cout << "new data: " << strHex(vote_data) << "\n";
-                        std::cout << "lgr data: " << 
+                        std::cout << "lgr data: " <<
                             (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
                         BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
                     }
@@ -649,16 +657,16 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                 }
             }
         };
-        
+
         // 100% vote for a different reward rate
         {
             // this will be the new reward rate
             std::vector<uint8_t> vote_data {0x00U,0x81U,0xC6U,0xA4U,0x7EU,0x8DU,0x43U,0x54U};
-            
+
             // this is the default reward rate
             std::vector<uint8_t> const original_data {0x00U,0xE4U,0x61U,0xEEU,0x78U,0x90U,0x83U,0x54U};
-            
-            doL1Vote(__LINE__, alice, 'R', 'R', vote_data, original_data, false);                
+
+            doL1Vote(__LINE__, alice, 'R', 'R', vote_data, original_data, false);
             doL1Vote(__LINE__, bob, 'R', 'R', vote_data, original_data, false);
             doL1Vote(__LINE__, carol, 'R', 'R', vote_data, original_data, false);
             doL1Vote(__LINE__, david, 'R', 'R', vote_data, original_data, false);
@@ -671,16 +679,16 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             std::vector<uint8_t> const null_data {0,0,0,0,0,0,0,0};
             doL1Vote(__LINE__, david, 'R', 'R', null_data, vote_data, false);
         }
-        
+
         // 100% vote for a different reward delay
         {
             // this will be the new reward delay
             std::vector<uint8_t> vote_data {0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x55U};
-            
+
             // this is the default reward delay
             std::vector<uint8_t> const original_data {0x00U,0x80U,0x6AU,0xACU,0xAFU,0x3CU,0x09U,0x56U};
 
-            doL1Vote(__LINE__, edward, 'R', 'D', vote_data, original_data, false);                
+            doL1Vote(__LINE__, edward, 'R', 'D', vote_data, original_data, false);
             doL1Vote(__LINE__, david, 'R', 'D', vote_data, original_data, false);
             doL1Vote(__LINE__, carol, 'R', 'D', vote_data, original_data, false);
             doL1Vote(__LINE__, bob, 'R', 'D', vote_data, original_data, false);
@@ -696,12 +704,12 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
         // 100% vote to install the accept hook at hook position 7
         // create a definition for accept hook first
-        auto const acceptHookHash = 
+        auto const acceptHookHash =
                 ripple::sha512Half_s(ripple::Slice(XahauGenesis::AcceptHook.data(), XahauGenesis::AcceptHook.size()));
-        auto const governHookHash = 
+        auto const governHookHash =
                 ripple::sha512Half_s(
                     ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
-        auto const rewardHookHash = 
+        auto const rewardHookHash =
                 ripple::sha512Half_s(ripple::Slice(XahauGenesis::RewardHook.data(), XahauGenesis::RewardHook.size()));
         {
             Json::Value tx (Json::objectValue);
@@ -731,7 +739,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             tx[jss::Hooks][2u] = Json::objectValue;
             tx[jss::Hooks][2u][jss::Hook] = Json::objectValue;
             tx[jss::Hooks][2u][jss::Hook][jss::HookHash] = strHex(rewardHookHash);
-                
+
 
             env(tx,  M(__LINE__), fee(XRP(100)));
             env.close();
@@ -743,7 +751,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             std::vector<uint8_t> accept_data(data, data+32);
 
             std::cout << "accept_data-strhex: " << strHex(accept_data) << "\n";
-            std::vector<uint8_t> const null_data 
+            std::vector<uint8_t> const null_data
             {
                 0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
                 0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
@@ -755,7 +763,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             doL1Vote(__LINE__, bob, 'H', 7, accept_data, null_data, false);
             doL1Vote(__LINE__, carol, 'H', 7, accept_data, null_data, false);
             doL1Vote(__LINE__, edward, 'H', 7, accept_data, null_data, false);
-    
+
             env.close();
             env.close();
 
@@ -776,7 +784,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             {
                 auto const hooks = env.le(keylet::hook(env.master.id()));
                 BEAST_EXPECT(!!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
-                    hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash) && 
+                    hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash) &&
                     hooks->getFieldArray(sfHooks)[7].getFieldH256(sfHookHash) == acceptHookHash);
             }
 
@@ -785,12 +793,12 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
             env.close();
             env.close();
-            
+
             // now check it's still installed
             {
                 auto const hooks = env.le(keylet::hook(env.master.id()));
                 BEAST_EXPECT(!!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
-                    hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash) && 
+                    hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash) &&
                     hooks->getFieldArray(sfHooks)[7].getFieldH256(sfHookHash) == acceptHookHash);
             }
 
@@ -799,20 +807,20 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             doL1Vote(__LINE__, bob, 'H', 7, null_data, null_data, false);
             doL1Vote(__LINE__, david, 'H', 7, null_data, null_data, false);
             doL1Vote(__LINE__, edward, 'H', 7, null_data, null_data, false);
-            
+
 
             env.close();
             env.close();
-            
+
             // now check it's still installed
             {
                 auto const hooks = env.le(keylet::hook(env.master.id()));
                 BEAST_EXPECT(!!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
                     !hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash));
             }
-            
+
             // vote to place an invalid hook
-            std::vector<uint8_t> invalid_data 
+            std::vector<uint8_t> invalid_data
             {
                 0xFFU,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
                 0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
@@ -831,8 +839,8 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             std::vector<uint8_t> govern_data(gdata, gdata+32);
             uint8_t const* rdata = rewardHookHash.data();
             std::vector<uint8_t> reward_data(rdata, rdata+32);
-    
-            
+
+
             // vote to put governance hook into position 2
             doL1Vote(__LINE__, alice, 'H', 2, govern_data, null_data, false);
             doL1Vote(__LINE__, bob, 'H', 2, govern_data, null_data, false);
@@ -841,7 +849,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             doL1Vote(__LINE__, edward, 'H', 2, govern_data, null_data, false);
 
             env.close();
-            env.close();            
+            env.close();
 
             // vote to replace the hook at position 1 with accept
             doL1Vote(__LINE__, alice, 'H', 1, accept_data, null_data, false);
@@ -868,7 +876,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             {
                 auto const hooksLE = env.le(keylet::hook(env.master.id()));
                 BEAST_EXPECT(!!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 3);
-                
+
                 if (hooksLE && hooksLE->getFieldArray(sfHooks).size() >=3)
                 {
                     auto const hooks = hooksLE->getFieldArray(sfHooks);
@@ -881,20 +889,20 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             // set hook 1 back to reward
             doL1Vote(__LINE__, alice, 'H', 1, reward_data, null_data, false);
             doL1Vote(__LINE__, bob, 'H', 1, reward_data, null_data, false);
-            doL1Vote(__LINE__, carol, 'H', 1, reward_data, null_data, false); 
+            doL1Vote(__LINE__, carol, 'H', 1, reward_data, null_data, false);
             doL1Vote(__LINE__, david, 'H', 1, reward_data, null_data, false);
             doL1Vote(__LINE__, edward, 'H', 1, reward_data, null_data, false);
-            
+
             env.close();
             env.close();
-            
+
             // set hook 0 back to govern
             doL1Vote(__LINE__, alice, 'H', 0, govern_data, null_data, false);
             doL1Vote(__LINE__, bob, 'H', 0, govern_data, null_data, false);
-            doL1Vote(__LINE__, carol, 'H', 0, govern_data, null_data, false); 
+            doL1Vote(__LINE__, carol, 'H', 0, govern_data, null_data, false);
             doL1Vote(__LINE__, david, 'H', 0, govern_data, null_data, false);
             doL1Vote(__LINE__, edward, 'H', 0, govern_data, null_data, false);
-            
+
             env.close();
             env.close();
 
@@ -907,13 +915,13 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
             env.close();
             env.close();
-    
+
 
             // check we're back the way we were
             {
                 auto const hooksLE = env.le(keylet::hook(env.master.id()));
                 BEAST_EXPECT(!!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
-                
+
                 if (hooksLE && hooksLE->getFieldArray(sfHooks).size() >=2)
                 {
                     auto const hooks = hooksLE->getFieldArray(sfHooks);
@@ -930,7 +938,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             {
                 auto const hooksLE = env.le(keylet::hook(env.master.id()));
                 BEAST_EXPECT(!!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
-                
+
                 if (hooksLE && hooksLE->getFieldArray(sfHooks).size() >=2)
                 {
                     auto const hooks = hooksLE->getFieldArray(sfHooks);
@@ -940,16 +948,16 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                 }
             }
 
-        }       
+        }
 
         uint8_t const member_count_key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,'M','C'};
         std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
-        
+
 
         // four of the 5 vote to remove alice
         {
-            
+
             std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
             std::vector<uint8_t> id = vecFromAcc(alice);
             doL1Vote(__LINE__, bob, 'S', 0, null_acc_id, id, false);
@@ -995,7 +1003,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             doL1Vote(__LINE__, bob, 'S', 2, null_acc_id, id, false);
             doL1Vote(__LINE__, edward, 'S', 2, null_acc_id, id, true);
         }
-        
+
         // check the membercount is now 2
         {
             auto entry = env.le(keylet::hookState(env.master.id(),
@@ -1047,7 +1055,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             // subsequent edward vote should fail because he's not a member anymore
             doL1Vote(__LINE__, edward, 'S', 4, null_acc_id, alice_id, false, true);
         }
-        
+
         // check the membercount is now 2
         {
             auto entry = env.le(keylet::hookState(env.master.id(),
@@ -1071,8 +1079,8 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             int count = voters.size();
             for (Account const* voter : voters)
                 doL1Vote(lineno, *voter, 'S', seat_no, id, previd, --count <= 0 && actioned, shouldFail);
-           
-            if (!shouldFail) 
+
+            if (!shouldFail)
             {
                 auto entry = env.le(keylet::hookState(env.master.id(),
                     uint256::fromVoid(member_count_key), beast::zero));
@@ -1080,11 +1088,11 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
                 BEAST_REQUIRE(!!entry);
                 if (entry->getFieldVL(sfHookStateData) != expected_data)
-                    std::cout 
-                        << "doSeatVote failed " << lineno <<"L. entry data: `" 
+                    std::cout
+                        << "doSeatVote failed " << lineno <<"L. entry data: `"
                         << strHex(entry->getFieldVL(sfHookStateData)) << "` "
                         << "expected data: `" << strHex(expected_data) << "`\n";
- 
+
                 BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
             }
         };
@@ -1093,14 +1101,14 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
         // put edward into seat 0 previously occupied by alice
         doSeatVote(__LINE__, 0, 3, edward.id(), {}, {&alice, &bob});
-        
+
         // at this point the governance table looks like
         // 0 - edward
         // 1 - bob
         // 2 - empty
         // 3 - empty
         // 4 - alice
- 
+
         // fill seats 2,3 with accounts m6 and m7. this should take 2 votes only
         // alice's vote alone is not enough
         doSeatVote(__LINE__, 2, 3, m6.id(), {}, {&alice}, false);
@@ -1124,7 +1132,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
             for (int i = 12; i < 32; ++i)
                 key[i] = m6.id().data()[i-12];
-    
+
             auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
             BEAST_EXPECT(!!entry &&
                 entry->getFieldVL(sfHookStateData) == std::vector<uint8_t>{0x02U});
@@ -1145,7 +1153,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
         // first put bob in where edward was
         doSeatVote(__LINE__, 0, 5, bob.id(), {}, {&alice, &edward, &m6});
-    
+
         // now we have: bob, ed, m6, m7, alice
         // we're going to fill the remaining seats up to 20
         doSeatVote(__LINE__, 5, 6, carol.id(), {}, {&alice, &edward, &m6, &m7});
@@ -1201,9 +1209,9 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         // voting for another random high seat
         doSeatVote(__LINE__, 255, 21, m21.id(), {}, {&alice}, false, true);
         doSeatVote(__LINE__, 101, 21, m21.id(), {}, {&alice}, false, true);
-        
 
-        // RH TODO: check state count 
+
+        // RH TODO: check state count
 
         // membership:
         // { bob, ed, m6, m7, alice, carol, david, m8, ... m20 }
@@ -1226,7 +1234,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                 if (!acc)
                 {
                     if (entry)
-                        std::cout << "checkSeat failed, seatno->accid present (but should be empty) for seat: " 
+                        std::cout << "checkSeat failed, seatno->accid present (but should be empty) for seat: "
                             << seat << "\n";
                     BEAST_EXPECT(!entry);
                     return;
@@ -1239,12 +1247,12 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
                 BEAST_EXPECT(!!entry &&
                     entry->getFieldVL(sfHookStateData) == vecFromAcc(*acc));
             }
-            
+
             // accid => seatno
             {
                 for (int i = 12; i < 32; ++i)
                 key[i] = acc->id().data()[i-12];
-    
+
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
 
                 if (!entry)
@@ -1259,7 +1267,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
 
         {
             std::vector<Account const*> finalSeats {
-                    &bob, &edward, &m6, &m7, &alice, &carol, &david, 
+                    &bob, &edward, &m6, &m7, &alice, &carol, &david,
                     &m8, &m9, &m10, &m11, &m12, &m13, &m14, &m15, &m16, &m17, &m18, &m19, &m20};
 
             for (int i = 0; i < 20; ++i)
@@ -1272,8 +1280,8 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         // floor (20*0.8) = 16
         doSeatVote(__LINE__, 0, 19, alice.id(), bob, {
                 &bob, &edward, &m6, &m7,
-                &alice, &carol, &david,  &m8, 
-                &m9, &m10, &m11, &m12, 
+                &alice, &carol, &david,  &m8,
+                &m9, &m10, &m11, &m12,
                 &m13, &m14, &m15, &m16}, true);
 
         // now seating is:
@@ -1283,38 +1291,38 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         // note floor(19*0.8) = 15
         doSeatVote(__LINE__, 4, 19, edward.id(), {}, {
                 &alice, &edward, &m6, &m7,
-                &m16, &carol, &david,  &m8, 
-                &m9, &m10, &m11, &m12, 
+                &m16, &carol, &david,  &m8,
+                &m9, &m10, &m11, &m12,
                 &m13, &m14, &m15}, true);
-        
+
         // now seating is:
         // {alice, blank, m6, m7, edward, carol, david, m8, ...}
 
         // bob into position 1, the count becomes 20
         doSeatVote(__LINE__, 1, 20, bob.id(), {}, {
                 &alice, &edward, &m6, &m7,
-                &m16, &carol, &david,  &m8, 
-                &m9, &m10, &m11, &m12, 
+                &m16, &carol, &david,  &m8,
+                &m9, &m10, &m11, &m12,
                 &m13, &m14, &m15}, true);
-        
+
         // {alice, bob, m6, m7, edward, carol, david, m8, ...}
 
         // carol into position 2, this frees up seat 5, bringing count to 19
         doSeatVote(__LINE__, 2, 19, carol.id(), m6, {
                 &alice, &bob, &m6, &m7,
-                &m16, &carol, &david,  &m8, 
-                &m9, &m10, &m11, &m12, 
+                &m16, &carol, &david,  &m8,
+                &m9, &m10, &m11, &m12,
                 &m13, &m14, &m15, &m17}, true);
-        
+
         // {alice, bob, carol, m7, edward, blank, david, m8, ...}
 
         // david into position 3, this frees up seat 6, bringing count to 18
         doSeatVote(__LINE__, 3, 18, david.id(), m7, {
                 &alice, &bob, &m18, &m17,
-                &m16, &carol, &david,  &m8, 
-                &m9, &m10, &m11, &m12, 
+                &m16, &carol, &david,  &m8,
+                &m9, &m10, &m11, &m12,
                 &m13, &m14, &m15}, true);
-        
+
         // {alice, bob, carol, david, edward, blank, blank, m8, ...}
 
         // remove all higher members
@@ -1324,32 +1332,32 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         // floor(18*0.8) = 14
         doSeatVote(__LINE__, 7, 17, null_acc, m8, {
                 &alice, &bob, &carol, &david, &edward,
-                &m8, &m9, &m10, &m11, &m12, 
+                &m8, &m9, &m10, &m11, &m12,
                 &m13, &m14, &m15, &m16 }, true);
-        
+
         // floor(17*0.8) = 13
         doSeatVote(__LINE__, 8, 16, null_acc, m9, {
                 &alice, &bob, &carol, &david, &edward,
-                &m9, &m10, &m11, &m12, 
+                &m9, &m10, &m11, &m12,
                 &m13, &m14, &m15, &m16 }, true);
 
         // floor(16*0.8)=12
         doSeatVote(__LINE__, 9, 15, null_acc, m10, {
                 &alice, &bob, &carol, &david, &edward,
-                &m10, &m11, &m12, 
+                &m10, &m11, &m12,
                 &m13, &m14, &m15, &m16 }, true);
 
         // floor(15*0.8)=12
         doSeatVote(__LINE__, 10, 14, null_acc, m11, {
                 &alice, &bob, &carol, &david, &edward,
-                &m11, &m12, 
+                &m11, &m12,
                 &m13, &m14, &m15, &m16, &m17 }, true);
 
 
         // floor(14*0.8)=11
         doSeatVote(__LINE__, 11, 13, null_acc, m12, {
                 &alice, &bob, &carol, &david, &edward,
-                &m12, 
+                &m12,
                 &m13, &m14, &m15, &m16, &m17 }, true);
 
 
@@ -1377,22 +1385,22 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         doSeatVote(__LINE__, 16, 8, null_acc, m17, {
                 &alice, &bob, &carol, &david, &edward,
                 &m19, &m20 }, true);
-        
+
         // floor(8*0.8)=6
         doSeatVote(__LINE__, 17, 7, null_acc, m18, {
                 &alice, &bob, &carol, &david, &edward,
                 &m20 }, true);
-        
+
         // floor(7*0.8)=5
         doSeatVote(__LINE__, 18, 6, null_acc, m19, {
                 &alice, &bob, &carol, &david, &edward}, true);
-        
+
         // floor(6*0.8)=4
         doSeatVote(__LINE__, 19, 5, null_acc, m20, {
                 &alice, &bob, &carol, &david}, true);
 
 
-        // check the seats are correct        
+        // check the seats are correct
         {
             std::vector<Account const*> finalSeats {
                     &alice, &bob, &carol, &david, &edward};
@@ -1400,7 +1408,153 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
             for (int i = 0; i < 20; ++i)
                 checkSeat(i, i < 5 ? finalSeats[i] : NULL);
         }
-    
+
+
+
+    }
+
+    void testGovernanceL2()
+    {
+        using namespace jtx;
+        testcase("Test governance membership voting L1");
+
+        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
+            beast::severities::kTrace
+        };
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        auto const t1 = Account("t1");
+        auto const t2 = Account("t2");
+        auto const t3 = Account("t3");
+
+        auto const m6 = Account("m6");
+        auto const m7 = Account("m7");
+        auto const m8 = Account("m8");
+        auto const m9 = Account("m9");
+        auto const m10 = Account("m10");
+        auto const m11 = Account("m11");
+        auto const m12 = Account("m12");
+        auto const m13 = Account("m13");
+        auto const m14 = Account("m14");
+        auto const m15 = Account("m15");
+        auto const m16 = Account("m16");
+        auto const m17 = Account("m17");
+        auto const m18 = Account("m18");
+        auto const m19 = Account("m19");
+        auto const m20 = Account("m20");
+        auto const m21 = Account("m21");
+
+/*
+        auto printAcc = [](const char* name, Account const& acc) -> void
+        {
+            std::cout << name << ": " << strHex(acc.id()) << ", " << acc.human() << "\n";
+
+        };
+
+        #define PRINTACC(a) printAcc(#a, a)
+
+        alice: AE123A8556F3CF91154711376AFB0F894F832B3D, rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn
+        bob: F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90F, rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK
+        carol: B389FBCED0AF9DCDFF62900BFAEFA3EB872D8A96, rH4KEcG9dEwGwpn6AyoWK9cZPLL4RLSmWW
+        david: 0F4BFC99EC975E3F753927A69713889359C7100E, rpPtwXbmeXxznrUvnMuGhUqTu4Vvk4V98i
+        edward: 98D3AAD96D5D3F32C3723B6550A49DEE4DD9D4AC, rNAnHhommqNJvV3mLieHADNJU6mfdRqXKp
+        m1: 1EF5C53AC2B0E1CDEAF960833A9B7B6814879152, rsF66BeCcW5dxrDhPbCqm4ReU5MjkmshQo
+        m2: 0D20E8D13A89AA84F2334F57331903D21CCC866C, rpURDnkgizBF1ksJr9DmDTNLhds2NBYNbC
+        m6: F41810565A673D2C45C63B7A51FEA139221DFB1B, rPEe68FWPYpfEYeL3TtdVGXR8WDET24h6e
+        m7: 52C947B84E2412B5BD2211639E2B9DEDF3ECB5F4, r3YjXvPbu1srxx22tQefDwhXJS8qjCAgxg
+        m8: 3392382F09E5EA935D5624D52919C683B661238A, rn6gdHFFtieGK748TioK8cZ8SPrHsWAfe3
+        m9: 62F73BE6E7718B3328DEB497F8298B1C42FFD3D8, rwpHPvGwiJAFStN3KqVTeTLBTczFyK6Z6D
+        m10: 971B25036F1EAAEEC7A0C299E15F60AB4C465B37, rNmyZrJEtbg5p84PSKGurNs1efdDNLhb8D
+        m11: B79B324A56425919D0BF64FA4560C7B616F08509, rHjF2LuJKSRerNHtQMtyDUVXpQKmT18XuC
+        m12: 8C3AA72EBB3172726BE9FDE2A91C9CE2C9F766E5, rD8T19Nz2gkAtKKEeLpXLkTb57AS7nJ45b
+        m13: 3B8292604D9CF9C679E70CCD0ED5C9DC1DF84607, raRCHchPDpP8qAysxsmehC279GH613iGiM
+        m14: E77F5DFE960C4DA9524389F946BCD13AC26AB0D0, r4fsCASeoGzhD2ZeFgcJj1c2tmDsm1re3r
+        m15: D300D94BA59F55426889E144B423CFEE8F685450, rLNgbTE2HVk5CJG7SHrpSD8gsFcwu5cG1a
+        m16: D9C6AC46D87BCFE374BE4F59C280CEC377E67788, rLiVdCesA2rV2NjC6HZPVK7k1VpvGwCbjx
+        m17: A620E154D56E38B12AD76A094A214A25AD8B87A1, rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa
+        m18: 7A5A72F059F6DCDD6E938DAFBCFFB0541E0A7481, rU9A8u622H6fxGQjux8uDgomks5D8QySfS
+        m19: F6C06C3D86A9D39FF813AEF6B839AD041651BE7D, rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU
+        m20: 1B4D3113C2AB370293A0ACEA4D68C1B29A01A013, rsVM5ZaK9QMCgrW9UKyXLguESpDpsJnRbu
+        m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4gD
+
+        */
+
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward, t1, t2, t3,
+            m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
+
+        env.close();
+        
+        setupGov(env, 
+            {alice.id(), bob.id(), t1.id(), t2.id()},
+            {
+                {t1.id(), {m6, m7}},
+                {t2.id(), {m11, m12, m13, m14, m15}}
+            });
+
+        BEAST_EXPECT(true);
+
+/*
+        auto const governHookHash =
+                ripple::sha512Half_s(
+                    ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
+
+        auto addHookParams = [](Json::Value& hook, std::map<std::vector<uint8_t>, std::vector<uint8_t>> params)
+        {
+            hook[jss::HookParameters] = Json::arrayValue;
+            uint32_t counter = 0;
+            for (auto const& [k, v] : params)
+            {
+                hook[jss::HookParameters][counter] = Json::objectValue;
+                hook[jss::HookParameters][counter][jss::HookParameter] = Json::objectValue;
+                hook[jss::HookParameters][counter][jss::HookParameter][jss::HookParameterName] = strHex(k);
+                hook[jss::HookParameters][counter][jss::HookParameter][jss::HookParameterValue] = strHex(v);
+                counter++;
+            }
+        };
+
+        // governance hook must already be installed
+*/
+/*
+        // install governance hook on t1i
+        auto installL2Table = [&](Account const& table, std::vector<Account const*> members)
+        {
+            Json::Value tx (Json::objectValue);
+
+            tx[jss::Account] = t1.human();
+            tx[jss::TransactionType] = "SetHook";
+            tx[jss::Hooks] = Json::arrayValue;
+            tx[jss::Hooks][0u] = Json::objectValue;
+
+            tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
+            tx[jss::Hooks][0u][jss::Hook][jss::HookHash] = strHex(governHookHash);
+
+            std::map<std::vector<uint8_t>,std::vector<uint8_t>> params
+            {
+                {std::vector<uint8_t>{'I', 'M', 'C'}, std::vector<uint8_t>{ (uint8_t)(members.size()) }}
+            };
+
+            uint8_t counter = 0;
+
+            for (Account const* m: members)
+                params[std::vector<uint8_t>{'I', 'S', counter++}] = 
+                    vecFromAccount(*members);
+
+ 
+            addHookParams(tx[jss::Hooks][0u][jss::Hook], params);
+
+            env(tx,  M(__LINE__), fee(XRP(100)));
+            env.close();
+        }
+*/
+
+    }
+
+
         // add a layer 2 table at m14 with m1 and m2 as members
 /*
         {
@@ -1415,8 +1569,7 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         }
 */
 
-    }
-
+        // L2 tests
 //        auto hooksArray =
 
         // RH TODO:
@@ -1462,7 +1615,8 @@ m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4g
         //testPlainActivation();
         //testWithSignerList();
         //testWithRegularKey();
-        testGovernanceL1();
+//        testGovernanceL1();
+        testGovernanceL2();
     }
 };
 
