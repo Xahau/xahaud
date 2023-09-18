@@ -98,19 +98,16 @@ class Import_test : public beast::unit_test::suite
     }
 
     std::unique_ptr<Config>
-    makeMaxFeeConfig(uint32_t networkID)
+    makeMaxFeeConfig(uint32_t networkID, std::vector<std::string> keys)
     {
         using namespace jtx;
-        std::vector<std::string> const keys = {
-            "ED74D4036C6591A4BDF9C54CEFA39B996A"
-            "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
         return envconfig([&](std::unique_ptr<Config> cfg) {
             cfg->NETWORK_ID = networkID;
             Section config;
             config.append(
                 {"reference_fee = 50",
-                 "account_reserve = 1000000",
-                 "owner_reserve = 200000"});
+                 "account_reserve = 10000000",
+                 "owner_reserve = 2000000"});
             auto setup = setup_FeeVote(config);
             cfg->FEES = setup;
 
@@ -3062,7 +3059,7 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, ter(tesSUCCESS));
             env.close();
 
-            // total burn = burn drops - fee drops
+            // total burn = burn drops + reward amount
             auto const totalBurn = drops(12) + XRP(2);
 
             // confirm fee was minted
@@ -3181,7 +3178,7 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, msig(bob, carol), ter(tesSUCCESS));
             env.close();
 
-            // total burn = burn drops - fee drops
+            // total burn = burn drops + reward amount
             auto const totalBurn = drops(48) + XRP(2);
 
             // confirm fee was minted
@@ -4769,7 +4766,7 @@ class Import_test : public beast::unit_test::suite
             env(tx, alice, ter(tesSUCCESS));
             env.close();
 
-            // total burn = burn drops - fee drops
+            // total burn = burn drops + reward amount
             auto const totalBurn = drops(10) + XRP(2);
 
             // confirm fee was minted
@@ -4787,46 +4784,112 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
         }
 
-        // // w/ seed -> dne (max)
-        // {
-        //     test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+        // w/ seed -> dne (min) (Reserve/Reference/Fee)
+        // Owner Fee = 20 xrp
+        {
+            test::jtx::Env env{*this, makeMaxFeeConfig(21337, keys)};
 
-        //     auto const feeDrops = env.current()->fees().base;
-        //     auto const envCoins = env.current()->info().drops;
-        //     auto const totalCoins = drops(100'000'000'000'000'000);
+            auto const feeDrops = env.current()->fees().base;
 
-        //     // init env
-        //     auto const alice = Account("alice");
-        //     env.memoize(alice);
+            // confirm total coins header
+            auto const initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
-        //     // confirm env
-        //     auto const preCoins = env.current()->info().drops;
-        //     BEAST_EXPECT(preCoins == totalCoins);
-        //     auto const preAlice = env.balance(alice);
-        //     BEAST_EXPECT(preAlice == XRP(0));
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
 
-        //     // import tx
-        //     auto const xpopJson = loadXpop(ImportTCAccountSet::max);
-        //     Json::Value tx = import(alice, xpopJson);
-        //     tx[jss::Sequence] = 0;
-        //     env(tx, alice, ter(tesSUCCESS));
-        //     env.close();
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == initCoins - 10'000'000'000);
 
-        //     // confirm fee was minted
-        //     auto const postAlice = env.balance(alice);
-        //     BEAST_EXPECT(
-        //         postAlice == preAlice + XRP(999'999'999'999'000'000) +
-        //         XRP(2));
-        //     auto const postCoins = env.current()->info().drops;
-        //     BEAST_EXPECT(postCoins == 999'999'999'999'900'000);
-        //     // std::cout << "POST COINS: " << postCoins << "\n";
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
 
-        //     // confirm account exists
-        //     auto const [acct, acctSle] =
-        //         accountKeyAndSle(*env.current(), alice);
-        //     BEAST_EXPECT(acctSle != nullptr);
-        //     env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
-        // }
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::min);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + reward amount
+            auto const totalBurn = drops(10) + XRP(20);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
+
+            // confirm account exists
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle != nullptr);
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
+
+        // w/ seed -> dne (max)
+        {
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            // confirm total coins header
+            auto const initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 99'999'998'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(99'999'998'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            // confirm total coins header
+            auto const preCoins = env.current()->info().drops;
+            BEAST_EXPECT(preCoins == initCoins - 99'999'998'000'000'000);
+
+            // init env
+            auto const alice = Account("alice");
+            env.memoize(alice);
+
+            // confirm env
+            auto const preAlice = env.balance(alice);
+            BEAST_EXPECT(preAlice == XRP(0));
+
+            // import tx
+            auto const xpopJson = loadXpop(ImportTCAccountSet::max);
+            Json::Value tx = import(alice, xpopJson);
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            env(tx, alice, ter(tesSUCCESS));
+            env.close();
+
+            // total burn = burn drops + reward amount
+            auto const totalBurn = drops(99'999'939'799'000'000) + XRP(2);
+
+            // confirm fee was minted
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins + totalBurn);
+
+            // confirm account exists
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+            BEAST_EXPECT(acctSle != nullptr);
+            env(noop(alice), fee(feeDrops), ter(tesSUCCESS));
+        }
     }
 
     std::unique_ptr<Config>
