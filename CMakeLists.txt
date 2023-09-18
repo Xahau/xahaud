@@ -83,7 +83,9 @@ include(RippledInterface)
 
 ###
 if (NOT USE_CONAN)
+  set(SECP256K1_INSTALL TRUE)
   add_subdirectory(src/secp256k1)
+  add_library(secp256k1::secp256k1 ALIAS secp256k1)
   add_subdirectory(src/ed25519-donna)
   include(deps/Boost)
   include(deps/OpenSSL)
@@ -108,7 +110,9 @@ else()
   set_target_properties(OpenSSL::SSL PROPERTIES
     INTERFACE_COMPILE_DEFINITIONS OPENSSL_NO_SSL2
   )
+  set(SECP256K1_INSTALL TRUE)
   add_subdirectory(src/secp256k1)
+  add_library(secp256k1::secp256k1 ALIAS secp256k1)
   add_subdirectory(src/ed25519-donna)
   find_package(lz4 REQUIRED)
   # Target names with :: are not allowed in a generator expression.
