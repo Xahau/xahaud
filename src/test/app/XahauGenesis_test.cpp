@@ -395,6 +395,89 @@ struct XahauGenesis_test : public beast::unit_test::suite
         return std::vector<uint8_t>(data, data+20);
     };
 
+    inline
+    static
+    Json::Value
+    vote(
+        uint16_t lineno,
+        jtx::Account const& acc,
+        jtx::Account const& table,
+        char topic1,
+        std::optional<char> topic2,
+        std::vector<uint8_t> data,
+        std::optional<uint8_t> layer = std::nullopt)
+    {
+
+        Json::Value txn (Json::objectValue);
+
+        txn[jss::HookParameters] = Json::arrayValue;
+        txn[jss::HookParameters][0u] = Json::objectValue;
+
+        txn[jss::HookParameters][0u][jss::HookParameter] = Json::objectValue;
+        txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterName] =
+            "54"; // 'T'
+        std::string val = charToHex(topic1) + (topic2 ? charToHex(*topic2) : "");
+        std::cout << "val: `" << val << "`\n";
+        txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterValue] = val;
+
+        txn[jss::HookParameters][1u] = Json::objectValue;
+        txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterName] =
+            "56"; // 'V'
+
+        {
+            std::string strData;
+            strData.reserve(data.size() << 1U);
+            for (uint8_t c : data)
+                strData += charToHex(c);
+
+            txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterValue] = strData;
+        }
+
+        // add a line number for debugging
+        txn[jss::HookParameters][2u] = Json::objectValue;
+        txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "44"; // D
+        {
+            std::string strData;
+            strData += charToHex((uint8_t)(lineno >> 8U));
+            strData += charToHex((uint8_t)(lineno & 0xFFU));
+            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = strData;
+        }
+
+
+        if (layer)
+        {
+            txn[jss::HookParameters][2u] = Json::objectValue;
+            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "4C";
+            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = charToHex(*layer);
+        }
+
+        txn[jss::Account] = acc.human();
+        txn[jss::TransactionType] = "Invoke";
+        txn[jss::Destination] = table.human();
+        return txn;
+    };
+        
+    inline
+    static
+    uint256
+    makeStateKey
+    (char voteType, char topic1, char topic2, uint8_t layer, AccountID const& id)
+    {
+
+        uint8_t data[32];
+
+        memset(data, 0, 32);
+        data[0] = voteType;
+        data[1] = topic1;
+        data[2] = topic2;
+        data[3] = layer;
+
+        for (int i = 0; i < 20; ++i)
+            data[12 + i] = id.data()[i];
+
+        return uint256::fromVoid(data);
+    }
+
 
     void
     testGovernanceL1()
@@ -478,82 +561,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         setupGov(env, initial_members_ids);
 
-        auto vote = [&](
-            uint16_t lineno,
-            Account const& acc,
-            char topic1,
-            std::optional<char> topic2,
-            std::vector<uint8_t> data,
-            std::optional<uint8_t> layer = std::nullopt)
-        {
-
-            Json::Value txn (Json::objectValue);
-
-            txn[jss::HookParameters] = Json::arrayValue;
-            txn[jss::HookParameters][0u] = Json::objectValue;
-
-            txn[jss::HookParameters][0u][jss::HookParameter] = Json::objectValue;
-            txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterName] =
-                "54"; // 'T'
-            std::string val = charToHex(topic1) + (topic2 ? charToHex(*topic2) : "");
-            std::cout << "val: `" << val << "`\n";
-            txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterValue] = val;
-
-            txn[jss::HookParameters][1u] = Json::objectValue;
-            txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterName] =
-                "56"; // 'V'
-
-            {
-                std::string strData;
-                strData.reserve(data.size() << 1U);
-                for (uint8_t c : data)
-                    strData += charToHex(c);
-
-                txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterValue] = strData;
-            }
-
-            // add a line number for debugging
-            txn[jss::HookParameters][2u] = Json::objectValue;
-            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "44"; // D
-            {
-                std::string strData;
-                strData += charToHex((uint8_t)(lineno >> 8U));
-                strData += charToHex((uint8_t)(lineno & 0xFFU));
-                txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = strData;
-            }
-
-
-            if (layer)
-            {
-                txn[jss::HookParameters][2u] = Json::objectValue;
-                txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "4C";
-                txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = charToHex(*layer);
-            }
-
-            txn[jss::Account] = acc.human();
-            txn[jss::TransactionType] = "Invoke";
-            txn[jss::Destination] = env.master.human();
-            return txn;
-        };
-
-        auto makeStateKey =
-            [&](char voteType, char topic1, char topic2, uint8_t layer, AccountID const& id) -> uint256
-        {
-
-            uint8_t data[32];
-
-            memset(data, 0, 32);
-            data[0] = voteType;
-            data[1] = topic1;
-            data[2] = topic2;
-            data[3] = layer;
-
-            for (int i = 0; i < 20; ++i)
-                data[12 + i] = id.data()[i];
-
-            return uint256::fromVoid(data);
-        };
-
 
         auto doL1Vote = [&](uint64_t lineno, Account const& acc, char topic1, char topic2,
                             std::vector<uint8_t> const& vote_data,
@@ -607,7 +614,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // perform and check vote
             {
-                env(vote(lineno, acc, topic1, topic2, vote_data), M(lineno), fee(XRP(1)),
+                env(vote(lineno, acc, env.master, topic1, topic2, vote_data), M(lineno), fee(XRP(1)),
                     shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
                 env.close();
                 auto entry =
@@ -1484,6 +1491,292 @@ struct XahauGenesis_test : public beast::unit_test::suite
         */
 
 
+
+        auto const governHookHash =
+                ripple::sha512Half_s(
+                    ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
+        
+        // check tables correctly configured
+        auto checkL2Table = [&](AccountID const& tableID, std::vector<Account const*> members) -> void
+        {
+            auto const hookLE = env.le(keylet::hook(tableID));
+            BEAST_EXPECT(!!hookLE);
+            uint256 const ns = beast::zero;
+            uint8_t mc = 0;
+            if (hookLE)
+            {
+                auto const hooksArray = hookLE->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1 && hooksArray[0].getFieldH256(sfHookHash) == governHookHash);
+            
+ 
+                for (Account const* m: members)
+                {
+
+                    auto const mVec = vecFromAcc(*m);
+                    // forward key
+
+                    uint8_t key[32] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,mc};
+                    
+                    auto const forward = env.le(keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    BEAST_EXPECT(!!forward && forward->getFieldVL(sfHookStateData) == mVec);
+                
+                    // reverse key
+
+                    for (int i = 12; i < 32; ++i)
+                        key[i] = mVec[i-12];
+
+                    auto const reverse = env.le(keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    BEAST_EXPECT(!!reverse && reverse->getFieldVL(sfHookStateData) == std::vector<uint8_t>{mc});
+                    mc++;
+                }
+            }
+
+            // check membercount is correct
+            {
+                uint8_t key[32] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 'M', 'C'};
+                auto const mcLE = env.le(keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                BEAST_EXPECT(!!mcLE && mcLE->getFieldVL(sfHookStateData) == std::vector<uint8_t>{mc});
+            }
+
+            // check the hook didn't setup a reward rate or delay key
+            {
+                uint8_t key[32] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 'R', 'R'};
+                {
+                    auto const le = env.le(keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    BEAST_EXPECT(!le);
+                }
+                key[31] = 'D';
+                {
+                    auto const le = env.le(keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    BEAST_EXPECT(!le);
+                }
+            }
+
+            // check account has correct ownercount and is blackholed
+            auto const root = env.le(keylet::account(tableID));
+            BEAST_EXPECT(!!root);
+            if (root)
+            {
+                BEAST_EXPECT(root->getFieldU32(sfOwnerCount) == mc*2 + 2);
+                BEAST_EXPECT(root->getFieldU32(sfFlags) & lsfDisableMaster);
+                BEAST_EXPECT(root->getAccountID(sfRegularKey) == noAccount());
+            }
+        };
+
+        auto doL1Vote = [&](uint64_t lineno, Account const& acc, char topic1, char topic2,
+                            std::vector<uint8_t> const& vote_data,
+                            std::vector<uint8_t> const& old_data,
+                            bool actioned = true, bool const shouldFail = false)
+        {
+
+            if (shouldFail)
+                actioned = false;
+
+            bool isZero = true;
+            for (auto&  x: vote_data)
+            if (x != 0)
+            {
+                isZero = false;
+                break;
+            }
+
+            bool isOldDataZero = true;
+            for (auto& x : old_data)
+            if (x != 0)
+            {
+                isOldDataZero = false;
+                break;
+            }
+
+            uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                topic1 == 'S' ? 0 : topic1, topic2};
+            // check actioning prior to vote
+            {
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
+                std::cout
+                        << "topic vote precheck: " << lineno << "L\n"
+                        << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
+                        << "\tshouldFail: " << (shouldFail ? "true": "false") << "\n"
+                        << "\ttopic: " << topic1 << "," << (topic2 < 48 ? topic2 + '1' : topic2) << "\n"
+                        << "\tisOldDataZero:  " << (isOldDataZero ? "true" : "false") << "\n"
+                        << "\tisVoteDataZero: " << (isZero ? "true" : "false") << "\n"
+                        << "\told_data: " << strHex(old_data) << "\n"
+                        << "\tlgr_data: " << (!entry ? "doesn't exist" : strHex(entry->getFieldVL(sfHookStateData))) << "\n"
+                        << "\tnew_data: " << strHex(vote_data) << "\n"
+                        << "\t(isOldDataZero && !entry): " << (isOldDataZero && !entry ? "true" : "false") << "\n"
+                        << "\t(entry && entry->getFieldVL(sfHookStateData) == old_data): " <<
+                            (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n"
+                        << ((isOldDataZero && !entry) ||
+                            (entry && entry->getFieldVL(sfHookStateData) == old_data) ? "" : "\tfailed: ^^^\n");
+
+                BEAST_EXPECT((isOldDataZero && !entry) ||
+                    (entry && entry->getFieldVL(sfHookStateData) == old_data));
+            }
+
+            // perform and check vote
+            {
+                env(vote(lineno, acc, env.master, topic1, topic2, vote_data), M(lineno), fee(XRP(1)),
+                    shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
+                env.close();
+                auto entry =
+                    env.le(keylet::hookState(env.master.id(), makeStateKey('V', topic1, topic2, 1, acc.id()),
+                        beast::zero));
+                if (!shouldFail)
+                {
+                    BEAST_REQUIRE(!!entry);
+                    auto lgr_data = entry->getFieldVL(sfHookStateData);
+                    BEAST_EXPECT(lgr_data.size() == vote_data.size());
+                    BEAST_EXPECT(lgr_data == vote_data);
+                }
+            }
+
+            // check actioning
+            if (!shouldFail)
+            {
+                // if the vote count isn't high enough it will be hte old value if it's high enough it will be the
+                // new value
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
+
+                if (!actioned && isOldDataZero)
+                {
+                    BEAST_EXPECT(!entry || entry->getFieldVL(sfHookStateData) == old_data);
+                    return;
+                }
+
+                if (actioned)
+                {
+                    if (isZero)
+                        BEAST_EXPECT(!entry);
+                    else
+                    {
+                        std::cout << "new data: " << strHex(vote_data) << "\n";
+                        std::cout << "lgr data: " <<
+                            (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
+                    }
+                }
+                else
+                {
+                    if (!!entry)
+                    {
+                        std::cout << "old data: " << strHex(entry->getFieldVL(sfHookStateData)) << "\n";
+                    }
+                    BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == old_data);
+                }
+            }
+        };
+
+        auto doL2Vote = [&](
+                uint64_t lineno, uint8_t layer, Account const& table,
+                Account const& acc, char topic1, char topic2,
+                std::vector<uint8_t> const& vote_data,
+                std::vector<uint8_t> const& old_data,
+                bool actioned = true, bool const shouldFail = false)
+        {
+
+            if (shouldFail)
+                actioned = false;
+
+            bool isZero = true;
+            for (auto&  x: vote_data)
+            if (x != 0)
+            {
+                isZero = false;
+                break;
+            }
+
+            bool isOldDataZero = true;
+            for (auto& x : old_data)
+            if (x != 0)
+            {
+                isOldDataZero = false;
+                break;
+            }
+
+            uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                topic1 == 'S' ? 0 : topic1, topic2};
+            // check actioning prior to vote
+            {
+                auto entry = env.le(keylet::hookState(
+                    layer == 1 ? env.master.id() : table.id(),
+                    uint256::fromVoid(key), beast::zero));
+                std::cout
+                        << "topic L2 vote precheck: " << lineno << "L\n"
+                        << "\tlayer: " << layer << " table: " << table.human() << "\n"
+                        << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
+                        << "\tshouldFail: " << (shouldFail ? "true": "false") << "\n"
+                        << "\ttopic: " << topic1 << "," << (topic2 < 48 ? topic2 + '1' : topic2) << "\n"
+                        << "\tisOldDataZero:  " << (isOldDataZero ? "true" : "false") << "\n"
+                        << "\tisVoteDataZero: " << (isZero ? "true" : "false") << "\n"
+                        << "\told_data: " << strHex(old_data) << "\n"
+                        << "\tlgr_data: " << (!entry ? "doesn't exist" : strHex(entry->getFieldVL(sfHookStateData))) << "\n"
+                        << "\tnew_data: " << strHex(vote_data) << "\n"
+                        << "\t(isOldDataZero && !entry): " << (isOldDataZero && !entry ? "true" : "false") << "\n"
+                        << "\t(entry && entry->getFieldVL(sfHookStateData) == old_data): " <<
+                            (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n"
+                        << ((isOldDataZero && !entry) ||
+                            (entry && entry->getFieldVL(sfHookStateData) == old_data) ? "" : "\tfailed: ^^^\n");
+
+                BEAST_EXPECT((isOldDataZero && !entry) ||
+                    (entry && entry->getFieldVL(sfHookStateData) == old_data));
+            }
+
+            // perform and check vote
+            {
+                env(vote(lineno, acc, table, topic1, topic2, vote_data, layer), M(lineno), fee(XRP(1)),
+                    shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
+                env.close();
+                auto entry =
+                    env.le(keylet::hookState(layer == 1 ? env.master.id() : table.id(),
+                        makeStateKey('V', topic1, topic2, layer, acc.id()),
+                        beast::zero));
+                if (!shouldFail)
+                {
+                    BEAST_REQUIRE(!!entry);
+                    auto lgr_data = entry->getFieldVL(sfHookStateData);
+                    BEAST_EXPECT(lgr_data.size() == vote_data.size());
+                    BEAST_EXPECT(lgr_data == vote_data);
+                }
+            }
+
+            // check actioning
+            if (!shouldFail)
+            {
+                // if the vote count isn't high enough it will be hte old value if it's high enough it will be the
+                // new value
+                auto entry = env.le(keylet::hookState(
+                    layer == 1 ? env.master.id() : table.id(),
+                    uint256::fromVoid(key), beast::zero));
+
+                if (!actioned && isOldDataZero)
+                {
+                    BEAST_EXPECT(!entry || entry->getFieldVL(sfHookStateData) == old_data);
+                    return;
+                }
+
+                if (actioned)
+                {
+                    if (isZero)
+                        BEAST_EXPECT(!entry);
+                    else
+                    {
+                        std::cout << "new data: " << strHex(vote_data) << "\n";
+                        std::cout << "lgr data: " <<
+                            (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
+                    }
+                }
+                else
+                {
+                    if (!!entry)
+                    {
+                        std::cout << "old data: " << strHex(entry->getFieldVL(sfHookStateData)) << "\n";
+                    }
+                    BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == old_data);
+                }
+            }
+        };
+
         env.fund(XRP(10000), alice, bob, carol, david, edward, t1, t2, t3,
             m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
 
@@ -1496,7 +1789,71 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 {t2.id(), {m11, m12, m13, m14, m15}}
             });
 
-        BEAST_EXPECT(true);
+        env.close();
+        checkL2Table(t1.id(), std::vector<Account const*>{&m6, &m7});
+        checkL2Table(t2.id(), std::vector<Account const*>{&m11, &m12, &m13, &m14, &m15});
+
+
+        // test voting from layer 2
+        // vote for a different reward rate
+        {
+            // this will be the new reward rate
+            std::vector<uint8_t> vote_data {0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x54U};
+
+            // this is the default reward rate
+            std::vector<uint8_t> const original_data {0x00U,0xE4U,0x61U,0xEEU,0x78U,0x90U,0x83U,0x54U};
+
+            doL1Vote(__LINE__, alice, 'R', 'R', vote_data, original_data, false);
+
+            // trying to vote for a changed layer2 reward rate should fail because layer2 doesn't have one
+            doL2Vote(__LINE__, 2, t1, m6, 'R', 'R', vote_data, {}, false, true);
+
+            // but layer2 can vote for layer1 reward rate:
+            doL2Vote(__LINE__, 1, t1, m6, 'R', 'R', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t1, m7, 'R', 'R', vote_data, original_data, false);
+
+            // a vote by the L2 table should have been emitted now
+            env.close();
+            env.close();
+
+            // check the vote counter
+            auto checkCounter = [&](uint8_t c)
+            {
+                uint8_t counter_key[32] = {'C','R','R',1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                    0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x54U};
+                uint256 ns = beast::zero;
+                auto const counterLE = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(counter_key), ns));
+                BEAST_EXPECT(!!counterLE && counterLE->getFieldVL(sfHookStateData) == std::vector<uint8_t>{c});
+            };
+
+            checkCounter(2);
+                
+            // vote with the second table
+            doL2Vote(__LINE__, 1, t2, m11, 'R', 'R', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t2, m12, 'R', 'R', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t2, m13, 'R', 'R', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t2, m14, 'R', 'R', vote_data, original_data, false);
+
+            env.close();
+            env.close();
+
+            checkCounter(3);
+
+            // final L1 vote should activate it
+            doL1Vote(__LINE__, bob, 'R', 'R', vote_data, original_data, true);
+            
+            checkCounter(4);
+
+            // reverting a L2 vote should emit a txn undoing the vote
+            doL2Vote(__LINE__, 1, t1, m6, 'R', 'R', original_data, vote_data, false);
+
+            env.close();
+            env.close();
+
+            checkCounter(3);
+
+        }
+
 
 /*
         auto const governHookHash =
@@ -1542,7 +1899,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             for (Account const* m: members)
                 params[std::vector<uint8_t>{'I', 'S', counter++}] = 
-                    vecFromAccount(*members);
+                    vecFromAcc(*members);
 
  
             addHookParams(tx[jss::Hooks][0u][jss::Hook], params);
