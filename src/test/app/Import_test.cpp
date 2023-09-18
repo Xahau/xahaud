@@ -4388,11 +4388,9 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // Test that hook can reject and still mint the funds.
+        // Test that hook can reject and does NOT mint the funds.
         {
-            test::jtx::Env env{
-                *this,
-                makeNetworkVLConfig(21337, keys)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
 
@@ -4410,7 +4408,8 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
             auto const alice = Account("alice");
-            env.fund(XRP(10000), alice);
+            auto const issuer = Account("issuer");
+            env.fund(XRP(10000), alice, issuer);
             env.close();
 
             std::string const createCodeHex =
@@ -4428,26 +4427,46 @@ class Import_test : public beast::unit_test::suite
                 "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECA"
                 "FE";
             Json::Value jv =
-                ripple::test::jtx::hook(alice, {{hso(createCodeHex)}}, 0);
+                ripple::test::jtx::hook(issuer, {{hso(createCodeHex)}}, 0);
             jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
-            env(jv, fee(100'000'000));
+            jv[jss::Hooks][0U][jss::Hook][jss::HookOn] =
+                "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFDFFFFFFFFFFFFFFFFFFBFFF"
+                "FF";
+            env(jv, fee(1'000'000));
             env.close();
 
             auto const preAlice = env.balance(alice);
+            auto const preCoins = env.current()->info().drops;
 
+            auto tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
+            tx[sfIssuer.jsonName] = issuer.human();
+            env(tx, fee(1'000'000), ter(tecHOOK_REJECTED));
+            env.close();
+
+            // confirm fee was burned but no mint
+            auto const postAlice = env.balance(alice);
+            BEAST_EXPECT(postAlice == preAlice - XRP(1));
+
+            // confirm total coins header
+            auto const postCoins = env.current()->info().drops;
+            BEAST_EXPECT(postCoins == preCoins - XRP(1));
+
+            // resubmit import without issuer - no trigger hook
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
-                fee(1'000'000'000),
-                ter(tecHOOK_REJECTED));
+                fee(feeDrops * 10),
+                ter(tesSUCCESS));
+            env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(1000) + feeDrops;
+            auto const totalBurn = XRP(1000) - (feeDrops * 10);
 
             // confirm fee was minted
-            auto const postAlice = env.balance(alice);
-            std::cout << "preAlice: " << preAlice << "\n";
-            std::cout << "postAlice: " << postAlice << "\n";
-            std::cout << "postAlice=: " << (preAlice + totalBurn) << "\n";
-            BEAST_EXPECT(postAlice == preAlice + totalBurn);
+            auto const postAlice2 = env.balance(alice);
+            BEAST_EXPECT(postAlice2 == postAlice + totalBurn);
+
+            // confirm total coins header
+            auto const postCoins2 = env.current()->info().drops;
+            BEAST_EXPECT(postCoins2 == postCoins + totalBurn);
 
             env.close();
         }
@@ -4531,9 +4550,7 @@ class Import_test : public beast::unit_test::suite
             std::vector<std::string> const badVLKeys = {
                 "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
                 "CDC2"};
-            test::jtx::Env env{
-                *this,
-                makeNetworkVLConfig(21337, badVLKeys)};
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, badVLKeys)};
 
             auto const feeDrops = env.current()->fees().base;
 
