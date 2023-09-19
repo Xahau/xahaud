@@ -25,25 +25,31 @@ namespace ripple
 
 namespace hook
 {
+    // RH TODO: put these somewhere better, and allow rules to be fed in
+    inline
     uint32_t maxHookParameterKeySize(void)
     {
         return 32;
     }
 
+    inline
     uint32_t maxHookParameterValueSize(void)
     {
         return 256;
     }
 
+    inline
     uint32_t maxHookStateDataSize(void) {
         return 256U;
     }
 
+    inline
     uint32_t maxHookWasmSize(void)
     {
         return 0xFFFFU;
     }
 
+    inline
     uint32_t maxHookChainLength(void)
     {
         return 10;
