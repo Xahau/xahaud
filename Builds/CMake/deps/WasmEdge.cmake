@@ -2,8 +2,15 @@
  NIH dep: wasmedge: web assembly runtime for hooks.
 #]===================================================================]
 
-find_package(Curses REQUIRED)
-include_directories(${CURSES_INCLUDE_DIR})
+find_package(Curses)
+if(CURSES_FOUND)
+  include_directories(${CURSES_INCLUDE_DIR})
+  target_link_libraries(ripple_libs INTERFACE ${CURSES_LIBRARY})
+else()
+  message(WARNING "CURSES library not found... (only important for mac builds)")
+endif()
+
+
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -66,6 +73,12 @@ set_target_properties (wasmedge PROPERTIES
     "${wasmedge_src_BINARY_DIR}/include/api/"
 )
 target_link_libraries (ripple_libs INTERFACE wasmedge)
-target_link_libraries(ripple_libs INTERFACE ${CURSES_LIBRARY})
-target_link_libraries(ripple_libs INTERFACE xar)
+#RH NOTE: some compilers / versions of some libraries need these, most don't
+
+find_library(XAR_LIBRARY NAMES xar)
+if(XAR_LIBRARY)
+  target_link_libraries(ripple_libs INTERFACE ${XAR_LIBRARY})
+else()
+  message(WARNING "xar library not found... (only important for mac builds)")
+endif()
 add_library (NIH::WasmEdge ALIAS wasmedge)
