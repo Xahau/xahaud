@@ -297,7 +297,7 @@ struct URIToken_test : public beast::unit_test::suite
             env(badXrpTx, ter(temBAD_CURRENCY));
             env.close();
 
-            // temMALFORMED - XRP must cannot be 0 without sfDestination
+            // temMALFORMED - XRP cannot be 0 without sfDestination
             Json::Value nodestTx = mint(alice, uri);
             nodestTx[jss::Amount] = XRP(0).value().getJson(JsonOptions::none);
             env(nodestTx, ter(temMALFORMED));
@@ -452,6 +452,11 @@ struct URIToken_test : public beast::unit_test::suite
         // temBAD_CURRENCY - bad currency
         IOU const BAD{gw, badCurrency()};
         env(sell(alice, id, BAD(10)), ter(temBAD_CURRENCY));
+        env.close();
+
+        // temMALFORMED - XRP cannot be 0 without sfDestination
+        env(sell(alice, id, XRP(0)), ter(temMALFORMED));
+        env.close();
 
         //----------------------------------------------------------------------
         // preclaim
