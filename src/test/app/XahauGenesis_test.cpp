@@ -459,6 +459,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
         txn[jss::Destination] = table.human();
         return txn;
     };
+    
+    std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    AccountID const null_acc;
         
     inline
     static
@@ -481,6 +484,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         return uint256::fromVoid(data);
     }
 
+    uint8_t const member_count_key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,'M','C'};
 
     void
     testGovernanceL1()
@@ -960,15 +964,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         }
 
-        uint8_t const member_count_key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,'M','C'};
-        std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 
 
         // four of the 5 vote to remove alice
         {
 
-            std::vector<uint8_t> const null_acc_id {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
             std::vector<uint8_t> id = vecFromAcc(alice);
             doL1Vote(__LINE__, bob, 'S', 0, null_acc_id, id, false);
             doL1Vote(__LINE__, carol, 'S', 0, null_acc_id, id, false);
@@ -1337,7 +1338,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // remove all higher members
 
-        AccountID const null_acc;
 
         // floor(18*0.8) = 14
         doSeatVote(__LINE__, 7, 17, null_acc, m8, {
@@ -1763,22 +1763,59 @@ struct XahauGenesis_test : public beast::unit_test::suite
                         BEAST_EXPECT(!entry);
                     else
                     {
-                        std::cout << "new data: " << strHex(vote_data) << "\n";
-                        std::cout << "lgr data: " <<
+                        std::cout << lineno << "L "
+                        << "new data: " << strHex(vote_data) << "\n"
+                        << "lgr data: " <<
                             (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
                         BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
                     }
                 }
                 else
                 {
-                    if (!!entry)
-                    {
-                        std::cout << "old data: " << strHex(entry->getFieldVL(sfHookStateData)) << "\n";
-                    }
+                    
+                    std::cout
+                        << lineno << "L old data: "
+                        << (entry ? strHex(entry->getFieldVL(sfHookStateData)) : "<doesn't exist>")
+                        << " == "  << strHex(old_data) << "\n";
                     BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == old_data);
                 }
             }
         };
+        
+        auto doL2SeatVote = [&](uint64_t lineno, uint8_t layer, Account const& table,
+            uint8_t seat_no, uint8_t final_count,
+            AccountID const& candidate, std::optional<AccountID const> previous,
+            std::vector<Account const*> const& voters, bool actioned = true, bool shouldFail = false)
+        {
+            std::vector<uint8_t> previd { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
+            if (previous)
+                memcpy(previd.data(), previous->data(), 20);
+
+            std::vector<uint8_t> id { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
+            memcpy(id.data(), candidate.data(), 20);
+
+            int count = voters.size();
+            for (Account const* voter : voters)
+                doL2Vote(lineno, layer, table, *voter, 'S', seat_no, id, previd, --count <= 0 && actioned, shouldFail);
+
+            if (!shouldFail)
+            {
+                auto entry = env.le(keylet::hookState(
+                    layer == 1 ? env.master.id() : table.id(),
+                    uint256::fromVoid(member_count_key), beast::zero));
+                std::vector<uint8_t> const expected_data {final_count};
+
+                BEAST_REQUIRE(!!entry);
+                if (entry->getFieldVL(sfHookStateData) != expected_data)
+                    std::cout
+                        << "doSeatVote failed " << lineno <<"L. entry data: `"
+                        << strHex(entry->getFieldVL(sfHookStateData)) << "` "
+                        << "expected data: `" << strHex(expected_data) << "`\n";
+
+                BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
+            }
+        };
+
 
         env.fund(XRP(10000), alice, bob, carol, david, edward, t1, t2, t3,
             m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
@@ -1861,6 +1898,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         }
 
+        // vote for a different reward delay
         {
             // this will be the new reward delay
             std::vector<uint8_t> vote_data {0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x55U};
@@ -1903,7 +1941,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // vote with 60% of the second table
             doL2Vote(__LINE__, 1, t2, m11, 'R', 'D', vote_data, original_data, false);
             doL2Vote(__LINE__, 1, t2, m12, 'R', 'D', vote_data, original_data, false);
-            doL2Vote(__LINE__, 1, t2, m13, 'R', 'D', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t2, m13, 'R', 'D', vote_data, original_data, true);
 
             env.close();
             env.close();
@@ -1918,6 +1956,62 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             checkCounter(__LINE__, 3);
         }
+
+        // t2 votes out seat 0
+        // floor(0.8*5) = 4
+        doL2SeatVote(__LINE__, 2, t2, 0, 4, null_acc, m11, {
+            &m12, &m13, &m14, &m15}, true);
+
+        // t2 votes out seat 3
+        // floor(0.8*4) = 3
+        // first try to use the newly voted out person as a vote
+        doL2SeatVote(__LINE__, 2, t2, 4, 3, null_acc, m15, {
+            &m11}, false, true);
+        doL2SeatVote(__LINE__, 2, t2, 4, 3, null_acc, m15, {
+            &m12, &m13, &m14}, true);
+
+        // t2 votes out seat 1
+        // floor(0.8*3) = 2
+        doL2SeatVote(__LINE__, 2, t2, 1, 2, null_acc, m12, {
+            &m12, &m13}, true);
+
+        // t2 = { empty, empty, m13, m14, empty }
+
+        // 2 seats is the minimum so trying to vote out another will fail
+        doL2SeatVote(__LINE__, 2, t2, 2, 2, null_acc, m13, {
+            &m13}, false, false);
+        doL2SeatVote(__LINE__, 2, t2, 2, 2, null_acc, m13, {
+            &m14}, false, true);
+
+        // vote in some invalid seats
+        doL2SeatVote(__LINE__, 2, t2, 20, 2, m14, null_acc, {
+            &m13, &m14}, false, true);
+        
+        doL2SeatVote(__LINE__, 2, t2, 255, 2, m14, null_acc, {
+            &m13, &m14}, false, true);
+
+        // vote in lots of members
+/*
+        auto const m6 = Account("m6");
+        auto const m7 = Account("m7");
+        auto const m8 = Account("m8");
+        auto const m9 = Account("m9");
+        auto const m10 = Account("m10");
+        auto const m11 = Account("m11");
+        auto const m12 = Account("m12");
+        auto const m13 = Account("m13");
+        auto const m14 = Account("m14");
+        auto const m15 = Account("m15");
+        auto const m16 = Account("m16");
+        auto const m17 = Account("m17");
+        auto const m18 = Account("m18");
+        auto const m19 = Account("m19");
+        auto const m20 = Account("m20");
+        auto const m21 = Account("m21");
+*/
+
+        
+
 
         // RH UPTO:
         // L2's vote eachother in and out of their own table
