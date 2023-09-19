@@ -83,7 +83,6 @@ ClaimReward::doApply()
         return tefINTERNAL;
     
     std::optional<uint32_t> flags = ctx_.tx[~sfFlags];
-    std::optional<AccountID const> issuer = ctx_.tx[~sfIssuer];
 
     bool isOptOut = flags && *flags == 1;
 
