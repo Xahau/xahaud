@@ -15,3 +15,5 @@ find_library (soci
 
 find_path (SOCI_INCLUDE_DIR
   NAMES soci/soci.h)
+
+message("SOCI FOUND AT: ${SOCI_LIB}")

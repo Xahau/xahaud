@@ -25,6 +25,30 @@ namespace ripple
 
 namespace hook
 {
+    uint32_t maxHookParameterKeySize(void)
+    {
+        return 32;
+    }
+
+    uint32_t maxHookParameterValueSize(void)
+    {
+        return 256;
+    }
+
+    uint32_t maxHookStateDataSize(void) {
+        return 256U;
+    }
+
+    uint32_t maxHookWasmSize(void)
+    {
+        return 0xFFFFU;
+    }
+
+    uint32_t maxHookChainLength(void)
+    {
+        return 10;
+    }
+
     enum TSHFlags : uint8_t
     {
         tshNONE                = 0b000,

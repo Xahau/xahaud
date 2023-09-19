@@ -269,13 +269,6 @@ namespace hook
 
     struct HookContext;
 
-    uint32_t maxHookStateDataSize(void);
-    uint32_t maxHookWasmSize(void);
-    uint32_t maxHookParameterKeySize(void);
-    uint32_t maxHookParameterValueSize(void);
-
-    uint32_t maxHookChainLength(void);
-
     uint32_t computeHookStateOwnerCount(uint32_t hookStateCount);
 
 

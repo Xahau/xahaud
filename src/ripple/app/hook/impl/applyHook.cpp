@@ -738,24 +738,6 @@ unserialize_keylet(uint8_t* ptr, uint32_t len)
 }
 
 
-uint32_t hook::maxHookStateDataSize(void) {
-    return 256U;
-}
-
-uint32_t hook::maxHookWasmSize(void)
-{
-    return 0xFFFFU;
-}
-
-uint32_t hook::maxHookParameterKeySize(void)
-{
-    return 32;
-}
-uint32_t hook::maxHookParameterValueSize(void)
-{
-    return 256;
-}
-
 bool hook::isEmittedTxn(ripple::STTx const& tx)
 {
     return tx.isFieldPresent(ripple::sfEmitDetails);
@@ -778,11 +760,6 @@ int64_t hook::computeCreationFee(uint64_t byteCount)
         return 0x7FFFFFFFFFFFFFFFLL;
 
     return fee;
-}
-
-uint32_t hook::maxHookChainLength(void)
-{
-    return 10;
 }
 
 // many datatypes can be encoded into an int64_t

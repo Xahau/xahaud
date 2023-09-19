@@ -34,7 +34,7 @@
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/jss.h>
-#include <ripple/app/hook/applyHook.h>
+#include <ripple/app/hook/Enum.h>
 #include <boost/format.hpp>
 #include <array>
 #include <memory>

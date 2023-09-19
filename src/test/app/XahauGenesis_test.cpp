@@ -1840,8 +1840,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
             doL2Vote(__LINE__, 1, t2, m11, 'R', 'R', vote_data, original_data, false);
             doL2Vote(__LINE__, 1, t2, m12, 'R', 'R', vote_data, original_data, false);
             doL2Vote(__LINE__, 1, t2, m13, 'R', 'R', vote_data, original_data, false);
-//            doL2Vote(__LINE__, 1, t2, m14, 'R', 'R', vote_data, original_data, false);
-//            doL2Vote(__LINE__, 1, t2, m15, 'R', 'R', vote_data, original_data, false);
 
             env.close();
             env.close();
@@ -1863,86 +1861,71 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         }
 
-
-/*
-        auto const governHookHash =
-                ripple::sha512Half_s(
-                    ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
-
-        auto addHookParams = [](Json::Value& hook, std::map<std::vector<uint8_t>, std::vector<uint8_t>> params)
         {
-            hook[jss::HookParameters] = Json::arrayValue;
-            uint32_t counter = 0;
-            for (auto const& [k, v] : params)
+            // this will be the new reward delay
+            std::vector<uint8_t> vote_data {0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x55U};
+
+            // this is the default reward delay
+            std::vector<uint8_t> const original_data {0x00U,0x80U,0x6AU,0xACU,0xAFU,0x3CU,0x09U,0x56U};
+
+            doL1Vote(__LINE__, alice, 'R', 'D', vote_data, original_data, false);
+
+            // trying to vote for a changed layer2 reward rate should fail because layer2 doesn't have one
+            doL2Vote(__LINE__, 2, t1, m6, 'R', 'D', vote_data, {}, false, true);
+
+            // but layer2 can vote for layer1 reward rate:
+            doL2Vote(__LINE__, 1, t1, m6, 'R', 'D', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t1, m7, 'R', 'D', vote_data, original_data, false);
+
+            // a vote by the L2 table should have been emitted now
+            env.close();
+            env.close();
+
+            // check the vote counter
+            auto checkCounter = [&](uint64_t lineno, uint8_t c)
             {
-                hook[jss::HookParameters][counter] = Json::objectValue;
-                hook[jss::HookParameters][counter][jss::HookParameter] = Json::objectValue;
-                hook[jss::HookParameters][counter][jss::HookParameter][jss::HookParameterName] = strHex(k);
-                hook[jss::HookParameters][counter][jss::HookParameter][jss::HookParameterValue] = strHex(v);
-                counter++;
-            }
-        };
-
-        // governance hook must already be installed
-*/
-/*
-        // install governance hook on t1i
-        auto installL2Table = [&](Account const& table, std::vector<Account const*> members)
-        {
-            Json::Value tx (Json::objectValue);
-
-            tx[jss::Account] = t1.human();
-            tx[jss::TransactionType] = "SetHook";
-            tx[jss::Hooks] = Json::arrayValue;
-            tx[jss::Hooks][0u] = Json::objectValue;
-
-            tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
-            tx[jss::Hooks][0u][jss::Hook][jss::HookHash] = strHex(governHookHash);
-
-            std::map<std::vector<uint8_t>,std::vector<uint8_t>> params
-            {
-                {std::vector<uint8_t>{'I', 'M', 'C'}, std::vector<uint8_t>{ (uint8_t)(members.size()) }}
+                uint8_t counter_key[32] = {'C','R','D',1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                    0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x55U};
+                uint256 ns = beast::zero;
+                auto const counterLE = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(counter_key), ns));
+                
+                std::cout
+                    << "Counter at " << lineno << "L: "
+                    << (!!counterLE ? strHex(counterLE->getFieldVL(sfHookStateData)) : "doesn't exist")
+                    << " vs " << std::string(1, (char)('0' + c)) << "\n"; 
+                BEAST_EXPECT(!!counterLE && counterLE->getFieldVL(sfHookStateData) == std::vector<uint8_t>{c});
             };
 
-            uint8_t counter = 0;
+            checkCounter(__LINE__, 2);
+                
+            doL1Vote(__LINE__, bob, 'R', 'D', vote_data, original_data, false);
+            
+            // vote with 60% of the second table
+            doL2Vote(__LINE__, 1, t2, m11, 'R', 'D', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t2, m12, 'R', 'D', vote_data, original_data, false);
+            doL2Vote(__LINE__, 1, t2, m13, 'R', 'D', vote_data, original_data, false);
 
-            for (Account const* m: members)
-                params[std::vector<uint8_t>{'I', 'S', counter++}] = 
-                    vecFromAcc(*members);
-
- 
-            addHookParams(tx[jss::Hooks][0u][jss::Hook], params);
-
-            env(tx,  M(__LINE__), fee(XRP(100)));
             env.close();
+            env.close();
+
+            checkCounter(__LINE__, 4);
+
+            // reverting a L2 vote should emit a txn undoing the vote
+            doL2Vote(__LINE__, 1, t2, m11, 'R', 'D', original_data, vote_data, false);
+
+            env.close();
+            env.close();
+
+            checkCounter(__LINE__, 3);
         }
-*/
+
+        // RH UPTO:
+        // L2's vote eachother in and out of their own table
+        // L2's vote for their own hooks
+        // L2's vote L1's in and out
+        // L2's vote for L1's hooks 
 
     }
-
-
-        // add a layer 2 table at m14 with m1 and m2 as members
-/*
-        {
-            Json::Value tx (Json::objectValue);
-
-            tx[jss::TranscationType] = "SetHook";
-            tx[jss::Hooks] = Json::arrayValue;
-            tx[jss::Hooks][0u] = Json::objectValue;
-            tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
-            tx[jss::Hooks][0u][jss::Hook][jss:HookHash] = strHex(governHookHash);
-
-        }
-*/
-
-        // L2 tests
-//        auto hooksArray =
-
-        // RH TODO:
-
-
-        // governance hook tests:
-        //  L2 versions of all of the above
 
 
         // reward hook tests:
