@@ -218,6 +218,13 @@ class Import_test : public beast::unit_test::suite
         return STTx(ttUNL_REPORT, fill);
     }
 
+    bool
+    hasUNLReport(jtx::Env const& env)
+    {
+        auto const slep = env.le(keylet::UNLReport());
+        return slep != nullptr;
+    }
+
     void
     testComputeStartingBalance(FeatureBitset features)
     {
@@ -2282,6 +2289,7 @@ class Import_test : public beast::unit_test::suite
         // tefPAST_IMPORT_SEQ
         {
             test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
 
             // burn 10'000 xrp
             auto const master = Account("masterpassphrase");
@@ -2293,8 +2301,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                fee(feeDrops * 10),
                 ter(tesSUCCESS));
             env(import(alice, loadXpop(ImportTCAccountSet::min)),
+                fee(feeDrops * 10),
                 ter(tefPAST_IMPORT_SEQ));
         }
 
@@ -2331,6 +2341,7 @@ class Import_test : public beast::unit_test::suite
         // import vl sequence already used, bailing.
         {
             test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
 
             std::string const pkString =
                 "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
@@ -2351,21 +2362,21 @@ class Import_test : public beast::unit_test::suite
             Json::Value const xpop1_1 =
                 loadXpop(ImportTCAccountSet::unl_seq_1_1);
             Json::Value const tx_1_1 = import(alice, xpop1_1);
-            env(tx_1_1, ter(tesSUCCESS));
+            env(tx_1_1, fee(feeDrops * 10), ter(tesSUCCESS));
 
             BEAST_EXPECT(importVLSequence(env, pk) == 1);
 
             Json::Value const xpop2_1 =
                 loadXpop(ImportTCAccountSet::unl_seq_2_1);
             Json::Value const tx_2_1 = import(bob, xpop2_1);
-            env(tx_2_1, ter(tesSUCCESS));
+            env(tx_2_1, fee(feeDrops * 10), ter(tesSUCCESS));
 
             BEAST_EXPECT(importVLSequence(env, pk) == 2);
 
             Json::Value const xpop1_2 =
                 loadXpop(ImportTCAccountSet::unl_seq_1_2);
             Json::Value const tx_1_2 = import(alice, xpop1_2);
-            env(tx_1_2, ter(tefPAST_IMPORT_VL_SEQ));
+            env(tx_1_2, fee(feeDrops * 10), ter(tefPAST_IMPORT_VL_SEQ));
         }
 
         // tesSUCCESS
@@ -2384,6 +2395,7 @@ class Import_test : public beast::unit_test::suite
         // import vl key not recognized, bailing.
         {
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            auto const feeDrops = env.current()->fees().base;
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
@@ -2391,7 +2403,7 @@ class Import_test : public beast::unit_test::suite
 
             Json::Value const tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             Json::Value const tx = import(alice, tmpXpop);
-            env(tx, ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
+            env(tx, fee(feeDrops * 10), ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
         }
     }
 
@@ -4545,12 +4557,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
         }
 
-        // test bad IMPORT_VL_KEYS has UNLReport
+        // test no IMPORT_VL_KEYS has UNLReport
         {
-            std::vector<std::string> const badVLKeys = {
-                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
-                "CDC2"};
-            test::jtx::Env env{*this, makeNetworkVLConfig(21337, badVLKeys)};
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
             auto const feeDrops = env.current()->fees().base;
 
@@ -4617,6 +4626,8 @@ class Import_test : public beast::unit_test::suite
 
             // close the ledger
             env.close();
+
+            BEAST_EXPECT(hasUNLReport(env) == true);
 
             // Test Import
             env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
@@ -5325,6 +5336,40 @@ class Import_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testRPCFee(FeatureBitset features)
+    {
+        testcase("rpc fee");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        auto const feeDrops = env.current()->fees().base;
+
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        // build tx_blob
+        Json::Value params;
+        auto const xpopJson = loadXpop(ImportTCAccountSet::w_seed);
+        auto tx = env.jt(import(alice, xpopJson));
+        params[jss::tx_blob] = strHex(tx.stx->getSerializer().slice());
+
+        // fee request
+        auto const jrr = env.rpc("json", "fee", to_string(params));
+
+        // verify hooks fee
+        auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
+        BEAST_EXPECT(hooksFee == to_string(feeDrops * 10));
+
+        // verify open ledger fee
+        auto const dropsJV = jrr[jss::result][jss::drops];
+        auto const openLedgerFee = dropsJV[jss::open_ledger_fee];
+        BEAST_EXPECT(openLedgerFee == to_string((feeDrops * 10) + feeDrops));
+    }
+
 public:
     void
     run() override
@@ -5360,6 +5405,7 @@ public:
         testMaxSupply(features);
         testMinMax(features);
         testHalving(features - featureOwnerPaysFee);
+        testRPCFee(features);
     }
 };
 
