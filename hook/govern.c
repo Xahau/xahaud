@@ -77,8 +77,8 @@
  *  
  *              Parameter Name: {'L'}
  *              Parameter Value: Which layer the vote is inteded for (ONLY L2 TABLES USE THIS PARAMETER)
- *                  { '1' a vote cast by an L2 member about an L1 topic }, or
- *                  { '2' a vote cast by an L2 member about an L2 topic }
+ *                  { 1 a vote cast by an L2 member about an L1 topic }, or
+ *                  { 2 a vote cast by an L2 member about an L2 topic }
  *
  *
  *              Parameter Name: {'T'}
@@ -255,14 +255,14 @@ int64_t hook(uint32_t r)
     uint8_t l = 1;
     if (!is_L1_table)
     {
-        result = otxn_param(SVAR(l), "L", 1);
+        result = otxn_param(&l, 1, "L", 1);
         if (result != 1)
             NOPE("Governance: Missing L parameter. Which layer are you voting for?");
-    
-        if (l != '1' && l != '2')
-            NOPE("Governance: Layer parameter must be '1' or '2'.");
 
-        l -= '0'; // now it will be 1/2 rather than '1'/'2'.
+        TRACEVAR(l);   
+ 
+        if (l != 1 && l != 2)
+            NOPE("Governance: Layer parameter must be '1' or '2'.");
     }
 
     if (l == 2 && t == 'R')
@@ -382,21 +382,21 @@ int64_t hook(uint32_t r)
     if (q51 < 2)
         q51 = 2;
 
-    if (l == 1)
+    if (is_L1_table || l == 2)
     {
        if (votes <
             (t == 'S'
                 ? q80                      // L1s have 80% threshold for membership/seat voting
                 : member_count))            // L1s have 100% threshold for all other voting
-        DONE("Governance: L1 vote record. Not yet enough votes to action.");
+            DONE("Governance: Vote record. Not yet enough votes to action.");
     }
-    else    // l == 2
+    else    // layer 2 table voting on a l1 topic
     {
         lost_majority = previous_votes >= q51 && votes < q51;
         if (lost_majority)
-            trace(SBUF("Governance: L2 vote recorded. Majority lost, undoing L1 vote."),0,0,0);
+            trace(SBUF("Governance: Majority lost, undoing L1 vote..."),0,0,0);
         else if (votes < q51)
-            DONE("Governance: L2 vote recorded. Not yet enough votes to action L1 vote..");
+            DONE("Governance: Not yet enough votes to action L1 vote..");
     }
 
     
@@ -405,7 +405,7 @@ int64_t hook(uint32_t r)
     if (DEBUG)
         TRACESTR("Actioning votes");
 
-    if (l == 2)
+    if (l == 1 && !is_L1_table)
     {
     
 
@@ -442,7 +442,8 @@ int64_t hook(uint32_t r)
         buf_out += 8;
         *((uint32_t*)buf_out) = 0x021970UL;
         buf_out += 3;
-        *buf_out++ = (t << 4) + n;  // topic
+        *buf_out++ = t; // topic
+        *buf_out++ = n; 
         *((uint64_t*)buf_out) = 0x705601187017E0E1ULL;
         buf_out += 8;
         *buf_out++ = 0x19U;

@@ -433,23 +433,26 @@ struct XahauGenesis_test : public beast::unit_test::suite
             txn[jss::HookParameters][1u][jss::HookParameter][jss::HookParameterValue] = strData;
         }
 
+        uint8_t upto = 2u;
+        if (layer)
+        {
+            txn[jss::HookParameters][upto] = Json::objectValue;
+            txn[jss::HookParameters][upto][jss::HookParameter][jss::HookParameterName] = "4C";
+            txn[jss::HookParameters][upto][jss::HookParameter][jss::HookParameterValue] = charToHex(*layer);
+            upto++;
+        }
+
         // add a line number for debugging
-        txn[jss::HookParameters][2u] = Json::objectValue;
-        txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "44"; // D
+        txn[jss::HookParameters][upto] = Json::objectValue;
+        txn[jss::HookParameters][upto][jss::HookParameter][jss::HookParameterName] = "44"; // D
         {
             std::string strData;
             strData += charToHex((uint8_t)(lineno >> 8U));
             strData += charToHex((uint8_t)(lineno & 0xFFU));
-            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = strData;
+            txn[jss::HookParameters][upto][jss::HookParameter][jss::HookParameterValue] = strData;
         }
 
 
-        if (layer)
-        {
-            txn[jss::HookParameters][2u] = Json::objectValue;
-            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterName] = "4C";
-            txn[jss::HookParameters][2u][jss::HookParameter][jss::HookParameterValue] = charToHex(*layer);
-        }
 
         txn[jss::Account] = acc.human();
         txn[jss::TransactionType] = "Invoke";
@@ -1702,7 +1705,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     uint256::fromVoid(key), beast::zero));
                 std::cout
                         << "topic L2 vote precheck: " << lineno << "L\n"
-                        << "\tlayer: " << layer << " table: " << table.human() << "\n"
+                        << "\tlayer: " << std::string(1, '0' + layer) << " table: " << table.human() << "\n"
                         << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
                         << "\tshouldFail: " << (shouldFail ? "true": "false") << "\n"
                         << "\ttopic: " << topic1 << "," << (topic2 < 48 ? topic2 + '1' : topic2) << "\n"
@@ -1727,7 +1730,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
                 env.close();
                 auto entry =
-                    env.le(keylet::hookState(layer == 1 ? env.master.id() : table.id(),
+                    env.le(keylet::hookState(table.id(),
                         makeStateKey('V', topic1, topic2, layer, acc.id()),
                         beast::zero));
                 if (!shouldFail)
@@ -1817,40 +1820,46 @@ struct XahauGenesis_test : public beast::unit_test::suite
             env.close();
 
             // check the vote counter
-            auto checkCounter = [&](uint8_t c)
+            auto checkCounter = [&](uint64_t lineno, uint8_t c)
             {
                 uint8_t counter_key[32] = {'C','R','R',1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                                     0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x54U};
                 uint256 ns = beast::zero;
                 auto const counterLE = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(counter_key), ns));
+                
+                std::cout
+                    << "Counter at " << lineno << "L: "
+                    << (!!counterLE ? strHex(counterLE->getFieldVL(sfHookStateData)) : "doesn't exist")
+                    << " vs " << std::string(1, (char)('0' + c)) << "\n"; 
                 BEAST_EXPECT(!!counterLE && counterLE->getFieldVL(sfHookStateData) == std::vector<uint8_t>{c});
             };
 
-            checkCounter(2);
+            checkCounter(__LINE__, 2);
                 
-            // vote with the second table
+            // vote with 60% of the second table
             doL2Vote(__LINE__, 1, t2, m11, 'R', 'R', vote_data, original_data, false);
             doL2Vote(__LINE__, 1, t2, m12, 'R', 'R', vote_data, original_data, false);
             doL2Vote(__LINE__, 1, t2, m13, 'R', 'R', vote_data, original_data, false);
-            doL2Vote(__LINE__, 1, t2, m14, 'R', 'R', vote_data, original_data, false);
+//            doL2Vote(__LINE__, 1, t2, m14, 'R', 'R', vote_data, original_data, false);
+//            doL2Vote(__LINE__, 1, t2, m15, 'R', 'R', vote_data, original_data, false);
 
             env.close();
             env.close();
 
-            checkCounter(3);
+            checkCounter(__LINE__, 3);
 
             // final L1 vote should activate it
             doL1Vote(__LINE__, bob, 'R', 'R', vote_data, original_data, true);
             
-            checkCounter(4);
+            checkCounter(__LINE__, 4);
 
             // reverting a L2 vote should emit a txn undoing the vote
-            doL2Vote(__LINE__, 1, t1, m6, 'R', 'R', original_data, vote_data, false);
+            doL2Vote(__LINE__, 1, t2, m13, 'R', 'R', original_data, vote_data, false);
 
             env.close();
             env.close();
 
-            checkCounter(3);
+            checkCounter(__LINE__, 3);
 
         }
 
