@@ -66,7 +66,7 @@ private:
         return ss << (x), ss.str(); \
     }())
 
-        Json::Value ret(Json::objectValue);
+        Json::Value ret{Json::objectValue};
         ret[jss::TYPES] = Json::objectValue;
 
         auto const translate = [](std::string inp) -> std::string {
