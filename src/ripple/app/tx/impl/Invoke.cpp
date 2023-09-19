@@ -39,8 +39,13 @@ Invoke::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
-    if (tx.getFieldVL(sfBlob).size() > (128*1024))
+    if (tx.getFieldVL(sfBlob).size() > (128 * 1024))
+    {
+        JLOG(ctx.j.warn())
+            << "Invoke: blob was more than 128kib "
+            << tx.getTransactionID();
         return temMALFORMED;
+    }
 
     return preflight2(ctx);
 }
