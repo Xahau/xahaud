@@ -159,7 +159,7 @@ NegativeUNLVote::addReportingTx(
     auto const& keyMap = app_.config().IMPORT_VL_KEYS;
     for (auto const& [_, pk] : keyMap)
     {
-        STTx repUnlTx(ttUNL_REPORT, [&](auto& obj)
+        STTx repUnlTx(ttUNL_REPORT, [pk = pk, seq](auto& obj)
         {
             obj.set(([&]()
             {

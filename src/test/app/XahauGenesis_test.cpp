@@ -595,7 +595,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             }
 
             uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                topic1 == 'S' ? 0 : topic1, topic2};
+                static_cast<uint8_t>(topic1 == 'S' ? 0 : topic1), static_cast<uint8_t>(topic2)};
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
@@ -1592,7 +1592,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             }
 
             uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                topic1 == 'S' ? 0 : topic1, topic2};
+                static_cast<uint8_t>(topic1 == 'S' ? 0 : topic1), static_cast<uint8_t>(topic2)};
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
@@ -1697,7 +1697,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             }
 
             uint8_t const key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                topic1 == 'S' ? 0 : topic1, topic2};
+                static_cast<uint8_t>(topic1 == 'S' ? 0 : topic1), static_cast<uint8_t>(topic2)};
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(

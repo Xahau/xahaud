@@ -67,7 +67,7 @@ public:
             
         uint64_t x = b + i * 5U;
         if (x > i && x > b)
-            return XRPAmount{x};
+            return XRPAmount{static_cast<ripple::XRPAmount::value_type>(x)};
 
         // fallback in case of overflow
         return XRPAmount{2 * DROPS_PER_XRP};
