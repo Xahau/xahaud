@@ -9897,9 +9897,6 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        auto const a = alice.id();
-        auto const b = bob.id();
-
         TestHook hook = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
