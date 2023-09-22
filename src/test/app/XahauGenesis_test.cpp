@@ -47,6 +47,13 @@ namespace test {
 struct XahauGenesis_test : public beast::unit_test::suite
 {
 
+    uint256 const acceptHookHash =
+            ripple::sha512Half_s(ripple::Slice(XahauGenesis::AcceptHook.data(), XahauGenesis::AcceptHook.size()));
+    uint256 const governHookHash =
+            ripple::sha512Half_s(
+                ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
+    uint256 const rewardHookHash =
+            ripple::sha512Half_s(ripple::Slice(XahauGenesis::RewardHook.data(), XahauGenesis::RewardHook.size()));
 
     AccountID const genesisAccID = calcAccountID(
     generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
@@ -718,13 +725,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // 100% vote to install the accept hook at hook position 7
         // create a definition for accept hook first
-        auto const acceptHookHash =
-                ripple::sha512Half_s(ripple::Slice(XahauGenesis::AcceptHook.data(), XahauGenesis::AcceptHook.size()));
-        auto const governHookHash =
-                ripple::sha512Half_s(
-                    ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
-        auto const rewardHookHash =
-                ripple::sha512Half_s(ripple::Slice(XahauGenesis::RewardHook.data(), XahauGenesis::RewardHook.size()));
         {
             Json::Value tx (Json::objectValue);
 
@@ -1991,6 +1991,281 @@ struct XahauGenesis_test : public beast::unit_test::suite
             &m13, &m14}, false, true);
 
         // vote in lots of members
+        doL2SeatVote(__LINE__, 2, t2, 0, 3, m11, null_acc, {
+            &m13, &m14}, true);
+
+/*
+floor(2*0.8) = 1
+floor(3*0.8) = 2
+floor(4*0.8) = 3
+floor(5*0.8) = 4
+floor(6*0.8) = 4
+floor(7*0.8) = 5
+floor(8*0.8) = 6
+floor(9*0.8) = 7
+floor(10*0.8) = 8
+floor(11*0.8) = 8
+floor(12*0.8) = 9
+floor(13*0.8) = 10
+floor(14*0.8) = 11
+floor(15*0.8) = 12
+floor(16*0.8) = 12
+floor(17*0.8) = 13
+floor(18*0.8) = 14
+floor(19*0.8) = 15
+floor(20*0.8) = 16
+*/
+
+        doL2SeatVote(__LINE__, 2, t2, 1, 4, m12, null_acc, {
+            &m13, &m14}, true);
+        
+        doL2SeatVote(__LINE__, 2, t2, 4, 5, m15, null_acc, {
+            &m12, &m13, &m14}, true);
+
+
+        // t2 = { m11, m12, m13, m14, m15 }
+        
+
+        {
+            Json::Value tx (Json::objectValue);
+
+            tx[jss::Account] = m21.human();
+            tx[jss::TransactionType] = "SetHook";
+            tx[jss::Hooks] = Json::arrayValue;
+            tx[jss::Hooks][0u] = Json::objectValue;
+
+            tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
+
+            tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] = strHex(XahauGenesis::AcceptHook);
+
+            tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = "0";
+            tx[jss::Hooks][0u][jss::Hook][jss::HookNamespace] =
+                "0000000000000000000000000000000000000000000000000000000000000000";
+            tx[jss::Hooks][0u][jss::Hook][jss::HookOn] =
+                "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF";
+
+            // we'll also make a reference anchor for reward and governance hooks here, so they aren't
+            // deleted from the ledger in subsequent tests
+            tx[jss::Hooks][1u] = Json::objectValue;
+            tx[jss::Hooks][1u][jss::Hook] = Json::objectValue;
+            tx[jss::Hooks][1u][jss::Hook][jss::HookHash] = strHex(governHookHash);
+
+
+            tx[jss::Hooks][2u] = Json::objectValue;
+            tx[jss::Hooks][2u][jss::Hook] = Json::objectValue;
+            tx[jss::Hooks][2u][jss::Hook][jss::HookHash] = strHex(rewardHookHash);
+
+
+            env(tx,  M(__LINE__), fee(XRP(100)));
+            env.close();
+
+
+            BEAST_EXPECT(!!env.le(ripple::keylet::hookDefinition(acceptHookHash)));
+
+            uint8_t const* data = acceptHookHash.data();
+            std::vector<uint8_t> accept_data(data, data+32);
+
+            std::cout << "accept_data-strhex: " << strHex(accept_data) << "\n";
+            std::vector<uint8_t> const null_data
+            {
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U
+            };
+
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 7, accept_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 7, accept_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 7, accept_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 7, accept_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // check if the hook not was installed because we have not given it 100% votes yet
+            {
+                auto const hooks = env.le(keylet::hook(t2.id()));
+                BEAST_EXPECT(!!hooks && hooks->getFieldArray(sfHooks).size() == 1);
+            }
+
+
+            // now cast final vote
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 7, accept_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // now check it was installed
+            {
+                auto const hooks = env.le(keylet::hook(t2.id()));
+                BEAST_EXPECT(!!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
+                    hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash) &&
+                    hooks->getFieldArray(sfHooks)[7].getFieldH256(sfHookHash) == acceptHookHash);
+            }
+
+            // now change a vote (note that the topic state is never recorded for hooks, so old data is null)
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 7, null_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // now check it's still installed
+            {
+                auto const hooks = env.le(keylet::hook(t2.id()));
+                BEAST_EXPECT(!!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
+                    hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash) &&
+                    hooks->getFieldArray(sfHooks)[7].getFieldH256(sfHookHash) == acceptHookHash);
+            }
+
+            // now vote to delete it
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 7, null_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 7, null_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 7, null_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 7, null_data, null_data, false);
+
+
+            env.close();
+            env.close();
+
+            // now check it's still installed
+            {
+                auto const hooks = env.le(keylet::hook(t2.id()));
+                BEAST_EXPECT(!!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
+                    !hooks->getFieldArray(sfHooks)[7].isFieldPresent(sfHookHash));
+            }
+
+            // vote to place an invalid hook
+            std::vector<uint8_t> invalid_data
+            {
+                0xFFU,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U
+            };
+
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 1, invalid_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 1, invalid_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 1, invalid_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 1, invalid_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 1, invalid_data, null_data, false, true);
+
+
+            uint8_t const* gdata = governHookHash.data();
+            std::vector<uint8_t> govern_data(gdata, gdata+32);
+            uint8_t const* rdata = rewardHookHash.data();
+            std::vector<uint8_t> reward_data(rdata, rdata+32);
+
+
+            // vote to put governance hook into position 2
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 2, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 2, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 2, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 2, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 2, govern_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // vote to replace the hook at position 1 with accept
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 1, accept_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 1, accept_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 1, accept_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 1, accept_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 1, accept_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // vote to place reward hook at position 2
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 0, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 0, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 0, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 0, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 0, reward_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // hooks array should now look like {govern, accept, reward, nothing ...}
+
+            {
+                auto const hooksLE = env.le(keylet::hook(t2.id()));
+                BEAST_EXPECT(!!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 3);
+
+                if (hooksLE && hooksLE->getFieldArray(sfHooks).size() >=3)
+                {
+                    auto const hooks = hooksLE->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == rewardHookHash);
+                    BEAST_EXPECT(hooks[1].getFieldH256(sfHookHash) == acceptHookHash);
+                    BEAST_EXPECT(hooks[2].getFieldH256(sfHookHash) == governHookHash);
+                }
+            }
+
+            // set hook 1 back to reward
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 1, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 1, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 1, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 1, reward_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 1, reward_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // set hook 0 back to govern
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 0, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 0, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 0, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 0, govern_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 0, govern_data, null_data, false);
+
+            env.close();
+            env.close();
+
+            // delete hook at 2
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 2, null_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m12, 'H', 2, null_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m13, 'H', 2, null_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m14, 'H', 2, null_data, null_data, false);
+            doL2Vote(__LINE__, 2, t2, m15, 'H', 2, null_data, null_data, false);
+
+            env.close();
+            env.close();
+
+
+            // check we're back the way we were
+            {
+                auto const hooksLE = env.le(keylet::hook(t2.id()));
+                BEAST_EXPECT(!!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
+
+                if (hooksLE && hooksLE->getFieldArray(sfHooks).size() >=2)
+                {
+                    auto const hooks = hooksLE->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == governHookHash);
+                    BEAST_EXPECT(hooks[1].getFieldH256(sfHookHash) == rewardHookHash);
+                    BEAST_EXPECT(hooks.size() == 2 || !hooks[2].isFieldPresent(sfHookHash));
+                }
+            }
+
+            // change a vote, and ensure nothing changed
+            doL2Vote(__LINE__, 2, t2, m11, 'H', 0, reward_data, null_data, false);
+            env.close();
+            env.close();
+            {
+                auto const hooksLE = env.le(keylet::hook(t2.id()));
+                BEAST_EXPECT(!!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
+
+                if (hooksLE && hooksLE->getFieldArray(sfHooks).size() >=2)
+                {
+                    auto const hooks = hooksLE->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == governHookHash);
+                    BEAST_EXPECT(hooks[1].getFieldH256(sfHookHash) == rewardHookHash);
+                    BEAST_EXPECT(hooks.size() == 2 || !hooks[2].isFieldPresent(sfHookHash));
+                }
+            }
+
+        }
+
+        
 /*
         auto const m6 = Account("m6");
         auto const m7 = Account("m7");
@@ -2014,7 +2289,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
 
         // RH UPTO:
-        // L2's vote eachother in and out of their own table
         // L2's vote for their own hooks
         // L2's vote L1's in and out
         // L2's vote for L1's hooks 
