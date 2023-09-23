@@ -147,22 +147,24 @@ private:
 
         ret[jss::TYPES]["Done"] = -1;
         std::map<int32_t, std::string> type_map{{-1, "Done"}};
-        for (auto [value, name] : magic_enum::enum_entries<SerializedTypeID>())
+        for (auto const& entry : magic_enum::enum_entries<SerializedTypeID>()) 
         {
-            std::string type_name =
-                translate(STR(name).substr(4) /* remove STI_ */);
-            int32_t type_value = std::stoi(STR(value));
+            const auto name = entry.second;
+            std::string type_name = translate(name.data() + 4 /* remove STI_ */);
+            int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::TYPES][type_name] = type_value;
             type_map[type_value] = type_name;
         }
 
         ret[jss::LEDGER_ENTRY_TYPES] = Json::objectValue;
         ret[jss::LEDGER_ENTRY_TYPES][jss::Invalid] = -1;
-
-        for (auto [value, name] : magic_enum::enum_entries<LedgerEntryType>())
-            ret[jss::LEDGER_ENTRY_TYPES]
-               [translate(STR(name).substr(2) /* remove lt_ */)] =
-                   std::stoi(STR(value));
+        for (auto const& entry : magic_enum::enum_entries<LedgerEntryType>()) 
+        {
+            const auto name = entry.second;
+            std::string type_name = translate(name.data() + 2 /* remove lt_ */);
+            int32_t type_value = static_cast<int32_t>(entry.first);
+            ret[jss::LEDGER_ENTRY_TYPES][type_name] = type_value;
+        }
 
         ret[jss::FIELDS] = Json::arrayValue;
 
@@ -303,19 +305,36 @@ private:
         }
 
         ret[jss::TRANSACTION_RESULTS] = Json::objectValue;
-        for (auto [value, name] : magic_enum::enum_entries<TELcodes>())
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = std::stoi(STR(value));
-        for (auto [value, name] : magic_enum::enum_entries<TEMcodes>())
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = std::stoi(STR(value));
-        for (auto [value, name] : magic_enum::enum_entries<TEFcodes>())
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = std::stoi(STR(value));
-        for (auto [value, name] : magic_enum::enum_entries<TERcodes>())
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = std::stoi(STR(value));
-        for (auto [value, name] : magic_enum::enum_entries<TEScodes>())
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = std::stoi(STR(value));
-        for (auto [value, name] : magic_enum::enum_entries<TECcodes>())
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = std::stoi(STR(value));
-
+        for (auto const& entry : magic_enum::enum_entries<TELcodes>()) 
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+        }
+        for (auto const& entry : magic_enum::enum_entries<TEMcodes>()) 
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+        }
+        for (auto const& entry : magic_enum::enum_entries<TEFcodes>()) 
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+        }
+        for (auto const& entry : magic_enum::enum_entries<TERcodes>()) 
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+        }
+        for (auto const& entry : magic_enum::enum_entries<TEScodes>()) 
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+        }
+        for (auto const& entry : magic_enum::enum_entries<TECcodes>()) 
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+        }
 
         auto const translate_tt = [](std::string inp) -> std::string {
             if (inp == "PaychanClaim")
@@ -333,9 +352,13 @@ private:
 
         ret[jss::TRANSACTION_TYPES] = Json::objectValue;
         ret[jss::TRANSACTION_TYPES][jss::Invalid] = -1;
-        for (auto [value, name] : magic_enum::enum_entries<TxType>())
-            ret[jss::TRANSACTION_TYPES][translate_tt(translate(STR(name).substr(2)))] =
-                std::stoi(STR(value));
+        for (auto const& entry : magic_enum::enum_entries<TxType>()) 
+        {
+            const auto name = entry.second;
+            std::string type_name = translate_tt(translate(name.data() + 2));
+            int32_t type_value = static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_TYPES][type_name] = type_value;
+        }
 
         // generate hash
         {
