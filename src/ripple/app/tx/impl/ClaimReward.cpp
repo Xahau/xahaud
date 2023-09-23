@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -24,7 +24,6 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/PublicKey.h>
-#include <ripple/protocol/Quality.h>
 #include <ripple/protocol/st.h>
 
 namespace ripple {
@@ -38,13 +37,15 @@ ClaimReward::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 ClaimReward::preflight(PreflightContext const& ctx)
 {
+    if (!ctx.rules.enabled(featureBalanceRewards))
+        return temDISABLED;
+
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
     // can have flag 1 set to opt-out of rewards
-    if (ctx.tx.isFieldPresent(sfFlags) && 
-        ctx.tx.getFieldU32(sfFlags) > 1)
-        return temMALFORMED;
+    if (ctx.tx.isFieldPresent(sfFlags) && ctx.tx.getFieldU32(sfFlags) > 1)
+        return temINVALID_FLAG;
 
     return preflight2(ctx);
 }
@@ -65,7 +66,6 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
     std::optional<AccountID const> issuer = ctx.tx[~sfIssuer];
 
     bool isOptOut = flags && *flags == 1;
-
     if ((issuer && isOptOut) || (!issuer && !isOptOut))
         return temMALFORMED;
 
@@ -81,12 +81,10 @@ ClaimReward::doApply()
     auto const sle = view().peek(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
-    
+
     std::optional<uint32_t> flags = ctx_.tx[~sfFlags];
-    std::optional<AccountID const> issuer = ctx_.tx[~sfIssuer];
 
     bool isOptOut = flags && *flags == 1;
-
     if (isOptOut)
     {
         if (sle->isFieldPresent(sfRewardLgrFirst))
@@ -106,15 +104,14 @@ ClaimReward::doApply()
         sle->setFieldU32(sfRewardLgrFirst, lgrCur);
         sle->setFieldU32(sfRewardLgrLast, lgrCur);
         sle->setFieldU64(sfRewardAccumulator, 0ULL);
-        sle->setFieldU32(sfRewardTime,
-           std::chrono::duration_cast<std::chrono::seconds>
-            (
+        sle->setFieldU32(
+            sfRewardTime,
+            std::chrono::duration_cast<std::chrono::seconds>(
                 ctx_.app.getLedgerMaster()
-                    .getValidatedLedger()->info()
-                        .parentCloseTime
-                            .time_since_epoch()
-            ).count());
-
+                    .getValidatedLedger()
+                    ->info()
+                    .parentCloseTime.time_since_epoch())
+                .count());
     }
 
     view().update(sle);
