@@ -1782,6 +1782,39 @@ struct XahauGenesis_test : public beast::unit_test::suite
             }
         };
         
+        auto doL1SeatVote = [&](uint64_t lineno, uint8_t seat_no, uint8_t final_count,
+            AccountID const& candidate, std::optional<AccountID const> previous,
+            std::vector<Account const*> const& voters, bool actioned = true, bool shouldFail = false)
+        {
+            std::vector<uint8_t> previd { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
+            if (previous)
+                memcpy(previd.data(), previous->data(), 20);
+
+            std::vector<uint8_t> id { 0,0,0,0,0,0,0,0,0,0,  0,0,0,0,0,0,0,0,0,0} ;
+            memcpy(id.data(), candidate.data(), 20);
+
+            int count = voters.size();
+            for (Account const* voter : voters)
+                doL1Vote(lineno, *voter, 'S', seat_no, id, previd, --count <= 0 && actioned, shouldFail);
+
+            if (!shouldFail)
+            {
+                auto entry = env.le(keylet::hookState(env.master.id(),
+                    uint256::fromVoid(member_count_key), beast::zero));
+                std::vector<uint8_t> const expected_data {final_count};
+
+                BEAST_REQUIRE(!!entry);
+                if (entry->getFieldVL(sfHookStateData) != expected_data)
+                    std::cout
+                        << "doSeatVote failed " << lineno <<"L. entry data: `"
+                        << strHex(entry->getFieldVL(sfHookStateData)) << "` "
+                        << "expected data: `" << strHex(expected_data) << "`\n";
+
+                BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
+            }
+        };
+
+        
         auto doL2SeatVote = [&](uint64_t lineno, uint8_t layer, Account const& table,
             uint8_t seat_no, uint8_t final_count,
             AccountID const& candidate, std::optional<AccountID const> previous,
@@ -1957,6 +1990,33 @@ struct XahauGenesis_test : public beast::unit_test::suite
             checkCounter(__LINE__, 3);
         }
 
+
+        // vote an L1 seat in using L2 voting
+        {
+            // we'll vote claire into seat 4 using t2 as a voting party
+            doL2SeatVote(__LINE__, 1, t2, 4, 4, carol, null_acc, {
+                &m11, &m12, &m13, &m14 }, false);
+
+            // change our vote
+            doL2SeatVote(__LINE__, 1, t2, 4, 4, null_acc, null_acc, {
+                &m11, &m12, &m13, &m14 }, false);
+
+            // vote at l1
+            doL1SeatVote(__LINE__, 4, 5, carol.id(), {}, {&alice, &bob}, false);
+
+            // change our vote again
+            doL2SeatVote(__LINE__, 1, t2, 4, 4, null_acc, null_acc, {
+                &m11, &m12, &m13, &m14 }, false);
+
+            env.close();
+            env.close();
+
+            // check the member was voted in successfully
+            std::vector<uint8_t> key { 0,0,0,0, 0,0,0,0,  0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x04U };
+            auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key.data()), beast::zero));
+            BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vecFromAcc(carol));
+        }
+
         // t2 votes out seat 0
         // floor(0.8*5) = 4
         doL2SeatVote(__LINE__, 2, t2, 0, 4, null_acc, m11, {
@@ -1994,27 +2054,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
         doL2SeatVote(__LINE__, 2, t2, 0, 3, m11, null_acc, {
             &m13, &m14}, true);
 
-/*
-floor(2*0.8) = 1
-floor(3*0.8) = 2
-floor(4*0.8) = 3
-floor(5*0.8) = 4
-floor(6*0.8) = 4
-floor(7*0.8) = 5
-floor(8*0.8) = 6
-floor(9*0.8) = 7
-floor(10*0.8) = 8
-floor(11*0.8) = 8
-floor(12*0.8) = 9
-floor(13*0.8) = 10
-floor(14*0.8) = 11
-floor(15*0.8) = 12
-floor(16*0.8) = 12
-floor(17*0.8) = 13
-floor(18*0.8) = 14
-floor(19*0.8) = 15
-floor(20*0.8) = 16
-*/
 
         doL2SeatVote(__LINE__, 2, t2, 1, 4, m12, null_acc, {
             &m13, &m14}, true);
@@ -2266,30 +2305,9 @@ floor(20*0.8) = 16
         }
 
         
-/*
-        auto const m6 = Account("m6");
-        auto const m7 = Account("m7");
-        auto const m8 = Account("m8");
-        auto const m9 = Account("m9");
-        auto const m10 = Account("m10");
-        auto const m11 = Account("m11");
-        auto const m12 = Account("m12");
-        auto const m13 = Account("m13");
-        auto const m14 = Account("m14");
-        auto const m15 = Account("m15");
-        auto const m16 = Account("m16");
-        auto const m17 = Account("m17");
-        auto const m18 = Account("m18");
-        auto const m19 = Account("m19");
-        auto const m20 = Account("m20");
-        auto const m21 = Account("m21");
-*/
-
-        
 
 
         // RH UPTO:
-        // L2's vote for their own hooks
         // L2's vote L1's in and out
         // L2's vote for L1's hooks 
 
