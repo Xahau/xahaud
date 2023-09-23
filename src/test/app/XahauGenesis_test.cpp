@@ -39,10 +39,40 @@ std::string maybe_to_string(T val, std::enable_if_t<!std::is_integral_v<T>, int>
 
 #define M(m) memo(maybe_to_string(m), "", "")
 
+#define DEBUG_XGTEST 0
+
 using namespace XahauGenesis;
 
 namespace ripple {
 namespace test {
+/*
+    Accounts used in this test suite:
+    alice: AE123A8556F3CF91154711376AFB0F894F832B3D, rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn
+    bob: F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90F, rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK
+    carol: B389FBCED0AF9DCDFF62900BFAEFA3EB872D8A96, rH4KEcG9dEwGwpn6AyoWK9cZPLL4RLSmWW
+    david: 0F4BFC99EC975E3F753927A69713889359C7100E, rpPtwXbmeXxznrUvnMuGhUqTu4Vvk4V98i
+    edward: 98D3AAD96D5D3F32C3723B6550A49DEE4DD9D4AC, rNAnHhommqNJvV3mLieHADNJU6mfdRqXKp
+    m1: 1EF5C53AC2B0E1CDEAF960833A9B7B6814879152, rsF66BeCcW5dxrDhPbCqm4ReU5MjkmshQo
+    m2: 0D20E8D13A89AA84F2334F57331903D21CCC866C, rpURDnkgizBF1ksJr9DmDTNLhds2NBYNbC
+    m6: F41810565A673D2C45C63B7A51FEA139221DFB1B, rPEe68FWPYpfEYeL3TtdVGXR8WDET24h6e
+    m7: 52C947B84E2412B5BD2211639E2B9DEDF3ECB5F4, r3YjXvPbu1srxx22tQefDwhXJS8qjCAgxg
+    m8: 3392382F09E5EA935D5624D52919C683B661238A, rn6gdHFFtieGK748TioK8cZ8SPrHsWAfe3
+    m9: 62F73BE6E7718B3328DEB497F8298B1C42FFD3D8, rwpHPvGwiJAFStN3KqVTeTLBTczFyK6Z6D
+    m10: 971B25036F1EAAEEC7A0C299E15F60AB4C465B37, rNmyZrJEtbg5p84PSKGurNs1efdDNLhb8D
+    m11: B79B324A56425919D0BF64FA4560C7B616F08509, rHjF2LuJKSRerNHtQMtyDUVXpQKmT18XuC
+    m12: 8C3AA72EBB3172726BE9FDE2A91C9CE2C9F766E5, rD8T19Nz2gkAtKKEeLpXLkTb57AS7nJ45b
+    m13: 3B8292604D9CF9C679E70CCD0ED5C9DC1DF84607, raRCHchPDpP8qAysxsmehC279GH613iGiM
+    m14: E77F5DFE960C4DA9524389F946BCD13AC26AB0D0, r4fsCASeoGzhD2ZeFgcJj1c2tmDsm1re3r
+    m15: D300D94BA59F55426889E144B423CFEE8F685450, rLNgbTE2HVk5CJG7SHrpSD8gsFcwu5cG1a
+    m16: D9C6AC46D87BCFE374BE4F59C280CEC377E67788, rLiVdCesA2rV2NjC6HZPVK7k1VpvGwCbjx
+    m17: A620E154D56E38B12AD76A094A214A25AD8B87A1, rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa
+    m18: 7A5A72F059F6DCDD6E938DAFBCFFB0541E0A7481, rU9A8u622H6fxGQjux8uDgomks5D8QySfS
+    m19: F6C06C3D86A9D39FF813AEF6B839AD041651BE7D, rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU
+    m20: 1B4D3113C2AB370293A0ACEA4D68C1B29A01A013, rsVM5ZaK9QMCgrW9UKyXLguESpDpsJnRbu
+    m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4gD
+*/
+
+
 
 struct XahauGenesis_test : public beast::unit_test::suite
 {
@@ -377,7 +407,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             invoke[jss::Destination] = toBase58(t);
             env(invoke, fee(XRP(1)));
             env.close();
-            std::cout << "invoke: " << invoke << "\n";
+            if (DEBUG_XGTEST)
+                std::cout << "invoke: " << invoke << "\n";
         }
     }
 
@@ -424,7 +455,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterName] =
             "54"; // 'T'
         std::string val = charToHex(topic1) + (topic2 ? charToHex(*topic2) : "");
-        std::cout << "val: `" << val << "`\n";
+        if (DEBUG_XGTEST)
+            std::cout << "val: `" << val << "`\n";
         txn[jss::HookParameters][0u][jss::HookParameter][jss::HookParameterValue] = val;
 
         txn[jss::HookParameters][1u] = Json::objectValue;
@@ -529,42 +561,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto const m20 = Account("m20");
         auto const m21 = Account("m21");
 
-/*
-        auto printAcc = [](const char* name, Account const& acc) -> void
-        {
-            std::cout << name << ": " << strHex(acc.id()) << ", " << acc.human() << "\n";
-
-        };
-
-        #define PRINTACC(a) printAcc(#a, a)
-
-        alice: AE123A8556F3CF91154711376AFB0F894F832B3D, rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn
-        bob: F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90F, rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK
-        carol: B389FBCED0AF9DCDFF62900BFAEFA3EB872D8A96, rH4KEcG9dEwGwpn6AyoWK9cZPLL4RLSmWW
-        david: 0F4BFC99EC975E3F753927A69713889359C7100E, rpPtwXbmeXxznrUvnMuGhUqTu4Vvk4V98i
-        edward: 98D3AAD96D5D3F32C3723B6550A49DEE4DD9D4AC, rNAnHhommqNJvV3mLieHADNJU6mfdRqXKp
-        m1: 1EF5C53AC2B0E1CDEAF960833A9B7B6814879152, rsF66BeCcW5dxrDhPbCqm4ReU5MjkmshQo
-        m2: 0D20E8D13A89AA84F2334F57331903D21CCC866C, rpURDnkgizBF1ksJr9DmDTNLhds2NBYNbC
-        m6: F41810565A673D2C45C63B7A51FEA139221DFB1B, rPEe68FWPYpfEYeL3TtdVGXR8WDET24h6e
-        m7: 52C947B84E2412B5BD2211639E2B9DEDF3ECB5F4, r3YjXvPbu1srxx22tQefDwhXJS8qjCAgxg
-        m8: 3392382F09E5EA935D5624D52919C683B661238A, rn6gdHFFtieGK748TioK8cZ8SPrHsWAfe3
-        m9: 62F73BE6E7718B3328DEB497F8298B1C42FFD3D8, rwpHPvGwiJAFStN3KqVTeTLBTczFyK6Z6D
-        m10: 971B25036F1EAAEEC7A0C299E15F60AB4C465B37, rNmyZrJEtbg5p84PSKGurNs1efdDNLhb8D
-        m11: B79B324A56425919D0BF64FA4560C7B616F08509, rHjF2LuJKSRerNHtQMtyDUVXpQKmT18XuC
-        m12: 8C3AA72EBB3172726BE9FDE2A91C9CE2C9F766E5, rD8T19Nz2gkAtKKEeLpXLkTb57AS7nJ45b
-        m13: 3B8292604D9CF9C679E70CCD0ED5C9DC1DF84607, raRCHchPDpP8qAysxsmehC279GH613iGiM
-        m14: E77F5DFE960C4DA9524389F946BCD13AC26AB0D0, r4fsCASeoGzhD2ZeFgcJj1c2tmDsm1re3r
-        m15: D300D94BA59F55426889E144B423CFEE8F685450, rLNgbTE2HVk5CJG7SHrpSD8gsFcwu5cG1a
-        m16: D9C6AC46D87BCFE374BE4F59C280CEC377E67788, rLiVdCesA2rV2NjC6HZPVK7k1VpvGwCbjx
-        m17: A620E154D56E38B12AD76A094A214A25AD8B87A1, rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa
-        m18: 7A5A72F059F6DCDD6E938DAFBCFFB0541E0A7481, rU9A8u622H6fxGQjux8uDgomks5D8QySfS
-        m19: F6C06C3D86A9D39FF813AEF6B839AD041651BE7D, rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU
-        m20: 1B4D3113C2AB370293A0ACEA4D68C1B29A01A013, rsVM5ZaK9QMCgrW9UKyXLguESpDpsJnRbu
-        m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4gD
-
-        */
-
-
         env.fund(XRP(10000), alice, bob, carol, david, edward, m1, m2,
             m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21);
 
@@ -606,7 +602,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
-                std::cout
+                if (DEBUG_XGTEST)
+                {
+                    std::cout
                         << "topic vote precheck: " << lineno << "L\n"
                         << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
                         << "\tshouldFail: " << (shouldFail ? "true": "false") << "\n"
@@ -621,7 +619,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                             (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n"
                         << ((isOldDataZero && !entry) ||
                             (entry && entry->getFieldVL(sfHookStateData) == old_data) ? "" : "\tfailed: ^^^\n");
-
+                }
                 BEAST_EXPECT((isOldDataZero && !entry) ||
                     (entry && entry->getFieldVL(sfHookStateData) == old_data));
             }
@@ -662,18 +660,19 @@ struct XahauGenesis_test : public beast::unit_test::suite
                         BEAST_EXPECT(!entry);
                     else
                     {
-                        std::cout << "new data: " << strHex(vote_data) << "\n";
-                        std::cout << "lgr data: " <<
-                            (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        if (DEBUG_XGTEST)
+                        {
+                            std::cout << "new data: " << strHex(vote_data) << "\n";
+                            std::cout << "lgr data: " <<
+                                (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        }
                         BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
                     }
                 }
                 else
                 {
-                    if (!!entry)
-                    {
+                    if (!!entry && DEBUG_XGTEST)
                         std::cout << "old data: " << strHex(entry->getFieldVL(sfHookStateData)) << "\n";
-                    }
                     BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == old_data);
                 }
             }
@@ -764,7 +763,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
             uint8_t const* data = acceptHookHash.data();
             std::vector<uint8_t> accept_data(data, data+32);
 
-            std::cout << "accept_data-strhex: " << strHex(accept_data) << "\n";
             std::vector<uint8_t> const null_data
             {
                 0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
@@ -1098,17 +1096,16 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 std::vector<uint8_t> const expected_data {final_count};
 
                 BEAST_REQUIRE(!!entry);
-                if (entry->getFieldVL(sfHookStateData) != expected_data)
+                if (entry->getFieldVL(sfHookStateData) != expected_data && DEBUG_XGTEST)
+                {
                     std::cout
                         << "doSeatVote failed " << lineno <<"L. entry data: `"
                         << strHex(entry->getFieldVL(sfHookStateData)) << "` "
                         << "expected data: `" << strHex(expected_data) << "`\n";
-
+                }
                 BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
             }
         };
-
-        std::cout << "Put edward back into seat 0\n";
 
         // put edward into seat 0 previously occupied by alice
         doSeatVote(__LINE__, 0, 3, edward.id(), {}, {&alice, &bob});
@@ -1244,17 +1241,24 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
                 if (!acc)
                 {
-                    if (entry)
-                        std::cout << "checkSeat failed, seatno->accid present (but should be empty) for seat: "
+                    if (entry && DEBUG_XGTEST)
+                    {
+                        std::cout
+                            << "checkSeat failed, "
+                            << "seatno->accid present (but should be empty) for seat: "
                             << seat << "\n";
+                    }
                     BEAST_EXPECT(!entry);
                     return;
                 }
 
-                if (!entry)
-                    std::cout << "checkSeat failed, seatno->accid missing for seat: " << seat << "\n";
-                else if (entry->getFieldVL(sfHookStateData) != vecFromAcc(*acc))
-                    std::cout << "checkSeat failed, seatno->accid incorrect for seat: " << seat << "\n";
+                if (DEBUG_XGTEST)
+                {
+                    if (!entry)
+                        std::cout << "checkSeat failed, seatno->accid missing for seat: " << seat << "\n";
+                    else if (entry->getFieldVL(sfHookStateData) != vecFromAcc(*acc))
+                        std::cout << "checkSeat failed, seatno->accid incorrect for seat: " << seat << "\n";
+                }
                 BEAST_EXPECT(!!entry &&
                     entry->getFieldVL(sfHookStateData) == vecFromAcc(*acc));
             }
@@ -1266,10 +1270,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
 
-                if (!entry)
-                    std::cout << "checkSeat failed, accid->seatno missing for seat: " << seat << "\n";
-                else if (entry->getFieldVL(sfHookStateData) != std::vector<uint8_t>{seat})
-                    std::cout << "checkSeat failed, accid->seatno incorrect for seat: " << seat << "\n";
+                if (DEBUG_XGTEST)
+                {
+                    if (!entry)
+                        std::cout << "checkSeat failed, accid->seatno missing for seat: " << seat << "\n";
+                    else if (entry->getFieldVL(sfHookStateData) != std::vector<uint8_t>{seat})
+                        std::cout << "checkSeat failed, accid->seatno incorrect for seat: " << seat << "\n";
+                }
 
                 BEAST_EXPECT(!!entry &&
                     entry->getFieldVL(sfHookStateData) == std::vector<uint8_t>{seat});
@@ -1458,43 +1465,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto const m20 = Account("m20");
         auto const m21 = Account("m21");
 
-/*
-        auto printAcc = [](const char* name, Account const& acc) -> void
-        {
-            std::cout << name << ": " << strHex(acc.id()) << ", " << acc.human() << "\n";
-
-        };
-
-        #define PRINTACC(a) printAcc(#a, a)
-
-        alice: AE123A8556F3CF91154711376AFB0F894F832B3D, rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn
-        bob: F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90F, rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK
-        carol: B389FBCED0AF9DCDFF62900BFAEFA3EB872D8A96, rH4KEcG9dEwGwpn6AyoWK9cZPLL4RLSmWW
-        david: 0F4BFC99EC975E3F753927A69713889359C7100E, rpPtwXbmeXxznrUvnMuGhUqTu4Vvk4V98i
-        edward: 98D3AAD96D5D3F32C3723B6550A49DEE4DD9D4AC, rNAnHhommqNJvV3mLieHADNJU6mfdRqXKp
-        m1: 1EF5C53AC2B0E1CDEAF960833A9B7B6814879152, rsF66BeCcW5dxrDhPbCqm4ReU5MjkmshQo
-        m2: 0D20E8D13A89AA84F2334F57331903D21CCC866C, rpURDnkgizBF1ksJr9DmDTNLhds2NBYNbC
-        m6: F41810565A673D2C45C63B7A51FEA139221DFB1B, rPEe68FWPYpfEYeL3TtdVGXR8WDET24h6e
-        m7: 52C947B84E2412B5BD2211639E2B9DEDF3ECB5F4, r3YjXvPbu1srxx22tQefDwhXJS8qjCAgxg
-        m8: 3392382F09E5EA935D5624D52919C683B661238A, rn6gdHFFtieGK748TioK8cZ8SPrHsWAfe3
-        m9: 62F73BE6E7718B3328DEB497F8298B1C42FFD3D8, rwpHPvGwiJAFStN3KqVTeTLBTczFyK6Z6D
-        m10: 971B25036F1EAAEEC7A0C299E15F60AB4C465B37, rNmyZrJEtbg5p84PSKGurNs1efdDNLhb8D
-        m11: B79B324A56425919D0BF64FA4560C7B616F08509, rHjF2LuJKSRerNHtQMtyDUVXpQKmT18XuC
-        m12: 8C3AA72EBB3172726BE9FDE2A91C9CE2C9F766E5, rD8T19Nz2gkAtKKEeLpXLkTb57AS7nJ45b
-        m13: 3B8292604D9CF9C679E70CCD0ED5C9DC1DF84607, raRCHchPDpP8qAysxsmehC279GH613iGiM
-        m14: E77F5DFE960C4DA9524389F946BCD13AC26AB0D0, r4fsCASeoGzhD2ZeFgcJj1c2tmDsm1re3r
-        m15: D300D94BA59F55426889E144B423CFEE8F685450, rLNgbTE2HVk5CJG7SHrpSD8gsFcwu5cG1a
-        m16: D9C6AC46D87BCFE374BE4F59C280CEC377E67788, rLiVdCesA2rV2NjC6HZPVK7k1VpvGwCbjx
-        m17: A620E154D56E38B12AD76A094A214A25AD8B87A1, rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa
-        m18: 7A5A72F059F6DCDD6E938DAFBCFFB0541E0A7481, rU9A8u622H6fxGQjux8uDgomks5D8QySfS
-        m19: F6C06C3D86A9D39FF813AEF6B839AD041651BE7D, rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU
-        m20: 1B4D3113C2AB370293A0ACEA4D68C1B29A01A013, rsVM5ZaK9QMCgrW9UKyXLguESpDpsJnRbu
-        m21: 748B256D2BAD918A967F40F465692C7B9A01F836, rBdNnJ4q9G3riJFcXjkwTgBu1MBR5pG4gD
-
-        */
-
-
-
         auto const governHookHash =
                 ripple::sha512Half_s(
                     ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
@@ -1596,7 +1566,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key), beast::zero));
-                std::cout
+                if (DEBUG_XGTEST)
+                {
+                    std::cout
                         << "topic vote precheck: " << lineno << "L\n"
                         << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
                         << "\tshouldFail: " << (shouldFail ? "true": "false") << "\n"
@@ -1611,7 +1583,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                             (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n"
                         << ((isOldDataZero && !entry) ||
                             (entry && entry->getFieldVL(sfHookStateData) == old_data) ? "" : "\tfailed: ^^^\n");
-
+                }
                 BEAST_EXPECT((isOldDataZero && !entry) ||
                     (entry && entry->getFieldVL(sfHookStateData) == old_data));
             }
@@ -1652,18 +1624,20 @@ struct XahauGenesis_test : public beast::unit_test::suite
                         BEAST_EXPECT(!entry);
                     else
                     {
-                        std::cout << "new data: " << strHex(vote_data) << "\n";
-                        std::cout << "lgr data: " <<
-                            (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        if (DEBUG_XGTEST)
+                        {
+                            std::cout << "new data: " << strHex(vote_data) << "\n";
+                            std::cout << "lgr data: " <<
+                                (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        }
                         BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
                     }
                 }
                 else
                 {
-                    if (!!entry)
-                    {
+                    if (!!entry && DEBUG_XGTEST)
                         std::cout << "old data: " << strHex(entry->getFieldVL(sfHookStateData)) << "\n";
-                    }
+                    
                     BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == old_data);
                 }
             }
@@ -1703,7 +1677,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(keylet::hookState(
                     layer == 1 ? env.master.id() : table.id(),
                     uint256::fromVoid(key), beast::zero));
-                std::cout
+                if (DEBUG_XGTEST)
+                {
+                    std::cout
                         << "topic L2 vote precheck: " << lineno << "L\n"
                         << "\tlayer: " << std::string(1, '0' + layer) << " table: " << table.human() << "\n"
                         << "\tacc: " << acc.human() << " shouldAction: " << (actioned ? "true": "false")
@@ -1719,7 +1695,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                             (entry && entry->getFieldVL(sfHookStateData) == old_data ? "true" : "false") << "\n"
                         << ((isOldDataZero && !entry) ||
                             (entry && entry->getFieldVL(sfHookStateData) == old_data) ? "" : "\tfailed: ^^^\n");
-
+                }
                 BEAST_EXPECT((isOldDataZero && !entry) ||
                     (entry && entry->getFieldVL(sfHookStateData) == old_data));
             }
@@ -1763,20 +1739,26 @@ struct XahauGenesis_test : public beast::unit_test::suite
                         BEAST_EXPECT(!entry);
                     else
                     {
-                        std::cout << lineno << "L "
-                        << "new data: " << strHex(vote_data) << "\n"
-                        << "lgr data: " <<
-                            (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        if (DEBUG_XGTEST)
+                        {
+                            std::cout << lineno << "L "
+                                << "new data: " << strHex(vote_data) << "\n"
+                                << "lgr data: " <<
+                                    (!entry ? "<doesn't exist>" : strHex(entry->getFieldVL(sfHookStateData))) << "\n";
+                        }
                         BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vote_data);
                     }
                 }
                 else
                 {
                     
-                    std::cout
-                        << lineno << "L old data: "
-                        << (entry ? strHex(entry->getFieldVL(sfHookStateData)) : "<doesn't exist>")
-                        << " == "  << strHex(old_data) << "\n";
+                    if (DEBUG_XGTEST)
+                    {
+                        std::cout
+                            << lineno << "L old data: "
+                            << (entry ? strHex(entry->getFieldVL(sfHookStateData)) : "<doesn't exist>")
+                            << " == "  << strHex(old_data) << "\n";
+                    }
                     BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == old_data);
                 }
             }
@@ -1804,12 +1786,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 std::vector<uint8_t> const expected_data {final_count};
 
                 BEAST_REQUIRE(!!entry);
-                if (entry->getFieldVL(sfHookStateData) != expected_data)
+                if (entry->getFieldVL(sfHookStateData) != expected_data && DEBUG_XGTEST)
+                {
                     std::cout
                         << "doSeatVote failed " << lineno <<"L. entry data: `"
                         << strHex(entry->getFieldVL(sfHookStateData)) << "` "
                         << "expected data: `" << strHex(expected_data) << "`\n";
-
+                }
                 BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
             }
         };
@@ -1839,11 +1822,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 std::vector<uint8_t> const expected_data {final_count};
 
                 BEAST_REQUIRE(!!entry);
-                if (entry->getFieldVL(sfHookStateData) != expected_data)
+                if (entry->getFieldVL(sfHookStateData) != expected_data && DEBUG_XGTEST)
+                {
                     std::cout
                         << "doSeatVote failed " << lineno <<"L. entry data: `"
                         << strHex(entry->getFieldVL(sfHookStateData)) << "` "
                         << "expected data: `" << strHex(expected_data) << "`\n";
+                }
 
                 BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
             }
@@ -1865,7 +1850,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
         checkL2Table(t1.id(), std::vector<Account const*>{&m6, &m7});
         checkL2Table(t2.id(), std::vector<Account const*>{&m11, &m12, &m13, &m14, &m15});
-
 
         // test voting from layer 2
         // vote for a different reward rate
@@ -1897,10 +1881,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 uint256 ns = beast::zero;
                 auto const counterLE = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(counter_key), ns));
                 
-                std::cout
-                    << "Counter at " << lineno << "L: "
-                    << (!!counterLE ? strHex(counterLE->getFieldVL(sfHookStateData)) : "doesn't exist")
-                    << " vs " << std::string(1, (char)('0' + c)) << "\n"; 
+                if (DEBUG_XGTEST)
+                {
+                    std::cout
+                        << "Counter at " << lineno << "L: "
+                        << (!!counterLE ? strHex(counterLE->getFieldVL(sfHookStateData)) : "doesn't exist")
+                        << " vs " << std::string(1, (char)('0' + c)) << "\n"; 
+                }
                 BEAST_EXPECT(!!counterLE && counterLE->getFieldVL(sfHookStateData) == std::vector<uint8_t>{c});
             };
 
@@ -1960,10 +1947,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 uint256 ns = beast::zero;
                 auto const counterLE = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(counter_key), ns));
                 
-                std::cout
-                    << "Counter at " << lineno << "L: "
-                    << (!!counterLE ? strHex(counterLE->getFieldVL(sfHookStateData)) : "doesn't exist")
-                    << " vs " << std::string(1, (char)('0' + c)) << "\n"; 
+                if (DEBUG_XGTEST)
+                {
+                    std::cout
+                        << "Counter at " << lineno << "L: "
+                        << (!!counterLE ? strHex(counterLE->getFieldVL(sfHookStateData)) : "doesn't exist")
+                        << " vs " << std::string(1, (char)('0' + c)) << "\n"; 
+                }
                 BEAST_EXPECT(!!counterLE && counterLE->getFieldVL(sfHookStateData) == std::vector<uint8_t>{c});
             };
 
@@ -1994,27 +1984,73 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // vote an L1 seat in using L2 voting
         {
             // we'll vote claire into seat 4 using t2 as a voting party
+            // this requires 51% of t2
             doL2SeatVote(__LINE__, 1, t2, 4, 4, carol, null_acc, {
-                &m11, &m12, &m13, &m14 }, false);
+                &m11, &m12, &m13 }, false);
+
+            env.close();
+            env.close();
 
             // change our vote
             doL2SeatVote(__LINE__, 1, t2, 4, 4, null_acc, null_acc, {
-                &m11, &m12, &m13, &m14 }, false);
+                &m12, &m13, &m14 }, false);
+
+            env.close();
+            env.close();
 
             // vote at l1
-            doL1SeatVote(__LINE__, 4, 5, carol.id(), {}, {&alice, &bob}, false);
+            doL1SeatVote(__LINE__, 4, 4, carol.id(), {}, {&alice, &bob}, false);
 
             // change our vote again
-            doL2SeatVote(__LINE__, 1, t2, 4, 4, null_acc, null_acc, {
-                &m11, &m12, &m13, &m14 }, false);
+            doL2SeatVote(__LINE__, 1, t2, 4, 5, carol, null_acc, {
+                &m11, &m13, &m14 }, true);
 
             env.close();
             env.close();
 
             // check the member was voted in successfully
-            std::vector<uint8_t> key { 0,0,0,0, 0,0,0,0,  0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x04U };
-            auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key.data()), beast::zero));
-            BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vecFromAcc(carol));
+            {
+                std::vector<uint8_t> key { 
+                    0,0,0,0, 0,0,0,0,  0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x04U };
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key.data()), beast::zero));
+                BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == vecFromAcc(carol));
+            }
+            // check member count
+            {
+                std::vector<uint8_t> key { 
+                    0,0,0,0, 0,0,0,0,  0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,'M', 'C' };
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key.data()), beast::zero));
+                BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == std::vector<uint8_t>{0x05U});
+            }
+
+            // now vote carol out
+            doL2SeatVote(__LINE__, 1, t2, 4, 5, null_acc, carol, {
+                &m11, &m12, &m13 }, false);
+
+            env.close();
+            env.close();
+
+            // vote at l1
+            doL1SeatVote(__LINE__, 4, 4, null_acc, carol, {&alice, &carol, &bob}, true);
+
+            env.close();
+
+            // check the member was voted out successfully
+            {
+                std::vector<uint8_t> key { 
+                    0,0,0,0, 0,0,0,0,  0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x04U };
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key.data()), beast::zero));
+                BEAST_EXPECT(!entry);
+            }
+            // check member count
+            {
+                std::vector<uint8_t> key { 
+                    0,0,0,0, 0,0,0,0,  0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,'M', 'C' };
+                auto entry = env.le(keylet::hookState(env.master.id(), uint256::fromVoid(key.data()), beast::zero));
+                BEAST_EXPECT(!!entry && entry->getFieldVL(sfHookStateData) == std::vector<uint8_t>{0x04U});
+            }
+
+
         }
 
         // t2 votes out seat 0
@@ -2063,7 +2099,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
 
         // t2 = { m11, m12, m13, m14, m15 }
-        
 
         {
             Json::Value tx (Json::objectValue);
@@ -2104,7 +2139,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
             uint8_t const* data = acceptHookHash.data();
             std::vector<uint8_t> accept_data(data, data+32);
 
-            std::cout << "accept_data-strhex: " << strHex(accept_data) << "\n";
             std::vector<uint8_t> const null_data
             {
                 0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
@@ -2302,14 +2336,44 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 }
             }
 
+
+            // vote to install a hook on L1 from a L2 table
+            {
+                // alice, bob need to vote, because 100% L1 votes are needed to change a hook
+                doL1Vote(__LINE__, alice, 'H', 2, accept_data, null_data, false);
+                doL1Vote(__LINE__, bob, 'H', 2, accept_data, null_data, false);
+
+                // 51% of t2 must vote
+                doL2Vote(__LINE__, 1, t2, m11, 'H', 2, accept_data, null_data, false);
+                doL2Vote(__LINE__, 1, t2, m12, 'H', 2, accept_data, null_data, false);
+                doL2Vote(__LINE__, 1, t2, m13, 'H', 2, accept_data, null_data, false);
+    
+
+                // 51% of t1 must vote, but vote count cannot be less than 2
+                doL2Vote(__LINE__, 1, t1, m6, 'H', 2, accept_data, null_data, false);
+                doL2Vote(__LINE__, 1, t1, m7, 'H', 2, accept_data, null_data, false);
+    
+                env.close();
+                env.close();
+                env.close();
+                env.close();
+                env.close();
+                env.close();
+
+                // RH NOTE: idk why this ended up being so slow to finalize, probably multiple emitted txns settling
+            
+                // check it was actioned correctly
+                auto genesisHooksLE = env.le(keylet::hook(genesisAccID));
+                BEAST_REQUIRE(!!genesisHooksLE);
+                auto genesisHookArray = genesisHooksLE->getFieldArray(sfHooks);
+                BEAST_EXPECT(genesisHookArray.size() >= 3);
+                auto const acceptHash = ripple::sha512Half_s(ripple::Slice(AcceptHook.data(), AcceptHook.size()));
+                BEAST_EXPECT(genesisHookArray.size() >= 3 &&
+                    genesisHookArray[2].isFieldPresent(sfHookHash) &&
+                    genesisHookArray[2].getFieldH256(sfHookHash) == acceptHash);
+            }
+
         }
-
-        
-
-
-        // RH UPTO:
-        // L2's vote L1's in and out
-        // L2's vote for L1's hooks 
 
     }
 
@@ -2347,10 +2411,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
     run() override
     {
         using namespace test::jtx;
-        //testPlainActivation();
-        //testWithSignerList();
-        //testWithRegularKey();
-//        testGovernanceL1();
+        testPlainActivation();
+        testWithSignerList();
+        testWithRegularKey();
+        testGovernanceL1();
         testGovernanceL2();
     }
 };
@@ -2359,3 +2423,4 @@ BEAST_DEFINE_TESTSUITE(XahauGenesis, app, ripple);
 
 }  // namespace test
 }  // namespace ripple
+#undef M

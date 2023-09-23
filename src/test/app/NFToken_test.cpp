@@ -6631,3 +6631,5 @@ public:
 BEAST_DEFINE_TESTSUITE_PRIO(NFToken, tx, ripple, 2);
 
 }  // namespace ripple
+
+#undef M

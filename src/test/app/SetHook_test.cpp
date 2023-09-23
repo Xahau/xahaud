@@ -11650,3 +11650,4 @@ private:
 BEAST_DEFINE_TESTSUITE(SetHook, tx, ripple);
 }  // namespace test
 }  // namespace ripple
+#undef M
