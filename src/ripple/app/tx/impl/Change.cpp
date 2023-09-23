@@ -604,7 +604,7 @@ Change::activateXahauGenesis()
             hookDef->setFieldVL(sfCreateCode, wasmBytes);
             hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
             // governance hook is referenced by the l2tables
-            hookDef->setFieldU64(sfReferenceCount, (hookCount == 0 ? tables.size() : 0) + 1);
+            hookDef->setFieldU64(sfReferenceCount, (hookCount++ == 0 ? tables.size() : 0) + 1);
             hookDef->setFieldAmount(sfFee,
                     XRPAmount {hook::computeExecutionFee(result->first)});
             if (result->second > 0)

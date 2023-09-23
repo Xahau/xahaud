@@ -170,7 +170,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             auto const govVL = govSLE->getFieldVL(sfCreateCode);
             BEAST_EXPECT(govHash == ripple::sha512Half_s(ripple::Slice(govVL.data(), govVL.size())));
-            BEAST_EXPECT(govSLE->getFieldU64(sfReferenceCount) == 1);
+            BEAST_EXPECT(govSLE->getFieldU64(sfReferenceCount) == 1 + XahauGenesis::L2Membership.size());
             BEAST_EXPECT(govSLE->getFieldH256(sfHookOn) ==
                 ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF"));
             BEAST_EXPECT(govSLE->getFieldH256(sfHookNamespace) ==
