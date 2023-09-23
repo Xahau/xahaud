@@ -92,7 +92,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
     // the test cases in this test suite are based on changing the state of the ledger before
     // xahaugenesis is activated, to do this they call this templated function with an "execute-first" lambda
     void
-    activate(jtx::Env& env, bool burnedViaTest = false, bool skipTests = false, bool testFlag = false)
+    activate(uint64_t lineno, 
+            jtx::Env& env,
+            bool burnedViaTest = false, // means the calling test already burned some of the genesis
+            bool skipTests = false,
+            bool const testFlag = false)
     {
         using namespace jtx;
 
@@ -109,6 +113,15 @@ struct XahauGenesis_test : public beast::unit_test::suite
         BEAST_EXPECT(!isEnabled());
 
         uint32_t const startLgr = env.app().getLedgerMaster().getClosedLedger()->info().seq + 1;
+
+        if (DEBUG_XGTEST)
+        {
+            std::cout << "activate called. " << lineno << "L"
+                << " burnedViaTest: " << (burnedViaTest ? "true": "false") 
+                << " skipTests: " << (skipTests ? "true" : "false")
+                << " testFlags: " << (testFlag ? "true" : "false")
+                << " startLgr: " << startLgr << "\n";
+        }
 
         // insert a ttAMENDMENT pseudo into the open ledger
         env.app().openLedger().modify(
@@ -138,11 +151,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         if (skipTests)
             return;
-
+        
         // sum the initial distribution balances, these should equal total coins in the closed ledger
+        std::vector<std::pair<std::string, XRPAmount>> const& distribution =
+                testFlag ? XahauGenesis::TestDistribution : XahauGenesis::Distribution;
 
         XRPAmount total { GenesisAmount };
-        for (auto const& [node, amt] : Distribution)
+        for (auto const& [node, amt] : distribution)
             total += amt;
 
         BEAST_EXPECT(burnedViaTest || env.app().getLedgerMaster().getClosedLedger()->info().drops == total);
@@ -170,7 +185,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             auto const govVL = govSLE->getFieldVL(sfCreateCode);
             BEAST_EXPECT(govHash == ripple::sha512Half_s(ripple::Slice(govVL.data(), govVL.size())));
-            BEAST_EXPECT(govSLE->getFieldU64(sfReferenceCount) == 1 + XahauGenesis::L2Membership.size());
+            BEAST_EXPECT(govSLE->getFieldU64(sfReferenceCount) == 1 + 
+                testFlag 
+                    ? XahauGenesis::TestL2Membership.size()
+                    : XahauGenesis::L2Membership.size());
             BEAST_EXPECT(govSLE->getFieldH256(sfHookOn) ==
                 ripple::uint256("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF"));
             BEAST_EXPECT(govSLE->getFieldH256(sfHookNamespace) ==
@@ -213,7 +231,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             uint8_t member_count = 0;
             std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params =
                 XahauGenesis::GovernanceParameters;
-            for (auto const& [rn, x]: XahauGenesis::Distribution)
+            for (auto const& [rn, x]: distribution)
             {
                 const char first = rn.c_str()[0];
                 BEAST_EXPECT(
@@ -257,8 +275,26 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 std::vector<uint8_t>{'I', 'M', 'C'},
                 std::vector<uint8_t>{member_count});
 
-            // check parameters
             auto leParams = genesisHookArray[0].getFieldArray(sfHookParameters);
+
+            if (DEBUG_XGTEST)
+            {
+                std::cout << "leParams.size() = " << leParams.size() << ", params.size() == " << params.size() << "\n";
+
+                std::cout << "leParams:\n";
+                for (auto const& p: leParams)
+                {
+                    std::cout 
+                        << "\t" << strHex(p.getFieldVL(sfHookParameterName)) << " : "
+                        << strHex(p.getFieldVL(sfHookParameterValue)) << "\n";
+                }
+            
+                std::cout << "params:\n";
+                for (auto const& [k,v]: params)
+                    std::cout << "\t" << strHex(k) << " : " << strHex(v) << "\n";
+            }
+
+            // check parameters
 
             BEAST_EXPECT(leParams.size() == params.size());
 
@@ -311,7 +347,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             //beast::severities::kTrace
         };
 
-        activate(env);
+        activate(__LINE__, env, false, false, false);
     }
 
     void
@@ -330,7 +366,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env(signers(env.master, 1, {{alice, 1}}));
         env.close();
 
-        activate(env, true);
+        activate(__LINE__, env, true, false, false);
     }
 
     void
@@ -349,7 +385,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env(regkey(env.master, alice));
         env.close();
 
-        activate(env, true);
+        activate(__LINE__, env, true, false, false);
     }
 
 
@@ -384,8 +420,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         }
 
-        activate(env, true, true, true);
+        activate(__LINE__, env, true, false, true);
 
+        env.close();
         env.close();
 
         XahauGenesis::TestDistribution.clear();
@@ -395,7 +432,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = invoker.human();
         invoke[jss::Destination] = env.master.human();
-        env(invoke, fee(XRP(1)));
+        env(invoke, fee(XRP(10)));
+        env.close();
         env.close();
 
         for (auto& [t, members] : tables)
@@ -533,7 +571,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testcase("Test governance membership voting L1");
 
         Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-            beast::severities::kTrace
+//            beast::severities::kTrace
+            beast::severities::kWarning
         };
         auto const alice = Account("alice");
         auto const bob = Account("bob");
@@ -1436,7 +1475,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testcase("Test governance membership voting L1");
 
         Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-            beast::severities::kTrace
+//            beast::severities::kTrace
+            beast::severities::kWarning
         };
         auto const alice = Account("alice");
         auto const bob = Account("bob");

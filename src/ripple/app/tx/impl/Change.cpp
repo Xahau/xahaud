@@ -410,7 +410,7 @@ Change::activateXahauGenesis()
 
     using namespace XahauGenesis;
 
-    bool const isTest = ctx_.tx.getFlags() & tfTestSuite && ctx_.app.config().standalone();
+    bool const isTest = (ctx_.tx.getFlags() & tfTestSuite) && ctx_.app.config().standalone();
 
     auto [initial_distribution, tables, gov_params] =
         normalizeXahauGenesis(
@@ -422,7 +422,7 @@ Change::activateXahauGenesis()
                 : L2Membership,
         GovernanceParameters, j_);
 
-    const static std::vector<
+    std::vector<
         std::tuple<
             uint256,                        // hook on
             std::vector<uint8_t>,           // hook code
