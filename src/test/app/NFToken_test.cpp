@@ -990,7 +990,6 @@ class NFToken_test : public beast::unit_test::suite
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 1);
         
-        #define M(m) memo(m, "", "")
         //----------------------------------------------------------------------
         // preclaim
 
@@ -1013,16 +1012,16 @@ class NFToken_test : public beast::unit_test::suite
             auto check = env.le(Keylet { ltCHECK, gwCheckId });
             BEAST_EXPECT(!!check);
 
-            env(token::cancelOffer(gw, {gwCheckId}), M("here1"), ter(tecNO_PERMISSION));
+            env(token::cancelOffer(gw, {gwCheckId}), ter(tecNO_PERMISSION));
             env.close();
 
             // Cancel the check so it doesn't mess up later tests.
             env(check::cancel(gw, gwCheckId));
             env.close();
-        }
+        }    
 
         // gw attempts to cancel an offer they don't have permission to cancel.
-        env(token::cancelOffer(gw, {buyerOfferIndex}), M("here2"), ter(tecNO_PERMISSION));
+        env(token::cancelOffer(gw, {buyerOfferIndex}), ter(tecNO_PERMISSION));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 1);
 
@@ -6631,5 +6630,3 @@ public:
 BEAST_DEFINE_TESTSUITE_PRIO(NFToken, tx, ripple, 2);
 
 }  // namespace ripple
-
-#undef M
