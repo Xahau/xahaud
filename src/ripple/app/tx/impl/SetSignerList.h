@@ -24,7 +24,6 @@
 #include <ripple/app/tx/impl/SignerEntries.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
-#include <ripple/protocol/Rules.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/Rules.h>
 #include <ripple/protocol/STArray.h>
@@ -71,6 +70,18 @@ public:
         ApplyView& view,
         AccountID const& account,
         beast::Journal j);
+
+    static TER
+    removeSignersFromLedger(
+        Application& app,
+        ApplyView& view,
+        Keylet const& accountKeylet,
+        Keylet const& ownerDirKeylet,
+        Keylet const& signerListKeylet,
+        beast::Journal j);
+
+    static int
+    signerCountBasedOwnerCountDelta(std::size_t entryCount, Rules const& rules);
 
 private:
     static

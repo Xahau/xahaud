@@ -23,12 +23,16 @@
 #include <ripple/app/tx/impl/CancelOffer.h>
 #include <ripple/app/tx/impl/CashCheck.h>
 #include <ripple/app/tx/impl/Change.h>
+#include <ripple/app/tx/impl/ClaimReward.h>
 #include <ripple/app/tx/impl/CreateCheck.h>
 #include <ripple/app/tx/impl/CreateOffer.h>
 #include <ripple/app/tx/impl/CreateTicket.h>
 #include <ripple/app/tx/impl/DeleteAccount.h>
 #include <ripple/app/tx/impl/DepositPreauth.h>
 #include <ripple/app/tx/impl/Escrow.h>
+#include <ripple/app/tx/impl/GenesisMint.h>
+#include <ripple/app/tx/impl/Import.h>
+#include <ripple/app/tx/impl/Invoke.h>
 #include <ripple/app/tx/impl/NFTokenAcceptOffer.h>
 #include <ripple/app/tx/impl/NFTokenBurn.h>
 #include <ripple/app/tx/impl/NFTokenCancelOffer.h>
@@ -37,14 +41,12 @@
 #include <ripple/app/tx/impl/PayChan.h>
 #include <ripple/app/tx/impl/Payment.h>
 #include <ripple/app/tx/impl/SetAccount.h>
+#include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/SetRegularKey.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/SetTrust.h>
-#include <ripple/app/tx/impl/SetHook.h>
-#include <ripple/app/tx/impl/Import.h>
-#include <ripple/app/tx/impl/Invoke.h>
 #include <ripple/app/tx/impl/URIToken.h>
-#include <ripple/app/tx/impl/GenesisMint.h>
+#include <ripple/app/tx/impl/XahauGenesis.h>
 
 namespace ripple {
 

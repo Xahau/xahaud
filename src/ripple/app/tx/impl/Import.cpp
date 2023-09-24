@@ -17,23 +17,24 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Import.h>
+#include <ripple/app/misc/Manifest.h>
 #include <ripple/app/tx/impl/Import.h>
+#include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/basics/Log.h>
+#include <ripple/basics/base64.h>
+#include <ripple/json/json_reader.h>
+#include <ripple/json/json_value.h>
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Import.h>
 #include <ripple/protocol/Indexes.h>
-#include <iostream>
-#include <algorithm>
-#include <vector>
-#include <charconv>
-#include <ripple/json/json_value.h>
-#include <ripple/json/json_reader.h>
 #include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/STTx.h>
-#include <ripple/basics/base64.h>
-#include <ripple/app/misc/Manifest.h>
-#include <ripple/app/tx/impl/SetSignerList.h>
+#include <ripple/protocol/st.h>
+#include <algorithm>
+#include <charconv>
+#include <iostream>
+#include <vector>
 
 namespace ripple {
 
@@ -63,11 +64,13 @@ Import::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, calculate(ctx)};
 }
 
-
 std::pair<
-    std::unique_ptr<STTx const>,            // txn
-    std::unique_ptr<STObject const>>        // meta
-Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const* xpop)
+    std::unique_ptr<STTx const>,      // txn
+    std::unique_ptr<STObject const>>  // meta
+Import::getInnerTxn(
+    STTx const& outer,
+    beast::Journal const& j,
+    Json::Value const* xpop)
 {
     // parse blob as json
 

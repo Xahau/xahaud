@@ -17,7 +17,10 @@
 */
 //==============================================================================
 
+#include <ripple/app/ledger/LedgerMaster.h>
+#include <ripple/app/misc/HashRouter.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
 
 namespace ripple {

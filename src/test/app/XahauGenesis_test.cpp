@@ -15,15 +15,25 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/apply.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/STAccount.h>
-#include <ripple/protocol/Indexes.h>
+#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/misc/HashRouter.h>
+#include <ripple/app/tx/apply.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/STAccount.h>
+#include <ripple/protocol/digest.h>
+#include <ripple/protocol/jss.h>
 #include <string>
 #include <test/jtx.h>
 #include <vector>
+
+#define BEAST_REQUIRE(x)     \
+    {                        \
+        BEAST_EXPECT(!!(x)); \
+        if (!(x))            \
+            return;          \
+    }
 
 // Function to handle integer types
 template<typename T>

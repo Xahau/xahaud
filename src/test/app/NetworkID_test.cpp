@@ -19,6 +19,7 @@
 
 #include <ripple/basics/BasicConfig.h>
 #include <ripple/core/ConfigSections.h>
+#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
 

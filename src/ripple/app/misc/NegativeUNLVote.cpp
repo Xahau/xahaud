@@ -19,6 +19,7 @@
 
 #include <ripple/app/consensus/RCLValidations.h>
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/app/main/Application.h>
 #include <ripple/app/misc/NegativeUNLVote.h>
 
 namespace ripple {
@@ -150,7 +151,7 @@ NegativeUNLVote::addReportingTx(
             JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
                              << ", add a ttUNL_REPORT (active_val) Tx with txID: " << txID
                              << ", size=" << s.size()
-                             << ", " << repUnlTx.getJson(JsonOptions::none);
+                             << ", " << repUnlTx.getJson(JsonOptions::none).toStyledString();
         }
     }
 
@@ -185,7 +186,7 @@ NegativeUNLVote::addReportingTx(
             JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
                              << ", add a ttUNL_REPORT (import_vl) Tx with txID: " << txID
                              << ", size=" << s.size()
-                             << ", " << repUnlTx.getJson(JsonOptions::none);
+                             << ", " << repUnlTx.getJson(JsonOptions::none).toStyledString();
         }
     }
 
