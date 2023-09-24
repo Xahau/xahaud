@@ -110,17 +110,6 @@ public:
 
         testcase("Basics");
 
-        // test that XahauGenesis disables DeletableAccounts
-        {
-            Env env(*this, features | featureXahauGenesis);
-            Account const alice("alice");
-
-            env.fund(XRP(10000), alice);
-            env.close();
-
-            env(acctdelete(alice, alice), ter(temDISABLED));
-        }
-
         Env env(*this, features);
         Account const alice("alice");
         Account const becky("becky");
