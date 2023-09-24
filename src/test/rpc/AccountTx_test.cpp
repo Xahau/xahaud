@@ -115,7 +115,7 @@ class AccountTx_test : public beast::unit_test::suite
     {
         using namespace test::jtx;
 
-        Env env(*this);
+        Env env(*this, supported_amendments() - featureXahauGenesis);
         Account A1{"A1"};
         env.fund(XRP(10000), A1);
         env.close();
@@ -255,7 +255,7 @@ class AccountTx_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::chrono_literals;
 
-        Env env(*this);
+        Env env(*this, supported_amendments() - featureXahauGenesis);
         Account const alice{"alice"};
         Account const alie{"alie"};
         Account const gw{"gw"};
@@ -611,7 +611,7 @@ class AccountTx_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::chrono_literals;
 
-        Env env(*this);
+        Env env(*this, supported_amendments() - featureXahauGenesis);
         Account const alice{"alice"};
         Account const becky{"becky"};
 
