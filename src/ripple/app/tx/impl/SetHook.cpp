@@ -540,12 +540,13 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
             auto const& params = hookSetObj.getFieldArray(sfHookParameters);
             for (auto const& param : params)
             {
-                int64_t entryBytes =
-                    (param.isFieldPresent(sfHookParameterName) ?
-                        param.getFieldVL(sfHookParameterName).size() : 0);
-                    +
-                    (param.isFieldPresent(sfHookParameterValue) ?
-                        param.getFieldVL(sfHookParameterValue).size() : 0);
+                int64_t entryBytes = 0;
+                if (param.isFieldPresent(sfHookParameterName)) {
+                    entryBytes += param.getFieldVL(sfHookParameterName).size();
+                }
+                if (param.isFieldPresent(sfHookParameterValue)) {
+                    entryBytes += param.getFieldVL(sfHookParameterValue).size();
+                }
 
                 if (paramBytes + entryBytes > paramBytes)
                     paramBytes += entryBytes;

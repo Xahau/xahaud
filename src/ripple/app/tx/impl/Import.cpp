@@ -399,7 +399,6 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    auto const sequence = list[jss::sequence].asUInt();
     auto const validFrom = TimeKeeper::time_point{TimeKeeper::duration{
         list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
     auto const validUntil = TimeKeeper::time_point{
@@ -482,8 +481,8 @@ Import::preflight(PreflightContext const& ctx)
                 if (entry->isNull())
                     continue;
 
-                if (entry->isString() && entry->asString() == hash ||
-                    entry->isObject() && entry->isMember(jss::hash) && (*entry)[jss::hash] == hash ||
+                if ((entry->isString() && entry->asString() == hash) ||
+                    (entry->isObject() && entry->isMember(jss::hash) && (*entry)[jss::hash] == hash) ||
                     proofContains(entry, hash, depth + 1, proofContains))
                     return true;
             }
@@ -529,8 +528,8 @@ Import::preflight(PreflightContext const& ctx)
                     if (entry.isString())
                     {
                         uint256 hash;
-                        hash.parseHex(entry.asString());
-                        hash_append(h, hash);
+                        if (hash.parseHex(entry.asString()))
+                            hash_append(h, hash);
                     }
                     else
                         hash_append(h, hashProof(entry, depth + 1, hashProof));
@@ -548,8 +547,8 @@ Import::preflight(PreflightContext const& ctx)
                     else if (proof[jss::children][nibble][jss::children].size() == 0u)
                     {
                         uint256 hash;
-                        hash.parseHex(proof[jss::children][nibble][jss::hash].asString());
-                        hash_append(h, hash);
+                        if (hash.parseHex(proof[jss::children][nibble][jss::hash].asString()))
+                            hash_append(h, hash);
                     }
                     else
                         hash_append(h, hashProof(proof[jss::children][nibble], depth + 1, hashProof));

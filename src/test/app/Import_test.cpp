@@ -4723,7 +4723,6 @@ class Import_test : public beast::unit_test::suite
         {
             test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
-            auto const feeDrops = env.current()->fees().base;
             auto const envCoins = env.current()->info().drops;
             BEAST_EXPECT(envCoins == 100'000'000'000'000'000);
 
