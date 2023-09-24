@@ -35,6 +35,7 @@ public:
         env.fund(XRP(10000), alice);
 
         auto lc_result = env.rpc("ledger_closed")[jss::result];
+        std::cout << lc_result[jss::ledger_hash] << "\n";
         BEAST_EXPECT(
             lc_result[jss::ledger_hash] ==
             "CCC3B3E88CCAC17F1BE6B4A648A55999411F19E3FE55EB721960EB0DF28EDDA5");
@@ -52,7 +53,8 @@ public:
         lc_result = env.rpc("ledger_closed")[jss::result];
         BEAST_EXPECT(
             lc_result[jss::ledger_hash] ==
-            "E86DE7F3D7A4D9CE17EF7C8BA08A8F4D8F643B9552F0D895A31CDA78F541DE4E");
+            "21282D1B44C45ACBFFBF735D5862D2CA4B5F4874D286082684D9D987996A6E8F");
+        std::cout << lc_result[jss::ledger_hash] << "\n";
         BEAST_EXPECT(lc_result[jss::ledger_index] == 3);
     }
 

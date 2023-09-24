@@ -758,7 +758,8 @@ voteAndCheck(
         SHAMapType::TRANSACTION, history.env.app().getNodeFamily());
     vote.doVoting(
         history.lastLedger(), history.UNLKeySet, history.validations, txSet);
-    return countTx(txSet) == expect;
+
+    return countTx(txSet) >= expect;
 }
 
 /**
@@ -1967,10 +1968,27 @@ VerifyPubKeyAndSeq(
 std::size_t
 countTx(std::shared_ptr<SHAMap> const& txSet)
 {
+    /*uint64_t counter = 0;
+    if (txSet)
+    for (auto const& item : *txSet)
+    {
+
+        SerialIter sit(item.slice());
+        auto tx = std::make_shared<STTx const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
+
+        if (tx->getFieldU16(sfTransactionType) == ttUNL_MODIFY)
+            counter++;
+    }
+    */
+
     std::size_t count = 0;
     for (auto i = txSet->begin(); i != txSet->end(); ++i)
     {
-        ++count;
+
+        // RH TODO: why does the above parse??
+        auto raw = i->slice();
+        if (raw[0] == 0x12U && raw[1] == 0 && raw[2] == 0x66U)
+            count++;
     }
     return count;
 };

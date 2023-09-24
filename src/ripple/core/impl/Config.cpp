@@ -823,11 +823,11 @@ Config::loadFromString(std::string const& fileContents)
         else if (boost::iequals(match[2], "weeks"))
             AMENDMENT_MAJORITY_TIME = weeks(duration);
 
-        if (AMENDMENT_MAJORITY_TIME < minutes(15))
+        if (AMENDMENT_MAJORITY_TIME < minutes(1))
             Throw<std::runtime_error>(
                 "Invalid " SECTION_AMENDMENT_MAJORITY_TIME
                 ", the minimum amount of time an amendment must hold a "
-                "majority is 15 minutes");
+                "majority is 1 minute");
     }
 
     if (getSingleSection(secConfig, SECTION_BETA_RPC_API, strTemp, j_))
