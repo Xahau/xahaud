@@ -344,7 +344,7 @@ Payment::doApply()
         sleDst->setFieldU32(sfSequence, seqno);
 
         auto sleFees = view().peek(keylet::fees());
-        if (sleFees)
+        if (sleFees && view().rules().enabled(featureXahauGenesis))
         {
             auto actIdx = sleFees->isFieldPresent(sfAccountCount) ? sleFees->getFieldU64(sfAccountCount) : 0;
             sleDst->setFieldU64(sfAccountIndex, actIdx);

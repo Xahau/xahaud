@@ -290,7 +290,7 @@ public:
     {
         testcase("ledger_entry Request AccountRoot");
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, supported_amendments() - featureXahauGenesis};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
         env.close();
@@ -321,6 +321,7 @@ public:
                 "1100612200800000240000000425000000032D00000000559CE54C3B934E4"
                 "73A995B477E92EC229F99CED5B62BF4D2ACE4DC42719103AE2F6240000002"
                 "540BE4008114AE123A8556F3CF91154711376AFB0F894F832B3D"};
+
 
             // Request alice's account root, but with binary == true;
             Json::Value jvParams;
@@ -1631,6 +1632,7 @@ public:
         using namespace test::jtx;
         Env env{*this, FeatureBitset{}};  // hashes requested below assume
                                           // no amendments
+
         env.fund(XRP(10000), "alice");
         env.close();
         env.fund(XRP(10000), "bob");
@@ -1847,7 +1849,7 @@ public:
                     section.set("minimum_txn_in_ledger_standalone", "3");
                     section.set("normal_consensus_increase_percent", "0");
                     return cfg;
-                })};
+                }), supported_amendments() - featureXahauGenesis};
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";

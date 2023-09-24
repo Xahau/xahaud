@@ -156,6 +156,7 @@ public:
         // unfunded
         {
             Env env(*this);
+            env.memoize(alice);
             env(pay("alice", "bob", XRP(1000)),
                 seq(1),
                 fee(10),
@@ -610,16 +611,16 @@ public:
         using namespace jtx;
         Env env(*this);
         env.fund(XRP(10000), "alice");
-        env(noop("alice"), memodata("data"));
-        env(noop("alice"), memoformat("format"));
-        env(noop("alice"), memotype("type"));
-        env(noop("alice"), memondata("format", "type"));
-        env(noop("alice"), memonformat("data", "type"));
-        env(noop("alice"), memontype("data", "format"));
-        env(noop("alice"), memo("data", "format", "type"));
+        env(noop("alice"), memodata("data"), fee(1000));
+        env(noop("alice"), memoformat("format"), fee(1000));
+        env(noop("alice"), memotype("type"), fee(1000));
+        env(noop("alice"), memondata("format", "type"), fee(1000));
+        env(noop("alice"), memonformat("data", "type"), fee(1000));
+        env(noop("alice"), memontype("data", "format"), fee(1000));
+        env(noop("alice"), memo("data", "format", "type"), fee(1000));
         env(noop("alice"),
             memo("data1", "format1", "type1"),
-            memo("data2", "format2", "type2"));
+            memo("data2", "format2", "type2"), fee(10000));
     }
 
     void

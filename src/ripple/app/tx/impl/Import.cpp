@@ -1231,7 +1231,7 @@ Import::doApply()
 
         sle->setFieldU32(sfSequence, seqno);
         sle->setFieldU32(sfOwnerCount, 0);
-        if (sleFees)
+        if (sleFees && view().rules().enabled(featureXahauGenesis))
         {
             uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount) ? sleFees->getFieldU64(sfAccountCount) : 0;
             sle->setFieldU64(sfAccountIndex, accIdx);
