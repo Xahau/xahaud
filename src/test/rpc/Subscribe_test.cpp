@@ -166,7 +166,7 @@ public:
     {
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, supported_amendments() - featureXahauGenesis);
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream;
 
