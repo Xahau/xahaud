@@ -189,9 +189,7 @@ ReportingETL::flushLedger(std::shared_ptr<Ledger>& ledger)
     auto& txHash = ledger->info().txHash;
     auto& ledgerHash = ledger->info().hash;
 
-    assert(
-        ledger->info().seq < XRP_LEDGER_EARLIEST_FEES ||
-        ledger->read(keylet::fees()));
+    assert(ledger->read(keylet::fees()));
     ledger->setImmutable(false);
     auto start = std::chrono::system_clock::now();
 

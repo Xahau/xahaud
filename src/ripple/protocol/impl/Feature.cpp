@@ -411,6 +411,7 @@ name.
 // All known amendments must be registered either here or below with the
 // "retired" amendments
 REGISTER_FEATURE(OwnerPaysFee,                  Supported::no,  VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixTrustLinesToSelf,           Supported::no,  VoteBehavior::DefaultNo);
 REGISTER_FEATURE(Flow,                          Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(FlowCross,                     Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fix1513,                       Supported::yes, VoteBehavior::DefaultYes);
@@ -441,14 +442,13 @@ REGISTER_FEATURE(TicketBatch,                   Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(FlowSortStrands,               Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixSTAmountCanonicalize,       Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixRmSmallIncreasedQOffers,    Supported::yes, VoteBehavior::DefaultYes);
-REGISTER_FEATURE(CheckCashMakesTrustLine,       Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FEATURE(ExpandedSignerList,            Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(CheckCashMakesTrustLine,       Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(ExpandedSignerList,            Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(NonFungibleTokensV1_1,         Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FIX    (fixTrustLinesToSelf,           Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FIX    (fixRemoveNFTokenAutoTrustLine, Supported::yes, VoteBehavior::DefaultYes);
-REGISTER_FEATURE(ImmediateOfferKilled,          Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FEATURE(DisallowIncoming,              Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FEATURE(XRPFees,                       Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixRemoveNFTokenAutoTrustLine, Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(ImmediateOfferKilled,          Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(DisallowIncoming,              Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(XRPFees,                       Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixUniversalNumber,            Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixNonFungibleTokensV1_2,      Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixNFTokenRemint,              Supported::yes, VoteBehavior::DefaultNo);
@@ -456,9 +456,9 @@ REGISTER_FEATURE(Hooks,                         Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(BalanceRewards,                Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(PaychanAndEscrowForTokens,     Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(URIToken,                      Supported::yes, VoteBehavior::DefaultYes);
-REGISTER_FEATURE(Import,                        Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FEATURE(XahauGenesis,                  Supported::yes, VoteBehavior::DefaultNo);
-REGISTER_FEATURE(HooksUpdate1,                  Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(Import,                        Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(XahauGenesis,                  Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(HooksUpdate1,                  Supported::yes, VoteBehavior::DefaultYes);
 
 
 // The following amendments are obsolete, but must remain supported

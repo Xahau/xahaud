@@ -1113,9 +1113,7 @@ finishLoadByIndexOrHash(
     if (!ledger)
         return;
 
-    assert(
-        ledger->info().seq < XRP_LEDGER_EARLIEST_FEES ||
-        ledger->read(keylet::fees()));
+    assert(ledger->read(keylet::fees()));
     ledger->setImmutable();
 
     JLOG(j.trace()) << "Loaded ledger: " << to_string(ledger->info().hash);

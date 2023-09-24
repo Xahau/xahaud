@@ -68,10 +68,6 @@ systemCurrencyCode()
 /** The XRP ledger network's earliest allowed sequence */
 static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
 
-/** The XRP Ledger mainnet's earliest ledger with a FeeSettings object. Only
- * used in asserts and tests. */
-static constexpr std::uint32_t XRP_LEDGER_EARLIEST_FEES{1u};
-
 /** The number of ledgers in a shard */
 static constexpr std::uint32_t DEFAULT_LEDGERS_PER_SHARD{16384u};
 
@@ -85,8 +81,7 @@ constexpr std::ratio<204, 256> preFixAmendmentMajorityCalcThreshold;
 constexpr std::ratio<80, 100> postFixAmendmentMajorityCalcThreshold;
 
 /** The minimum amount of time an amendment must hold a majority */
-constexpr std::chrono::seconds const defaultAmendmentMajorityTime = std::chrono::seconds{16};
-//days{5};
+constexpr std::chrono::seconds const defaultAmendmentMajorityTime = std::chrono::days{5};
 
 }  // namespace ripple
 

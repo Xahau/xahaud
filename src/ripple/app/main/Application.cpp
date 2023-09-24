@@ -1721,9 +1721,7 @@ ApplicationImp::startGenesisLedger()
     auto const next =
         std::make_shared<Ledger>(*genesis, timeKeeper().closeTime());
     next->updateSkipList();
-    assert(
-        next->info().seq < XRP_LEDGER_EARLIEST_FEES ||
-        next->read(keylet::fees()));
+    assert(next->read(keylet::fees()));
     next->setImmutable();
     openLedger_.emplace(next, cachedSLEs_, logs_->journal("OpenLedger"));
     m_ledgerMaster->storeLedger(next);
@@ -1742,9 +1740,7 @@ ApplicationImp::getLastFullLedger()
         if (!ledger)
             return ledger;
 
-        assert(
-            ledger->info().seq < XRP_LEDGER_EARLIEST_FEES ||
-            ledger->read(keylet::fees()));
+        assert(ledger->read(keylet::fees()));
         ledger->setImmutable();
 
         if (getLedgerMaster().haveLedger(seq))
@@ -1896,9 +1892,7 @@ ApplicationImp::loadLedgerFromFile(std::string const& name)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        assert(
-            loadLedger->info().seq < XRP_LEDGER_EARLIEST_FEES ||
-            loadLedger->read(keylet::fees()));
+        assert(loadLedger->read(keylet::fees()));
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 
@@ -2026,9 +2020,7 @@ ApplicationImp::loadLedgerFromJson(std::string const& jsonValue)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        assert(
-            loadLedger->info().seq < XRP_LEDGER_EARLIEST_FEES ||
-            loadLedger->read(keylet::fees()));
+        assert(loadLedger->read(keylet::fees()));
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 
