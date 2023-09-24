@@ -5206,7 +5206,7 @@ class Offer_manual_test : public Offer_test
     run() override
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         FeatureBitset const flowCross{featureFlowCross};
         FeatureBitset const f1513{fix1513};
         FeatureBitset const immediateOfferKilled{featureImmediateOfferKilled};

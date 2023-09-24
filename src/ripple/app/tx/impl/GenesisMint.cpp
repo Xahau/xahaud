@@ -180,8 +180,6 @@ GenesisMint::doApply()
             // Create the account.
             std::uint32_t const seqno{
                 view().rules().enabled(featureDeletableAccounts)
-                    // RH NOTE: this condition is impossible, but left for completeness and consistency with other
-                    // code, and defensively against future changes.
                     ? view().seq() 
                     : 1};
 

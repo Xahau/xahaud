@@ -36,9 +36,6 @@ namespace ripple {
 NotTEC
 DeleteAccount::preflight(PreflightContext const& ctx)
 {
-    if (ctx.rules.enabled(featureXahauGenesis))
-        return temDISABLED;
-
     if (!ctx.rules.enabled(featureDeletableAccounts))
         return temDISABLED;
 
@@ -203,6 +200,10 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
 
     if (!sleDst)
         return tecNO_DST;
+
+    // accounts created via Import are blocked from deletion
+    if (sleDst->isFieldPresent(sfImportSequence))
+        return tecHAS_OBLIGATIONS;
 
     if ((*sleDst)[sfFlags] & lsfRequireDestTag && !ctx.tx[~sfDestinationTag])
         return tecDST_TAG_NEEDED;
