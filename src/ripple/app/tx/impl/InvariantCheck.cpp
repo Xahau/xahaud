@@ -217,7 +217,7 @@ XRPNotCreated::finalize(
         int64_t drops = dropsAdded.drops() - fee.drops();
 
         // catch any overflow or funny business
-        if (drops > dropsAdded.drops() || drops > fee.drops())
+        if (drops > dropsAdded.drops())
             return false;
 
         // We should never allow more than the max supply in totalCoins.

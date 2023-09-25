@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/tx/impl/ClaimReward.h>
 #include <ripple/basics/Log.h>
 #include <ripple/core/Config.h>
