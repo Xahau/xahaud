@@ -132,8 +132,7 @@ int64_t hook(uint32_t r)
     int64_t required_delay = float_int(xfl_rd, 0, 0);
 
     if (required_delay < 0 || float_sign(xfl_rr) != 0 ||
-            (float_compare(xfl_rr, float_one(), COMPARE_GREATER) || 
-            float_compare(xfl_rr, float_one(), COMPARE_EQUAL)) ||
+            float_compare(xfl_rr, float_one(), COMPARE_GREATER) ||
             float_compare(xfl_rd, float_one(), COMPARE_LESS))
         rollback(SBUF("Reward: Rewards incorrectly configured by governance or unrecoverable error."), __LINE__);
 
