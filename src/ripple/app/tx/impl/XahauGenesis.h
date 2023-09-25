@@ -31,7 +31,6 @@ namespace XahauGenesis
         {"nHUVv4g47bFMySAZFUKVaXUYEmfiUExSoY4FzwXULNwJRzju4XnQ", InfraAmount},  // tn8
         {"nHBvr8avSFTz4TFxZvvi4rEJZZtyqE3J6KAAcVWVtifsE7edPM7q", InfraAmount},  // tn9
         {"nHUH3Z8TRU57zetHbEPr1ynyrJhxQCwrJvNjr4j1SMjYADyW1WWe", InfraAmount},  //tn10
-        {"nHBdSXv3DhYJVXUppMLpCwJWDFVQyFdZrbMxeh8CFiBEvfTCy3Uh", InfraAmount}, // tn11
     };
 
     // this data structure is used for testing the amendment only,
