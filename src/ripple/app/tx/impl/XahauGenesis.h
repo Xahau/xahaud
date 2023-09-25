@@ -5,15 +5,15 @@ namespace XahauGenesis
 
     using namespace ripple;
 
-    constexpr XRPAmount GenesisAmount          {  1'000'000 * DROPS_PER_XRP };
-    constexpr XRPAmount InfraAmount            { 10'000'000 * DROPS_PER_XRP };
-    constexpr XRPAmount ExchangeAmount         {  2'000'000 * DROPS_PER_XRP };
+    constexpr XRPAmount GenesisAmount          {      1'000 * DROPS_PER_XRP };
+    constexpr XRPAmount InfraAmount            {     10'000 * DROPS_PER_XRP };
+    constexpr XRPAmount ExchangeAmount         {      2'000 * DROPS_PER_XRP };
 
     inline
     std::vector<std::pair<std::string, XRPAmount>> const
     NonGovernanceDistribution
     {    
-        {"rMYm3TY5D3rXYVAz6Zr2PDqEcjsTYbNiAT", InfraAmount},
+        {"nHUJbfgaAtkbuAdtrqCDerP99PcprcpyqakZTsYpkQdb67aKKyJn", ExchangeAmount},
     };
 
     inline
@@ -24,16 +24,14 @@ namespace XahauGenesis
     std::vector<std::pair<std::string, XRPAmount>> const
     L1Membership
     {
-        {"nHUG6WyZX5C6YPhxDEUiFdvRsWvbxdXuUcMkMxuqS9C3akrJtJQA", InfraAmount},
-        {"nHDDs26hxCgh74A6QE31CR5QoC17yXdJQXNDXezp8HW93mCYGPG7", InfraAmount},
-        {"nHUNFRAhqbfqBHYxfiAtJDxruSgbsEBUHR6v55MhdUtzTNyXLcR4", InfraAmount},
-        {"nHB4MVtevJBZF4vfdLTecKBxj5KsxERkfk7UNyL9iYtTZvjmMBXw", InfraAmount},
-        {"nHUB9Fh1JXvyMY4NhiCKgg6pkGrB3FoBTAz4dpvKC1fwCMjY1w5N", InfraAmount},
-        {"nHUdqajJr8S1ecKwqVkX4gQNUzQP9RTonZeEZH8vwg7664CZP3QF", InfraAmount},
-        {"nHDnr7GgwZWS7Qb517e5is3pxwVxsNgmmpmQYvrc1ngbPiURBa6B", InfraAmount},
-        {"nHBv6AqLDgWgEVLoNE7jEViv4XG17jj6tpuzTFm664Cc4mcpEgwb", InfraAmount},
-        {"nHUxeL9jgcjhTWepmFnbWpmobZmFBduLkceQddCJnAPghJejdRix", InfraAmount},
-        {"nHUubQ7fqxkwPtwS4pQb2ENZ6fdUcAt7aJRiYcPXjxbbkC778Zjk", InfraAmount},
+        {"nHDs6fHVnhb4ZbSFWF2dTTPHoZ6Rr39i2UfLotzgf8FKUi7iZdxx", InfraAmount},  // tn4
+        {"nHUvgFxT8EGrXqQZ1rqMw67UtduefbaCHiVtVahk9RXDJP1g1mB4", InfraAmount},  // tn5
+        {"nHU7Vn6co7xEFMBesV7qw7FXE8ucKrhVWQiYZB5oGyMhvqrnZrnJ", InfraAmount},  // tn6
+        {"nHBoJCE3wPgkTcrNPMHyTJFQ2t77EyCAqcBRspFCpL6JhwCm94VZ", InfraAmount},  // tn7
+        {"nHUVv4g47bFMySAZFUKVaXUYEmfiUExSoY4FzwXULNwJRzju4XnQ", InfraAmount},  // tn8
+        {"nHBvr8avSFTz4TFxZvvi4rEJZZtyqE3J6KAAcVWVtifsE7edPM7q", InfraAmount},  // tn9
+        {"nHUH3Z8TRU57zetHbEPr1ynyrJhxQCwrJvNjr4j1SMjYADyW1WWe", InfraAmount},  //tn10
+        {"nHBdSXv3DhYJVXUppMLpCwJWDFVQyFdZrbMxeh8CFiBEvfTCy3Uh", InfraAmount}, // tn11
     };
 
     // this data structure is used for testing the amendment only,
@@ -72,8 +70,47 @@ namespace XahauGenesis
     const
     L2Membership
     {
-        {"nHUubQ7fqxkwPtwS4pQb2ENZ6fdUcAt7aJRiYcPXjxbbkC778Zjk",
-            {"rG9QZQDR8XqCU1x2VARPuZwYxqcb3J9bYa", "rPV6jx8QoQBCR1AcmVLDnu98QBu4QakwhU"}}
+        {"nHU7Vn6co7xEFMBesV7qw7FXE8ucKrhVWQiYZB5oGyMhvqrnZrnJ",
+            {
+                "rN4HyiKpUuQM68pohiMPinQnyPdY8tBcWa",
+                "rnsVxwrctvfiPX6wtX5tjYLPMidXFTqWc8"}},
+
+        {"nHBoJCE3wPgkTcrNPMHyTJFQ2t77EyCAqcBRspFCpL6JhwCm94VZ",
+            {
+                "rLjrBkBUSRtZJnFfZAbX4SFQSpkk2HcpX8",
+                "rKUt5c9zqGCsZTVhUqrTUNnAbHHo19vtoM",
+                "rJY9NAbesWDGupunxyTvvtL3yWUDrbuCRF"}},
+
+        {"nHUVv4g47bFMySAZFUKVaXUYEmfiUExSoY4FzwXULNwJRzju4XnQ",
+            {
+                "r38XdJQ2TKdLRAENjLoft8eDvFsUee5wbr",
+                "rnVtyAEp4TGyje7ccS1SjWHVwxqqQBeft3",
+                "rpzQniG7qsVi6qaS5X2QuscfpWY31j5bks",
+                "rsb7Y9qE7uvftjHZPW1qBVbLdCxjGe5G8X",
+                "rJeoxs1fZW78sMeamwJ27CVcXZNpQZR3t"}},
+
+        {"nHBvr8avSFTz4TFxZvvi4rEJZZtyqE3J6KAAcVWVtifsE7edPM7q",
+            {
+                "rh8svn1EFs3TKEYVBZfWpNdqNr2R1uyM7y",
+                "rMn7PRAiT22hytTpLBHHZ34jPe2RCi2svT",
+                "rLSCctV2Q5rsduFuZk7N65mbSrf3BFknPc",
+                "rn8b9tjZbKmPSoMKV8QwgcU8wq2DVCdfQN",
+                "rEAeU9EDmdcJ3xPLW714bm9fygDV8XoNrj",
+                "rpCLrZYhfaN7ysBNpfAZuNj49Fyg4SHFGv",
+                "rafa8E9RPa5vxZ4rN8s571aWUdbE4oqv7i",
+                "r37Qu8nTfdJFkE14ERAB3LH3wSdz1LbyzU",
+                "rnqXJXh1mGf9BGt3aB74RscNsJiDMV1YPK",
+                "rLhHTgwBbq7aVsrSPp2CDeyX3RRuXihGVv",
+                "rJt6kBV8EjhN9v7U4KnYtydfFu3DaQVCvF",
+                "r4YGLYBzvWTZGLKwbByfVxc8ZjCgBUUwBn",
+                "rEw7zrMdCXFs3CzxtC3NFpjmM2HBLTigVL",
+                "rwrqQBN88MeT3QDipCfJSeJ9sZMZA54xkD",
+                "rpmAcuJAWVgS1zL3R1ob8F5ZSJ9d4jEAoj",
+                "rwGMc2FXtvPitSppNwJaSxqSfEfrLVRtMm",
+                "rUrAvfQTv16EETc3Q2sgCTAoKS9C49crx2",
+                "rBDsW6p9Xak9b2ye2eAgh9JjpubTzeV1ti",
+                "rhGbC5n1qK3Cq3sBbdtKGV5AR3kboXi41K",
+                "rNu4sdVz6d2H37okUeH47ASMwckhzSx3k5"}},
     };
 
     // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
