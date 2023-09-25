@@ -230,15 +230,17 @@ int64_t hook(uint32_t r)
 
     uint64_t l1_drops = reward_drops / L1SEATS;
 
+    int64_t otxn_slot_num = otxn_slot(10);
+    ASSERT(otxn_slot_num == 10);
 
-    otxn_slot(1);
-    slot_subfield(1, sfFee, 2);
-    int64_t xfl_fee = slot_float(2);
+    int64_t fee_slot_num = slot_subfield(10, sfFee, 11);
+    ASSERT(fee_slot_num == 11);
+    
+    int64_t xfl_fee = slot_float(11);
 
     // user gets back the fee they spent running the hook
     if (xfl_fee > 0)
         reward_drops += float_int(xfl_fee, 6, 1);
-
 
     TEMPLATE_DROPS(reward_drops);
 
