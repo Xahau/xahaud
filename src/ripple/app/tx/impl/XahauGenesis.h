@@ -5,7 +5,7 @@ namespace XahauGenesis
 
     using namespace ripple;
 
-    constexpr XRPAmount GenesisAmount          {      1'000 * DROPS_PER_XRP };
+    constexpr XRPAmount GenesisAmount          {    940'000 * DROPS_PER_XRP };
     constexpr XRPAmount InfraAmount            {     10'000 * DROPS_PER_XRP };
     constexpr XRPAmount ExchangeAmount         {      2'000 * DROPS_PER_XRP };
 
