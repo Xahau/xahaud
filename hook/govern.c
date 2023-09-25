@@ -36,7 +36,7 @@
  *      Parameter Value: Initial Reward Rate <8 byte XFL fraction between 0 and 1, LE>
  *
  *      Parameter Name: {'I', 'R', 'D'}
- *      Parameter Value: Initial Reward Delay <8 byte LE int seconds between rewards>
+ *      Parameter Value: Initial Reward Delay <8 byte LE XFL seconds between rewards>
  *      ...
  *  
  *  Topics:
@@ -53,7 +53,7 @@
  *      State Data: Current reward rate <8 byte LE XFL> (L1 table only)
  *
  *      State Key: {0..0, 'R', 'D'}
- *      State Data: Current reward delay <8 byte LE int> (L1 table only)
+ *      State Data: Current reward delay <8 byte LE XFL> (L1 table only)
  *
  *      State Key: {0..0, '\0 + seat id'}
  *      State Data: 20 byte account ID for the member who occupies this seat. If absent unoccupied.
