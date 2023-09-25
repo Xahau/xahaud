@@ -1,7 +1,8 @@
 #include "hookapi.h"
 #define DEFAULT_REWARD_DELAY 6199553087261802496ULL
+// 2600000
 #define DEFAULT_REWARD_RATE 6038156834009797973ULL
-//0.00333333333f
+// 0.00333333333f
 
 #define L1SEATS 20U
 #define MAXUNL 128U
@@ -88,10 +89,10 @@ uint8_t member_count_key[2] = {'M', 'C'};
 
 uint8_t unlreport_keylet[34] = 
 {
-    0,0,0x61U,0xE3U,0x2EU,0x7AU,0x24U,0xA2U,0x38U,0xF1U,0xC6U,0x19U,
-    0xD5U,0xF9U,0xDDU,0xCCU,0x41U,0xA9U,0x4BU,0x33U,0xB6U,0x6CU,
-    0x01U,0x63U,0xF7U,0xEFU,0xCCU,0x8AU,0x19U,0xC9U,0xFDU,0x6FU,
-    0x28U,0xDCU
+    0x00U,0x52U,0x61U,0xE3U,0x2EU,0x7AU,0x24U,0xA2U,0x38U,
+    0xF1U,0xC6U,0x19U,0xD5U,0xF9U,0xDDU,0xCCU,0x41U,0xA9U,
+    0x4BU,0x33U,0xB6U,0x6CU,0x01U,0x63U,0xF7U,0xEFU,0xCCU,
+    0x8AU,0x19U,0xC9U,0xFDU,0x6FU,0x28U,0xDCU
 };
 
 uint8_t msg_buf[] = "You must wait 0000000 seconds";
@@ -131,8 +132,9 @@ int64_t hook(uint32_t r)
     int64_t required_delay = float_int(xfl_rd, 0, 0);
 
     if (required_delay < 0 || float_sign(xfl_rr) != 0 ||
-            float_compare(xfl_rr, float_one(), COMPARE_GREATER) ||
-            float_compare(xfl_rd, float_one(), COMPARE_GREATER))
+            (float_compare(xfl_rr, float_one(), COMPARE_GREATER) || 
+            float_compare(xfl_rr, float_one(), COMPARE_EQUAL)) ||
+            float_compare(xfl_rd, float_one(), COMPARE_LESS))
         rollback(SBUF("Reward: Rewards incorrectly configured by governance or unrecoverable error."), __LINE__);
 
     // get the account root keylet
