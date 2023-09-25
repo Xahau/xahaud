@@ -153,12 +153,20 @@ struct XahauGenesis_test : public beast::unit_test::suite
             return;
         
         // sum the initial distribution balances, these should equal total coins in the closed ledger
-        std::vector<std::pair<std::string, XRPAmount>> const& distribution =
-                testFlag ? XahauGenesis::TestDistribution : XahauGenesis::Distribution;
+        std::vector<std::pair<std::string, XRPAmount>> const& l1membership =
+                testFlag ? XahauGenesis::TestL1Membership : XahauGenesis::L1Membership;
 
         XRPAmount total { GenesisAmount };
-        for (auto const& [node, amt] : distribution)
+        for (auto const& [node, amt] : l1membership)
             total += amt;
+
+        // and the non gov distributions
+        std::vector<std::pair<std::string, XRPAmount>> const& ngdist =
+                testFlag ? XahauGenesis::TestNonGovernanceDistribution : XahauGenesis::NonGovernanceDistribution;
+
+        for (auto const& [node, amt] : ngdist)
+            total += amt;
+
 
         BEAST_EXPECT(burnedViaTest || env.app().getLedgerMaster().getClosedLedger()->info().drops == total);
 
@@ -226,12 +234,46 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(genesisHookArray[1].getFieldH256(sfHookHash) == rwdHash);
         }
 
+        // check non-governance distributions
+        {
+            for (auto const& [rn, x]: ngdist)
+            {
+                const char first = rn.c_str()[0];
+                BEAST_EXPECT(
+                    (first == 'r' &&
+                    !!parseBase58<AccountID>(rn)) ||
+                    first == 'n' &&
+                    !!parseBase58<PublicKey>(TokenType::NodePublic, rn));
+
+                if (first == 'r')
+                {
+                    AccountID id = *parseBase58<AccountID>(rn);
+                    auto acc = env.le(keylet::account(id));
+                    BEAST_EXPECT(!!acc);
+                    auto bal = acc->getFieldAmount(sfBalance);
+                    BEAST_EXPECT(bal == STAmount(x));
+                    continue;
+                }
+
+                // node based addresses
+                auto const pk = parseBase58<PublicKey>(TokenType::NodePublic, rn);
+                BEAST_EXPECT(!!pk);
+
+                AccountID id = calcAccountID(*pk);
+                auto acc = env.le(keylet::account(id));
+                BEAST_EXPECT(!!acc);
+                auto bal = acc->getFieldAmount(sfBalance);
+                BEAST_EXPECT(bal == STAmount(x));
+            }
+        }
+
+
         // check distribution amounts and hook parameters
         {
             uint8_t member_count = 0;
             std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params =
                 XahauGenesis::GovernanceParameters;
-            for (auto const& [rn, x]: distribution)
+            for (auto const& [rn, x]: l1membership)
             {
                 const char first = rn.c_str()[0];
                 BEAST_EXPECT(
@@ -400,13 +442,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.fund(XRP(10000), invoker);
         env.close();
 
-        XahauGenesis::TestDistribution.clear();
+        XahauGenesis::TestNonGovernanceDistribution.clear();
+        XahauGenesis::TestL1Membership.clear();
         XahauGenesis::TestL2Membership.clear();
 
         for (auto& m: members)
         {
             std::string acc = toBase58(m);
-            XahauGenesis::TestDistribution.emplace_back(acc, XRPAmount(10000000000));
+            XahauGenesis::TestL1Membership.emplace_back(acc, XRPAmount(10000000000));
         }
 
         for(auto& [t, members] : tables)
@@ -425,7 +468,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
         env.close();
 
-        XahauGenesis::TestDistribution.clear();
+        XahauGenesis::TestNonGovernanceDistribution.clear();
+        XahauGenesis::TestL1Membership.clear();
         XahauGenesis::TestL2Membership.clear();
 
         Json::Value invoke;

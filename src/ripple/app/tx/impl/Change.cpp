@@ -294,11 +294,13 @@ struct L2Table
 
 inline
 std::tuple<
-    std::vector<std::pair<std::string, XRPAmount>>,                         // initial distribution
-    std::vector<L2Table>,
+    std::vector<std::pair<std::string, XRPAmount>>,                         // non-goverance distribution
+    std::vector<std::pair<std::string, XRPAmount>>,                         // L1 distribution
+    std::vector<L2Table>,                                                   // L2 membership
     std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>>
 normalizeXahauGenesis(
-        std::vector<std::pair<std::string, XRPAmount>> const& distribution,
+        std::vector<std::pair<std::string, XRPAmount>> const& ngentries,
+        std::vector<std::pair<std::string, XRPAmount>> const& l1entries,
         std::vector<std::pair<std::string, std::vector<std::string>>> l2entries,
         std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params,
         beast::Journal const& j)
@@ -325,17 +327,56 @@ normalizeXahauGenesis(
         return {};
     };
 
-    std::set<AccountID> L1Seats;
-
-    std::vector<std::pair<std::string, XRPAmount>> amounts;
-    uint8_t mc = 0;
-    for (auto const& [rn, x]: distribution)
+    std::set<AccountID> NGAccs;
+    std::vector<std::pair<std::string, XRPAmount>> NGAmounts;
+    for (auto const& [rn, x]: ngentries)
     {
-
         if (auto parsed = getID(rn); parsed)
         {
             std::string& idStr = parsed->first;
             AccountID& id = parsed->second;
+
+            NGAmounts.emplace_back(idStr, x);
+            JLOG(j.warn())
+                << "featureXahauGenesis: "
+                << "initial non-governance distribution: " << rn
+                << " =>accid: " << idStr;
+
+            NGAccs.emplace(id);
+            continue;
+        }
+
+        JLOG(j.warn())
+            << "featureXahauGenesis could not parse ngentries address: " << rn;
+    }
+
+
+    std::set<AccountID> L1Seats;
+    std::vector<std::pair<std::string, XRPAmount>> amounts;
+    uint8_t mc = 0;
+    for (auto const& [rn, x]: l1entries)
+    {
+        if (auto parsed = getID(rn); parsed)
+        {
+            std::string& idStr = parsed->first;
+            AccountID& id = parsed->second;
+
+            if (L1Seats.find(id) != L1Seats.end())
+            {
+                JLOG(j.warn())
+                    << "featureXahauGenesis L1Seat: " << idStr << " appears more than once in l1entries.\n";
+                continue;
+            }
+
+
+            if (NGAccs.find(id) != NGAccs.end())
+            {
+                JLOG(j.warn())
+                    << "featureXahauGenesis L1Seat: "
+                    << idStr << " appears in non-governance accounts and l1entries. skipping l1.\n";
+                continue;
+            }
+
 
             amounts.emplace_back(idStr, x);
             JLOG(j.warn())
@@ -353,7 +394,7 @@ normalizeXahauGenesis(
         }
 
         JLOG(j.warn())
-            << "featureXahauGenesis could not parse distribution address: " << rn;
+            << "featureXahauGenesis could not parse l1entries address: " << rn;
     }
     
     // initial member count
@@ -399,7 +440,7 @@ normalizeXahauGenesis(
                 << "featureXahauGenesis could not parse L2 table address: " << table;
     }
 
-    return {amounts, tables, params};
+    return {NGAmounts, amounts, tables, params};
 };
 
 
@@ -412,11 +453,19 @@ Change::activateXahauGenesis()
 
     bool const isTest = (ctx_.tx.getFlags() & tfTestSuite) && ctx_.app.config().standalone();
 
-    auto [initial_distribution, tables, gov_params] =
+    auto [
+        ng_entries,
+        l1_entries,
+        l2_entries,
+        gov_params
+    ] =
         normalizeXahauGenesis(
             isTest
-                ? TestDistribution
-                : Distribution, 
+                ? TestNonGovernanceDistribution
+                : NonGovernanceDistribution,
+            isTest
+                ? TestL1Membership
+                : L1Membership, 
             isTest
                 ? TestL2Membership
                 : L2Membership,
@@ -467,14 +516,14 @@ Change::activateXahauGenesis()
     sle->setFieldAmount(sfBalance, GenesisAmount);
 
     // Step 2: mint genesis distribution
-    for (auto const& [account, amount] : initial_distribution)
+    auto mint = [&](std::string const& account, XRPAmount const& amount)
     {
         auto accid_raw = parseBase58<AccountID>(account);
         if (!accid_raw)
         {
             JLOG(j_.warn())
                 << "featureXahauGenesis could not parse an r-address: " << account;
-            continue;
+            return;
         }
 
         auto accid = *accid_raw;
@@ -493,7 +542,11 @@ Change::activateXahauGenesis()
         {
             sle = std::make_shared<SLE>(kl);
             sle->setAccountID(sfAccount, accid);
-            sle->setFieldU32(sfSequence, 1);
+            std::uint32_t const seqno{
+                view().rules().enabled(featureDeletableAccounts)
+                    ? view().seq() 
+                    : 1};
+            sle->setFieldU32(sfSequence, seqno);
         }
 
         sle->setFieldAmount(sfBalance, newBal);
@@ -504,8 +557,15 @@ Change::activateXahauGenesis()
             sb.update(sle);
         else
             sb.insert(sle);
-
     };
+
+    // non governance distributions
+    for (auto const& [account, amount] : ng_entries)
+        mint(account, amount);
+
+    // l1 seat distributions
+    for (auto const& [account, amount] : l1_entries)
+        mint(account, amount);    
 
     // Step 3: blackhole genesis
     sle->setAccountID(sfRegularKey, noAccount());
@@ -514,7 +574,6 @@ Change::activateXahauGenesis()
     // if somehow there's a signerlist we need to delete it
     if (sb.exists(keylet::signers(accid)))
         SetSignerList::removeFromLedger(ctx_.app, sb, accid, j_);
-       
 
     // Step 4: install genesis hooks
     sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
@@ -604,7 +663,7 @@ Change::activateXahauGenesis()
             hookDef->setFieldVL(sfCreateCode, wasmBytes);
             hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
             // governance hook is referenced by the l2tables
-            hookDef->setFieldU64(sfReferenceCount, (hookCount++ == 0 ? tables.size() : 0) + 1);
+            hookDef->setFieldU64(sfReferenceCount, (hookCount++ == 0 ? l2_entries.size() : 0) + 1);
             hookDef->setFieldAmount(sfFee,
                     XRPAmount {hook::computeExecutionFee(result->first)});
             if (result->second > 0)
@@ -654,7 +713,7 @@ Change::activateXahauGenesis()
     // install hooks on layer 2 tables
     auto const governHash =
         ripple::sha512Half_s(ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
-    for (auto const& t : tables)
+    for (auto const& t : l2_entries)
     {
 
         JLOG(j_.trace())

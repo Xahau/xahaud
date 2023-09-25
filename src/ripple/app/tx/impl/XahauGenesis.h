@@ -11,9 +11,19 @@ namespace XahauGenesis
 
     inline
     std::vector<std::pair<std::string, XRPAmount>> const
-    Distribution
-    {
+    NonGovernanceDistribution
+    {    
         {"rMYm3TY5D3rXYVAz6Zr2PDqEcjsTYbNiAT", InfraAmount},
+    };
+
+    inline
+    std::vector<std::pair<std::string, XRPAmount>>
+    TestNonGovernanceDistribution;
+
+    inline
+    std::vector<std::pair<std::string, XRPAmount>> const
+    L1Membership
+    {
         {"nHUG6WyZX5C6YPhxDEUiFdvRsWvbxdXuUcMkMxuqS9C3akrJtJQA", InfraAmount},
         {"nHDDs26hxCgh74A6QE31CR5QoC17yXdJQXNDXezp8HW93mCYGPG7", InfraAmount},
         {"nHUNFRAhqbfqBHYxfiAtJDxruSgbsEBUHR6v55MhdUtzTNyXLcR4", InfraAmount},
@@ -30,7 +40,7 @@ namespace XahauGenesis
     // if the ttEnableAmendment has an optional flag (that cannot be added in production)
     // then whatever is in this array is used
     inline
-    std::vector<std::pair<std::string, XRPAmount>> TestDistribution;
+    std::vector<std::pair<std::string, XRPAmount>> TestL1Membership;
 
 
     // For the Governance Hook: HookOn is set to ttINVOKE only    
