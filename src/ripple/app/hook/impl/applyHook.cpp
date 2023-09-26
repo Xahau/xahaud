@@ -2041,10 +2041,11 @@ DEFINE_HOOK_FUNCTION(
                 : const_cast<ripple::STTx&>(applyCtx.tx).downcast<ripple::STObject>()
         );
 
-    hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into, hook::SlotEntry {
-            .storage = st_tx,
-            .entry = 0
-    }});
+    hookCtx.slot[slot_into] = hook::SlotEntry { 
+        .storage = st_tx,
+        .entry = 0
+    };
+
     hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
 
     return slot_into;
@@ -5531,10 +5532,11 @@ DEFINE_HOOK_FUNCTION(
             return NO_FREE_SLOTS;
     }
 
-    hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into, hook::SlotEntry {
-            .storage = hookCtx.result.provisionalMeta,
-            .entry = 0
-    }});
+    hookCtx.slot[slot_into] = hook::SlotEntry {
+        .storage = hookCtx.result.provisionalMeta,
+        .entry = 0
+    };
+
     hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
 
     return slot_into;
@@ -5590,17 +5592,17 @@ DEFINE_HOOK_FUNCTION(
     if (!tx || !meta)
         return INVALID_TXN;
 
-    hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into_tx, hook::SlotEntry {
+    hookCtx.slot[slot_into_tx] = hook::SlotEntry {
             .storage = std::move(tx),
             .entry = 0
-    }});
+    };
 
     hookCtx.slot[slot_into_tx].entry = &(*hookCtx.slot[slot_into_tx].storage);
 
-    hookCtx.slot.emplace( std::pair<uint32_t, hook::SlotEntry> { slot_into_meta, hook::SlotEntry {
+    hookCtx.slot[slot_into_meta] = hook::SlotEntry {
             .storage = std::move(meta),
             .entry = 0
-    }});
+    };
 
     hookCtx.slot[slot_into_meta].entry = &(*hookCtx.slot[slot_into_meta].storage);
 
