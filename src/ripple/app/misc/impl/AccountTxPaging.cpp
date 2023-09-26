@@ -47,10 +47,15 @@ convertBlobsToTxResult(
     auto metaset =
         std::make_shared<TxMeta>(tr->getID(), tr->getLedger(), rawMeta);
 
-    uint32_t txnIdx = metaset->getAsObject().getFieldU32(sfTransactionIndex);
-    uint32_t netID = app.config().NETWORK_ID;
-
-    tr->setStatus(Transaction::sqlTransactionStatus(status), ledger_index, txnIdx, netID);
+    // if properly formed meta is available we can use it to generate ctid
+    if (metaset->getAsObject().isFieldPresent(sfTransactionIndex))
+        tr->setStatus(
+                Transaction::sqlTransactionStatus(status),
+                ledger_index,
+                metaset->getAsObject().getFieldU32(sfTransactionIndex),
+                app.config().NETWORK_ID);
+    else
+        tr->setStatus(Transaction::sqlTransactionStatus(status), ledger_index);
 
     to.emplace_back(std::move(tr), metaset);
 };
