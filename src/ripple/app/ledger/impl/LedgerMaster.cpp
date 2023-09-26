@@ -2374,7 +2374,7 @@ LedgerMaster::minSqlSeq()
 }
 
 std::optional<uint256>
-LedgerMaster::txnIDfromIndex(uint32_t ledgerSeq, uint32_t txnIndex)
+LedgerMaster::txnIdFromIndex(uint32_t ledgerSeq, uint32_t txnIndex)
 {
     uint32_t first = 0, last = 0;
 
@@ -2385,7 +2385,7 @@ LedgerMaster::txnIDfromIndex(uint32_t ledgerSeq, uint32_t txnIndex)
     if (!lgr || lgr->txs.empty())
         return {};
 
-    for (auto it = lgr->txs.begin(); it != lgr->txs.end(); it++)
+    for (auto it = lgr->txs.begin(); it != lgr->txs.end(); ++it)
         if (it->first && it->second &&
             it->second->isFieldPresent(sfTransactionIndex) &&
             it->second->getFieldU32(sfTransactionIndex) == txnIndex)

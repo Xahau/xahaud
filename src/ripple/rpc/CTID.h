@@ -21,6 +21,7 @@
 #define RIPPLE_RPC_CTID_H_INCLUDED
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/regex.hpp>
 #include <optional>
 #include <regex>
 #include <sstream>
@@ -35,11 +36,11 @@ encodeCTID(
     uint16_t txn_index,
     uint16_t network_id) noexcept
 {
-    if (ledger_seq > 0xFFFFFFF)
+    if (ledger_seq > 0x0FFF'FFFF)
         return {};
 
     uint64_t ctidValue =
-        ((0xC0000000ULL + static_cast<uint64_t>(ledger_seq)) << 32) +
+        ((0xC000'0000ULL + static_cast<uint64_t>(ledger_seq)) << 32) +
         (static_cast<uint64_t>(txn_index) << 16) + network_id;
 
     std::stringstream buffer;
@@ -57,12 +58,12 @@ decodeCTID(const T ctid) noexcept
         std::is_same_v<T, std::string> || std::is_same_v<T, char*> ||
         std::is_same_v<T, const char*> || std::is_same_v<T, std::string_view>)
     {
-        const std::string ctidString(ctid);
+        std::string const ctidString(ctid);
 
         if (ctidString.length() != 16)
             return {};
 
-        if (!std::regex_match(ctidString, std::regex("^[0-9A-F]+$")))
+        if (!boost::regex_match(ctidString, boost::regex("^[0-9A-F]+$")))
             return {};
 
         ctidValue = std::stoull(ctidString, nullptr, 16);
@@ -72,11 +73,10 @@ decodeCTID(const T ctid) noexcept
     else
         return {};
 
-    if (ctidValue > 0xFFFFFFFFFFFFFFFFULL ||
-        (ctidValue & 0xF000000000000000ULL) != 0xC000000000000000ULL)
+    if ((ctidValue & 0xF000'0000'0000'0000ULL) != 0xC000'0000'0000'0000ULL)
         return {};
 
-    uint32_t ledger_seq = (ctidValue >> 32) & 0xFFFFFFFUL;
+    uint32_t ledger_seq = (ctidValue >> 32) & 0xFFFF'FFFUL;
     uint16_t txn_index = (ctidValue >> 16) & 0xFFFFU;
     uint16_t network_id = ctidValue & 0xFFFFU;
     return {{ledger_seq, txn_index, network_id}};

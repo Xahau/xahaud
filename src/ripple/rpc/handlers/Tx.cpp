@@ -25,10 +25,10 @@
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/jss.h>
+#include <ripple/rpc/CTID.h>
 #include <ripple/rpc/Context.h>
 #include <ripple/rpc/DeliveredAmount.h>
 #include <ripple/rpc/GRPCHandlers.h>
-#include <ripple/rpc/CTID.h>
 #include <ripple/rpc/impl/RPCHelpers.h>
 #include <charconv>
 #include <regex>
@@ -208,7 +208,7 @@ doTxHelp(RPC::Context& context, TxArgs args)
 
     if (args.ctid)
     {
-        args.hash = context.app.getLedgerMaster().txnIDfromIndex(
+        args.hash = context.app.getLedgerMaster().txnIdFromIndex(
             args.ctid->first, args.ctid->second);
 
         if (args.hash)
@@ -230,6 +230,9 @@ doTxHelp(RPC::Context& context, TxArgs args)
         result.searchedAll = *e;
         return {result, rpcTXN_NOT_FOUND};
     }
+
+    if (!args.hash)
+        return {result, rpcTXN_NOT_FOUND};
 
     auto [txn, meta] = std::get<TxPair>(v);
 
@@ -274,8 +277,9 @@ doTxHelp(RPC::Context& context, TxArgs args)
         uint32_t txnIdx = meta->getAsObject().getFieldU32(sfTransactionIndex);
         uint32_t netID = context.app.config().NETWORK_ID;
 
-        if (txnIdx <= 0xFFFFU && netID < 0xFFFFU && lgrSeq < 0xFFFFFFFUL)
-            result.ctid = RPC::encodeCTID(lgrSeq, (uint16_t)txnIdx, (uint16_t)netID);
+        if (txnIdx <= 0xFFFFU && netID < 0xFFFFU && lgrSeq < 0x0FFF'FFFFUL)
+            result.ctid =
+                RPC::encodeCTID(lgrSeq, (uint16_t)txnIdx, (uint16_t)netID);
         */
     }
 
