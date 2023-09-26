@@ -127,7 +127,9 @@ public:
     }
 
     void
-    setStatus(TransStatus status, std::uint32_t ledgerSeq);
+    setStatus(TransStatus status, std::uint32_t ledgerSeq,
+        std::optional<uint32_t> transactionSeq = std::nullopt, std::optional<uint16_t> networkID = std::nullopt);
+
 
     void
     setStatus(TransStatus status)
@@ -387,6 +389,9 @@ private:
     uint256 mTransactionID;
 
     LedgerIndex mInLedger = 0;
+    std::optional<uint32_t> mTxnSeq;
+    std::optional<uint16_t> mNetworkID;
+
     TransStatus mStatus = INVALID;
     TER mResult = temUNCERTAIN;
     bool mApplying = false;

@@ -44,11 +44,13 @@ convertBlobsToTxResult(
 
     auto tr = std::make_shared<Transaction>(txn, reason, app);
 
-    tr->setStatus(Transaction::sqlTransactionStatus(status));
-    tr->setLedger(ledger_index);
-
     auto metaset =
         std::make_shared<TxMeta>(tr->getID(), tr->getLedger(), rawMeta);
+
+    uint32_t txnIdx = metaset->getAsObject().getFieldU32(sfTransactionIndex);
+    uint32_t netID = app.config().NETWORK_ID;
+
+    tr->setStatus(Transaction::sqlTransactionStatus(status), ledger_index, txnIdx, netID);
 
     to.emplace_back(std::move(tr), metaset);
 };
