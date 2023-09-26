@@ -268,6 +268,10 @@ doTxHelp(RPC::Context& context, TxArgs args)
         result.validated = isValidated(
             context.ledgerMaster, ledger->info().seq, ledger->info().hash);
 
+        /*
+        // RH NOTE: this is now handled inside the Transaction class
+        // leaving a copy here in case for some reason it's needed again
+
         // compute outgoing CTID
         uint32_t lgrSeq = ledger->info().seq;
         uint32_t txnIdx = meta->getAsObject().getFieldU32(sfTransactionIndex);
@@ -276,6 +280,7 @@ doTxHelp(RPC::Context& context, TxArgs args)
         if (txnIdx <= 0xFFFFU && netID < 0xFFFFU && lgrSeq < 0x0FFF'FFFFUL)
             result.ctid =
                 RPC::encodeCTID(lgrSeq, (uint16_t)txnIdx, (uint16_t)netID);
+        */
     }
 
     return {result, rpcSUCCESS};
