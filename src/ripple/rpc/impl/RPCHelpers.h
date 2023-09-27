@@ -313,7 +313,7 @@ std::pair<PublicKey, SecretKey>
 keypairForSignature(
     Json::Value const& params,
     Json::Value& error,
-    uint apiVersion = apiVersionIfUnspecified);
+    unsigned int apiVersion = apiVersionIfUnspecified);
 
 }  // namespace RPC
 }  // namespace ripple
