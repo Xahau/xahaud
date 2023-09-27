@@ -151,9 +151,11 @@ public:
     bool nodeToShard = false;
     bool ELB_SUPPORT = false;
 
-    std::vector<std::string> IPS;           // Peer IPs from rippled.cfg.
-    std::vector<std::string> IPS_FIXED;     // Fixed Peer IPs from rippled.cfg.
-    std::vector<std::string> SNTP_SERVERS;  // SNTP servers from rippled.cfg.
+    // Entries from [ips] config stanza
+    std::vector<std::string> IPS;
+
+    // Entries from [ips_fixed] config stanza
+    std::vector<std::string> IPS_FIXED;
 
     std::map<std::string, PublicKey>
         IMPORT_VL_KEYS;  // hex string -> class PublicKey (for caching purposes)
