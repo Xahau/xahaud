@@ -15,15 +15,26 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/apply.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/STAccount.h>
-#include <ripple/protocol/Indexes.h>
+#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/misc/HashRouter.h>
+#include <ripple/app/tx/apply.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/STAccount.h>
+#include <ripple/protocol/digest.h>
+#include <ripple/protocol/jss.h>
 #include <string>
 #include <test/jtx.h>
 #include <vector>
+#include <ripple/json/json_reader.h>
+
+#define BEAST_REQUIRE(x)     \
+    {                        \
+        BEAST_EXPECT(!!(x)); \
+        if (!(x))            \
+            return;          \
+    }
 
 // Function to handle integer types
 template<typename T>
@@ -380,27 +391,21 @@ struct XahauGenesis_test : public beast::unit_test::suite
     }
 
     void
-    testPlainActivation()
+    testPlainActivation(FeatureBitset features)
     {
         testcase("Test activation");
         using namespace jtx;
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-            beast::severities::kWarning
-            //beast::severities::kTrace
-        };
+        Env env{*this, envconfig(), features - featureXahauGenesis};
 
         activate(__LINE__, env, false, false, false);
     }
 
     void
-    testWithSignerList()
+    testWithSignerList(FeatureBitset features)
     {
         using namespace jtx;
         testcase("Test signerlist");
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-            beast::severities::kWarning
-            //beast::severities::kTrace
-        };
+        Env env{*this, envconfig(), features - featureXahauGenesis};
 
         Account const alice{"alice", KeyType::ed25519};
         env.fund(XRP(1000), alice);
@@ -412,14 +417,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
     }
 
     void
-    testWithRegularKey()
+    testWithRegularKey(FeatureBitset features)
     {
         using namespace jtx;
         testcase("Test regkey");
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-            beast::severities::kWarning
-            //beast::severities::kTrace
-        };
+        Env env{*this, envconfig(), features - featureXahauGenesis};
 
         env.memoize(env.master);
         Account const alice("alice");
@@ -608,16 +610,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
     uint8_t const member_count_key[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,'M','C'};
 
     void
-    testGovernanceL1()
+    testGovernanceL1(FeatureBitset features)
     {
 
         using namespace jtx;
         testcase("Test governance membership voting L1");
 
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-//            beast::severities::kTrace
-            beast::severities::kWarning
-        };
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+        
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -1513,15 +1513,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
     }
 
-    void testGovernanceL2()
+    void testGovernanceL2(FeatureBitset features)
     {
         using namespace jtx;
         testcase("Test governance membership voting L1");
 
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis, nullptr,
-//            beast::severities::kTrace
-            beast::severities::kWarning
-        };
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -2461,45 +2459,1428 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
     }
 
+    Json::Value
+    claimReward(
+        jtx::Account const& account,
+        std::optional<jtx::Account> const& issuer = std::nullopt,
+        std::uint32_t flags = 0)
+    {
+        using namespace jtx;
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::ClaimReward;
+        jv[jss::Account] = account.human();
+        if (issuer)
+            jv[sfIssuer.jsonName] = issuer->human();
+        if (flags)
+            jv[jss::Flags] = flags;
+        return jv;
+    }
 
-        // reward hook tests:
-        //  test claim reward before time
-        //  test claim reward after time
-        //  test claim reward when UNL report empty
-        //  test claim reward when UNL report full
+    static std::pair<uint256, std::shared_ptr<SLE const>>
+    accountKeyAndSle(
+        ReadView const& view,
+        jtx::Account const& account)
+    {
+        auto const k = keylet::account(account);
+        return {k.key, view.read(k)};
+    }
 
-        // genesis mint tests:
-        //  test send from non-genesis account emitted txn
-        //  test send from non-genesis account non-emitted txn
-        //  test send from genesis account emitted txn
-        //  test send from genesis account non-emitted txn
-        //  test send to account that doesn't exist
-        //  test send an overflow amount
-        //  test set governance flags
-        //  test no-destinations specified
+    static STAmount
+    rewardL1Amount(STAmount const& reward, std::uint64_t numValidators)
+    {
+        using namespace jtx;
+        return STAmount(reward.value().mantissa() / numValidators);
+    }
 
-        // unl report test:
-        //  test several validators all get on the list
-        //  test several validators all vote different vl import keys
-        //  test badly behaved validators dont get on the list
-        //  test no validators on list
-        //  test whole unl on list
+    static STAmount
+    rewardUserAmount(SLE const& acctSle, std::uint32_t currentLedger, double rate)
+    {
+        using namespace jtx;
+        std::uint64_t accumulator = acctSle.getFieldU64(sfRewardAccumulator);
+        std::uint32_t const lgrFirst = acctSle.getFieldU32(sfRewardLgrFirst);
+        std::uint32_t const lgrLast = acctSle.getFieldU32(sfRewardLgrLast);
+        STAmount const balance = acctSle.getFieldAmount(sfBalance);
+        std::uint32_t const elapsedSinceLast = currentLedger - lgrLast;
+        std::uint32_t const elapsed = currentLedger - lgrFirst;
 
-        // account counter
-        //  test import created accounts get a sequence
-        //  test payment created accounts get a sequence
-        //  test genesis mint created accounts get a sequence
-        //  test rpc
+        if (balance.xrp().drops() > 0 && elapsedSinceLast > 0)
+            accumulator += (balance.xrp().drops() / 1'000'000) *
+                static_cast<std::uint64_t>(elapsedSinceLast);
+
+        auto const rewardSubtotal = accumulator / elapsed;
+        return STAmount(rate * rewardSubtotal);
+    }
+
+    void
+    updateTopic(
+        jtx::Env& env,
+        jtx::Account const& acc1,
+        jtx::Account const& acc2,
+        jtx::Account const& acc3,
+        jtx::Account const& acc4,
+        jtx::Account const& acc5,
+        char topic1,
+        char topic2,
+        std::vector<uint8_t> const& vote_data)
+    {
+        using namespace jtx;
+        env(vote(__LINE__, acc1, env.master, topic1, topic2, vote_data),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env(vote(__LINE__, acc2, env.master, topic1, topic2, vote_data),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env(vote(__LINE__, acc3, env.master, topic1, topic2, vote_data),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env(vote(__LINE__, acc4, env.master, topic1, topic2, vote_data),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env(vote(__LINE__, acc5, env.master, topic1, topic2, vote_data),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+    }
+
+    bool
+    hasUNLReport(jtx::Env const& env)
+    {
+        auto const slep = env.le(keylet::UNLReport());
+        return slep != nullptr;
+    }
+
+    STTx
+    createUNLReportTx(
+        LedgerIndex seq,
+        PublicKey const& importKey,
+        PublicKey const& valKey)
+    {
+        auto fill = [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfActiveValidator);
+                inner->setFieldVL(sfPublicKey, valKey);
+                return inner;
+            })());
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfImportVLKey);
+                inner->setFieldVL(sfPublicKey, importKey);
+                return inner;
+            })());
+        };
+        return STTx(ttUNL_REPORT, fill);
+    }
+
+    void
+    activateUNLReport(
+        jtx::Env& env,
+        std::vector<PublicKey> ivlKeys,
+        std::vector<PublicKey> vlKeys)
+    {
+        // insert a ttUNL_REPORT pseudo into the open ledger
+        for (auto const& vlKey : vlKeys) {
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) -> bool {
+                    STTx tx = createUNLReportTx(
+                        env.current()->seq() + 1, ivlKeys[0], vlKey);
+                    uint256 txID = tx.getTransactionID();
+                    auto s = std::make_shared<ripple::Serializer>();
+                    tx.add(*s);
+                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    view.rawTxInsert(txID, std::move(s), nullptr);
+                    return true;
+                });
+        }
+
+        // close the ledger
+        env.close();
+    }
+
+    bool
+    expectAccountFields(
+        jtx::Env const& env,
+        jtx::Account const& acct,
+        std::uint32_t const& ledgerFirst,
+        std::uint32_t const& ledgerLast,
+        STAmount const& accumulator,
+        NetClock::time_point const& timePoint)
+    {
+        auto const sle = env.le(keylet::account(acct));
+        auto const time = timePoint.time_since_epoch().count();
+
+        if (!sle->isFieldPresent(sfRewardLgrFirst) ||
+            sle->getFieldU32(sfRewardLgrFirst) != ledgerFirst)
+        {
+            return false;
+        }
+        if (!sle->isFieldPresent(sfRewardLgrLast) ||
+            sle->getFieldU32(sfRewardLgrLast) != ledgerLast)
+        {
+            return false;
+        }
+        if (!sle->isFieldPresent(sfRewardAccumulator) ||
+            sle->getFieldU64(sfRewardAccumulator) !=
+                accumulator.value().mantissa() / 1'000'000)
+        {
+            return false;
+        }
+        if (!sle->isFieldPresent(sfRewardTime) ||
+            sle->getFieldU32(sfRewardTime) != time)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    bool
+    expectNoAccountFields(jtx::Env const& env, jtx::Account const& acct)
+    {
+        auto const sle = env.le(keylet::account(acct));
+        if (sle->isFieldPresent(sfRewardLgrFirst))
+        {
+            return false;
+        }
+        if (sle->isFieldPresent(sfRewardLgrLast))
+        {
+            return false;
+        }
+        if (sle->isFieldPresent(sfRewardAccumulator))
+        {
+            return false;
+        }
+        if (sle->isFieldPresent(sfRewardTime))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    NetClock::time_point
+    lastClose(jtx::Env& env)
+    {
+        return env.app().getLedgerMaster().getValidatedLedger()->info().parentCloseTime;
+    }
+
+    void
+    validateTime(NetClock::time_point const& value, std::uint64_t ledgerTime)
+    {
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        BEAST_EXPECT(value.time_since_epoch().count() == ledgerTime);
+    }
+
+    void
+    testLastCloseTime(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test last close time");
+
+        Env env{*this, envconfig(), features};
+        validateTime(lastClose(env), 0);
+        
+        // last close = 0
+        env.close();
+        validateTime(lastClose(env), 0);
+        
+        // last close + 10 = 10
+        env.close();
+        validateTime(lastClose(env), 10);
+        
+        // last close + 10 = 20
+        env.close(10s);
+        validateTime(lastClose(env), 20);
+        
+        // last close + 10 (^+10s) = 40
+        env.close();
+        validateTime(lastClose(env), 40);
+        
+        // last close + 10 = 50
+        env.close();
+        validateTime(lastClose(env), 50);
+    }
+
+    void
+    testInvalidRate0(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        testcase("test claim reward rate is == 0");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        auto const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward rate
+        {
+            // this will be the new reward rate
+            // 0
+            std::vector<uint8_t> const vote_data{
+                0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'R',
+                vote_data
+            );
+        }
+        
+        // opt in claim reward will fail
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+    }
+
+    void
+    testInvalidRateGreater1(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        testcase("test claim reward rate is > 1");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        auto const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward rate
+        {
+            // this will be the new reward delay
+            // 2
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x00U, 0x8DU, 0x49U, 0xFDU, 0x1AU, 0x87U, 0x54U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'R',
+                vote_data
+            );
+        }
+        
+        // opt in claim reward will fail
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+    }
+
+    void
+    testInvalidDelay0(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        testcase("test claim reward delay is == 0");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        auto const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 0
+            std::vector<uint8_t> const vote_data{
+                0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+        
+        // opt in claim reward will fail
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+    }
+
+    void
+    testInvalidDelayNegative(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        testcase("test claim reward delay is < 0");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+        
+        STAmount const feesXRP = XRP(1);
+
+        auto const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance        
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // -1
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x83U, 0x14U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+        
+        // opt in claim reward will fail
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+    }
+
+    void
+    testInvalidBeforeTime(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        testcase("test claim reward before time");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        auto const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // claim reward fails
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+    }
+
+    void
+    testValidWithoutUNLReport(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward valid without unl report");
+
+        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis};
+
+        double const rateDrops = 0.00333333333 * 1'000'000;
+        STAmount const feesXRP = XRP(1);
+
+        auto const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env, alice, bob, carol, david, edward, 'R', 'D', vote_data);
+        }
+
+        // validate no unl report
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+
+        // close ledgers
+        validateTime(lastClose(env), 90);
+        for (int i = 0; i < 5; ++i)
+        {
+            env.close(10s);
+        }
+        validateTime(lastClose(env), 180);
+
+        // define pre close values
+        STAmount const preAlice = env.balance(alice);
+        STAmount const preBob = env.balance(bob);
+        STAmount const preCarol = env.balance(carol);
+        STAmount const preDavid = env.balance(david);
+        STAmount const preEdward = env.balance(edward);
+        STAmount const preUser = env.balance(user);
+        NetClock::time_point const preTime = lastClose(env);
+        std::uint32_t const preLedger = env.current()->seq();
+        auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // trigger emitted txn
+        env.close();
+
+        // calculate rewards
+        auto const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
+        
+        // validate no govern rewards
+        BEAST_EXPECT(env.balance(alice).value() == preAlice.value());
+        BEAST_EXPECT(env.balance(bob).value() == preBob.value());
+        BEAST_EXPECT(env.balance(carol).value() == preCarol.value());
+        BEAST_EXPECT(env.balance(david).value() == preDavid.value());
+        BEAST_EXPECT(env.balance(edward).value() == preEdward.value());
+
+        // validate account fields
+        STAmount const postUser = preUser + netReward;
+        BEAST_EXPECT(expectAccountFields(
+            env,
+            user,
+            preLedger,
+            preLedger + 1,
+            postUser,
+            preTime));
+
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+
+        // close ledgers
+        validateTime(lastClose(env), 220);
+        for (int i = 0; i < 5; ++i)
+        {
+            env.close(10s);
+        }
+        validateTime(lastClose(env), 310);
+
+        // define pre close values
+        STAmount const preAlice1 = env.balance(alice);
+        STAmount const preBob1 = env.balance(bob);
+        STAmount const preCarol1 = env.balance(carol);
+        STAmount const preDavid1 = env.balance(david);
+        STAmount const preEdward1 = env.balance(edward);
+        STAmount const preUser1 = env.balance(user);
+        NetClock::time_point const preTime1 = lastClose(env);
+        std::uint32_t const preLedger1 = env.current()->seq();
+        auto const [acct1, acctSle1] = accountKeyAndSle(*env.current(), user);
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // trigger emitted txn
+        env.close();
+
+        // calculate rewards
+        auto const netReward1 = rewardUserAmount(*acctSle1, preLedger1, rateDrops);
+        
+        // validate no govern rewards
+        BEAST_EXPECT(env.balance(alice).value() == preAlice1.value());
+        BEAST_EXPECT(env.balance(bob).value() == preBob1.value());
+        BEAST_EXPECT(env.balance(carol).value() == preCarol1.value());
+        BEAST_EXPECT(env.balance(david).value() == preDavid1.value());
+        BEAST_EXPECT(env.balance(edward).value() == preEdward1.value());
+
+        // validate account fields
+        STAmount const postUser1 = preUser1 + netReward1;
+        BEAST_EXPECT(expectAccountFields(
+            env,
+            user,
+            preLedger1,
+            preLedger1 + 1,
+            postUser1,
+            preTime1));
+    }
+
+    void
+    testValidWithUNLReport(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward valid with unl report");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        double const rateDrops = 0.00333333333 * 1'000'000;
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+
+        // setup unl report
+        std::vector<std::string> const _ivlKeys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
+            "CDC1",
+        };
+        std::vector<PublicKey> ivlKeys;
+        for (auto const& strPk : _ivlKeys)
+        {
+            auto pkHex = strUnHex(strPk);
+            ivlKeys.emplace_back(makeSlice(*pkHex));
+        }
+        std::vector<std::string> const _vlKeys = {
+            "0388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C052",
+            "02691AC5AE1C4C333AE5DF8A93BDC495F0EEBFC6DB0DA7EB6EF808F3AFC006E3FE",
+            "028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EAAFEC466F5C095407BF",
+            "027BAEF0CB02EA8B95F50DF4BC16C740B17B50C85F3757AA06A5DB6ADE0ED92106",
+            "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B2136"
+        };
+        std::vector<PublicKey> vlKeys;
+        for (auto const& strPk : _vlKeys)
+        {
+            auto pkHex = strUnHex(strPk);
+            vlKeys.emplace_back(makeSlice(*pkHex));
+        }
+
+        // activate unl report
+        activateUNLReport(env, ivlKeys, vlKeys);
+
+        // validate unl report
+        BEAST_EXPECT(hasUNLReport(env) == true);
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // close ledgers
+        validateTime(lastClose(env), 100);
+        for (int i = 0; i < 5; ++i)
+        {
+            env.close(10s);
+        }
+        validateTime(lastClose(env), 190);
+
+        // define pre close values
+        STAmount const preAlice = env.balance(alice);
+        STAmount const preBob = env.balance(bob);
+        STAmount const preCarol = env.balance(carol);
+        STAmount const preDavid = env.balance(david);
+        STAmount const preEdward = env.balance(edward);
+        STAmount const preUser = env.balance(user);
+        NetClock::time_point const preTime = lastClose(env);
+        std::uint32_t const preLedger = env.current()->seq();
+        auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // trigger emitted txn
+        env.close();
+
+        // calculate rewards
+        STAmount const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
+        STAmount const l1Reward = rewardL1Amount(netReward, 20);
+        
+        // validate govern rewards
+        BEAST_EXPECT(env.balance(alice) == preAlice + l1Reward);
+        BEAST_EXPECT(env.balance(bob) == preBob + l1Reward);
+        BEAST_EXPECT(env.balance(carol) == preCarol + l1Reward);
+        BEAST_EXPECT(env.balance(david) == preDavid + l1Reward);
+        BEAST_EXPECT(env.balance(edward) == preEdward + l1Reward);
+
+        // validate account fields
+        STAmount const postUser = preUser + netReward;
+        BEAST_EXPECT(expectAccountFields(
+            env,
+            user,
+            preLedger,
+            preLedger + 1,
+            postUser,
+            preTime));
+    }
+
+    void
+    testOptInOptOut(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward optin optout");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        double const rateDrops = 0.00333333333 * 1'000'000;
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+
+        // verify unl report does not exist
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // close ledgers
+        validateTime(lastClose(env), 90);
+        for (int i = 0; i < 5; ++i)
+        {
+            env.close(10s);
+        }
+        validateTime(lastClose(env), 180);
+
+        // close claim ledger & time
+        STAmount const preUser = env.balance(user);
+        NetClock::time_point const preTime = lastClose(env);
+        std::uint32_t const preLedger = env.current()->seq();
+        auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // trigger emitted txn
+        env.close();
+        
+        // calculate rewards
+        STAmount const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
+        
+        // validate account fields
+        STAmount const postUser = preUser + netReward;
+        BEAST_EXPECT(expectAccountFields(
+            env,
+            user,
+            preLedger,
+            preLedger + 1,
+            postUser,
+            preTime));
+
+        // opt out of claim rewards
+        env(claimReward(user, std::nullopt, 1), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+        
+        BEAST_EXPECT(expectNoAccountFields(env, user));
+
+        // pre claim values
+        std::uint32_t const preLedger1 = env.current()->seq();
+        NetClock::time_point const preTime1 = lastClose(env);
+
+        // opt in for claim rewards
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // claim reward fails without suficient time passing
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+
+        BEAST_EXPECT(expectAccountFields(
+            env,
+            user,
+            preLedger1,
+            preLedger1 + 1,
+            env.balance(user),
+            preTime1));
+    }
+
+    void
+    testValidLowBalance(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward bal == 1");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        double const rateDrops = 0.00333333333 * 1'000'000;
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(200), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+
+        // verify unl report does not exist
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // close ledgers
+        validateTime(lastClose(env), 90);
+        for (int i = 0; i < 5; ++i)
+        {
+            env.close(10s);
+        }
+        validateTime(lastClose(env), 180);
+
+        env(noop(user), fee(env.balance(user) - feesXRP), ter(tesSUCCESS));
+
+        // close claim ledger & time
+        STAmount const preUser = env.balance(user);
+        NetClock::time_point const preTime = lastClose(env);
+        std::uint32_t const preLedger = env.current()->seq();
+        auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // trigger emitted txn
+        env.close();
+        
+        // calculate rewards
+        STAmount const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
+        
+        // validate account fields
+        STAmount const postUser = preUser + netReward;
+        BEAST_EXPECT(expectAccountFields(
+            env,
+            user,
+            preLedger,
+            preLedger + 1,
+            postUser,
+            preTime));
+    }
+
+    void
+    testValidElapsed1(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward elapsed_since_last == 1");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        double const rateDrops = 0.00333333333 * 1'000'000;
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(1000), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+
+        // verify unl report does not exist
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+
+        // close ledgers
+        env.close(100s);
+        validateTime(lastClose(env), 90);
+
+        // close claim ledger & time
+        STAmount const preUser = env.balance(user);
+        NetClock::time_point const preTime = lastClose(env);
+        std::uint32_t const preLedger = env.current()->seq();
+        auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // trigger emitted txn
+        env.close();
+        
+        // calculate rewards
+        STAmount const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
+        
+        // validate account fields
+        STAmount const postUser = preUser + netReward;
+        BEAST_EXPECT(expectAccountFields(
+            env,
+            user,
+            preLedger,
+            preLedger + 1,
+            postUser,
+            preTime));
+    }
+
+    void
+    testInvalidElapsed0(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward elapsed_since_last == 0");
+
+        Env env{*this, envconfig(), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(1000), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xE3U, 0x37U, 0x79U, 0xC3U, 0x91U, 0x54U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+
+        // verify unl report does not exist
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+
+        // sleep time
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+    }
+
+    std::unique_ptr<Config>
+    makeGenesisConfig(
+        FeatureBitset features,
+        uint32_t networkID,
+        std::string fee,
+        std::string a_res,
+        std::string o_res,
+        uint32_t ledgerID)
+    {
+        using namespace jtx;
+
+        // IMPORT VL KEY
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A"
+            "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+
+        Json::Value jsonValue;
+        Json::Reader reader;
+
+        std::string base_genesis = R"json({
+        "ledger": {
+            "accepted": true,
+            "accountState": [
+                {
+                    "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "Balance": "100000000000000000",
+                    "Flags": 0,
+                    "LedgerEntryType": "AccountRoot",
+                    "OwnerCount": 0,
+                    "PreviousTxnID": "A92EF82C3C68F771927E3892A2F708F12CBD492EF68A860F042E4053C8EC6C8D",
+                    "PreviousTxnLgrSeq": 0,
+                    "Sequence": 1,
+                    "index": "2B6AC232AA4C4BE41BF49D2459FA4A0347E1B543A4C92FCEE0821C0201E2E9A8"
+                },
+                {
+                    "Amendments": [],
+                    "Flags": 0,
+                    "LedgerEntryType": "Amendments",
+                    "index": "7DB0788C020F02780A673DC74757F23823FA3014C1866E72CC4CD8B226CD6EF4"
+                },
+                {
+                    "BaseFee": "A",
+                    "Flags": 0,
+                    "LedgerEntryType": "FeeSettings",
+                    "ReferenceFeeUnits": 10,
+                    "ReserveBase": 1000000,
+                    "ReserveIncrement": 200000,
+                    "XahauActivationLgrSeq": 0,
+                    "index": "4BC50C9B0D8515D3EAAE1E74B29A95804346C491EE1A95BF25E4AAB854A6A651"
+                },
+                {
+                    "Account": "rHtp2PBLTDCGpuKPCn7JqqgRYV6Rkz7Mhc",
+                    "Balance": "1000000000",
+                    "Flags": 0,
+                    "LedgerEntryType": "AccountRoot",
+                    "OwnerCount": 0,
+                    "PreviousTxnID": "A92EF82C3C68F771927E3892A2F708F12CBD492EF68A860F042E4053C8EC6C8D",
+                    "PreviousTxnLgrSeq": 0,
+                    "Sequence": 2,
+                    "AccountIndex": 2,
+                    "RewardAccumulator": "999",
+                    "RewardLgrFirst": 18,
+                    "RewardLgrLast": 19,
+                    "RewardTime": 0,
+                    "index": "67A4F2EA22654192D9782580A5DF8C907D1F71EA6C01922E4C534EDD0CFC4792"
+                }
+            ],
+            "account_hash": "5DF3A98772FB73E782B8740E87885C6BAD9BA486422E3626DEF968AD2CB2C514",
+            "close_flags": 0,
+            "close_time": 0,
+            "close_time_human": "2000-Jan-01 00:00:00.000000",
+            "close_time_resolution": 10,
+            "closed": true,
+            "hash": "56DA0940767AC2F17F0E384F04816002403D0756432B9D503DDA20128A2AAF11",
+            "ledger_hash": "56DA0940767AC2F17F0E384F04816002403D0756432B9D503DDA20128A2AAF11",
+            "ledger_index": "0",
+            "parent_close_time": 0,
+            "parent_hash": "56DA0940767AC2F17F0E384F04816002403D0756432B9D503DDA20128A2AAF11",
+            "seqNum": "0",
+            "totalCoins": "0",
+            "total_coins": "0",
+            "transaction_hash": "9A77D1D1A4B36DA77B9C4DC63FDEB8F821741D157802F9C42A6ED86003D8B4A0",
+            "transactions": []
+        },
+        "ledger_current_index": 0,
+        "status": "success",
+        "validated": true
+        })json";
+        reader.parse(base_genesis, jsonValue);
+
+        foreachFeature(features, [&](uint256 const& feature) {
+            std::string featureName = featureToName(feature);
+            std::optional<uint256> featureHash =
+                getRegisteredFeature(featureName);
+            if (featureHash.has_value())
+            {
+                std::string hashString = to_string(featureHash.value());
+                jsonValue["ledger"]["accountState"][1u]["Amendments"].append(
+                    hashString);
+            }
+        });
+
+        jsonValue["ledger_current_index"] = ledgerID;
+        jsonValue["ledger"]["ledger_index"] = to_string(ledgerID);
+        jsonValue["ledger"]["seqNum"] = to_string(ledgerID);
+
+        return envconfig([&](std::unique_ptr<Config> cfg) {
+            cfg->NETWORK_ID = networkID;
+            cfg->START_LEDGER = jsonValue.toStyledString();
+            cfg->START_UP = Config::LOAD_JSON;
+            Section config;
+            config.append(
+                {"reference_fee = " + fee,
+                 "account_reserve = " + a_res,
+                 "owner_reserve = " + o_res});
+            auto setup = setup_FeeVote(config);
+            cfg->FEES = setup;
+
+            for (auto const& strPk : keys)
+            {
+                auto pkHex = strUnHex(strPk);
+                if (!pkHex)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk + "' was not valid hex.");
+
+                auto const pkType = publicKeyType(makeSlice(*pkHex));
+                if (!pkType)
+                    Throw<std::runtime_error>(
+                        "Import VL Key '" + strPk +
+                        "' was not a valid key type.");
+
+                cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
+            }
+            return cfg;
+        });
+    }
+
+    void
+    testInvalidElapsedNegative(FeatureBitset features)
+    {
+
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward elapsed_since_last < 0");
+
+        Env env{
+            *this,
+            makeGenesisConfig(
+                supported_amendments() - featureXahauGenesis,
+                21337,
+                "10",
+                "1000000",
+                "200000",
+                0),
+            supported_amendments() - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.memoize(user);
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env,
+                alice,
+                bob,
+                carol,
+                david,
+                edward,
+                'R',
+                'D',
+                vote_data
+            );
+        }
+
+        // verify unl report does not exist
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        // claim reward fails - ledger time < 100
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+
+        // close ledgers
+        validateTime(lastClose(env), 80);
+        for (int i = 0; i < 5; ++i)
+        {
+            env.close(10s);
+        }
+        validateTime(lastClose(env), 170);
+
+        // claim reward fails - ledger elapsed < 0
+        env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
+        env.close();
+    }
+
+    void
+    testRewardHookWithFeats(FeatureBitset features)
+    {   
+        testLastCloseTime(features);
+        testInvalidRate0(features);
+        testInvalidRateGreater1(features);
+        testInvalidDelay0(features);
+        testInvalidDelayNegative(features);
+        testInvalidBeforeTime(features);
+        testValidWithoutUNLReport(features);
+        testValidWithUNLReport(features);
+        testOptInOptOut(features);
+        testValidLowBalance(features);
+        testValidElapsed1(features);
+        testInvalidElapsed0(features);
+        testInvalidElapsedNegative(features);
+    }
+
+    void
+    testGovernHookWithFeats(FeatureBitset features)
+    {   
+        testPlainActivation(features);
+        testWithSignerList(features);
+        testWithRegularKey(features);
+        testGovernanceL1(features);
+        testGovernanceL2(features);
+    }
 
     void
     run() override
     {
         using namespace test::jtx;
-        testPlainActivation();
-        testWithSignerList();
-        testWithRegularKey();
-        testGovernanceL1();
-        testGovernanceL2();
+        auto const sa = supported_amendments();
+        testGovernHookWithFeats(sa);
+        testRewardHookWithFeats(sa);
     }
 };
 
