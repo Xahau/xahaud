@@ -748,7 +748,6 @@ if (tests)
     src/test/app/Transaction_ordering_test.cpp
     src/test/app/TrustAndBalance_test.cpp
     src/test/app/TxQ_test.cpp
-    src/test/app/UNLReport_test.cpp
     src/test/app/URIToken_test.cpp
     src/test/app/ValidatorKeys_test.cpp
     src/test/app/ValidatorList_test.cpp
@@ -814,6 +813,7 @@ if (tests)
     src/test/consensus/LedgerTrie_test.cpp
     src/test/consensus/NegativeUNL_test.cpp
     src/test/consensus/ScaleFreeSim_test.cpp
+    src/test/consensus/UNLReport_test.cpp
     src/test/consensus/Validations_test.cpp
     #[===============================[
        test sources:
