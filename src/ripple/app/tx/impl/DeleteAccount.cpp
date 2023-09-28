@@ -201,10 +201,6 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     if (!sleDst)
         return tecNO_DST;
 
-    // accounts created via Import are blocked from deletion
-    if (sleDst->isFieldPresent(sfImportSequence))
-        return tecHAS_OBLIGATIONS;
-
     if ((*sleDst)[sfFlags] & lsfRequireDestTag && !ctx.tx[~sfDestinationTag])
         return tecDST_TAG_NEEDED;
 
@@ -220,6 +216,10 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     assert(sleAccount);
     if (!sleAccount)
         return terNO_ACCOUNT;
+
+    // accounts created via Import are blocked from deletion
+    if (sleAccount->isFieldPresent(sfImportSequence))
+        return tecHAS_OBLIGATIONS;
 
     if (ctx.view.rules().enabled(featureNonFungibleTokensV1))
     {
@@ -430,6 +430,16 @@ DeleteAccount::doApply()
     // Re-arm the password change fee if we can and need to.
     if (mSourceBalance > XRPAmount(0) && dst->isFlag(lsfPasswordSpent))
         dst->clearFlag(lsfPasswordSpent);
+
+    // Decrease the Account Count
+    auto sleFees = view().peek(keylet::fees());
+    if (sleFees && view().rules().enabled(featureXahauGenesis) &&
+        sleFees->isFieldPresent(sfAccountCount))
+    {
+        auto actIdx = sleFees->getFieldU64(sfAccountCount);
+        sleFees->setFieldU64(sfAccountCount, actIdx - 1);
+        view().update(sleFees);
+    }
 
     view().update(dst);
     view().erase(src);
