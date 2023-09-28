@@ -36,6 +36,12 @@ GenesisMint::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 GenesisMint::preflight(PreflightContext const& ctx)
 {
+    if (!ctx.rules.enabled(featureHooks))
+        return temDISABLED;
+
+    if (!ctx.rules.enabled(featureXahauGenesis))
+        return temDISABLED;
+
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
