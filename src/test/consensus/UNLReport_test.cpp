@@ -679,11 +679,7 @@ voteAndCheckUNLR(
         SHAMapType::TRANSACTION, history.env.app().getNodeFamily());
     vote.doVoting(
         history.lastLedger(), history.UNLKeySet, history.validations, txSet);
-    
-    std::cout << "expectReport: " << expectReport << "\n";
-    std::cout << "countUNLRTx(txSet): " << countUNLRTx(txSet) << "\n";
-    std::cout << "expectModify: " << expectModify << "\n";
-    std::cout << "countTx(txSet): " << countTx(txSet) << "\n";
+
     return countUNLRTx(txSet) == expectReport && countTx(txSet) >= expectModify;
 }
 
