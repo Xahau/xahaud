@@ -437,16 +437,6 @@ DeleteAccount::doApply()
     if (mSourceBalance > XRPAmount(0) && dst->isFlag(lsfPasswordSpent))
         dst->clearFlag(lsfPasswordSpent);
 
-    // Decrease the Account Count
-    auto sleFees = view().peek(keylet::fees());
-    if (sleFees && view().rules().enabled(featureXahauGenesis) &&
-        sleFees->isFieldPresent(sfAccountCount))
-    {
-        auto actIdx = sleFees->getFieldU64(sfAccountCount);
-        sleFees->setFieldU64(sfAccountCount, actIdx - 1);
-        view().update(sleFees);
-    }
-
     view().update(dst);
     view().erase(src);
 
