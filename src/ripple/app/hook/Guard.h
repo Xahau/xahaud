@@ -833,7 +833,7 @@ validateGuards(
             return {};
         }
 
-
+        last_section_type = section_type;
 
         int section_length = parseLeb128(wasm, i, &i); CHECK_SHORT_HOOK();
         //int section_start = i;
