@@ -9,6 +9,27 @@ namespace XahauGenesis
     constexpr XRPAmount InfraAmount            {     10'000 * DROPS_PER_XRP };
     constexpr XRPAmount ExchangeAmount         {      2'000 * DROPS_PER_XRP };
 
+    // For the Governance Hook: HookOn is set to ttINVOKE only    
+    inline
+    ripple::uint256 const
+    GovernanceHookOn("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF");
+
+    // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
+    inline
+    ripple::uint256 const
+    RewardHookOn("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF");
+
+    inline
+    std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> const
+    GovernanceParameters
+    {
+            // 0.003333 -xfl-> 6038156834009797973 -le-> 0x55554025A6D7CB53
+            {{'I', 'R', 'R'}, {0x55U, 0x55U, 0x40U, 0x25U, 0xA6U, 0xD7U, 0xCBU, 0x53U}},
+
+            // 2600000 -xfl-> 6199553087261802496 -le-> 0x00806AACAF3C0956
+            {{'I', 'R', 'D'}, {0x00U, 0x80U, 0x6AU, 0xACU, 0xAFU, 0x3CU, 0x09U, 0x56U}}
+    };
+
     inline
     std::vector<std::pair<std::string, XRPAmount>> const
     NonGovernanceDistribution
@@ -38,29 +59,6 @@ namespace XahauGenesis
     // then whatever is in this array is used
     inline
     std::vector<std::pair<std::string, XRPAmount>> TestL1Membership;
-
-
-    // For the Governance Hook: HookOn is set to ttINVOKE only    
-    inline
-    ripple::uint256 const
-    GovernanceHookOn("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFFFF");
-
-    inline
-    std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> const
-    GovernanceParameters
-    {
-            // 0.003333 -xfl-> 6038156834009797973 -le-> 0x55554025A6D7CB53
-            {{'I', 'R', 'R'}, {0x55U, 0x55U, 0x40U, 0x25U, 0xA6U, 0xD7U, 0xCBU, 0x53U}},
-
-            // 2600000 -xfl-> 6199553087261802496 -le-> 0x00806AACAF3C0956
-            {{'I', 'R', 'D'}, {0x00U, 0x80U, 0x6AU, 0xACU, 0xAFU, 0x3CU, 0x09U, 0x56U}}
-
-    };
-
-
-    inline
-    std::vector<std::pair<std::string, std::vector<std::string>>>
-    TestL2Membership;
 
     inline
     std::vector<std::pair<
@@ -112,9 +110,7 @@ namespace XahauGenesis
                 "rNu4sdVz6d2H37okUeH47ASMwckhzSx3k5"}},
     };
 
-    // For the Reward Hook: HookOn is set to ttCLAIM_REWARD only
     inline
-    ripple::uint256 const
-    RewardHookOn("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFFFFFBFFFFF");
-    
+    std::vector<std::pair<std::string, std::vector<std::string>>>
+    TestL2Membership;
 }

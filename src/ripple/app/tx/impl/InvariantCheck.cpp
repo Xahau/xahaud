@@ -193,10 +193,11 @@ XRPNotCreated::finalize(
 
         bool const passed = (drops_ <= maxDropsAdded.drops() - fee.drops());
         if (!passed)
-            JLOG(j.trace())
-                << "XRPNotCreated failed.";
+        {
+            JLOG(j.trace()) << "XRPNotCreated failed.";
+        }
+        
         return passed;
-
     }
 
     if (view.rules().enabled(featureXahauGenesis) && tt == ttGENESIS_MINT && res == tesSUCCESS)
