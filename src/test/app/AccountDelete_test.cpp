@@ -857,6 +857,40 @@ public:
     }
 
     void
+    testWithAccountCount(FeatureBitset features)
+    {
+        testcase("With Account Count");
+
+        using namespace test::jtx;
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+
+        Env env(*this, features);
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Close enough ledgers to be able to delete bob's account.
+        incLgrSeqForAccDel(env, bob);
+
+        // Account Index
+        auto const feeSle = env.current()->read(keylet::fees());
+        auto const preCount = (*feeSle)[sfAccountCount];
+
+        // bob deletes his account.
+        auto const acctDelFee{drops(env.current()->fees().increment)};
+        auto const bobOldBalance{env.balance(bob)};
+        env(acctdelete(bob, alice), fee(acctDelFee));
+        verifyDeliveredAmount(env, bobOldBalance - acctDelFee);
+        env.close();
+        {
+            std::shared_ptr<ReadView const> closed{env.closed()};
+            auto const feeSle = closed->read(keylet::fees());
+            BEAST_EXPECT((*feeSle)[sfAccountCount] == preCount - 1);            
+        }
+    }
+
+    void
     testDest(FeatureBitset features)
     {
         testcase("Destination Constraints");
@@ -927,6 +961,7 @@ public:
             testBalanceTooSmallForFee(features);
             testWithTickets(features);
             testDest(features);
+            testWithAccountCount(features);
         };
 
         using namespace test::jtx;
