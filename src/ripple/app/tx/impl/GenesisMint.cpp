@@ -85,6 +85,12 @@ GenesisMint::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
+        if (!dest.isFieldPresent(sfDestination))
+        {
+            JLOG(ctx.j.warn())
+                << "GenesisMint: DestinationField missing in array entry.";
+            return temMALFORMED;
+        }
 
         bool const hasAmt = dest.isFieldPresent(sfAmount);
         bool const hasMarks = dest.isFieldPresent(sfGovernanceMarks);

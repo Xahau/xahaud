@@ -16,51 +16,261 @@
 //==============================================================================
 
 #include <ripple/protocol/Feature.h>
+#include <ripple/app/tx/impl/XahauGenesis.h>
 
 #include <test/jtx.h>
+#include <optional>
 
 namespace ripple {
 namespace test {
 struct GenesisMint_test : public beast::unit_test::suite
 {
-
-    static Json::Value
-    claim(jtx::Account const& account)
+/*
+    void
+    injectEmitted(jtx::Env& env, STTx const txIn)
     {
-        using namespace jtx;
-        Json::Value jv;
-        jv[jss::TransactionType] = jss::ClaimReward;
-        jv[jss::Account] = account.human();
-        return jv;
-    }
+        env.app().openLedger().modify(
+            [&](OpenView& view, beast::Journal j) -> bool
+            {
+                STTx tx (txIn->getTxnType(), [&](auto& obj) {
 
-    static Json::Value
-    mint(jtx::Account const& account)
+                    obj = txIn;
+
+
+                    obj.setAccountID(sfAccount, AccountID());
+                    obj.setFieldH256(sfAmendment, featureXahauGenesis);
+                    obj.setFieldU32(sfLedgerSequence, startLgr);
+                    if (testFlag)
+                        obj.setFieldU32(sfFlags, tfTestSuite);
+                });
+
+                uint256 txID = tx.getTransactionID();
+                auto s = std::make_shared<ripple::Serializer>();
+                tx.add(*s);
+                env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                view.rawTxInsert(txID, std::move(s), nullptr);
+
+                return true;
+            });
+
+        // close the ledger
+        env.close();
+    }
+*/
+
+    
+    struct GenMint
+    {
+        std::optional<std::string> dest;
+        std::optional<jtx::PrettyAmount> amt;
+        std::optional<std::string> marks;
+        std::optional<std::string> flags;
+
+        GenMint(AccountID const& dst, jtx::PrettyAmount const& x,
+            std::optional<std::string> m = std::nullopt, std::optional<std::string> f = std::nullopt):
+            dest(toBase58(dst)), amt(x), marks(m), flags(f)
+        {
+        }
+    };
+
+    Json::Value
+    mint(jtx::Account const& account, std::vector<GenMint> mints)
     {
         using namespace jtx;
         Json::Value jv;
         jv[jss::TransactionType] = jss::GenesisMint;
         jv[jss::Account] = account.human();
+        jv[jss::GenesisMints] = Json::arrayValue;
+
+        uint32_t counter = 0;
+        for (auto const& m: mints)
+        {
+            Json::Value inner = Json::objectValue;
+            if (m.dest)
+                inner[jss::Destination] = *m.dest;
+            if (m.amt)
+                inner[jss::Amount] = (*m.amt).value().getJson(JsonOptions::none);
+            if (m.marks)
+                inner[jss::GovernanceMarks] = *m.marks;
+            if (m.flags)
+                inner[jss::GovernanceFlags] = *m.flags;
+
+            jv[jss::GenesisMints][counter] = Json::objectValue;
+            jv[jss::GenesisMints][counter][jss::GenesisMint] = inner;
+            counter++;
+        }
         return jv;
     }
 
-    std::unique_ptr<Config>
-    makeNetworkConfig(uint32_t networkID)
+    Json::Value
+    setMintHook(jtx::Account const& account)
     {
         using namespace jtx;
-        return envconfig([&](std::unique_ptr<Config> cfg) {
-            cfg->NETWORK_ID = networkID;
-            Section config;
-            config.append(
-                {"reference_fee = 10",
-                 "account_reserve = 1000000",
-                 "owner_reserve = 200000"});
-            auto setup = setup_FeeVote(config);
-            cfg->FEES = setup;
-            return cfg;
-        });
+        Json::Value tx;
+        tx[jss::Account] = account.human();
+        tx[jss::TransactionType] = "SetHook";
+        tx[jss::Hooks] = Json::arrayValue;
+        tx[jss::Hooks][0u] = Json::objectValue;
+        tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
+        tx[jss::Hooks][0u][jss::Hook][jss::HookOn] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        tx[jss::Hooks][0u][jss::Hook][jss::HookNamespace] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = 0;
+        
+        tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] = strHex(XahauGenesis::MintTestHook);
+        return tx;
     }
 
+    void
+    testDisabled(FeatureBitset features)
+    {
+        testcase("Disabled");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        {
+            test::jtx::Env env(*this, features - featureXahauGenesis);
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            env(mint(env.master, {
+                GenMint(bob.id(), XRP(123))
+            }), ter(temDISABLED));
+        }
+
+        {
+            test::jtx::Env env(*this, features - featureHooks);
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            env(mint(env.master, {
+                {bob.id(), XRP(123)}
+            }), ter(temDISABLED));
+        }
+    }
+
+    std::string
+    makeBlob(std::vector<std::pair<AccountID, STAmount>> entries)
+    {
+        std::string blob = "F060";
+
+        for (auto const& e : entries)
+        {
+            STObject m(sfGenesisMint);
+            m.setAccountID(sfDestination, e.first);
+            m.setFieldAmount(sfAmount, e.second);
+            Serializer s;
+            m.add(s);
+            blob += "E060" + strHex(s.getData()) + "E1";
+        }
+
+        blob += "F1";
+        return blob;
+    }
+
+
+    Json::Value
+    invoke(jtx::Account const& account, jtx::Account const& destination, std::string blob)
+    {
+        Json::Value tx = Json::objectValue;
+        tx[jss::Account] = account.human();
+        tx[jss::TransactionType] = "Invoke";
+        tx[jss::Destination] = destination.human();
+        tx[jss::Blob] = blob;
+        return tx;
+    }
+
+    void
+    testNonGenesisEmit(FeatureBitset features)
+    {
+        testcase("Non Genesis Emit");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        Env env{*this, envconfig(), features, nullptr,
+            beast::severities::kWarning
+//            beast::severities::kTrace
+        }; 
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const invoker = Account("invoker");
+        env.fund(XRP(10000), alice, bob, invoker);
+        env.close();
+        
+        // set the test hook
+        env(setMintHook(alice), fee(XRP(10)));
+        env.close();
+
+        // this should fail because emitted txns are preflighted
+        // and the preflight checks the account and will find it's not genesis
+        env(invoke(invoker, alice,
+            makeBlob(
+            {
+                {bob.id(), XRP(123).value()},
+            })), fee(XRP(1)), ter(tecHOOK_REJECTED));
+    }
+
+    void
+    testGenesisEmit(FeatureBitset features)
+    {
+        testcase("Genesis Emit");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        Env env{*this, envconfig(), features, nullptr,
+//            beast::severities::kWarning
+            beast::severities::kTrace
+        }; 
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const invoker = Account("invoker");
+        env.fund(XRP(10000), alice, bob, invoker);
+        env.close();
+        
+        // set the test hook
+        env(setMintHook(env.master), fee(XRP(10)));
+        env.close();
+
+        {
+            auto acc = env.le(keylet::account(bob.id()));
+            BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10000000000ULL);
+        }
+
+        // this should fail because emitted txns are preflighted
+        // and the preflight checks the account and will find it's not genesis
+        env(invoke(invoker, env.master,
+            makeBlob(
+            {
+                {bob.id(), XRP(123).value()},
+            })), fee(XRP(1)), ter(tesSUCCESS));
+
+        env.close();
+        env.close();
+
+        {
+            auto acc = env.le(keylet::account(bob.id()));
+            BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10123000000ULL);
+        }
+    }
+
+        // RH UPTO: make a blob
+        // invoke
+        // get emit txn hash
+        // close ledger
+        // test emit failure
+        
+    
+
+/*
     void
     testEnabled(FeatureBitset features)
     {
@@ -232,14 +442,16 @@ struct GenesisMint_test : public beast::unit_test::suite
         BEAST_EXPECT(1 == 1);
         // testEnabled(features);
     }
-
+*/
 public:
     void
     run() override
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
-        testWithFeats(sa);
+        testDisabled(sa);
+        testNonGenesisEmit(sa);
+        testGenesisEmit(sa);
     }
 };
 

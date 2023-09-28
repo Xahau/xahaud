@@ -50,6 +50,7 @@ JSS(AccountSet);            // transaction type.
 JSS(Amendments);            // ledger type.
 JSS(Amount);                // in: TransactionSign; field.
 JSS(Authorize);             // field
+JSS(Blob);
 JSS(Check);                 // ledger type.
 JSS(CheckCancel);           // transaction type.
 JSS(CheckCash);             // transaction type.
@@ -73,6 +74,9 @@ JSS(FIELDS);                // out: RPC server_definitions
 JSS(Flags);                 // in/out: TransactionSign; field.
 JSS(incomplete_shards);     // out: OverlayImpl, PeerImp
 JSS(GenesisMint);           // tt
+JSS(GenesisMints);
+JSS(GovernanceMarks);
+JSS(GovernanceFlags);
 JSS(HookApiVersion);        // field
 JSS(HookHash);              // field
 JSS(HookNamespace);         // field

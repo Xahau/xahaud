@@ -3,11 +3,11 @@
 #include "hookapi.h"
 #define ASSERT(x)\
     if (!(x))\
-        rollback(SBUF("Reward: Assertion failure."),__LINE__);
+        rollback(SBUF("MintTest: Assertion failure."),__LINE__);
 
 #define DEBUG 1
 
-uint8_t txn_mint[13850] =
+uint8_t txn_mint[60000] =
 {
 /* size,upto */
 /*   3,  0 */   0x12U, 0x00U, 0x60U,                                                           /* tt = GenesisMint */
@@ -39,30 +39,6 @@ uint8_t txn_mint[13850] =
 // 210 bytes + 34 bytes per entry * number of entries + any alignment padding desired
 };
 
-
-uint8_t entry[40] = {
-/*  0,  2 */    0xE0U, 0x60U,          // obj start
-/*  2,  1 */    0x61U,                 // amount header
-/*  3,  8 */    0,0,0,0,0,0,0,0,       // amount payload
-/* 11,  2 */    0x83U, 0x14U,          // account header
-/* 13, 20 */    0,0,0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,0,0,   // account payload
-/* 33,  1 */    0xE1U                  // obj end
-};
-
-#define ENTRY_DROPS(drops_tmp)\
-{\
-    uint8_t* b = entry + 3U;\
-    *b++ = 0b01000000 + (( drops_tmp >> 56 ) & 0b00111111 );\
-    *b++ = (drops_tmp >> 48) & 0xFFU;\
-    *b++ = (drops_tmp >> 40) & 0xFFU;\
-    *b++ = (drops_tmp >> 32) & 0xFFU;\
-    *b++ = (drops_tmp >> 24) & 0xFFU;\
-    *b++ = (drops_tmp >> 16) & 0xFFU;\
-    *b++ = (drops_tmp >>  8) & 0xFFU;\
-    *b++ = (drops_tmp >>  0) & 0xFFU;\
-}
-
 #define BE_DROPS(drops)\
 {\
     uint64_t drops_tmp = drops;\
@@ -77,60 +53,43 @@ uint8_t entry[40] = {
     *b++ = (drops_tmp >>  0) & 0xFFU;\
 }
 
-//uint8_t preamble[4] = {0xE0U, 0x60U, 0x61U, 0x00};
 
 int64_t hook(uint32_t r)
 {
     etxn_reserve(1);
     _g(1,1);
 
+    hook_account(txn_mint + 71, 20);
 
-    // emit the txn
-    uint64_t drops = 12345;
+    otxn_slot(1);
+    ASSERT(slot_subfield(1, sfBlob, 2) == 2);
 
-    ENTRY_DROPS(drops);
-
-#define COUNT 400
-    uint8_t* upto = txn_mint + 209U;
-    uint8_t* end = upto + (34U * COUNT);
-
-    for (; GUARD(COUNT), upto < end; upto += 34)
-    {
-        uint64_t* d = (uint64_t*)upto;
-        uint64_t* s = (uint64_t*)entry;
     
-        *d++ = *s++;
-        *d++ = *s++;
-        //*d++ = *s++;
-        //*d++ = *s++;
-        
-        *(d+2) = *(s+2);
-        
-        otxn_field(upto + 13, 20, sfDestination);
-        *((uint32_t*)(upto + 13)) = upto;
+    int64_t bytes = slot(txn_mint + 207, 60000 - 207, 2);
 
-/*       
- *        
-        *upto++ = 0xE0U; // obj start
-        *upto++ = 0x60U;
-        *upto++ = 0x61U;    // amt
-        *((uint32_t*)upto) = preamble;
-        upto += 3;
+    ASSERT(bytes > 0);
 
-        *((uint64_t*)upto) = drops;
-        upto += 8;
+    bytes += 207;
 
-        *upto++ = 0x83U;    // acc
-        *upto++ = 0x14U;
-        *((uint16_t*)upto) = preamble2;
-        upto += 2;
-        */
+    // nop out any vl encoding
+    uint8_t x = txn_mint[207];
+    uint8_t y = txn_mint[208];
+    uint8_t z = txn_mint[209];
 
+    txn_mint[207] = 0x99U;
+    if (x > 192U)
+    {
+        txn_mint[208] = 0x99U;
+        if (y > 240)
+            txn_mint[209] = 0x99U;
     }
-    *upto++ = 0xF1U; // array end
 
-    etxn_details(txn_mint + 91, 116);
-    int64_t fee = etxn_fee_base(txn_mint, upto - txn_mint);
+
+    trace(SBUF("Txn:"), txn_mint, bytes, 1);
+
+    ASSERT(etxn_details(txn_mint + 91, 116) > 0);
+
+    int64_t fee = etxn_fee_base(txn_mint, bytes);
     BE_DROPS(fee);
 
     *((uint64_t*)(txn_mint + 26)) = fee;
@@ -148,10 +107,10 @@ int64_t hook(uint32_t r)
     txn_mint[24] = seq & 0xFFU;
 
 
-    trace(SBUF("emit:"), txn_mint, upto-txn_mint, 1);
+    trace(SBUF("emit:"), txn_mint, bytes, 1);
 
     uint8_t emithash[32];
-    int64_t emit_result = emit(SBUF(emithash), txn_mint, upto - txn_mint);
+    int64_t emit_result = emit(SBUF(emithash), txn_mint, bytes);
 
     if (DEBUG)
         TRACEVAR(emit_result);
