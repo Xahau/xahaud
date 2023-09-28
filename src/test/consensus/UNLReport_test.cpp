@@ -418,47 +418,6 @@ class UNLReport_test : public beast::unit_test::suite
     }
 
     void
-    testRCLVotingLedger(FeatureBitset features)
-    {
-        testcase("Test rcl voting ledger");
-        using namespace jtx;
-
-        for (auto const& strPk : _ivlKeys)
-        {
-            auto pkHex = strUnHex(strPk);
-            ivlKeys.emplace_back(makeSlice(*pkHex));
-        }
-    
-        for (auto const& strPk : _vlKeys)
-        {
-            auto pkHex = strUnHex(strPk);
-            vlKeys.emplace_back(makeSlice(*pkHex));
-        }
-        
-        {
-            Env env{*this, envconfig(), features, nullptr};
-
-            BEAST_EXPECT(env.current()->rules().enabled(featureXahauGenesis));
-
-            for (auto i = 0; i < 256 - 2; ++i)
-            {
-                env.close();
-            }
-            auto l = env.app().getLedgerMaster().getValidatedLedger();
-            BEAST_EXPECT(l->isVotingLedger());
-
-            env.close();
-
-            l = env.app().getLedgerMaster().getValidatedLedger();
-            BEAST_EXPECT(l->isFlagLedger());
-
-            BEAST_EXPECT(hasUNLReport(env));
-            BEAST_EXPECT(isImportVL(env, ivlKeys[0]) == true);
-            BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
-        }
-    }
-
-    void
     testWithFeats(FeatureBitset features)
     {
         testNoImportVL(features);
