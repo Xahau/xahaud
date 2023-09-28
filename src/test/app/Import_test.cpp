@@ -226,6 +226,23 @@ class Import_test : public beast::unit_test::suite
     }
 
     void
+    incLgrSeqForAccDel(
+        jtx::Env& env,
+        jtx::Account const& acc,
+        std::uint32_t margin = 0)
+    {
+        int const delta = [&]() -> int {
+            if (env.seq(acc) + 255 > env.current()->seq())
+                return env.seq(acc) - env.current()->seq() + 255 - margin;
+            return 0;
+        }();
+        BEAST_EXPECT(margin == 0 || delta >= 0);
+        for (int i = 0; i < delta; ++i)
+            env.close();
+        BEAST_EXPECT(env.current()->seq() == env.seq(acc) + 255 - margin);
+    }
+
+    void
     testComputeStartingBalance(FeatureBitset features)
     {
         testcase("import header - computeStartingBonus");
@@ -4348,13 +4365,14 @@ class Import_test : public beast::unit_test::suite
     }
 
     void
-    testAccountCount(FeatureBitset features)
+    testAccountIndex(FeatureBitset features)
     {
-        testcase("account count");
+        testcase("account index");
 
         using namespace test::jtx;
         using namespace std::literals;
 
+        // Account Index from Import
         {
             test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
             auto const feeDrops = env.current()->fees().base;
@@ -4389,6 +4407,42 @@ class Import_test : public beast::unit_test::suite
             // confirm account count was set
             auto const [fee, feeSle] = feesKeyAndSle(*env.current());
             BEAST_EXPECT((*feeSle)[sfAccountCount] == 1);
+        }
+
+        // Account Index from Payment
+        {
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            struct TestAccountData
+            {
+                Account acct;
+                std::uint64_t index;
+            };
+
+            std::array<TestAccountData, 3> acctTests = {{
+                {alice, 0},
+                {bob, 1},
+                {carol, 2},
+            }};
+
+            for (auto const& t : acctTests)
+            {
+                // confirm index was set
+                auto const [acct, acctSle] =
+                    accountKeyAndSle(*env.current(), t.acct);
+                BEAST_EXPECT((*acctSle)[sfAccountIndex] == t.index);
+            }
+
+            // confirm count was updated
+            auto const [fee, feeSle] = feesKeyAndSle(*env.current());
+            BEAST_EXPECT((*feeSle)[sfAccountCount] == 3);
         }
     }
 
@@ -4481,6 +4535,44 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins2 == postCoins + totalBurn);
 
             env.close();
+        }
+    }
+
+    void
+    testAccountDelete(FeatureBitset features)
+    {
+        testcase("account delete");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        {
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            Json::Value const xpop = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value const tx = import(alice, xpop);
+            env(tx, fee(feeDrops * 10), ter(tesSUCCESS));
+
+            // Close enough ledgers to be able to delete alices's account.
+            incLgrSeqForAccDel(env, alice);
+
+            // alice cannot delete account after import
+            auto const acctDelFee{drops(env.current()->fees().increment)};
+            env(acctdelete(alice, bob),
+                fee(acctDelFee),
+                ter(tecHAS_OBLIGATIONS));
         }
     }
 
@@ -5398,9 +5490,10 @@ public:
         testSetRegularKey(features);
         testSetRegularKeyFlags(features);
         testSignersListSet(features);
-        testAccountCount(features);
+        testAccountIndex(features);
         testHookIssuer(features);
         testImportSequence(features);
+        testAccountDelete(features);
         testMaxSupply(features);
         testMinMax(features);
         testHalving(features - featureOwnerPaysFee);
