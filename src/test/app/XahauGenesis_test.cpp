@@ -767,7 +767,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             std::vector<uint8_t> vote_data {0x00U,0x81U,0xC6U,0xA4U,0x7EU,0x8DU,0x43U,0x54U};
 
             // this is the default reward rate
-            std::vector<uint8_t> const original_data {0x00U,0xE4U,0x61U,0xEEU,0x78U,0x90U,0x83U,0x54U};
+            std::vector<uint8_t> const original_data {0x55U, 0x55U, 0x40U, 0x25U, 0xA6U, 0xD7U, 0xCBU, 0x53U};
 
             doL1Vote(__LINE__, alice, 'R', 'R', vote_data, original_data, false);
             doL1Vote(__LINE__, bob, 'R', 'R', vote_data, original_data, false);
@@ -789,7 +789,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             std::vector<uint8_t> vote_data {0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x55U};
 
             // this is the default reward delay
-            std::vector<uint8_t> const original_data {0x00U,0x80U,0x6AU,0xACU,0xAFU,0x3CU,0x09U,0x56U};
+            std::vector<uint8_t> const original_data {0x00U, 0x80U, 0x6AU, 0xACU, 0xAFU, 0x3CU, 0x09U, 0x56U};
 
             doL1Vote(__LINE__, edward, 'R', 'D', vote_data, original_data, false);
             doL1Vote(__LINE__, david, 'R', 'D', vote_data, original_data, false);
@@ -1940,7 +1940,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             std::vector<uint8_t> vote_data {0x00U,0x80U,0xC6U,0xA4U,0x7EU,0x8DU,0x03U,0x54U};
 
             // this is the default reward rate
-            std::vector<uint8_t> const original_data {0x00U,0xE4U,0x61U,0xEEU,0x78U,0x90U,0x83U,0x54U};
+            std::vector<uint8_t> const original_data {0x55U, 0x55U, 0x40U, 0x25U, 0xA6U, 0xD7U, 0xCBU, 0x53U};
 
             doL1Vote(__LINE__, alice, 'R', 'R', vote_data, original_data, false);
 

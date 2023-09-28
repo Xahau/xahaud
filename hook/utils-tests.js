@@ -74,6 +74,8 @@ module.exports = {
                         if (tx_blob)
                             req['tx_blob'] = tx_blob;
 
+                        console.log(req);
+
                         api.request(req).then(resp =>
                         {
                             resolve(resp.result.drops);
@@ -235,6 +237,7 @@ module.exports = {
                                 delete txn_to_send['SigningPubKey']
                                 if (txn_to_send['Fee'] === undefined)
                                     txn_to_send['Fee'] = base_drops + '';
+
 
                                 api.request(
                                 {
