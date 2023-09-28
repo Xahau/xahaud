@@ -80,7 +80,7 @@ int64_t hook(uint32_t r)
     if (x > 192U)
     {
         txn_mint[208] = 0x99U;
-        if (y > 240)
+        if (x > 240U)
             txn_mint[209] = 0x99U;
     }
 

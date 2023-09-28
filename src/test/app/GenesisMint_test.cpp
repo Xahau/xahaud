@@ -159,15 +159,26 @@ struct GenesisMint_test : public beast::unit_test::suite
     }
 
     std::string
-    makeBlob(std::vector<std::pair<AccountID, STAmount>> entries)
+    makeBlob(std::vector<std::tuple<
+            std::optional<AccountID>,
+            std::optional<STAmount>,
+            std::optional<uint256>,
+            std::optional<uint256>>> entries)
     {
         std::string blob = "F060";
 
-        for (auto const& e : entries)
+        for (auto const& [acc, amt, flags, marks] : entries)
         {
             STObject m(sfGenesisMint);
-            m.setAccountID(sfDestination, e.first);
-            m.setFieldAmount(sfAmount, e.second);
+            if (acc)
+                m.setAccountID(sfDestination, *acc);
+            if (amt)
+                m.setFieldAmount(sfAmount, *amt);
+            if (flags)
+                m.setFieldH256(sfGovernanceFlags, *flags);
+            if (marks)
+                m.setFieldH256(sfGovernanceMarks, *marks);
+
             Serializer s;
             m.add(s);
             blob += "E060" + strHex(s.getData()) + "E1";
@@ -215,10 +226,20 @@ struct GenesisMint_test : public beast::unit_test::suite
         env(invoke(invoker, alice,
             makeBlob(
             {
-                {bob.id(), XRP(123).value()},
+                {bob.id(), XRP(123).value(), std::nullopt, std::nullopt},
             })), fee(XRP(1)), ter(tecHOOK_REJECTED));
     }
 
+
+    Json::Value
+    burn(jtx::Account const& account)
+    {
+        Json::Value tx = Json::objectValue;
+        tx[jss::Account] = account.human();
+        tx[jss::TransactionType] = "AccountSet";
+        return tx;
+    }
+    
     void
     testGenesisEmit(FeatureBitset features)
     {
@@ -234,6 +255,9 @@ struct GenesisMint_test : public beast::unit_test::suite
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
         env.fund(XRP(10000), alice, bob, invoker);
+
+        // burn down the total ledger coins so that genesis mints don't mint above 100B tripping invariant
+        env(burn(env.master), fee(XRP(100000000ULL)));
         env.close();
         
         // set the test hook
@@ -250,7 +274,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         env(invoke(invoker, env.master,
             makeBlob(
             {
-                {bob.id(), XRP(123).value()},
+                {bob.id(), XRP(123).value(), std::nullopt, std::nullopt},
             })), fee(XRP(1)), ter(tesSUCCESS));
 
         env.close();
@@ -260,6 +284,203 @@ struct GenesisMint_test : public beast::unit_test::suite
             auto acc = env.le(keylet::account(bob.id()));
             BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10123000000ULL);
         }
+
+        // creating accounts
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        BEAST_EXPECT(!env.le(keylet::account(carol.id())));
+        BEAST_EXPECT(!env.le(keylet::account(david.id())));
+        
+        env(invoke(invoker, env.master,
+            makeBlob(
+            {
+                {david.id(), XRP(12345).value(), std::nullopt, std::nullopt},
+                {carol.id(), XRP(67890).value(), std::nullopt, std::nullopt},
+            })), fee(XRP(1)), ter(tesSUCCESS));
+
+        env.close();
+        env.close();
+        env.close();
+
+        {
+            auto acc = env.le(keylet::account(carol.id()));
+            BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 67890000000ULL);
+        }
+
+        {
+            auto acc = env.le(keylet::account(david.id()));
+            BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 12345000000ULL);
+        }
+
+        // lots of entries
+        uint16_t accid[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+        std::vector<
+            std::tuple<
+                std::optional<AccountID>, std::optional<STAmount>,
+                std::optional<uint256>, std::optional<uint256>>> mints;
+
+        for (uint16_t i = 0; i < 512; ++i)
+        {
+            accid[0] = i;
+            AccountID acc = AccountID::fromVoid((void*)&accid);
+            mints.emplace_back(acc, XRP(i+1).value(), std::nullopt, std::nullopt);
+        }
+
+        env(invoke(invoker, env.master,
+            makeBlob(mints)),
+            fee(XRP(1)));
+        
+        env.close();
+        env.close();
+
+        for (auto const& [acc, amt, _, __]: mints)
+        {
+            auto const le = env.le(keylet::account(*acc));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt);
+        }
+
+        // again, and check the amounts increased x2
+        env(invoke(invoker, env.master,
+            makeBlob(mints)),
+            fee(XRP(1)));
+        
+        env.close();
+        env.close();
+
+        for (auto const& [acc, amt, _, __]: mints)
+        {
+            auto const le = env.le(keylet::account(*acc));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt * 2);
+            BEAST_EXPECT(le->getAccountID(sfAccount) == acc);
+        }
+
+        // too many entries
+        {
+            accid[0] = 512;
+            AccountID acc = AccountID::fromVoid((void*)&accid);
+            mints.emplace_back(acc, XRP(1).value(), std::nullopt, std::nullopt);
+        }
+
+        env(invoke(invoker, env.master,
+            makeBlob(mints)),
+            fee(XRP(1)), ter(tecHOOK_REJECTED));
+
+        int i = 0;
+
+        // check the amounts didn't change
+        for (auto const& [acc, amt, _, __]: mints)
+        {
+            auto const le = env.le(keylet::account(*acc));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt * 2);
+            if (++i == 512)
+                break;
+        }
+
+        //invalid amount should cause emit fail which should cause hook rollback
+        auto const gw = Account("gateway");
+        auto const USD = gw["USD"];
+        auto const edward = Account("edward");
+        env(invoke(invoker, env.master,
+            makeBlob({{edward.id(), USD(100), std::nullopt, std::nullopt}})),
+            fee(XRP(1)), ter(tecHOOK_REJECTED));
+
+        // zero xrp should too
+        env(invoke(invoker, env.master,
+            makeBlob({{edward.id(), XRP(0), std::nullopt, std::nullopt}})),
+            fee(XRP(1)), ter(tecHOOK_REJECTED));
+
+        // and in position 1 it should also
+        env(invoke(invoker, env.master,
+            makeBlob({
+                {bob.id(), XRP(1), std::nullopt, std::nullopt},
+                {edward.id(), XRP(0), std::nullopt, std::nullopt},
+                })),
+            fee(XRP(1)), ter(tecHOOK_REJECTED));
+
+        // missing an amount
+        env(invoke(invoker, env.master,
+            makeBlob({
+                {edward.id(), std::nullopt, std::nullopt, std::nullopt},
+                })),
+            fee(XRP(1)), ter(tecHOOK_REJECTED));
+
+        // missing a destination
+        env(invoke(invoker, env.master,
+            makeBlob({
+                {std::nullopt, XRP(1), std::nullopt, std::nullopt},
+                })),
+            fee(XRP(1)), ter(tecHOOK_REJECTED));
+
+        uint256 marks;
+        uint256 flags;
+        flags.parseHex("0000000000000000000000000000000000000000000000000000000000000001");
+        marks.parseHex("1000000000000000000000000000000000000000000000000000000000000000");
+
+        // dest + flags
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({
+                    {alice.id(), std::nullopt, flags, std::nullopt},
+                    })),
+                fee(XRP(1)));
+
+            env.close();
+            env.close();
+        }
+
+        // check that alice has the right balance, and Governance Flags set
+        {
+            auto const le = env.le(keylet::account(alice.id()));
+            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(10000).value());
+            std::cout << "is present? " << (le->isFieldPresent(sfGovernanceFlags) ? "true" : "false") << "\n";
+            if (le->isFieldPresent(sfGovernanceFlags))
+                std::cout << strHex(le->getFieldH256(sfGovernanceFlags)) << "\n";
+            BEAST_EXPECT(le->isFieldPresent(sfGovernanceFlags) && le->getFieldH256(sfGovernanceFlags) == flags);
+        }
+
+        // now governance marks on bob
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({
+                    {bob.id(), std::nullopt, std::nullopt, marks},
+                    })),
+                fee(XRP(1)));
+
+            env.close();
+            env.close();
+        }
+        
+        // check that bob has the right balance, and Governance Marks set
+        {
+            auto const le = env.le(keylet::account(bob.id()));
+            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(10000).value());
+            BEAST_EXPECT(le->isFieldPresent(sfGovernanceMarks) && le->getFieldH256(sfGovernanceMarks) == marks);
+        }
+
+
+        // all at once
+        auto const fred = Account("fred");
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({
+                    {fred.id(), XRP(589).value(), flags, marks},
+                    })),
+                fee(XRP(1)));
+
+            env.close();
+            env.close();
+        }
+
+        // check
+        {
+            auto const le = env.le(keylet::account(fred.id()));
+            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(589).value());
+            BEAST_EXPECT(le->isFieldPresent(sfGovernanceMarks) && le->getFieldH256(sfGovernanceMarks) == marks);
+            BEAST_EXPECT(le->isFieldPresent(sfGovernanceFlags) && le->getFieldH256(sfGovernanceFlags) == flags);
+        }
+
+        
     }
 
         // RH UPTO: make a blob
