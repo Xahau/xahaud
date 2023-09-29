@@ -102,7 +102,10 @@ NegativeUNLVote::doVoting(
 
         // do reporting when enabled
         if (prevLedger->rules().enabled(featureXahauGenesis) && scoreTable->size() > 0)
+        {
             addReportingTx(seq, *scoreTable, nidToKeyMap, initialSet);
+            addImportVLTx(seq, initialSet);
+        }
     }
 }
 
@@ -153,8 +156,13 @@ NegativeUNLVote::addReportingTx(
                              << ", " << repUnlTx.getJson(JsonOptions::none);
         }
     }
+}
 
-
+void
+NegativeUNLVote::addImportVLTx(
+    LedgerIndex seq,
+    std::shared_ptr<SHAMap> const& initalSet)
+{
     // do import VL key voting
     auto const& keyMap = app_.config().IMPORT_VL_KEYS;
     for (auto const& [_, pk] : keyMap)
@@ -188,7 +196,6 @@ NegativeUNLVote::addReportingTx(
                              << ", " << repUnlTx.getJson(JsonOptions::none);
         }
     }
-
 }
 
 void
