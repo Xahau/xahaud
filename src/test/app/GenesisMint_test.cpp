@@ -174,10 +174,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr,
-            beast::severities::kWarning
-//            beast::severities::kTrace
-        }; 
+        Env env{*this, envconfig(), features, nullptr}; 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -214,10 +211,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr,
-            beast::severities::kWarning
-//            beast::severities::kTrace
-        }; 
+        Env env{*this, envconfig(), features, nullptr}; 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -253,8 +247,6 @@ struct GenesisMint_test : public beast::unit_test::suite
                 BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10123000000ULL);
             }
             auto const postCoins = env.current()->info().drops;
-            std::cout << "initCoins: " << initCoins << "\n";
-            std::cout << "postCoins: " << postCoins << "\n";
             BEAST_EXPECT(initCoins 
                     - 1'000'000     /* txn fee */ 
                     - 10            /* emitted txn fee */ 
@@ -383,8 +375,14 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         uint256 marks;
         uint256 flags;
-        flags.parseHex("0000000000000000000000000000000000000000000000000000000000000001");
-        marks.parseHex("1000000000000000000000000000000000000000000000000000000000000000");
+        if (flags.parseHex("0000000000000000000000000000000000000000000000000000000000000001"))
+        {
+            // pass
+        };
+        if (marks.parseHex("1000000000000000000000000000000000000000000000000000000000000000"))
+        {
+            // pass
+        };
 
         // dest + flags
         {
@@ -545,8 +543,6 @@ struct GenesisMint_test : public beast::unit_test::suite
             BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000ULL);
 
             auto const postCoins = env.current()->info().drops;
-            std::cout << "initCoins: " << initCoins << "\n";
-            std::cout << "postCoins: " << postCoins << "\n";
             BEAST_EXPECT(initCoins - 1'000'000 /* txn fee  */ - 10 /* emitted txn fee */  == postCoins);
         }
 
@@ -560,10 +556,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr,
-            beast::severities::kWarning
-//            beast::severities::kTrace
-        }; 
+        Env env{*this, envconfig(), features, nullptr}; 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -584,10 +577,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr,
-            beast::severities::kWarning
-//            beast::severities::kTrace
-        }; 
+        Env env{*this, envconfig(), features, nullptr}; 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
