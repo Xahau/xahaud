@@ -473,6 +473,140 @@ class UNLReportNoAmendment_test : public beast::unit_test::suite
     }
 };
 
+class UNLReportFork_test : public beast::unit_test::suite
+{
+
+    // Import VL Keys
+    std::vector<std::string> const _ivlKeys = {
+        "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1",
+        "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC2",
+    };
+
+    std::vector<PublicKey> ivlKeys;
+
+    // VL Keys
+    std::vector<std::string> const _vlKeys = {
+        "0388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C052",
+        "02691AC5AE1C4C333AE5DF8A93BDC495F0EEBFC6DB0DA7EB6EF808F3AFC006E3FE",
+        "028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EAAFEC466F5C095407BF",
+        "027BAEF0CB02EA8B95F50DF4BC16C740B17B50C85F3757AA06A5DB6ADE0ED92106",
+        "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B2136"
+    };
+    std::vector<PublicKey> vlKeys;
+
+    STTx
+    createUNLRTx1(
+        std::uint32_t seq,
+        PublicKey const& importKey,
+        PublicKey const& valKey)
+    {
+        auto fill = [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfActiveValidator);
+                inner->setFieldVL(sfPublicKey, valKey);
+                return inner;
+            })());
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfImportVLKey);
+                inner->setFieldVL(sfPublicKey, importKey);
+                return inner;
+            })());
+        };
+        return STTx(ttUNL_REPORT, fill);
+    }
+
+    void
+    testVLImportByzantine()
+    {
+        using namespace jtx;
+        using namespace csf;
+        using namespace std::chrono;
+
+        std::vector<PublicKey> ivlKeys;
+        for (auto const& strPk : _ivlKeys)
+        {
+            auto pkHex = strUnHex(strPk);
+            ivlKeys.emplace_back(makeSlice(*pkHex));
+        }
+
+        std::vector<PublicKey> vlKeys;
+        for (auto const& strPk : _vlKeys)
+        {
+            auto pkHex = strUnHex(strPk);
+            vlKeys.emplace_back(makeSlice(*pkHex));
+        }
+        
+        Sim sim;
+        ConsensusParms const parms{};
+
+        SimDuration const delay =
+            round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
+        PeerGroup a = sim.createGroup(1);
+        PeerGroup b = sim.createGroup(1);
+        PeerGroup c = sim.createGroup(1);
+        PeerGroup d = sim.createGroup(1);
+        PeerGroup e = sim.createGroup(1);
+
+        a.trustAndConnect(a + b + c + d + e, delay);
+        b.trustAndConnect(a + b + c + d + e, delay);
+        c.trustAndConnect(a + b + c + d + e, delay);
+        d.trustAndConnect(a + b + c + d + e, delay);
+        e.trustAndConnect(a + b + c + d + e, delay);
+
+        PeerGroup network = a + b + c + d + e;
+
+        StreamCollector sc{std::cout};
+
+        sim.collectors.add(sc);
+
+        for (TrustGraph<Peer*>::ForkInfo const& fi :
+             sim.trustGraph.forkablePairs(0.8))
+        {
+            std::cout << "Can fork " << PeerGroup{fi.unlA} << " "
+                      << " " << PeerGroup{fi.unlB} << " overlap " << fi.overlap
+                      << " required " << fi.required << "\n";
+        };
+
+        // set prior state
+        sim.run(1);
+
+        PeerGroup wrongImportVLNodes = d + e;
+        // All peers see some TX 0
+        for (Peer* peer : network)
+        {
+
+            peer->submit(Tx(0));
+            // Peers 4,5 will close the next ledger differently by injecting
+            // a non-consensus approved transaciton
+            
+            if (wrongImportVLNodes.contains(peer))
+            {
+                // NegativeUNLVote vote(myId, peer->j, history.env.app());
+                // pre(vote);
+                // auto txSet = std::make_shared<SHAMap>(SHAMapType::TRANSACTION, history.env.app().getNodeFamily());
+                // addImportVLTx(peer->lastClosedLedger.seq(), txSet);
+                std::cout << "seq(): " << peer->lastClosedLedger.seq() << "\n";
+                STTx tx = createUNLRTx1(peer->lastClosedLedger.seq(), ivlKeys[1], vlKeys[0]);
+                peer->txInjections.emplace(peer->lastClosedLedger.seq(), Tx(47));
+            }
+        }
+        sim.run(4);
+        std::cout << "Branches: " << sim.branches() << "\n";
+        std::cout << "Fully synchronized: " << std::boolalpha
+                  << sim.synchronized() << "\n";
+        // Not tessting anything currently.
+        pass();
+
+    }
+
+    void
+    run() override
+    {
+        testVLImportByzantine();
+    }
+};
+
 /**
  * Utility class for creating validators and ledger history
  */
@@ -1035,6 +1169,7 @@ class UNLReportVoteNewValidator_test : public beast::unit_test::suite
 
 BEAST_DEFINE_TESTSUITE(UNLReport, ledger, ripple);
 BEAST_DEFINE_TESTSUITE(UNLReportNoAmendment, ledger, ripple);
+BEAST_DEFINE_TESTSUITE(UNLReportFork, consensus, ripple);
 BEAST_DEFINE_TESTSUITE_PRIO(UNLReportVoteGoodScore, consensus, ripple, 1);
 BEAST_DEFINE_TESTSUITE(UNLReportVoteOffline, consensus, ripple);
 BEAST_DEFINE_TESTSUITE(UNLReportVoteMaxListed, consensus, ripple);
