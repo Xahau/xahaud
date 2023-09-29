@@ -334,7 +334,9 @@ URIToken::doApply()
         STAmount const reserve{
             view().fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
 
-        if (mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp() < reserve)
+        STAmount const afterFee = mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp();
+
+        if (afterFee > mPriorBalance || afterFee < reserve)
             return tecINSUFFICIENT_RESERVE;
     }
 
