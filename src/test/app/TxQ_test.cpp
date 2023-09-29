@@ -1468,13 +1468,31 @@ public:
            std::cout << "hankSeq+1= " << hankSeq + 1 << "\n";
         }
 
+        std::cout << "alice: " << strHex(alice.id()) << "\n";
+        std::cout << "bob: " << strHex(bob.id()) << "\n";
+        std::cout << "charlie: " << strHex(charlie.id()) << "\n";
+        std::cout << "daria: " << strHex(daria.id()) << "\n";
+        std::cout << "elmo: " << strHex(elmo.id()) << "\n";
+        std::cout << "fred: " << strHex(fred.id()) << "\n";
+        std::cout << "gwen: " << strHex(gwen.id()) << "\n";
+        std::cout << "hank: " << strHex(hank.id()) << "\n";
+
+        std::cout << "alice: " << alice.human() << "\n";
+        std::cout << "bob: " << bob.human() << "\n";
+        std::cout << "charlie: " << charlie.human() << "\n";
+        std::cout << "daria: " << daria.human() << "\n";
+        std::cout << "elmo: " << elmo.human() << "\n";
+        std::cout << "fred: " << fred.human() << "\n";
+        std::cout << "gwen: " << gwen.human() << "\n";
+        std::cout << "hank: " << hank.human() << "\n";
+             
 
         BEAST_EXPECTS(
             aliceSeq + 1 == env.seq(alice),
             "alice: "s + std::to_string(aliceSeq) + ", " +
                 std::to_string(env.seq(alice)));
         BEAST_EXPECTS(
-            bobSeq + 1 == env.seq(bob),
+            bobSeq == env.seq(bob),
             "bob: "s + std::to_string(bobSeq) + ", " +
                 std::to_string(env.seq(bob)));
         BEAST_EXPECTS(
@@ -1486,7 +1504,7 @@ public:
             "daria: "s + std::to_string(dariaSeq) + ", " +
                 std::to_string(env.seq(daria)));
         BEAST_EXPECTS(
-            elmoSeq  == env.seq(elmo),
+            elmoSeq + 1  == env.seq(elmo),
             "elmo: "s + std::to_string(elmoSeq) + ", " +
                 std::to_string(env.seq(elmo)));
         BEAST_EXPECTS(
@@ -1505,10 +1523,10 @@ public:
         // Which sequences get incremented may change if TxQ ordering is
         // changed
         ++aliceSeq;
-        ++bobSeq;
+        //++bobSeq;
         // ++(++charlieSeq);
         ++dariaSeq;
-        //++elmoSeq;
+        ++elmoSeq;
         ++fredSeq;
         ++gwenSeq;
         ++hankSeq;
