@@ -189,10 +189,8 @@ public:
         BEAST_EXPECT(
             result[jss::ledger][jss::total_coins] == "100000000000000000");
         BEAST_EXPECT(result[jss::ledger][jss::closed] == true);
-        std::cout << "lgr1: " << result[jss::ledger][jss::ledger_hash] << "\n";
         BEAST_EXPECT(result[jss::ledger][jss::ledger_hash] == hash1);
         BEAST_EXPECT(result[jss::ledger][jss::parent_hash] == zerohash);
-        std::cout << "acc1: " << result[jss::ledger][jss::account_hash] << "\n";
         BEAST_EXPECT(result[jss::ledger][jss::account_hash] == accounthash1);
         BEAST_EXPECT(result[jss::ledger][jss::transaction_hash] == zerohash);
 
@@ -203,10 +201,8 @@ public:
         BEAST_EXPECT(
             result[jss::ledger][jss::total_coins] == "100000000000000000");
         BEAST_EXPECT(result[jss::ledger][jss::closed] == true);
-        std::cout << "lgr 2: " << result[jss::ledger][jss::ledger_hash] << "\n";
         BEAST_EXPECT(result[jss::ledger][jss::ledger_hash] == hash2);
         BEAST_EXPECT(result[jss::ledger][jss::parent_hash] == hash1);
-        std::cout << "acc 2: " << result[jss::ledger][jss::account_hash] << "\n";
         BEAST_EXPECT(
             result[jss::ledger][jss::account_hash] ==
             "C6C885F43A772BA455AB96456248D10D2B32E32C24377520D6B7652F3FCEEF31");
@@ -219,10 +215,8 @@ public:
         BEAST_EXPECT(
             result[jss::ledger][jss::total_coins] == "99999999999999980");
         BEAST_EXPECT(result[jss::ledger][jss::closed] == true);
-        std::cout << "lgr 3: " << result[jss::ledger][jss::ledger_hash] << "\n";
         BEAST_EXPECT(result[jss::ledger][jss::ledger_hash] == hash3);
         BEAST_EXPECT(result[jss::ledger][jss::parent_hash] == hash2);
-        std::cout << "acc 3: " << result[jss::ledger][jss::account_hash] << "\n";
         BEAST_EXPECT(
             result[jss::ledger][jss::account_hash] ==
             "692A26D06FCB0A2685F6DC269A08713E9FD8583056B2E4928CCE76862763609D");
@@ -237,10 +231,8 @@ public:
         BEAST_EXPECT(
             result[jss::ledger][jss::total_coins] == "99999999999999960");
         BEAST_EXPECT(result[jss::ledger][jss::closed] == true);
-        std::cout << "lgr 4: " << result[jss::ledger][jss::ledger_hash] << "\n";
         BEAST_EXPECT(result[jss::ledger][jss::ledger_hash] == hash4);
         BEAST_EXPECT(result[jss::ledger][jss::parent_hash] == hash3);
-        std::cout << "acc 4: " << result[jss::ledger][jss::account_hash] << "\n";
         BEAST_EXPECT(
             result[jss::ledger][jss::account_hash] ==
             "D6DF68C04B663B45F159AA87072479C54B3930E92E8965154C35A80D508BF958");
@@ -255,10 +247,8 @@ public:
         BEAST_EXPECT(
             result[jss::ledger][jss::total_coins] == "99999999999999940");
         BEAST_EXPECT(result[jss::ledger][jss::closed] == true);
-        std::cout << "lgr 5: " << result[jss::ledger][jss::ledger_hash] << "\n";
         BEAST_EXPECT(result[jss::ledger][jss::ledger_hash] == hash5);
         BEAST_EXPECT(result[jss::ledger][jss::parent_hash] == hash4);
-        std::cout << "acc 5: " << result[jss::ledger][jss::account_hash] << "\n";
         BEAST_EXPECT(
             result[jss::ledger][jss::account_hash] ==
             "6A1179D2AD9ACDF61E14A076B6FBE305FF032D2193D230DE21BF9358C7E11F09");
