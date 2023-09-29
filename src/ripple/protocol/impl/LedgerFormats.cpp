@@ -180,6 +180,7 @@ LedgerFormats::LedgerFormats()
             {sfReserveIncrementDrops,  soeOPTIONAL},
             {sfXahauActivationLgrSeq,  soeOPTIONAL},
             {sfAccountCount,           soeOPTIONAL},
+            {sfNetworkID,              soeOPTIONAL},
         },
         commonFields);
 

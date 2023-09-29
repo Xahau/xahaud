@@ -454,7 +454,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check that bob has the right balance, and Governance Marks set
         {
             auto const le = env.le(keylet::account(bob.id()));
-            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(10000).value());
+            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(10123).value());
             BEAST_EXPECT(le->isFieldPresent(sfGovernanceMarks) && le->getFieldH256(sfGovernanceMarks) == marks);
         }
 
@@ -476,19 +476,44 @@ struct GenesisMint_test : public beast::unit_test::suite
         {
             auto const le = env.le(keylet::account(fred.id()));
             BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(589).value());
+            std::cout << "fred marks: " << strHex(le->getFieldH256(sfGovernanceMarks)) << "\n";
+            std::cout << "fred flags: " << strHex(le->getFieldH256(sfGovernanceFlags)) << "\n";
             BEAST_EXPECT(le->isFieldPresent(sfGovernanceMarks) && le->getFieldH256(sfGovernanceMarks) == marks);
             BEAST_EXPECT(le->isFieldPresent(sfGovernanceFlags) && le->getFieldH256(sfGovernanceFlags) == flags);
         }
-
-        
     }
 
-        // RH UPTO: make a blob
-        // invoke
-        // get emit txn hash
-        // close ledger
-        // test emit failure
+/*
+  void
+    testGenesisNonEmit(FeatureBitset features)
+    {
+        testcase("Genesis Non-Emit");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        Env env{*this, envconfig(), features, nullptr,
+            beast::severities::kWarning
+//            beast::severities::kTrace
+        }; 
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const invoker = Account("invoker");
+        env.fund(XRP(10000), alice, bob, invoker);
+        env.close();
         
+        // set the test hook
+        env(setMintHook(alice), fee(XRP(10)));
+        env.close();
+
+        // this should fail because emitted txns are preflighted
+        // and the preflight checks the account and will find it's not genesis
+        env(invoke(invoker, alice,
+            makeBlob(
+            {
+                {bob.id(), XRP(123).value(), std::nullopt, std::nullopt},
+            })), fee(XRP(1)), ter(tecHOOK_REJECTED));
+    }
+  */      
     
 
 /*

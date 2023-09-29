@@ -242,7 +242,7 @@ GenesisMint::doApply()
     }
 
     // update ledger header
-    if (dropsAdded <= beast::zero || dropsAdded.xrp() + view().info().drops < view().info().drops)
+    if (dropsAdded < beast::zero || dropsAdded.xrp() + view().info().drops < view().info().drops)
     {
         JLOG(ctx_.journal.warn())
             << "GenesisMint: dropsAdded overflowed\n";
