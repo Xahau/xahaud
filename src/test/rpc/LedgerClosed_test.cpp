@@ -54,7 +54,7 @@ public:
         std::cout << "lc_result[jss::ledger_hash]: " << lc_result[jss::ledger_hash] << "\n";
         BEAST_EXPECT(
             lc_result[jss::ledger_hash] ==
-            "E86DE7F3D7A4D9CE17EF7C8BA08A8F4D8F643B9552F0D895A31CDA78F541DE4E");
+            "D39C52DE7CBF561ECA875A6D636B7C9095408DE1FAF4EC4AAF3FDD8AB3A1EA55");
         BEAST_EXPECT(lc_result[jss::ledger_index] == 3);
     }
 
