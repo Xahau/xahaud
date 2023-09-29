@@ -494,28 +494,6 @@ class UNLReportFork_test : public beast::unit_test::suite
     };
     std::vector<PublicKey> vlKeys;
 
-    STTx
-    createUNLRTx1(
-        std::uint32_t seq,
-        PublicKey const& importKey,
-        PublicKey const& valKey)
-    {
-        auto fill = [&](auto& obj) {
-            obj.setFieldU32(sfLedgerSequence, seq);
-            obj.set(([&]() {
-                auto inner = std::make_unique<STObject>(sfActiveValidator);
-                inner->setFieldVL(sfPublicKey, valKey);
-                return inner;
-            })());
-            obj.set(([&]() {
-                auto inner = std::make_unique<STObject>(sfImportVLKey);
-                inner->setFieldVL(sfPublicKey, importKey);
-                return inner;
-            })());
-        };
-        return STTx(ttUNL_REPORT, fill);
-    }
-
     void
     testVLImportByzantine()
     {
@@ -555,10 +533,11 @@ class UNLReportFork_test : public beast::unit_test::suite
         e.trustAndConnect(a + b + c + d + e, delay);
 
         PeerGroup network = a + b + c + d + e;
-
+#if 0
         StreamCollector sc{std::cout};
 
         sim.collectors.add(sc);
+#endif
 
         // set prior state
         sim.run(255);
@@ -612,6 +591,8 @@ class UNLReportFork_test : public beast::unit_test::suite
 
         BEAST_EXPECT(sim.synchronized());
         BEAST_EXPECT(sim.branches() == 1);
+
+        pass();
     }
 
     void
