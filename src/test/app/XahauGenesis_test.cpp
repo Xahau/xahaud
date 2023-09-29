@@ -3853,7 +3853,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         using namespace std::chrono_literals;
         testcase("test compound interest over 12 claims");
 
-        Env env{*this, envconfig(), supported_amendments() - featureXahauGenesis};
+        Env env{
+            *this, envconfig(), supported_amendments() - featureXahauGenesis};
 
         double const rateDrops = 0.00333333333 * 1'000'000;
         STAmount const feesXRP = XRP(1);
@@ -3922,21 +3923,20 @@ struct XahauGenesis_test : public beast::unit_test::suite
             env.close();
 
             // calculate rewards
-            auto const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
+            auto const netReward =
+                rewardUserAmount(*acctSle, preLedger, rateDrops);
 
             // validate account fields
             STAmount const postUser = preUser + netReward;
             BEAST_EXPECT(expectAccountFields(
-                env,
-                user,
-                preLedger,
-                preLedger + 1,
-                postUser,
-                preTime));
+                env, user, preLedger, preLedger + 1, postUser, preTime));
         }
 
         STAmount const endBal = env.balance(user);
-        BEAST_EXPECT(static_cast<std::int64_t>(((endBal - begBal) / begBal) * 100) == 4);
+        auto const gainloss = ((endBal - begBal) / begBal);
+        std::uint64_t const asPercent =
+            static_cast<std::int64_t>(gainloss * 100);
+        BEAST_EXPECT(asPercent == 4);
     }
 
     void
