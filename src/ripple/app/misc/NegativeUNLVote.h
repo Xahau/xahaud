@@ -163,6 +163,13 @@ private:
         hash_map<NodeID, std::uint32_t> const& scoreTable,
         hash_map<NodeID, PublicKey> const& nidToKeyMap,
         std::shared_ptr<SHAMap> const& initalSet);
+    /**
+     * As above, but make a vl import report object instead of an n-unl
+     */
+    void
+    addImportVLTx(
+        LedgerIndex seq,
+        std::shared_ptr<SHAMap> const& initalSet);
 
     /**
      * Pick one candidate from a vector of candidates.
