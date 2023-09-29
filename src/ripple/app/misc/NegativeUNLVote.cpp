@@ -158,14 +158,13 @@ NegativeUNLVote::addReportingTx(
     }
 }
 
-void
-NegativeUNLVote::addImportVLTx(
-    LedgerIndex seq,
-    std::shared_ptr<SHAMap> const& initalSet)
+std::vector<STTx>
+NegativeUNLVote::generateImportVLVoteTx(
+    std::map<std::string, PublicKey> const& importVLKeys,
+    LedgerIndex seq)
 {
-    // do import VL key voting
-    auto const& keyMap = app_.config().IMPORT_VL_KEYS;
-    for (auto const& [_, pk] : keyMap)
+    std::vector<STTx> out;
+    for (auto const& [_, pk] : importVLKeys)
     {
         STTx repUnlTx(ttUNL_REPORT, [pk = pk, seq](auto& obj)
         {
@@ -178,6 +177,23 @@ NegativeUNLVote::addImportVLTx(
             obj.setFieldU32(sfLedgerSequence, seq);
         });
 
+        out.push_back(std::move(repUnlTx));
+    }
+
+    return out;
+}
+
+void
+NegativeUNLVote::addImportVLTx(
+    LedgerIndex seq,
+    std::shared_ptr<SHAMap> const& initalSet)
+{
+    // do import VL key voting
+    std::vector<STTx> toInject =
+        generateImportVLVoteTx(app_.config().IMPORT_VL_KEYS, seq);
+
+    for (auto const& repUnlTx: toInject)
+    {
         uint256 txID = repUnlTx.getTransactionID();
         Serializer s;
         repUnlTx.add(s);

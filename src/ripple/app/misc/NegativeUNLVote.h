@@ -123,6 +123,16 @@ public:
     void
     newValidators(LedgerIndex seq, hash_set<NodeID> const& nowTrusted);
 
+    /**
+     * This generates UNLReport txns for each of the ImportVL keys in the node's
+     * config. Exposed publicly here so that it can be used by test cases in future.
+     */
+    static
+    std::vector<STTx>
+    generateImportVLVoteTx(
+        std::map<std::string, PublicKey> const& importVLKeys,
+        LedgerIndex seq);
+
 private:
     NodeID const myId_;
     beast::Journal j_;
@@ -163,6 +173,7 @@ private:
         hash_map<NodeID, std::uint32_t> const& scoreTable,
         hash_map<NodeID, PublicKey> const& nidToKeyMap,
         std::shared_ptr<SHAMap> const& initalSet);
+
     /**
      * As above, but make a vl import report object instead of an n-unl
      */

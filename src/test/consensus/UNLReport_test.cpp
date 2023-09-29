@@ -523,11 +523,11 @@ class UNLReportFork_test : public beast::unit_test::suite
         using namespace csf;
         using namespace std::chrono;
 
-        std::vector<PublicKey> ivlKeys;
+        std::vector<std::pair<std::string, PublicKey>> ivlKeys;
         for (auto const& strPk : _ivlKeys)
         {
             auto pkHex = strUnHex(strPk);
-            ivlKeys.emplace_back(makeSlice(*pkHex));
+            ivlKeys.emplace_back(strPk, makeSlice(*pkHex));
         }
 
         std::vector<PublicKey> vlKeys;
@@ -560,44 +560,58 @@ class UNLReportFork_test : public beast::unit_test::suite
 
         sim.collectors.add(sc);
 
-        for (TrustGraph<Peer*>::ForkInfo const& fi :
-             sim.trustGraph.forkablePairs(0.8))
-        {
-            std::cout << "Can fork " << PeerGroup{fi.unlA} << " "
-                      << " " << PeerGroup{fi.unlB} << " overlap " << fi.overlap
-                      << " required " << fi.required << "\n";
-        };
-
         // set prior state
-        sim.run(1);
+        sim.run(255);
 
         PeerGroup wrongImportVLNodes = d + e;
-        // All peers see some TX 0
+
+        // RH TODO: replace this simulation with a better one where we use actual UNLReport txns
+        /*
+        auto txns = 
+            NegativeUNLVote::generateImportVLVoteTx(
+            std::map<std::string, PublicKey>
+            {
+                ivlKeys[wrongImportVLNodes.contains(peer) ? 1 : 0]
+            }, seq);
+        */
+
+        // 2 of the 3 vote for one and the other 3 for the other
         for (Peer* peer : network)
         {
-
-            peer->submit(Tx(0));
-            // Peers 4,5 will close the next ledger differently by injecting
-            // a non-consensus approved transaciton
-            
-            if (wrongImportVLNodes.contains(peer))
-            {
-                // NegativeUNLVote vote(myId, peer->j, history.env.app());
-                // pre(vote);
-                // auto txSet = std::make_shared<SHAMap>(SHAMapType::TRANSACTION, history.env.app().getNodeFamily());
-                // addImportVLTx(peer->lastClosedLedger.seq(), txSet);
-                std::cout << "seq(): " << peer->lastClosedLedger.seq() << "\n";
-                STTx tx = createUNLRTx1(peer->lastClosedLedger.seq(), ivlKeys[1], vlKeys[0]);
-                peer->txInjections.emplace(peer->lastClosedLedger.seq(), Tx(47));
-            }
+            uint32_t seq = uint32_t(peer->lastClosedLedger.seq()) + 1;
+            peer->txInjections.emplace(seq, Tx(wrongImportVLNodes.contains(peer) ? 1 : 0));
         }
+
         sim.run(4);
+
+        // all 5 vote for one but 3 of them also vote for the other
+        for (Peer* peer : network)
+        {
+            uint32_t seq = uint32_t(peer->lastClosedLedger.seq()) + 1;
+
+            if (!wrongImportVLNodes.contains(peer))
+                peer->txInjections.emplace(seq, Tx(2));
+            peer->txInjections.emplace(seq, Tx(3));
+        }
+
+        // RH TODO: check that ledgers closed with the correct number of txns
+        /*
+        sim.run(1);
+        for (Peer* peer : network)
+        {
+            peer->lastClosedLedger
+        }
+        */
+        
+
+        sim.run(4);
+
         std::cout << "Branches: " << sim.branches() << "\n";
         std::cout << "Fully synchronized: " << std::boolalpha
                   << sim.synchronized() << "\n";
-        // Not tessting anything currently.
-        pass();
 
+        BEAST_EXPECT(sim.synchronized());
+        BEAST_EXPECT(sim.branches() == 1);
     }
 
     void
