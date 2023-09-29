@@ -51,6 +51,7 @@ public:
         BEAST_EXPECT((*ar_alice)[sfBalance] == XRP(10000));
 
         lc_result = env.rpc("ledger_closed")[jss::result];
+        std::cout << "lc_result[jss::ledger_hash]: " << lc_result[jss::ledger_hash] << "\n";
         BEAST_EXPECT(
             lc_result[jss::ledger_hash] ==
             "E86DE7F3D7A4D9CE17EF7C8BA08A8F4D8F643B9552F0D895A31CDA78F541DE4E");
