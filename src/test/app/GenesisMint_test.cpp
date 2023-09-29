@@ -25,39 +25,6 @@ namespace ripple {
 namespace test {
 struct GenesisMint_test : public beast::unit_test::suite
 {
-/*
-    void
-    injectEmitted(jtx::Env& env, STTx const txIn)
-    {
-        env.app().openLedger().modify(
-            [&](OpenView& view, beast::Journal j) -> bool
-            {
-                STTx tx (txIn->getTxnType(), [&](auto& obj) {
-
-                    obj = txIn;
-
-
-                    obj.setAccountID(sfAccount, AccountID());
-                    obj.setFieldH256(sfAmendment, featureXahauGenesis);
-                    obj.setFieldU32(sfLedgerSequence, startLgr);
-                    if (testFlag)
-                        obj.setFieldU32(sfFlags, tfTestSuite);
-                });
-
-                uint256 txID = tx.getTransactionID();
-                auto s = std::make_shared<ripple::Serializer>();
-                tx.add(*s);
-                env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
-                view.rawTxInsert(txID, std::move(s), nullptr);
-
-                return true;
-            });
-
-        // close the ledger
-        env.close();
-    }
-*/
-
     
     struct GenMint
     {
@@ -203,7 +170,7 @@ struct GenesisMint_test : public beast::unit_test::suite
     void
     testNonGenesisEmit(FeatureBitset features)
     {
-        testcase("Non Genesis Emit");
+        testcase("Non-Genesis Emit");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
@@ -248,8 +215,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         Env env{*this, envconfig(), features, nullptr,
-//            beast::severities::kWarning
-            beast::severities::kTrace
+            beast::severities::kWarning
+//            beast::severities::kTrace
         }; 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
@@ -257,32 +224,42 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob, invoker);
 
         // burn down the total ledger coins so that genesis mints don't mint above 100B tripping invariant
-        env(burn(env.master), fee(XRP(100000000ULL)));
+        env(burn(env.master), fee(XRP(10'000'000ULL)));
         env.close();
         
         // set the test hook
         env(setMintHook(env.master), fee(XRP(10)));
         env.close();
 
+        // test a mint
         {
-            auto acc = env.le(keylet::account(bob.id()));
-            BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10000000000ULL);
-        }
-
-        // this should fail because emitted txns are preflighted
-        // and the preflight checks the account and will find it's not genesis
-        env(invoke(invoker, env.master,
-            makeBlob(
+            auto const initCoins = env.current()->info().drops;
             {
-                {bob.id(), XRP(123).value(), std::nullopt, std::nullopt},
-            })), fee(XRP(1)), ter(tesSUCCESS));
+                auto acc = env.le(keylet::account(bob.id()));
+                BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10000000000ULL);
+            }
 
-        env.close();
-        env.close();
+            env(invoke(invoker, env.master,
+                makeBlob(
+                {
+                    {bob.id(), XRP(123).value(), std::nullopt, std::nullopt},
+                })), fee(XRP(1)), ter(tesSUCCESS));
 
-        {
-            auto acc = env.le(keylet::account(bob.id()));
-            BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10123000000ULL);
+                env.close();
+                env.close();
+
+            {
+                auto acc = env.le(keylet::account(bob.id()));
+                BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 10123000000ULL);
+            }
+            auto const postCoins = env.current()->info().drops;
+            std::cout << "initCoins: " << initCoins << "\n";
+            std::cout << "postCoins: " << postCoins << "\n";
+            BEAST_EXPECT(initCoins 
+                    - 1'000'000     /* txn fee */ 
+                    - 10            /* emitted txn fee */ 
+                    + 123'000'000   /* minted */
+                    == postCoins);
         }
 
         // creating accounts
@@ -385,18 +362,10 @@ struct GenesisMint_test : public beast::unit_test::suite
             makeBlob({{edward.id(), USD(100), std::nullopt, std::nullopt}})),
             fee(XRP(1)), ter(tecHOOK_REJECTED));
 
-        // zero xrp should too
+        // zero xrp is allowed
         env(invoke(invoker, env.master,
             makeBlob({{edward.id(), XRP(0), std::nullopt, std::nullopt}})),
-            fee(XRP(1)), ter(tecHOOK_REJECTED));
-
-        // and in position 1 it should also
-        env(invoke(invoker, env.master,
-            makeBlob({
-                {bob.id(), XRP(1), std::nullopt, std::nullopt},
-                {edward.id(), XRP(0), std::nullopt, std::nullopt},
-                })),
-            fee(XRP(1)), ter(tecHOOK_REJECTED));
+            fee(XRP(1)));
 
         // missing an amount
         env(invoke(invoker, env.master,
@@ -432,11 +401,10 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check that alice has the right balance, and Governance Flags set
         {
             auto const le = env.le(keylet::account(alice.id()));
-            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(10000).value());
-            std::cout << "is present? " << (le->isFieldPresent(sfGovernanceFlags) ? "true" : "false") << "\n";
-            if (le->isFieldPresent(sfGovernanceFlags))
-                std::cout << strHex(le->getFieldH256(sfGovernanceFlags)) << "\n";
-            BEAST_EXPECT(le->isFieldPresent(sfGovernanceFlags) && le->getFieldH256(sfGovernanceFlags) == flags);
+            BEAST_EXPECT(!!le && 
+                    le->getFieldAmount(sfBalance) == XRP(10000).value());
+            BEAST_EXPECT(!!le && 
+                    le->isFieldPresent(sfGovernanceFlags) && le->getFieldH256(sfGovernanceFlags) == flags);
         }
 
         // now governance marks on bob
@@ -454,8 +422,9 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check that bob has the right balance, and Governance Marks set
         {
             auto const le = env.le(keylet::account(bob.id()));
-            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(10123).value());
-            BEAST_EXPECT(le->isFieldPresent(sfGovernanceMarks) && le->getFieldH256(sfGovernanceMarks) == marks);
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == XRP(10123).value());
+            BEAST_EXPECT(!!le
+                    && le->isFieldPresent(sfGovernanceMarks) && le->getFieldH256(sfGovernanceMarks) == marks);
         }
 
 
@@ -475,16 +444,116 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check
         {
             auto const le = env.le(keylet::account(fred.id()));
-            BEAST_EXPECT(le->getFieldAmount(sfBalance) == XRP(589).value());
-            std::cout << "fred marks: " << strHex(le->getFieldH256(sfGovernanceMarks)) << "\n";
-            std::cout << "fred flags: " << strHex(le->getFieldH256(sfGovernanceFlags)) << "\n";
-            BEAST_EXPECT(le->isFieldPresent(sfGovernanceMarks) && le->getFieldH256(sfGovernanceMarks) == marks);
-            BEAST_EXPECT(le->isFieldPresent(sfGovernanceFlags) && le->getFieldH256(sfGovernanceFlags) == flags);
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == XRP(589).value());
+            BEAST_EXPECT(!!le && le->isFieldPresent(sfGovernanceMarks) && 
+                    le->getFieldH256(sfGovernanceMarks) == marks);
+            BEAST_EXPECT(!!le && le->isFieldPresent(sfGovernanceFlags) &&
+                    le->getFieldH256(sfGovernanceFlags) == flags);
         }
+
+        // mint a zero account
+        auto const greg = Account("greg");
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({{greg.id(), XRP(0).value(), std::nullopt, std::nullopt}})), fee(XRP(1)));
+            env.close();
+            env.close();
+        }
+
+        // check
+        {
+            auto const le = env.le(keylet::account(greg.id()));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==0);
+        }
+
+        // try to mint negative
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({{greg.id(), XRP(-1).value(), std::nullopt, std::nullopt}})),
+                fee(XRP(1)), ter(tecHOOK_REJECTED));
+            env.close();
+            env.close();
+        }
+        
+        // check
+        {
+            auto const le = env.le(keylet::account(greg.id()));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==0);
+        }
+
+        // try to mint too much
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({{greg.id(), XRP(100000000000ULL).value(), std::nullopt, std::nullopt}})),
+                fee(XRP(1)), ter(tecHOOK_REJECTED));
+            env.close();
+            env.close();
+        }
+        
+        // check
+        {
+            auto const le = env.le(keylet::account(greg.id()));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==0);
+        }
+
+        // mint a regular amount
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({{greg.id(), XRP(10).value(), std::nullopt, std::nullopt}})),
+                fee(XRP(1)));
+            env.close();
+            env.close();
+        }
+        
+        // check
+        {
+            auto const le = env.le(keylet::account(greg.id()));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000ULL);
+        }
+
+        // try to include the same destination twice
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({
+                    {greg.id(), XRP(10).value(), std::nullopt, std::nullopt},
+                    {greg.id(), XRP(10).value(), std::nullopt, std::nullopt},
+                    })),
+                fee(XRP(1)), ter(tecHOOK_REJECTED));
+            env.close();
+            env.close();
+        }
+        
+        // check
+        {
+            auto const le = env.le(keylet::account(greg.id()));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000ULL);
+        }
+
+        // trip the supply cap invariant
+        {
+            auto const initCoins = env.current()->info().drops;
+            env(invoke(invoker, env.master,
+                makeBlob({
+                    {greg.id(), XRP(9'999'999).value(), std::nullopt, std::nullopt},
+                    })),
+                fee(XRP(1)));
+            env.close();
+            env.close();
+
+            // check balance wasn't changed
+            auto const le = env.le(keylet::account(greg.id()));
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000ULL);
+
+            auto const postCoins = env.current()->info().drops;
+            std::cout << "initCoins: " << initCoins << "\n";
+            std::cout << "postCoins: " << postCoins << "\n";
+            BEAST_EXPECT(initCoins - 1'000'000 /* txn fee  */ - 10 /* emitted txn fee */  == postCoins);
+        }
+
+
     }
 
-/*
-  void
+    void
     testGenesisNonEmit(FeatureBitset features)
     {
         testcase("Genesis Non-Emit");
@@ -497,198 +566,41 @@ struct GenesisMint_test : public beast::unit_test::suite
         }; 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const invoker = Account("invoker");
-        env.fund(XRP(10000), alice, bob, invoker);
+        env.fund(XRP(10000), alice, bob);
         env.close();
-        
-        // set the test hook
-        env(setMintHook(alice), fee(XRP(10)));
-        env.close();
+                
+        env(mint(env.master, {
+            GenMint(bob.id(), XRP(123))
+        }), ter(temMALFORMED));
 
-        // this should fail because emitted txns are preflighted
-        // and the preflight checks the account and will find it's not genesis
-        env(invoke(invoker, alice,
-            makeBlob(
-            {
-                {bob.id(), XRP(123).value(), std::nullopt, std::nullopt},
-            })), fee(XRP(1)), ter(tecHOOK_REJECTED));
+        auto const le = env.le(keylet::account(bob.id()));
+        BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000000ULL);
     }
-  */      
-    
 
-/*
     void
-    testEnabled(FeatureBitset features)
+    testNonGenesisNonEmit(FeatureBitset features)
     {
-        testcase("enabled");
+        testcase("Non-Genesis Non-Emit");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337), features, nullptr, beast::severities::kTrace};
-
-        // setup env
+        Env env{*this, envconfig(), features, nullptr,
+            beast::severities::kWarning
+//            beast::severities::kTrace
+        }; 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-        auto const issuer = Account("issuer");
-
-        env.fund(XRP(10000), alice, bob, issuer);
+        env.fund(XRP(10000), alice, bob);
         env.close();
+                
+        env(mint(alice, {
+            GenMint(bob.id(), XRP(123))
+        }), ter(temMALFORMED));
 
-        // set claim rewards
-        auto claimTx = claim(alice);
-        claimTx[sfIssuer.jsonName] = issuer.human();
-        env(claimTx, ter(tesSUCCESS));
-        env.close();
-
-        // burn fee
-        env(noop(alice), fee(1'000'000'000), ter(tesSUCCESS));
-        env.close();
-
-        // mint rewards
-        auto mintTx = mint(alice);
-
-        // Emit Details
-        mintTx[sfEmitDetails.jsonName] = Json::objectValue;
-        mintTx[sfEmitDetails.jsonName][sfEmitBurden.jsonName] = "1";
-        mintTx[sfEmitDetails.jsonName][sfEmitCallback.jsonName] = "rMPwD1b8dJUaqZHaBgEvFx4ENhtpPVvDsv";
-        mintTx[sfEmitDetails.jsonName][sfEmitGeneration.jsonName] = 1;
-        mintTx[sfEmitDetails.jsonName][sfEmitHookHash.jsonName] = "A9B5411F4A4368008B4736EEE47A34B0EFCBE74016B9B94CC6208FBC0BF5C0C2";
-        mintTx[sfEmitDetails.jsonName][sfEmitNonce.jsonName] = "B8415274BAA38DC4640C6C35935C55FFAE8A6C13009736FCBE562A18376034FE";
-        mintTx[sfEmitDetails.jsonName][sfEmitParentTxnID.jsonName] = "013F3650533681369F9D55FBFEEECF2C3AF1E9F3DAABB4F0C5C0F638321ABC7F";
-
-        // Genesis Mints
-        mintTx[sfGenesisMints.jsonName] = Json::arrayValue;
-        mintTx[sfGenesisMints.jsonName][0u] = Json::objectValue;
-        mintTx[sfGenesisMints.jsonName][0u][sfGenesisMint.jsonName] = Json::objectValue;
-        mintTx[sfGenesisMints.jsonName][0u][sfGenesisMint.jsonName][jss::Destination] = bob.human();
-        mintTx[sfGenesisMints.jsonName][0u][sfGenesisMint.jsonName][jss::Amount] = to_string(10000000);
-        // mintTx[sfGenesisMints.jsonName][0u][sfGenesisMint.jsonName][sfGovernanceFlags.jsonName] = "";
-        // mintTx[sfGenesisMints.jsonName][0u][sfGenesisMint.jsonName][sfGovernanceMarks.jsonName] = "";
-        
-        // mintTx[sfFlags.jsonName] = to_string(2147483648);
-
-        // JTx jt = env.jt(mintTx);
-        // jt.fill_sig = false;
-        // auto const jrr = env.rpc("submit", strHex(jt.stx->getSerializer().slice()))[jss::result];
-        // std::cout << "jrr: " << jrr << "\n";
-        
-        auto const tx_blob = "1200602100005359240000000368400000000000000A73210388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C0528114AE123A8556F3CF91154711376AFB0F894F832B3DED202E000000013D00000000000000015B013F3650533681369F9D55FBFEEECF2C3AF1E9F3DAABB4F0C5C0F638321ABC7F5CB8415274BAA38DC4640C6C35935C55FFAE8A6C13009736FCBE562A18376034FE5DA9B5411F4A4368008B4736EEE47A34B0EFCBE74016B9B94CC6208FBC0BF5C0C28A14DF935D6B794939ABBA5D13007E65C2C6E70C625DE1F060E0606140000000009896808314F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90FE1F1";
-        auto const jrr = env.rpc("submit", tx_blob)[jss::result];
-        std::cout << "jrr: " << jrr << "\n";
-        // env(mintTx, ter(tesSUCCESS));
-
-        env.close();
-
-        // for (bool const withHooksGenesis : {false, true})
-        // {
-        //     // If the Hooks or the Xahau Genesis amendments are not enabled, you
-        //     // should not be able to mint xrp.
-        //     auto const amend =
-        //         withHooksGenesis ? features : features - featureHooks;
-        //     Env env{*this, amend};
-
-        //     env.fund(XRP(1000), alice, bob);
-        //     env.close();
-
-            // MINT
-            // auto tx = mint(alice);
-            // tx[sfIssuer.jsonName] = issuer.human();
-            // env(tx, txResult);
-            // env.close();
-
-        //     // auto const txResult =
-        //     //     withHooksGenesis ? ter(tesSUCCESS) : ter(temDISABLED);
-        // }
+        auto const le = env.le(keylet::account(bob.id()));
+        BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000000ULL);
     }
 
-    void
-    testInvalidPreflight(FeatureBitset features)
-    {
-        testcase("invalid preflight");
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        //----------------------------------------------------------------------
-        // preflight
-
-        // temDISABLED
-        // featureHooks
-
-        // temDISABLED
-        // featureXahauGenesis
-
-        // temMALFORMED
-        // can only be used by the genesis account in an emitted transaction.
-
-        // temMALFORMED
-        // destinations array empty.
-
-        // temMALFORMED
-        // destinations array exceeds 512 entries.
-
-        // temMALFORMED
-        // destinations array contained an invalid entry.
-
-        // temMALFORMED
-        // each destination must have at least one of: sfAmount, sfGovernanceFlags, sfGovernance marks
-        
-        // temMALFORMED
-        // only native amounts can be minted.
-
-        // temMALFORMED
-        // only positive amounts can be minted.
-
-        // temMALFORMED
-        // destinations includes disallowed account zero or one.
-        
-        // temMALFORMED
-        // duplicate in destinations.
-    }
-
-    void
-    testInvalidPreclaim(FeatureBitset features)
-    {
-        testcase("invalid preclaim");
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        //----------------------------------------------------------------------
-        // preclaim
-
-        // temDISABLED
-        // featureHooks
-
-        // temDISABLED
-        // featureXahauGenesis
-    }
-
-    void
-    testInvalidDoApply(FeatureBitset features)
-    {
-        testcase("invalid doApply");
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        //----------------------------------------------------------------------
-        // preflight
-
-        // tecINTERNAL
-        // Non-xrp amount.
-
-        // tecINTERNAL
-        // cannot credit " << dest << " due to balance overflow
-
-        // tecINTERNAL
-        // dropsAdded overflowed\n
-    }
-
-    void
-    testWithFeats(FeatureBitset features)
-    {
-        BEAST_EXPECT(1 == 1);
-        // testEnabled(features);
-    }
-*/
 public:
     void
     run() override
@@ -696,8 +608,10 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testDisabled(sa);
-        testNonGenesisEmit(sa);
         testGenesisEmit(sa);
+        testGenesisNonEmit(sa);
+        testNonGenesisEmit(sa);
+        testNonGenesisNonEmit(sa);
     }
 };
 

@@ -114,10 +114,17 @@ GenesisMint::preflight(PreflightContext const& ctx)
                 return temMALFORMED;
             }
 
-            if (amt <= beast::zero)
+            if (amt < beast::zero)
             {
                 JLOG(ctx.j.warn())
-                    << "GenesisMint: only positive amounts can be minted.";
+                    << "GenesisMint: only non-negative amounts can be minted.";
+                return temMALFORMED;
+            }
+
+            if (amt.xrp().drops() > 10'000'000'000'000ULL)
+            {
+                JLOG(ctx.j.warn())
+                    << "GenesisMint: cannot mint more than 10MM in a single txn.";
                 return temMALFORMED;
             }
         }
@@ -249,7 +256,8 @@ GenesisMint::doApply()
         return tecINTERNAL;
     }
 
-    ctx_.rawView().rawDestroyXRP(-dropsAdded.xrp());
+    if (dropsAdded > beast::zero)
+        ctx_.rawView().rawDestroyXRP(-dropsAdded.xrp());
 
     return tesSUCCESS;
 }
