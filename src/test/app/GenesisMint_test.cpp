@@ -15,11 +15,10 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Feature.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
-
-#include <test/jtx.h>
+#include <ripple/protocol/Feature.h>
 #include <optional>
+#include <test/jtx.h>
 
 namespace ripple {
 namespace test {
@@ -86,6 +85,26 @@ struct GenesisMint_test : public beast::unit_test::suite
         tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = 0;
         
         tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] = strHex(XahauGenesis::MintTestHook);
+        return tx;
+    }
+
+    Json::Value
+    setAcceptHook(jtx::Account const& account)
+    {
+        using namespace jtx;
+        Json::Value tx;
+        tx[jss::Account] = account.human();
+        tx[jss::TransactionType] = "SetHook";
+        tx[jss::Hooks] = Json::arrayValue;
+        tx[jss::Hooks][0u] = Json::objectValue;
+        tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
+        tx[jss::Hooks][0u][jss::Hook][jss::HookOn] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        tx[jss::Hooks][0u][jss::Hook][jss::HookNamespace] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = 0;
+        tx[jss::Hooks][0u][jss::Hook][jss::Flags] = 5;
+        tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] = strHex(XahauGenesis::AcceptHook);
         return tx;
     }
 
@@ -375,14 +394,12 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         uint256 marks;
         uint256 flags;
-        if (flags.parseHex("0000000000000000000000000000000000000000000000000000000000000001"))
-        {
-            // pass
-        };
-        if (marks.parseHex("1000000000000000000000000000000000000000000000000000000000000000"))
-        {
-            // pass
-        };
+        BEAST_EXPECT(
+            flags.parseHex("000000000000000000000000000000000000000000000000000"
+                           "0000000000001"));
+        BEAST_EXPECT(
+            marks.parseHex("100000000000000000000000000000000000000000000000000"
+                           "0000000000000"));
 
         // dest + flags
         {
@@ -591,6 +608,65 @@ struct GenesisMint_test : public beast::unit_test::suite
         BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000000ULL);
     }
 
+    void
+    testGenesisMintTSH(FeatureBitset features)
+    {
+        testcase("GenesisMint TSH");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        Env env{*this, envconfig(), features, nullptr};
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const invoker = Account("invoker");
+        env.fund(XRP(10000), alice, bob, invoker);
+
+        // set tsh collect on bob
+        env(fset(bob, asfTshCollect));
+
+        // burn down the total ledger coins so that genesis mints don't mint
+        // above 100B tripping invariant
+        env(burn(env.master), fee(XRP(10'000'000ULL)));
+        env.close();
+
+        // set the test hook
+        env(setMintHook(env.master), fee(XRP(10)));
+        env.close();
+
+        // set the accept hook
+        env(setAcceptHook(bob), fee(XRP(10)));
+        env.close();
+
+        // test a mint
+        {
+            env(invoke(
+                    invoker,
+                    env.master,
+                    makeBlob({
+                        {bob.id(),
+                         XRP(123).value(),
+                         std::nullopt,
+                         std::nullopt},
+                    })),
+                fee(XRP(10)),
+                ter(tesSUCCESS));
+
+            env.close();
+            env.close();
+
+            // verify tsh hook triggered
+            Json::Value params;
+            params[jss::transaction] =
+                "11A278CCB5829913E5548CD57473328413D56B9C96FC2347803276D5149CBF"
+                "03";
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const executions = meta[sfHookExecutions.jsonName];
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+        }
+    }
+
 public:
     void
     run() override
@@ -602,6 +678,7 @@ public:
         testGenesisNonEmit(sa);
         testNonGenesisEmit(sa);
         testNonGenesisNonEmit(sa);
+        testGenesisMintTSH(sa);
     }
 };
 
