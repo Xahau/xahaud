@@ -354,6 +354,22 @@ namespace hook
                 break;
             }
 
+            case ttGENESIS_MINT:
+            {
+                if (tx.isFieldPresent(sfGenesisMints))
+                {
+                    auto const& mints = tx.getFieldArray(sfGenesisMints);
+                    for(auto const& mint : mints)
+                    {
+                        if(mint.isFieldPresent(sfDestination))
+                        {
+                            ADD_TSH(mint.getAccountID(sfDestination), canRollback);
+                        }
+                    }
+                }
+                break;
+            }
+
             default:
                 return {};
         }
