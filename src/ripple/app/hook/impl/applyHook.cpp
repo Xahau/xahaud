@@ -95,9 +95,26 @@ namespace hook
                 auto const owner = ut->getAccountID(sfOwner);
                 auto const issuer = ut->getAccountID(sfIssuer);
 
-                // the issuer is a strong tsh if the burnable flag is set
-                if (issuer != owner)
-                    ADD_TSH(issuer, ut->getFlags() & tfBurnable);
+
+                // three possible burn scenarios:
+                //  the burner is the owner and issuer of the token
+                //  the burner is the owner and not the issuer of the token
+                //  the burner is the issuer and not the owner of the token
+
+                if (issuer == owner)
+                {
+                    // pass, already a TSH
+                }
+                else if (*otxnAcc == owner)
+                {
+                    // the owner burns their token, and the issuer is a weak TSH
+                    ADD_TSH(issuer, canRollback);
+                }
+                else
+                {
+                    // the issuer burns the owner's token, and the owner is a weak TSH
+                    ADD_TSH(owner, canRollback);
+                }
                 
                 break;
             }
@@ -4894,7 +4911,7 @@ DEFINE_HOOK_FUNCTION(
     }
     else if (man == 0)
     {
-        out[0] = 0b11000000U;
+        out[0] = 0b10000000U;
         for (int i = 1; i < 8; ++i)
             out[i] = 0;
     }

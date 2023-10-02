@@ -129,6 +129,14 @@ Import::preflight(PreflightContext const& ctx)
     if (!ctx.rules.enabled(featureHooksUpdate1) && ctx.tx.isFieldPresent(sfIssuer))
         return temDISABLED;
 
+    if (ctx.tx.isFieldPresent(sfIssuer) &&
+        ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: Issuer cannot be the source account.";
+        return temMALFORMED;
+    }
+
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 

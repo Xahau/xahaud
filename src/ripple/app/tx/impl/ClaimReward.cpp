@@ -48,6 +48,13 @@ ClaimReward::preflight(PreflightContext const& ctx)
     if (ctx.tx.isFieldPresent(sfFlags) && ctx.tx.getFieldU32(sfFlags) > 1)
         return temINVALID_FLAG;
 
+    if (ctx.tx.isFieldPresent(sfIssuer) && ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
+    {
+        JLOG(ctx.j.warn())
+            << "ClaimReward: Issuer cannot be the source account.";
+        return temMALFORMED;
+    }
+
     return preflight2(ctx);
 }
 
