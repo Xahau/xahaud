@@ -46,6 +46,9 @@ TxMeta::TxMeta(
     
     if (obj.isFieldPresent(sfHookExecutions))
         setHookExecutions(obj.getFieldArray(sfHookExecutions));
+
+    if (obj.isFieldPresent(sfHookEmissions))
+        setHookEmissions(obj.getFieldArray(sfHookEmissions));
 }
 
 TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, STObject const& obj)
@@ -67,6 +70,9 @@ TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, STObject const& obj)
 
     if (obj.isFieldPresent(sfHookExecutions))
         setHookExecutions(obj.getFieldArray(sfHookExecutions));
+
+    if (obj.isFieldPresent(sfHookEmissions))
+        setHookEmissions(obj.getFieldArray(sfHookEmissions));
 }
 
 TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, Blob const& vec)
