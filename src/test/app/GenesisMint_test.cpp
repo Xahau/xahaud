@@ -526,6 +526,17 @@ struct GenesisMint_test : public beast::unit_test::suite
             BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance).xrp().drops() ==10000000ULL);
         }
 
+        // try destination is genesis
+        {
+            env(invoke(invoker, env.master,
+                makeBlob({
+                    {env.master.id(), XRP(10).value(), std::nullopt, std::nullopt},
+                    })),
+                fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+            env.close();
+        }
+
         // try to include the same destination twice
         {
             env(invoke(invoker, env.master,

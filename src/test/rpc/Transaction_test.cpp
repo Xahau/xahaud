@@ -690,6 +690,33 @@ class Transaction_test : public beast::unit_test::suite
             BEAST_EXPECT(!jrr[jss::ctid]);
             BEAST_EXPECT(jrr[jss::hash]);
         }
+
+        // test the wrong network ID was submitted
+        {
+            Env env{*this, makeNetworkConfig(21337)};
+            uint32_t netID = env.app().config().NETWORK_ID;
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+
+            auto const startLegSeq = env.current()->info().seq;
+            env.fund(XRP(10000), alice, bob);
+            env(pay(alice, bob, XRP(10)));
+            env.close();
+
+            auto const ctid = *RPC::encodeCTID(startLegSeq, 0, netID + 1);
+            Json::Value jsonTx;
+            jsonTx[jss::binary] = false;
+            jsonTx[jss::ctid] = ctid;
+            jsonTx[jss::id] = 1;
+            auto jrr = env.rpc("json", "tx", to_string(jsonTx))[jss::result];
+            BEAST_EXPECT(jrr[jss::error] == "wrongNetwork");
+            BEAST_EXPECT(jrr[jss::error_code] == rpcWRONG_NETWORK);
+            BEAST_EXPECT(
+                jrr[jss::error_message] ==
+                "Wrong network. You should submit this request to a node "
+                "running on NetworkID: 21338");
+        }
     }
 
 public:

@@ -1656,6 +1656,37 @@ class Import_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
+        //----------------------------------------------------------------------
+        // preflight
+
+        // temDISABLED - disabled
+        // !ctx.rules.enabled(featureImport)
+        {
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys), features - featureImport};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)), ter(temDISABLED));
+        }
+
+        // temDISABLED - disabled
+        // !ctx.rules.enabled(featureHooksUpdate1) &&
+        // ctx.tx.isFieldPresent(sfIssuer)
+        {
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys), features - featureHooksUpdate1};
+
+            auto const alice = Account("alice");
+            auto const issuer = Account("issuer");
+            env.fund(XRP(1000), alice, issuer);
+            env.close();
+
+            auto tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
+            tx[sfIssuer.jsonName] = issuer.human();
+            env(tx, ter(temDISABLED));
+        }
+
         test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
 
         // burn 1000 xrp
@@ -1669,15 +1700,13 @@ class Import_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob);
         env.close();
 
-        //----------------------------------------------------------------------
-        // preflight
-
-        // temDISABLED - disabled
-        // !ctx.rules.enabled(featureImport)
-
-        // temDISABLED - disabled
-        // r!ctx.rules.enabled(featureHooksUpdate1) &&
-        // ctx.tx.isFieldPresent(sfIssuer)
+        // temMALFORMED
+        // Issuer cannot be the source account.
+        {
+            auto tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
+            tx[sfIssuer.jsonName] = alice.human();
+            env(tx, ter(temMALFORMED));
+        }
 
         // telINSUF_FEE_P - sfFee cannot be 0
         {
@@ -1688,13 +1717,15 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(telINSUF_FEE_P));
         }
 
-        //* DA: Technically breaking the size throws before preflight
+        // DA: blob.resize(513 * 1024); fails with Boost
         // temMALFORMED
-        // temMALFORMED - Import: blob was more than 512kib
+        // blob was more than 512kib
         // {
         //     ripple::Blob blob;
         //     blob.resize(513 * 1024);
-        //     env(import(alice, blob), ter(temMALFORMED));
+        //     Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
+        //     tx[sfBlob.jsonName] = strHex(blob);
+        //     env(tx, ter(temMALFORMED));
         // }
 
         // temMALFORMED - sfAmount field must be in drops

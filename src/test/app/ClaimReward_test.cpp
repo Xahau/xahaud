@@ -24,13 +24,20 @@ namespace ripple {
 namespace test {
 struct ClaimReward_test : public beast::unit_test::suite
 {
-    static Json::Value
-    claim(jtx::Account const& account)
+    Json::Value
+    claim(
+        jtx::Account const& account,
+        std::optional<jtx::Account> const& issuer = std::nullopt,
+        std::uint32_t flags = 0)
     {
         using namespace jtx;
         Json::Value jv;
         jv[jss::TransactionType] = jss::ClaimReward;
         jv[jss::Account] = account.human();
+        if (issuer)
+            jv[sfIssuer.jsonName] = issuer->human();
+        if (flags)
+            jv[jss::Flags] = flags;
         return jv;
     }
 
@@ -190,13 +197,13 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, issuer);
             env.close();
 
-            auto tx = claim(alice);
-            tx[sfIssuer.jsonName] = issuer.human();
+            auto tx = claim(alice, issuer);
             env(tx, ter(temDISABLED));
             env.close();
         }
 
         // temINVALID_FLAG
+        // can have flag 1 set to opt-out of rewards
         {
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
@@ -206,9 +213,21 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, issuer);
             env.close();
 
-            auto tx = claim(alice);
-            tx[sfIssuer.jsonName] = issuer.human();
+            auto tx = claim(alice, issuer);
             env(tx, txflags(tfClose), ter(temINVALID_FLAG));
+            env.close();
+        }
+
+        // temMALFORMED
+        // Issuer cannot be the source account.
+        {
+            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            env(claim(alice, alice), ter(temMALFORMED));
             env.close();
         }
     }
@@ -238,16 +257,15 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), issuer);
             env.close();
 
-            auto tx = claim(alice);
+            auto tx = claim(alice, issuer);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 10;
-            tx[sfIssuer.jsonName] = issuer.human();
             env(tx, ter(terNO_ACCOUNT));
             env.close();
         }
 
         // temMALFORMED
-        // (issuer && isOptOut) || (!issuer && !isOptOut)
+        // (issuer && isOptOut)
         {
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
@@ -257,11 +275,10 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, issuer);
             env.close();
 
-            auto tx = claim(alice);
-            tx[sfIssuer.jsonName] = issuer.human();
-            env(tx, txflags(1), ter(temMALFORMED));
+            env(claim(alice, issuer, 1), ter(temMALFORMED));
             env.close();
         }
+        // (!issuer && !isOptOut)
         {
             test::jtx::Env env{*this, makeNetworkConfig(21337)};
 
@@ -286,8 +303,7 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice);
             env.close();
 
-            auto tx = claim(alice);
-            tx[sfIssuer.jsonName] = issuer.human();
+            auto tx = claim(alice, issuer);
             env(tx, ter(tecNO_ISSUER));
             env.close();
         }
@@ -319,8 +335,7 @@ struct ClaimReward_test : public beast::unit_test::suite
                     .parentCloseTime.time_since_epoch())
                 .count();
 
-        auto tx = claim(alice);
-        tx[sfIssuer.jsonName] = issuer.human();
+        auto tx = claim(alice, issuer);
         env(tx, ter(tesSUCCESS));
         env.close();
 
@@ -330,7 +345,7 @@ struct ClaimReward_test : public beast::unit_test::suite
             true);
 
         // test claim rewards - opt out
-        env(claim(alice), txflags(1), ter(tesSUCCESS));
+        env(claim(alice, std::nullopt, 1), ter(tesSUCCESS));
         env.close();
 
         BEAST_EXPECT(expectNoRewards(env, alice) == true);
