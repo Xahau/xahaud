@@ -627,6 +627,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         Env env{*this, envconfig(), features, nullptr};
+
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -663,16 +664,25 @@ struct GenesisMint_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
 
             env.close();
+
+            // get the emitted txn id
+            Json::Value params;
+            params[jss::transaction] = env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const emissions = meta[sfHookEmissions.jsonName];
+            auto const emission = emissions[0u][sfHookEmission.jsonName];
+            auto const txId = emission[sfEmittedTxnID.jsonName];
+            
+            // trigger the emitted txn
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                "11A278CCB5829913E5548CD57473328413D56B9C96FC2347803276D5149CBF"
-                "03";
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
+            Json::Value params1;
+            params1[jss::transaction] = txId;
+            auto const jrr1 = env.rpc("json", "tx", to_string(params1));
+            auto const meta1 = jrr1[jss::result][jss::meta];
+            auto const executions = meta1[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
         }
