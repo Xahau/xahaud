@@ -1541,6 +1541,32 @@ public:
     }
 
     void
+    testWithTickets()
+    {
+        testcase("with tickets");
+        using namespace jtx;
+        
+        Env env{*this, supported_amendments()};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+
+        std::uint32_t aliceTicketSeq{env.seq(alice) + 1};
+        env(ticket::create(alice, 10));
+        std::uint32_t const aliceSeq{env.seq(alice)};
+        env.require(owners(alice, 10));
+
+        env(ripple::test::jtx::hook(alice, {{hso(accept_wasm)}}, 0),
+            HSFEE,
+            ticket::use(aliceTicketSeq++),
+            ter(tesSUCCESS));
+
+        env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
+        BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        env.require(owners(alice, 9 + 1));
+    }
+
+    void
     testInferHookSetOperation()
     {
         testcase("Test operation inference");
@@ -11400,7 +11426,6 @@ public:
     void
     run() override
     {
-        // testTicketSetHook();  // RH TODO
 
         testHooksDisabled();
         testTxStructure();
@@ -11411,6 +11436,7 @@ public:
         testDelete();
         testInstall();
         testCreate();
+        testWithTickets();
 
         testUpdate();
 
@@ -11644,7 +11670,7 @@ private:
 
     HASH_WASM(accept2);
 };
-BEAST_DEFINE_TESTSUITE(SetHook, tx, ripple);
+BEAST_DEFINE_TESTSUITE(SetHook, app, ripple);
 }  // namespace test
 }  // namespace ripple
 #undef M

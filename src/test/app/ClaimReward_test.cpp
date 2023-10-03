@@ -352,12 +352,35 @@ struct ClaimReward_test : public beast::unit_test::suite
     }
 
     void
+    testUsingTickets(FeatureBitset features)
+    {
+        testcase("using tickets");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const issuer = Account("issuer");
+        env.fund(XRP(10000), alice, issuer);
+        std::uint32_t aliceTicketSeq{env.seq(alice) + 1};
+        env(ticket::create(alice, 10));
+        std::uint32_t const aliceSeq{env.seq(alice)};
+        env.require(owners(alice, 10));
+
+        env(claim(alice, issuer), ticket::use(aliceTicketSeq++), ter(tesSUCCESS));
+
+        env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
+        BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        env.require(owners(alice, 9));
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
         testInvalidPreflight(features);
         testInvalidPreclaim(features);
         testValidNoHook(features);
+        testUsingTickets(features);
     }
 
 public:

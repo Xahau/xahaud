@@ -1444,10 +1444,9 @@ struct URIToken_test : public beast::unit_test::suite
         env(buy(bob, hexid, USD(1500)),
             ticket::use(bobTicketSeq++),
             ter(tecINSUFFICIENT_FUNDS));
-        env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
+        env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
 
         env(buy(bob, hexid, USD(1000)), ticket::use(bobTicketSeq++));
-
         env.require(tickets(bob, env.seq(bob) - bobTicketSeq));
         BEAST_EXPECT(env.seq(bob) == bobSeq);
         BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
