@@ -66,7 +66,7 @@ xrpCurrency();
 Currency const&
 noCurrency();
 
-/** We deliberately disallow the currency that looks like "XRP" because too
+/** We deliberately disallow the currency that looks like "XAH" because too
     many people were using it instead of the correct XRP currency. */
 Currency const&
 badCurrency();
@@ -83,7 +83,7 @@ isFakeXRP(Currency const& c)
     return c == badCurrency();
 }
 
-/** Returns "", "XRP", or three letter ISO code. */
+/** Returns "", "XAH", or three letter ISO code. */
 std::string
 to_string(Currency const& c);
 
