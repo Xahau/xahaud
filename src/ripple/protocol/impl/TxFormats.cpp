@@ -27,44 +27,28 @@ namespace ripple {
 
 TxFormats::TxFormats()
 {
-#pragma push_macro("PSEUDO_TXN_COMMON_FIELDS")
-
-    // clang-format off
-
-    #define PSEUDO_TXN_COMMON_FIELDS                        \
-        {sfTransactionType, soeREQUIRED},                   \
-        {sfFlags, soeOPTIONAL},                             \
-        {sfSourceTag, soeOPTIONAL},                         \
-        {sfAccount, soeREQUIRED},                           \
-        {sfSequence, soeREQUIRED},                          \
-        {sfPreviousTxnID, soeOPTIONAL}, /* emulate027 */    \
-        {sfLastLedgerSequence, soeOPTIONAL},                \
-        {sfAccountTxnID, soeOPTIONAL},                      \
-        {sfFee, soeREQUIRED},                               \
-        {sfOperationLimit, soeOPTIONAL},                    \
-        {sfMemos, soeOPTIONAL},                             \
-        {sfSigningPubKey, soeREQUIRED},                     \
-        {sfTxnSignature, soeOPTIONAL},                      \
-        {sfSigners, soeOPTIONAL}, /* submit_multisigned */  \
-        {sfEmitDetails, soeOPTIONAL},                       \
-        {sfFirstLedgerSequence, soeOPTIONAL},               \
-        {sfNetworkID, soeOPTIONAL},                         \
-        {sfHookParameters, soeOPTIONAL}
-
-    // clang-format on
-
-    // Fields shared by all pseudo-transaction txFormats:
-    static const std::initializer_list<SOElement> pseudoCommonFields{
-        PSEUDO_TXN_COMMON_FIELDS,
-    };
-
-    // Fields shared by all normal transaction txFormats:
+    // Fields shared by all txFormats:
     static const std::initializer_list<SOElement> commonFields{
-        PSEUDO_TXN_COMMON_FIELDS,
+        {sfTransactionType, soeREQUIRED},
+        {sfFlags, soeOPTIONAL},
+        {sfSourceTag, soeOPTIONAL},
+        {sfAccount, soeREQUIRED},
+        {sfSequence, soeREQUIRED},
+        {sfPreviousTxnID, soeOPTIONAL},  // emulate027
+        {sfLastLedgerSequence, soeOPTIONAL},
+        {sfAccountTxnID, soeOPTIONAL},
+        {sfFee, soeREQUIRED},
+        {sfOperationLimit, soeOPTIONAL},
+        {sfMemos, soeOPTIONAL},
+        {sfSigningPubKey, soeREQUIRED},
         {sfTicketSequence, soeOPTIONAL},
+        {sfTxnSignature, soeOPTIONAL},
+        {sfSigners, soeOPTIONAL},  // submit_multisigned
+        {sfEmitDetails, soeOPTIONAL},
+        {sfFirstLedgerSequence, soeOPTIONAL},
+        {sfNetworkID, soeOPTIONAL},
+        {sfHookParameters, soeOPTIONAL},
     };
-
-#pragma pop_macro("PSEUDO_TXN_COMMON_FIELDS")
 
     add(jss::AccountSet,
         ttACCOUNT_SET,
@@ -244,7 +228,7 @@ TxFormats::TxFormats()
             {sfLedgerSequence, soeREQUIRED},
             {sfAmendment, soeREQUIRED},
         },
-        pseudoCommonFields);
+        commonFields);
 
     add(jss::EmitFailure,
         ttEMIT_FAILURE,
@@ -268,7 +252,7 @@ TxFormats::TxFormats()
             {sfReserveBaseDrops, soeOPTIONAL},
             {sfReserveIncrementDrops, soeOPTIONAL},
         },
-        pseudoCommonFields);
+        commonFields);
 
     add(jss::UNLModify,
         ttUNL_MODIFY,
@@ -277,7 +261,7 @@ TxFormats::TxFormats()
             {sfLedgerSequence, soeREQUIRED},
             {sfUNLModifyValidator, soeREQUIRED},
         },
-        pseudoCommonFields);
+        commonFields);
 
     add(jss::UNLReport,
         ttUNL_REPORT,
