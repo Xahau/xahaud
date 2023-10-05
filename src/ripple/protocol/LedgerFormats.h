@@ -174,10 +174,10 @@ enum LedgerEntryType : std::uint16_t
 
     /** A ledger object that reports on the active dUNL validators
      * that were validating for more than 240 of the last 256 ledgers
-     *
-     * \sa keylet::UNLReport
+
+        \sa keylet::UNLReport
      */
-    ltUNL_REPORT = 0x0052, 
+    ltUNL_REPORT = 0x0052,
 
     //---------------------------------------------------------------------------
     /** A special type, matching any ledger entry type.
