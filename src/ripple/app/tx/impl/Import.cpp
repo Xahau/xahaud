@@ -1230,6 +1230,8 @@ Import::doApply()
     {
         // Create the account.
         std::uint32_t const seqno{
+            view().rules().enabled(featureXahauGenesis) 
+                ? view().info().parentCloseTime.time_since_epoch().count() :
             view().rules().enabled(featureDeletableAccounts)
                 ? view().seq()
                 : 1};
