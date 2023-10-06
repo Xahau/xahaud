@@ -376,7 +376,7 @@ JSS(fee_div_max);           // in: TransactionSign
 JSS(fee_hooks_feeunits);    // out: Fee rpc call
 JSS(fee_level);             // out: AccountInfo
 JSS(fee_mult_max);          // in: TransactionSign
-JSS(fee_ref);               // out: NetworkOPs
+JSS(fee_ref);               // out: NetworkOPs, DEPRECATED
 JSS(fetch_pack);            // out: NetworkOPs
 JSS(first);                 // out: rpc/Version
 JSS(firstSequence);         // out: NodeToShardStatus
