@@ -222,7 +222,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         tx[jss::TransactionType] = "AccountSet";
         return tx;
     }
-    
+
     void
     testGenesisEmit(FeatureBitset features)
     {
@@ -293,11 +293,13 @@ struct GenesisMint_test : public beast::unit_test::suite
         {
             auto acc = env.le(keylet::account(carol.id()));
             BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 67890000000ULL);
+            BEAST_EXPECT(acc->getFieldU32(sfSequence) == 50);
         }
 
         {
             auto acc = env.le(keylet::account(david.id()));
             BEAST_EXPECT(acc->getFieldAmount(sfBalance).xrp().drops() == 12345000000ULL);
+            BEAST_EXPECT(acc->getFieldU32(sfSequence) == 50);
         }
 
         // lots of entries
