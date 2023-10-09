@@ -61,12 +61,12 @@ class AccountTxPaging_test : public beast::unit_test::suite
     }
 
     void
-    testAccountTxPaging()
+    testAccountTxPaging(FeatureBitset features)
     {
         testcase("Paging for Single Account");
         using namespace test::jtx;
 
-        Env env(*this);
+        Env env(*this, features);
         Account A1{"A1"};
         Account A2{"A2"};
         Account A3{"A3"};
@@ -267,7 +267,9 @@ public:
     void
     run() override
     {
-        testAccountTxPaging();
+        using namespace test::jtx;
+        auto const sa = supported_amendments();
+        testAccountTxPaging(sa - featureXahauGenesis);
     }
 };
 
