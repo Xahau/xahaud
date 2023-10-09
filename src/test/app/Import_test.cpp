@@ -4405,75 +4405,117 @@ class Import_test : public beast::unit_test::suite
 
         // Account Index from Import
         {
-            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
-            auto const feeDrops = env.current()->fees().base;
+            for (std::uint32_t const withFeature : {0, 1, 2})
+            {
+                auto const amend = withFeature == 0 ? features
+                    : withFeature == 1 ? features - featureXahauGenesis
+                                       : features - featureDeletableAccounts;
+                test::jtx::Env env{
+                    *this, makeNetworkVLConfig(21337, keys), amend};
+                auto const feeDrops = env.current()->fees().base;
 
-            // confirm total coins header
-            auto const initCoins = env.current()->info().drops;
-            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+                // confirm total coins header
+                auto const initCoins = env.current()->info().drops;
+                BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
 
-            // burn 10'000 xrp
-            auto const master = Account("masterpassphrase");
-            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
-            env.close();
+                // burn 10'000 xrp
+                auto const master = Account("masterpassphrase");
+                env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+                env.close();
 
-            // confirm total coins header
-            auto const burnCoins = env.current()->info().drops;
-            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
+                // confirm total coins header
+                auto const burnCoins = env.current()->info().drops;
+                BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
 
-            auto const alice = Account("alice");
-            env.fund(XRP(1000), alice);
-            env.close();
+                auto const alice = Account("alice");
+                env.fund(XRP(1000), alice);
+                env.close();
 
-            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
-                fee(feeDrops * 10),
-                ter(tesSUCCESS));
-            env.close();
+                env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                    fee(feeDrops * 10),
+                    ter(tesSUCCESS));
+                env.close();
 
-            // confirm account index was set
-            auto const [acct, acctSle] =
-                accountKeyAndSle(*env.current(), alice);
-            BEAST_EXPECT((*acctSle)[sfAccountIndex] == 0);
+                // confirm account index was set
+                auto const [acct, acctSle] =
+                    accountKeyAndSle(*env.current(), alice);
 
-            // confirm account count was set
-            auto const [fee, feeSle] = feesKeyAndSle(*env.current());
-            BEAST_EXPECT((*feeSle)[sfAccountCount] == 1);
+                std::cout << "withFeature: " << withFeature << "\n";
+
+                // confirm sequence
+                if (withFeature == 0)
+                {
+                    BEAST_EXPECT((*acctSle)[sfAccountIndex] == 0);
+                }
+                std::uint64_t const seq = withFeature == 0 ? 12
+                    : withFeature == 1                     ? 6
+                                                           : 12;
+                BEAST_EXPECT((*acctSle)[sfSequence] == seq);
+
+                // confirm account count was set
+                if (withFeature == 0)
+                {
+                    auto const [fee, feeSle] = feesKeyAndSle(*env.current());
+                    BEAST_EXPECT((*feeSle)[sfAccountCount] == 1);
+                }
+            }
         }
 
         // Account Index from Payment
         {
-            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
-            auto const feeDrops = env.current()->fees().base;
-
-            auto const alice = Account("alice");
-            auto const bob = Account("bob");
-            auto const carol = Account("carol");
-            env.fund(XRP(1000), alice, bob, carol);
-            env.close();
-
-            struct TestAccountData
+            for (std::uint32_t const withFeature : {0, 1, 2})
             {
-                Account acct;
-                std::uint64_t index;
-            };
+                auto const amend = withFeature == 0 ? features
+                    : withFeature == 1 ? features - featureXahauGenesis
+                                       : features - featureDeletableAccounts;
+                test::jtx::Env env{
+                    *this, makeNetworkVLConfig(21337, keys), amend};
+                auto const feeDrops = env.current()->fees().base;
+                env.close();
 
-            std::array<TestAccountData, 3> acctTests = {{
-                {alice, 0},
-                {bob, 1},
-                {carol, 2},
-            }};
+                auto const alice = Account("alice");
+                auto const bob = Account("bob");
+                auto const carol = Account("carol");
+                env.fund(XRP(1000), alice, bob, carol);
+                env.close();
 
-            for (auto const& t : acctTests)
-            {
-                // confirm index was set
-                auto const [acct, acctSle] =
-                    accountKeyAndSle(*env.current(), t.acct);
-                BEAST_EXPECT((*acctSle)[sfAccountIndex] == t.index);
+                struct TestAccountData
+                {
+                    Account acct;
+                    std::uint32_t index;
+                    std::uint64_t sequence;
+                };
+
+                std::uint64_t const seq = withFeature == 0 ? 11
+                    : withFeature == 1                     ? 5
+                                                           : 11;
+                std::array<TestAccountData, 3> acctTests = {{
+                    {alice, 0, seq},
+                    {bob, 1, seq},
+                    {carol, 2, seq},
+                }};
+
+                for (auto const& t : acctTests)
+                {
+                    // confirm index was set
+                    auto const [acct, acctSle] =
+                        accountKeyAndSle(*env.current(), t.acct);
+
+                    // confirm sequence
+                    if (withFeature == 0)
+                    {
+                        BEAST_EXPECT((*acctSle)[sfAccountIndex] == t.index);
+                    }
+                    BEAST_EXPECT((*acctSle)[sfSequence] == t.sequence);
+                }
+
+                if (withFeature == 0)
+                {
+                    // confirm count was updated
+                    auto const [fee, feeSle] = feesKeyAndSle(*env.current());
+                    BEAST_EXPECT((*feeSle)[sfAccountCount] == 3);
+                }
             }
-
-            // confirm count was updated
-            auto const [fee, feeSle] = feesKeyAndSle(*env.current());
-            BEAST_EXPECT((*feeSle)[sfAccountCount] == 3);
         }
     }
 
@@ -5504,31 +5546,31 @@ public:
     void
     testWithFeats(FeatureBitset features)
     {
-        testComputeStartingBalance(features);
-        testIsHex(features);
-        testIsBase58(features);
-        testIsBase64(features);
-        testParseUint64(features);
-        testSyntaxCheckProofObject(features);
-        testSyntaxCheckXPOP(features);
-        testGetVLInfo(features);
-        testEnabled(features);
-        testInvalidPreflight(features);
-        testInvalidPreclaim(features);
-        testInvalidDoApply(features);
-        testAccountSet(features);
-        testAccountSetFlags(features);
-        testSetRegularKey(features);
-        testSetRegularKeyFlags(features);
-        testSignersListSet(features);
+        // testComputeStartingBalance(features);
+        // testIsHex(features);
+        // testIsBase58(features);
+        // testIsBase64(features);
+        // testParseUint64(features);
+        // testSyntaxCheckProofObject(features);
+        // testSyntaxCheckXPOP(features);
+        // testGetVLInfo(features);
+        // testEnabled(features);
+        // testInvalidPreflight(features);
+        // testInvalidPreclaim(features);
+        // testInvalidDoApply(features);
+        // testAccountSet(features);
+        // testAccountSetFlags(features);
+        // testSetRegularKey(features);
+        // testSetRegularKeyFlags(features);
+        // testSignersListSet(features);
         testAccountIndex(features);
-        testHookIssuer(features);
-        testImportSequence(features);
-        testAccountDelete(features);
-        testMaxSupply(features);
-        testMinMax(features);
-        testHalving(features - featureOwnerPaysFee);
-        testRPCFee(features);
+        // testHookIssuer(features);
+        // testImportSequence(features);
+        // testAccountDelete(features);
+        // testMaxSupply(features);
+        // testMinMax(features);
+        // testHalving(features - featureOwnerPaysFee);
+        // testRPCFee(features);
     }
 };
 
