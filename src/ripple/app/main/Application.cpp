@@ -1726,6 +1726,38 @@ ApplicationImp::startGenesisLedger()
     openLedger_.emplace(next, cachedSLEs_, logs_->journal("OpenLedger"));
     m_ledgerMaster->storeLedger(next);
     m_ledgerMaster->switchLCL(next);
+
+    // XahauGenesis must be activated via an enable amendment pseudo txn, otherwise it does nothing
+    // so rather than add it directly to the amendments table, here is its activation on the first open
+    // ledger.
+    for (auto const& a: initialAmendments)
+    {
+        if (a == featureXahauGenesis)
+        {
+             STTx amendTx(
+                 ttAMENDMENT,
+                 [&](auto& obj) {
+                     obj.setAccountID(sfAccount, AccountID());
+                     obj.setFieldH256(sfAmendment, featureXahauGenesis);
+                     obj.setFieldU32(sfLedgerSequence, openLedger_->current()->info().seq);
+                 });
+
+             auto txID = amendTx.getTransactionID();
+
+             auto s = std::make_shared<Serializer>();
+             amendTx.add(*s);
+
+             forceValidity(getHashRouter(), txID, Validity::SigGoodOnly);
+
+             openLedger_->modify(
+                 [&txID, &s](OpenView& view, beast::Journal j) {
+                     view.rawTxInsert(txID, std::move(s), nullptr);
+                     return true;
+                 });
+             break;
+        }
+    }
+
 }
 
 std::shared_ptr<Ledger>
