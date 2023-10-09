@@ -4440,8 +4440,6 @@ class Import_test : public beast::unit_test::suite
                 auto const [acct, acctSle] =
                     accountKeyAndSle(*env.current(), alice);
 
-                std::cout << "withFeature: " << withFeature << "\n";
-
                 // confirm sequence
                 if (withFeature == 0)
                 {
