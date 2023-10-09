@@ -114,12 +114,12 @@ class AccountObjects_test : public beast::unit_test::suite
 public:
     #define HSFEE fee(100'000'000)
     void
-    testErrors()
+    testErrors(FeatureBitset features)
     {
         testcase("error cases");
 
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
 
         // test error on no account
         {
@@ -247,12 +247,12 @@ public:
     }
 
     void
-    testUnsteppedThenStepped()
+    testUnsteppedThenStepped(FeatureBitset features)
     {
         testcase("unsteppedThenStepped");
 
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
 
         Account const gw1{"G1"};
         Account const gw2{"G2"};
@@ -337,7 +337,7 @@ public:
     }
 
     void
-    testUnsteppedThenSteppedWithNFTs()
+    testUnsteppedThenSteppedWithNFTs(FeatureBitset features)
     {
         // The preceding test case, unsteppedThenStepped(), found a bug in the
         // support for NFToken Pages.  So we're leaving that test alone when
@@ -345,7 +345,7 @@ public:
         testcase("unsteppedThenSteppedWithNFTs");
 
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
 
         Account const gw1{"G1"};
         Account const gw2{"G2"};
@@ -539,7 +539,7 @@ public:
     }
 
     void
-    testObjectTypes()
+    testObjectTypes(FeatureBitset features)
     {
         testcase("object types");
 
@@ -551,7 +551,7 @@ public:
         Account const gw{"gateway"};
         auto const USD = gw["USD"];
 
-        Env env(*this);
+        Env env(*this, features);
 
         // Make a lambda we can use to get "account_objects" easily.
         auto acct_objs = [&env](Account const& acct, char const* type) {
@@ -847,10 +847,12 @@ public:
     void
     run() override
     {
-        testErrors();
-        testUnsteppedThenStepped();
-        testUnsteppedThenSteppedWithNFTs();
-        testObjectTypes();
+        using namespace jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testErrors(all);
+        testUnsteppedThenStepped(all);
+        testUnsteppedThenSteppedWithNFTs(all);
+        testObjectTypes(all);
     }
 };
 

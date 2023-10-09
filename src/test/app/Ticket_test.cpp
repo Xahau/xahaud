@@ -378,12 +378,12 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testTicketNotEnabled()
+    testTicketNotEnabled(FeatureBitset features)
     {
         testcase("Feature Not Enabled");
 
         using namespace test::jtx;
-        Env env{*this, supported_amendments() - featureTicketBatch};
+        Env env{*this, features - featureTicketBatch};
 
         env(ticket::create(env.master, 1), ter(temDISABLED));
         env.close();
@@ -424,12 +424,12 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testTicketCreatePreflightFail()
+    testTicketCreatePreflightFail(FeatureBitset features)
     {
         testcase("Create Tickets that fail Preflight");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
 
         Account const master{env.master};
 
@@ -471,14 +471,14 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testTicketCreatePreclaimFail()
+    testTicketCreatePreclaimFail(FeatureBitset features)
     {
         testcase("Create Tickets that fail Preclaim");
 
         using namespace test::jtx;
         {
             // Create tickets on a non-existent account.
-            Env env{*this};
+            Env env{*this, features};
             Account alice{"alice"};
             env.memoize(alice);
 
@@ -563,12 +563,12 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testTicketInsufficientReserve()
+    testTicketInsufficientReserve(FeatureBitset features)
     {
         testcase("Create Ticket Insufficient Reserve");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
         Account alice{"alice"};
 
         // Fund alice not quite enough to make the reserve for a Ticket.
@@ -623,12 +623,12 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testUsingTickets()
+    testUsingTickets(FeatureBitset features)
     {
         testcase("Using Tickets");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
         Account alice{"alice"};
 
         env.fund(XRP(10000), alice);
@@ -709,7 +709,7 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testTransactionDatabaseWithTickets()
+    testTransactionDatabaseWithTickets(FeatureBitset features)
     {
         // The Transaction database keeps each transaction's sequence number
         // in an entry (called "FromSeq").  Until the introduction of tickets
@@ -724,7 +724,7 @@ class Ticket_test : public beast::unit_test::suite
         testcase("Transaction Database With Tickets");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
         Account alice{"alice"};
 
         env.fund(XRP(10000), alice);
@@ -831,7 +831,7 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testSignWithTicketSequence()
+    testSignWithTicketSequence(FeatureBitset features)
     {
         // The sign and the submit RPC commands automatically fill in the
         // Sequence field of a transaction if none is provided.  If a
@@ -840,7 +840,7 @@ class Ticket_test : public beast::unit_test::suite
         testcase("Sign with TicketSequence");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
         Account alice{"alice"};
 
         env.fund(XRP(10000), alice);
@@ -922,7 +922,7 @@ class Ticket_test : public beast::unit_test::suite
     }
 
     void
-    testFixBothSeqAndTicket()
+    testFixBothSeqAndTicket(FeatureBitset features)
     {
         // It is an error if a transaction contains a non-zero Sequence field
         // and a TicketSequence field.  Verify that the error is detected.
@@ -931,7 +931,7 @@ class Ticket_test : public beast::unit_test::suite
         // Try the test without featureTicketBatch enabled.
         using namespace test::jtx;
         {
-            Env env{*this, supported_amendments() - featureTicketBatch};
+            Env env{*this, features - featureTicketBatch};
             Account alice{"alice"};
 
             env.fund(XRP(10000), alice);
@@ -987,14 +987,16 @@ public:
     void
     run() override
     {
-        testTicketNotEnabled();
-        testTicketCreatePreflightFail();
-        testTicketCreatePreclaimFail();
-        testTicketInsufficientReserve();
-        testUsingTickets();
-        testTransactionDatabaseWithTickets();
-        testSignWithTicketSequence();
-        testFixBothSeqAndTicket();
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testTicketNotEnabled(all);
+        testTicketCreatePreflightFail(all);
+        testTicketCreatePreclaimFail(all);
+        testTicketInsufficientReserve(all);
+        testUsingTickets(all);
+        testTransactionDatabaseWithTickets(all);
+        testSignWithTicketSequence(all);
+        testFixBothSeqAndTicket(all);
     }
 };
 
