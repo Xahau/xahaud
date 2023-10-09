@@ -542,10 +542,9 @@ Change::activateXahauGenesis()
         {
             sle = std::make_shared<SLE>(kl);
             sle->setAccountID(sfAccount, accid);
-            std::uint32_t const seqno{
-                view().rules().enabled(featureDeletableAccounts)
-                    ? view().seq() 
-                    : 1};
+            std::uint32_t const seqno {
+                sb.info().parentCloseTime.time_since_epoch().count()
+            };
             sle->setFieldU32(sfSequence, seqno);
         }
 

@@ -595,6 +595,8 @@ ValidNewAccountRoot::finalize(
     if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT) && result == tesSUCCESS)
     {
         std::uint32_t const startingSeq{
+            view.rules().enabled(featureXahauGenesis)
+                ? view.info().parentCloseTime.time_since_epoch().count() :
             view.rules().enabled(featureDeletableAccounts)
                 ? view.seq() 
                 : 1};
