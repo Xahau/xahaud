@@ -857,8 +857,8 @@ OverlayImpl::getServerInfo()
         Json::Value& validated_ledger = server_info[jss::validated_ledger];
 
         validated_ledger.removeMember(jss::base_fee);
-        validated_ledger.removeMember(jss::reserve_base_xrp);
-        validated_ledger.removeMember(jss::reserve_inc_xrp);
+        validated_ledger.removeMember(jss::reserve_base_xah);
+        validated_ledger.removeMember(jss::reserve_inc_xah);
     }
 
     return server_info;
