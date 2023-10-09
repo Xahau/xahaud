@@ -1675,7 +1675,10 @@ class Import_test : public beast::unit_test::suite
         // !ctx.rules.enabled(featureHooksUpdate1) &&
         // ctx.tx.isFieldPresent(sfIssuer)
         {
-            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys), features - featureHooksUpdate1};
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features - featureHooksUpdate1};
 
             auto const alice = Account("alice");
             auto const issuer = Account("issuer");
@@ -1688,6 +1691,7 @@ class Import_test : public beast::unit_test::suite
         }
 
         test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+        auto const feeDrops = env.current()->fees().base;
 
         // burn 1000 xrp
         auto const master = Account("masterpassphrase");
@@ -1696,8 +1700,10 @@ class Import_test : public beast::unit_test::suite
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const dave = Account("dave");
 
-        env.fund(XRP(1000), alice, bob);
+        env.fund(XRP(1000), alice, bob, carol, dave);
         env.close();
 
         // temMALFORMED
@@ -1900,20 +1906,34 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: outer and inner txns were (multi) signed with
         // different keys.
+        {
+            auto const xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
+            env(import(alice, xpopJson),
+                msig(bob, dave),
+                fee((3 * feeDrops) * 10),
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // temMALFORMED - Import: outer or inner txn was missing signers.
+        // different keys.
+        // {
+        //     auto const xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
+        //     env(import(alice, xpopJson),
+        //         fee((3 * feeDrops) * 10),
+        //         ter(temMALFORMED));
+        //     env.close();
+        // }
 
         // temMALFORMED - Import: outer and inner txns were signed with
         // different keys.
         {
-            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
-            tmpXpop[jss::transaction][jss::blob] =
-                "12000322000000002400000002201B0000006C201D0000535968400000003B"
-                "9ACA007321EBA8D46E11FD5D2082A4E6FF3039EB6259FBC2334983D015FC62"
-                "ECAD0AE4A96C747440549A370E68DBB1947419D4CCDF90CAE0BCA9121593EC"
-                "C21B3C79EF0F232EB4375F95F1EBCED78B94D09838B5E769D43F041019ADEF"
-                "3EC206AD3C5177C519560F8114AE123A8556F3CF91154711376AFB0F894F83"
-                "2B3D";
-            Json::Value const tx = import(alice, tmpXpop);
-            env(tx, ter(temMALFORMED));
+            auto const xpopJson =
+                loadXpop(ImportTCSetRegularKey::w_regular_key);
+            env(import(alice, xpopJson),
+                fee(feeDrops * 10),
+                sig(carol),
+                ter(temMALFORMED));
         }
 
         // temMALFORMED - Import: inner txn signature verify failed
@@ -4440,8 +4460,6 @@ class Import_test : public beast::unit_test::suite
                 auto const [acct, acctSle] =
                     accountKeyAndSle(*env.current(), alice);
 
-                std::cout << "withFeature: " << withFeature << "\n";
-
                 // confirm sequence
                 if (withFeature == 0)
                 {
@@ -5546,31 +5564,31 @@ public:
     void
     testWithFeats(FeatureBitset features)
     {
-        // testComputeStartingBalance(features);
-        // testIsHex(features);
-        // testIsBase58(features);
-        // testIsBase64(features);
-        // testParseUint64(features);
-        // testSyntaxCheckProofObject(features);
-        // testSyntaxCheckXPOP(features);
-        // testGetVLInfo(features);
-        // testEnabled(features);
-        // testInvalidPreflight(features);
-        // testInvalidPreclaim(features);
-        // testInvalidDoApply(features);
-        // testAccountSet(features);
-        // testAccountSetFlags(features);
-        // testSetRegularKey(features);
-        // testSetRegularKeyFlags(features);
-        // testSignersListSet(features);
+        testComputeStartingBalance(features);
+        testIsHex(features);
+        testIsBase58(features);
+        testIsBase64(features);
+        testParseUint64(features);
+        testSyntaxCheckProofObject(features);
+        testSyntaxCheckXPOP(features);
+        testGetVLInfo(features);
+        testEnabled(features);
+        testInvalidPreflight(features);
+        testInvalidPreclaim(features);
+        testInvalidDoApply(features);
+        testAccountSet(features);
+        testAccountSetFlags(features);
+        testSetRegularKey(features);
+        testSetRegularKeyFlags(features);
+        testSignersListSet(features);
         testAccountIndex(features);
-        // testHookIssuer(features);
-        // testImportSequence(features);
-        // testAccountDelete(features);
-        // testMaxSupply(features);
-        // testMinMax(features);
-        // testHalving(features - featureOwnerPaysFee);
-        // testRPCFee(features);
+        testHookIssuer(features);
+        testImportSequence(features);
+        testAccountDelete(features);
+        testMaxSupply(features);
+        testMinMax(features);
+        testHalving(features - featureOwnerPaysFee);
+        testRPCFee(features);
     }
 };
 

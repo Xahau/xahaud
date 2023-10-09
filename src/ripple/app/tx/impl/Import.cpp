@@ -277,7 +277,7 @@ Import::preflight(PreflightContext const& ctx)
             bool const outerHasSigners = tx.isFieldPresent(sfSigners);
             bool const innerHasSigners = stpTrans->isFieldPresent(sfSigners);
 
-            if (!(outerHasSigners && innerHasSigners))
+            if (outerHasSigners && innerHasSigners)
             {
                 auto const& outerSigners = tx.getFieldArray(sfSigners);
                 auto const& innerSigners = stpTrans->getFieldArray(sfSigners);
@@ -297,9 +297,14 @@ Import::preflight(PreflightContext const& ctx)
                         << tx.getTransactionID();
                     return temMALFORMED;
                 }
-
             }
-
+            else
+            {
+                JLOG(ctx.j.warn())
+                    << "Import: outer or inner txn was missing signers. "
+                    << tx.getTransactionID();
+                return temMALFORMED;
+            }
         }
         else if (outer != inner)
         {
