@@ -792,7 +792,7 @@ public:
 
         {
             // default Env has all supported features
-            Env env{*this};
+            Env env{*this, features};
             BEAST_EXPECT(
                 supported.count() == env.app().config().features.size());
             foreachFeature(supported, [&](uint256 const& f) {
@@ -812,7 +812,7 @@ public:
         }
 
         auto const missingSomeFeatures =
-            supported_amendments() - featureMultiSignReserve - featureFlow;
+            features - featureMultiSignReserve - featureFlow;
         BEAST_EXPECT(missingSomeFeatures.count() == (supported.count() - 2));
         {
             // a Env supported_features_except is missing *only* those features
@@ -872,7 +872,7 @@ public:
             // add a feature that is NOT in the supported amendments list
             // along with all supported amendments
             // the unsupported features should be enabled
-            Env env{*this, supported_amendments().set(*neverSupportedFeat)};
+            Env env{*this, features.set(*neverSupportedFeat)};
 
             // this app will have all supported amendments and then the
             // one additional never supported feature flag

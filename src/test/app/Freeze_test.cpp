@@ -543,7 +543,7 @@ public:
             testOffersWhenFrozen(features);
         };
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = supported_amendments() - featureXahauGenesis;
         testAll(sa - featureFlowCross);
         testAll(sa);
     }
