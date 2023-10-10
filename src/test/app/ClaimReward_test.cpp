@@ -275,7 +275,7 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, issuer);
             env.close();
 
-            env(claim(alice, issuer, 1), ter(temMALFORMED));
+            env(claim(alice, issuer, tfOptOut), ter(temMALFORMED));
             env.close();
         }
         // (!issuer && !isOptOut)
@@ -345,7 +345,7 @@ struct ClaimReward_test : public beast::unit_test::suite
             true);
 
         // test claim rewards - opt out
-        env(claim(alice, std::nullopt, 1), ter(tesSUCCESS));
+        env(claim(alice, std::nullopt, tfOptOut), ter(tesSUCCESS));
         env.close();
 
         BEAST_EXPECT(expectNoRewards(env, alice) == true);
