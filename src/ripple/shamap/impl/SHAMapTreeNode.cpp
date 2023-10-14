@@ -17,6 +17,13 @@
 */
 //==============================================================================
 
+#include <ripple/shamap/SHAMapAccountStateLeafNode.h>
+#include <ripple/shamap/SHAMapInnerNode.h>
+#include <ripple/shamap/SHAMapLeafNode.h>
+#include <ripple/shamap/SHAMapTreeNode.h>
+#include <ripple/shamap/SHAMapTxLeafNode.h>
+#include <ripple/shamap/SHAMapTxPlusMetaLeafNode.h>
+#include <ripple/basics/IntrusivePointer.ipp>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>
 #include <ripple/basics/contract.h>
@@ -24,19 +31,13 @@
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/protocol/HashPrefix.h>
 #include <ripple/protocol/digest.h>
-#include <ripple/shamap/SHAMapAccountStateLeafNode.h>
-#include <ripple/shamap/SHAMapInnerNode.h>
-#include <ripple/shamap/SHAMapLeafNode.h>
-#include <ripple/shamap/SHAMapTreeNode.h>
-#include <ripple/shamap/SHAMapTxLeafNode.h>
-#include <ripple/shamap/SHAMapTxPlusMetaLeafNode.h>
 #include <mutex>
 
 #include <openssl/sha.h>
 
 namespace ripple {
 
-std::shared_ptr<SHAMapTreeNode>
+intr_ptr::SharedPtr<SHAMapTreeNode>
 SHAMapTreeNode::makeTransaction(
     Slice data,
     SHAMapHash const& hash,
@@ -46,12 +47,13 @@ SHAMapTreeNode::makeTransaction(
         sha512Half(HashPrefix::transactionID, data), data);
 
     if (hashValid)
-        return std::make_shared<SHAMapTxLeafNode>(std::move(item), 0, hash);
+        return intr_ptr::make_shared<SHAMapTxLeafNode>(
+            std::move(item), 0, hash);
 
-    return std::make_shared<SHAMapTxLeafNode>(std::move(item), 0);
+    return intr_ptr::make_shared<SHAMapTxLeafNode>(std::move(item), 0);
 }
 
-std::shared_ptr<SHAMapTreeNode>
+intr_ptr::SharedPtr<SHAMapTreeNode>
 SHAMapTreeNode::makeTransactionWithMeta(
     Slice data,
     SHAMapHash const& hash,
@@ -74,13 +76,13 @@ SHAMapTreeNode::makeTransactionWithMeta(
     auto item = std::make_shared<SHAMapItem const>(tag, s.slice());
 
     if (hashValid)
-        return std::make_shared<SHAMapTxPlusMetaLeafNode>(
+        return intr_ptr::make_shared<SHAMapTxPlusMetaLeafNode>(
             std::move(item), 0, hash);
 
-    return std::make_shared<SHAMapTxPlusMetaLeafNode>(std::move(item), 0);
+    return intr_ptr::make_shared<SHAMapTxPlusMetaLeafNode>(std::move(item), 0);
 }
 
-std::shared_ptr<SHAMapTreeNode>
+intr_ptr::SharedPtr<SHAMapTreeNode>
 SHAMapTreeNode::makeAccountState(
     Slice data,
     SHAMapHash const& hash,
@@ -106,13 +108,14 @@ SHAMapTreeNode::makeAccountState(
     auto item = std::make_shared<SHAMapItem const>(tag, s.slice());
 
     if (hashValid)
-        return std::make_shared<SHAMapAccountStateLeafNode>(
+        return intr_ptr::make_shared<SHAMapAccountStateLeafNode>(
             std::move(item), 0, hash);
 
-    return std::make_shared<SHAMapAccountStateLeafNode>(std::move(item), 0);
+    return intr_ptr::make_shared<SHAMapAccountStateLeafNode>(
+        std::move(item), 0);
 }
 
-std::shared_ptr<SHAMapTreeNode>
+intr_ptr::SharedPtr<SHAMapTreeNode>
 SHAMapTreeNode::makeFromWire(Slice rawNode)
 {
     if (rawNode.empty())
@@ -144,7 +147,7 @@ SHAMapTreeNode::makeFromWire(Slice rawNode)
         "wire: Unknown type (" + std::to_string(type) + ")");
 }
 
-std::shared_ptr<SHAMapTreeNode>
+intr_ptr::SharedPtr<SHAMapTreeNode>
 SHAMapTreeNode::makeFromPrefix(Slice rawNode, SHAMapHash const& hash)
 {
     if (rawNode.size() < 4)

@@ -21,6 +21,7 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/app/main/Tuning.h>
 #include <ripple/shamap/NodeFamily.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <sstream>
 
 namespace ripple {
