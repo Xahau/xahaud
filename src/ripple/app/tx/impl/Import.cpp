@@ -46,7 +46,7 @@ Import::makeTxConsequences(PreflightContext const& ctx)
         if (!inner || !inner->isFieldPresent(sfFee))
             return beast::zero;
 
-        if (!meta)
+        if (!meta || !meta->isFieldPresent(sfTransactionResult))
             return beast::zero;
 
         auto const result = meta->getFieldU8(sfTransactionResult);
@@ -1143,10 +1143,14 @@ Import::doApply()
     
     auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal, &(*xpop));
 
-    if (!stpTrans || !stpTrans->isFieldPresent(sfSequence) || !stpTrans->isFieldPresent(sfFee))
+    if (!stpTrans ||
+        !stpTrans->isFieldPresent(sfSequence) ||
+        !stpTrans->isFieldPresent(sfFee) ||
+        !meta ||
+        !meta->isFieldPresent(sfTransactionResult))
     {
         JLOG(ctx_.journal.warn())
-            << "Import: during apply could not find importSequence or fee, bailing.";
+            << "Import: during apply could not find one of: importSequence, meta, tx result or fee, bailing.";
         return tefINTERNAL;
     }
 
