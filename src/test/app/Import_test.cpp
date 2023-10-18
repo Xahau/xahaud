@@ -4416,6 +4416,52 @@ class Import_test : public beast::unit_test::suite
     }
 
     void
+    testUsingTickets(FeatureBitset features)
+    {
+        testcase("using tickets");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        {
+            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
+
+            // confirm total coins header
+            auto const initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            // confirm total coins header
+            auto const burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 10'000'000'000);
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            std::uint32_t aliceTicketSeq{env.seq(alice) + 1};
+            env(ticket::create(alice, 10));
+            std::uint32_t const aliceSeq{env.seq(alice)};
+            env.require(owners(alice, 10));
+
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                fee(feeDrops * 10),
+                ticket::use(aliceTicketSeq++),
+                ter(tesSUCCESS));
+            env.close();
+
+            env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+            env.require(owners(alice, 9));
+        }
+    }
+
+    void
     testAccountIndex(FeatureBitset features)
     {
         testcase("account index");
@@ -5581,6 +5627,7 @@ public:
         testSetRegularKey(features);
         testSetRegularKeyFlags(features);
         testSignersListSet(features);
+        testUsingTickets(features);
         testAccountIndex(features);
         testHookIssuer(features);
         testImportSequence(features);

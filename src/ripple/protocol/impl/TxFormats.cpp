@@ -198,7 +198,6 @@ TxFormats::TxFormats()
             {sfLedgerSequence,  soeREQUIRED},
             {sfActiveValidator, soeOPTIONAL},
             {sfImportVLKey,     soeOPTIONAL},
-
         },
         commonFields);
 
@@ -308,13 +307,15 @@ TxFormats::TxFormats()
         ttHOOK_SET,
         {
             {sfHooks, soeREQUIRED},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
 
     add(jss::ClaimReward,
         ttCLAIM_REWARD,
         {
-            {sfIssuer, soeOPTIONAL}
+            {sfIssuer, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
 
@@ -380,6 +381,7 @@ TxFormats::TxFormats()
         {
             {sfBlob, soeREQUIRED},
             {sfIssuer, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
 
@@ -390,6 +392,7 @@ TxFormats::TxFormats()
             {sfDestination, soeOPTIONAL},
             {sfInvoiceID, soeOPTIONAL},
             {sfDestinationTag, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
     
