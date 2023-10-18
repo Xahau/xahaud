@@ -5185,7 +5185,7 @@ public:
     run() override
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         FeatureBitset const flowCross{featureFlowCross};
         FeatureBitset const takerDryOffer{fixTakerDryOfferRemoval};
         FeatureBitset const rmSmallIncreasedQOffers{fixRmSmallIncreasedQOffers};

@@ -41,7 +41,7 @@ hasDepositAuth(jtx::Env const& env, jtx::Account const& acct)
 struct DepositAuth_test : public beast::unit_test::suite
 {
     void
-    testEnable()
+    testEnable(FeatureBitset features)
     {
         testcase("Enable");
 
@@ -50,7 +50,7 @@ struct DepositAuth_test : public beast::unit_test::suite
 
         {
             // featureDepositAuth is disabled.
-            Env env(*this, supported_amendments() - featureDepositAuth);
+            Env env(*this, features - featureDepositAuth);
             env.fund(XRP(10000), alice);
 
             // Note that, to support old behavior, invalid flags are ignored.
@@ -78,7 +78,7 @@ struct DepositAuth_test : public beast::unit_test::suite
     }
 
     void
-    testPayIOU()
+    testPayIOU(FeatureBitset features)
     {
         // Exercise IOU payments and non-direct XRP payments to an account
         // that has the lsfDepositAuth flag set.
@@ -91,7 +91,7 @@ struct DepositAuth_test : public beast::unit_test::suite
         Account const gw{"gw"};
         IOU const USD = gw["USD"];
 
-        Env env(*this);
+        Env env(*this, features);
 
         env.fund(XRP(10000), alice, bob, carol, gw);
         env.trust(USD(1000), alice, bob);
@@ -173,7 +173,7 @@ struct DepositAuth_test : public beast::unit_test::suite
     }
 
     void
-    testPayXRP()
+    testPayXRP(FeatureBitset features)
     {
         // Exercise direct XRP payments to an account that has the
         // lsfDepositAuth flag set.
@@ -183,7 +183,7 @@ struct DepositAuth_test : public beast::unit_test::suite
         Account const alice{"alice"};
         Account const bob{"bob"};
 
-        Env env(*this);
+        Env env(*this, features);
 
         env.fund(XRP(10000), alice, bob);
 
@@ -274,7 +274,7 @@ struct DepositAuth_test : public beast::unit_test::suite
     }
 
     void
-    testNoRipple()
+    testNoRipple(FeatureBitset features)
     {
         // It its current incarnation the DepositAuth flag does not change
         // any behaviors regarding rippling and the NoRipple flag.
@@ -374,17 +374,18 @@ struct DepositAuth_test : public beast::unit_test::suite
     void
     run() override
     {
-        testEnable();
-        testPayIOU();
-        testPayXRP();
-        testNoRipple();
+        auto const all{jtx::supported_amendments() - featureXahauGenesis};
+        testEnable(all);
+        testPayIOU(all);
+        testPayXRP(all);
+        testNoRipple(all);
     }
 };
 
 struct DepositPreauth_test : public beast::unit_test::suite
 {
     void
-    testEnable()
+    testEnable(FeatureBitset features)
     {
         testcase("Enable");
 
@@ -393,7 +394,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         Account const becky{"becky"};
         {
             // featureDepositPreauth is disabled.
-            Env env(*this, supported_amendments() - featureDepositPreauth);
+            Env env(*this, features - featureDepositPreauth);
             env.fund(XRP(10000), alice, becky);
             env.close();
 
@@ -466,7 +467,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     }
 
     void
-    testInvalid()
+    testInvalid(FeatureBitset features)
     {
         testcase("Invalid");
 
@@ -475,7 +476,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         Account const becky{"becky"};
         Account const carol{"carol"};
 
-        Env env(*this);
+        Env env(*this, features);
 
         // Tell env about alice, becky and carol since they are not yet funded.
         env.memoize(alice);
@@ -727,11 +728,11 @@ struct DepositPreauth_test : public beast::unit_test::suite
     void
     run() override
     {
-        testEnable();
-        testInvalid();
-        auto const supported{jtx::supported_amendments()};
-        testPayment(supported - featureDepositPreauth);
-        testPayment(supported);
+        auto const all{jtx::supported_amendments() - featureXahauGenesis};
+        testEnable(all);
+        testInvalid(all);
+        testPayment(all - featureDepositPreauth);
+        testPayment(all);
     }
 };
 

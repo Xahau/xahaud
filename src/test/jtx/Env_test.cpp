@@ -145,7 +145,7 @@ public:
 
     // Test Env
     void
-    testEnv()
+    testEnv(FeatureBitset features)
     {
         using namespace jtx;
         auto const n = XRP(10000);
@@ -155,7 +155,7 @@ public:
 
         // unfunded
         {
-            Env env(*this);
+            Env env(*this, features);
             env.memoize(alice);
             env(pay("alice", "bob", XRP(1000)),
                 seq(1),
@@ -166,7 +166,7 @@ public:
 
         // fund
         {
-            Env env(*this);
+            Env env(*this, features);
 
             // variadics
             env.fund(n, "alice");
@@ -186,14 +186,14 @@ public:
 
         // trust
         {
-            Env env(*this);
+            Env env(*this, features);
             env.fund(n, "alice", "bob", gw);
             env(trust("alice", USD(100)), require(lines("alice", 1)));
         }
 
         // balance
         {
-            Env env(*this);
+            Env env(*this, features);
             BEAST_EXPECT(env.balance(alice) == 0);
             BEAST_EXPECT(env.balance(alice, USD) != 0);
             BEAST_EXPECT(env.balance(alice, USD) == USD(0));
@@ -209,7 +209,7 @@ public:
 
         // seq
         {
-            Env env(*this);
+            Env env(*this, features);
             env.fund(n, noripple("alice", gw));
             BEAST_EXPECT(env.seq("alice") == 3);
             BEAST_EXPECT(env.seq(gw) == 3);
@@ -217,7 +217,7 @@ public:
 
         // autofill
         {
-            Env env(*this);
+            Env env(*this, features);
             env.fund(n, "alice");
             env.require(balance("alice", n));
             env(noop("alice"), fee(1), ter(telINSUF_FEE_P));
@@ -233,10 +233,10 @@ public:
 
     // Env::require
     void
-    testRequire()
+    testRequire(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         auto const gw = Account("gw");
         auto const USD = gw["USD"];
         env.require(balance("alice", none));
@@ -257,11 +257,11 @@ public:
 
     // Signing with secp256k1 and ed25519 keys
     void
-    testKeyType()
+    testKeyType(FeatureBitset features)
     {
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | fixMasterKeyAsRegularKey};
+        Env env{*this, features | fixMasterKeyAsRegularKey};
         Account const alice("alice", KeyType::ed25519);
         Account const bob("bob", KeyType::secp256k1);
         Account const carol("carol");
@@ -297,10 +297,10 @@ public:
 
     // Payment basics
     void
-    testPayments()
+    testPayments(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         auto const gw = Account("gateway");
         auto const USD = gw["USD"];
 
@@ -370,10 +370,10 @@ public:
     // transactions are neither queued nor
     // held.
     void
-    testFailHard()
+    testFailHard(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         auto const gw = Account("gateway");
         auto const USD = gw["USD"];
 
@@ -454,11 +454,11 @@ public:
 
     // Multi-sign basics
     void
-    testMultiSign()
+    testMultiSign(FeatureBitset features)
     {
         using namespace jtx;
 
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         env(signers("alice", 1, {{"alice", 1}, {"bob", 2}}),
             ter(temBAD_SIGNER));
@@ -478,14 +478,14 @@ public:
     }
 
     void
-    testTicket()
+    testTicket(FeatureBitset features)
     {
         using namespace jtx;
         // create syntax
         ticket::create("alice", 1);
 
         {
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), "alice");
             env(noop("alice"),
                 require(owners("alice", 0), tickets("alice", 0)));
@@ -536,10 +536,10 @@ public:
     }
 
     void
-    testProp()
+    testProp(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(100000), "alice");
         auto jt1 = env.jt(noop("alice"));
         BEAST_EXPECT(!jt1.get<std::uint16_t>());
@@ -606,10 +606,10 @@ public:
     }
 
     void
-    testMemo()
+    testMemo(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         env(noop("alice"), memodata("data"), fee(1000));
         env(noop("alice"), memoformat("format"), fee(1000));
@@ -624,10 +624,10 @@ public:
     }
 
     void
-    testMemoResult()
+    testMemoResult(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         JTx jt(noop("alice"));
         memo("data", "format", "type")(env, jt);
 
@@ -641,10 +641,10 @@ public:
     }
 
     void
-    testAdvance()
+    testAdvance(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         auto seq = env.current()->seq();
         BEAST_EXPECT(seq == env.closed()->seq() + 1);
         env.close();
@@ -656,10 +656,10 @@ public:
     }
 
     void
-    testClose()
+    testClose(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.close();
         env.close();
         env.fund(XRP(100000), "alice", "bob");
@@ -672,10 +672,10 @@ public:
     }
 
     void
-    testPath()
+    testPath(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         auto const gw = Account("gw");
         auto const USD = gw["USD"];
         env.fund(XRP(10000), "alice", "bob");
@@ -691,10 +691,10 @@ public:
 
     // Test that jtx can re-sign a transaction that's already been signed.
     void
-    testResignSigned()
+    testResignSigned(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
 
         env.fund(XRP(10000), "alice");
         auto const baseFee = env.current()->fees().base;
@@ -709,10 +709,10 @@ public:
     }
 
     void
-    testSignAndSubmit()
+    testSignAndSubmit(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         Env_ss envs(env);
 
         auto const alice = Account("alice");
@@ -757,11 +757,11 @@ public:
     }
 
     void
-    testFeatures()
+    testFeatures(FeatureBitset features)
     {
         testcase("Env features");
         using namespace jtx;
-        auto const supported = supported_amendments();
+        auto const supported = features;
 
         // this finds a feature that is not in
         // the supported amendments list and tests that it can be
@@ -792,7 +792,7 @@ public:
 
         {
             // default Env has all supported features
-            Env env{*this};
+            Env env{*this, features};
             BEAST_EXPECT(
                 supported.count() == env.app().config().features.size());
             foreachFeature(supported, [&](uint256 const& f) {
@@ -812,7 +812,7 @@ public:
         }
 
         auto const missingSomeFeatures =
-            supported_amendments() - featureMultiSignReserve - featureFlow;
+            features - featureMultiSignReserve - featureFlow;
         BEAST_EXPECT(missingSomeFeatures.count() == (supported.count() - 2));
         {
             // a Env supported_features_except is missing *only* those features
@@ -872,7 +872,7 @@ public:
             // add a feature that is NOT in the supported amendments list
             // along with all supported amendments
             // the unsupported features should be enabled
-            Env env{*this, supported_amendments().set(*neverSupportedFeat)};
+            Env env{*this, features.set(*neverSupportedFeat)};
 
             // this app will have all supported amendments and then the
             // one additional never supported feature flag
@@ -904,27 +904,29 @@ public:
     void
     run() override
     {
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         testAccount();
         testAmount();
-        testEnv();
-        testRequire();
-        testKeyType();
-        testPayments();
-        testFailHard();
-        testMultiSign();
-        testTicket();
+        testEnv(all);
+        testRequire(all);
+        testKeyType(all);
+        testPayments(all);
+        testFailHard(all);
+        testMultiSign(all);
+        testTicket(all);
         testJTxProperties();
-        testProp();
+        testProp(all);
         testJTxCopy();
         testJTxMove();
-        testMemo();
-        testMemoResult();
-        testAdvance();
-        testClose();
-        testPath();
-        testResignSigned();
-        testSignAndSubmit();
-        testFeatures();
+        testMemo(all);
+        testMemoResult(all);
+        testAdvance(all);
+        testClose(all);
+        testPath(all);
+        testResignSigned(all);
+        testSignAndSubmit(all);
+        testFeatures(all);
         testExceptionalShutdown();
     }
 };

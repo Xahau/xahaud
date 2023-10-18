@@ -30,10 +30,10 @@ struct Regression_test : public beast::unit_test::suite
 {
     // OfferCreate, then OfferCreate with cancel
     void
-    testOffer1()
+    testOffer1(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         auto const gw = Account("gw");
         auto const USD = gw["USD"];
         env.fund(XRP(10000), "alice", gw);
@@ -46,11 +46,11 @@ struct Regression_test : public beast::unit_test::suite
     }
 
     void
-    testLowBalanceDestroy()
+    testLowBalanceDestroy(FeatureBitset features)
     {
         testcase("Account balance < fee destroys correct amount of XRP");
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.memoize("alice");
 
         // The low balance scenario can not deterministically
@@ -117,11 +117,11 @@ struct Regression_test : public beast::unit_test::suite
     }
 
     void
-    testSecp256r1key()
+    testSecp256r1key(FeatureBitset features)
     {
         testcase("Signing with a secp256r1 key should fail gracefully");
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
 
         // Test case we'll use.
         auto test256r1key = [&env](Account const& acct) {
@@ -162,7 +162,7 @@ struct Regression_test : public beast::unit_test::suite
     }
 
     void
-    testFeeEscalationAutofill()
+    testFeeEscalationAutofill(FeatureBitset features)
     {
         testcase("Autofilled fee should use the escalated fee");
         using namespace jtx;
@@ -170,7 +170,7 @@ struct Regression_test : public beast::unit_test::suite
             cfg->section("transaction_queue")
                 .set("minimum_txn_in_ledger_standalone", "3");
             return cfg;
-        }));
+        }), features);
         Env_ss envs(env);
 
         auto const alice = Account("alice");
@@ -199,7 +199,7 @@ struct Regression_test : public beast::unit_test::suite
     }
 
     void
-    testFeeEscalationExtremeConfig()
+    testFeeEscalationExtremeConfig(FeatureBitset features)
     {
         testcase("Fee escalation shouldn't allocate extreme memory");
         using clock_type = std::chrono::steady_clock;
@@ -214,7 +214,7 @@ struct Regression_test : public beast::unit_test::suite
             s.set("normal_consensus_increase_percent", "4294967295");
 
             return cfg;
-        }));
+        }), features);
 
         env(noop(env.master));
         // This test will probably fail if any breakpoints are encountered,
@@ -248,11 +248,13 @@ struct Regression_test : public beast::unit_test::suite
     void
     run() override
     {
-        testOffer1();
-        testLowBalanceDestroy();
-        testSecp256r1key();
-        testFeeEscalationAutofill();
-        testFeeEscalationExtremeConfig();
+        using namespace test::jtx;
+        auto const all{jtx::supported_amendments() - featureXahauGenesis};
+        testOffer1(all);
+        testLowBalanceDestroy(all);
+        testSecp256r1key(all);
+        testFeeEscalationAutofill(all);
+        testFeeEscalationExtremeConfig(all);
         testJsonInvalid();
     }
 };

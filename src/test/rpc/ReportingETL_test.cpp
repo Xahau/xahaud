@@ -52,13 +52,13 @@ class ReportingETL_test : public beast::unit_test::suite
         }
     };
     void
-    testGetLedger()
+    testGetLedger(FeatureBitset features)
     {
         testcase("GetLedger");
         using namespace test::jtx;
         std::unique_ptr<Config> config = envconfig(addGrpcConfig);
         std::string grpcPort = *(*config)["port_grpc"].get<std::string>("port");
-        Env env(*this, std::move(config));
+        Env env(*this, std::move(config), features);
 
         env.close();
 
@@ -494,13 +494,13 @@ class ReportingETL_test : public beast::unit_test::suite
         }
     };
     void
-    testGetLedgerData()
+    testGetLedgerData(FeatureBitset features)
     {
         testcase("GetLedgerData");
         using namespace test::jtx;
         std::unique_ptr<Config> config = envconfig(addGrpcConfig);
         std::string grpcPort = *(*config)["port_grpc"].get<std::string>("port");
-        Env env(*this, std::move(config));
+        Env env(*this, std::move(config), features);
         auto grpcLedgerData = [&grpcPort](
                                   auto sequence, std::string marker = "") {
             GrpcLedgerDataClient grpcClient{grpcPort};
@@ -616,13 +616,13 @@ class ReportingETL_test : public beast::unit_test::suite
     };
 
     void
-    testGetLedgerDiff()
+    testGetLedgerDiff(FeatureBitset features)
     {
         testcase("GetLedgerDiff");
         using namespace test::jtx;
         std::unique_ptr<Config> config = envconfig(addGrpcConfig);
         std::string grpcPort = *(*config)["port_grpc"].get<std::string>("port");
-        Env env(*this, std::move(config));
+        Env env(*this, std::move(config), features);
 
         auto grpcLedgerDiff = [&grpcPort](
                                   auto baseSequence, auto desiredSequence) {
@@ -731,13 +731,13 @@ class ReportingETL_test : public beast::unit_test::suite
     };
 
     void
-    testGetLedgerEntry()
+    testGetLedgerEntry(FeatureBitset features)
     {
         testcase("GetLedgerDiff");
         using namespace test::jtx;
         std::unique_ptr<Config> config = envconfig(addGrpcConfig);
         std::string grpcPort = *(*config)["port_grpc"].get<std::string>("port");
-        Env env(*this, std::move(config));
+        Env env(*this, std::move(config), features);
 
         auto grpcLedgerEntry = [&grpcPort](auto sequence, auto key) {
             GrpcLedgerEntryClient grpcClient{grpcPort};
@@ -888,7 +888,7 @@ class ReportingETL_test : public beast::unit_test::suite
     }
 
     void
-    testSecureGateway()
+    testSecureGateway(FeatureBitset features)
     {
         testcase("SecureGateway");
         using namespace test::jtx;
@@ -897,7 +897,7 @@ class ReportingETL_test : public beast::unit_test::suite
                 addGrpcConfigWithSecureGateway, getEnvLocalhostAddr());
             std::string grpcPort =
                 *(*config)["port_grpc"].get<std::string>("port");
-            Env env(*this, std::move(config));
+            Env env(*this, std::move(config), features);
 
             env.close();
 
@@ -1120,17 +1120,20 @@ public:
     void
     run() override
     {
-        testGetLedger();
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        
+        testGetLedger(all);
 
-        testGetLedgerData();
+        testGetLedgerData(all);
 
-        testGetLedgerDiff();
+        testGetLedgerDiff(all);
 
-        testGetLedgerEntry();
+        testGetLedgerEntry(all);
 
         testNeedCurrentOrClosed();
 
-        testSecureGateway();
+        testSecureGateway(all);
     }
 };
 

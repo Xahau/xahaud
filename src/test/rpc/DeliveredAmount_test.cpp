@@ -178,7 +178,7 @@ public:
 class DeliveredAmount_test : public beast::unit_test::suite
 {
     void
-    testAccountDeliveredAmountSubscribe()
+    testAccountDeliveredAmountSubscribe(FeatureBitset features)
     {
         testcase("Ledger Request Subscribe DeliveredAmount");
 
@@ -193,7 +193,7 @@ class DeliveredAmount_test : public beast::unit_test::suite
 
         for (bool const afterSwitchTime : {true, false})
         {
-            Env env{*this};
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, carol, gw);
             env.trust(USD(1000), alice, bob, carol);
             if (afterSwitchTime)
@@ -267,7 +267,7 @@ class DeliveredAmount_test : public beast::unit_test::suite
         }
     }
     void
-    testTxDeliveredAmountRPC()
+    testTxDeliveredAmountRPC(FeatureBitset features)
     {
         testcase("Ledger Request RPC DeliveredAmount");
 
@@ -282,7 +282,7 @@ class DeliveredAmount_test : public beast::unit_test::suite
 
         for (bool const afterSwitchTime : {true, false})
         {
-            Env env{*this};
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, carol, gw);
             env.trust(USD(1000), alice, bob, carol);
             if (afterSwitchTime)
@@ -329,8 +329,10 @@ public:
     void
     run() override
     {
-        testTxDeliveredAmountRPC();
-        testAccountDeliveredAmountSubscribe();
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testTxDeliveredAmountRPC(all);
+        testAccountDeliveredAmountSubscribe(all);
     }
 };
 

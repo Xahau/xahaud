@@ -232,13 +232,13 @@ class TxQ1_test : public beast::unit_test::suite
 
 public:
     void
-    testQueueSeq()
+    testQueueSeq(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
         testcase("queue sequence");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -444,12 +444,12 @@ public:
     }
 
     void
-    testQueueTicket()
+    testQueueTicket(FeatureBitset features)
     {
         using namespace jtx;
         testcase("queue ticket");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         auto alice = Account("alice");
 
@@ -701,12 +701,12 @@ public:
     }
 
     void
-    testTecResult()
+    testTecResult(FeatureBitset features)
     {
         using namespace jtx;
         testcase("queue tec");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
 
         auto alice = Account("alice");
         auto gw = Account("gw");
@@ -737,7 +737,7 @@ public:
     }
 
     void
-    testLocalTxRetry()
+    testLocalTxRetry(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
@@ -794,13 +794,13 @@ public:
     }
 
     void
-    testLastLedgerSeq()
+    testLastLedgerSeq(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
         testcase("last ledger sequence");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -904,13 +904,13 @@ public:
     }
 
     void
-    testZeroFeeTxn()
+    testZeroFeeTxn(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
         testcase("zero transaction fee");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1001,11 +1001,11 @@ public:
     }
 
     void
-    testFailInPreclaim()
+    testFailInPreclaim(FeatureBitset features)
     {
         using namespace jtx;
 
-        Env env(*this, makeConfig());
+        Env env(*this, makeConfig(), features);
         testcase("fail in preclaim");
 
         auto alice = Account("alice");
@@ -1025,12 +1025,12 @@ public:
     }
 
     void
-    testQueuedTxFails()
+    testQueuedTxFails(FeatureBitset features)
     {
         using namespace jtx;
         testcase("queued tx fails");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1076,7 +1076,7 @@ public:
     }
 
     void
-    testMultiTxnPerAccount()
+    testMultiTxnPerAccount(FeatureBitset features)
     {
         using namespace jtx;
         testcase("multi tx per account");
@@ -1085,7 +1085,7 @@ public:
             *this,
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "3"}},
-                {{"account_reserve", "200"}, {"owner_reserve", "50"}}));
+                {{"account_reserve", "200"}, {"owner_reserve", "50"}}), features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1346,13 +1346,13 @@ public:
     }
 
     void
-    testTieBreaking()
+    testTieBreaking(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
         testcase("tie breaking");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "4"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "4"}}), features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1640,12 +1640,12 @@ public:
     }
 
     void
-    testAcctTxnID()
+    testAcctTxnID(FeatureBitset features)
     {
         using namespace jtx;
         testcase("acct tx id");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "1"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "1"}}), features);
 
         auto alice = Account("alice");
 
@@ -1679,7 +1679,7 @@ public:
     }
 
     void
-    testMaximum()
+    testMaximum(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::string_literals;
@@ -1692,7 +1692,7 @@ public:
                     {{"minimum_txn_in_ledger_standalone", "2"},
                      {"minimum_txn_in_ledger", "5"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}));
+                     {"maximum_txn_in_ledger", "5"}}), features);
 
             auto alice = Account("alice");
 
@@ -1719,7 +1719,7 @@ public:
                     {{"minimum_txn_in_ledger", "200"},
                      {"minimum_txn_in_ledger_standalone", "200"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}));
+                     {"maximum_txn_in_ledger", "5"}}), features);
             // should throw
             fail();
         }
@@ -1740,7 +1740,7 @@ public:
                     {{"minimum_txn_in_ledger", "200"},
                      {"minimum_txn_in_ledger_standalone", "2"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}));
+                     {"maximum_txn_in_ledger", "5"}}), features);
             // should throw
             fail();
         }
@@ -1761,7 +1761,7 @@ public:
                     {{"minimum_txn_in_ledger", "2"},
                      {"minimum_txn_in_ledger_standalone", "200"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}));
+                     {"maximum_txn_in_ledger", "5"}}), features);
             // should throw
             fail();
         }
@@ -1777,7 +1777,7 @@ public:
     }
 
     void
-    testUnexpectedBalanceChange()
+    testUnexpectedBalanceChange(FeatureBitset features)
     {
         using namespace jtx;
         testcase("unexpected balance change");
@@ -1786,7 +1786,7 @@ public:
             *this,
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "3"}},
-                {{"account_reserve", "200"}, {"owner_reserve", "50"}}));
+                {{"account_reserve", "200"}, {"owner_reserve", "50"}}), features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1874,7 +1874,7 @@ public:
     }
 
     void
-    testBlockersSeq()
+    testBlockersSeq(FeatureBitset features)
     {
         using namespace jtx;
         testcase("blockers sequence");
@@ -1886,7 +1886,7 @@ public:
 
         auto queued = ter(terQUEUED);
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
@@ -2004,7 +2004,7 @@ public:
     }
 
     void
-    testBlockersTicket()
+    testBlockersTicket(FeatureBitset features)
     {
         using namespace jtx;
         testcase("blockers ticket");
@@ -2016,7 +2016,7 @@ public:
 
         auto queued = ter(terQUEUED);
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
@@ -2166,7 +2166,7 @@ public:
     }
 
     void
-    testInFlightBalance()
+    testInFlightBalance(FeatureBitset features)
     {
         using namespace jtx;
         testcase("In-flight balance checks");
@@ -2175,7 +2175,7 @@ public:
             *this,
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "3"}},
-                {{"account_reserve", "200"}, {"owner_reserve", "50"}}));
+                {{"account_reserve", "200"}, {"owner_reserve", "50"}}), features);
 
         auto alice = Account("alice");
         auto charlie = Account("charlie");
@@ -2520,13 +2520,13 @@ public:
     }
 
     void
-    testConsequences()
+    testConsequences(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono;
         testcase("consequences");
 
-        Env env(*this);
+        Env env(*this, features);
         auto const alice = Account("alice");
         env.memoize(alice);
         env.memoize("bob");
@@ -2578,7 +2578,7 @@ public:
     }
 
     void
-    testAcctInQueueButEmpty()
+    testAcctInQueueButEmpty(FeatureBitset features)
     {
         // It is possible for an account to be present in the queue but have
         // no queued transactions.  This has been the source of at least one
@@ -2597,7 +2597,7 @@ public:
 
         auto queued = ter(terQUEUED);
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
@@ -2683,12 +2683,12 @@ public:
     }
 
     void
-    testRPC()
+    testRPC(FeatureBitset features)
     {
         using namespace jtx;
         testcase("rpc");
 
-        Env env(*this);
+        Env env(*this, features);
 
         auto fee = env.rpc("fee");
 
@@ -2747,7 +2747,7 @@ public:
     }
 
     void
-    testExpirationReplacement()
+    testExpirationReplacement(FeatureBitset features)
     {
         /* This test is based on a reported regression where a
             replacement candidate transaction found the tx it was trying
@@ -2768,7 +2768,7 @@ public:
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "1"},
                  {"ledgers_in_queue", "10"},
-                 {"maximum_txn_per_account", "20"}}));
+                 {"maximum_txn_per_account", "20"}}), features);
 
         // Alice will recreate the scenario. Bob will block.
         auto const alice = Account("alice");
@@ -2848,7 +2848,7 @@ public:
     }
 
     void
-    testFullQueueGapFill()
+    testFullQueueGapFill(FeatureBitset features)
     {
         // This test focuses on which gaps in queued transactions are
         // allowed to be filled even when the account's queue is full.
@@ -2860,7 +2860,7 @@ public:
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "1"},
                  {"ledgers_in_queue", "10"},
-                 {"maximum_txn_per_account", "11"}}));
+                 {"maximum_txn_per_account", "11"}}), features);
 
         // Alice will have the gaps.  Bob will keep the queue busy with
         // high fee transactions so alice's transactions can expire to leave
@@ -3015,11 +3015,11 @@ public:
     }
 
     void
-    testSignAndSubmitSequence()
+    testSignAndSubmitSequence(FeatureBitset features)
     {
         testcase("Autofilled sequence should account for TxQ");
         using namespace jtx;
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "6"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "6"}}), features);
         Env_ss envs(env);
         auto const& txQ = env.app().getTxQ();
 
@@ -3145,12 +3145,12 @@ public:
     }
 
     void
-    testAccountInfo()
+    testAccountInfo(FeatureBitset features)
     {
         using namespace jtx;
         testcase("account info");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
         Env_ss envs(env);
 
         Account const alice{"alice"};
@@ -3424,12 +3424,12 @@ public:
     }
 
     void
-    testServerInfo()
+    testServerInfo(FeatureBitset features)
     {
         using namespace jtx;
         testcase("server info");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
         Env_ss envs(env);
 
         Account const alice{"alice"};
@@ -3685,12 +3685,12 @@ public:
     }
 
     void
-    testServerSubscribe()
+    testServerSubscribe(FeatureBitset features)
     {
         using namespace jtx;
         testcase("server subscribe");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         Json::Value stream;
         stream[jss::streams] = Json::arrayValue;
@@ -3830,12 +3830,12 @@ public:
     }
 
     void
-    testClearQueuedAccountTxs()
+    testClearQueuedAccountTxs(FeatureBitset features)
     {
         using namespace jtx;
         testcase("clear queued acct txs");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
         auto alice = Account("alice");
         auto bob = Account("bob");
 
@@ -4036,7 +4036,7 @@ public:
     }
 
     void
-    testScaling()
+    testScaling(FeatureBitset features)
     {
         using namespace jtx;
         using namespace std::chrono_literals;
@@ -4050,7 +4050,7 @@ public:
                      {"normal_consensus_increase_percent", "25"},
                      {"slow_consensus_decrease_percent", "50"},
                      {"target_txn_in_ledger", "10"},
-                     {"maximum_txn_per_account", "200"}}));
+                     {"maximum_txn_per_account", "200"}}), features);
             auto alice = Account("alice");
 
             checkMetrics(__LINE__, env, 0, std::nullopt, 0, 3, 256);
@@ -4136,7 +4136,7 @@ public:
                      {"normal_consensus_increase_percent", "150"},
                      {"slow_consensus_decrease_percent", "150"},
                      {"target_txn_in_ledger", "10"},
-                     {"maximum_txn_per_account", "200"}}));
+                     {"maximum_txn_per_account", "200"}}), features);
             auto alice = Account("alice");
 
             checkMetrics(__LINE__, env, 0, std::nullopt, 0, 3, 256);
@@ -4176,7 +4176,7 @@ public:
     }
 
     void
-    testInLedgerSeq()
+    testInLedgerSeq(FeatureBitset features)
     {
         // Test the situation where a transaction with an account and
         // sequence that's in the queue also appears in the ledger.
@@ -4189,7 +4189,7 @@ public:
         testcase("Sequence in queue and open ledger");
         using namespace jtx;
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         auto const alice = Account("alice");
 
@@ -4245,7 +4245,7 @@ public:
     }
 
     void
-    testInLedgerTicket()
+    testInLedgerTicket(FeatureBitset features)
     {
         // Test the situation where a transaction with an account and
         // ticket that's in the queue also appears in the ledger.
@@ -4256,7 +4256,7 @@ public:
         testcase("Ticket in queue and open ledger");
         using namespace jtx;
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}));
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
 
         auto alice = Account("alice");
 
@@ -4340,7 +4340,7 @@ public:
     }
 
     void
-    testReexecutePreflight()
+    testReexecutePreflight(FeatureBitset features)
     {
         // The TxQ caches preflight results.  But there are situations where
         // that cache must become invalidated, like if amendments change.
@@ -4365,7 +4365,7 @@ public:
              {"maximum_txn_per_account", "10"}},
             {{"account_reserve", "1000"}, {"owner_reserve", "50"}});
 
-        Env env(*this, std::move(cfg));
+        Env env(*this, std::move(cfg), features);
 
         env.fund(XRP(10000), alice);
         env.close();
@@ -4496,7 +4496,7 @@ public:
     }
 
     void
-    testQueueFullDropPenalty()
+    testQueueFullDropPenalty(FeatureBitset features)
     {
         // If...
         //   o The queue is close to full,
@@ -4531,7 +4531,7 @@ public:
              {"maximum_txn_per_account", "30"},
              {"minimum_queue_size", "50"}});
 
-        Env env(*this, std::move(cfg));
+        Env env(*this, std::move(cfg), features);
 
         // The noripple is to reduce the number of transactions required to
         // fund the accounts.  There is no rippling in this test.
@@ -4733,7 +4733,7 @@ public:
     }
 
     void
-    testCancelQueuedOffers()
+    testCancelQueuedOffers(FeatureBitset features)
     {
         testcase("Cancel queued offers");
         using namespace jtx;
@@ -4748,7 +4748,7 @@ public:
              {"maximum_txn_per_account", "30"},
              {"minimum_queue_size", "50"}});
 
-        Env env(*this, std::move(cfg));
+        Env env(*this, std::move(cfg), features);
 
         // The noripple is to reduce the number of transactions required to
         // fund the accounts.  There is no rippling in this test.
@@ -4846,7 +4846,7 @@ public:
     }
 
     void
-    testZeroReferenceFee()
+    testZeroReferenceFee(FeatureBitset features)
     {
         testcase("Zero reference fee");
         using namespace jtx;
@@ -4860,7 +4860,7 @@ public:
                 {{"minimum_txn_in_ledger_standalone", "3"}},
                 {{"reference_fee", "0"},
                  {"account_reserve", "0"},
-                 {"owner_reserve", "0"}}));
+                 {"owner_reserve", "0"}}), features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
@@ -4986,44 +4986,48 @@ public:
     void
     run() override
     {
-        testQueueSeq();
-        testQueueTicket();
-        testTecResult();
-        testLocalTxRetry();
-        testLastLedgerSeq();
-        testZeroFeeTxn();
-        testFailInPreclaim();
-        testQueuedTxFails();
-        testMultiTxnPerAccount();
-        testTieBreaking();
-        testAcctTxnID();
-        testMaximum();
-        testUnexpectedBalanceChange();
-        testBlockersSeq();
-        testBlockersTicket();
-        testInFlightBalance();
-        testConsequences();
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testQueueSeq(all);
+        testQueueTicket(all);
+        testTecResult(all);
+        testLocalTxRetry(all);
+        testLastLedgerSeq(all);
+        testZeroFeeTxn(all);
+        testFailInPreclaim(all);
+        testQueuedTxFails(all);
+        testMultiTxnPerAccount(all);
+        testTieBreaking(all);
+        testAcctTxnID(all);
+        testMaximum(all);
+        testUnexpectedBalanceChange(all);
+        testBlockersSeq(all);
+        testBlockersTicket(all);
+        testInFlightBalance(all);
+        testConsequences(all);
     }
 
     void
     run2()
     {
-        testAcctInQueueButEmpty();
-        testRPC();
-        testExpirationReplacement();
-        testFullQueueGapFill();
-        testSignAndSubmitSequence();
-        testAccountInfo();
-        testServerInfo();
-        testServerSubscribe();
-        testClearQueuedAccountTxs();
-        testScaling();
-        testInLedgerSeq();
-        testInLedgerTicket();
-        testReexecutePreflight();
-        testQueueFullDropPenalty();
-        testCancelQueuedOffers();
-        testZeroReferenceFee();
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testAcctInQueueButEmpty(all);
+        testRPC(all);
+        testExpirationReplacement(all);
+        testFullQueueGapFill(all);
+        testSignAndSubmitSequence(all);
+        testAccountInfo(all);
+        testServerInfo(all);
+        testServerSubscribe(all);
+        testClearQueuedAccountTxs(all);
+        testScaling(all);
+        testInLedgerSeq(all);
+        testInLedgerTicket(all);
+        testReexecutePreflight(all);
+        testQueueFullDropPenalty(all);
+        testCancelQueuedOffers(all);
+        testZeroReferenceFee(all);
     }
 };
 

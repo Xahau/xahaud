@@ -28,12 +28,12 @@ namespace ripple {
 class OwnerInfo_test : public beast::unit_test::suite
 {
     void
-    testBadInput()
+    testBadInput(FeatureBitset features)
     {
         testcase("Bad input to owner_info");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -81,12 +81,12 @@ class OwnerInfo_test : public beast::unit_test::suite
     }
 
     void
-    testBasic()
+    testBasic(FeatureBitset features)
     {
         testcase("Basic request for owner_info");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const gw = Account{"gateway"};
@@ -210,8 +210,10 @@ public:
     void
     run() override
     {
-        testBadInput();
-        testBasic();
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testBadInput(all);
+        testBasic(all);
     }
 };
 

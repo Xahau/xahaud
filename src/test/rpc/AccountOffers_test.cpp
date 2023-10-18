@@ -42,10 +42,10 @@ public:
     }
 
     void
-    testNonAdminMinLimit()
+    testNonAdminMinLimit(FeatureBitset features)
     {
         using namespace jtx;
-        Env env{*this, envconfig(no_admin)};
+        Env env{*this, envconfig(no_admin), features};
         Account const gw("G1");
         auto const USD_gw = gw["USD"];
         Account const bob("bob");
@@ -86,10 +86,10 @@ public:
     }
 
     void
-    testSequential(bool asAdmin)
+    testSequential(FeatureBitset features, bool asAdmin)
     {
         using namespace jtx;
-        Env env{*this, asAdmin ? envconfig() : envconfig(no_admin)};
+        Env env{*this, asAdmin ? envconfig() : envconfig(no_admin), features};
         Account const gw("G1");
         auto const USD_gw = gw["USD"];
         Account const bob("bob");
@@ -220,10 +220,10 @@ public:
     }
 
     void
-    testBadInput()
+    testBadInput(FeatureBitset features)
     {
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         Account const gw("G1");
         auto const USD_gw = gw["USD"];
         Account const bob("bob");
@@ -326,10 +326,12 @@ public:
     void
     run() override
     {
-        testSequential(true);
-        testSequential(false);
-        testBadInput();
-        testNonAdminMinLimit();
+        using namespace jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testSequential(all, true);
+        testSequential(all, false);
+        testBadInput(all);
+        testNonAdminMinLimit(all);
     }
 };
 

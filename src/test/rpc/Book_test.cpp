@@ -50,12 +50,12 @@ class Book_test : public beast::unit_test::suite
 
 public:
     void
-    testOneSideEmptyBook()
+    testOneSideEmptyBook(FeatureBitset features)
     {
         testcase("One Side Empty Book");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto wsc = makeWSClient(env.app().config());
@@ -128,12 +128,12 @@ public:
     }
 
     void
-    testOneSideOffersInBook()
+    testOneSideOffersInBook(FeatureBitset features)
     {
         testcase("One Side Offers In Book");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto wsc = makeWSClient(env.app().config());
@@ -219,12 +219,12 @@ public:
     }
 
     void
-    testBothSidesEmptyBook()
+    testBothSidesEmptyBook(FeatureBitset features)
     {
         testcase("Both Sides Empty Book");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto wsc = makeWSClient(env.app().config());
@@ -309,12 +309,12 @@ public:
     }
 
     void
-    testBothSidesOffersInBook()
+    testBothSidesOffersInBook(FeatureBitset features)
     {
         testcase("Both Sides Offers In Book");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto wsc = makeWSClient(env.app().config());
@@ -418,12 +418,12 @@ public:
     }
 
     void
-    testMultipleBooksOneSideEmptyBook()
+    testMultipleBooksOneSideEmptyBook(FeatureBitset features)
     {
         testcase("Multiple Books, One Side Empty");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto CNY = Account("alice")["CNY"];
@@ -530,12 +530,12 @@ public:
     }
 
     void
-    testMultipleBooksOneSideOffersInBook()
+    testMultipleBooksOneSideOffersInBook(FeatureBitset features)
     {
         testcase("Multiple Books, One Side Offers In Book");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto CNY = Account("alice")["CNY"];
@@ -667,12 +667,12 @@ public:
     }
 
     void
-    testMultipleBooksBothSidesEmptyBook()
+    testMultipleBooksBothSidesEmptyBook(FeatureBitset features)
     {
         testcase("Multiple Books, Both Sides Empty Book");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto CNY = Account("alice")["CNY"];
@@ -801,12 +801,12 @@ public:
     }
 
     void
-    testMultipleBooksBothSidesOffersInBook()
+    testMultipleBooksBothSidesOffersInBook(FeatureBitset features)
     {
         testcase("Multiple Books, Both Sides Offers In Book");
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         env.fund(XRP(10000), "alice");
         auto USD = Account("alice")["USD"];
         auto CNY = Account("alice")["CNY"];
@@ -973,11 +973,11 @@ public:
     }
 
     void
-    testTrackOffers()
+    testTrackOffers(FeatureBitset features)
     {
         testcase("TrackOffers");
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         Account gw{"gw"};
         Account alice{"alice"};
         Account bob{"bob"};
@@ -1156,7 +1156,7 @@ public:
     }
 
     void
-    testCrossingSingleBookOffer()
+    testCrossingSingleBookOffer(FeatureBitset features)
     {
         testcase("Crossing single book offer");
 
@@ -1165,7 +1165,7 @@ public:
         // ledger entries
 
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
 
         // Scenario is:
         //  - Alice and Bob place identical offers for USD -> XRP
@@ -1224,7 +1224,7 @@ public:
     }
 
     void
-    testCrossingMultiBookOffer()
+    testCrossingMultiBookOffer(FeatureBitset features)
     {
         testcase("Crossing multi-book offer");
 
@@ -1233,7 +1233,7 @@ public:
         // books that are under subscription
 
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
 
         // Scenario is:
         //  - Alice has 1 USD and wants 100 XRP
@@ -1307,11 +1307,11 @@ public:
     }
 
     void
-    testBookOfferErrors()
+    testBookOfferErrors(FeatureBitset features)
     {
         testcase("BookOffersRPC Errors");
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, features);
         Account gw{"gw"};
         Account alice{"alice"};
         env.fund(XRP(10000), alice, gw);
@@ -1658,11 +1658,11 @@ public:
     }
 
     void
-    testBookOfferLimits(bool asAdmin)
+    testBookOfferLimits(FeatureBitset features, bool asAdmin)
     {
         testcase("BookOffer Limits");
         using namespace jtx;
-        Env env{*this, asAdmin ? envconfig() : envconfig(no_admin)};
+        Env env{*this, asAdmin ? envconfig() : envconfig(no_admin), features};
         Account gw{"gw"};
         env.fund(XRP(200000), gw);
         // Note that calls to env.close() fail without admin permission.
@@ -1712,20 +1712,22 @@ public:
     void
     run() override
     {
-        testOneSideEmptyBook();
-        testOneSideOffersInBook();
-        testBothSidesEmptyBook();
-        testBothSidesOffersInBook();
-        testMultipleBooksOneSideEmptyBook();
-        testMultipleBooksOneSideOffersInBook();
-        testMultipleBooksBothSidesEmptyBook();
-        testMultipleBooksBothSidesOffersInBook();
-        testTrackOffers();
-        testCrossingSingleBookOffer();
-        testCrossingMultiBookOffer();
-        testBookOfferErrors();
-        testBookOfferLimits(true);
-        testBookOfferLimits(false);
+        using namespace test::jtx;
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        testOneSideEmptyBook(all);
+        testOneSideOffersInBook(all);
+        testBothSidesEmptyBook(all);
+        testBothSidesOffersInBook(all);
+        testMultipleBooksOneSideEmptyBook(all);
+        testMultipleBooksOneSideOffersInBook(all);
+        testMultipleBooksBothSidesEmptyBook(all);
+        testMultipleBooksBothSidesOffersInBook(all);
+        testTrackOffers(all);
+        testCrossingSingleBookOffer(all);
+        testCrossingMultiBookOffer(all);
+        testBookOfferErrors(all);
+        testBookOfferLimits(all, true);
+        testBookOfferLimits(all, false);
     }
 };
 
