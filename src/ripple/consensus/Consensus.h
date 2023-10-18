@@ -890,7 +890,7 @@ Consensus<Adaptor>::simulate(
     JLOG(j_.info()) << "Simulating consensus";
     now_ = now;
     closeLedger();
-    result_->roundTime.tick(consensusDelay.value_or(100ms));
+    result_->roundTime.tick(consensusDelay.value_or(1ms));
     result_->proposers = prevProposers_ = currPeerPositions_.size();
     prevRoundTime_ = result_->roundTime.read();
     phase_ = ConsensusPhase::accepted;
