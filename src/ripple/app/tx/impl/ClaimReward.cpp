@@ -45,7 +45,7 @@ ClaimReward::preflight(PreflightContext const& ctx)
         return ret;
 
     // can have flag 1 set to opt-out of rewards
-    if (ctx.tx.isFieldPresent(sfFlags) && ctx.tx.getFieldU32(sfFlags) > 1)
+    if (ctx.tx.isFieldPresent(sfFlags) && ctx.tx.getFieldU32(sfFlags) > tfOptOut)
         return temINVALID_FLAG;
 
     if (ctx.tx.isFieldPresent(sfIssuer) && ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
@@ -73,7 +73,7 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
     std::optional<uint32_t> flags = ctx.tx[~sfFlags];
     std::optional<AccountID const> issuer = ctx.tx[~sfIssuer];
 
-    bool isOptOut = flags && *flags == 1;
+    bool isOptOut = flags && *flags == tfOptOut;
     if ((issuer && isOptOut) || (!issuer && !isOptOut))
         return temMALFORMED;
 
@@ -92,7 +92,7 @@ ClaimReward::doApply()
 
     std::optional<uint32_t> flags = ctx_.tx[~sfFlags];
 
-    bool isOptOut = flags && *flags == 1;
+    bool isOptOut = flags && *flags == tfOptOut;
     if (isOptOut)
     {
         if (sle->isFieldPresent(sfRewardLgrFirst))
