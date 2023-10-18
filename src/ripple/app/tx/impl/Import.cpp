@@ -190,7 +190,7 @@ Import::preflight(PreflightContext const& ctx)
 
     auto const [stpTrans, meta] = getInnerTxn(tx, ctx.j, &(*xpop));
 
-    if (!stpTrans)
+    if (!stpTrans || !meta)
         return temMALFORMED;
 
     if (stpTrans->isFieldPresent(sfTicketSequence))
@@ -867,7 +867,7 @@ Import::preclaim(PreclaimContext const& ctx)
 
     auto const [stpTrans, meta] = getInnerTxn(ctx.tx, ctx.j, &(*xpop));
 
-    if (!stpTrans || !stpTrans->isFieldPresent(sfSequence))
+    if (!stpTrans || !meta || !stpTrans->isFieldPresent(sfSequence))
     {
         JLOG(ctx.j.warn())
             << "Import: during preclaim could not find importSequence, bailing.";
