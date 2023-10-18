@@ -331,6 +331,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             }
         }
 
+        uint32_t found = 0;
         for (const auto& key : xpop["validation"]["unl"].getMemberNames())
         {
             const auto& value = xpop["validation"]["unl"][key];
@@ -350,15 +351,17 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
                     JLOG(j.warn()) << "XPOP.validation.unl.public_key invalid key type.";
                     return {};
                 }
+                found |= 1;
             }
             else if (key == "manifest")
             {
-                if (!value.isString())
+                if (!value.isString() || !isBase64(value.asString()))
                 {
                     JLOG(j.warn()) << "XPOP.validation.unl.manifest missing or "
                                   "wrong format (should be string)";
                     return {};
                 }
+                found |= 2;
             }
             else if (key == "blob")
             {
@@ -368,6 +371,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
                                   "format (should be base64 string)";
                     return {};
                 }
+                found |= 4;
             }
             else if (key == "signature")
             {
@@ -378,6 +382,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
                            "format (should be hex string)";
                     return {};
                 }
+                found |= 8;
             }
             else if (key == "version")
             {
@@ -387,6 +392,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
                                   "wrong format (should be int)";
                     return {};
                 }
+                found |= 16;
             }
             else
             {
@@ -398,6 +404,14 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
                 }
             }
         }
+
+        if (found != 0b11111)
+        {
+            JLOG(j.warn())
+                << "XPOP.validation.unl entry has wrong format (missing field/s)";
+            return {};
+        }
+
         return xpop;
     }
     catch (...)
