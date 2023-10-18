@@ -110,8 +110,11 @@ JSS(HookParameterValue);  // field
 JSS(HookParameter);       // field
 JSS(HookGrant);           // field
 JSS(isSerialized);        // out: RPC server_definitions
+                          // matches definitions.json format
 JSS(isSigningField);      // out: RPC server_definitions
+                          // matches definitions.json format
 JSS(isVLEncoded);         // out: RPC server_definitions
+                          // matches definitions.json format
 JSS(Import);
 JSS(ImportVLSequence);
 JSS(Invalid);                  //
@@ -788,8 +791,11 @@ JSS(type);                  // in: AccountObjects
                             // out: NetworkOPs RPC server_definitions
                             //      OverlayImpl, Logic
 JSS(TRANSACTION_RESULTS);   // out: RPC server_definitions
+                            // matches definitions.json format
 JSS(TRANSACTION_TYPES);     // out: RPC server_definitions
+                            // matches definitions.json format
 JSS(TYPES);                 // out: RPC server_definitions
+                            // matches definitions.json format
 JSS(TRANSACTION_FLAGS);     // out: RPC server_definitions
 JSS(TRANSACTION_FLAGS_INDICES);  // out: RPC server_definitions
 JSS(type_hex);                   // out: STPathSet
