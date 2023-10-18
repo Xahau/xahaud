@@ -73,7 +73,7 @@ Import::getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const
 
     std::optional<Json::Value> xpop_storage;
 
-    if (!xpop)
+    if (!xpop && outer.isFieldPresent(sfBlob))
     {
        xpop_storage = syntaxCheckXPOP(outer.getFieldVL(sfBlob), j);
        xpop = &(*xpop_storage);
@@ -141,6 +141,14 @@ Import::preflight(PreflightContext const& ctx)
         return ret;
 
     auto& tx = ctx.tx;
+
+    if (!tx.isFieldPresent(sfBlob))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: sfBlob was missing (should be impossible) "
+            << tx.getTransactionID();
+        return temMALFORMED;
+    }
 
     if (tx.getFieldVL(sfBlob).size() > (512 * 1024))
     {
@@ -843,6 +851,9 @@ Import::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureImport))
         return temDISABLED;
 
+    if (!ctx.tx.isFieldPresent(sfBlob))
+        return tefINTERNAL;
+
     // parse blob as json
     auto const xpop =
         syntaxCheckXPOP(ctx.tx.getFieldVL(sfBlob), ctx.j);
@@ -1094,6 +1105,9 @@ Import::doApply()
     if (!view().rules().enabled(featureImport))
         return temDISABLED;
 
+    if (!ctx_.tx.isFieldPresent(sfBlob))
+        return tefINTERNAL;
+    
     //
     // Before starting decode and validate XPOP, update ImportVL seq
     // 
