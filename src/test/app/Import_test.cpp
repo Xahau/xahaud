@@ -310,6 +310,60 @@ class Import_test : public beast::unit_test::suite
     void
     testSyntaxCheckProofArray(FeatureBitset features)
     {
+        testcase("import utils - syntaxCheckProof: is array");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        // XPOP.transaction.proof list xpop is disabled
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // // XPOP.transaction.proof list should be exactly 16 entries
+        //  {
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+        //     tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+        //     for(int i = 0; i < 16; i++) {
+        //         tmpXpop[jss::transaction][jss::proof].append("E000CC0736630D66DAB573A2642E1BD0646DFB13A871B2CCFA6E4226F477D88C");
+        //     }
+        //     Json::Value const tx = import(alice, tmpXpop);
+        //     env(tx, ter(temMALFORMED));
+        // }
+        //  // XPOP.transaction.proof list entry missing or wrong format (should
+        //  be hex string with 64 characters)
+        //  {
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+        //     tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+        //     for(int i = 0; i < 16; i++) {
+        //         tmpXpop[jss::transaction][jss::proof].append("wrong format");
+        //     }
+        //     Json::Value const tx = import(alice, tmpXpop);
+        //     env(tx, ter(temMALFORMED));
+        // }
+        //  // XPOP.transaction.proof list entry has wrong format
+        //  {
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+        //     tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+        //     Json::Value child1;
+        //     child1["children"] = Json::arrayValue;
+        //     child1["hash"] =
+        //     "31C2D27644F0E6D81AF332F466F71D43C25946A45FE43F121A500E22003F39A4";
+        //     child1["key"] =
+        //     "60748F98318DB6A39737D0C1BE5614AEBD7F1ACEE5FB16E82D49F16BB13BA87F";
+        //     tmpXpop[jss::transaction][jss::proof].append(child1);
+        //     Json::Value const tx = import(alice, tmpXpop);
+        //     env(tx, ter(temMALFORMED));
+        //  }
     }
 
     void
@@ -1695,10 +1749,6 @@ class Import_test : public beast::unit_test::suite
         }
 
         test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
-        // Env env{*this, makeNetworkVLConfig(21337, keys), nullptr,
-        //     beast::severities::kWarning
-        //     //beast::severities::kTrace
-        // };
 
         auto const feeDrops = env.current()->fees().base;
 
@@ -1779,7 +1829,7 @@ class Import_test : public beast::unit_test::suite
         }
 
         // getInnerTxn - !xpop
-        // DA: Duplicate - 
+        // DA: Duplicate -
 
         // getInnerTxn - failed to deserialize tx blob inside xpop (invalid hex)
         // DA: Duplicate - "XPOP.transaction.blob missing or wrong format"
@@ -2299,13 +2349,19 @@ class Import_test : public beast::unit_test::suite
         }
 
         // temMALFORMED - Import: depth > 32
+        // DA: Impossible test
 
         // temMALFORMED - Import: !proof->isObject() && !proof->isArray()
-        // DA: Catch All
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::transaction][jss::proof] = "not object";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
         // temMALFORMED - Import: return false
 
-        // temMALFORMED - Import: xpop proof did not contain the specified txn
+        // temMALFORMED - Import : xpop proof did not contain the specified txn
         // hash
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
@@ -2318,9 +2374,15 @@ class Import_test : public beast::unit_test::suite
         }
 
         // temMALFORMED - Import: depth > 32
+        // DA: Impossible test
 
         // temMALFORMED - Import: !proof.isObject() && !proof.isArray()
-        // DA: Catch All
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::transaction][jss::proof] = "not object";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
         // temMALFORMED - Import: computed txroot does not match xpop txroot,
         // invalid xpop.
@@ -2348,7 +2410,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
-        
+
         // temMALFORMED - Import: unl blob contained invalid validator entry,
         // skipping - no manifest
         {
@@ -2363,7 +2425,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
-        
+
         // temMALFORMED - Import: unl blob contained invalid validator entry,
         // skipping - wrong type validation_public_key
         {
@@ -2388,7 +2450,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
-        
+
         // temMALFORMED - Import: unl blob contained invalid validator entry,
         // skipping - wrong type
         {
@@ -2576,7 +2638,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
-        
+
         // temMALFORMED - Import: validation inside xpop was not signed with a
         // signing key we recognise
         {
@@ -2594,7 +2656,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
-        
+
         // temMALFORMED - Import: validation inside xpop was not correctly
         // signed
         {
@@ -5938,6 +6000,7 @@ public:
         testIsBase58(features);
         testIsBase64(features);
         testParseUint64(features);
+        testSyntaxCheckProofArray(features);
         testSyntaxCheckProofObject(features);
         testSyntaxCheckXPOP(features);
         testGetVLInfo(features);
