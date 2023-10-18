@@ -204,6 +204,12 @@ enum LedgerEntryType : std::uint16_t
     */
     ltAMM = 0x0079,
 
+    /** The ledger object which tracks the DID.
+
+       \sa keylet::did
+    */
+    ltDID = 0x4449,
+
     //---------------------------------------------------------------------------
     /** A special type, matching any ledger entry type.
 

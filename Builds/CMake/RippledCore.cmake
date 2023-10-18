@@ -531,6 +531,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/CreateTicket.cpp
   src/ripple/app/tx/impl/DeleteAccount.cpp
   src/ripple/app/tx/impl/DepositPreauth.cpp
+  src/ripple/app/tx/impl/DID.cpp
   src/ripple/app/tx/impl/Escrow.cpp
   src/ripple/app/tx/impl/GenesisMint.cpp
   src/ripple/app/tx/impl/Import.cpp
@@ -812,6 +813,7 @@ if (tests)
     src/test/app/DeliverMin_test.cpp
     src/test/app/DepositAuth_test.cpp
     src/test/app/Discrepancy_test.cpp
+    src/test/app/DID_test.cpp
     src/test/app/DNS_test.cpp
     src/test/app/Escrow_test.cpp
     src/test/app/FeeVote_test.cpp
@@ -977,6 +979,7 @@ if (tests)
     src/test/jtx/impl/check.cpp
     src/test/jtx/impl/delivermin.cpp
     src/test/jtx/impl/deposit.cpp
+    src/test/jtx/impl/did.cpp
     src/test/jtx/impl/envconfig.cpp
     src/test/jtx/impl/fee.cpp
     src/test/jtx/impl/flags.cpp

@@ -191,6 +191,12 @@ enum TxType : std::uint16_t
     /** This transactions creates a sidechain */
     ttXCHAIN_CREATE_BRIDGE = 57,
 
+    /** This transaction type creates or updates a DID */
+    ttDID_SET = 58,
+
+    /** This transaction type deletes a DID */
+    ttDID_DELETE = 59,
+
     /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
     ttREMARKS_SET = 94,
 

@@ -319,6 +319,8 @@ CONSTRUCT_TYPED_SFIELD(sfHookReturnString,      "HookReturnString",     VL,     
 CONSTRUCT_TYPED_SFIELD(sfHookParameterName,     "HookParameterName",    VL,        24);
 CONSTRUCT_TYPED_SFIELD(sfHookParameterValue,    "HookParameterValue",   VL,        25);
 CONSTRUCT_TYPED_SFIELD(sfBlob,                  "Blob",                 VL,        26);
+CONSTRUCT_TYPED_SFIELD(sfDIDDocument,           "DIDDocument",          VL,        27);
+CONSTRUCT_TYPED_SFIELD(sfData,                  "Data",                 VL,        28);
 CONSTRUCT_TYPED_SFIELD(sfRemarkValue,           "RemarkValue",          VL,        98);
 CONSTRUCT_TYPED_SFIELD(sfRemarkName,            "RemarkName",           VL,        99);
 

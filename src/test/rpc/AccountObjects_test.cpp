@@ -599,6 +599,7 @@ public:
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::uri_token), 0));
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::hook), 0));
         BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::amm), 0));
+        BEAST_EXPECT(acct_objs_is_size(acct_objs(gw, jss::did), 0));
 
         // gw mints an NFT so we can find it.
         uint256 const nftID{token::getNextID(env, gw, 0u, tfTransferable)};
@@ -863,6 +864,26 @@ public:
             BEAST_EXPECT(
                 payChan[sfSettleDelay.jsonName].asUInt() == 24 * 60 * 60);
         }
+
+        {
+            // gw creates a DID that we can look for in the ledger.
+            Json::Value jvDID;
+            jvDID[jss::TransactionType] = jss::DIDSet;
+            jvDID[jss::Flags] = tfUniversal;
+            jvDID[jss::Account] = gw.human();
+            jvDID[sfURI.jsonName] = strHex(std::string{"uri"});
+            env(jvDID);
+            env.close();
+        }
+        {
+            // Find the DID.
+            Json::Value const resp = acct_objs(gw, jss::did);
+            BEAST_EXPECT(acct_objs_is_size(resp, 1));
+
+            auto const& did = resp[jss::result][jss::account_objects][0u];
+            BEAST_EXPECT(did[sfAccount.jsonName] == gw.human());
+            BEAST_EXPECT(did[sfURI.jsonName] == strHex(std::string{"uri"}));
+        }
         // Make gw multisigning by adding a signerList.
         env(jtx::signers(gw, 6, {{alice, 7}}));
         env.close();
@@ -890,7 +911,7 @@ public:
             auto const& ticket = resp[jss::result][jss::account_objects][0u];
             BEAST_EXPECT(ticket[sfAccount.jsonName] == gw.human());
             BEAST_EXPECT(ticket[sfLedgerEntryType.jsonName] == jss::Ticket);
-            BEAST_EXPECT(ticket[sfTicketSequence.jsonName].asUInt() == 10);
+            BEAST_EXPECT(ticket[sfTicketSequence.jsonName].asUInt() == 11);
         }
         {
             // Create a uri token.

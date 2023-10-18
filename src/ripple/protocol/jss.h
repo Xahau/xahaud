@@ -73,6 +73,9 @@ JSS(Clawback);           // transaction type.
 JSS(ClaimReward);        // transaction type.
 JSS(ClearFlag);          // field.
 JSS(CreateCode);         // field.
+JSS(DID);                // ledger type.
+JSS(DIDDelete);          // transaction type.
+JSS(DIDSet);             // transaction type.
 JSS(DeliverMin);         // in: TransactionSign
 JSS(DepositPreauth);     // transaction and ledger type.
 JSS(Destination);        // in: TransactionSign; field.
@@ -334,6 +337,7 @@ JSS(destination_currencies);  // in: PathRequest, RipplePathFind
 JSS(destination_tag);         // in: PathRequest
                               // out: AccountChannels
 JSS(details);                 // out: Manifest, server_info
+JSS(did);                     // in: LedgerEntry
 JSS(dir_entry);               // out: DirectoryEntryIterator
 JSS(dir_index);               // out: DirectoryEntryIterator
 JSS(dir_root);                // out: DirectoryEntryIterator
