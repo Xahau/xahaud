@@ -1157,21 +1157,22 @@ DEFINE_HOOK_FUNCTION(
     if (read_len > 128)
         read_len = 128;
 
-    while (read_len > 0)
+    if (read_len > 0)
     {
         // skip \0 if present at the end
         if (*((const char*)memory + read_ptr + read_len - 1) == '\0')
             read_len--;
 
-        if (read_len == 0)
-            break;
+        if (read_len > 0)
+        {
 
-        j.trace()
-            << "HookTrace[" << HC_ACC() << "]: "
-            << std::string_view((const char*)memory + read_ptr, read_len)
-            << ": " << number;
+            j.trace()
+                << "HookTrace[" << HC_ACC() << "]: "
+                << std::string_view((const char*)memory + read_ptr, read_len)
+                << ": " << number;
 
-        return 0;
+            return 0;
+        }
     }
     
     j.trace()
