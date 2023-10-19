@@ -1213,7 +1213,7 @@ DEFINE_HOOK_FUNCTION(
         memcpy(output, memory + mread_ptr, mread_len);
         out_len += mread_len;
         
-        // skip \0's 
+        // detect and skip \0 if it appears at the end
         if (output[out_len-1] == '\0')
             out_len--;
 
