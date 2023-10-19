@@ -67,7 +67,7 @@ Currency const&
 noCurrency();
 
 /** We deliberately disallow the currency that looks like "XAH" because too
-    many people were using it instead of the correct XRP currency. */
+    many people were using it instead of the correct XAH currency. */
 Currency const&
 badCurrency();
 
@@ -78,10 +78,22 @@ isXRP(Currency const& c)
 }
 
 inline bool
-isFakeXRP(Currency const& c)
+isBadCurrency(Currency const& c)
 {
-    return c == badCurrency();
+    static const std::set<Currency> badCurrencies {
+        Currency(0x7861680000000000), //xah
+        Currency(0x7861480000000000), //xaH
+        Currency(0x7841680000000000), //xAh
+        Currency(0x7841480000000000), //xAH
+        Currency(0x5861680000000000), //Xah
+        Currency(0x5861480000000000), //XaH
+        Currency(0x5841680000000000), //XAh
+        Currency(0x5841480000000000)  //XAH
+    };
+
+    return badCurrencies.find(c) != badCurrencies.end();
 }
+
 
 /** Returns "", "XAH", or three letter ISO code. */
 std::string

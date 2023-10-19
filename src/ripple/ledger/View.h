@@ -634,7 +634,7 @@ trustTransferAllowed(
         std::shared_ptr<SLE>,
         std::shared_ptr<SLE const>>::type SLEPtr;
 
-    if (issue.currency == badCurrency())
+    if (isBadCurrency(issue.currency))
         return tecNO_PERMISSION;
 
     auto const sleIssuerAcc = view.read(keylet::account(issue.account));

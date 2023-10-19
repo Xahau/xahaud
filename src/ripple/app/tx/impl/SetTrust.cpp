@@ -56,7 +56,7 @@ SetTrust::preflight(PreflightContext const& ctx)
         return temBAD_LIMIT;
     }
 
-    if (badCurrency() == saLimitAmount.getCurrency())
+    if (isBadCurrency(saLimitAmount.getCurrency()))
     {
         JLOG(j.trace()) << "Malformed transaction: specifies XRP as IOU";
         return temBAD_CURRENCY;
@@ -448,7 +448,7 @@ SetTrust::doApply()
         if (uFlagsIn != uFlagsOut)
             sleRippleState->setFieldU32(sfFlags, uFlagsOut);
 
-        if (bDefault || badCurrency() == currency)
+        if (bDefault || isBadCurrency(currency))
         {
             // Delete.
 

@@ -533,12 +533,12 @@ isXRP(STAmount const& amount)
 }
 
 inline bool
-isFakeXRP(STAmount const& amount)
+isBadCurrency(STAmount const& amount)
 {
     if (amount.native())
         return false;
 
-    return isFakeXRP(amount.issue().currency);
+    return isBadCurrency(amount.issue().currency);
 }
 
 /** returns true iff adding or subtracting results in less than or equal to
