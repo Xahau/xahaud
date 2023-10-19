@@ -61,7 +61,7 @@ isLegalAmountSigned(XRPAmount const& amount)
 static inline std::string const&
 systemCurrencyCode()
 {
-    static std::string const code = "XRP";
+    static std::string const code = "XAH";
     return code;
 }
 

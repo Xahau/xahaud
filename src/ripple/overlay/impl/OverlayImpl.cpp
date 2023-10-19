@@ -858,7 +858,9 @@ OverlayImpl::getServerInfo()
 
         validated_ledger.removeMember(jss::base_fee);
         validated_ledger.removeMember(jss::reserve_base_xrp);
+        validated_ledger.removeMember(jss::reserve_base_native);
         validated_ledger.removeMember(jss::reserve_inc_xrp);
+        validated_ledger.removeMember(jss::reserve_inc_native);
     }
 
     return server_info;

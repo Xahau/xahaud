@@ -1930,7 +1930,7 @@ public:
         env(offer(dan, XRP(500), EUR(50)));
 
         Json::Value jtp{Json::arrayValue};
-        jtp[0u][0u][jss::currency] = "XRP";
+        jtp[0u][0u][jss::currency] = "XAH";
         env(pay(alice, bob, EUR(30)), json(jss::Paths, jtp), sendmax(USD(333)));
 
         auto jrr = ledgerEntryState(env, alice, gw1, "USD");

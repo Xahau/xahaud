@@ -134,7 +134,7 @@ noCurrency()
 Currency const&
 badCurrency()
 {
-    static Currency const currency(0x5852500000000000);
+    static Currency const currency(0x5841480000000000);
     return currency;
 }
 

@@ -197,6 +197,7 @@ JSS(balances);               // out: GatewayBalances
 JSS(base);                   // out: LogLevel
 JSS(base_fee);               // out: NetworkOPs
 JSS(base_fee_xrp);           // out: NetworkOPs
+JSS(base_fee_native);        // out: NetworkOPs
 JSS(bids);                   // out: Subscribe
 JSS(binary);                 // in: AccountTX, LedgerEntry,
                              //     AccountTxOld, Tx LedgerData
@@ -563,8 +564,10 @@ JSS(requested);             // out: Manifest
 JSS(reservations);          // out: Reservations
 JSS(reserve_base);          // out: NetworkOPs
 JSS(reserve_base_xrp);      // out: NetworkOPs
+JSS(reserve_base_native);   // out: NetworkOPs
 JSS(reserve_inc);           // out: NetworkOPs
 JSS(reserve_inc_xrp);       // out: NetworkOPs
+JSS(reserve_inc_native);    // out: NetworkOPs
 JSS(response);              // websocket
 JSS(result);                // RPC
 JSS(ripple_lines);          // out: NetworkOPs

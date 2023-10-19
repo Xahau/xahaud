@@ -2658,6 +2658,11 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
                 lpClosed->fees().accountReserve(0).decimalXRP();
             l[jss::reserve_inc_xrp] = lpClosed->fees().increment.decimalXRP();
 
+            l[jss::base_fee_native] = baseFee.decimalXRP();
+            l[jss::reserve_base_native] =
+                lpClosed->fees().accountReserve(0).decimalXRP();
+            l[jss::reserve_inc_native] = lpClosed->fees().increment.decimalXRP();
+
             auto const nowOffset = app_.timeKeeper().nowOffset();
             if (std::abs(nowOffset.count()) >= 60)
                 l[jss::system_time_offset] = nowOffset.count();
