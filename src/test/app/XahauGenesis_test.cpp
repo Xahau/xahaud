@@ -1967,6 +1967,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 {
                     std::cout
                         << "Counter at " << lineno << "L: "
+                        << ((!!counterLE && counterLE->getFieldVL(sfHookStateData) == std::vector<uint8_t>{c}) ? "pass " : "failed ")
                         << (!!counterLE ? strHex(counterLE->getFieldVL(sfHookStateData)) : "doesn't exist")
                         << " vs " << std::string(1, (char)('0' + c)) << "\n"; 
                 }
@@ -1990,13 +1991,15 @@ struct XahauGenesis_test : public beast::unit_test::suite
             
             checkCounter(__LINE__, 4);
 
-            // reverting a L2 vote should emit a txn undoing the vote
+            // reverting a L2 vote should emit a txn undoing the vote (not anymore Oct 20 2023)
+            /*
             doL2Vote(__LINE__, 1, t2, m13, 'R', 'R', original_data, vote_data, false);
 
             env.close();
             env.close();
 
             checkCounter(__LINE__, 3);
+            */
 
         }
 
@@ -2053,13 +2056,15 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             checkCounter(__LINE__, 4);
 
-            // reverting a L2 vote should emit a txn undoing the vote
+            // reverting a L2 vote should emit a txn undoing the vote (not anymore Oct 20 2023)
+            /*
             doL2Vote(__LINE__, 1, t2, m11, 'R', 'D', original_data, vote_data, false);
 
             env.close();
             env.close();
 
             checkCounter(__LINE__, 3);
+            */
         }
 
 

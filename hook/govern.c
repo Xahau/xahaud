@@ -394,9 +394,12 @@ int64_t hook(uint32_t r)
     {
         lost_majority = previous_votes >= q51 && votes < q51;
         if (lost_majority)
-            trace(SBUF("Governance: Majority lost, undoing L1 vote..."),0,0,0);
+        {
+            DONE("Governance: Majority lost... but your L1 vote is unchanged. See documentation.");
+            // RH TODO: correctly action a majority loss at L2 as an "undo" vote at L1
+        }
         else if (votes < q51)
-            DONE("Governance: Not yet enough votes to action L1 vote..");
+            DONE("Governance: Not yet enough votes to action L1 vote...");
     }
 
     
@@ -481,7 +484,7 @@ int64_t hook(uint32_t r)
         trace_num(SBUF("Governance: Emit result"), emit_result);
 
         if (emit_result == 32)
-            accept(SBUF("Governance: Successfully emitted L1 vote."), __LINE__);
+            DONE("Governance: Successfully emitted L1 vote.");
 
         NOPE("Governance: L1 vote emission failed.");
     }
