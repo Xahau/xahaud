@@ -26,8 +26,8 @@
 #include <ripple/app/rdb/State.h>
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/nodestore/DatabaseRotating.h>
-
 #include <ripple/nodestore/Scheduler.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>

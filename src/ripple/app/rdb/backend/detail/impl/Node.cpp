@@ -25,10 +25,11 @@
 #include <ripple/app/misc/Manifest.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/app/rdb/backend/detail/Node.h>
-#include <ripple/basics/BasicConfig.h>
-#include <ripple/basics/StringUtilities.h>
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/core/SociDB.h>
+#include <ripple/basics/BasicConfig.h>
+#include <ripple/basics/StringUtilities.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <ripple/json/to_string.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/range/adaptor/transformed.hpp>

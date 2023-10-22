@@ -17,8 +17,9 @@
 */
 //==============================================================================
 
+#include <xrpld/ledger/CachedView.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <ripple/basics/contract.h>
-#include <ripple/ledger/CachedView.h>
 #include <ripple/protocol/Serializer.h>
 
 namespace ripple {
