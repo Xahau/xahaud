@@ -451,7 +451,7 @@ Change::activateXahauGenesis()
 
     using namespace XahauGenesis;
 
-    bool const isTest = (ctx_.tx.getFlags() & tfTestSuite) && ctx_.app.config().standalone();
+    bool const isTest = (ctx_.tx.getFlags() & tfTestSuite);// && ctx_.app.config().standalone();
 
     auto [
         ng_entries,
