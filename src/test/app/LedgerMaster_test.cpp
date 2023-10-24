@@ -100,7 +100,6 @@ class LedgerMaster_test : public beast::unit_test::suite
             uint32_t txnIndex = metas[0]->getFieldU32(sfTransactionIndex);
             auto result = env.app().getLedgerMaster().txnIdFromIndex(
                 startLegSeq, txnIndex);
-            std::cout << "RESULT: " << *result << "\n";
             BEAST_EXPECT(
                 *result ==
                 uint256("0CC11AD1AD89661689F6B6148D82CB6A7101DA4D66EC843670262D"
@@ -111,7 +110,6 @@ class LedgerMaster_test : public beast::unit_test::suite
             uint32_t txnIndex = metas[1]->getFieldU32(sfTransactionIndex);
             auto result = env.app().getLedgerMaster().txnIdFromIndex(
                 startLegSeq + 1, txnIndex);
-            std::cout << "RESULT: " << *result << "\n";
             BEAST_EXPECT(
                 *result ==
                 uint256("DCAECE52F028B9D0F7CA43CBE15AB4EF7B84A8EF5D455238992E1E"
