@@ -297,7 +297,6 @@ class Import_test : public beast::unit_test::suite
         BEAST_EXPECT(result1 == 1234);
 
         // std::optional<uint64_t> result2 = parse_uint64("0xFFAABBCCDD22");
-        // std::cout << "RESULT: " << *result2 << "\n";
         // BEAST_EXPECT(result2 == 0xFFAABBCCDD22);
 
         std::optional<uint64_t> result3 = parse_uint64("2147483647");
@@ -768,6 +767,27 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 syntaxCheckXPOP(raw, env.journal).has_value() == false);
         }
+        // XPOP.ledger.index missing or wrong format
+        // invalid xpop.ledger.index (must be int)
+        {
+            std::string strJson = R"json({
+                "ledger": {
+                    "acroot": "DCE36DCACDCFCB3441866E09A183B7B8064B3F5E06593CD6AA8ACCC1B284B477",
+                    "txroot": "409C8D073DDB5AB07FD2CD4F14467A8F3BC8FFBA16A0032D12D823D8511C12F4",
+                    "phash": "BAB19E13B25251A83493073F424FD986EA7BA49F9F4C83A061700131460D747D",
+                    "close": 738786851,
+                    "coins": "99999998999999868",
+                    "cres": 10,
+                    "flags": "not an int",
+                    "index": "1"
+                },
+                "transaction": {},
+                "validation": {}
+            })json";
+            Blob raw = Blob(strJson.begin(), strJson.end());
+            BEAST_EXPECT(
+                syntaxCheckXPOP(raw, env.journal).has_value() == false);
+        }
         // XPOP.ledger.pclose missing or wrong format
         // invalid xpop.ledger.pclose (must be int)
         {
@@ -780,6 +800,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": "not an int"
                 },
                 "transaction": {},
@@ -804,6 +825,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -828,6 +850,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -852,6 +875,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -877,6 +901,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -902,6 +927,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -928,6 +954,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -966,6 +993,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1009,6 +1037,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1050,6 +1079,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1091,6 +1121,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1135,6 +1166,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1179,6 +1211,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1223,6 +1256,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1266,6 +1300,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1310,6 +1345,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1355,6 +1391,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1400,6 +1437,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1446,6 +1484,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1492,6 +1531,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1528,7 +1568,6 @@ class Import_test : public beast::unit_test::suite
         }
 
         // XPOP.validation.unl entry has wrong format
-
         // valid xpop
         {
             std::string strJson = R"json({
@@ -1540,6 +1579,7 @@ class Import_test : public beast::unit_test::suite
                     "coins": "99999998999999868",
                     "cres": 10,
                     "flags": 10,
+                    "index": 1,
                     "pclose": 738786851
                 },
                 "transaction": {
@@ -1594,6 +1634,7 @@ class Import_test : public beast::unit_test::suite
                 "coins": "99999998999999868",
                 "cres": 10,
                 "flags": 10,
+                "index": 1,
                 "pclose": 738786851
             },
             "transaction": {
@@ -2379,7 +2420,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: !proof.isObject() && !proof.isArray()
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
-            tmpXpop[jss::transaction][jss::proof] = "not object";
+            tmpXpop[jss::transaction][jss::proof] = "not a object";
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
