@@ -513,8 +513,13 @@ struct XahauGenesis_test : public beast::unit_test::suite
     std::vector<uint8_t>
     vecFromAcc(jtx::Account const& acc)
     {
-        uint8_t const* data = acc.id().data();
-        return std::vector<uint8_t>(data, data+20);
+        // this was changed to a less efficient version
+        // to accomodate older compilers
+        std::vector<uint8_t> vec;
+        vec.reserve(20);
+        for (int i = 0; i < 20; ++i)
+            vec.push_back(acc.id().data()[i]);
+        return vec;
     };
 
     inline
@@ -615,8 +620,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         using namespace jtx;
         testcase("Test governance membership voting L1");
-
-        Env env{*this, envconfig(), features - featureXahauGenesis};
+        Env env{*this, envconfig(), features - featureXahauGenesis, nullptr, 
+            beast::severities::kWarning
+//            beast::severities::kTrace
+        };
         
         auto const alice = Account("alice");
         auto const bob = Account("bob");
