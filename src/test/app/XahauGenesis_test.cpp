@@ -620,10 +620,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         using namespace jtx;
         testcase("Test governance membership voting L1");
-        Env env{*this, envconfig(), features - featureXahauGenesis, nullptr, 
-            beast::severities::kWarning
-//            beast::severities::kTrace
-        };
+        Env env{*this, envconfig(), features - featureXahauGenesis, nullptr};
         
         auto const alice = Account("alice");
         auto const bob = Account("bob");
