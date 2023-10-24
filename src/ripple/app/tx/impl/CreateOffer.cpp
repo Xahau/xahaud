@@ -117,7 +117,7 @@ CreateOffer::preflight(PreflightContext const& ctx)
         return temREDUNDANT;
     }
     // We don't allow a non-native currency to use the currency code XRP.
-    if (badCurrency() == uPaysCurrency || badCurrency() == uGetsCurrency)
+    if (isBadCurrency(uPaysCurrency) || isBadCurrency(uGetsCurrency))
     {
         JLOG(j.debug()) << "Malformed offer: bad currency";
         return temBAD_CURRENCY;

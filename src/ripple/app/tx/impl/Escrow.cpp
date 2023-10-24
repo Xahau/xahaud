@@ -116,7 +116,7 @@ EscrowCreate::preflight(PreflightContext const& ctx)
         if (!isLegalNet(amount))
             return temBAD_AMOUNT;
 
-        if (isFakeXRP(amount))
+        if (isBadCurrency(amount))
             return temBAD_CURRENCY;
     }
 

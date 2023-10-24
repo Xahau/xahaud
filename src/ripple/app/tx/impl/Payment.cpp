@@ -112,7 +112,7 @@ Payment::preflight(PreflightContext const& ctx)
                         << "bad dst amount: " << saDstAmount.getFullText();
         return temBAD_AMOUNT;
     }
-    if (badCurrency() == uSrcCurrency || badCurrency() == uDstCurrency)
+    if (isBadCurrency(uSrcCurrency) || isBadCurrency(uDstCurrency))
     {
         JLOG(j.trace()) << "Malformed transaction: "
                         << "Bad currency.";

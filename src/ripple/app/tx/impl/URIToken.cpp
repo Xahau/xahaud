@@ -54,7 +54,7 @@ URIToken::preflight(PreflightContext const& ctx)
             return temBAD_AMOUNT;
         }
 
-        if (badCurrency() == amt.getCurrency())
+        if (isBadCurrency(amt.getCurrency()))
         {
             JLOG(ctx.j.warn()) << "Malformed transaction. Bad currency.";
             return temBAD_CURRENCY;

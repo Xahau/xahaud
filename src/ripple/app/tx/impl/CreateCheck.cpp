@@ -60,7 +60,7 @@ CreateCheck::preflight(PreflightContext const& ctx)
             return temBAD_AMOUNT;
         }
 
-        if (badCurrency() == sendMax.getCurrency())
+        if (isBadCurrency(sendMax.getCurrency()))
         {
             JLOG(ctx.j.warn()) << "Malformed transaction: Bad currency.";
             return temBAD_CURRENCY;

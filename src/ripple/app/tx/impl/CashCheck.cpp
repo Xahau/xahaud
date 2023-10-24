@@ -70,7 +70,7 @@ CashCheck::preflight(PreflightContext const& ctx)
         return temBAD_AMOUNT;
     }
 
-    if (badCurrency() == value.getCurrency())
+    if (isBadCurrency(value.getCurrency()))
     {
         JLOG(ctx.j.warn()) << "Malformed transaction: Bad currency.";
         return temBAD_CURRENCY;

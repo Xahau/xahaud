@@ -317,7 +317,7 @@ PathRequest::parseJson(Json::Value const& jvParams)
 
     if ((saDstAmount.getCurrency().isZero() &&
          saDstAmount.getIssuer().isNonZero()) ||
-        (saDstAmount.getCurrency() == badCurrency()) ||
+        (isBadCurrency(saDstAmount.getCurrency())) ||
         (!convert_all_ && saDstAmount <= beast::zero))
     {
         jvStatus = rpcError(rpcDST_AMT_MALFORMED);
@@ -337,7 +337,7 @@ PathRequest::parseJson(Json::Value const& jvParams)
         if (!amountFromJsonNoThrow(*saSendMax, jvParams[jss::send_max]) ||
             (saSendMax->getCurrency().isZero() &&
              saSendMax->getIssuer().isNonZero()) ||
-            (saSendMax->getCurrency() == badCurrency()) ||
+            (isBadCurrency(saSendMax->getCurrency())) ||
             (*saSendMax <= beast::zero &&
              *saSendMax != STAmount(saSendMax->issue(), 1u, 0, true)))
         {
