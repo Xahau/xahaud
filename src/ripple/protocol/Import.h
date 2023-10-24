@@ -73,6 +73,9 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
 
     if (proof.isArray())
     {
+        JLOG(j.warn()) << "XPOP.transaction.proof list xpop is disabled";
+        return false;
+        
         // List form
         if (proof.size() != 16)
         {

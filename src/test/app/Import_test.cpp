@@ -310,6 +310,60 @@ class Import_test : public beast::unit_test::suite
     void
     testSyntaxCheckProofArray(FeatureBitset features)
     {
+        testcase("import utils - syntaxCheckProof: is array");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        // XPOP.transaction.proof list xpop is disabled
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // // XPOP.transaction.proof list should be exactly 16 entries
+        //  {
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+        //     tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+        //     for(int i = 0; i < 16; i++) {
+        //         tmpXpop[jss::transaction][jss::proof].append("E000CC0736630D66DAB573A2642E1BD0646DFB13A871B2CCFA6E4226F477D88C");
+        //     }
+        //     Json::Value const tx = import(alice, tmpXpop);
+        //     env(tx, ter(temMALFORMED));
+        // }
+        //  // XPOP.transaction.proof list entry missing or wrong format (should
+        //  be hex string with 64 characters)
+        //  {
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+        //     tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+        //     for(int i = 0; i < 16; i++) {
+        //         tmpXpop[jss::transaction][jss::proof].append("wrong format");
+        //     }
+        //     Json::Value const tx = import(alice, tmpXpop);
+        //     env(tx, ter(temMALFORMED));
+        // }
+        //  // XPOP.transaction.proof list entry has wrong format
+        //  {
+        //     Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+        //     tmpXpop[jss::transaction][jss::proof] = Json::arrayValue;
+        //     Json::Value child1;
+        //     child1["children"] = Json::arrayValue;
+        //     child1["hash"] =
+        //     "31C2D27644F0E6D81AF332F466F71D43C25946A45FE43F121A500E22003F39A4";
+        //     child1["key"] =
+        //     "60748F98318DB6A39737D0C1BE5614AEBD7F1ACEE5FB16E82D49F16BB13BA87F";
+        //     tmpXpop[jss::transaction][jss::proof].append(child1);
+        //     Json::Value const tx = import(alice, tmpXpop);
+        //     env(tx, ter(temMALFORMED));
+        //  }
     }
 
     void
@@ -1662,13 +1716,17 @@ class Import_test : public beast::unit_test::suite
         // temDISABLED - disabled
         // !ctx.rules.enabled(featureImport)
         {
-            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys), features - featureImport};
+            test::jtx::Env env{
+                *this,
+                makeNetworkVLConfig(21337, keys),
+                features - featureImport};
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
             env.close();
 
-            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)), ter(temDISABLED));
+            env(import(alice, loadXpop(ImportTCAccountSet::w_seed)),
+                ter(temDISABLED));
         }
 
         // temDISABLED - disabled
@@ -1691,6 +1749,7 @@ class Import_test : public beast::unit_test::suite
         }
 
         test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys)};
+
         auto const feeDrops = env.current()->fees().base;
 
         // burn 1000 xrp
@@ -1723,15 +1782,14 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(telINSUF_FEE_P));
         }
 
+        // temMALFORMED - blob was more than 512kib
         // DA: blob.resize(513 * 1024); fails with Boost
-        // temMALFORMED
-        // blob was more than 512kib
         // {
         //     ripple::Blob blob;
         //     blob.resize(513 * 1024);
-        //     Json::Value tx = import(alice, loadXpop(ImportTCAccountSet::w_seed));
-        //     tx[sfBlob.jsonName] = strHex(blob);
-        //     env(tx, ter(temMALFORMED));
+        //     Json::Value tx = import(alice,
+        //     loadXpop(ImportTCAccountSet::w_seed)); tx[sfBlob.jsonName] =
+        //     strHex(blob); env(tx, ter(temMALFORMED));
         // }
 
         // temMALFORMED - sfAmount field must be in drops
@@ -1788,8 +1846,8 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(temMALFORMED));
         }
 
-        // // temMALFORMED - !stpTrans
-        // // DA: Duplicate - getInnerTxn (Any Failure)
+        // temMALFORMED - !stpTrans
+        // DA: Duplicate - getInnerTxn (Any Failure)
 
         // temMALFORMED - Import: attempted to import xpop containing an emitted
         // or pseudo txn.
@@ -1915,15 +1973,36 @@ class Import_test : public beast::unit_test::suite
             env.close();
         }
 
+        // temMALFORMED - Import: outer and inner txns were (multi) signed with
+        // different keys. - empty innerSigners
+        {
+            Json::Value xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
+            xpopJson[jss::transaction][jss::blob] =
+                "12000C22000000002400000014201B0000002B201D00005359202300000002"
+                "6840000000001E84B073008114AE123A8556F3CF91154711376AFB0F894F83"
+                "2B3DF3F1F4EB1300018114AA266540F7DACC27E264B75ED0A5ED7330BFB614"
+                "E1EB1300018114D91B8EE5C7ABF632469D4C0907C5E40C8B8F79B3E1F1";
+            env(import(alice, xpopJson),
+                msig(bob, carol),
+                fee((3 * feeDrops) * 10),
+                ter(temMALFORMED));
+            env.close();
+        }
+
         // temMALFORMED - Import: outer or inner txn was missing signers.
         // different keys.
-        // {
-        //     auto const xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
-        //     env(import(alice, xpopJson),
-        //         fee((3 * feeDrops) * 10),
-        //         ter(temMALFORMED));
-        //     env.close();
-        // }
+        {
+            Json::Value xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
+            xpopJson[jss::transaction][jss::blob] =
+                "12000C22000000002400000014201B0000002B201D00005359202300000002"
+                "6840000000001E84B073008114AE123A8556F3CF91154711376AFB0F894F83"
+                "2B3DF4EB1300018114AA266540F7DACC27E264B75ED0A5ED7330BFB614E1EB"
+                "1300018114D91B8EE5C7ABF632469D4C0907C5E40C8B8F79B3E1F1";
+            env(import(alice, xpopJson),
+                fee((3 * feeDrops) * 10),
+                ter(temMALFORMED));
+            env.close();
+        }
 
         // temMALFORMED - Import: outer and inner txns were signed with
         // different keys.
@@ -1937,7 +2016,26 @@ class Import_test : public beast::unit_test::suite
         }
 
         // temMALFORMED - Import: inner txn signature verify failed
-        // DA: TODO: ASK FOR HELP
+        {
+            Json::Value xpopJson = loadXpop(ImportTCSignersListSet::w_signers);
+            xpopJson[jss::transaction][jss::blob] =
+                "12000C2200000008240000001A201B000003B9201D00005359202300000000"
+                "6840000000001E84B073008114AE123A8556F3CF91154711376AFB0F894F83"
+                "2B3DF3E0107321028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EA"
+                "AFEC466F5C095407BF74473045022100BE132424E6E6304574F4BB5F6E287A"
+                "63429482CE7E0437B443FC1457F4A3830002204B909A44FF9DFFD99AF751B0"
+                "40830E53830FE3CA591449600372BED85FDBC33C8114B389FBCED0AF9DCDFF"
+                "62900BFAEFA3EB872D8A96E1E010732102691AC5AE1C4C333AE5DF8A93BDC4"
+                "95F0EEBFC6DB0DA7EB6EF808F3AFC006E3FE74473045022100D235706A0AB2"
+                "407EC5D62F9130E9A98A70D90CE0D69D749C37272DFC975BD79002207D8AED"
+                "0BF31A5E3290920B72EAFE22AB6B09814466372E09B067779C4E103FBE8114"
+                "F51DFC2A09D62CBBA1DFBDD4691DAC96AD98B90FE1F1";
+            env(import(alice, xpopJson),
+                msig(bob, carol),
+                fee((3 * feeDrops) * 10),
+                ter(temMALFORMED));
+            env.close();
+        }
 
         // temMALFORMED - Import: failed to deserialize manifest on txid
         {
@@ -1995,7 +2093,6 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(temMALFORMED));
         }
 
-        // DA: GOOD SIGNATURE NOT JSON
         // temMALFORMED - Import: unl blob was not valid json (after base64
         // decoding)
         {
@@ -2005,9 +2102,158 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(temMALFORMED));
         }
 
-        // DA: GOOD SIGNATURE GOOD JSON MISSING FIELDS
         // temMALFORMED - Import: unl blob json (after base64 decoding) lacked
-        // required fields and/or types
+        // required field (sequence) and/or types
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJleHBpcmF0aW9uIjo3NDEzOTg0MDAsInZhbGlkYXRvcnMiOlt7InZhbGlkYX"
+                "Rpb25fcHVibGljX2tleSI6IkVEMzhCRDQ0NUFGRDYyMTU5NjIwQ0MxOTZDMjY2"
+                "OEEyNkI2RkJCMzZCMDk5RUI1NUIzOEE1OEMxMUMxMjA0REU1QyIsIm1hbmlmZX"
+                "N0IjoiSkFBQUFBSnhJZTA0dlVSYS9XSVZsaURNR1d3bWFLSnJiN3Myc0puclZi"
+                "T0tXTUVjRWdUZVhITWhBb0dNTmNzZ1VVTndLbytoN3poYVhLRitIR3c2WGhFam"
+                "9ES3JhbGtZbk1qS2RrY3dSUUloQUo3Y040SjZOZFZmcG52RUkvWmV1V0NUdm5w"
+                "YUppcktORmNDM3pNT2pnd2pBaUFiS0kwZmJYZ1MxUkxsb05oeGRIaFZxOW96RV"
+                "dWRTljSXdYRE4zQXhxeVkzQVNRQ3QwK3UvaU5TREQ2Ylh2VVR0ZG10NE5ydGxi"
+                "eDRWenVtVHBmalJZcDRsTW9JL2g0M3BVVGpwN1ZGb1hibktXalZocU5hR201Nz"
+                "dLNko2OTdYWjdUUUU9In0seyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFREJF"
+                "RTMwRkFFOTJFRUU4OEUxQzQ5ODBEMDlFQ0ZERTk5QTExNkQwNzhFQzIxODU3RE"
+                "IxQjQ3QjQyNjQxOEU0MjgiLCJtYW5pZmVzdCI6IkpBQUFBQUp4SWUwNHZVUmEv"
+                "V0lWbGlETUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0VnVGVYSE1oQW9HTU5jc2"
+                "dVVU53S28raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxrWW5Naktka2N3UlFJaEFK"
+                "N2NONEo2TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTkZjQzN6TU9qZ3dqQWlBYk"
+                "tJMGZiWGdTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3WEROM0F4cXlZM0FTUUN0"
+                "MCt1L2lOU0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bVRwZmpSWXA0bE1vSS9oND"
+                "NwVVRqcDdWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3VFFFPSJ9XX0=";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+        // temMALFORMED - Import: unl blob json (after base64 decoding) wrong
+        // required field (sequence) and/or types
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6IjIiLCJleHBpcmF0aW9uIjo3NDEzOTg0MDAsInZhbGlkYX"
+                "RvcnMiOlt7InZhbGlkYXRpb25fcHVibGljX2tleSI6IkVEMzhCRDQ0NUFGRDYy"
+                "MTU5NjIwQ0MxOTZDMjY2OEEyNkI2RkJCMzZCMDk5RUI1NUIzOEE1OEMxMUMxMj"
+                "A0REU1QyIsIm1hbmlmZXN0IjoiSkFBQUFBSnhJZTA0dlVSYS9XSVZsaURNR1d3"
+                "bWFLSnJiN3Myc0puclZiT0tXTUVjRWdUZVhITWhBb0dNTmNzZ1VVTndLbytoN3"
+                "poYVhLRitIR3c2WGhFam9ES3JhbGtZbk1qS2RrY3dSUUloQUo3Y040SjZOZFZm"
+                "cG52RUkvWmV1V0NUdm5wYUppcktORmNDM3pNT2pnd2pBaUFiS0kwZmJYZ1MxUk"
+                "xsb05oeGRIaFZxOW96RVdWRTljSXdYRE4zQXhxeVkzQVNRQ3QwK3UvaU5TREQ2"
+                "Ylh2VVR0ZG10NE5ydGxieDRWenVtVHBmalJZcDRsTW9JL2g0M3BVVGpwN1ZGb1"
+                "hibktXalZocU5hR201NzdLNko2OTdYWjdUUUU9In0seyJ2YWxpZGF0aW9uX3B1"
+                "YmxpY19rZXkiOiJFREJFRTMwRkFFOTJFRUU4OEUxQzQ5ODBEMDlFQ0ZERTk5QT"
+                "ExNkQwNzhFQzIxODU3REIxQjQ3QjQyNjQxOEU0MjgiLCJtYW5pZmVzdCI6IkpB"
+                "QUFBQUp4SWUwNHZVUmEvV0lWbGlETUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0"
+                "VnVGVYSE1oQW9HTU5jc2dVVU53S28raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxr"
+                "WW5Naktka2N3UlFJaEFKN2NONEo2TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTk"
+                "ZjQzN6TU9qZ3dqQWlBYktJMGZiWGdTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3"
+                "WEROM0F4cXlZM0FTUUN0MCt1L2lOU0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bV"
+                "RwZmpSWXA0bE1vSS9oNDNwVVRqcDdWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3"
+                "WFo3VFFFPSJ9XX0=";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+        // temMALFORMED - Import: unl blob json (after base64 decoding)
+        // lacked required field (expiration) and/or types
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwidmFsaWRhdG9ycyI6W3sidmFsaWRhdGlvbl9wdWJsaW"
+                "Nfa2V5IjoiRUQzOEJENDQ1QUZENjIxNTk2MjBDQzE5NkMyNjY4QTI2QjZGQkIz"
+                "NkIwOTlFQjU1QjM4QTU4QzExQzEyMDRERTVDIiwibWFuaWZlc3QiOiJKQUFBQU"
+                "FKeEllMDR2VVJhL1dJVmxpRE1HV3dtYUtKcmI3czJzSm5yVmJPS1dNRWNFZ1Rl"
+                "WEhNaEFvR01OY3NnVVVOd0tvK2g3emhhWEtGK0hHdzZYaEVqb0RLcmFsa1luTW"
+                "pLZGtjd1JRSWhBSjdjTjRKNk5kVmZwbnZFSS9aZXVXQ1R2bnBhSmlyS05GY0Mz"
+                "ek1Pamd3akFpQWJLSTBmYlhnUzFSTGxvTmh4ZEhoVnE5b3pFV1ZFOWNJd1hETj"
+                "NBeHF5WTNBU1FDdDArdS9pTlNERDZiWHZVVHRkbXQ0TnJ0bGJ4NFZ6dW1UcGZq"
+                "UllwNGxNb0kvaDQzcFVUanA3VkZvWGJuS1dqVmhxTmFHbTU3N0s2SjY5N1haN1"
+                "RRRT0ifSx7InZhbGlkYXRpb25fcHVibGljX2tleSI6IkVEQkVFMzBGQUU5MkVF"
+                "RTg4RTFDNDk4MEQwOUVDRkRFOTlBMTE2RDA3OEVDMjE4NTdEQjFCNDdCNDI2ND"
+                "E4RTQyOCIsIm1hbmlmZXN0IjoiSkFBQUFBSnhJZTA0dlVSYS9XSVZsaURNR1d3"
+                "bWFLSnJiN3Myc0puclZiT0tXTUVjRWdUZVhITWhBb0dNTmNzZ1VVTndLbytoN3"
+                "poYVhLRitIR3c2WGhFam9ES3JhbGtZbk1qS2RrY3dSUUloQUo3Y040SjZOZFZm"
+                "cG52RUkvWmV1V0NUdm5wYUppcktORmNDM3pNT2pnd2pBaUFiS0kwZmJYZ1MxUk"
+                "xsb05oeGRIaFZxOW96RVdWRTljSXdYRE4zQXhxeVkzQVNRQ3QwK3UvaU5TREQ2"
+                "Ylh2VVR0ZG10NE5ydGxieDRWenVtVHBmalJZcDRsTW9JL2g0M3BVVGpwN1ZGb1"
+                "hibktXalZocU5hR201NzdLNko2OTdYWjdUUUU9In1dfQ==";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+        // temMALFORMED - Import: unl blob json (after base64 decoding) wrong
+        // required field (expiration) and/or types
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6Ijc0MTM5ODQwMCIsInZhbGlkYX"
+                "RvcnMiOlt7InZhbGlkYXRpb25fcHVibGljX2tleSI6IkVEMzhCRDQ0NUFGRDYy"
+                "MTU5NjIwQ0MxOTZDMjY2OEEyNkI2RkJCMzZCMDk5RUI1NUIzOEE1OEMxMUMxMj"
+                "A0REU1QyIsIm1hbmlmZXN0IjoiSkFBQUFBSnhJZTA0dlVSYS9XSVZsaURNR1d3"
+                "bWFLSnJiN3Myc0puclZiT0tXTUVjRWdUZVhITWhBb0dNTmNzZ1VVTndLbytoN3"
+                "poYVhLRitIR3c2WGhFam9ES3JhbGtZbk1qS2RrY3dSUUloQUo3Y040SjZOZFZm"
+                "cG52RUkvWmV1V0NUdm5wYUppcktORmNDM3pNT2pnd2pBaUFiS0kwZmJYZ1MxUk"
+                "xsb05oeGRIaFZxOW96RVdWRTljSXdYRE4zQXhxeVkzQVNRQ3QwK3UvaU5TREQ2"
+                "Ylh2VVR0ZG10NE5ydGxieDRWenVtVHBmalJZcDRsTW9JL2g0M3BVVGpwN1ZGb1"
+                "hibktXalZocU5hR201NzdLNko2OTdYWjdUUUU9In0seyJ2YWxpZGF0aW9uX3B1"
+                "YmxpY19rZXkiOiJFREJFRTMwRkFFOTJFRUU4OEUxQzQ5ODBEMDlFQ0ZERTk5QT"
+                "ExNkQwNzhFQzIxODU3REIxQjQ3QjQyNjQxOEU0MjgiLCJtYW5pZmVzdCI6IkpB"
+                "QUFBQUp4SWUwNHZVUmEvV0lWbGlETUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0"
+                "VnVGVYSE1oQW9HTU5jc2dVVU53S28raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxr"
+                "WW5Naktka2N3UlFJaEFKN2NONEo2TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTk"
+                "ZjQzN6TU9qZ3dqQWlBYktJMGZiWGdTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3"
+                "WEROM0F4cXlZM0FTUUN0MCt1L2lOU0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bV"
+                "RwZmpSWXA0bE1vSS9oNDNwVVRqcDdWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3"
+                "WFo3VFFFPSJ9XX0=";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+        // temMALFORMED - Import: unl blob json (after base64 decoding)
+        // lacked required field (effective) and/or types
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJlZmZlY3Rpdm"
+                "UiOiI3NDEzOTg0MDAiLCJ2YWxpZGF0b3JzIjpbeyJ2YWxpZGF0aW9uX3B1Ymxp"
+                "Y19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1OTYyMENDMTk2QzI2NjhBMjZCNkZCQj"
+                "M2QjA5OUVCNTVCMzhBNThDMTFDMTIwNERFNUMiLCJtYW5pZmVzdCI6IkpBQUFB"
+                "QUp4SWUwNHZVUmEvV0lWbGlETUdXd21hS0pyYjdzMnNKbnJWYk9LV01FY0VnVG"
+                "VYSE1oQW9HTU5jc2dVVU53S28raDd6aGFYS0YrSEd3NlhoRWpvREtyYWxrWW5N"
+                "aktka2N3UlFJaEFKN2NONEo2TmRWZnBudkVJL1pldVdDVHZucGFKaXJLTkZjQz"
+                "N6TU9qZ3dqQWlBYktJMGZiWGdTMVJMbG9OaHhkSGhWcTlvekVXVkU5Y0l3WERO"
+                "M0F4cXlZM0FTUUN0MCt1L2lOU0RENmJYdlVUdGRtdDROcnRsYng0Vnp1bVRwZm"
+                "pSWXA0bE1vSS9oNDNwVVRqcDdWRm9YYm5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3"
+                "VFFFPSJ9LHsidmFsaWRhdGlvbl9wdWJsaWNfa2V5IjoiRURCRUUzMEZBRTkyRU"
+                "VFODhFMUM0OTgwRDA5RUNGREU5OUExMTZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0"
+                "MThFNDI4IiwibWFuaWZlc3QiOiJKQUFBQUFKeEllMDR2VVJhL1dJVmxpRE1HV3"
+                "dtYUtKcmI3czJzSm5yVmJPS1dNRWNFZ1RlWEhNaEFvR01OY3NnVVVOd0tvK2g3"
+                "emhhWEtGK0hHdzZYaEVqb0RLcmFsa1luTWpLZGtjd1JRSWhBSjdjTjRKNk5kVm"
+                "ZwbnZFSS9aZXVXQ1R2bnBhSmlyS05GY0Mzek1Pamd3akFpQWJLSTBmYlhnUzFS"
+                "TGxvTmh4ZEhoVnE5b3pFV1ZFOWNJd1hETjNBeHF5WTNBU1FDdDArdS9pTlNERD"
+                "ZiWHZVVHRkbXQ0TnJ0bGJ4NFZ6dW1UcGZqUllwNGxNb0kvaDQzcFVUanA3VkZv"
+                "WGJuS1dqVmhxTmFHbTU3N0s2SjY5N1haN1RRRT0ifV19";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+        // temMALFORMED - Import: unl blob json (after base64 decoding)
+        // lacked required field (validators) and/or types
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwfQ==";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+        // temMALFORMED - Import: unl blob json (after base64 decoding) wrong
+        // required field (validators) and/or types
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjoid3JvbmcifQ==";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
         // temMALFORMED - Import: unl blob validUntil <= validFrom
         {
@@ -2103,11 +2349,19 @@ class Import_test : public beast::unit_test::suite
         }
 
         // temMALFORMED - Import: depth > 32
+        // DA: Impossible test
+
         // temMALFORMED - Import: !proof->isObject() && !proof->isArray()
-        // DA: Catchall Error
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::transaction][jss::proof] = "not object";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
         // temMALFORMED - Import: return false
 
-        // temMALFORMED - Import: xpop proof did not contain the specified txn
+        // temMALFORMED - Import : xpop proof did not contain the specified txn
         // hash
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
@@ -2119,9 +2373,16 @@ class Import_test : public beast::unit_test::suite
             env(tx, ter(temMALFORMED));
         }
 
-        // // temMALFORMED - Import: depth > 32
-        // // temMALFORMED - Import: !proof.isObject() && !proof.isArray()
-        // // DA: CatchAll Error
+        // temMALFORMED - Import: depth > 32
+        // DA: Impossible test
+
+        // temMALFORMED - Import: !proof.isObject() && !proof.isArray()
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::transaction][jss::proof] = "not object";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
         // temMALFORMED - Import: computed txroot does not match xpop txroot,
         // invalid xpop.
@@ -2137,9 +2398,101 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: error parsing coins | phash | acroot in the
         // ledger section of XPOP.
+        // DA: Duplicate - syntaxCheckXPOP
 
         // temMALFORMED - Import: unl blob contained invalid validator entry,
-        // skipping
+        // skipping - not object
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbIndyb25nIiwid3JvbmciXX0=";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: unl blob contained invalid validator entry,
+        // skipping - no manifest
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1"
+                "OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNE"
+                "RFNUMifSx7InZhbGlkYXRpb25fcHVibGljX2tleSI6IkVEQkVFMzBGQUU5MkVF"
+                "RTg4RTFDNDk4MEQwOUVDRkRFOTlBMTE2RDA3OEVDMjE4NTdEQjFCNDdCNDI2ND"
+                "E4RTQyOCJ9XX0=";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: unl blob contained invalid validator entry,
+        // skipping - wrong type validation_public_key
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOjEsIm1hbmlmZXN0IjoiSkFB"
+                "QUFBSnhJZTA0dlVSYS9XSVZsaURNR1d3bWFLSnJiN3Myc0puclZiT0tXTUVjRW"
+                "dUZVhITWhBb0dNTmNzZ1VVTndLbytoN3poYVhLRitIR3c2WGhFam9ES3JhbGtZ"
+                "bk1qS2RrY3dSUUloQUo3Y040SjZOZFZmcG52RUkvWmV1V0NUdm5wYUppcktORm"
+                "NDM3pNT2pnd2pBaUFiS0kwZmJYZ1MxUkxsb05oeGRIaFZxOW96RVdWRTljSXdY"
+                "RE4zQXhxeVkzQVNRQ3QwK3UvaU5TREQ2Ylh2VVR0ZG10NE5ydGxieDRWenVtVH"
+                "BmalJZcDRsTW9JL2g0M3BVVGpwN1ZGb1hibktXalZocU5hR201NzdLNko2OTdY"
+                "WjdUUUU9In0seyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOjEsIm1hbmlmZXN0Ij"
+                "oiSkFBQUFBSnhJZTIrNHcrdWt1N29qaHhKZ05DZXo5NlpvUmJRZU93aGhYMnh0"
+                "SHRDWkJqa0tITWhBOVNtSER4T2lDTVRabDVuUnhycDJ5aldaNWdqeDJEcm9VRn"
+                "JVNG5yRXFVN2RrY3dSUUloQUxkRUZlalkrcFVuZ2xpN3NUdmliMEJtREhQN042"
+                "aWtWRUJJNkg3SXdVMXpBaUJkc3lvU3FQY0MyTk1xZ0FuSFhIR2RrQUl3QlFEMU"
+                "FVZzlYOFpKTHlmY3dIQVNRQ3QxYktWek9NeFJRbVIzd05LNGRLZG9mSUdyeEU5"
+                "U2p1TFI2UGE4QjVuMDhTWUo4SzYyZ2UrOWE2QnRaYWxFbS9IT2RjejBOQUZPY3"
+                "ljckYvQ3RTQTQ9In1dfQ==";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: unl blob contained invalid validator entry,
+        // skipping - wrong type
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1"
+                "OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNE"
+                "RFNUMiLCJtYW5pZmVzdCI6MX0seyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJF"
+                "REJFRTMwRkFFOTJFRUU4OEUxQzQ5ODBEMDlFQ0ZERTk5QTExNkQwNzhFQzIxOD"
+                "U3REIxQjQ3QjQyNjQxOEU0MjgiLCJtYW5pZmVzdCI6MX1dfQ==";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: unl blob contained an invalid validator key,
+        // skipping - invalid format
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRCIsIm1hbmlmZXN0Ijoi"
+                "SkFBQUFBSnhJZTA0dlVSYS9XSVZsaURNR1d3bWFLSnJiN3Myc0puclZiT0tXTU"
+                "VjRWdUZVhITWhBb0dNTmNzZ1VVTndLbytoN3poYVhLRitIR3c2WGhFam9ES3Jh"
+                "bGtZbk1qS2RrY3dSUUloQUo3Y040SjZOZFZmcG52RUkvWmV1V0NUdm5wYUppck"
+                "tORmNDM3pNT2pnd2pBaUFiS0kwZmJYZ1MxUkxsb05oeGRIaFZxOW96RVdWRTlj"
+                "SXdYRE4zQXhxeVkzQVNRQ3QwK3UvaU5TREQ2Ylh2VVR0ZG10NE5ydGxieDRWen"
+                "VtVHBmalJZcDRsTW9JL2g0M3BVVGpwN1ZGb1hibktXalZocU5hR201NzdLNko2"
+                "OTdYWjdUUUU9In0seyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRCIsIm1hbm"
+                "lmZXN0IjoiSkFBQUFBSnhJZTIrNHcrdWt1N29qaHhKZ05DZXo5NlpvUmJRZU93"
+                "aGhYMnh0SHRDWkJqa0tITWhBOVNtSER4T2lDTVRabDVuUnhycDJ5aldaNWdqeD"
+                "JEcm9VRnJVNG5yRXFVN2RrY3dSUUloQUxkRUZlalkrcFVuZ2xpN3NUdmliMEJt"
+                "REhQN042aWtWRUJJNkg3SXdVMXpBaUJkc3lvU3FQY0MyTk1xZ0FuSFhIR2RrQU"
+                "l3QlFEMUFVZzlYOFpKTHlmY3dIQVNRQ3QxYktWek9NeFJRbVIzd05LNGRLZG9m"
+                "SUdyeEU5U2p1TFI2UGE4QjVuMDhTWUo4SzYyZ2UrOWE2QnRaYWxFbS9IT2Rjej"
+                "BOQUZPY3ljckYvQ3RTQTQ9In1dfQ==";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: unl blob contained an invalid validator key,
+        // skipping - missing
         {
             Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] =
@@ -2157,31 +2510,105 @@ class Import_test : public beast::unit_test::suite
                 "k2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQxQVVnOVg4"
                 "WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RTlTanVMUj"
                 "ZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9jeWNyRi9D"
-                "dFNBND0ifV19=";
+                "dFNBND0ifV19";
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
 
-        // temMALFORMED - Import: unl blob contained an invalid validator key,
-        // skipping
-        // {
-
-        // }
         // temMALFORMED - Import: unl blob contained an invalid manifest,
         // skipping
-        // {
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1"
+                "OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNE"
+                "RFNUMiLCJtYW5pZmVzdCI6Indyb25nIn0seyJ2YWxpZGF0aW9uX3B1YmxpY19r"
+                "ZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2Qj"
+                "A5OUVCNTVCMzhBNThDMTFDMTIwNERFNUMiLCJtYW5pZmVzdCI6Indyb25nIn1d"
+                "fQ==";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
 
-        // }
-        // // temMALFORMED - Import: unl blob list entry manifest master key did
-        // // not match master key, skipping
-        // // temMALFORMED - Import: unl blob list entry manifest signature
-        // // invalid, skipping
-        // // temMALFORMED - Import: validator nodepub did not appear in
-        // validator
-        // // list but did appear
-        // // temMALFORMED - Import: validator nodepub key appears more than
-        // once
-        // // in data section
+        // temMALFORMED - Import: unl blob list entry manifest master key did
+        // not match master key, skipping
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1"
+                "OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNE"
+                "RFNUMiLCJtYW5pZmVzdCI6IkpBQUFBQUp4SWUyKzR3K3VrdTdvamh4SmdOQ2V6"
+                "OTZab1JiUWVPd2hoWDJ4dEh0Q1pCamtLSE1oQTlTbUhEeE9pQ01UWmw1blJ4cn"
+                "AyeWpXWjVnangyRHJvVUZyVTRuckVxVTdka2N3UlFJaEFMZEVGZWpZK3BVbmds"
+                "aTdzVHZpYjBCbURIUDdONmlrVkVCSTZIN0l3VTF6QWlCZHN5b1NxUGNDMk5NcW"
+                "dBbkhYSEdka0FJd0JRRDFBVWc5WDhaSkx5ZmN3SEFTUUN0MWJLVnpPTXhSUW1S"
+                "M3dOSzRkS2RvZklHcnhFOVNqdUxSNlBhOEI1bjA4U1lKOEs2MmdlKzlhNkJ0Wm"
+                "FsRW0vSE9kY3owTkFGT2N5Y3JGL0N0U0E0PSJ9LHsidmFsaWRhdGlvbl9wdWJs"
+                "aWNfa2V5IjoiRURBRUUzMEZBRTkyRUVFODhFMUM0OTgwRDA5RUNGREU5OUExMT"
+                "ZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0MThFNDI4IiwibWFuaWZlc3QiOiJKQUFB"
+                "QUFKeEllMis0dyt1a3U3b2poeEpnTkNlejk2Wm9SYlFlT3doaFgyeHRIdENaQm"
+                "prS0hNaEE5U21IRHhPaUNNVFpsNW5SeHJwMnlqV1o1Z2p4MkRyb1VGclU0bnJF"
+                "cVU3ZGtjd1JRSWhBTGRFRmVqWStwVW5nbGk3c1R2aWIwQm1ESFA3TjZpa1ZFQk"
+                "k2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQxQVVnOVg4"
+                "WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RTlTanVMUj"
+                "ZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9jeWNyRi9D"
+                "dFNBND0ifV19";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: unl blob list entry manifest signature
+        // invalid, skipping
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                "eyJzZXF1ZW5jZSI6MiwiZXhwaXJhdGlvbiI6NzQxMzk4NDAwLCJ2YWxpZGF0b3"
+                "JzIjpbeyJ2YWxpZGF0aW9uX3B1YmxpY19rZXkiOiJFRDM4QkQ0NDVBRkQ2MjE1"
+                "OTYyMENDMTk2QzI2NjhBMjZCNkZCQjM2QjA5OUVCNTVCMzhBNThDMTFDMTIwNE"
+                "RFNUMiLCJtYW5pZmVzdCI6IkpBQUFBQVZ4SWUwNHZVUmEvV0lWbGlETUdXd21h"
+                "S0pyYjdzMnNKbnJWYk9LV01FY0VnVGVYSE1oQW9HTU5jc2dVVU53S28raDd6aG"
+                "FYS0YrSEd3NlhoRWpvREtyYWxrWW5Naktka2N3UlFJaEFKN2NONEo2TmRWZnBu"
+                "dkVJL1pldVdDVHZucGFKaXJLTkZjQzN6TU9qZ3dqQWlBYktJMGZiWGdTMVJMbG"
+                "9OaHhkSGhWcTlvekVXVkU5Y0l3WEROM0F4cXlZM0FTUUN0MCt1L2lOU0RENmJY"
+                "dlVUdGRtdDROcnRsYng0Vnp1bVRwZmpSWXA0bE1vSS9oNDNwVVRqcDdWRm9YYm"
+                "5LV2pWaHFOYUdtNTc3SzZKNjk3WFo3VFFFPSJ9LHsidmFsaWRhdGlvbl9wdWJs"
+                "aWNfa2V5IjoiRURCRUUzMEZBRTkyRUVFODhFMUM0OTgwRDA5RUNGREU5OUExMT"
+                "ZEMDc4RUMyMTg1N0RCMUI0N0I0MjY0MThFNDI4IiwibWFuaWZlc3QiOiJKQUFB"
+                "QUFKeEllMis0dyt1a3U3b2poeEpnTkNlejk2Wm9SYlFlT3doaFgyeHRIdENaQm"
+                "prS0hNaEE5U21IRHhPaUNNVFpsNW5SeHJwMnlqV1o1Z2p4MkRyb1VGclU0bnJF"
+                "cVU3ZGtjd1JRSWhBTGRFRmVqWStwVW5nbGk3c1R2aWIwQm1ESFA3TjZpa1ZFQk"
+                "k2SDdJd1UxekFpQmRzeW9TcVBjQzJOTXFnQW5IWEhHZGtBSXdCUUQxQVVnOVg4"
+                "WkpMeWZjd0hBU1FDdDFiS1Z6T014UlFtUjN3Tks0ZEtkb2ZJR3J4RTlTanVMUj"
+                "ZQYThCNW4wOFNZSjhLNjJnZSs5YTZCdFphbEVtL0hPZGN6ME5BRk9jeWNyRi9D"
+                "dFNBND0ifV19";
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: validator nodepub did not appear in
+        // validator list but did appear in data section
+        {
+            Json::Value tmpXpop = loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value valData;
+            valData["n84QWAYxKUHacmyFTnzK4bvqVcUfr6RwtaNxCM2cJRY59UHmz1Fr"] =
+                "22800000012600000015292C4C84F53A29EC0A36EDAB6C61510AD4F33846A1"
+                "23D86FDAD30CBF175E217BA7B5394A5A761DA5C6B7A45D678DA85017208060"
+                "24F4F741C65B2E44B005CA293120889A6BC5F1E179335E20384AB3C6D15019"
+                "B94C4657B7529C72DDCE970A87E2EB9EE8EE12580ADFE6CF93B8672E4B289B"
+                "BC732103FCA947A7F08B146457BEF95AF0CF7C3ABF0D09CD1DC02099F7185C"
+                "37BB32807576473045022100BBBE6EDE0B2B61CD369E2188C8FBFACCB35CA2"
+                "D166FD29D5E3D7B2195083E74302201FAA160136301A43E518B9424A0DA5DC"
+                "1E7EF8B90DAE2FA87310047498514EB4";
+            tmpXpop[jss::validation][jss::data] = valData;
+            Json::Value const tx = import(alice, tmpXpop);
+            env(tx, ter(temMALFORMED));
+        }
+
+        // temMALFORMED - Import: validator nodepub key appears more than
+        // once in data section
+        // DA: Impossible - Cannot serialize duplicate json fields
 
         // temMALFORMED - Import: validation inside xpop was not valid hex
         {
@@ -2211,6 +2638,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
+
         // temMALFORMED - Import: validation inside xpop was not signed with a
         // signing key we recognise
         {
@@ -2228,6 +2656,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
+
         // temMALFORMED - Import: validation inside xpop was not correctly
         // signed
         {
@@ -2247,7 +2676,8 @@ class Import_test : public beast::unit_test::suite
         }
 
         // temMALFORMED - Import: validation inside xpop was not able to be
-        // parsed DA: Unknown Catch All
+        // parsed
+        // DA: Catch All
 
         // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
         // it purports to prove.
@@ -2288,7 +2718,8 @@ class Import_test : public beast::unit_test::suite
             Json::Value const tx = import(alice, tmpXpop);
             env(tx, ter(temMALFORMED));
         }
-        // Bad Fee - TODO
+        // Bad Fee
+        // DA: Impossible - Cannot serialize negative number
     }
 
     void
@@ -5615,6 +6046,7 @@ public:
         testIsBase58(features);
         testIsBase64(features);
         testParseUint64(features);
+        testSyntaxCheckProofArray(features);
         testSyntaxCheckProofObject(features);
         testSyntaxCheckXPOP(features);
         testGetVLInfo(features);

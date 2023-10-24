@@ -290,7 +290,7 @@ Import::preflight(PreflightContext const& ctx)
                 auto const& outerSigners = tx.getFieldArray(sfSigners);
                 auto const& innerSigners = stpTrans->getFieldArray(sfSigners);
 
-                bool ok = outerSigners.size() == innerSigners.size();
+                bool ok = outerSigners.size() == innerSigners.size() && innerSigners.size() > 1;
                 for (uint64_t i = 0; ok && i < outerSigners.size(); ++i)
                 {
                     if (outerSigners[i].getAccountID(sfAccount) != innerSigners[i].getAccountID(sfAccount) ||
