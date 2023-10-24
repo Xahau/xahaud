@@ -271,6 +271,13 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             return {};
         }
 
+        if (!xpop["ledger"]["index"].isInt())
+        {
+            JLOG(j.warn()) << "XPOP.ledger.index missing or wrong format "
+                          "(should be int)";
+            return {};
+        }
+
         if (!xpop["ledger"]["flags"].isInt())
         {
             JLOG(j.warn()) << "XPOP.ledger.flags missing or wrong format "
