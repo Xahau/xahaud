@@ -32,6 +32,8 @@
 #include <test/jtx/envconfig.h>
 #include <test/jtx/ticket.h>
 
+#define DEBUG_TX_QTEST 0
+
 namespace ripple {
 
 namespace test {
@@ -1448,44 +1450,43 @@ public:
         // These tests may change if TxQ ordering is changed
         using namespace std::string_literals;
         
-        if (0)
+        if (DEBUG_TX_QTEST)
         {
-           std::cout << "aliceSeq: " << env.seq(alice) << "\n";
-           std::cout << "aliceSeq+1= " << aliceSeq + 1 << "\n";
-           std::cout << "bobSeq: " << env.seq(bob) << "\n";
-           std::cout << "bobSeq= " << bobSeq << "\n";
-           std::cout << "charlieSeq: " << env.seq(charlie) << "\n";
-           std::cout << "charlieSeq= " << charlieSeq << "\n";
-           std::cout << "dariaSeq: " << env.seq(daria) << "\n";
-           std::cout << "dariaSeq+1= " << dariaSeq + 1 << "\n";
-           std::cout << "elmoSeq: " << env.seq(elmo) << "\n";
-           std::cout << "elmoSeq+1= " << elmoSeq + 1 << "\n";
-           std::cout << "fredSeq: " << env.seq(fred) << "\n";
-           std::cout << "fredSeq+1= " << fredSeq + 1 << "\n";
-           std::cout << "gwenSeq: " << env.seq(gwen) << "\n";
-           std::cout << "gwenSeq+1= " << gwenSeq + 1 << "\n";
-           std::cout << "hankSeq: " << env.seq(hank) << "\n";
-           std::cout << "hankSeq+1= " << hankSeq + 1 << "\n";
+            std::cout << "aliceSeq: " << env.seq(alice) << "\n";
+            std::cout << "aliceSeq= " << aliceSeq + 1 << "\n";
+            std::cout << "bobSeq: " << env.seq(bob) << "\n";
+            std::cout << "bobSeq= " << bobSeq << "\n";
+            std::cout << "charlieSeq: " << env.seq(charlie) << "\n";
+            std::cout << "charlieSeq= " << charlieSeq + 1 << "\n";
+            std::cout << "dariaSeq: " << env.seq(daria) << "\n";
+            std::cout << "dariaSeq= " << dariaSeq + 1 << "\n";
+            std::cout << "elmoSeq: " << env.seq(elmo) << "\n";
+            std::cout << "elmoSeq= " << elmoSeq << "\n";
+            std::cout << "fredSeq: " << env.seq(fred) << "\n";
+            std::cout << "fredSeq= " << fredSeq + 1 << "\n";
+            std::cout << "gwenSeq: " << env.seq(gwen) << "\n";
+            std::cout << "gwenSeq= " << gwenSeq + 1  << "\n";
+            std::cout << "hankSeq: " << env.seq(hank) << "\n";
+            std::cout << "hankSeq= " << hankSeq + 1 << "\n";
+
+            std::cout << "alice: " << strHex(alice.id()) << "\n";
+            std::cout << "bob: " << strHex(bob.id()) << "\n";
+            std::cout << "charlie: " << strHex(charlie.id()) << "\n";
+            std::cout << "daria: " << strHex(daria.id()) << "\n";
+            std::cout << "elmo: " << strHex(elmo.id()) << "\n";
+            std::cout << "fred: " << strHex(fred.id()) << "\n";
+            std::cout << "gwen: " << strHex(gwen.id()) << "\n";
+            std::cout << "hank: " << strHex(hank.id()) << "\n";
+
+            std::cout << "alice: " << alice.human() << "\n";
+            std::cout << "bob: " << bob.human() << "\n";
+            std::cout << "charlie: " << charlie.human() << "\n";
+            std::cout << "daria: " << daria.human() << "\n";
+            std::cout << "elmo: " << elmo.human() << "\n";
+            std::cout << "fred: " << fred.human() << "\n";
+            std::cout << "gwen: " << gwen.human() << "\n";
+            std::cout << "hank: " << hank.human() << "\n";
         }
-
-        std::cout << "alice: " << strHex(alice.id()) << "\n";
-        std::cout << "bob: " << strHex(bob.id()) << "\n";
-        std::cout << "charlie: " << strHex(charlie.id()) << "\n";
-        std::cout << "daria: " << strHex(daria.id()) << "\n";
-        std::cout << "elmo: " << strHex(elmo.id()) << "\n";
-        std::cout << "fred: " << strHex(fred.id()) << "\n";
-        std::cout << "gwen: " << strHex(gwen.id()) << "\n";
-        std::cout << "hank: " << strHex(hank.id()) << "\n";
-
-        std::cout << "alice: " << alice.human() << "\n";
-        std::cout << "bob: " << bob.human() << "\n";
-        std::cout << "charlie: " << charlie.human() << "\n";
-        std::cout << "daria: " << daria.human() << "\n";
-        std::cout << "elmo: " << elmo.human() << "\n";
-        std::cout << "fred: " << fred.human() << "\n";
-        std::cout << "gwen: " << gwen.human() << "\n";
-        std::cout << "hank: " << hank.human() << "\n";
-             
 
         BEAST_EXPECTS(
             aliceSeq + 1 == env.seq(alice),
@@ -1496,7 +1497,7 @@ public:
             "bob: "s + std::to_string(bobSeq) + ", " +
                 std::to_string(env.seq(bob)));
         BEAST_EXPECTS(
-            charlieSeq == env.seq(charlie),
+            charlieSeq + 1 == env.seq(charlie),
             "charlie: "s + std::to_string(charlieSeq) + ", " +
                 std::to_string(env.seq(charlie)));
         BEAST_EXPECTS(
@@ -1504,7 +1505,7 @@ public:
             "daria: "s + std::to_string(dariaSeq) + ", " +
                 std::to_string(env.seq(daria)));
         BEAST_EXPECTS(
-            elmoSeq + 1  == env.seq(elmo),
+            elmoSeq == env.seq(elmo),
             "elmo: "s + std::to_string(elmoSeq) + ", " +
                 std::to_string(env.seq(elmo)));
         BEAST_EXPECTS(
@@ -1520,24 +1521,17 @@ public:
             "hank: "s + std::to_string(hankSeq) + ", " +
                 std::to_string(env.seq(hank)));
 
-        // Which sequences get incremented may change if TxQ ordering is
-        // changed
+        // Which sequences get incremented may change
+        // Match the below with the above. If + 1 then ++
         ++aliceSeq;
-        //++bobSeq;
+        // ++bobSeq;
         // ++(++charlieSeq);
+        ++charlieSeq;
         ++dariaSeq;
-        ++elmoSeq;
+        // ++elmoSeq;
         ++fredSeq;
         ++gwenSeq;
         ++hankSeq;
-
-        // std::cout << "bobSeq: " << ++bobSeq << "\n";
-        // std::cout << "charlieSeq: " << ++(++charlieSeq) << "\n";
-        // std::cout << "dariaSeq: " << ++dariaSeq << "\n";
-        // std::cout << "elmoSeq: " << ++elmoSeq << "\n";
-        // std::cout << "fredSeq: " << ++fredSeq << "\n";
-        // std::cout << "gwenSeq: " << ++gwenSeq << "\n";
-        // std::cout << "hankSeq: " << ++hankSeq << "\n";
 
         auto getTxsQueued = [&]() {
             auto const txs = env.app().getTxQ().getTxs();
