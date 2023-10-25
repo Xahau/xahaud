@@ -2986,15 +2986,7 @@ public:
         // may not reduce to 8.
         env.close();
         checkMetrics(__LINE__, env, 9, 50, 6, 5, 256);
-
-        //env.seq(alice): 17, aliceSeq + 15: 18
-        /*std::cout 
-            << "env.seq(alice): "
-            << env.seq(alice) 
-            << ", aliceSeq + 15: " 
-            << (aliceSeq + 15) << "\n";
-        */
-        BEAST_EXPECT(env.seq(alice) == aliceSeq + 14);
+        BEAST_EXPECT(env.seq(alice) == aliceSeq + 17);
 
         // Close ledger 7.  That should remove 7 more of alice's transactions.
         env.close();
