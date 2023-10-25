@@ -369,10 +369,6 @@ int64_t hook(uint32_t r)
         trace(SBUF("topic"), topic, 2, 1);
     }
    
-    // this flag is used to determine if a L2 table should send a "nulling" vote to remove its existing vote
-    // from the L1 table it sits at. 
-    int64_t lost_majority = 0;
-
     int64_t q80 = member_count * 0.8;
     int64_t q51 = member_count * 0.51;
 
@@ -390,15 +386,9 @@ int64_t hook(uint32_t r)
                 : member_count))            // L1s have 100% threshold for all other voting
             DONE("Governance: Vote record. Not yet enough votes to action.");
     }
-    else    // layer 2 table voting on a l1 topic
+    else if (votes < q51)
     {
-        lost_majority = previous_votes >= q51 && votes < q51;
-        if (lost_majority)
-        {
-            DONE("Governance: Majority lost... but your L1 vote is unchanged. See documentation.");
-            // RH TODO: correctly action a majority loss at L2 as an "undo" vote at L1
-        }
-        else if (votes < q51)
+            // layer 2 table voting on a l1 topic
             DONE("Governance: Not yet enough votes to action L1 vote...");
     }
 
@@ -452,19 +442,12 @@ int64_t hook(uint32_t r)
         *buf_out++ = 0x19U;
         // topic data len
         *buf_out++ = topic_size;
-        if (lost_majority)
-        {
-            // do nothing, the array already has zeros here
-        }
-        else
-        {
-            uint64_t* d = (uint64_t*)buf_out;
-            uint64_t* s = (uint64_t*)(topic_data + padding);
-            *d++ = *s++;
-            *d++ = *s++;
-            *d++ = *s++;
-            *d++ = *s++;
-        }
+        uint64_t* d = (uint64_t*)buf_out;
+        uint64_t* s = (uint64_t*)(topic_data + padding);
+        *d++ = *s++;
+        *d++ = *s++;
+        *d++ = *s++;
+        *d++ = *s++;
         buf_out += topic_size;
         // topicdata
         *((uint16_t*)buf_out) = 0xF1E1U;
