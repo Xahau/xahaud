@@ -224,6 +224,11 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
             return tecHAS_OBLIGATIONS;
     }
 
+    // accounts that have issued URITokens are not allowed to be deleted
+    // this should be updated in future to be a counter
+    if (sleAccount->getFlags() & lsfURITokenIssuer)
+        return tecHAS_OBLIGATIONS;
+
     if (ctx.view.rules().enabled(featureNonFungibleTokensV1))
     {
         // If an issuer has any issued NFTs resident in the ledger then it
