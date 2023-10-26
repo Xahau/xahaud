@@ -424,6 +424,9 @@ URIToken::doApply()
             sleU->setFieldU64(sfOwnerNode, *page);
             view().insert(sleU);
 
+            // ensure there is a deletion blocker against the issuer now
+            sle->setFieldU32(sfFlags, sle->getFlags() | lsfURITokenIssuer);
+
             adjustOwnerCount(view(), sle, 1, j);
             return tesSUCCESS;
         }
