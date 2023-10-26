@@ -1307,7 +1307,6 @@ struct URIToken_test : public beast::unit_test::suite
         }
     }
 
-    // TODO: THIS TEST IS NOT COMPLETE
     void
     testAccountDelete(FeatureBitset features)
     {
@@ -1367,8 +1366,8 @@ struct URIToken_test : public beast::unit_test::suite
             // alice has trustline + mint + sell
             rmAccount(env, alice, bob, tecHAS_OBLIGATIONS);
 
-            env(clear(alice, hexid));
-            env(burn(alice, hexid));
+            // bob buys uri token
+            env(buy(bob, hexid, USD(10)), ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
 
@@ -1376,25 +1375,22 @@ struct URIToken_test : public beast::unit_test::suite
             rmAccount(env, alice, bob, tecHAS_OBLIGATIONS);
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
 
-            // drain pay all back and drain trustlin
+            // drain pay all back and drain trustline
             env.trust(USD(0), alice);
             env(pay(alice, gw, env.balance(alice, USD.issue())));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
 
-            // alice can delete account
-            rmAccount(env, alice, bob);
+            // alice cant delete account - lsfURITokenIssuer
+            rmAccount(env, alice, bob, tecHAS_OBLIGATIONS);
 
-            // buy should fail if the uri token was removed
-            auto preBob = env.balance(bob, USD.issue());
-            env(buy(bob, hexid, USD(10)), ter(tecNO_ENTRY));
-            env.close();
-            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob);
-
-            // bob can mint same exact token because alice burned it
+            // bob can mint same token with different tokenid
             env(mint(bob, uri));
-            // need to use bobs account for tokenid
+            env.close();
             auto const btid = tokenid(bob, uri);
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, btid));
+
+            // token ids are not the same
+            BEAST_EXPECT(btid != tid);
         }
     }
 
