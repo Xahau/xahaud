@@ -548,26 +548,33 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
                     entryBytes += param.getFieldVL(sfHookParameterValue).size();
                 }
 
-                if (paramBytes + entryBytes > paramBytes)
-                    paramBytes += entryBytes;
+                // overflow
+                if (paramBytes + entryBytes < paramBytes)
+                    return INITIAL_XRP;
+
+                paramBytes += entryBytes;
             }
 
             // one drop per byte
             paramFee = XRPAmount { paramBytes };
         }
 
-        if (hookFee + paramFee > hookFee)
-            hookFee += paramFee;
+        if (hookFee + paramFee < hookFee)
+            return INITIAL_XRP;
 
-        if (hookFee + createFee > hookFee)
-            hookFee += createFee;
+        hookFee += paramFee;
+
+        if (hookFee + createFee < hookFee)
+            return INITIAL_XRP;
+
+        hookFee += createFee;
     }
 
     auto fee = Transactor::calculateBaseFee(view, tx);
-    if (fee + hookFee > fee)
-        fee += hookFee;
+    if (fee + hookFee < fee)
+        return INITIAL_XRP;
 
-    return fee;
+    return fee + hookFee;
 }
 
 TER
