@@ -5599,6 +5599,11 @@ DEFINE_HOOK_FUNCTION(
     if (free_count < needed_count)
         return NO_FREE_SLOTS;
 
+    // if they supply the same slot number for both (other than 0)
+    // they will produce a collision
+    if (needed_count == 0 && slot_into_tx == slot_into_meta)
+        return INVALID_ARGUMENT;
+
     if (slot_into_tx == 0)
     {   
         if (no_free_slots(hookCtx))
