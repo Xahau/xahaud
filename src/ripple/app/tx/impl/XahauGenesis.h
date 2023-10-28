@@ -100,7 +100,7 @@ namespace XahauGenesis
                 "r47tpT8LUoymNgRWzfUq2LdkPRfo4UZSkB",               // Reto
                 "rscan6NzxxSFxEQST8qALrc5v9mpM8fU1j",               // XRPScan
                 "rWiNRBZaEHFptxtkdohBbk36UxoHVwvEa",                // XRPLWin
-                "rQQQrUdN1cLdNmxH4dHfKgmX5P4kf3ZrM",                // Tequ
+                "rtequsfcSxEerbj18TdS6hUd89vTbaWec",                // Tequ
                 "rxah6E9kpp1Zw98MxYFMoWMQ1NHCZSmyx"}},              // xTokenize
 
         {"nHB1Sjz33Aizc4cdKWvKJDhh5BJAKe19PW7hsveZQq83RUcaxoXA",    // L2 Table Auditors & Enterprise
