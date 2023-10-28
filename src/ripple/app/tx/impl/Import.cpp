@@ -1004,7 +1004,7 @@ Import::doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
         }
 
         std::optional<uint256> tag;
-        if (e.isFieldPresent(sfWalletLocator))
+        if (e.isFieldPresent(sfWalletLocator) && ctx_.view().rules().enabled(featureExpandedSignerList))
             tag = e.getFieldH256(sfWalletLocator);
 
         signers.emplace_back(
