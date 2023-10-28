@@ -517,6 +517,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
     }
 }
 
+// Note that if fee calculation causes an overflow then INITIAL_XRP is returned
+// as a way of ensuring that the txn cannot possibly meet the fee requirement.
 XRPAmount
 SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
