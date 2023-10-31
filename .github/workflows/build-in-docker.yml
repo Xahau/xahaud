@@ -14,14 +14,14 @@ jobs:
       with:
         clean: false
     - name: Build using Docker
-      run: /bin/bash docker/release-builder.sh
+      run: /bin/bash release-builder.sh
       
   unittests:
     needs: builder
     runs-on: [self-hosted, vanity]
     steps:
     - name: Unit tests
-      run: /bin/bash docker/unit-tests.sh
+      run: /bin/bash docker-unit-tests.sh
 
 #  publisher:
 #    needs: builder
