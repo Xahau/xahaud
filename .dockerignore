@@ -2,6 +2,6 @@
 *
 
 # Allow files and directories
-!/docker/build-inner.sh
-!/docker/release-builder.sh
+!/build-inner.sh
+!/release-builder.sh
 
