@@ -459,8 +459,9 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    auto const tx_hash = stpTrans->getTransactionID();  // sha512Half(HashPrefix::transactionID,
-                                                        // *rawTx);
+    auto const tx_hash =
+        stpTrans->getTransactionID();  // sha512Half(HashPrefix::transactionID,
+                                       // *rawTx);
 
     JLOG(ctx.j.trace()) << "tx_hash (computed): " << tx_hash;
 

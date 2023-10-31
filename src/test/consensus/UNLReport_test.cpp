@@ -1061,7 +1061,7 @@ class UNLReportVoteRetiredValidator_test : public beast::unit_test::suite
 
             {
                 //== 2 in negativeUNL, but not in unl, no other remove
-                //candidates
+                // candidates
                 //-- txSet.size = 1
                 auto const numNodes = 25;
                 auto const unlrCount = withVLImport ? 24 : 23;
