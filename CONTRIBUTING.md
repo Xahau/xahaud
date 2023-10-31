@@ -16,7 +16,7 @@ In general, contributions should be developed in your personal
 
 The following branches exist in the main project repository:
 
-- `develop`: The latest set of unreleased features, and the most common
+- `dev`: The latest set of unreleased features, and the most common
     starting point for contributions.
 - `candidate`: The latest beta release or release candidate.
 - `release`: The latest stable release.
