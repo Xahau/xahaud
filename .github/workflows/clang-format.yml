@@ -52,7 +52,7 @@ jobs:
           To fix it, you can do one of two things:
           1. Download and apply the patch generated as an artifact of this
              job to your repo, commit, and push.
-          2. Run 'git-clang-format --extensions c,cpp,h,cxx,ipp develop'
+          2. Run 'git-clang-format --extensions c,cpp,h,cxx,ipp dev'
              in your repo, commit, and push.
       run: |
         echo "${PREAMBLE}"

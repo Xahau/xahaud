@@ -2,9 +2,9 @@ name: Build using Docker
 
 on:
   push:
-    branches: [ "dev", "test", "release" ]
+    branches: [ "dev", "candidate", "release" ]
   pull_request:
-    branches: [ "dev", "release" ]
+    branches: [ "dev", "candidate", "release" ]
 
 jobs:
   builder:
@@ -23,13 +23,3 @@ jobs:
     - name: Unit tests
       run: /bin/bash docker-unit-tests.sh
 
-#  publisher:
-#    needs: builder
-#    runs-on: [self-hosted, vanity]
-#    steps:
-#    - uses: actions/upload-artifact@v3
-#      with:
-#        name: build-${{ github.run_number }}
-#        path: |
-#          release-build/xahaud
-#          release-build/release.info
