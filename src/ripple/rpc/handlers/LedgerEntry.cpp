@@ -222,7 +222,8 @@ doLedgerEntry(RPC::JsonContext& context)
         expectedType = ltEMITTED_TXN;
         if (!context.params[jss::emitted_txn].isObject())
         {
-            if (!uNodeIndex.parseHex(context.params[jss::emitted_txn].asString()))
+            if (!uNodeIndex.parseHex(
+                    context.params[jss::emitted_txn].asString()))
             {
                 uNodeIndex = beast::zero;
                 jvResult[jss::error] = "malformedRequest";
@@ -361,8 +362,7 @@ doLedgerEntry(RPC::JsonContext& context)
                 jvResult[jss::error] = "malformedRequest";
             }
         }
-        else if (
-            !context.params[jss::hook].isMember(jss::account))
+        else if (!context.params[jss::hook].isMember(jss::account))
         {
             jvResult[jss::error] = "malformedRequest";
         }
@@ -380,7 +380,8 @@ doLedgerEntry(RPC::JsonContext& context)
     {
         expectedType = ltHOOK_DEFINITION;
         if (context.params[jss::hook_definition].isObject() ||
-            (!uNodeIndex.parseHex(context.params[jss::hook_definition].asString())))
+            (!uNodeIndex.parseHex(
+                context.params[jss::hook_definition].asString())))
         {
             uNodeIndex = beast::zero;
             jvResult[jss::error] = "malformedRequest";
@@ -397,8 +398,7 @@ doLedgerEntry(RPC::JsonContext& context)
         uint256 uNameSpace;
         Json::Value jvHookState = context.params[jss::hook_state];
 
-        if (!jvHookState.isObject() ||
-            !jvHookState.isMember(jss::account) ||
+        if (!jvHookState.isObject() || !jvHookState.isMember(jss::account) ||
             !jvHookState.isMember(jss::key) ||
             !jvHookState.isMember(jss::namespace_id) ||
             !jvHookState[jss::account].isString() ||
@@ -410,7 +410,8 @@ doLedgerEntry(RPC::JsonContext& context)
         }
         else
         {
-            auto const account = parseBase58<AccountID>(jvHookState[jss::account].asString());
+            auto const account =
+                parseBase58<AccountID>(jvHookState[jss::account].asString());
             if (!account)
             {
                 jvResult[jss::error] = "malformedAddress";
@@ -419,13 +420,15 @@ doLedgerEntry(RPC::JsonContext& context)
             {
                 jvResult[jss::error] = "malformedRequest";
             }
-            else if (!uNameSpace.parseHex(jvHookState[jss::namespace_id].asString()))
+            else if (!uNameSpace.parseHex(
+                         jvHookState[jss::namespace_id].asString()))
             {
                 jvResult[jss::error] = "malformedRequest";
             }
             else
             {
-                uNodeIndex = keylet::hookState(*account, uNodeKey, uNameSpace).key;
+                uNodeIndex =
+                    keylet::hookState(*account, uNodeKey, uNameSpace).key;
             }
         }
     }

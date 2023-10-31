@@ -107,15 +107,15 @@ SignerEntries::determineOperation(
 
 // NotTEC
 // SignerEntries::validateOperation(
-//     NotTEC const& ter, 
-//     std::uint32_t quorum, 
+//     NotTEC const& ter,
+//     std::uint32_t quorum,
 //     std::vector<SignerEntries::SignerEntry> signers,
 //     SignerEntries::Operation op,
 //     STTx const& tx,
 //     beast::Journal j,
 //     Rules const& rules)
 // {
-    
+
 //     if (ter != tesSUCCESS)
 //         return ter;
 

@@ -1122,7 +1122,7 @@ public:
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments() - featureXahauGenesis};
-        
+
         testGetLedger(all);
 
         testGetLedgerData(all);

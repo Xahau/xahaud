@@ -313,13 +313,7 @@ TER
 SetSignerList::replaceSignerList()
 {
     return replaceSignersFromLedger(
-            ctx_.app,
-            ctx_.view(),
-            j_,
-            account_,
-            quorum_,
-            signers_,
-            mPriorBalance);
+        ctx_.app, ctx_.view(), j_, account_, quorum_, signers_, mPriorBalance);
 }
 
 TER

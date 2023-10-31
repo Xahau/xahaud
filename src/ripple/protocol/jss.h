@@ -41,117 +41,117 @@ namespace jss {
    error: Common properties of RPC error responses.
 */
 
-JSS(AL_size);               // out: GetCounts
-JSS(AL_hit_rate);           // out: GetCounts
-JSS(Account);               // in: TransactionSign; field.
-JSS(AccountDelete);         // transaction type.
-JSS(AccountRoot);           // ledger type.
-JSS(AccountSet);            // transaction type.
-JSS(Amendments);            // ledger type.
-JSS(Amount);                // in: TransactionSign; field.
-JSS(Authorize);             // field
+JSS(AL_size);        // out: GetCounts
+JSS(AL_hit_rate);    // out: GetCounts
+JSS(Account);        // in: TransactionSign; field.
+JSS(AccountDelete);  // transaction type.
+JSS(AccountRoot);    // ledger type.
+JSS(AccountSet);     // transaction type.
+JSS(Amendments);     // ledger type.
+JSS(Amount);         // in: TransactionSign; field.
+JSS(Authorize);      // field
 JSS(Blob);
-JSS(Check);                 // ledger type.
-JSS(CheckCancel);           // transaction type.
-JSS(CheckCash);             // transaction type.
-JSS(CheckCreate);           // transaction type.
-JSS(ClaimReward);           // transaction type.
-JSS(ClearFlag);             // field.
-JSS(CreateCode);            // field.
-JSS(DeliverMin);            // in: TransactionSign
-JSS(DepositPreauth);        // transaction and ledger type.
-JSS(Destination);           // in: TransactionSign; field.
-JSS(DirectoryNode);         // ledger type.
-JSS(EnableAmendment);       // transaction type.
-JSS(EmitFailure);           // transaction type. (cleanup emit)
-JSS(Escrow);                // ledger type.
-JSS(EscrowCancel);          // transaction type.
-JSS(EscrowCreate);          // transaction type.
-JSS(EscrowFinish);          // transaction type.
-JSS(Fee);                   // in/out: TransactionSign; field.
-JSS(FeeSettings);           // ledger type.
-JSS(FIELDS);                // out: RPC server_definitions
-JSS(Flags);                 // in/out: TransactionSign; field.
-JSS(incomplete_shards);     // out: OverlayImpl, PeerImp
-JSS(GenesisMint);           // tt
+JSS(Check);              // ledger type.
+JSS(CheckCancel);        // transaction type.
+JSS(CheckCash);          // transaction type.
+JSS(CheckCreate);        // transaction type.
+JSS(ClaimReward);        // transaction type.
+JSS(ClearFlag);          // field.
+JSS(CreateCode);         // field.
+JSS(DeliverMin);         // in: TransactionSign
+JSS(DepositPreauth);     // transaction and ledger type.
+JSS(Destination);        // in: TransactionSign; field.
+JSS(DirectoryNode);      // ledger type.
+JSS(EnableAmendment);    // transaction type.
+JSS(EmitFailure);        // transaction type. (cleanup emit)
+JSS(Escrow);             // ledger type.
+JSS(EscrowCancel);       // transaction type.
+JSS(EscrowCreate);       // transaction type.
+JSS(EscrowFinish);       // transaction type.
+JSS(Fee);                // in/out: TransactionSign; field.
+JSS(FeeSettings);        // ledger type.
+JSS(FIELDS);             // out: RPC server_definitions
+JSS(Flags);              // in/out: TransactionSign; field.
+JSS(incomplete_shards);  // out: OverlayImpl, PeerImp
+JSS(GenesisMint);        // tt
 JSS(GenesisMints);
 JSS(GovernanceMarks);
 JSS(GovernanceFlags);
-JSS(HookApiVersion);        // field
-JSS(HookHash);              // field
-JSS(HookNamespace);         // field
-JSS(HookOn);                // field
-JSS(Hooks);                 // field
-JSS(HookGrants);            // field
-JSS(HookParameters);        // field
-JSS(HookParameterName);     // field
-JSS(HookParameterValue);    // field
-JSS(HookParameter);         // field
-JSS(HookGrant);             // field
-JSS(isSerialized);          // out: RPC server_definitions
-JSS(isSigningField);        // out: RPC server_definitions
-JSS(isVLEncoded);           // out: RPC server_definitions
+JSS(HookApiVersion);      // field
+JSS(HookHash);            // field
+JSS(HookNamespace);       // field
+JSS(HookOn);              // field
+JSS(Hooks);               // field
+JSS(HookGrants);          // field
+JSS(HookParameters);      // field
+JSS(HookParameterName);   // field
+JSS(HookParameterValue);  // field
+JSS(HookParameter);       // field
+JSS(HookGrant);           // field
+JSS(isSerialized);        // out: RPC server_definitions
+JSS(isSigningField);      // out: RPC server_definitions
+JSS(isVLEncoded);         // out: RPC server_definitions
 JSS(Import);
 JSS(ImportVLSequence);
-JSS(Invalid);               //
-JSS(Invoke);                // transaction type
-JSS(InvoiceID);             // field
-JSS(LastLedgerSequence);    // in: TransactionSign; field
-JSS(LedgerHashes);          // ledger type.
-JSS(LimitAmount);           // field.
-JSS(NetworkID);             // field.
-JSS(NFTokenBurn);           // transaction type.
-JSS(NFTokenMint);           // transaction type.
-JSS(NFTokenOffer);          // ledger type.
-JSS(NFTokenAcceptOffer);    // transaction type.
-JSS(NFTokenCancelOffer);    // transaction type.
-JSS(NFTokenCreateOffer);    // transaction type.
-JSS(NFTokenPage);           // ledger type.
-JSS(Offer);                 // ledger type.
-JSS(OfferCancel);           // transaction type.
-JSS(OfferCreate);           // transaction type.
-JSS(OfferSequence);         // field.
-JSS(Paths);                 // in/out: TransactionSign
-JSS(PayChannel);            // ledger type.
-JSS(Payment);               // transaction type.
-JSS(PaymentChannelClaim);   // transaction type.
-JSS(PaymentChannelCreate);  // transaction type.
-JSS(PaymentChannelFund);    // transaction type.
-JSS(RippleState);           // ledger type.
-JSS(SLE_hit_rate);          // out: GetCounts.
-JSS(SetFee);                // transaction type.
-JSS(UNLModify);             // transaction type.
-JSS(UNLReport);             // transaction type.
-JSS(SettleDelay);           // in: TransactionSign
-JSS(SendMax);               // in: TransactionSign
-JSS(Sequence);              // in/out: TransactionSign; field.
-JSS(SetFlag);               // field.
-JSS(SetRegularKey);         // transaction type.
-JSS(SetHook);               // transaction type.
-JSS(Hook);                  // ledger type.
-JSS(HookDefinition);        // ledger type.
-JSS(HookState);             // ledger type.
-JSS(HookStateData);         // field.
-JSS(HookStateKey);          // field.
-JSS(EmittedTxn);             // ledger type.
-JSS(SignerList);             // ledger type.
-JSS(SignerListSet);          // transaction type.
-JSS(SigningPubKey);          // field.
-JSS(TakerGets);              // field.
-JSS(TakerPays);              // field.
-JSS(Ticket);                 // ledger type.
-JSS(TicketCreate);           // transaction type.
-JSS(TxnSignature);           // field.
-JSS(TransactionType);        // in: TransactionSign.
-JSS(TransferRate);           // in: TransferRate.
-JSS(TrustSet);               // transaction type.
-JSS(URIToken);                // out: LedgerEntry
-JSS(URITokenMint);            // tx type
-JSS(URITokenBurn);            // tx type
-JSS(URITokenBuy);             // tx type
-JSS(URITokenCreateSellOffer); // tx type
-JSS(URITokenCancelSellOffer); // tx type
-JSS(aborted);                // out: InboundLedger
+JSS(Invalid);                  //
+JSS(Invoke);                   // transaction type
+JSS(InvoiceID);                // field
+JSS(LastLedgerSequence);       // in: TransactionSign; field
+JSS(LedgerHashes);             // ledger type.
+JSS(LimitAmount);              // field.
+JSS(NetworkID);                // field.
+JSS(NFTokenBurn);              // transaction type.
+JSS(NFTokenMint);              // transaction type.
+JSS(NFTokenOffer);             // ledger type.
+JSS(NFTokenAcceptOffer);       // transaction type.
+JSS(NFTokenCancelOffer);       // transaction type.
+JSS(NFTokenCreateOffer);       // transaction type.
+JSS(NFTokenPage);              // ledger type.
+JSS(Offer);                    // ledger type.
+JSS(OfferCancel);              // transaction type.
+JSS(OfferCreate);              // transaction type.
+JSS(OfferSequence);            // field.
+JSS(Paths);                    // in/out: TransactionSign
+JSS(PayChannel);               // ledger type.
+JSS(Payment);                  // transaction type.
+JSS(PaymentChannelClaim);      // transaction type.
+JSS(PaymentChannelCreate);     // transaction type.
+JSS(PaymentChannelFund);       // transaction type.
+JSS(RippleState);              // ledger type.
+JSS(SLE_hit_rate);             // out: GetCounts.
+JSS(SetFee);                   // transaction type.
+JSS(UNLModify);                // transaction type.
+JSS(UNLReport);                // transaction type.
+JSS(SettleDelay);              // in: TransactionSign
+JSS(SendMax);                  // in: TransactionSign
+JSS(Sequence);                 // in/out: TransactionSign; field.
+JSS(SetFlag);                  // field.
+JSS(SetRegularKey);            // transaction type.
+JSS(SetHook);                  // transaction type.
+JSS(Hook);                     // ledger type.
+JSS(HookDefinition);           // ledger type.
+JSS(HookState);                // ledger type.
+JSS(HookStateData);            // field.
+JSS(HookStateKey);             // field.
+JSS(EmittedTxn);               // ledger type.
+JSS(SignerList);               // ledger type.
+JSS(SignerListSet);            // transaction type.
+JSS(SigningPubKey);            // field.
+JSS(TakerGets);                // field.
+JSS(TakerPays);                // field.
+JSS(Ticket);                   // ledger type.
+JSS(TicketCreate);             // transaction type.
+JSS(TxnSignature);             // field.
+JSS(TransactionType);          // in: TransactionSign.
+JSS(TransferRate);             // in: TransferRate.
+JSS(TrustSet);                 // transaction type.
+JSS(URIToken);                 // out: LedgerEntry
+JSS(URITokenMint);             // tx type
+JSS(URITokenBurn);             // tx type
+JSS(URITokenBuy);              // tx type
+JSS(URITokenCreateSellOffer);  // tx type
+JSS(URITokenCancelSellOffer);  // tx type
+JSS(aborted);                  // out: InboundLedger
 JSS(accepted);               // out: LedgerToJson, OwnerInfo, SubmitTransaction
 JSS(account);                // in/out: many
 JSS(accountState);           // out: LedgerToJson
@@ -243,16 +243,16 @@ JSS(count);                  // in: AccountTx*, ValidatorList
 JSS(counters);               // in/out: retrieve counters
 JSS(coins);
 JSS(children);
-JSS(ctid);                   // in/out: Tx RPC
+JSS(ctid);  // in/out: Tx RPC
 JSS(cres);
-JSS(currency_a);             // out: BookChanges
-JSS(currency_b);             // out: BookChanges
-JSS(currentShard);           // out: NodeToShardStatus
-JSS(currentShardIndex);      // out: NodeToShardStatus
-JSS(currency);               // in: paths/PathRequest, STAmount
-                             // out: STPathSet, STAmount,
-                             //      AccountLines
-JSS(current);                // out: OwnerInfo
+JSS(currency_a);         // out: BookChanges
+JSS(currency_b);         // out: BookChanges
+JSS(currentShard);       // out: NodeToShardStatus
+JSS(currentShardIndex);  // out: NodeToShardStatus
+JSS(currency);           // in: paths/PathRequest, STAmount
+                         // out: STPathSet, STAmount,
+                         //      AccountLines
+JSS(current);            // out: OwnerInfo
 JSS(current_activities);
 JSS(current_ledger_size);     // out: TxQ
 JSS(current_queue_size);      // out: TxQ
@@ -507,16 +507,16 @@ JSS(open_ledger_level);          // out: TxQ
 JSS(owner);                      // in: LedgerEntry, out: NetworkOPs
 JSS(owner_funds);                // in/out: Ledger, NetworkOPs, AcceptedLedgerTx
 JSS(page_index);
-JSS(params);                      // RPC
-JSS(parent_close_time);           // out: LedgerToJson
-JSS(parent_hash);                 // out: LedgerToJson
-JSS(partition);                   // in: LogLevel
-JSS(passphrase);                  // in: WalletPropose
-JSS(password);                    // in: Subscribe
-JSS(paths);                       // in: RipplePathFind
-JSS(paths_canonical);             // out: RipplePathFind
-JSS(paths_computed);              // out: PathRequest, RipplePathFind
-JSS(payment_channel);             // in: LedgerEntry
+JSS(params);             // RPC
+JSS(parent_close_time);  // out: LedgerToJson
+JSS(parent_hash);        // out: LedgerToJson
+JSS(partition);          // in: LogLevel
+JSS(passphrase);         // in: WalletPropose
+JSS(password);           // in: Subscribe
+JSS(paths);              // in: RipplePathFind
+JSS(paths_canonical);    // out: RipplePathFind
+JSS(paths_computed);     // out: PathRequest, RipplePathFind
+JSS(payment_channel);    // in: LedgerEntry
 JSS(pclose);
 JSS(peer);                        // in: AccountLines
 JSS(peer_authorized);             // out: AccountLines
@@ -526,29 +526,29 @@ JSS(peer_disconnects);            // Severed peer connection counter.
 JSS(peer_disconnects_resources);  // Severed peer connections because of
                                   // excess resource consumption.
 JSS(phash);
-JSS(port);                        // in: Connect
-JSS(previous);                    // out: Reservations
-JSS(previous_ledger);             // out: LedgerPropose
-JSS(proof);                       // in: BookOffers
-JSS(propose_seq);                 // out: LedgerPropose
-JSS(proposers);                   // out: NetworkOPs, LedgerConsensus
-JSS(protocol);                    // out: PeerImp
-JSS(proxied);                     // out: RPC ping
-JSS(pubkey_node);                 // out: NetworkOPs
-JSS(pubkey_publisher);            // out: ValidatorList
-JSS(pubkey_validator);            // out: NetworkOPs, ValidatorList
-JSS(public_key);                  // out: OverlayImpl, PeerImp, WalletPropose,
-                                  //      ValidatorInfo
-                                  // in/out: Manifest
-JSS(public_key_hex);              // out: WalletPropose
-JSS(published_ledger);            // out: NetworkOPs
-JSS(publisher_lists);             // out: ValidatorList
-JSS(quality);                     // out: NetworkOPs
-JSS(quality_in);                  // out: AccountLines
-JSS(quality_out);                 // out: AccountLines
-JSS(queue);                       // in: AccountInfo
-JSS(queue_data);                  // out: AccountInfo
-JSS(queued);                      // out: SubmitTransaction
+JSS(port);              // in: Connect
+JSS(previous);          // out: Reservations
+JSS(previous_ledger);   // out: LedgerPropose
+JSS(proof);             // in: BookOffers
+JSS(propose_seq);       // out: LedgerPropose
+JSS(proposers);         // out: NetworkOPs, LedgerConsensus
+JSS(protocol);          // out: PeerImp
+JSS(proxied);           // out: RPC ping
+JSS(pubkey_node);       // out: NetworkOPs
+JSS(pubkey_publisher);  // out: ValidatorList
+JSS(pubkey_validator);  // out: NetworkOPs, ValidatorList
+JSS(public_key);        // out: OverlayImpl, PeerImp, WalletPropose,
+                        //      ValidatorInfo
+                        // in/out: Manifest
+JSS(public_key_hex);    // out: WalletPropose
+JSS(published_ledger);  // out: NetworkOPs
+JSS(publisher_lists);   // out: ValidatorList
+JSS(quality);           // out: NetworkOPs
+JSS(quality_in);        // out: AccountLines
+JSS(quality_out);       // out: AccountLines
+JSS(queue);             // in: AccountInfo
+JSS(queue_data);        // out: AccountInfo
+JSS(queued);            // out: SubmitTransaction
 JSS(queued_duration_us);
 JSS(random);                // out: Random
 JSS(raw_meta);              // out: AcceptedLedgerTx
@@ -716,16 +716,16 @@ JSS(validation_public_key);   // out: ValidationCreate, ValidationSeed
 JSS(validation_quorum);       // out: NetworkOPs
 JSS(validation_seed);         // out: ValidationCreate, ValidationSeed
 JSS(validation);
-JSS(validations);             // out: AmendmentTableImpl
-JSS(validator_sites);         // out: ValidatorSites
-JSS(value);                   // out: STAmount
-JSS(version);                 // out: RPCVersion
-JSS(vetoed);                  // out: AmendmentTableImpl
-JSS(volume_a);                // out: BookChanges
-JSS(volume_b);                // out: BookChanges
-JSS(vote);                    // in: Feature
-JSS(warning);                 // rpc:
-JSS(warnings);                // out: server_info, server_state
+JSS(validations);      // out: AmendmentTableImpl
+JSS(validator_sites);  // out: ValidatorSites
+JSS(value);            // out: STAmount
+JSS(version);          // out: RPCVersion
+JSS(vetoed);           // out: AmendmentTableImpl
+JSS(volume_a);         // out: BookChanges
+JSS(volume_b);         // out: BookChanges
+JSS(vote);             // in: Feature
+JSS(warning);          // rpc:
+JSS(warnings);         // out: server_info, server_state
 JSS(workers);
 JSS(write_load);   // out: GetCounts
 JSS(NegativeUNL);  // out: ValidatorList; ledger type

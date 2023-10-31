@@ -166,11 +166,14 @@ struct Regression_test : public beast::unit_test::suite
     {
         testcase("Autofilled fee should use the escalated fee");
         using namespace jtx;
-        Env env(*this, envconfig([](std::unique_ptr<Config> cfg) {
-            cfg->section("transaction_queue")
-                .set("minimum_txn_in_ledger_standalone", "3");
-            return cfg;
-        }), features);
+        Env env(
+            *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->section("transaction_queue")
+                    .set("minimum_txn_in_ledger_standalone", "3");
+                return cfg;
+            }),
+            features);
         Env_ss envs(env);
 
         auto const alice = Account("alice");
@@ -206,15 +209,18 @@ struct Regression_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::chrono_literals;
 
-        Env env(*this, envconfig([](std::unique_ptr<Config> cfg) {
-            auto& s = cfg->section("transaction_queue");
-            s.set("minimum_txn_in_ledger_standalone", "4294967295");
-            s.set("minimum_txn_in_ledger", "4294967295");
-            s.set("target_txn_in_ledger", "4294967295");
-            s.set("normal_consensus_increase_percent", "4294967295");
+        Env env(
+            *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                auto& s = cfg->section("transaction_queue");
+                s.set("minimum_txn_in_ledger_standalone", "4294967295");
+                s.set("minimum_txn_in_ledger", "4294967295");
+                s.set("target_txn_in_ledger", "4294967295");
+                s.set("normal_consensus_increase_percent", "4294967295");
 
-            return cfg;
-        }), features);
+                return cfg;
+            }),
+            features);
 
         env(noop(env.master));
         // This test will probably fail if any breakpoints are encountered,

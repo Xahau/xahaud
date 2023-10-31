@@ -19,37 +19,38 @@
 
 #include <ripple/app/tx/impl/SetHook.h>
 
+#include <ripple/app/hook/Enum.h>
+#include <ripple/app/hook/Guard.h>
+#include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/app/ledger/LedgerMaster.h>
+#include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/basics/Log.h>
 #include <ripple/ledger/ApplyView.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/STAccount.h>
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/STObject.h>
-#include <ripple/protocol/STAccount.h>
 #include <ripple/protocol/STTx.h>
 #include <algorithm>
 #include <cstdint>
-#include <stdio.h>
-#include <vector>
-#include <stack>
-#include <string>
-#include <utility>
-#include <ripple/app/hook/Enum.h>
-#include <ripple/app/hook/Guard.h>
-#include <ripple/app/hook/applyHook.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/ledger/OpenLedger.h>
-#include <functional>
-#include <wasmedge/wasmedge.h>
 #include <exception>
-#include <tuple>
+#include <functional>
 #include <optional>
-#include <variant>
 #include <ostream>
+#include <stack>
+#include <stdio.h>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <variant>
+#include <vector>
+#include <wasmedge/wasmedge.h>
 
 #define DEBUG_GUARD_CHECK 1
-#define HS_ACC() ctx.tx.getAccountID(sfAccount) << "-" << ctx.tx.getTransactionID()
+#define HS_ACC() \
+    ctx.tx.getAccountID(sfAccount) << "-" << ctx.tx.getTransactionID()
 
 namespace ripple {
 
@@ -58,12 +59,12 @@ using GrantKey = std::pair<uint256, std::optional<AccountID>>;
 bool
 validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
 {
-
     if (hookGrants.size() > 8)
     {
         JLOG(ctx.j.trace())
             << "HookSet(" << hook::log::GRANTS_EXCESS << ")[" << HS_ACC()
-            << "]: Malformed transaction: SetHook sfHookGrants contains more than 8 entries.";
+            << "]: Malformed transaction: SetHook sfHookGrants contains more "
+               "than 8 entries.";
         return false;
     }
 
@@ -76,7 +77,8 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::GRANTS_ILLEGAL << ")[" << HS_ACC()
-                << "]: Malformed transaction: SetHook sfHookGrants did not contain sfHookGrant object.";
+                << "]: Malformed transaction: SetHook sfHookGrants did not "
+                   "contain sfHookGrant object.";
             return false;
         }
 
@@ -85,19 +87,20 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::GRANTS_ILLEGAL << ")[" << HS_ACC()
-                << "]: Malformed transaction: SetHook sfHookGrants cannot self grant an account.";
+                << "]: Malformed transaction: SetHook sfHookGrants cannot self "
+                   "grant an account.";
             return false;
         }
 
-
         auto const hash = hookGrantObj.getFieldH256(sfHookHash);
 
-        GrantKey entry {hash, hookGrantObj.at(~sfAuthorize)};
+        GrantKey entry{hash, hookGrantObj.at(~sfAuthorize)};
         if (already.find(entry) != already.end())
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::GRANTS_ILLEGAL << ")[" << HS_ACC()
-                << "]: Malformed transaction, SetHook sfHookGrants contains the same sfHookHash/sfAuthorize "
+                << "]: Malformed transaction, SetHook sfHookGrants contains "
+                   "the same sfHookHash/sfAuthorize "
                 << "pair multiple times.";
             return false;
         }
@@ -110,15 +113,16 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
 bool
 validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
 {
-    const int  paramKeyMax = hook::maxHookParameterKeySize();
-    const int  paramValueMax = hook::maxHookParameterValueSize();
+    const int paramKeyMax = hook::maxHookParameterKeySize();
+    const int paramValueMax = hook::maxHookParameterValueSize();
 
     int paramCount = (int)(hookParams.size());
     if (paramCount > 16)
     {
         JLOG(ctx.j.trace())
             << "HookSet(" << hook::log::HOOK_PARAMS_COUNT << ")[" << HS_ACC()
-            << "]: Malformed transaction: Txn would result in too many parameters on hook";
+            << "]: Malformed transaction: Txn would result in too many "
+               "parameters on hook";
         return false;
     }
 
@@ -129,14 +133,15 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
         if (hookParamObj.getFName() != sfHookParameter)
         {
             JLOG(ctx.j.trace())
-                << "HookSet(" << hook::log::PARAMETERS_ILLEGAL << ")[" << HS_ACC()
-                << "]: Malformed transaction: "
-                << "SetHook sfHookParameters contains obj other than sfHookParameter.";
+                << "HookSet(" << hook::log::PARAMETERS_ILLEGAL << ")["
+                << HS_ACC() << "]: Malformed transaction: "
+                << "SetHook sfHookParameters contains obj other than "
+                   "sfHookParameter.";
             return false;
         }
 
-        // RH NOTE: templating system already does most of these checks but if a change is made
-        // in future then they are double checked here
+        // RH NOTE: templating system already does most of these checks but if a
+        // change is made in future then they are double checked here
         bool nameFound = false;
         for (auto const& paramElement : hookParamObj)
         {
@@ -145,9 +150,10 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
             if (name != sfHookParameterName && name != sfHookParameterValue)
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::PARAMETERS_FIELD << ")[" << HS_ACC()
-                    << "]: Malformed transaction: "
-                    << "SetHook sfHookParameter contains object other than sfHookParameterName/Value.";
+                    << "HookSet(" << hook::log::PARAMETERS_FIELD << ")["
+                    << HS_ACC() << "]: Malformed transaction: "
+                    << "SetHook sfHookParameter contains object other than "
+                       "sfHookParameterName/Value.";
                 return false;
             }
 
@@ -160,162 +166,173 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::PARAMETERS_NAME << ")[" << HS_ACC()
                 << "]: Malformed transaction: "
-                << "SetHook sfHookParameter must contain at least sfHookParameterName";
+                << "SetHook sfHookParameter must contain at least "
+                   "sfHookParameterName";
             return false;
         }
 
-        ripple::Blob const& paramName = hookParamObj.getFieldVL(sfHookParameterName);
+        ripple::Blob const& paramName =
+            hookParamObj.getFieldVL(sfHookParameterName);
 
         if (paramName.size() > paramKeyMax ||
             (hookParamObj.isFieldPresent(sfHookParameterValue) &&
-                hookParamObj.getFieldVL(sfHookParameterValue).size() > paramValueMax))
+             hookParamObj.getFieldVL(sfHookParameterValue).size() >
+                 paramValueMax))
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::HOOK_PARAM_SIZE << ")[" << HS_ACC()
-                << "]: Malformed transaction: Txn would result in a too large parameter name/value on hook";
+                << "]: Malformed transaction: Txn would result in a too large "
+                   "parameter name/value on hook";
             return false;
         }
 
         if (alreadySet.find(paramName) != alreadySet.end())
         {
             JLOG(ctx.j.trace())
-                << "HookSet(" << hook::log::PARAMETERS_NAME_REPEATED << ")[" << HS_ACC()
-                << "]: Malformed transaction: "
-                << "SetHook sfHookParameters must contain each parameter name at most once";
+                << "HookSet(" << hook::log::PARAMETERS_NAME_REPEATED << ")["
+                << HS_ACC() << "]: Malformed transaction: "
+                << "SetHook sfHookParameters must contain each parameter name "
+                   "at most once";
             return false;
         }
 
         alreadySet.emplace(paramName);
     }
-    
+
     return true;
 }
 
-// infer which operation the user is attempting to execute from the present and absent fields
+// infer which operation the user is attempting to execute from the present and
+// absent fields
 HookSetOperation
 SetHook::inferOperation(STObject const& hookSetObj)
 {
-    uint64_t wasmByteCount = 
-            hookSetObj.isFieldPresent(sfCreateCode) 
-                ? hookSetObj.getFieldVL(sfCreateCode).size() 
-                : 0;
+    uint64_t wasmByteCount = hookSetObj.isFieldPresent(sfCreateCode)
+        ? hookSetObj.getFieldVL(sfCreateCode).size()
+        : 0;
 
     bool hasHash = hookSetObj.isFieldPresent(sfHookHash);
     bool hasCode = hookSetObj.isFieldPresent(sfCreateCode);
 
-
-    if (hasHash && hasCode)        // Both HookHash and CreateCode: invalid
+    if (hasHash && hasCode)  // Both HookHash and CreateCode: invalid
         return hsoINVALID;
-    else if (hasHash)        // Hookhash only: install
+    else if (hasHash)  // Hookhash only: install
         return hsoINSTALL;
-    else if (hasCode)        // CreateCode only: either delete or create
+    else if (hasCode)  // CreateCode only: either delete or create
         return wasmByteCount > 0 ? hsoCREATE : hsoDELETE;
     else if (
-        !hasHash && !hasCode &&
-        !hookSetObj.isFieldPresent(sfHookGrants) &&
+        !hasHash && !hasCode && !hookSetObj.isFieldPresent(sfHookGrants) &&
         !hookSetObj.isFieldPresent(sfHookNamespace) &&
         !hookSetObj.isFieldPresent(sfHookParameters) &&
         !hookSetObj.isFieldPresent(sfHookOn) &&
         !hookSetObj.isFieldPresent(sfHookApiVersion) &&
         !hookSetObj.isFieldPresent(sfFlags))
         return hsoNOOP;
-    
-    uint32_t flags = hookSetObj.isFieldPresent(sfFlags) ? hookSetObj.getFieldU32(sfFlags) : 0;
 
-    return hookSetObj.isFieldPresent(sfHookNamespace) && (flags & hsfNSDELETE) 
-            ? hsoNSDELETE 
-            : hsoUPDATE;
+    uint32_t flags = hookSetObj.isFieldPresent(sfFlags)
+        ? hookSetObj.getFieldU32(sfFlags)
+        : 0;
+
+    return hookSetObj.isFieldPresent(sfHookNamespace) && (flags & hsfNSDELETE)
+        ? hsoNSDELETE
+        : hsoUPDATE;
 }
 
-// This is a context-free validation, it does not take into account the current state of the ledger
-// returns  < valid, instruction count >
-// may throw overflow_error
+// This is a context-free validation, it does not take into account the current
+// state of the ledger returns  < valid, instruction count > may throw
+// overflow_error
 HookSetValidation
 SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 {
-    uint32_t flags = hookSetObj.isFieldPresent(sfFlags) ? hookSetObj.getFieldU32(sfFlags) : 0;
-
+    uint32_t flags = hookSetObj.isFieldPresent(sfFlags)
+        ? hookSetObj.getFieldU32(sfFlags)
+        : 0;
 
     switch (inferOperation(hookSetObj))
     {
-        case hsoNOOP:
-        {
+        case hsoNOOP: {
             return true;
         }
 
-        case hsoNSDELETE:
-        {
+        case hsoNSDELETE: {
             // namespace delete operation
-            if (hookSetObj.isFieldPresent(sfHookGrants)         ||
-                hookSetObj.isFieldPresent(sfHookParameters)     ||
-                hookSetObj.isFieldPresent(sfHookOn)             ||
-                hookSetObj.isFieldPresent(sfHookApiVersion)     ||
-                !hookSetObj.isFieldPresent(sfFlags)             ||
+            if (hookSetObj.isFieldPresent(sfHookGrants) ||
+                hookSetObj.isFieldPresent(sfHookParameters) ||
+                hookSetObj.isFieldPresent(sfHookOn) ||
+                hookSetObj.isFieldPresent(sfHookApiVersion) ||
+                !hookSetObj.isFieldPresent(sfFlags) ||
                 !hookSetObj.isFieldPresent(sfHookNamespace))
             {
-                JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::NSDELETE_FIELD << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook nsdelete operation should contain only "
-                    << "sfHookNamespace & sfFlags";
+                JLOG(ctx.j.trace()) << "HookSet(" << hook::log::NSDELETE_FIELD
+                                    << ")[" << HS_ACC()
+                                    << "]: Malformed transaction: SetHook "
+                                       "nsdelete operation should contain only "
+                                    << "sfHookNamespace & sfFlags";
                 return false;
             }
 
             if (flags != hsfNSDELETE)
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::NSDELETE_FLAGS << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook nsdelete operation should only specify hsfNSDELETE";
+                    << "HookSet(" << hook::log::NSDELETE_FLAGS << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook nsdelete operation "
+                       "should only specify hsfNSDELETE";
                 return false;
             }
 
             return true;
         }
 
-        case hsoDELETE:
-        {
-            if (hookSetObj.isFieldPresent(sfHookGrants)     ||
+        case hsoDELETE: {
+            if (hookSetObj.isFieldPresent(sfHookGrants) ||
                 hookSetObj.isFieldPresent(sfHookParameters) ||
-                hookSetObj.isFieldPresent(sfHookOn)         ||
+                hookSetObj.isFieldPresent(sfHookOn) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
-                hookSetObj.isFieldPresent(sfHookNamespace)  ||
+                hookSetObj.isFieldPresent(sfHookNamespace) ||
                 !hookSetObj.isFieldPresent(sfFlags))
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::DELETE_FIELD << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook delete operation should contain only sfCreateCode & sfFlags";
+                    << "]: Malformed transaction: SetHook delete operation "
+                       "should contain only sfCreateCode & sfFlags";
                 return false;
             }
 
             if (!(flags & hsfOVERRIDE))
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::OVERRIDE_MISSING << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook delete operation was missing the hsfOVERRIDE flag";
+                    << "HookSet(" << hook::log::OVERRIDE_MISSING << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook delete operation was "
+                       "missing the hsfOVERRIDE flag";
                 return false;
             }
-
 
             if (flags & ~(hsfOVERRIDE | hsfNSDELETE | hsfCOLLECT))
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::FLAGS_INVALID << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook delete operation specified invalid flags";
+                    << "HookSet(" << hook::log::FLAGS_INVALID << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook delete operation "
+                       "specified invalid flags";
                 return false;
             }
 
             return true;
         }
 
-        case hsoINSTALL:
-        {
+        case hsoINSTALL: {
             // validate hook params structure, if any
             if (hookSetObj.isFieldPresent(sfHookParameters) &&
-                !validateHookParams(ctx, hookSetObj.getFieldArray(sfHookParameters)))
+                !validateHookParams(
+                    ctx, hookSetObj.getFieldArray(sfHookParameters)))
                 return false;
 
             // validate hook grants structure, if any
             if (hookSetObj.isFieldPresent(sfHookGrants) &&
-                !validateHookGrants(ctx, hookSetObj.getFieldArray(sfHookGrants)))
+                !validateHookGrants(
+                    ctx, hookSetObj.getFieldArray(sfHookGrants)))
                 return false;
 
             // api version not allowed in update
@@ -323,7 +340,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_ILLEGAL << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook install operation sfHookApiVersion must not be included.";
+                    << "]: Malformed transaction: SetHook install operation "
+                       "sfHookApiVersion must not be included.";
                 return false;
             }
 
@@ -334,27 +352,31 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             return true;
         }
 
-        case hsoUPDATE:
-        {
+        case hsoUPDATE: {
             // must not specify override flag
             if ((flags & hsfOVERRIDE) ||
-                ((flags & hsfNSDELETE) && !hookSetObj.isFieldPresent(sfHookNamespace)))
+                ((flags & hsfNSDELETE) &&
+                 !hookSetObj.isFieldPresent(sfHookNamespace)))
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::FLAGS_INVALID << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook update operation only hsfNSDELETE may be specified and "
+                    << "HookSet(" << hook::log::FLAGS_INVALID << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook update operation "
+                       "only hsfNSDELETE may be specified and "
                     << "only if a new HookNamespace is also specified.";
                 return false;
             }
 
             // validate hook params structure
             if (hookSetObj.isFieldPresent(sfHookParameters) &&
-                !validateHookParams(ctx, hookSetObj.getFieldArray(sfHookParameters)))
+                !validateHookParams(
+                    ctx, hookSetObj.getFieldArray(sfHookParameters)))
                 return false;
 
             // validate hook grants structure
             if (hookSetObj.isFieldPresent(sfHookGrants) &&
-                !validateHookGrants(ctx, hookSetObj.getFieldArray(sfHookGrants)))
+                !validateHookGrants(
+                    ctx, hookSetObj.getFieldArray(sfHookGrants)))
                 return false;
 
             // api version not allowed in update
@@ -362,7 +384,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_ILLEGAL << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook update operation sfHookApiVersion must not be included.";
+                    << "]: Malformed transaction: SetHook update operation "
+                       "sfHookApiVersion must not be included.";
                 return false;
             }
 
@@ -373,25 +396,27 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             return true;
         }
 
-        case hsoCREATE:
-        {
+        case hsoCREATE: {
             // validate hook params structure
             if (hookSetObj.isFieldPresent(sfHookParameters) &&
-                !validateHookParams(ctx, hookSetObj.getFieldArray(sfHookParameters)))
+                !validateHookParams(
+                    ctx, hookSetObj.getFieldArray(sfHookParameters)))
                 return false;
 
             // validate hook grants structure
             if (hookSetObj.isFieldPresent(sfHookGrants) &&
-                !validateHookGrants(ctx, hookSetObj.getFieldArray(sfHookGrants)))
+                !validateHookGrants(
+                    ctx, hookSetObj.getFieldArray(sfHookGrants)))
                 return false;
-
 
             // ensure hooknamespace is present
             if (!hookSetObj.isFieldPresent(sfHookNamespace))
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::NAMESPACE_MISSING << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook sfHookDefinition must contain sfHookNamespace.";
+                    << "HookSet(" << hook::log::NAMESPACE_MISSING << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook sfHookDefinition "
+                       "must contain sfHookNamespace.";
                 return false;
             }
 
@@ -400,7 +425,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_MISSING << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook sfHookApiVersion must be included.";
+                    << "]: Malformed transaction: SetHook sfHookApiVersion "
+                       "must be included.";
                 return false;
             }
 
@@ -410,7 +436,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 // we currently only accept api version 0
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook sfHook->sfHookApiVersion invalid. (Try 0).";
+                    << "]: Malformed transaction: SetHook "
+                       "sfHook->sfHookApiVersion invalid. (Try 0).";
                 return false;
             }
 
@@ -418,8 +445,10 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             if (!hookSetObj.isFieldPresent(sfHookOn))
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::HOOKON_MISSING << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook must include sfHookOn when creating a new hook.";
+                    << "HookSet(" << hook::log::HOOKON_MISSING << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook must include "
+                       "sfHookOn when creating a new hook.";
                 return false;
             }
 
@@ -430,12 +459,14 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                 Blob hook = hookSetObj.getFieldVL(sfCreateCode);
 
-                // RH NOTE: validateGuards has a generic non-rippled specific interface so it can be
-                // used in other projects (i.e. tooling). As such the calling here is a bit convoluted.
+                // RH NOTE: validateGuards has a generic non-rippled specific
+                // interface so it can be used in other projects (i.e. tooling).
+                // As such the calling here is a bit convoluted.
 
-                std::optional<std::reference_wrapper<std::basic_ostream<char>>> logger;
+                std::optional<std::reference_wrapper<std::basic_ostream<char>>>
+                    logger;
                 std::ostringstream loggerStream;
-                std::string hsacc {""};
+                std::string hsacc{""};
                 if (ctx.j.trace())
                 {
                     logger = loggerStream;
@@ -444,22 +475,22 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     hsacc = ss.str();
                 }
 
-                auto result =
-                    validateGuards(
-                        hook,   // wasm to verify
-                        logger,
-                        hsacc,
-                        ctx.rules.enabled(featureHooksUpdate1) ? 1 : 0
-                    );
+                auto result = validateGuards(
+                    hook,  // wasm to verify
+                    logger,
+                    hsacc,
+                    ctx.rules.enabled(featureHooksUpdate1) ? 1 : 0);
 
                 if (ctx.j.trace())
                 {
-                    // clunky but to get the stream to accept the output correctly we will
-                    // split on new line and feed each line one by one into the trace stream
-                    // beast::Journal should be updated to inherit from basic_ostream<char>
-                    // then this wouldn't be necessary.
+                    // clunky but to get the stream to accept the output
+                    // correctly we will split on new line and feed each line
+                    // one by one into the trace stream beast::Journal should be
+                    // updated to inherit from basic_ostream<char> then this
+                    // wouldn't be necessary.
 
-                    // is this a needless copy or does the compiler do copy elision here?
+                    // is this a needless copy or does the compiler do copy
+                    // elision here?
                     std::string s = loggerStream.str();
 
                     char* data = s.data();
@@ -485,18 +516,20 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return false;
 
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")[" << HS_ACC()
+                    << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")["
+                    << HS_ACC()
                     << "]: Trying to wasm instantiate proposed hook "
-                    << "size = " <<  hook.size();
-
+                    << "size = " << hook.size();
 
                 std::optional<std::string> result2 =
-                    hook::HookExecutor::validateWasm(hook.data(), (size_t)hook.size());
+                    hook::HookExecutor::validateWasm(
+                        hook.data(), (size_t)hook.size());
 
                 if (result2)
                 {
                     JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::WASM_TEST_FAILURE << ")[" << HS_ACC()
+                        << "HookSet(" << hook::log::WASM_TEST_FAILURE << ")["
+                        << HS_ACC()
                         << "Tried to set a hook with invalid code. VM error: "
                         << *result2;
                     return false;
@@ -507,11 +540,11 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
         }
 
         case hsoINVALID:
-        default:
-        {
+        default: {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::HASH_OR_CODE << ")[" << HS_ACC()
-                << "]: Malformed transaction: SetHook must provide only one of sfCreateCode or sfHookHash.";
+                << "]: Malformed transaction: SetHook must provide only one of "
+                   "sfCreateCode or sfHookHash.";
             return false;
         }
     }
@@ -528,13 +561,12 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     for (auto const& hookSetObj : hookSets)
     {
-        XRPAmount createFee { 0 };
+        XRPAmount createFee{0};
         if (hookSetObj.isFieldPresent(sfCreateCode))
-            createFee = XRPAmount{
-                hook::computeCreationFee(
-                    hookSetObj.getFieldVL(sfCreateCode).size())};
+            createFee = XRPAmount{hook::computeCreationFee(
+                hookSetObj.getFieldVL(sfCreateCode).size())};
 
-        XRPAmount paramFee { 0 };
+        XRPAmount paramFee{0};
         // parameters are billed at the same rate as code bytes
         if (hookSetObj.isFieldPresent(sfHookParameters))
         {
@@ -543,10 +575,12 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
             for (auto const& param : params)
             {
                 int64_t entryBytes = 0;
-                if (param.isFieldPresent(sfHookParameterName)) {
+                if (param.isFieldPresent(sfHookParameterName))
+                {
                     entryBytes += param.getFieldVL(sfHookParameterName).size();
                 }
-                if (param.isFieldPresent(sfHookParameterValue)) {
+                if (param.isFieldPresent(sfHookParameterValue))
+                {
                     entryBytes += param.getFieldVL(sfHookParameterValue).size();
                 }
 
@@ -558,7 +592,7 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
             }
 
             // one drop per byte
-            paramFee = XRPAmount { paramBytes };
+            paramFee = XRPAmount{paramBytes};
         }
 
         if (hookFee + paramFee < hookFee)
@@ -582,7 +616,6 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 TER
 SetHook::preclaim(ripple::PreclaimContext const& ctx)
 {
-
     auto const& hookSets = ctx.tx.getFieldArray(sfHooks);
 
     for (auto const& hookSetObj : hookSets)
@@ -594,9 +627,10 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
         {
             if (!ctx.view.exists(keylet::hookDefinition(hash)))
             {
-                JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::HOOK_DEF_MISSING << ")[" << HS_ACC()
-                    << "]: Malformed transaction: No hook exists with the specified hash.";
+                JLOG(ctx.j.trace()) << "HookSet(" << hook::log::HOOK_DEF_MISSING
+                                    << ")[" << HS_ACC()
+                                    << "]: Malformed transaction: No hook "
+                                       "exists with the specified hash.";
                 return terNO_HOOK;
             }
         }
@@ -608,12 +642,11 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
 NotTEC
 SetHook::preflight(PreflightContext const& ctx)
 {
-
     if (!ctx.rules.enabled(featureHooks))
     {
-        JLOG(ctx.j.warn())
-            << "HookSet(" << hook::log::AMENDMENT_DISABLED << ")["
-            << HS_ACC() << "]: Hooks Amendment not enabled!";
+        JLOG(ctx.j.warn()) << "HookSet(" << hook::log::AMENDMENT_DISABLED
+                           << ")[" << HS_ACC()
+                           << "]: Hooks Amendment not enabled!";
         return temDISABLED;
     }
 
@@ -624,8 +657,8 @@ SetHook::preflight(PreflightContext const& ctx)
     if (!ctx.tx.isFieldPresent(sfHooks))
     {
         JLOG(ctx.j.trace())
-            << "HookSet(" << hook::log::HOOKS_ARRAY_MISSING << ")["
-            << HS_ACC() << "]: Malformed transaction: SetHook lacked sfHooks array.";
+            << "HookSet(" << hook::log::HOOKS_ARRAY_MISSING << ")[" << HS_ACC()
+            << "]: Malformed transaction: SetHook lacked sfHooks array.";
         return temMALFORMED;
     }
 
@@ -643,18 +676,13 @@ SetHook::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.trace())
             << "HookSet(" << hook::log::HOOKS_ARRAY_TOO_BIG << ")[" << HS_ACC()
-            << "]: Malformed transaction: SetHook sfHooks contains more than " << hook::maxHookChainLength()
-            << " entries.";
+            << "]: Malformed transaction: SetHook sfHooks contains more than "
+            << hook::maxHookChainLength() << " entries.";
         return temMALFORMED;
     }
 
-    SetHookCtx shCtx
-    {
-       .j = ctx.j,
-       .tx = ctx.tx,
-       .app = ctx.app,
-       .rules = ctx.rules
-    };
+    SetHookCtx shCtx{
+        .j = ctx.j, .tx = ctx.tx, .app = ctx.app, .rules = ctx.rules};
 
     bool allBlank = true;
 
@@ -663,22 +691,24 @@ SetHook::preflight(PreflightContext const& ctx)
         if (hookSetObj.getFName() != sfHook)
         {
             JLOG(ctx.j.trace())
-                << "HookSet(" << hook::log::HOOKS_ARRAY_BAD << ")["
-                << HS_ACC()
-                << "]: Malformed transaction: SetHook sfHooks contains obj other than sfHook.";
+                << "HookSet(" << hook::log::HOOKS_ARRAY_BAD << ")[" << HS_ACC()
+                << "]: Malformed transaction: SetHook sfHooks contains obj "
+                   "other than sfHook.";
             return temMALFORMED;
         }
 
         if (hookSetObj.isFieldPresent(sfCreateCode) &&
-            hookSetObj.getFieldVL(sfCreateCode).size() > hook::maxHookWasmSize())
+            hookSetObj.getFieldVL(sfCreateCode).size() >
+                hook::maxHookWasmSize())
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::WASM_TOO_BIG << ")[" << HS_ACC()
-                << "]: Malformed transaction: SetHook operation would create blob larger than max";
+                << "]: Malformed transaction: SetHook operation would create "
+                   "blob larger than max";
             return temMALFORMED;
         }
 
-        if (hookSetObj.getCount() == 0) // skip blanks
+        if (hookSetObj.getCount() == 0)  // skip blanks
             continue;
 
         allBlank = false;
@@ -687,38 +717,33 @@ SetHook::preflight(PreflightContext const& ctx)
         {
             auto const& name = hookSetElement.getFName();
 
-            if (name != sfCreateCode &&
-                name != sfHookHash &&
-                name != sfHookNamespace &&
-                name != sfHookParameters &&
-                name != sfHookOn &&
-                name != sfHookGrants &&
-                name != sfHookApiVersion &&
-                name != sfFlags)
+            if (name != sfCreateCode && name != sfHookHash &&
+                name != sfHookNamespace && name != sfHookParameters &&
+                name != sfHookOn && name != sfHookGrants &&
+                name != sfHookApiVersion && name != sfFlags)
             {
                 JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook sfHook contains invalid field.";
+                    << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook sfHook contains "
+                       "invalid field.";
                 return temMALFORMED;
             }
         }
 
         try
         {
-
             // may throw if leb128 overflow is detected
-            auto valid =
-                validateHookSetEntry(shCtx, hookSetObj);
+            auto valid = validateHookSetEntry(shCtx, hookSetObj);
 
             if (std::holds_alternative<bool>(valid) && !std::get<bool>(valid))
                 return temMALFORMED;
-
         }
         catch (std::exception& e)
         {
             JLOG(ctx.j.trace())
-                << "HookSet(" << hook::log::WASM_VALIDATION
-                << ")[" << HS_ACC() << "]: Exception: " << e.what();
+                << "HookSet(" << hook::log::WASM_VALIDATION << ")[" << HS_ACC()
+                << "]: Exception: " << e.what();
             return temMALFORMED;
         }
     }
@@ -726,17 +751,14 @@ SetHook::preflight(PreflightContext const& ctx)
     if (allBlank)
     {
         JLOG(ctx.j.trace())
-            << "HookSet(" << hook::log::HOOKS_ARRAY_BLANK << ")["
-            << HS_ACC()
-            << "]: Malformed transaction: SetHook sfHooks must contain at least one non-blank sfHook.";
+            << "HookSet(" << hook::log::HOOKS_ARRAY_BLANK << ")[" << HS_ACC()
+            << "]: Malformed transaction: SetHook sfHooks must contain at "
+               "least one non-blank sfHook.";
         return temMALFORMED;
     }
 
-
     return preflight2(ctx);
 }
-
-
 
 TER
 SetHook::doApply()
@@ -756,37 +778,36 @@ SetHook::destroyNamespace(
     SetHookCtx& ctx,
     ApplyView& view,
     const AccountID& account,
-    uint256 ns
-) {
-    JLOG(ctx.j.trace())
-        << "HookSet(" << hook::log::NSDELETE << ")[" << HS_ACC() << "]: DeleteState "
-        << "Destroying Hook Namespace for " << account << " namespace " << ns;
-    
+    uint256 ns)
+{
+    JLOG(ctx.j.trace()) << "HookSet(" << hook::log::NSDELETE << ")[" << HS_ACC()
+                        << "]: DeleteState "
+                        << "Destroying Hook Namespace for " << account
+                        << " namespace " << ns;
+
     auto sleAccount = view.peek(keylet::account(account));
     if (!sleAccount)
     {
         JLOG(ctx.j.fatal())
-            << "HookSet(" << hook::log::NSDELETE_ACCOUNT
-            << ")[" << HS_ACC() << "]: Account does not exist to destroy namespace from";
+            << "HookSet(" << hook::log::NSDELETE_ACCOUNT << ")[" << HS_ACC()
+            << "]: Account does not exist to destroy namespace from";
         return tefBAD_LEDGER;
     }
-
 
     bool sleAccChanged = false;
 
     if (!sleAccount->isFieldPresent(sfHookNamespaces))
     {
-        // NSDELETE is an opportunistic deleter, following "delete if exists" logic
-        // this way the flag can't block the SetHook transaction just because, for example, the namespace was
-        // deleted in the previous transaction but the hsFlags have not changed.
-        // Thus this is not an error.
-        // Allow fall through to below in case, for some reason, the namespace directory *does* exist
-        // but does not appear in the vector.
+        // NSDELETE is an opportunistic deleter, following "delete if exists"
+        // logic this way the flag can't block the SetHook transaction just
+        // because, for example, the namespace was deleted in the previous
+        // transaction but the hsFlags have not changed. Thus this is not an
+        // error. Allow fall through to below in case, for some reason, the
+        // namespace directory *does* exist but does not appear in the vector.
     }
     else
     {
-        sleAccChanged = 
-            hook::removeHookNamespaceEntry(*sleAccount, ns);
+        sleAccChanged = hook::removeHookNamespaceEntry(*sleAccount, ns);
     }
 
     Keylet dirKeylet = keylet::hookStateDir(account, ns);
@@ -816,15 +837,11 @@ SetHook::destroyNamespace(
     }
 
     // fall through to here means we must prune the entries from the directory
-    if (!cdirFirst(
-            view,
-            dirKeylet.key,
-            sleDirNode,
-            uDirEntry,
-            dirEntry)) {
-            JLOG(ctx.j.fatal())
-                << "HookSet(" << hook::log::NSDELETE_DIRECTORY << ")[" << HS_ACC() << "]: DeleteState "
-                << "directory missing ";
+    if (!cdirFirst(view, dirKeylet.key, sleDirNode, uDirEntry, dirEntry))
+    {
+        JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_DIRECTORY
+                            << ")[" << HS_ACC() << "]: DeleteState "
+                            << "directory missing ";
         return tefINTERNAL;
     }
 
@@ -843,7 +860,8 @@ SetHook::destroyNamespace(
         {
             // Directory node has an invalid index.  Bail out.
             JLOG(ctx.j.fatal())
-                << "HookSet(" << hook::log::NSDELETE_DIR_ENTRY << ")[" << HS_ACC() << "]: DeleteState "
+                << "HookSet(" << hook::log::NSDELETE_DIR_ENTRY << ")["
+                << HS_ACC() << "]: DeleteState "
                 << "directory node in ledger " << view.seq() << " "
                 << "has index to object that is missing: "
                 << to_string(dirEntry);
@@ -855,7 +873,8 @@ SetHook::destroyNamespace(
         if (nodeType != ltHOOK_STATE)
         {
             JLOG(ctx.j.fatal())
-                << "HookSet(" << hook::log::NSDELETE_NONSTATE << ")[" << HS_ACC() << "]: DeleteState "
+                << "HookSet(" << hook::log::NSDELETE_NONSTATE << ")["
+                << HS_ACC() << "]: DeleteState "
                 << "directory node in ledger " << view.seq() << " "
                 << "has non-ltHOOK_STATE entry " << to_string(dirEntry);
             return tefBAD_LEDGER;
@@ -866,15 +885,15 @@ SetHook::destroyNamespace(
     } while (cdirNext(view, dirKeylet.key, sleDirNode, uDirEntry, dirEntry));
 
     // delete it!
-    for (auto const& itemKey: toDelete)
+    for (auto const& itemKey : toDelete)
     {
         auto const& sleItem = view.peek({ltHOOK_STATE, itemKey});
 
         if (!sleItem)
         {
             JLOG(ctx.j.warn())
-                << "HookSet(" << hook::log::NSDELETE_ENTRY
-                << ")[" << HS_ACC() << "]: DeleteState "
+                << "HookSet(" << hook::log::NSDELETE_ENTRY << ")[" << HS_ACC()
+                << "]: DeleteState "
                 << "Namespace ltHOOK_STATE entry was not found in ledger: "
                 << itemKey;
             continue;
@@ -884,8 +903,8 @@ SetHook::destroyNamespace(
         if (!view.dirRemove(dirKeylet, hint, itemKey, false))
         {
             JLOG(ctx.j.fatal())
-                << "HookSet(" << hook::log::NSDELETE_DIR
-                << ")[" << HS_ACC() << "]: DeleteState "
+                << "HookSet(" << hook::log::NSDELETE_DIR << ")[" << HS_ACC()
+                << "]: DeleteState "
                 << "directory node in ledger " << view.seq() << " "
                 << "could not be deleted.";
             return tefBAD_LEDGER;
@@ -896,9 +915,9 @@ SetHook::destroyNamespace(
 
     if (stateCount > oldStateCount)
     {
-        JLOG(ctx.j.fatal())
-            << "HookSet(" << hook::log::NSDELETE_COUNT << ")[" << HS_ACC() << "]: DeleteState "
-            << "stateCount less than zero (overflow)";
+        JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT << ")["
+                            << HS_ACC() << "]: DeleteState "
+                            << "stateCount less than zero (overflow)";
 
         return tefBAD_LEDGER;
     }
@@ -913,11 +932,11 @@ SetHook::destroyNamespace(
     return tesSUCCESS;
 }
 
-
-// returns true if the reference counted ledger entry should be marked for deletion
-// i.e. it has a zero reference count after the decrement is completed
+// returns true if the reference counted ledger entry should be marked for
+// deletion i.e. it has a zero reference count after the decrement is completed
 // otherwise returns false (but still decrements reference count)
-bool reduceReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
+bool
+reduceReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
 {
     if (sle && sle->isFieldPresent(sfReferenceCount))
     {
@@ -934,21 +953,22 @@ bool reduceReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
     return false;
 }
 
-void incrementReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
+void
+incrementReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
 {
     if (!sle)
         return;
 
-    uint64_t rc = 
-        sle->isFieldPresent(sfReferenceCount)
-            ? sle->getFieldU64(sfReferenceCount) + 1
-            : 1;
+    uint64_t rc = sle->isFieldPresent(sfReferenceCount)
+        ? sle->getFieldU64(sfReferenceCount) + 1
+        : 1;
 
     if (rc == 0)
     {
         // overflow should be impossible...
-        // it would require ~ 4.6*10^18 accounts each pointing all four hook entries at one hook definition
-        // handle this somewhat gracefully anyway if it somehow did happen
+        // it would require ~ 4.6*10^18 accounts each pointing all four hook
+        // entries at one hook definition handle this somewhat gracefully anyway
+        // if it somehow did happen
         return;
     }
 
@@ -957,59 +977,71 @@ void incrementReferenceCount(std::shared_ptr<STLedgerEntry>& sle)
 
 TER
 updateHookParameters(
-        SetHookCtx& ctx,
-        ripple::STObject const& hookSetObj,
-        std::shared_ptr<STLedgerEntry>& oldDefSLE,
-        ripple::STArray const& oldParameters,
-        ripple::STObject& newHook)
+    SetHookCtx& ctx,
+    ripple::STObject const& hookSetObj,
+    std::shared_ptr<STLedgerEntry>& oldDefSLE,
+    ripple::STArray const& oldParameters,
+    ripple::STObject& newHook)
 {
-    const int  paramKeyMax = hook::maxHookParameterKeySize();
-    const int  paramValueMax = hook::maxHookParameterValueSize();
+    const int paramKeyMax = hook::maxHookParameterKeySize();
+    const int paramValueMax = hook::maxHookParameterValueSize();
 
     std::map<ripple::Blob, std::optional<ripple::Blob>> parameters;
 
-    // When parameters are specified in a HookSetObj they can come in three flavours:
-    // 1. Name + Value both present and populated   {ParameterName: "X", ParameterValue: "Y"}
-    // 2. Name + Empty Value   (EV)                 {ParameterName: "X", ParameterValue: ""}
+    // When parameters are specified in a HookSetObj they can come in three
+    // flavours:
+    // 1. Name + Value both present and populated   {ParameterName: "X",
+    // ParameterValue: "Y"}
+    // 2. Name + Empty Value   (EV)                 {ParameterName: "X",
+    // ParameterValue: ""}
     // 3. Name + Absent Value  (AV)                 {ParameterName: "X"}
     //
-    // Case 1 will set the pair in the user's ltHook, unless it matches the HookDef default,
+    // Case 1 will set the pair in the user's ltHook, unless it matches the
+    // HookDef default,
     //        in which case it will be deleted.
-    // Case 2 will set the pair with null-value in the user's ltHook, unless there is no default, 
+    // Case 2 will set the pair with null-value in the user's ltHook, unless
+    // there is no default,
     //        in which case it will be deleted.
-    // Case 3 will delete the pair in the user's ltHook irrespective of any other factor, effectively
-    //        producing a reset to default, even if the default is that there is no parameter by that name.
-    // Unpopulated optional in the map means AV, populated with {} (.empty()) means EV.
+    // Case 3 will delete the pair in the user's ltHook irrespective of any
+    // other factor, effectively
+    //        producing a reset to default, even if the default is that there is
+    //        no parameter by that name.
+    // Unpopulated optional in the map means AV, populated with {} (.empty())
+    // means EV.
 
     // first pull the old parameters into a map
     for (auto const& hookParameterObj : oldParameters)
     {
         auto const pname = hookParameterObj.getFieldVL(sfHookParameterName);
         if (hookParameterObj.isFieldPresent(sfHookParameterValue))
-            parameters[pname] = {hookParameterObj.getFieldVL(sfHookParameterValue)};
+            parameters[pname] = {
+                hookParameterObj.getFieldVL(sfHookParameterValue)};
         else
             parameters[pname] = {};
     }
 
-    // ... then override old parameters with specified parameters 
+    // ... then override old parameters with specified parameters
     auto const& hookParameters = hookSetObj.getFieldArray(sfHookParameters);
     for (auto const& hookParameterObj : hookParameters)
     {
         auto const& pname = hookParameterObj.getFieldVL(sfHookParameterName);
         // specifying a missing value:
-        // deletes the parameter if there is no default value for that parameter on the hook definition
-        // sits as a blank / deletion marker if there is a default value on the hook definition
+        // deletes the parameter if there is no default value for that parameter
+        // on the hook definition sits as a blank / deletion marker if there is
+        // a default value on the hook definition
         if (hookParameterObj.isFieldPresent(sfHookParameterValue))
-            parameters[pname] = {hookParameterObj.getFieldVL(sfHookParameterValue)};
+            parameters[pname] = {
+                hookParameterObj.getFieldVL(sfHookParameterValue)};
         else
             parameters[pname] = {};
     }
 
     std::set<Blob> explicitBlanks;
-    
 
-    // then erase anything that is the same as the definition's default parameters
-    if (parameters.size() > 0 && oldDefSLE && oldDefSLE->isFieldPresent(sfHookParameters))
+    // then erase anything that is the same as the definition's default
+    // parameters
+    if (parameters.size() > 0 && oldDefSLE &&
+        oldDefSLE->isFieldPresent(sfHookParameters))
     {
         auto const& defParameters = oldDefSLE->getFieldArray(sfHookParameters);
 
@@ -1036,20 +1068,21 @@ updateHookParameters(
         }
     }
 
-    // remove anything that was EV or AV but there was no corresponding existing param in the hook definition
-    // to blank against (this is then a param delete)
+    // remove anything that was EV or AV but there was no corresponding existing
+    // param in the hook definition to blank against (this is then a param
+    // delete)
 
     std::set<Blob> toErase;
-    for (auto& [pn, pv]: parameters)
+    for (auto& [pn, pv] : parameters)
     {
-        if (!pv)    // MV
+        if (!pv)  // MV
             toErase.emplace(pn);
-        else
-        if ((*pv).empty() // EV
-                && explicitBlanks.find(pn) == explicitBlanks.end())
+        else if (
+            (*pv).empty()  // EV
+            && explicitBlanks.find(pn) == explicitBlanks.end())
             toErase.emplace(pn);
     }
-    
+
     for (auto& pn : toErase)
         parameters.erase(pn);
 
@@ -1058,29 +1091,32 @@ updateHookParameters(
     {
         JLOG(ctx.j.fatal())
             << "HookSet(" << hook::log::HOOK_PARAMS_COUNT << ")[" << HS_ACC()
-            << "]: Malformed transaction: Txn would result in too many parameters on hook";
+            << "]: Malformed transaction: Txn would result in too many "
+               "parameters on hook";
         return tecINTERNAL;
     }
 
-    STArray newParameters {sfHookParameters, parameterCount};
+    STArray newParameters{sfHookParameters, parameterCount};
     for (const auto& [parameterName, parameterValue] : parameters)
     {
         if (!parameterValue)
         {
-            JLOG(ctx.j.warn())
-                << "HookSet did not filter out Absent Values before getting to set routine.";
+            JLOG(ctx.j.warn()) << "HookSet did not filter out Absent Values "
+                                  "before getting to set routine.";
             continue;
         }
 
-        if (parameterName.size() > paramKeyMax || (*parameterValue).size() > paramValueMax)
+        if (parameterName.size() > paramKeyMax ||
+            (*parameterValue).size() > paramValueMax)
         {
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::HOOK_PARAM_SIZE << ")[" << HS_ACC()
-                << "]: Malformed transaction: Txn would result in a too large parameter name/value on hook";
+                << "]: Malformed transaction: Txn would result in a too large "
+                   "parameter name/value on hook";
             return tecINTERNAL;
         }
 
-        STObject param { sfHookParameter };
+        STObject param{sfHookParameter};
         param.setFieldVL(sfHookParameterName, parameterName);
         param.setFieldVL(sfHookParameterValue, *parameterValue);
         newParameters.push_back(std::move(param));
@@ -1092,37 +1128,36 @@ updateHookParameters(
     return tesSUCCESS;
 }
 
-
 struct KeyletComparator
 {
-    bool operator()(const Keylet& lhs, const Keylet& rhs) const
+    bool
+    operator()(const Keylet& lhs, const Keylet& rhs) const
     {
-        return lhs.type < rhs.type || (lhs.type == rhs.type && lhs.key < rhs.key);
+        return lhs.type < rhs.type ||
+            (lhs.type == rhs.type && lhs.key < rhs.key);
     }
 };
 
 TER
 SetHook::setHook()
 {
-
     /**
      * Each account has optionally an ltHOOK object
      * Which contains an array (sfHooks) of sfHook objects
-     * The set hook transaction also contains an array (sfHooks) of sfHook objects
-     * These two arrays are mapped 1-1 when updating, inserting or deleting hooks
-     * When the user submits a new hook that does not yet exist on the ledger an ltHOOK_DEFINITION object is created
-     * Further users setting the same hook code will reference this object using sfHookHash.
+     * The set hook transaction also contains an array (sfHooks) of sfHook
+     * objects These two arrays are mapped 1-1 when updating, inserting or
+     * deleting hooks When the user submits a new hook that does not yet exist
+     * on the ledger an ltHOOK_DEFINITION object is created Further users
+     * setting the same hook code will reference this object using sfHookHash.
      */
 
-    SetHookCtx ctx
-    {
+    SetHookCtx ctx{
         .j = ctx_.app.journal("View"),
         .tx = ctx_.tx,
         .app = ctx_.app,
-        .rules = ctx_.view().rules()
-    };
+        .rules = ctx_.view().rules()};
 
-    const int  blobMax = hook::maxHookWasmSize();
+    const int blobMax = hook::maxHookWasmSize();
     auto const accountKeylet = keylet::account(account_);
     auto const hookKeylet = keylet::hook(account_);
 
@@ -1137,67 +1172,75 @@ SetHook::setHook()
 
     if (oldHookSLE)
     {
-       oldHooks = oldHookSLE->getFieldArray(sfHooks);
-       oldHookCount = (oldHooks->get()).size();
+        oldHooks = oldHookSLE->getFieldArray(sfHooks);
+        oldHookCount = (oldHooks->get()).size();
     }
 
-    std::set<ripple::Keylet, KeyletComparator> keyletsToDestroy {};
-    std::map<ripple::Keylet, std::shared_ptr<SLE>, KeyletComparator> slesToInsert {};
-    std::map<ripple::Keylet, std::shared_ptr<SLE>, KeyletComparator> slesToUpdate {};
+    std::set<ripple::Keylet, KeyletComparator> keyletsToDestroy{};
+    std::map<ripple::Keylet, std::shared_ptr<SLE>, KeyletComparator>
+        slesToInsert{};
+    std::map<ripple::Keylet, std::shared_ptr<SLE>, KeyletComparator>
+        slesToUpdate{};
 
-    std::set<uint256> namespacesToDestroy {};
+    std::set<uint256> namespacesToDestroy{};
 
     int hookSetNumber = -1;
     auto const& hookSets = ctx.tx.getFieldArray(sfHooks);
 
     int hookSetCount = hookSets.size();
 
-    for (hookSetNumber = 0; hookSetNumber < std::max(oldHookCount, hookSetCount); ++hookSetNumber)
+    for (hookSetNumber = 0;
+         hookSetNumber < std::max(oldHookCount, hookSetCount);
+         ++hookSetNumber)
     {
-
-        ripple::STObject                                                newHook         { sfHook };
-        std::optional<std::reference_wrapper<ripple::STObject const>>   oldHook;
-        // an existing hook would only be present if the array slot also exists on the ltHOOK object
+        ripple::STObject newHook{sfHook};
+        std::optional<std::reference_wrapper<ripple::STObject const>> oldHook;
+        // an existing hook would only be present if the array slot also exists
+        // on the ltHOOK object
         if (hookSetNumber < oldHookCount)
-            oldHook = std::cref((oldHooks->get()[hookSetNumber]).downcast<ripple::STObject const>());
+            oldHook = std::cref((oldHooks->get()[hookSetNumber])
+                                    .downcast<ripple::STObject const>());
 
-        std::optional<std::reference_wrapper<ripple::STObject const>>   hookSetObj;
+        std::optional<std::reference_wrapper<ripple::STObject const>>
+            hookSetObj;
         if (hookSetNumber < hookSetCount)
-            hookSetObj = std::cref((hookSets[hookSetNumber]).downcast<ripple::STObject const>());
+            hookSetObj = std::cref(
+                (hookSets[hookSetNumber]).downcast<ripple::STObject const>());
 
-        std::optional<ripple::uint256>                                  oldNamespace;
-        std::optional<ripple::uint256>                                  defNamespace;
-        std::optional<ripple::Keylet>                                   oldDirKeylet;
-        std::optional<ripple::Keylet>                                   oldDefKeylet;
-        std::optional<ripple::Keylet>                                   newDefKeylet;
-        std::shared_ptr<STLedgerEntry>                                  oldDefSLE;
-        std::shared_ptr<STLedgerEntry>                                  newDefSLE;
-        std::shared_ptr<STLedgerEntry>                                  oldDirSLE;
+        std::optional<ripple::uint256> oldNamespace;
+        std::optional<ripple::uint256> defNamespace;
+        std::optional<ripple::Keylet> oldDirKeylet;
+        std::optional<ripple::Keylet> oldDefKeylet;
+        std::optional<ripple::Keylet> newDefKeylet;
+        std::shared_ptr<STLedgerEntry> oldDefSLE;
+        std::shared_ptr<STLedgerEntry> newDefSLE;
+        std::shared_ptr<STLedgerEntry> oldDirSLE;
 
-        std::optional<ripple::uint256>                                  newNamespace;
-        std::optional<ripple::Keylet>                                   newDirKeylet;
+        std::optional<ripple::uint256> newNamespace;
+        std::optional<ripple::Keylet> newDirKeylet;
 
-        std::optional<uint256>                                          oldHookOn;
-        std::optional<uint256>                                          newHookOn;
-        std::optional<uint256>                                          defHookOn;
+        std::optional<uint256> oldHookOn;
+        std::optional<uint256> newHookOn;
+        std::optional<uint256> defHookOn;
 
-        // when hsoCREATE is invoked it populates this variable in case the hook definition already exists
-        // and the operation falls through into a hsoINSTALL operation instead
-        std::optional<ripple::uint256>                                  createHookHash;
+        // when hsoCREATE is invoked it populates this variable in case the hook
+        // definition already exists and the operation falls through into a
+        // hsoINSTALL operation instead
+        std::optional<ripple::uint256> createHookHash;
         /**
-         * This is the primary HookSet loop. We iterate the sfHooks array inside the txn
-         * each entry of this array is available as hookSetObj.
-         * Depending on whether or not an existing hook is present in the array slot we are currently up to
-         * this hook and its various attributes are available in the optionals prefixed with old.
-         * Even if an existing hook is being modified by the sethook obj, we create a newHook obj
-         * so a degree of copying is required.
+         * This is the primary HookSet loop. We iterate the sfHooks array inside
+         * the txn each entry of this array is available as hookSetObj.
+         * Depending on whether or not an existing hook is present in the array
+         * slot we are currently up to this hook and its various attributes are
+         * available in the optionals prefixed with old. Even if an existing
+         * hook is being modified by the sethook obj, we create a newHook obj so
+         * a degree of copying is required.
          */
 
         std::optional<uint32_t> flags;
 
         if (hookSetObj && hookSetObj->get().isFieldPresent(sfFlags))
             flags = hookSetObj->get().getFieldU32(sfFlags);
-
 
         HookSetOperation op = hsoNOOP;
 
@@ -1216,10 +1259,12 @@ SetHook::setHook()
                 newFlags -= hsfNSDELETE;
         }
 
-        // if an existing hook exists at this position in the chain then extract the relevant fields
+        // if an existing hook exists at this position in the chain then extract
+        // the relevant fields
         if (oldHook && oldHook->get().isFieldPresent(sfHookHash))
         {
-            oldDefKeylet = keylet::hookDefinition(oldHook->get().getFieldH256(sfHookHash));
+            oldDefKeylet =
+                keylet::hookDefinition(oldHook->get().getFieldH256(sfHookHash));
             oldDefSLE = view().peek(*oldDefKeylet);
             if (oldDefSLE)
                 defNamespace = oldDefSLE->getFieldH256(sfHookNamespace);
@@ -1240,12 +1285,14 @@ SetHook::setHook()
                 oldHookOn = *defHookOn;
         }
 
-        // in preparation for three way merge populate fields if they are present on the HookSetObj
+        // in preparation for three way merge populate fields if they are
+        // present on the HookSetObj
         if (hookSetObj)
         {
             if (hookSetObj->get().isFieldPresent(sfHookHash))
             {
-                newDefKeylet = keylet::hookDefinition(hookSetObj->get().getFieldH256(sfHookHash));
+                newDefKeylet = keylet::hookDefinition(
+                    hookSetObj->get().getFieldH256(sfHookHash));
                 newDefSLE = view().peek(*newDefKeylet);
             }
 
@@ -1259,35 +1306,37 @@ SetHook::setHook()
             }
         }
 
-        // users may destroy a namespace in any operation except NOOP and INVALID
+        // users may destroy a namespace in any operation except NOOP and
+        // INVALID
         if (flags && (*flags & hsfNSDELETE))
         {
             if (op == hsoNOOP || op == hsoINVALID)
             {
                 // don't do any namespace deletion
             }
-            else if(op == hsoNSDELETE && newDirKeylet)
+            else if (op == hsoNSDELETE && newDirKeylet)
             {
                 printf("Marking a namespace for destruction.... NSDELETE\n");
                 namespacesToDestroy.emplace(*newNamespace);
             }
             else if (oldDirKeylet)
             {
-                printf("Marking a namespace for destruction.... non-NSDELETE\n");
+                printf(
+                    "Marking a namespace for destruction.... non-NSDELETE\n");
                 namespacesToDestroy.emplace(*oldNamespace);
             }
             else
             {
                 JLOG(ctx.j.warn())
-                    << "HookSet(" << hook::log::NSDELETE_NOTHING << ")[" << HS_ACC()
+                    << "HookSet(" << hook::log::NSDELETE_NOTHING << ")["
+                    << HS_ACC()
                     << "]: SetHook hsoNSDELETE specified but nothing to delete";
             }
         }
 
-
         // if there is only an existing hook, without a HookSetObj then it is
         // logically impossible for the operation to not be NOOP
-        if(!hookSetObj && op != hsoNOOP)
+        if (!hookSetObj && op != hsoNOOP)
         {
             JLOG(ctx.j.warn())
                 << "HookSet(" << hook::log::INTERNAL_ERROR << ")[" << HS_ACC()
@@ -1297,28 +1346,26 @@ SetHook::setHook()
 
         switch (op)
         {
-
             // this case is handled directly above already
             case hsoNSDELETE:
-            case hsoNOOP:
-            {
-                // if a hook already exists here then migrate it to the new array
-                // if it doesn't exist just place a blank object here
-                newHooks.push_back( oldHook ? oldHook->get() : ripple::STObject{sfHook} );
+            case hsoNOOP: {
+                // if a hook already exists here then migrate it to the new
+                // array if it doesn't exist just place a blank object here
+                newHooks.push_back(
+                    oldHook ? oldHook->get() : ripple::STObject{sfHook});
                 continue;
             }
 
-            // every case below here is guarenteed to have a populated hookSetObj
-            // by the assert statement above
+                // every case below here is guarenteed to have a populated
+                // hookSetObj by the assert statement above
 
-            case hsoDELETE:
-            {
-
+            case hsoDELETE: {
                 if (!flags || !(*flags & hsfOVERRIDE))
                 {
-                    JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::DELETE_FLAG << ")[" << HS_ACC()
-                        << "]: SetHook delete operation requires hsfOVERRIDE flag";
+                    JLOG(ctx.j.trace()) << "HookSet(" << hook::log::DELETE_FLAG
+                                        << ")[" << HS_ACC()
+                                        << "]: SetHook delete operation "
+                                           "requires hsfOVERRIDE flag";
                     return tecREQUIRES_FLAG;
                 }
 
@@ -1328,13 +1375,16 @@ SetHook::setHook()
                 if (!oldHook)
                 {
                     JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::DELETE_NOTHING << ")[" << HS_ACC()
-                        << "]: SetHook delete operation deletes non-existent hook";
+                        << "HookSet(" << hook::log::DELETE_NOTHING << ")["
+                        << HS_ACC()
+                        << "]: SetHook delete operation deletes non-existent "
+                           "hook";
 
                     continue;
                 }
 
-                // decrement the hook definition and mark it for deletion if appropriate
+                // decrement the hook definition and mark it for deletion if
+                // appropriate
                 if (oldDefSLE)
                 {
                     if (reduceReferenceCount(oldDefSLE))
@@ -1346,18 +1396,22 @@ SetHook::setHook()
                 continue;
             }
 
-            case hsoUPDATE:
-            {
+            case hsoUPDATE: {
                 // check if there's a hook here to modify
                 if (!oldDefSLE || !oldHook)
                     return tecNO_ENTRY;
 
-                // initially carry over the prior non-array values, whatever those were
-                newHook.setFieldH256(sfHookHash, oldHook->get().getFieldH256(sfHookHash));
+                // initially carry over the prior non-array values, whatever
+                // those were
+                newHook.setFieldH256(
+                    sfHookHash, oldHook->get().getFieldH256(sfHookHash));
                 if (oldHook->get().isFieldPresent(sfHookOn))
-                    newHook.setFieldH256(sfHookOn, oldHook->get().getFieldH256(sfHookOn));
+                    newHook.setFieldH256(
+                        sfHookOn, oldHook->get().getFieldH256(sfHookOn));
                 if (oldHook->get().isFieldPresent(sfHookNamespace))
-                    newHook.setFieldH256(sfHookNamespace, oldHook->get().getFieldH256(sfHookNamespace));
+                    newHook.setFieldH256(
+                        sfHookNamespace,
+                        oldHook->get().getFieldH256(sfHookNamespace));
 
                 // set the namespace if it differs from the definition namespace
                 if (newNamespace)
@@ -1391,12 +1445,13 @@ SetHook::setHook()
                 }
                 else
                 {
-                    STArray const oldParams = 
-                        oldHook->get().isFieldPresent(sfHookParameters) ? 
-                        oldHook->get().getFieldArray(sfHookParameters) : STArray{sfHookParameters};
+                    STArray const oldParams =
+                        oldHook->get().isFieldPresent(sfHookParameters)
+                        ? oldHook->get().getFieldArray(sfHookParameters)
+                        : STArray{sfHookParameters};
 
-                    TER result =
-                        updateHookParameters(ctx, hookSetObj->get(), oldDefSLE, oldParams, newHook);
+                    TER result = updateHookParameters(
+                        ctx, hookSetObj->get(), oldDefSLE, oldParams, newHook);
 
                     if (result != tesSUCCESS)
                         return result;
@@ -1405,7 +1460,8 @@ SetHook::setHook()
                 // grants
                 if (hookSetObj->get().isFieldPresent(sfHookGrants))
                 {
-                    auto const& grants = hookSetObj->get().getFieldArray(sfHookGrants);
+                    auto const& grants =
+                        hookSetObj->get().getFieldArray(sfHookGrants);
                     if (grants.empty())
                     {
                         // delete operation
@@ -1417,45 +1473,47 @@ SetHook::setHook()
                 {
                     // if they're not then retain them as they were
                     if (oldHook->get().isFieldPresent(sfHookGrants))
-                        newHook.setFieldArray(sfHookGrants, oldHook->get().getFieldArray(sfHookGrants));
+                        newHook.setFieldArray(
+                            sfHookGrants,
+                            oldHook->get().getFieldArray(sfHookGrants));
                 }
-            
+
                 if (flags)
                     newHook.setFieldU32(sfFlags, *flags);
-
 
                 newHooks.push_back(std::move(newHook));
                 continue;
             }
 
-
-            case hsoCREATE:
-            {
-                if (oldHook && oldHook->get().isFieldPresent(sfHookHash) && (!flags || !(*flags & hsfOVERRIDE)))
+            case hsoCREATE: {
+                if (oldHook && oldHook->get().isFieldPresent(sfHookHash) &&
+                    (!flags || !(*flags & hsfOVERRIDE)))
                 {
                     JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::CREATE_FLAG << ")[" << HS_ACC()
-                        << "]: SetHook create operation would override but hsfOVERRIDE flag wasn't specified";
+                        << "HookSet(" << hook::log::CREATE_FLAG << ")["
+                        << HS_ACC()
+                        << "]: SetHook create operation would override but "
+                           "hsfOVERRIDE flag wasn't specified";
                     return tecREQUIRES_FLAG;
                 }
 
-
-                ripple::Blob wasmBytes = hookSetObj->get().getFieldVL(sfCreateCode);
+                ripple::Blob wasmBytes =
+                    hookSetObj->get().getFieldVL(sfCreateCode);
 
                 if (wasmBytes.size() > blobMax)
                 {
                     JLOG(ctx.j.warn())
-                        << "HookSet(" << hook::log::WASM_TOO_BIG << ")[" << HS_ACC()
-                        << "]: Malformed transaction: SetHook operation would create blob larger than max";
+                        << "HookSet(" << hook::log::WASM_TOO_BIG << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook operation would "
+                           "create blob larger than max";
                     return tecINTERNAL;
                 }
 
                 createHookHash = ripple::sha512Half_s(
-                    ripple::Slice(wasmBytes.data(), wasmBytes.size())
-                );
+                    ripple::Slice(wasmBytes.data(), wasmBytes.size()));
 
                 auto keylet = ripple::keylet::hookDefinition(*createHookHash);
-
 
                 if (view().exists(keylet))
                 {
@@ -1466,7 +1524,8 @@ SetHook::setHook()
                 }
                 else if (slesToInsert.find(keylet) != slesToInsert.end())
                 {
-                    // this hook was created in this very loop but isn't yet on the ledger
+                    // this hook was created in this very loop but isn't yet on
+                    // the ledger
                     newDefSLE = slesToInsert[keylet];
                     newDefKeylet = keylet;
 
@@ -1480,7 +1539,6 @@ SetHook::setHook()
                     // create hook definition SLE
                     try
                     {
-
                         auto valid =
                             validateHookSetEntry(ctx, hookSetObj->get());
 
@@ -1490,12 +1548,15 @@ SetHook::setHook()
                             if (!std::get<bool>(valid))
                             {
                                 JLOG(ctx.j.warn())
-                                    << "HookSet(" << hook::log::WASM_INVALID << ")[" << HS_ACC()
-                                    << "]: Malformed transaction: SetHook operation would create invalid hook wasm";
+                                    << "HookSet(" << hook::log::WASM_INVALID
+                                    << ")[" << HS_ACC()
+                                    << "]: Malformed transaction: SetHook "
+                                       "operation would create invalid hook "
+                                       "wasm";
                                 return tecINTERNAL;
                             }
                             else
-                                assert(false); // should never happen
+                                assert(false);  // should never happen
                         }
 
                         // otherwise assign instruction counts
@@ -1505,12 +1566,15 @@ SetHook::setHook()
                     catch (std::exception& e)
                     {
                         JLOG(ctx.j.warn())
-                            << "HookSet(" << hook::log::WASM_INVALID << ")[" << HS_ACC()
-                            << "]: Malformed transaction: SetHook operation would create invalid hook wasm";
+                            << "HookSet(" << hook::log::WASM_INVALID << ")["
+                            << HS_ACC()
+                            << "]: Malformed transaction: SetHook operation "
+                               "would create invalid hook wasm";
                         return tecINTERNAL;
                     }
 
-                    // decrement the hook definition and mark it for deletion if appropriate
+                    // decrement the hook definition and mark it for deletion if
+                    // appropriate
                     if (oldDefSLE)
                     {
                         if (reduceReferenceCount(oldDefSLE))
@@ -1519,24 +1583,31 @@ SetHook::setHook()
                             slesToUpdate.emplace(*oldDefKeylet, oldDefSLE);
                     }
 
-                    auto newHookDef = std::make_shared<SLE>( keylet );
+                    auto newHookDef = std::make_shared<SLE>(keylet);
                     newHookDef->setFieldH256(sfHookHash, *createHookHash);
-                    newHookDef->setFieldH256(   sfHookOn, *newHookOn);
-                    newHookDef->setFieldH256(   sfHookNamespace, *newNamespace);
-                    newHookDef->setFieldArray(  sfHookParameters,
-                            hookSetObj->get().isFieldPresent(sfHookParameters)
+                    newHookDef->setFieldH256(sfHookOn, *newHookOn);
+                    newHookDef->setFieldH256(sfHookNamespace, *newNamespace);
+                    newHookDef->setFieldArray(
+                        sfHookParameters,
+                        hookSetObj->get().isFieldPresent(sfHookParameters)
                             ? hookSetObj->get().getFieldArray(sfHookParameters)
-                            : STArray {} );
-                    newHookDef->setFieldU16(    sfHookApiVersion,
-                            hookSetObj->get().getFieldU16(sfHookApiVersion));
-                    newHookDef->setFieldVL(     sfCreateCode, wasmBytes);
-                    newHookDef->setFieldH256(   sfHookSetTxnID, ctx.tx.getTransactionID());
-                    newHookDef->setFieldU64(    sfReferenceCount, 1);
-                    newHookDef->setFieldAmount(sfFee,
-                            XRPAmount {hook::computeExecutionFee(maxInstrCountHook)});
+                            : STArray{});
+                    newHookDef->setFieldU16(
+                        sfHookApiVersion,
+                        hookSetObj->get().getFieldU16(sfHookApiVersion));
+                    newHookDef->setFieldVL(sfCreateCode, wasmBytes);
+                    newHookDef->setFieldH256(
+                        sfHookSetTxnID, ctx.tx.getTransactionID());
+                    newHookDef->setFieldU64(sfReferenceCount, 1);
+                    newHookDef->setFieldAmount(
+                        sfFee,
+                        XRPAmount{
+                            hook::computeExecutionFee(maxInstrCountHook)});
                     if (maxInstrCountCbak > 0)
-                    newHookDef->setFieldAmount(sfHookCallbackFee,
-                            XRPAmount {hook::computeExecutionFee(maxInstrCountCbak)});
+                        newHookDef->setFieldAmount(
+                            sfHookCallbackFee,
+                            XRPAmount{
+                                hook::computeExecutionFee(maxInstrCountCbak)});
 
                     if (flags)
                         newHookDef->setFieldU32(sfFlags, newFlags);
@@ -1545,7 +1616,8 @@ SetHook::setHook()
 
                     if (hookSetObj->get().isFieldPresent(sfHookGrants))
                     {
-                        auto const& grants = hookSetObj->get().getFieldArray(sfHookGrants);
+                        auto const& grants =
+                            hookSetObj->get().getFieldArray(sfHookGrants);
                         if (!grants.empty())
                             newHook.setFieldArray(sfHookGrants, grants);
                     }
@@ -1558,15 +1630,18 @@ SetHook::setHook()
                 [[fallthrough]];
             }
 
-            // the create operation above falls through to this install operation if the sfCreateCode that would
-            // otherwise be created already exists on the ledger
-            case hsoINSTALL:
-            {
-                if (oldHook && oldHook->get().isFieldPresent(sfHookHash) && (!flags || !(*flags & hsfOVERRIDE)))
+            // the create operation above falls through to this install
+            // operation if the sfCreateCode that would otherwise be created
+            // already exists on the ledger
+            case hsoINSTALL: {
+                if (oldHook && oldHook->get().isFieldPresent(sfHookHash) &&
+                    (!flags || !(*flags & hsfOVERRIDE)))
                 {
                     JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::INSTALL_FLAG << ")[" << HS_ACC()
-                        << "]: SetHook install operation would override but hsfOVERRIDE flag wasn't specified";
+                        << "HookSet(" << hook::log::INSTALL_FLAG << ")["
+                        << HS_ACC()
+                        << "]: SetHook install operation would override but "
+                           "hsfOVERRIDE flag wasn't specified";
                     return tecREQUIRES_FLAG;
                 }
 
@@ -1574,12 +1649,15 @@ SetHook::setHook()
                 if (!newDefSLE)
                 {
                     JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::INSTALL_MISSING << ")[" << HS_ACC()
-                        << "]: SetHook install operation specified HookHash which does not exist on ledger";
+                        << "HookSet(" << hook::log::INSTALL_MISSING << ")["
+                        << HS_ACC()
+                        << "]: SetHook install operation specified HookHash "
+                           "which does not exist on ledger";
                     return tecNO_ENTRY;
                 }
 
-                // decrement the hook definition and mark it for deletion if appropriate
+                // decrement the hook definition and mark it for deletion if
+                // appropriate
                 if (oldDefSLE)
                 {
                     if (reduceReferenceCount(oldDefSLE))
@@ -1588,7 +1666,8 @@ SetHook::setHook()
                         slesToUpdate.emplace(*oldDefKeylet, oldDefSLE);
                 }
 
-                // set the hookhash on the new hook, and allow for a fall through event from hsoCREATE
+                // set the hookhash on the new hook, and allow for a fall
+                // through event from hsoCREATE
                 if (!createHookHash)
                     createHookHash = hookSetObj->get().getFieldH256(sfHookHash);
 
@@ -1610,8 +1689,12 @@ SetHook::setHook()
                     newHook.setFieldH256(sfHookOn, *newHookOn);
 
                 // parameters
-                TER result =
-                    updateHookParameters(ctx, hookSetObj->get(), newDefSLE, STArray{sfHookParameters}, newHook);
+                TER result = updateHookParameters(
+                    ctx,
+                    hookSetObj->get(),
+                    newDefSLE,
+                    STArray{sfHookParameters},
+                    newHook);
 
                 if (result != tesSUCCESS)
                     return result;
@@ -1619,7 +1702,8 @@ SetHook::setHook()
                 // if grants are provided set them
                 if (hookSetObj->get().isFieldPresent(sfHookGrants))
                 {
-                    auto const& grants = hookSetObj->get().getFieldArray(sfHookGrants);
+                    auto const& grants =
+                        hookSetObj->get().getFieldArray(sfHookGrants);
                     if (!grants.empty())
                         newHook.setFieldArray(sfHookGrants, grants);
                 }
@@ -1634,11 +1718,11 @@ SetHook::setHook()
             }
 
             case hsoINVALID:
-            default:
-            {
-                JLOG(ctx.j.warn())
-                    << "HookSet(" << hook::log::OPERATION_INVALID << ")[" << HS_ACC()
-                    << "]: Malformed transaction: sethook could not understand the desired operation.";
+            default: {
+                JLOG(ctx.j.warn()) << "HookSet(" << hook::log::OPERATION_INVALID
+                                   << ")[" << HS_ACC()
+                                   << "]: Malformed transaction: sethook could "
+                                      "not understand the desired operation.";
                 return tecCLAIM;
             }
         }
@@ -1652,10 +1736,11 @@ SetHook::setHook()
         // sfHook: 1 reserve PER non-blank entry
         // sfParameters: 1 reserve PER entry
         // sfGrants are: 1 reserve PER entry
-        // sfHookHash, sfHookNamespace, sfHookOn, sfHookApiVersion, sfFlags: free
+        // sfHookHash, sfHookNamespace, sfHookOn, sfHookApiVersion, sfFlags:
+        // free
 
-        // sfHookDefinition is not reserved because it is an unowned object, rather the uploader is billed via fee
-        // according to the following:
+        // sfHookDefinition is not reserved because it is an unowned object,
+        // rather the uploader is billed via fee according to the following:
         // sfCreateCode:     5000 drops per byte
         // sfHookParameters: 5000 drops per byte
         // other fields: free
@@ -1663,12 +1748,11 @@ SetHook::setHook()
         int oldHookReserve = 0;
         int newHookReserve = 0;
 
-        auto const computeHookReserve = [](STObject const& hookObj) -> int
-        {
+        auto const computeHookReserve = [](STObject const& hookObj) -> int {
             if (!hookObj.isFieldPresent(sfHookHash))
                 return 0;
 
-            int reserve { 1 };
+            int reserve{1};
 
             if (hookObj.isFieldPresent(sfHookParameters))
                 reserve += hookObj.getFieldArray(sfHookParameters).size();
@@ -1690,19 +1774,19 @@ SetHook::setHook()
 
         reserveDelta = newHookReserve - oldHookReserve;
 
-        JLOG(j_.trace())
-            << "SetHook: "
-            << "newHookReserve: " << newHookReserve << " "
-            << "oldHookReserve: " << oldHookReserve << " "
-            << "reserveDelta: " << reserveDelta;
+        JLOG(j_.trace()) << "SetHook: "
+                         << "newHookReserve: " << newHookReserve << " "
+                         << "oldHookReserve: " << oldHookReserve << " "
+                         << "reserveDelta: " << reserveDelta;
 
-        int64_t newOwnerCount = (int64_t)(accountSLE->getFieldU32(sfOwnerCount)) + reserveDelta;
+        int64_t newOwnerCount =
+            (int64_t)(accountSLE->getFieldU32(sfOwnerCount)) + reserveDelta;
 
         if (newOwnerCount < 0 || newOwnerCount > 0xFFFFFFFFUL)
             return tefINTERNAL;
 
-
-        auto const requiredDrops = view().fees().accountReserve((uint32_t)(newOwnerCount));
+        auto const requiredDrops =
+            view().fees().accountReserve((uint32_t)(newOwnerCount));
         if (mSourceBalance < requiredDrops)
             return tecINSUFFICIENT_RESERVE;
     }
@@ -1717,10 +1801,10 @@ SetHook::setHook()
         for (auto const& [_, s] : slesToUpdate)
             view().update(s);
 
-        // clean up any Namespace directories marked for deletion and any zero reference Hook Definitions
+        // clean up any Namespace directories marked for deletion and any zero
+        // reference Hook Definitions
         for (auto const& ns : namespacesToDestroy)
             destroyNamespace(ctx, view(), account_, ns);
-
 
         // do any pending removals
         for (auto const& p : keyletsToDestroy)
@@ -1740,7 +1824,7 @@ SetHook::setHook()
 
         // check if the new hook object is empty
         bool newHooksEmpty = true;
-        for (auto const& h: newHooks)
+        for (auto const& h : newHooks)
         {
             if (h.isFieldPresent(sfHookHash))
             {
@@ -1755,14 +1839,12 @@ SetHook::setHook()
         // There are three possible final outcomes
         // Either the account's ltHOOK is deleted, updated or created.
 
-
         if (oldHookSLE && newHooksEmpty)
         {
             // DELETE ltHOOK
             auto const hint = (*oldHookSLE)[sfOwnerNode];
             if (!view().dirRemove(
-                        keylet::ownerDir(account_),
-                        hint, hookKeylet.key, false))
+                    keylet::ownerDir(account_), hint, hookKeylet.key, false))
             {
                 JLOG(j_.fatal())
                     << "HookSet(" << hook::log::HOOK_DELETE << ")[" << HS_ACC()
@@ -1811,6 +1893,5 @@ SetHook::setHook()
 
     return tesSUCCESS;
 }
-
 
 }  // namespace ripple

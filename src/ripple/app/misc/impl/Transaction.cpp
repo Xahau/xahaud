@@ -60,8 +60,11 @@ Transaction::Transaction(
 //
 
 void
-Transaction::setStatus(TransStatus ts, std::uint32_t lseq,
-        std::optional<std::uint32_t> tseq, std::optional<std::uint16_t> netID)
+Transaction::setStatus(
+    TransStatus ts,
+    std::uint32_t lseq,
+    std::optional<std::uint32_t> tseq,
+    std::optional<std::uint16_t> netID)
 {
     mStatus = ts;
     mInLedger = lseq;
@@ -193,7 +196,8 @@ Transaction::getJson(JsonOptions options, bool binary) const
         if (mTransaction->isFieldPresent(sfNetworkID))
             netID = mTransaction->getFieldU32(sfNetworkID);
 
-        if (mTxnSeq && netID && *mTxnSeq <= 0xFFFFU && *netID < 0xFFFFU && mInLedger < 0xFFFFFFFUL)
+        if (mTxnSeq && netID && *mTxnSeq <= 0xFFFFU && *netID < 0xFFFFU &&
+            mInLedger < 0xFFFFFFFUL)
         {
             std::optional<std::string> ctid =
                 RPC::encodeCTID(mInLedger, *mTxnSeq, *netID);

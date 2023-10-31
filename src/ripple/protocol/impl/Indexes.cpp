@@ -146,7 +146,7 @@ emittedDir() noexcept
     return ret;
 }
 
-Keylet 
+Keylet
 hookStateDir(AccountID const& id, uint256 const& ns) noexcept
 {
     return {ltDIR_NODE, indexHash(LedgerNameSpace::HOOK_STATE_DIR, id, ns)};
@@ -167,7 +167,8 @@ hook(AccountID const& id) noexcept
 Keylet
 hookDefinition(uint256 const& hash) noexcept
 {
-    return {ltHOOK_DEFINITION, indexHash(LedgerNameSpace::HOOK_DEFINITION, hash)};
+    return {
+        ltHOOK_DEFINITION, indexHash(LedgerNameSpace::HOOK_DEFINITION, hash)};
 }
 
 Keylet
@@ -219,7 +220,6 @@ import_vlseq(PublicKey const& key) noexcept
 {
     return {ltIMPORT_VLSEQ, indexHash(LedgerNameSpace::IMPORT_VLSEQ, key)};
 }
-
 
 Keylet const&
 fees() noexcept
@@ -383,7 +383,10 @@ escrow(AccountID const& src, UInt32or256 const& seq) noexcept
 }
 
 Keylet
-payChan(AccountID const& src, AccountID const& dst, UInt32or256 const& seq) noexcept
+payChan(
+    AccountID const& src,
+    AccountID const& dst,
+    UInt32or256 const& seq) noexcept
 {
     return {
         ltPAYCHAN, indexHash(LedgerNameSpace::PAYMENT_CHANNEL, src, dst, seq)};

@@ -914,9 +914,7 @@ public:
     void
     run() override
     {
-
-        auto testWithFeatures = [this](FeatureBitset features)
-        {
+        auto testWithFeatures = [this](FeatureBitset features) {
             testBasics(features);
             testDirectories(features);
             testOwnedTypes(features);

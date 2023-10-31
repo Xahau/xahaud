@@ -73,11 +73,12 @@ LedgerHandler::check()
     {
         // Until some sane way to get full ledgers has been implemented,
         // disallow retrieving all state nodes.
-        
+
         uint32_t nodeNID = context_.app.config().NETWORK_ID;
         if (nodeNID == 21337)
         {
-            // RH NOTE: production network requires rpc permission to dump full ledger
+            // RH NOTE: production network requires rpc permission to dump full
+            // ledger
             if (!isUnlimited(context_.role))
                 return rpcNO_PERMISSION;
         }

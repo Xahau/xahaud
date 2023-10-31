@@ -335,10 +335,10 @@ Payment::doApply()
     {
         std::uint32_t const seqno{
             view().rules().enabled(featureXahauGenesis)
-                ? view().info().parentCloseTime.time_since_epoch().count() :
-            view().rules().enabled(featureDeletableAccounts)
-                ? view().seq() 
-                : 1};
+                ? view().info().parentCloseTime.time_since_epoch().count()
+                : view().rules().enabled(featureDeletableAccounts)
+                    ? view().seq()
+                    : 1};
 
         // Create the account.
         sleDst = std::make_shared<SLE>(k);
@@ -348,7 +348,9 @@ Payment::doApply()
         auto sleFees = view().peek(keylet::fees());
         if (sleFees && view().rules().enabled(featureXahauGenesis))
         {
-            auto actIdx = sleFees->isFieldPresent(sfAccountCount) ? sleFees->getFieldU64(sfAccountCount) : 0;
+            auto actIdx = sleFees->isFieldPresent(sfAccountCount)
+                ? sleFees->getFieldU64(sfAccountCount)
+                : 0;
             sleDst->setFieldU64(sfAccountIndex, actIdx);
             sleFees->setFieldU64(sfAccountCount, actIdx + 1);
             view().update(sleFees);

@@ -620,7 +620,8 @@ public:
         env(noop("alice"), memo("data", "format", "type"), fee(1000));
         env(noop("alice"),
             memo("data1", "format1", "type1"),
-            memo("data2", "format2", "type2"), fee(10000));
+            memo("data2", "format2", "type2"),
+            fee(10000));
     }
 
     void

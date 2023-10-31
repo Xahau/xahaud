@@ -18,13 +18,13 @@
 //==============================================================================
 
 #include <ripple/basics/chrono.h>
+#include <ripple/core/ConfigSections.h>
 #include <ripple/ledger/Directory.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
-#include <ripple/core/ConfigSections.h>
 
 #include <chrono>
 
@@ -286,7 +286,8 @@ struct URIToken_test : public beast::unit_test::suite
 
             // temBAD_AMOUNT - negative XRP
             Json::Value negXrpTx = mint(alice, uri);
-            negXrpTx[jss::Amount] = XRP(-100).value().getJson(JsonOptions::none);
+            negXrpTx[jss::Amount] =
+                XRP(-100).value().getJson(JsonOptions::none);
             env(negXrpTx, ter(temBAD_AMOUNT));
             env.close();
 
@@ -302,7 +303,7 @@ struct URIToken_test : public beast::unit_test::suite
             nodestTx[jss::Amount] = XRP(0).value().getJson(JsonOptions::none);
             env(nodestTx, ter(temMALFORMED));
             env.close();
-    
+
             // temREDUNDANT - sfDestination cannot be sfAccount
             Json::Value destSameTx = mint(alice, uri);
             destSameTx[jss::Destination] = alice.human();

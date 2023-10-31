@@ -1004,7 +1004,7 @@ private:
                 }
                 continue;
             }
-            
+
             if (i == 1)
             {
                 // namespace hex
@@ -1014,7 +1014,7 @@ private:
                 jvRequest[jss::namespace_id] = to_string(namespaceId);
                 continue;
             }
-            
+
             if (i == 2)
             {
                 // ledger index (optional)
@@ -1025,7 +1025,7 @@ private:
                     break;
                 else
                     return rpcError(rpcLGR_IDX_MALFORMED);
-                
+
                 continue;
             }
         }

@@ -45,7 +45,8 @@ namespace test {
 //  *    test classes to allow parallel execution.
 //  * -- test the negativeUNLFilter function
 //  *
-//  * Other negative UNL related tests such as ValidatorList and RPC related ones
+//  * Other negative UNL related tests such as ValidatorList and RPC related
+//  ones
 //  * are put in their existing unit test files.
 //  */
 
@@ -76,7 +77,11 @@ namespace test {
 //  * @return true if meet the expectation of apply result
 //  */
 bool
-applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass);
+applyAndTestUNLRResult(
+    jtx::Env& env,
+    OpenView& view,
+    STTx const& tx,
+    bool pass);
 
 /**
  * Verify the content of UNL Report entries (public key and ledger sequence)
@@ -94,14 +99,15 @@ VerifyUNLRPubKeyAndSeq(
 
 /**
  * Count the number of Tx in a TxSet
- * 
+ *
  * @param txSet the TxSet
  * @return the number of Tx
  */
 std::size_t
 countUNLRTx(std::shared_ptr<SHAMap> const& txSet);
 
-std::vector<std::string> const keys = {"ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+std::vector<std::string> const keys = {
+    "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"};
 
 std::unique_ptr<Config>
 makeNetworkVLConfig(uint32_t networkID, std::vector<std::string> keys);
@@ -174,8 +180,7 @@ class UNLReport_test : public beast::unit_test::suite
         "02691AC5AE1C4C333AE5DF8A93BDC495F0EEBFC6DB0DA7EB6EF808F3AFC006E3FE",
         "028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EAAFEC466F5C095407BF",
         "027BAEF0CB02EA8B95F50DF4BC16C740B17B50C85F3757AA06A5DB6ADE0ED92106",
-        "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B2136"
-    };
+        "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B2136"};
     std::vector<PublicKey> vlKeys;
 
     void
@@ -197,7 +202,7 @@ class UNLReport_test : public beast::unit_test::suite
             auto pkHex = strUnHex(strPk);
             vlKeys.emplace_back(makeSlice(*pkHex));
         }
-        
+
         // Create UNLReport
         {
             Env env{*this, envconfig(), features, nullptr};
@@ -208,7 +213,8 @@ class UNLReport_test : public beast::unit_test::suite
                 std::vector<uint256>{},
                 env.app().getNodeFamily());
 
-            l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
 
             // insert a ttUNL_REPORT pseudo into the open ledger
             env.app().openLedger().modify(
@@ -239,7 +245,8 @@ class UNLReport_test : public beast::unit_test::suite
                 std::vector<uint256>{},
                 env.app().getNodeFamily());
 
-            l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
 
             // insert a ttUNL_REPORT pseudo into the open ledger
             env.app().openLedger().modify(
@@ -259,7 +266,8 @@ class UNLReport_test : public beast::unit_test::suite
             BEAST_EXPECT(isImportVL(env, ivlKeys[0]) == true);
             BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
 
-            l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
 
             // insert a ttUNL_REPORT pseudo into the open ledger
             env.app().openLedger().modify(
@@ -300,10 +308,11 @@ class UNLReport_test : public beast::unit_test::suite
             auto pkHex = strUnHex(strPk);
             vlKeys.emplace_back(makeSlice(*pkHex));
         }
-        
+
         // telIMPORT_VL_KEY_NOT_RECOGNISED
         {
-            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys), features, nullptr};
+            test::jtx::Env env{
+                *this, makeNetworkVLConfig(21337, keys), features, nullptr};
 
             auto l = std::make_shared<Ledger>(
                 create_genesis,
@@ -311,7 +320,8 @@ class UNLReport_test : public beast::unit_test::suite
                 std::vector<uint256>{},
                 env.app().getNodeFamily());
 
-            l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
 
             // insert a ttUNL_REPORT pseudo into the open ledger
             env.app().openLedger().modify(
@@ -330,7 +340,8 @@ class UNLReport_test : public beast::unit_test::suite
 
         // SUCCESS
         {
-            test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys), features, nullptr};
+            test::jtx::Env env{
+                *this, makeNetworkVLConfig(21337, keys), features, nullptr};
 
             auto l = std::make_shared<Ledger>(
                 create_genesis,
@@ -338,7 +349,8 @@ class UNLReport_test : public beast::unit_test::suite
                 std::vector<uint256>{},
                 env.app().getNodeFamily());
 
-            l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
 
             // insert a ttUNL_REPORT pseudo into the open ledger
             env.app().openLedger().modify(
@@ -367,7 +379,8 @@ class UNLReport_test : public beast::unit_test::suite
         testcase("Test several validators all get on the list");
         using namespace jtx;
 
-        test::jtx::Env env{*this, makeNetworkVLConfig(21337, keys), features, nullptr};
+        test::jtx::Env env{
+            *this, makeNetworkVLConfig(21337, keys), features, nullptr};
 
         std::vector<PublicKey> ivlKeys;
         for (auto const& strPk : _ivlKeys)
@@ -391,7 +404,8 @@ class UNLReport_test : public beast::unit_test::suite
 
         l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
 
-        for (auto const& vlKey : vlKeys) {
+        for (auto const& vlKey : vlKeys)
+        {
             env.app().openLedger().modify(
                 [&](OpenView& view, beast::Journal j) -> bool {
                     STTx tx = createUNLRTx(
@@ -434,7 +448,6 @@ class UNLReport_test : public beast::unit_test::suite
     }
 };
 
-
 class UNLReportNoAmendment_test : public beast::unit_test::suite
 {
     void
@@ -475,7 +488,6 @@ class UNLReportNoAmendment_test : public beast::unit_test::suite
 
 class UNLReportFork_test : public beast::unit_test::suite
 {
-
     // Import VL Keys
     std::vector<std::string> const _ivlKeys = {
         "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1",
@@ -490,8 +502,7 @@ class UNLReportFork_test : public beast::unit_test::suite
         "02691AC5AE1C4C333AE5DF8A93BDC495F0EEBFC6DB0DA7EB6EF808F3AFC006E3FE",
         "028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EAAFEC466F5C095407BF",
         "027BAEF0CB02EA8B95F50DF4BC16C740B17B50C85F3757AA06A5DB6ADE0ED92106",
-        "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B2136"
-    };
+        "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B2136"};
     std::vector<PublicKey> vlKeys;
 
     void
@@ -514,7 +525,7 @@ class UNLReportFork_test : public beast::unit_test::suite
             auto pkHex = strUnHex(strPk);
             vlKeys.emplace_back(makeSlice(*pkHex));
         }
-        
+
         Sim sim;
         ConsensusParms const parms{};
 
@@ -544,9 +555,10 @@ class UNLReportFork_test : public beast::unit_test::suite
 
         PeerGroup wrongImportVLNodes = d + e;
 
-        // RH TODO: replace this simulation with a better one where we use actual UNLReport txns
+        // RH TODO: replace this simulation with a better one where we use
+        // actual UNLReport txns
         /*
-        auto txns = 
+        auto txns =
             NegativeUNLVote::generateImportVLVoteTx(
             std::map<std::string, PublicKey>
             {
@@ -558,7 +570,8 @@ class UNLReportFork_test : public beast::unit_test::suite
         for (Peer* peer : network)
         {
             uint32_t seq = uint32_t(peer->lastClosedLedger.seq()) + 1;
-            peer->txInjections.emplace(seq, Tx(wrongImportVLNodes.contains(peer) ? 1 : 0));
+            peer->txInjections.emplace(
+                seq, Tx(wrongImportVLNodes.contains(peer) ? 1 : 0));
         }
 
         sim.run(4);
@@ -581,7 +594,6 @@ class UNLReportFork_test : public beast::unit_test::suite
             peer->lastClosedLedger
         }
         */
-        
 
         sim.run(4);
 
@@ -844,7 +856,6 @@ voteAndCheckUNLR(
  * -- txSet.size = 1
  */
 
-
 class UNLReportVoteGoodScore_test : public beast::unit_test::suite
 {
     void
@@ -859,14 +870,16 @@ class UNLReportVoteGoodScore_test : public beast::unit_test::suite
                 //-- txSet.size = 0
                 auto const numNodes = 51;
                 auto const unlrCount = withVLImport ? 52 : 51;
-                URNetworkHistory history = {*this, {numNodes, 0, false, false, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 0, false, false, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
                     history.walkHistoryAndAddValidations(
                         [&](std::shared_ptr<Ledger const> const& l,
                             std::size_t idx) -> bool { return true; });
-                    BEAST_EXPECT(voteAndCheckUNLR(history, history.UNLNodeIDs[0], 0, unlrCount));
+                    BEAST_EXPECT(voteAndCheckUNLR(
+                        history, history.UNLNodeIDs[0], 0, unlrCount));
                 }
             }
 
@@ -875,14 +888,16 @@ class UNLReportVoteGoodScore_test : public beast::unit_test::suite
                 //-- txSet.size = 1
                 auto const numNodes = 37;
                 auto const unlrCount = withVLImport ? 38 : 37;
-                URNetworkHistory history = {*this, {numNodes, 0, true, false, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 0, true, false, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
                     history.walkHistoryAndAddValidations(
                         [&](std::shared_ptr<Ledger const> const& l,
                             std::size_t idx) -> bool { return true; });
-                    BEAST_EXPECT(voteAndCheckUNLR(history, history.UNLNodeIDs[0], 1, unlrCount));
+                    BEAST_EXPECT(voteAndCheckUNLR(
+                        history, history.UNLNodeIDs[0], 1, unlrCount));
                 }
             }
         }
@@ -909,7 +924,8 @@ class UNLReportVoteOffline_test : public beast::unit_test::suite
                 //-- txSet.size = 1
                 auto const numNodes = 29;
                 auto const unlrCount = withVLImport ? 28 : 27;
-                URNetworkHistory history = {*this, {numNodes, 1, false, true, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 1, false, true, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
@@ -919,8 +935,8 @@ class UNLReportVoteOffline_test : public beast::unit_test::suite
                             // skip node 0 and node 1
                             return idx > 1;
                         });
-                    BEAST_EXPECT(
-                        voteAndCheckUNLR(history, history.UNLNodeIDs.back(), 1, unlrCount));
+                    BEAST_EXPECT(voteAndCheckUNLR(
+                        history, history.UNLNodeIDs.back(), 1, unlrCount));
                 }
             }
 
@@ -929,12 +945,13 @@ class UNLReportVoteOffline_test : public beast::unit_test::suite
                 //-- txSet.size = 0
                 auto const numNodes = 30;
                 auto const unlrCount = withVLImport ? 29 : 28;
-                URNetworkHistory history = {*this, {numNodes, 1, true, false, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 1, true, false, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
-                    NodeID n1 =
-                        calcNodeID(*history.lastLedger()->negativeUNL().begin());
+                    NodeID n1 = calcNodeID(
+                        *history.lastLedger()->negativeUNL().begin());
                     NodeID n2 =
                         calcNodeID(*history.lastLedger()->validatorToDisable());
                     history.walkHistoryAndAddValidations(
@@ -944,8 +961,8 @@ class UNLReportVoteOffline_test : public beast::unit_test::suite
                             return history.UNLNodeIDs[idx] != n1 &&
                                 history.UNLNodeIDs[idx] != n2;
                         });
-                    BEAST_EXPECT(
-                        voteAndCheckUNLR(history, history.UNLNodeIDs.back(), 0, unlrCount));
+                    BEAST_EXPECT(voteAndCheckUNLR(
+                        history, history.UNLNodeIDs.back(), 0, unlrCount));
                 }
             }
         }
@@ -972,7 +989,8 @@ class UNLReportVoteMaxListed_test : public beast::unit_test::suite
                 //-- txSet.size = 0
                 auto const numNodes = 32;
                 auto const unlrCount = withVLImport ? 22 : 21;
-                URNetworkHistory history = {*this, {numNodes, 8, true, true, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 8, true, true, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
@@ -982,8 +1000,8 @@ class UNLReportVoteMaxListed_test : public beast::unit_test::suite
                             // skip node 0 ~ 10
                             return idx > 10;
                         });
-                    BEAST_EXPECT(
-                        voteAndCheckUNLR(history, history.UNLNodeIDs.back(), 0, unlrCount));
+                    BEAST_EXPECT(voteAndCheckUNLR(
+                        history, history.UNLNodeIDs.back(), 0, unlrCount));
                 }
             }
         }
@@ -1005,20 +1023,21 @@ class UNLReportVoteRetiredValidator_test : public beast::unit_test::suite
 
         for (bool const withVLImport : {true, false})
         {
-
             {
                 //== 2 nodes offline including me, not in negativeUNL
                 //-- txSet.size = 0
                 auto const numNodes = 35;
                 auto const unlrCount = withVLImport ? 0 : 0;
-                URNetworkHistory history = {*this, {numNodes, 0, false, false, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 0, false, false, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
                     history.walkHistoryAndAddValidations(
                         [&](std::shared_ptr<Ledger const> const& l,
                             std::size_t idx) -> bool { return idx > 1; });
-                    BEAST_EXPECT(voteAndCheckUNLR(history, history.UNLNodeIDs[0], 0, unlrCount));
+                    BEAST_EXPECT(voteAndCheckUNLR(
+                        history, history.UNLNodeIDs[0], 0, unlrCount));
                 }
             }
 
@@ -1027,23 +1046,27 @@ class UNLReportVoteRetiredValidator_test : public beast::unit_test::suite
                 //-- txSet.size = 0
                 auto const numNodes = 40;
                 auto const unlrCount = withVLImport ? 0 : 0;
-                URNetworkHistory history = {*this, {numNodes, 0, false, false, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 0, false, false, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
                     history.walkHistoryAndAddValidations(
                         [&](std::shared_ptr<Ledger const> const& l,
                             std::size_t idx) -> bool { return idx > 1; });
-                    BEAST_EXPECT(voteAndCheckUNLR(history, NodeID(0xdeadbeef), 0, unlrCount));
+                    BEAST_EXPECT(voteAndCheckUNLR(
+                        history, NodeID(0xdeadbeef), 0, unlrCount));
                 }
             }
 
             {
-                //== 2 in negativeUNL, but not in unl, no other remove candidates
+                //== 2 in negativeUNL, but not in unl, no other remove
+                //candidates
                 //-- txSet.size = 1
                 auto const numNodes = 25;
                 auto const unlrCount = withVLImport ? 24 : 23;
-                URNetworkHistory history = {*this, {numNodes, 2, false, false, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 2, false, false, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
@@ -1080,13 +1103,13 @@ class UNLReportVoteNewValidator_test : public beast::unit_test::suite
 
         for (bool const withVLImport : {true, false})
         {
-
             {
                 //== 2 new validators have bad scores
                 //-- txSet.size = 0
                 auto const numNodes = 15;
                 auto const unlrCount = withVLImport ? 16 : 15;
-                URNetworkHistory history = {*this, {numNodes, 0, false, false, withVLImport, {}}};
+                URNetworkHistory history = {
+                    *this, {numNodes, 0, false, false, withVLImport, {}}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
@@ -1122,11 +1145,11 @@ class UNLReportVoteNewValidator_test : public beast::unit_test::suite
                 URNetworkHistory history = {
                     *this,
                     {numNodes,
-                    0,
-                    false,
-                    false,
-                    withVLImport,
-                    NegativeUNLVote::newValidatorDisableSkip * 2}};
+                     0,
+                     false,
+                     false,
+                     withVLImport,
+                     NegativeUNLVote::newValidatorDisableSkip * 2}};
                 BEAST_EXPECT(history.goodHistory);
                 if (history.goodHistory)
                 {
@@ -1185,8 +1208,7 @@ applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
     if (pass)
         return res.first == tesSUCCESS;
     else
-        return res.first == tefFAILURE || 
-            res.first == temDISABLED ||
+        return res.first == tefFAILURE || res.first == temDISABLED ||
             res.first == temMALFORMED ||
             res.first == telIMPORT_VL_KEY_NOT_RECOGNISED;
 }
@@ -1250,8 +1272,8 @@ makeNetworkVLConfig(uint32_t networkID, std::vector<std::string> keys)
         Section config;
         config.append(
             {"reference_fee = 10",
-                "account_reserve = 1000000",
-                "owner_reserve = 200000"});
+             "account_reserve = 1000000",
+             "owner_reserve = 200000"});
         auto setup = setup_FeeVote(config);
         cfg->FEES = setup;
 
@@ -1265,8 +1287,7 @@ makeNetworkVLConfig(uint32_t networkID, std::vector<std::string> keys)
             auto const pkType = publicKeyType(makeSlice(*pkHex));
             if (!pkType)
                 Throw<std::runtime_error>(
-                    "Import VL Key '" + strPk +
-                    "' was not a valid key type.");
+                    "Import VL Key '" + strPk + "' was not a valid key type.");
 
             cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
         }
@@ -1286,7 +1307,7 @@ isImportVL(jtx::Env const& env, PublicKey const& pk)
 {
     auto const slep = env.le(keylet::UNLReport());
     auto const& vlKeys = slep->getFieldArray(sfImportVLKeys);
-    for (auto const& k: vlKeys)
+    for (auto const& k : vlKeys)
         if (PublicKey(k[sfPublicKey]) == pk)
             return true;
     return false;
@@ -1297,7 +1318,7 @@ isActiveValidator(jtx::Env const& env, PublicKey const& pk)
 {
     auto const slep = env.le(keylet::UNLReport());
     auto const& activeVLs = slep->getFieldArray(sfActiveValidators);
-    for (auto const& k: activeVLs)
+    for (auto const& k : activeVLs)
         if (PublicKey(k[sfPublicKey]) == pk)
             return true;
     return false;

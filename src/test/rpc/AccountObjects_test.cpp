@@ -112,7 +112,7 @@ static char const* bobs_account_objects[] = {
 class AccountObjects_test : public beast::unit_test::suite
 {
 public:
-    #define HSFEE fee(100'000'000)
+#define HSFEE fee(100'000'000)
     void
     testErrors(FeatureBitset features)
     {
@@ -761,8 +761,16 @@ public:
         {
             // Create hook
             auto setHook = [](test::jtx::Account const& account) {
-                std::string const createCodeHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
-                Json::Value jv = ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
+                std::string const createCodeHex =
+                    "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E"
+                    "02170203656E7606616363657074000003656E76025F67000103020102"
+                    "0503010002062B077F01418088040B7F004180080B7F004180080B7F00"
+                    "4180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B"
+                    "00020AB5800001B1800001017F230041106B220124002001200036020C"
+                    "410022002000420010001A41012200200010011A200141106A24004200"
+                    "0B";
+                Json::Value jv =
+                    ripple::test::jtx::hook(account, {{hso(createCodeHex)}}, 0);
                 return jv;
             };
             env(setHook(gw), HSFEE);

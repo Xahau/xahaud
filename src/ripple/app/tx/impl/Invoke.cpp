@@ -41,9 +41,8 @@ Invoke::preflight(PreflightContext const& ctx)
 
     if (tx.getFieldVL(sfBlob).size() > (128 * 1024))
     {
-        JLOG(ctx.j.warn())
-            << "Invoke: blob was more than 128kib "
-            << tx.getTransactionID();
+        JLOG(ctx.j.warn()) << "Invoke: blob was more than 128kib "
+                           << tx.getTransactionID();
         return temMALFORMED;
     }
 
@@ -84,7 +83,8 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
     XRPAmount extraFee{0};
 
     if (tx.isFieldPresent(sfBlob))
-        extraFee += XRPAmount{ static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size()) };
+        extraFee +=
+            XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
 
     if (tx.isFieldPresent(sfHookParameters))
     {
@@ -92,13 +92,14 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
         auto const& params = tx.getFieldArray(sfHookParameters);
         for (auto const& param : params)
         {
-            paramBytes +=
-                (param.isFieldPresent(sfHookParameterName) ?
-                    param.getFieldVL(sfHookParameterName).size() : 0) +
-                (param.isFieldPresent(sfHookParameterValue) ?
-                    param.getFieldVL(sfHookParameterValue).size() : 0);
+            paramBytes += (param.isFieldPresent(sfHookParameterName)
+                               ? param.getFieldVL(sfHookParameterName).size()
+                               : 0) +
+                (param.isFieldPresent(sfHookParameterValue)
+                     ? param.getFieldVL(sfHookParameterValue).size()
+                     : 0);
         }
-        extraFee += XRPAmount { static_cast<XRPAmount>(paramBytes) };
+        extraFee += XRPAmount{static_cast<XRPAmount>(paramBytes)};
     }
 
     return Transactor::calculateBaseFee(view, tx) + extraFee;
