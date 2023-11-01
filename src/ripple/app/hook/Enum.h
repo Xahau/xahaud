@@ -1,6 +1,6 @@
+#include <map>
 #include <set>
 #include <string>
-#include <map>
 #include <vector>
 #ifndef HOOKENUM_INCLUDED
 #define HOOKENUM_INCLUDED 1
