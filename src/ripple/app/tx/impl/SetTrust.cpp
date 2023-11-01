@@ -137,8 +137,8 @@ SetTrust::preclaim(PreclaimContext const& ctx)
         if (!sleDst)
             return tecNO_DST;
 
-        if ((sleDst->getFlags() & lsfDisallowIncomingTrustline) && 
-                !ctx.view.exists(keylet::line(id, uDstAccountID, currency)))
+        if ((sleDst->getFlags() & lsfDisallowIncomingTrustline) &&
+            !ctx.view.exists(keylet::line(id, uDstAccountID, currency)))
             return tecNO_PERMISSION;
     }
 

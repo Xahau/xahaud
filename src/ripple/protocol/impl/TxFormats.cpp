@@ -80,7 +80,7 @@ TxFormats::TxFormats()
             {sfTakerGets, soeREQUIRED},
             {sfExpiration, soeOPTIONAL},
             {sfOfferSequence, soeOPTIONAL},
-            {sfOfferID, soeOPTIONAL},              // keylet as alternative to offerseq
+            {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
@@ -89,7 +89,7 @@ TxFormats::TxFormats()
         ttOFFER_CANCEL,
         {
             {sfOfferSequence, soeREQUIRED},
-            {sfOfferID, soeOPTIONAL},              // keylet as alternative to offerseq
+            {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
@@ -134,7 +134,7 @@ TxFormats::TxFormats()
         {
             {sfOwner, soeREQUIRED},
             {sfOfferSequence, soeREQUIRED},
-            {sfEscrowID, soeOPTIONAL},              // keylet as alternative to offerseq
+            {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfFulfillment, soeOPTIONAL},
             {sfCondition, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
@@ -146,7 +146,7 @@ TxFormats::TxFormats()
         {
             {sfOwner, soeREQUIRED},
             {sfOfferSequence, soeREQUIRED},
-            {sfEscrowID, soeOPTIONAL},              // keylet as alternative to offerseq
+            {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
@@ -195,9 +195,9 @@ TxFormats::TxFormats()
     add(jss::UNLReport,
         ttUNL_REPORT,
         {
-            {sfLedgerSequence,  soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
             {sfActiveValidator, soeOPTIONAL},
-            {sfImportVLKey,     soeOPTIONAL},
+            {sfImportVLKey, soeOPTIONAL},
         },
         commonFields);
 
@@ -302,7 +302,7 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
-    
+
     add(jss::SetHook,
         ttHOOK_SET,
         {
@@ -395,7 +395,7 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
-    
+
     add(jss::URITokenMint,
         ttURITOKEN_MINT,
         {

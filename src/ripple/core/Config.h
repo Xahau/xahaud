@@ -151,9 +151,18 @@ public:
     std::vector<std::string> IPS_FIXED;     // Fixed Peer IPs from rippled.cfg.
     std::vector<std::string> SNTP_SERVERS;  // SNTP servers from rippled.cfg.
 
-    std::map<std::string, PublicKey> IMPORT_VL_KEYS;    // hex string -> class PublicKey (for caching purposes)
+    std::map<std::string, PublicKey>
+        IMPORT_VL_KEYS;  // hex string -> class PublicKey (for caching purposes)
 
-    enum StartUpType { FRESH, NORMAL, LOAD, LOAD_FILE, REPLAY, NETWORK, LOAD_JSON };
+    enum StartUpType {
+        FRESH,
+        NORMAL,
+        LOAD,
+        LOAD_FILE,
+        REPLAY,
+        NETWORK,
+        LOAD_JSON
+    };
     StartUpType START_UP = NORMAL;
 
     bool START_VALID = false;
@@ -210,7 +219,6 @@ public:
         VALIDATION_QUORUM;  // validations to consider ledger authoritative
 
     FeeSetup FEES;
-
 
     // Node storage configuration
     std::uint32_t LEDGER_HISTORY = 256;

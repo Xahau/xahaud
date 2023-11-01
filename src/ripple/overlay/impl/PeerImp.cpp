@@ -1545,8 +1545,9 @@ PeerImp::handleTransaction(
         // Charge strongly for attempting to relay a txn with sfEmitDetails
         if (stx->isFieldPresent(sfEmitDetails))
         {
-            JLOG(p_journal_.warn()) << "Ignoring Network relayed Tx containing sfEmitDetails (handleTransaction).";
-            fee_ =  Resource::feeHighBurdenPeer;
+            JLOG(p_journal_.warn()) << "Ignoring Network relayed Tx containing "
+                                       "sfEmitDetails (handleTransaction).";
+            fee_ = Resource::feeHighBurdenPeer;
             return;
         }
 
@@ -3062,11 +3063,11 @@ PeerImp::checkTransaction(
     // VFALCO TODO Rewrite to not use exceptions
     try
     {
-
         // charge strongly for relaying Hook emitted txns
         if (stx->isFieldPresent(sfEmitDetails))
         {
-            JLOG(p_journal_.warn()) << "Ignoring Network relayed Tx containing sfEmitDetails (checkSignature).";
+            JLOG(p_journal_.warn()) << "Ignoring Network relayed Tx containing "
+                                       "sfEmitDetails (checkSignature).";
             charge(Resource::feeHighBurdenPeer);
             return;
         }

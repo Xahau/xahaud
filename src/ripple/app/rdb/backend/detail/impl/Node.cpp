@@ -335,7 +335,10 @@ saveValidatedLedger(
                         ";");
 
                 app.getMasterTransaction().inLedger(
-                        transactionID, seq, acceptedLedgerTx->getTxnSeq(), app.config().NETWORK_ID);
+                    transactionID,
+                    seq,
+                    acceptedLedgerTx->getTxnSeq(),
+                    app.config().NETWORK_ID);
             }
 
             tr.commit();

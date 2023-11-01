@@ -24,11 +24,11 @@
 #include <ripple/ledger/detail/ApplyViewBase.h>
 #include <ripple/protocol/STAmount.h>
 #include <ripple/protocol/TER.h>
-#include <optional>
 #include <algorithm>
-#include <vector>
 #include <iterator>
- 
+#include <optional>
+#include <vector>
+
 namespace ripple {
 
 /** Editable, discardable view that can build metadata for one tx.
@@ -73,8 +73,11 @@ public:
     }
 
     TxMeta
-    generateProvisionalMeta(OpenView const& to, STTx const& tx, beast::Journal j);
-   
+    generateProvisionalMeta(
+        OpenView const& to,
+        STTx const& tx,
+        beast::Journal j);
+
     /* Set hook metadata for a hook execution
      * Takes ownership / use std::move
      */
@@ -91,17 +94,27 @@ public:
     }
 
     void
-    setHookMetaData(std::vector<STObject>&& executions, std::vector<STObject>&& emissions)
+    setHookMetaData(
+        std::vector<STObject>&& executions,
+        std::vector<STObject>&& emissions)
     {
         hookExecution_ = std::move(executions);
         hookEmission_ = std::move(emissions);
     }
 
     void
-    copyHookMetaData(std::vector<STObject>& execution /* in */, std::vector<STObject>& emission /* in */)
+    copyHookMetaData(
+        std::vector<STObject>& execution /* in */,
+        std::vector<STObject>& emission /* in */)
     {
-        std::copy(hookExecution_.begin(), hookExecution_.end(), std::back_inserter(execution));
-        std::copy(hookEmission_.begin(), hookEmission_.end(), std::back_inserter(emission));
+        std::copy(
+            hookExecution_.begin(),
+            hookExecution_.end(),
+            std::back_inserter(execution));
+        std::copy(
+            hookEmission_.begin(),
+            hookEmission_.end(),
+            std::back_inserter(emission));
     }
 
     uint16_t
@@ -125,7 +138,6 @@ public:
             bool isDelete,
             std::shared_ptr<SLE const> const& before,
             std::shared_ptr<SLE const> const& after)> const& func);
-
 
 private:
     std::optional<STAmount> deliver_;

@@ -17,28 +17,30 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/Enum.h>
 #include <ripple/basics/contract.h>
 #include <ripple/protocol/jss.h>
 #include <stdexcept>
 #include <test/jtx/hook.h>
-#include <ripple/app/hook/Enum.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
 Json::Value
-hook(Account const& account, std::optional<std::vector<Json::Value>> hooks, std::uint32_t flags)
+hook(
+    Account const& account,
+    std::optional<std::vector<Json::Value>> hooks,
+    std::uint32_t flags)
 {
     Json::Value jv;
     jv[jss::Account] = account.human();
     jv[jss::TransactionType] = jss::SetHook;
     jv[jss::Flags] = flags;
-    
+
     if (hooks)
     {
-        jv[jss::Hooks] =
-            Json::Value{Json::arrayValue};
+        jv[jss::Hooks] = Json::Value{Json::arrayValue};
         for (uint64_t i = 0; i < hooks->size(); ++i)
             jv[jss::Hooks][i][jss::Hook] = (*hooks)[i];
     }
@@ -48,11 +50,11 @@ hook(Account const& account, std::optional<std::vector<Json::Value>> hooks, std:
 Json::Value
 hso_delete(void (*f)(Json::Value& jv))
 {
-     Json::Value jv;
-     jv[jss::CreateCode] = "";
-     jv[jss::Flags] = hsfOVERRIDE;
+    Json::Value jv;
+    jv[jss::CreateCode] = "";
+    jv[jss::Flags] = hsfOVERRIDE;
 
-    if (f) 
+    if (f)
         f(jv);
 
     return jv;
@@ -61,14 +63,14 @@ hso_delete(void (*f)(Json::Value& jv))
 Json::Value
 hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv))
 {
-
     if (wasmBytes.size() == 0)
         throw std::runtime_error("empty hook wasm passed to hso()");
 
     Json::Value jv;
     jv[jss::CreateCode] = strHex(wasmBytes);
     {
-        jv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+        jv[jss::HookOn] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
         jv[jss::HookNamespace] = to_string(uint256{beast::zero});
         jv[jss::HookApiVersion] = Json::Value{0};
     }
@@ -77,20 +79,19 @@ hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv))
         f(jv);
 
     return jv;
-
 }
 
 Json::Value
 hso(std::string const& wasmHex, void (*f)(Json::Value& jv))
 {
-
     if (wasmHex.size() == 0)
         throw std::runtime_error("empty hook wasm passed to hso()");
 
     Json::Value jv;
     jv[jss::CreateCode] = wasmHex;
     {
-        jv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+        jv[jss::HookOn] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
         jv[jss::HookNamespace] = to_string(uint256{beast::zero});
         jv[jss::HookApiVersion] = Json::Value{0};
     }
@@ -99,7 +100,6 @@ hso(std::string const& wasmHex, void (*f)(Json::Value& jv))
         f(jv);
 
     return jv;
-
 }
 
 }  // namespace jtx

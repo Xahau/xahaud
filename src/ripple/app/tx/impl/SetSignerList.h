@@ -24,7 +24,6 @@
 #include <ripple/app/tx/impl/SignerEntries.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
-#include <ripple/protocol/Rules.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/Rules.h>
 #include <ripple/protocol/STArray.h>
@@ -73,8 +72,7 @@ public:
         beast::Journal j);
 
 private:
-    static
-    void
+    static void
     writeSignersToSLE(
         ApplyView& view,
         SLE::pointer const& ledgerEntry,
@@ -126,19 +124,15 @@ public:
         // old signer list.  May reduce the reserve, so this is done before
         // checking the reserve.
         if (TER const ter = removeSignersFromLedger(
-                app,
-                view,
-                accountKeylet,
-                ownerDirKeylet,
-                signerListKeylet,
-                j))
+                app, view, accountKeylet, ownerDirKeylet, signerListKeylet, j))
             return ter;
 
         auto const sle = view.peek(accountKeylet);
         if (!sle)
             return tefINTERNAL;
 
-        // Compute new reserve.  Verify the account has funds to meet the reserve.
+        // Compute new reserve.  Verify the account has funds to meet the
+        // reserve.
         std::uint32_t const oldOwnerCount{(*sle)[sfOwnerCount]};
 
         // The required reserve changes based on featureMultiSignReserve...
@@ -146,8 +140,8 @@ public:
         std::uint32_t flags{lsfOneOwnerCount};
         if (!view.rules().enabled(featureMultiSignReserve))
         {
-            addedOwnerCount = signerCountBasedOwnerCountDelta(
-                signers.size(), view.rules());
+            addedOwnerCount =
+                signerCountBasedOwnerCountDelta(signers.size(), view.rules());
             flags = 0;
         }
 
@@ -155,8 +149,8 @@ public:
             view.fees().accountReserve(oldOwnerCount + addedOwnerCount)};
 
         // We check the reserve against the starting balance because we want to
-        // allow dipping into the reserve to pay fees.  This behavior is consistent
-        // with CreateTicket.
+        // allow dipping into the reserve to pay fees.  This behavior is
+        // consistent with CreateTicket.
         if (mPriorBalance < newReserve)
             return tecINSUFFICIENT_RESERVE;
 
@@ -170,7 +164,7 @@ public:
             ownerDirKeylet, signerListKeylet, describeOwnerDir(acc));
 
         JLOG(j.trace()) << "Create signer list for account " << toBase58(acc)
-                         << ": " << (page ? "success" : "failure");
+                        << ": " << (page ? "success" : "failure");
 
         if (!page)
             return tecDIR_FULL;
@@ -182,7 +176,6 @@ public:
         adjustOwnerCount(view, sle, addedOwnerCount, j);
         return tesSUCCESS;
     }
-
 };
 
 }  // namespace ripple

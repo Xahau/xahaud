@@ -19,6 +19,7 @@
 
 #include <ripple/app/tx/impl/InvariantCheck.h>
 
+#include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/details/NFTokenUtils.h>
 #include <ripple/basics/FeeUnits.h>
 #include <ripple/basics/Log.h>
@@ -27,7 +28,6 @@
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/SystemParameters.h>
 #include <ripple/protocol/nftPageMask.h>
-#include <ripple/app/tx/impl/Import.h>
 
 namespace ripple {
 
@@ -135,7 +135,7 @@ XRPNotCreated::visitEntry(
                 break;
         }
     }
-    
+
     if (!before && after->getType() == ltACCOUNT_ROOT)
         accountsCreated_++;
 }
@@ -148,13 +148,14 @@ XRPNotCreated::finalize(
     ReadView const& view,
     beast::Journal const& j)
 {
-
     auto const tt = tx.getTxnType();
 
-    if (tt == ttAMENDMENT && tx.getFieldH256(sfAmendment) == featureXahauGenesis)
+    if (tt == ttAMENDMENT &&
+        tx.getFieldH256(sfAmendment) == featureXahauGenesis)
         return true;
 
-    if (view.rules().enabled(featureImport) && tt == ttIMPORT && res == tesSUCCESS)
+    if (view.rules().enabled(featureImport) && tt == ttIMPORT &&
+        res == tesSUCCESS)
     {
         // different rules for ttIMPORT
         auto const [inner, meta] = Import::getInnerTxn(tx, j);
@@ -163,31 +164,32 @@ XRPNotCreated::finalize(
 
         auto const result = meta->getFieldU8(sfTransactionResult);
 
-        XRPAmount maxDropsAdded = 
-            result == tesSUCCESS || (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY)
-            ? inner->getFieldAmount(sfFee).xrp()        // burned in PoB
-            : beast::zero;                              // if the txn didnt burn a fee we add nothing
+        XRPAmount maxDropsAdded = result == tesSUCCESS ||
+                (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY)
+            ? inner->getFieldAmount(sfFee).xrp()  // burned in PoB
+            : beast::zero;  // if the txn didnt burn a fee we add nothing
 
         if (accountsCreated_ == 1)
-                maxDropsAdded += Import::computeStartingBonus(view);
+            maxDropsAdded += Import::computeStartingBonus(view);
 
-        JLOG(j.trace())
-            << "Invariant XRPNotCreated Import: "
-            << "maxDropsAdded: " << maxDropsAdded
-            << " fee.drops(): " << fee.drops()
-            << " drops_: " << drops_
-            << " <= maxDropsAdded - fee.drops(): " << maxDropsAdded - fee.drops();
+        JLOG(j.trace()) << "Invariant XRPNotCreated Import: "
+                        << "maxDropsAdded: " << maxDropsAdded
+                        << " fee.drops(): " << fee.drops()
+                        << " drops_: " << drops_
+                        << " <= maxDropsAdded - fee.drops(): "
+                        << maxDropsAdded - fee.drops();
 
         // We should never allow more than the max supply in totalCoins.
         XRPAmount const newTotal = view.info().drops + maxDropsAdded;
         if (newTotal > INITIAL_XRP)
         {
-            JLOG(j.fatal()) << "Invariant failed Import: total coins paid exceeds "
-                            << "system limit: "<< INITIAL_XRP
-                            << "maxDropsAdded: " << maxDropsAdded
-                            << " fee.drops(): " << fee.drops()
-                            << " info().drops: " << view.info().drops
-                            << " newTotal: " << newTotal;
+            JLOG(j.fatal())
+                << "Invariant failed Import: total coins paid exceeds "
+                << "system limit: " << INITIAL_XRP
+                << "maxDropsAdded: " << maxDropsAdded
+                << " fee.drops(): " << fee.drops()
+                << " info().drops: " << view.info().drops
+                << " newTotal: " << newTotal;
             return false;
         }
 
@@ -196,24 +198,25 @@ XRPNotCreated::finalize(
         {
             JLOG(j.trace()) << "XRPNotCreated failed.";
         }
-        
+
         return passed;
     }
 
-    if (view.rules().enabled(featureXahauGenesis) && tt == ttGENESIS_MINT && res == tesSUCCESS)
+    if (view.rules().enabled(featureXahauGenesis) && tt == ttGENESIS_MINT &&
+        res == tesSUCCESS)
     {
         // different rules for ttGENESIS_MINT
         auto const& dests = tx.getFieldArray(sfGenesisMints);
-        XRPAmount dropsAdded { beast::zero };
-        for (auto const& dest: dests)
-            dropsAdded += dest.getFieldAmount(sfAmount).xrp(); 
-        
-        JLOG(j.trace())
-            << "Invariant XRPNotCreated GenesisMint: "
-            << "dropsAdded: " << dropsAdded
-            << " fee.drops(): " << fee.drops()
-            << " drops_: " << drops_
-            << " dropsAdded - fee.drops(): " << dropsAdded - fee.drops();
+        XRPAmount dropsAdded{beast::zero};
+        for (auto const& dest : dests)
+            dropsAdded += dest.getFieldAmount(sfAmount).xrp();
+
+        JLOG(j.trace()) << "Invariant XRPNotCreated GenesisMint: "
+                        << "dropsAdded: " << dropsAdded
+                        << " fee.drops(): " << fee.drops()
+                        << " drops_: " << drops_
+                        << " dropsAdded - fee.drops(): "
+                        << dropsAdded - fee.drops();
 
         int64_t drops = dropsAdded.drops() - fee.drops();
 
@@ -225,12 +228,13 @@ XRPNotCreated::finalize(
         XRPAmount const newTotal = view.info().drops + dropsAdded;
         if (newTotal > INITIAL_XRP)
         {
-            JLOG(j.fatal()) << "Invariant failed GenesisMint: total coins exceeds "
-                            << "system limit: "<< INITIAL_XRP
-                            << "dropsAdded: " << dropsAdded
-                            << " fee.drops(): " << fee.drops()
-                            << " info().drops: " << view.info().drops
-                            << " newTotal: " << newTotal;
+            JLOG(j.fatal())
+                << "Invariant failed GenesisMint: total coins exceeds "
+                << "system limit: " << INITIAL_XRP
+                << "dropsAdded: " << dropsAdded
+                << " fee.drops(): " << fee.drops()
+                << " info().drops: " << view.info().drops
+                << " newTotal: " << newTotal;
             return false;
         }
 
@@ -581,8 +585,9 @@ ValidNewAccountRoot::finalize(
         return true;
 
     auto tt = tx.getTxnType();
-    
-    if (tt == ttAMENDMENT && tx.getFieldH256(sfAmendment) == featureXahauGenesis)
+
+    if (tt == ttAMENDMENT &&
+        tx.getFieldH256(sfAmendment) == featureXahauGenesis)
         return true;
 
     if (accountsCreated_ > 1 && tt != ttGENESIS_MINT)
@@ -592,14 +597,14 @@ ValidNewAccountRoot::finalize(
         return false;
     }
 
-    if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT) && result == tesSUCCESS)
+    if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT) &&
+        result == tesSUCCESS)
     {
         std::uint32_t const startingSeq{
             view.rules().enabled(featureXahauGenesis)
-                ? view.info().parentCloseTime.time_since_epoch().count() :
-            view.rules().enabled(featureDeletableAccounts)
-                ? view.seq() 
-                : 1};
+                ? view.info().parentCloseTime.time_since_epoch().count()
+                : view.rules().enabled(featureDeletableAccounts) ? view.seq()
+                                                                 : 1};
 
         if (accountSeq_ != startingSeq)
         {

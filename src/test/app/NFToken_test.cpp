@@ -665,8 +665,9 @@ class NFToken_test : public beast::unit_test::suite
 
         using namespace test::jtx;
 
-        //Env env{*this, features};
-        Env env{*this, features}; //envconfig(), features, nullptr, beast::severities::kTrace};
+        // Env env{*this, features};
+        Env env{*this, features};  // envconfig(), features, nullptr,
+                                   // beast::severities::kTrace};
         Account const alice{"alice"};
         Account const buyer{"buyer"};
         Account const gw("gw");
@@ -989,7 +990,7 @@ class NFToken_test : public beast::unit_test::suite
         env(token::cancelOffer(buyer), ter(temMALFORMED));
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 1);
-        
+
         //----------------------------------------------------------------------
         // preclaim
 
@@ -1009,7 +1010,7 @@ class NFToken_test : public beast::unit_test::suite
             env.close();
             env.close();
 
-            auto check = env.le(Keylet { ltCHECK, gwCheckId });
+            auto check = env.le(Keylet{ltCHECK, gwCheckId});
             BEAST_EXPECT(!!check);
 
             env(token::cancelOffer(gw, {gwCheckId}), ter(tecNO_PERMISSION));
@@ -1018,7 +1019,7 @@ class NFToken_test : public beast::unit_test::suite
             // Cancel the check so it doesn't mess up later tests.
             env(check::cancel(gw, gwCheckId));
             env.close();
-        }    
+        }
 
         // gw attempts to cancel an offer they don't have permission to cancel.
         env(token::cancelOffer(gw, {buyerOfferIndex}), ter(tecNO_PERMISSION));
@@ -1034,7 +1035,6 @@ class NFToken_test : public beast::unit_test::suite
         env.close();
         BEAST_EXPECT(ownerCount(env, buyer) == 0);
         env.close();
-
     }
 
     void

@@ -45,10 +45,12 @@ ClaimReward::preflight(PreflightContext const& ctx)
         return ret;
 
     // can have flag 1 set to opt-out of rewards
-    if (ctx.tx.isFieldPresent(sfFlags) && ctx.tx.getFieldU32(sfFlags) > tfOptOut)
+    if (ctx.tx.isFieldPresent(sfFlags) &&
+        ctx.tx.getFieldU32(sfFlags) > tfOptOut)
         return temINVALID_FLAG;
 
-    if (ctx.tx.isFieldPresent(sfIssuer) && ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
+    if (ctx.tx.isFieldPresent(sfIssuer) &&
+        ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
     {
         JLOG(ctx.j.warn())
             << "ClaimReward: Issuer cannot be the source account.";

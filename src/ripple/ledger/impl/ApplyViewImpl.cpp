@@ -35,11 +35,13 @@ ApplyViewImpl::apply(OpenView& to, STTx const& tx, TER ter, beast::Journal j)
 }
 
 TxMeta
-ApplyViewImpl::
-generateProvisionalMeta(OpenView const& to, STTx const& tx, beast::Journal j)
+ApplyViewImpl::generateProvisionalMeta(
+    OpenView const& to,
+    STTx const& tx,
+    beast::Journal j)
 {
-    auto [meta, _] =
-        items_.generateTxMeta(to, tx, deliver_, hookExecution_, hookEmission_, j);
+    auto [meta, _] = items_.generateTxMeta(
+        to, tx, deliver_, hookExecution_, hookEmission_, j);
 
     return meta;
 }

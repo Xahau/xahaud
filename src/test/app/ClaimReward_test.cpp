@@ -366,7 +366,9 @@ struct ClaimReward_test : public beast::unit_test::suite
         std::uint32_t const aliceSeq{env.seq(alice)};
         env.require(owners(alice, 10));
 
-        env(claim(alice, issuer), ticket::use(aliceTicketSeq++), ter(tesSUCCESS));
+        env(claim(alice, issuer),
+            ticket::use(aliceTicketSeq++),
+            ter(tesSUCCESS));
 
         env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
         BEAST_EXPECT(env.seq(alice) == aliceSeq);

@@ -38,8 +38,6 @@ class STObject;
 // Support for SignerEntries that is needed by a few Transactors
 class SignerEntries
 {
-    
-
 public:
     explicit SignerEntries() = default;
     // Values determined during preCompute for use later.

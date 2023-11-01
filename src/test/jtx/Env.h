@@ -644,9 +644,10 @@ public:
         if constexpr (sizeof...(args) > 0)
             fund(amount, args...);
     }
-   
-    // get the last txn id 
-    uint256 txid() const;
+
+    // get the last txn id
+    uint256
+    txid() const;
 
     /** Establish trust lines.
 
@@ -687,7 +688,6 @@ protected:
     TestStopwatch stopwatch_;
     uint256 txid_;
     TER ter_ = tesSUCCESS;
-
 
     Json::Value
     do_rpc(

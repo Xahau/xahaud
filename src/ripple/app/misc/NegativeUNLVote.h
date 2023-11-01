@@ -125,10 +125,10 @@ public:
 
     /**
      * This generates UNLReport txns for each of the ImportVL keys in the node's
-     * config. Exposed publicly here so that it can be used by test cases in future.
+     * config. Exposed publicly here so that it can be used by test cases in
+     * future.
      */
-    static
-    std::vector<STTx>
+    static std::vector<STTx>
     generateImportVLVoteTx(
         std::map<std::string, PublicKey> const& importVLKeys,
         LedgerIndex seq);
@@ -178,9 +178,7 @@ private:
      * As above, but make a vl import report object instead of an n-unl
      */
     void
-    addImportVLTx(
-        LedgerIndex seq,
-        std::shared_ptr<SHAMap> const& initalSet);
+    addImportVLTx(LedgerIndex seq, std::shared_ptr<SHAMap> const& initalSet);
 
     /**
      * Pick one candidate from a vector of candidates.

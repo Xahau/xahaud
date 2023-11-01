@@ -33,17 +33,16 @@ class Import : public Transactor
 public:
     // newly imported accounts get 2 XRP
     template <typename V>
-    static
-    XRPAmount computeStartingBonus(V const& v)
+    static XRPAmount
+    computeStartingBonus(V const& v)
     {
         auto const& fees = v.read(keylet::fees());
 
         uint64_t b = 1'000'000;
-        uint64_t i =   200'000;
+        uint64_t i = 200'000;
 
         // new fee object format
-        if (fees &&
-            fees->isFieldPresent(sfReserveBaseDrops) && 
+        if (fees && fees->isFieldPresent(sfReserveBaseDrops) &&
             fees->isFieldPresent(sfReserveIncrementDrops))
         {
             auto const base = fees->getFieldAmount(sfReserveBaseDrops);
@@ -55,16 +54,15 @@ public:
                 i = incr.xrp().drops();
             }
         }
-    
+
         // old object format
-        if (fees &&
-            fees->isFieldPresent(sfReserveBase) &&
+        if (fees && fees->isFieldPresent(sfReserveBase) &&
             fees->isFieldPresent(sfReserveIncrement))
         {
             b = fees->getFieldU32(sfReserveBase);
             i = fees->getFieldU32(sfReserveIncrement);
         }
-            
+
         uint64_t x = b + i * 5U;
         if (x > i && x > b)
             return XRPAmount{static_cast<ripple::XRPAmount::value_type>(x)};
@@ -72,18 +70,20 @@ public:
         // fallback in case of overflow
         return XRPAmount{2 * DROPS_PER_XRP};
     }
-    
+
     static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    static std::pair<
-        std::unique_ptr<STTx const>,
-        std::unique_ptr<STObject const>>
-    getInnerTxn(STTx const& outer, beast::Journal const& j,Json::Value const* xpop = 0);
+    static std::
+        pair<std::unique_ptr<STTx const>, std::unique_ptr<STObject const>>
+        getInnerTxn(
+            STTx const& outer,
+            beast::Journal const& j,
+            Json::Value const* xpop = 0);
 
     explicit Import(ApplyContext& ctx) : Transactor(ctx)
     {
     }
-    
+
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
 
@@ -98,13 +98,13 @@ public:
 
     TER
     doApply() override;
+
 private:
     void
     doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans);
 
     void
     doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans);
-
 };
 
 }  // namespace ripple

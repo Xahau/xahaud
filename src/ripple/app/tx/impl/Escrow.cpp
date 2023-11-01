@@ -171,7 +171,6 @@ EscrowCreate::preflight(PreflightContext const& ctx)
 TER
 EscrowCreate::doApply()
 {
-
     auto const closeTime = ctx_.view().info().parentCloseTime;
 
     // Prior to fix1571, the cancel and finish times could be greater
@@ -296,8 +295,7 @@ EscrowCreate::doApply()
 
     // Create escrow in ledger.  Note that we we use the value from the
     // sequence or ticket.  For more explanation see comments in SeqProxy.h.
-    Keylet const escrowKeylet =
-        keylet::escrow(account, seqID(ctx_));
+    Keylet const escrowKeylet = keylet::escrow(account, seqID(ctx_));
     auto const slep = std::make_shared<SLE>(escrowKeylet);
     (*slep)[sfAmount] = ctx_.tx[sfAmount];
     (*slep)[sfAccount] = account;
@@ -453,17 +451,16 @@ TER
 EscrowFinish::doApply()
 {
     bool hooksEnabled = view().rules().enabled(featureHooks);
-    
+
     if (!hooksEnabled && ctx_.tx.isFieldPresent(sfEscrowID))
         return temDISABLED;
-    
+
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
 
     if (escrowID && ctx_.tx[sfOfferSequence] != 0)
         return temMALFORMED;
 
-    Keylet k =        
-        escrowID
+    Keylet k = escrowID
         ? Keylet(ltESCROW, *escrowID)
         : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
 
@@ -702,20 +699,19 @@ TER
 EscrowCancel::doApply()
 {
     bool hooksEnabled = view().rules().enabled(featureHooks);
-    
+
     if (!hooksEnabled && ctx_.tx.isFieldPresent(sfEscrowID))
         return temDISABLED;
-    
+
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
 
     if (escrowID && ctx_.tx[sfOfferSequence] != 0)
         return temMALFORMED;
 
-    Keylet k =        
-        escrowID
+    Keylet k = escrowID
         ? Keylet(ltESCROW, *escrowID)
         : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
-    
+
     auto const slep = ctx_.view().peek(k);
     if (!slep)
         return tecNO_TARGET;

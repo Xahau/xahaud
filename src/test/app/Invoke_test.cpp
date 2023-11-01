@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-
 #include <test/jtx.h>
 
 namespace ripple {
@@ -61,12 +60,14 @@ class Invoke_test : public beast::unit_test::suite
         {
             auto const& hparam = param["HookParameter"];
             paramBytes +=
-                (hparam.isMember("HookParameterName") ?
-                    hparam["HookParameterName"].asString().size() / 2 : 0) +
-                (hparam.isMember("HookParameterValue") ?
-                    hparam["HookParameterValue"].asString().size() / 2 : 0);
+                (hparam.isMember("HookParameterName")
+                     ? hparam["HookParameterName"].asString().size() / 2
+                     : 0) +
+                (hparam.isMember("HookParameterValue")
+                     ? hparam["HookParameterValue"].asString().size() / 2
+                     : 0);
         }
-        return XRPAmount { static_cast<XRPAmount>(paramBytes) };
+        return XRPAmount{static_cast<XRPAmount>(paramBytes)};
     }
 
     void
@@ -93,7 +94,6 @@ class Invoke_test : public beast::unit_test::suite
         // preflight
 
         // temDISABLED
-
     }
 
     void
@@ -121,7 +121,8 @@ class Invoke_test : public beast::unit_test::suite
             auto jv = invoke(alice);
             jv[sfBlob.jsonName] = strHex(blob);
 
-            XRPAmount const extraFee = XRPAmount{ static_cast<XRPAmount>(blob.size()) };
+            XRPAmount const extraFee =
+                XRPAmount{static_cast<XRPAmount>(blob.size())};
 
             env(jv, fee(10 + extraFee), ter(temMALFORMED));
         }
@@ -140,12 +141,13 @@ class Invoke_test : public beast::unit_test::suite
 
         // temDISABLED
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337), features - featureHooks};
+            test::jtx::Env env{
+                *this, makeNetworkConfig(21337), features - featureHooks};
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
             env.close();
-            
+
             env(invoke(alice), ter(temDISABLED));
         }
 
@@ -202,10 +204,11 @@ class Invoke_test : public beast::unit_test::suite
             blob.resize(128 * 1024);
             auto jv = invoke(alice);
             jv[sfBlob.jsonName] = strHex(blob);
-            XRPAmount const extraFee = XRPAmount{ static_cast<XRPAmount>(blob.size()) };
+            XRPAmount const extraFee =
+                XRPAmount{static_cast<XRPAmount>(blob.size())};
             env(jv, fee(feeDrops + extraFee), ter(tesSUCCESS));
         }
-        
+
         // No Destination
         {
             env(invoke(alice), ter(tesSUCCESS));
@@ -223,9 +226,9 @@ class Invoke_test : public beast::unit_test::suite
             jv[jss::HookParameters][0U] = Json::Value{};
             jv[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
             jv[jss::HookParameters][0U][jss::HookParameter]
-                [jss::HookParameterName] = "CAFE";
+              [jss::HookParameterName] = "CAFE";
             jv[jss::HookParameters][0U][jss::HookParameter]
-                [jss::HookParameterValue] = "";
+              [jss::HookParameterValue] = "";
 
             XRPAmount extraFee = calcParamFee(jv);
             env(jv, fee(feeDrops + extraFee), ter(tesSUCCESS));

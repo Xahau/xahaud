@@ -902,9 +902,10 @@ Config::loadFromString(std::string const& fileContents)
             }
 
             auto iniFile = parseIniFile(data, true);
-            
+
             if (auto importKeys =
-                    getIniFileSection(iniFile, SECTION_IMPORT_VL_KEYS); importKeys)
+                    getIniFileSection(iniFile, SECTION_IMPORT_VL_KEYS);
+                importKeys)
             {
                 for (std::string const& strPk : *importKeys)
                 {
@@ -912,18 +913,18 @@ Config::loadFromString(std::string const& fileContents)
                     if (!pkHex)
                         Throw<std::runtime_error>(
                             "Import VL Key '" + strPk + "' was not valid hex.");
-                    
+
                     auto const pkType = publicKeyType(makeSlice(*pkHex));
                     if (!pkType)
                         Throw<std::runtime_error>(
-                            "Import VL Key '" + strPk + "' was not a valid key type.");
-                    IMPORT_VL_KEYS.emplace(strPk,  makeSlice(*pkHex));
+                            "Import VL Key '" + strPk +
+                            "' was not a valid key type.");
+                    IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
                 }
             }
 
             if (RUN_STANDALONE)
                 break;
-
 
             auto entries = getIniFileSection(iniFile, SECTION_VALIDATORS);
 
@@ -948,8 +949,6 @@ Config::loadFromString(std::string const& fileContents)
             if (valListKeys)
                 section(SECTION_VALIDATOR_LIST_KEYS).append(*valListKeys);
 
-
-       
             if (!entries && !valKeyEntries && !valListKeys)
                 Throw<std::runtime_error>(
                     "The file specified in [" SECTION_VALIDATORS_FILE
@@ -964,7 +963,6 @@ Config::loadFromString(std::string const& fileContents)
                     validatorsFile.string());
         }
 
-        
         // Consolidate [validator_keys] and [validators]
         section(SECTION_VALIDATORS)
             .append(section(SECTION_VALIDATOR_KEYS).lines());

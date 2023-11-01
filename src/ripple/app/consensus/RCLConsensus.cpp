@@ -31,6 +31,7 @@
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NegativeUNLVote.h>
 #include <ripple/app/misc/NetworkOPs.h>
+#include <ripple/app/misc/Transaction.h>
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
@@ -43,7 +44,6 @@
 #include <ripple/protocol/BuildInfo.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/digest.h>
-#include <ripple/app/misc/Transaction.h>
 
 #include <algorithm>
 #include <mutex>
@@ -501,7 +501,7 @@ RCLConsensus::Adaptor::doAccept(
                 std::make_shared<STTx const>(SerialIter{item.slice()}));
             JLOG(j_.debug()) << "    Tx: " << item.key();
 
-#ifndef DEBUG 
+#ifndef DEBUG
         }
         catch (std::exception const& ex)
         {
@@ -775,7 +775,6 @@ RCLConsensus::Adaptor::buildLCL(
             failedTxs,
             j_);
     }();
-
 
     // Update fee computations based on accepted txs
     using namespace std::chrono_literals;

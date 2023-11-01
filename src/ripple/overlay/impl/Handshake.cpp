@@ -237,7 +237,8 @@ verifyHandshake(
             throw std::runtime_error("Invalid server domain");
     }
 
-    // Check the network. Omitting Network-ID (on either side ours, or theirs) means NID=0
+    // Check the network. Omitting Network-ID (on either side ours, or theirs)
+    // means NID=0
     {
         uint32_t peer_nid = 0;
         if (auto const iter = headers.find("Network-ID"); iter != headers.end())

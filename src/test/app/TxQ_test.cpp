@@ -240,7 +240,10 @@ public:
         using namespace std::chrono;
         testcase("queue sequence");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -451,7 +454,10 @@ public:
         using namespace jtx;
         testcase("queue ticket");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         auto alice = Account("alice");
 
@@ -708,7 +714,10 @@ public:
         using namespace jtx;
         testcase("queue tec");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}),
+            features);
 
         auto alice = Account("alice");
         auto gw = Account("gw");
@@ -802,7 +811,10 @@ public:
         using namespace std::chrono;
         testcase("last ledger sequence");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}),
+            features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -912,7 +924,10 @@ public:
         using namespace std::chrono;
         testcase("zero transaction fee");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}),
+            features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1032,7 +1047,10 @@ public:
         using namespace jtx;
         testcase("queued tx fails");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}),
+            features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1087,7 +1105,8 @@ public:
             *this,
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "3"}},
-                {{"account_reserve", "200"}, {"owner_reserve", "50"}}), features);
+                {{"account_reserve", "200"}, {"owner_reserve", "50"}}),
+            features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1354,7 +1373,10 @@ public:
         using namespace std::chrono;
         testcase("tie breaking");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "4"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "4"}}),
+            features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1449,7 +1471,7 @@ public:
                 env.seq(elmo) + env.seq(fred) + env.seq(gwen) + env.seq(hank));
         // These tests may change if TxQ ordering is changed
         using namespace std::string_literals;
-        
+
         if (DEBUG_TX_QTEST)
         {
             std::cout << "aliceSeq: " << env.seq(alice) << "\n";
@@ -1465,7 +1487,7 @@ public:
             std::cout << "fredSeq: " << env.seq(fred) << "\n";
             std::cout << "fredSeq= " << fredSeq + 1 << "\n";
             std::cout << "gwenSeq: " << env.seq(gwen) << "\n";
-            std::cout << "gwenSeq= " << gwenSeq + 1  << "\n";
+            std::cout << "gwenSeq= " << gwenSeq + 1 << "\n";
             std::cout << "hankSeq: " << env.seq(hank) << "\n";
             std::cout << "hankSeq= " << hankSeq + 1 << "\n";
 
@@ -1639,7 +1661,10 @@ public:
         using namespace jtx;
         testcase("acct tx id");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "1"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "1"}}),
+            features);
 
         auto alice = Account("alice");
 
@@ -1686,7 +1711,8 @@ public:
                     {{"minimum_txn_in_ledger_standalone", "2"},
                      {"minimum_txn_in_ledger", "5"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}), features);
+                     {"maximum_txn_in_ledger", "5"}}),
+                features);
 
             auto alice = Account("alice");
 
@@ -1713,7 +1739,8 @@ public:
                     {{"minimum_txn_in_ledger", "200"},
                      {"minimum_txn_in_ledger_standalone", "200"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}), features);
+                     {"maximum_txn_in_ledger", "5"}}),
+                features);
             // should throw
             fail();
         }
@@ -1734,7 +1761,8 @@ public:
                     {{"minimum_txn_in_ledger", "200"},
                      {"minimum_txn_in_ledger_standalone", "2"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}), features);
+                     {"maximum_txn_in_ledger", "5"}}),
+                features);
             // should throw
             fail();
         }
@@ -1755,7 +1783,8 @@ public:
                     {{"minimum_txn_in_ledger", "2"},
                      {"minimum_txn_in_ledger_standalone", "200"},
                      {"target_txn_in_ledger", "4"},
-                     {"maximum_txn_in_ledger", "5"}}), features);
+                     {"maximum_txn_in_ledger", "5"}}),
+                features);
             // should throw
             fail();
         }
@@ -1780,7 +1809,8 @@ public:
             *this,
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "3"}},
-                {{"account_reserve", "200"}, {"owner_reserve", "50"}}), features);
+                {{"account_reserve", "200"}, {"owner_reserve", "50"}}),
+            features);
 
         auto alice = Account("alice");
         auto bob = Account("bob");
@@ -1880,7 +1910,10 @@ public:
 
         auto queued = ter(terQUEUED);
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
@@ -2010,7 +2043,10 @@ public:
 
         auto queued = ter(terQUEUED);
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
@@ -2169,7 +2205,8 @@ public:
             *this,
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "3"}},
-                {{"account_reserve", "200"}, {"owner_reserve", "50"}}), features);
+                {{"account_reserve", "200"}, {"owner_reserve", "50"}}),
+            features);
 
         auto alice = Account("alice");
         auto charlie = Account("charlie");
@@ -2591,7 +2628,10 @@ public:
 
         auto queued = ter(terQUEUED);
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
@@ -2762,7 +2802,8 @@ public:
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "1"},
                  {"ledgers_in_queue", "10"},
-                 {"maximum_txn_per_account", "20"}}), features);
+                 {"maximum_txn_per_account", "20"}}),
+            features);
 
         // Alice will recreate the scenario. Bob will block.
         auto const alice = Account("alice");
@@ -2854,7 +2895,8 @@ public:
             makeConfig(
                 {{"minimum_txn_in_ledger_standalone", "1"},
                  {"ledgers_in_queue", "10"},
-                 {"maximum_txn_per_account", "11"}}), features);
+                 {"maximum_txn_per_account", "11"}}),
+            features);
 
         // Alice will have the gaps.  Bob will keep the queue busy with
         // high fee transactions so alice's transactions can expire to leave
@@ -3005,7 +3047,10 @@ public:
     {
         testcase("Autofilled sequence should account for TxQ");
         using namespace jtx;
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "6"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "6"}}),
+            features);
         Env_ss envs(env);
         auto const& txQ = env.app().getTxQ();
 
@@ -3136,7 +3181,10 @@ public:
         using namespace jtx;
         testcase("account info");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
         Env_ss envs(env);
 
         Account const alice{"alice"};
@@ -3415,7 +3463,10 @@ public:
         using namespace jtx;
         testcase("server info");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
         Env_ss envs(env);
 
         Account const alice{"alice"};
@@ -3676,7 +3727,10 @@ public:
         using namespace jtx;
         testcase("server subscribe");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         Json::Value stream;
         stream[jss::streams] = Json::arrayValue;
@@ -3821,7 +3875,10 @@ public:
         using namespace jtx;
         testcase("clear queued acct txs");
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
         auto alice = Account("alice");
         auto bob = Account("bob");
 
@@ -4036,7 +4093,8 @@ public:
                      {"normal_consensus_increase_percent", "25"},
                      {"slow_consensus_decrease_percent", "50"},
                      {"target_txn_in_ledger", "10"},
-                     {"maximum_txn_per_account", "200"}}), features);
+                     {"maximum_txn_per_account", "200"}}),
+                features);
             auto alice = Account("alice");
 
             checkMetrics(__LINE__, env, 0, std::nullopt, 0, 3, 256);
@@ -4122,7 +4180,8 @@ public:
                      {"normal_consensus_increase_percent", "150"},
                      {"slow_consensus_decrease_percent", "150"},
                      {"target_txn_in_ledger", "10"},
-                     {"maximum_txn_per_account", "200"}}), features);
+                     {"maximum_txn_per_account", "200"}}),
+                features);
             auto alice = Account("alice");
 
             checkMetrics(__LINE__, env, 0, std::nullopt, 0, 3, 256);
@@ -4175,7 +4234,10 @@ public:
         testcase("Sequence in queue and open ledger");
         using namespace jtx;
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         auto const alice = Account("alice");
 
@@ -4242,7 +4304,10 @@ public:
         testcase("Ticket in queue and open ledger");
         using namespace jtx;
 
-        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}), features);
+        Env env(
+            *this,
+            makeConfig({{"minimum_txn_in_ledger_standalone", "3"}}),
+            features);
 
         auto alice = Account("alice");
 
@@ -4846,7 +4911,8 @@ public:
                 {{"minimum_txn_in_ledger_standalone", "3"}},
                 {{"reference_fee", "0"},
                  {"account_reserve", "0"},
-                 {"owner_reserve", "0"}}), features);
+                 {"owner_reserve", "0"}}),
+            features);
 
         BEAST_EXPECT(env.current()->fees().base == 10);
 
