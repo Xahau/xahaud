@@ -1,6 +1,7 @@
 
 #ifndef HOOKMISC_INCLUDED
 #define HOOKMISC_INCLUDED 1
+#include <ripple/basics/base_uint.h>
 namespace ripple {
 // RH TODO: there's definitely a mucher nicer way to do this, but it involves
 // modifying the base_uint class and we don't want to do that yet.
