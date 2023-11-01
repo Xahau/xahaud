@@ -835,7 +835,9 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
             if (history.goodHistory)
             {
                 NegativeUNLVote vote(
-                    history.UNLNodeIDs[3], history.env.journal, history.env.app());
+                    history.UNLNodeIDs[3],
+                    history.env.journal,
+                    history.env.app());
                 BEAST_EXPECT(!vote.buildScoreTable(
                     history.lastLedger(),
                     history.UNLNodeIDSet,
@@ -850,7 +852,9 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
             if (history.goodHistory)
             {
                 NegativeUNLVote vote(
-                    history.UNLNodeIDs[3], history.env.journal, history.env.app());
+                    history.UNLNodeIDs[3],
+                    history.env.journal,
+                    history.env.app());
                 BEAST_EXPECT(!vote.buildScoreTable(
                     history.lastLedger(),
                     history.UNLNodeIDSet,
@@ -873,7 +877,8 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
                             history.UNLNodeIDs[idx] == myId &&
                             l->seq() % 2 == 0);
                     });
-                NegativeUNLVote vote(myId, history.env.journal, history.env.app());
+                NegativeUNLVote vote(
+                    myId, history.env.journal, history.env.app());
                 BEAST_EXPECT(!vote.buildScoreTable(
                     history.lastLedger(),
                     history.UNLNodeIDSet,
@@ -916,7 +921,8 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
                     history.validations.add(badNode, v2);
                 }
 
-                NegativeUNLVote vote(myId, history.env.journal, history.env.app());
+                NegativeUNLVote vote(
+                    myId, history.env.journal, history.env.app());
 
                 // local node still on wrong chain, can build a scoreTable,
                 // but all other nodes' scores are zero
@@ -955,7 +961,9 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
                     [&](std::shared_ptr<Ledger const> const& l,
                         std::size_t idx) -> bool { return true; });
                 NegativeUNLVote vote(
-                    history.UNLNodeIDs[3], history.env.journal, history.env.app());
+                    history.UNLNodeIDs[3],
+                    history.env.journal,
+                    history.env.app());
                 auto scoreTable = vote.buildScoreTable(
                     history.lastLedger(),
                     history.UNLNodeIDSet,
@@ -1032,7 +1040,8 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
         for (auto const& n : history.UNLNodeIDs)
             goodScoreTable[n] = NegativeUNLVote::negativeUNLHighWaterMark + 1;
 
-        NegativeUNLVote vote(history.UNLNodeIDs[0], history.env.journal, history.env.app());
+        NegativeUNLVote vote(
+            history.UNLNodeIDs[0], history.env.journal, history.env.app());
 
         {
             // all good scores
@@ -1452,7 +1461,8 @@ class NegativeUNLVoteScoreTable_test : public beast::unit_test::suite
                             return add_50 || add_100 || add_me;
                         });
 
-                    NegativeUNLVote vote(myId, history.env.journal, history.env.app());
+                    NegativeUNLVote vote(
+                        myId, history.env.journal, history.env.app());
                     auto scoreTable = vote.buildScoreTable(
                         history.lastLedger(),
                         history.UNLNodeIDSet,
@@ -1974,7 +1984,8 @@ countTx(std::shared_ptr<SHAMap> const& txSet)
     {
 
         SerialIter sit(item.slice());
-        auto tx = std::make_shared<STTx const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
+        auto tx = std::make_shared<STTx
+    const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
 
         if (tx->getFieldU16(sfTransactionType) == ttUNL_MODIFY)
             counter++;
@@ -1984,7 +1995,6 @@ countTx(std::shared_ptr<SHAMap> const& txSet)
     std::size_t count = 0;
     for (auto i = txSet->begin(); i != txSet->end(); ++i)
     {
-
         // RH TODO: why does the above parse??
         auto raw = i->slice();
         if (raw[0] == 0x12U && raw[1] == 0 && raw[2] == 0x66U)

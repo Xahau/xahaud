@@ -35,7 +35,7 @@ public:
     explicit Invoke(ApplyContext& ctx) : Transactor(ctx)
     {
     }
-    
+
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
 

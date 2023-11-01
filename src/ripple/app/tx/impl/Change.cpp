@@ -17,22 +17,22 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/Guard.h>
+#include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/tx/impl/Change.h>
+#include <ripple/app/tx/impl/SetSignerList.h>
+#include <ripple/app/tx/impl/XahauGenesis.h>
 #include <ripple/basics/Log.h>
 #include <ripple/ledger/Sandbox.h>
+#include <ripple/protocol/AccountID.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/TxFlags.h>
 #include <string_view>
-#include <ripple/app/hook/Guard.h> 
-#include <ripple/protocol/AccountID.h>
-#include <ripple/app/hook/applyHook.h>
-#include <ripple/app/tx/impl/XahauGenesis.h>
-#include <ripple/app/tx/impl/SetSignerList.h> 
 
 namespace ripple {
 
@@ -87,19 +87,26 @@ Change::preflight(PreflightContext const& ctx)
             return temDISABLED;
         }
 
-        if (!ctx.tx.isFieldPresent(sfActiveValidator) && !ctx.tx.isFieldPresent(sfImportVLKey))
+        if (!ctx.tx.isFieldPresent(sfActiveValidator) &&
+            !ctx.tx.isFieldPresent(sfImportVLKey))
         {
-            JLOG(ctx.j.warn()) << "Change: UNLReport must specify at least one of sfImportVLKey, sfActiveValidator";
+            JLOG(ctx.j.warn()) << "Change: UNLReport must specify at least one "
+                                  "of sfImportVLKey, sfActiveValidator";
             return temMALFORMED;
         }
 
-        // if we do specify import_vl_keys in config then we won't approve keys that aren't on our list
-        if (ctx.tx.isFieldPresent(sfImportVLKey) && !ctx.app.config().IMPORT_VL_KEYS.empty())
+        // if we do specify import_vl_keys in config then we won't approve keys
+        // that aren't on our list
+        if (ctx.tx.isFieldPresent(sfImportVLKey) &&
+            !ctx.app.config().IMPORT_VL_KEYS.empty())
         {
-            auto const& inner = const_cast<ripple::STTx&>(ctx.tx).getField(sfImportVLKey).downcast<STObject>();
+            auto const& inner = const_cast<ripple::STTx&>(ctx.tx)
+                                    .getField(sfImportVLKey)
+                                    .downcast<STObject>();
             auto const pk = inner.getFieldVL(sfPublicKey);
             std::string const strPk = strHex(makeSlice(pk));
-            if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) == ctx.app.config().IMPORT_VL_KEYS.end())
+            if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) ==
+                ctx.app.config().IMPORT_VL_KEYS.end())
                 return telIMPORT_VL_KEY_NOT_RECOGNISED;
         }
     }
@@ -201,39 +208,37 @@ Change::applyUNLReport()
 
     if (created)
         sle = std::make_shared<SLE>(keylet::UNLReport());
-    
-    bool const reset =
-        sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
-            sle->getFieldU32(sfPreviousTxnLgrSeq) < seq;
 
-    auto canonicalize = [&](SField const& arrayType, SField const& objType)
-        -> std::vector<STObject>
-    {
-        auto const existing = 
-            reset || !sle->isFieldPresent(arrayType)
+    bool const reset = sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
+        sle->getFieldU32(sfPreviousTxnLgrSeq) < seq;
+
+    auto canonicalize = [&](SField const& arrayType,
+                            SField const& objType) -> std::vector<STObject> {
+        auto const existing = reset || !sle->isFieldPresent(arrayType)
             ? STArray(arrayType)
             : sle->getFieldArray(arrayType);
 
         // canonically order using std::set
         std::map<PublicKey, AccountID> ordered;
-        for (auto const& obj: existing)
+        for (auto const& obj : existing)
         {
             auto pk = obj.getFieldVL(sfPublicKey);
             if (!publicKeyType(makeSlice(pk)))
                 continue;
 
             PublicKey p(makeSlice(pk));
-            ordered.emplace(p,
-                    obj.isFieldPresent(sfAccount) ? obj.getAccountID(sfAccount) : calcAccountID(p));
+            ordered.emplace(
+                p,
+                obj.isFieldPresent(sfAccount) ? obj.getAccountID(sfAccount)
+                                              : calcAccountID(p));
         };
 
         if (ctx_.tx.isFieldPresent(objType))
         {
-            auto pk = 
-                const_cast<ripple::STTx&>(ctx_.tx)
-                    .getField(objType)
-                    .downcast<STObject>()
-                    .getFieldVL(sfPublicKey);
+            auto pk = const_cast<ripple::STTx&>(ctx_.tx)
+                          .getField(objType)
+                          .downcast<STObject>()
+                          .getFieldVL(sfPublicKey);
 
             if (publicKeyType(makeSlice(pk)))
             {
@@ -244,7 +249,7 @@ Change::applyUNLReport()
 
         std::vector<STObject> out;
         out.reserve(ordered.size());
-        for (auto const& [k, a]: ordered)
+        for (auto const& [k, a] : ordered)
         {
             out.emplace_back(objType);
             out.back().setFieldVL(sfPublicKey, k);
@@ -254,18 +259,22 @@ Change::applyUNLReport()
         return out;
     };
 
-
     bool const hasAV = ctx_.tx.isFieldPresent(sfActiveValidator);
     bool const hasVL = ctx_.tx.isFieldPresent(sfImportVLKey);
 
     // update
     if (hasAV)
-        sle->setFieldArray(sfActiveValidators,
-            STArray(canonicalize(sfActiveValidators, sfActiveValidator),sfActiveValidators));
+        sle->setFieldArray(
+            sfActiveValidators,
+            STArray(
+                canonicalize(sfActiveValidators, sfActiveValidator),
+                sfActiveValidators));
 
     if (hasVL)
-        sle->setFieldArray(sfImportVLKeys,
-            STArray(canonicalize(sfImportVLKeys, sfImportVLKey),sfImportVLKeys));
+        sle->setFieldArray(
+            sfImportVLKeys,
+            STArray(
+                canonicalize(sfImportVLKeys, sfImportVLKey), sfImportVLKeys));
 
     if (created)
         view().insert(sle);
@@ -281,8 +290,6 @@ Change::preCompute()
     assert(account_ == beast::zero);
 }
 
-
-
 struct L2Table
 {
     std::string account;
@@ -290,23 +297,22 @@ struct L2Table
     std::vector<std::string> members;
     std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params;
 };
-        
 
-inline
-std::tuple<
-    std::vector<std::pair<std::string, XRPAmount>>,                         // non-goverance distribution
-    std::vector<std::pair<std::string, XRPAmount>>,                         // L1 distribution
-    std::vector<L2Table>,                                                   // L2 membership
+inline std::tuple<
+    std::vector<std::pair<std::string, XRPAmount>>,  // non-goverance
+                                                     // distribution
+    std::vector<std::pair<std::string, XRPAmount>>,  // L1 distribution
+    std::vector<L2Table>,                            // L2 membership
     std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>>
 normalizeXahauGenesis(
-        std::vector<std::pair<std::string, XRPAmount>> const& ngentries,
-        std::vector<std::pair<std::string, XRPAmount>> const& l1entries,
-        std::vector<std::pair<std::string, std::vector<std::string>>> l2entries,
-        std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params,
-        beast::Journal const& j)
+    std::vector<std::pair<std::string, XRPAmount>> const& ngentries,
+    std::vector<std::pair<std::string, XRPAmount>> const& l1entries,
+    std::vector<std::pair<std::string, std::vector<std::string>>> l2entries,
+    std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>> params,
+    beast::Journal const& j)
 {
-    auto getID = [](std::string const& rn) -> std::optional<std::pair<std::string, AccountID>> 
-    {        
+    auto getID = [](std::string const& rn)
+        -> std::optional<std::pair<std::string, AccountID>> {
         if (rn.c_str()[0] == 'r')
         {
             auto parsed = parseBase58<AccountID>(rn);
@@ -314,22 +320,23 @@ normalizeXahauGenesis(
                 return {};
             return {{toBase58(*parsed), *parsed}};
         }
-        
+
         if (rn.c_str()[0] == 'n')
         {
-            auto const parsed = parseBase58<PublicKey>(TokenType::NodePublic, rn);
+            auto const parsed =
+                parseBase58<PublicKey>(TokenType::NodePublic, rn);
             if (!parsed)
                 return {};
             AccountID id = calcAccountID(*parsed);
             return {{toBase58(id), id}};
         }
-        
+
         return {};
     };
 
     std::set<AccountID> NGAccs;
     std::vector<std::pair<std::string, XRPAmount>> NGAmounts;
-    for (auto const& [rn, x]: ngentries)
+    for (auto const& [rn, x] : ngentries)
     {
         if (auto parsed = getID(rn); parsed)
         {
@@ -337,10 +344,9 @@ normalizeXahauGenesis(
             AccountID& id = parsed->second;
 
             NGAmounts.emplace_back(idStr, x);
-            JLOG(j.warn())
-                << "featureXahauGenesis: "
-                << "initial non-governance distribution: " << rn
-                << " =>accid: " << idStr;
+            JLOG(j.warn()) << "featureXahauGenesis: "
+                           << "initial non-governance distribution: " << rn
+                           << " =>accid: " << idStr;
 
             NGAccs.emplace(id);
             continue;
@@ -350,11 +356,10 @@ normalizeXahauGenesis(
             << "featureXahauGenesis could not parse ngentries address: " << rn;
     }
 
-
     std::set<AccountID> L1Seats;
     std::vector<std::pair<std::string, XRPAmount>> amounts;
     uint8_t mc = 0;
-    for (auto const& [rn, x]: l1entries)
+    for (auto const& [rn, x] : l1entries)
     {
         if (auto parsed = getID(rn); parsed)
         {
@@ -363,31 +368,28 @@ normalizeXahauGenesis(
 
             if (L1Seats.find(id) != L1Seats.end())
             {
-                JLOG(j.warn())
-                    << "featureXahauGenesis L1Seat: " << idStr << " appears more than once in l1entries.\n";
+                JLOG(j.warn()) << "featureXahauGenesis L1Seat: " << idStr
+                               << " appears more than once in l1entries.\n";
                 continue;
             }
-
 
             if (NGAccs.find(id) != NGAccs.end())
             {
-                JLOG(j.warn())
-                    << "featureXahauGenesis L1Seat: "
-                    << idStr << " appears in non-governance accounts and l1entries. skipping l1.\n";
+                JLOG(j.warn()) << "featureXahauGenesis L1Seat: " << idStr
+                               << " appears in non-governance accounts and "
+                                  "l1entries. skipping l1.\n";
                 continue;
             }
 
-
             amounts.emplace_back(idStr, x);
-            JLOG(j.warn())
-                << "featureXahauGenesis: "
-                << "initial validator: " << rn
-                << " =>accid: " << idStr;
+            JLOG(j.warn()) << "featureXahauGenesis: "
+                           << "initial validator: " << rn
+                           << " =>accid: " << idStr;
 
             // initial member enumeration
             params.emplace_back(
-                    std::vector<uint8_t>{'I', 'S', mc++},
-                    std::vector<uint8_t>(id.data(), id.data() + 20));
+                std::vector<uint8_t>{'I', 'S', mc++},
+                std::vector<uint8_t>(id.data(), id.data() + 20));
 
             L1Seats.emplace(id);
             continue;
@@ -396,11 +398,10 @@ normalizeXahauGenesis(
         JLOG(j.warn())
             << "featureXahauGenesis could not parse l1entries address: " << rn;
     }
-    
+
     // initial member count
     params.emplace_back(
-            std::vector<uint8_t>{'I', 'M', 'C'},
-            std::vector<uint8_t>{mc});
+        std::vector<uint8_t>{'I', 'M', 'C'}, std::vector<uint8_t>{mc});
 
     std::vector<L2Table> tables;
     for (auto const& [table, members] : l2entries)
@@ -409,8 +410,8 @@ normalizeXahauGenesis(
         {
             if (L1Seats.find(parsed->second) == L1Seats.end())
             {
-                JLOG(j.warn())
-                    << "featureXahauGenesis L2Table does not sit at an L1 seat. skipping.";
+                JLOG(j.warn()) << "featureXahauGenesis L2Table does not sit at "
+                                  "an L1 seat. skipping.";
                 continue;
             }
 
@@ -418,31 +419,34 @@ normalizeXahauGenesis(
             t.account = parsed->first;
             t.id = parsed->second;
             uint8_t mc = 0;
-            for (auto const& m: members)
+            for (auto const& m : members)
             {
                 if (auto parsed = getID(m); parsed)
                 {
                     t.members.push_back(parsed->first);
                     t.params.emplace_back(
                         std::vector<uint8_t>{'I', 'S', mc++},
-                        std::vector<uint8_t>(parsed->second.data(), parsed->second.data() + 20));
+                        std::vector<uint8_t>(
+                            parsed->second.data(), parsed->second.data() + 20));
                 }
                 else
                     JLOG(j.warn())
-                        << "featureXahauGenesis L2Table member: " << m << " unable to be parsed. skipping.";
+                        << "featureXahauGenesis L2Table member: " << m
+                        << " unable to be parsed. skipping.";
             }
 
-            t.params.emplace_back(std::vector<uint8_t>{'I', 'M', 'C'}, std::vector<uint8_t>{mc});
+            t.params.emplace_back(
+                std::vector<uint8_t>{'I', 'M', 'C'}, std::vector<uint8_t>{mc});
             tables.push_back(t);
         }
         else
             JLOG(j.warn())
-                << "featureXahauGenesis could not parse L2 table address: " << table;
+                << "featureXahauGenesis could not parse L2 table address: "
+                << table;
     }
 
     return {NGAmounts, amounts, tables, params};
 };
-
 
 void
 Change::activateXahauGenesis()
@@ -451,48 +455,26 @@ Change::activateXahauGenesis()
 
     using namespace XahauGenesis;
 
-    bool const isTest = (ctx_.tx.getFlags() & tfTestSuite) && ctx_.app.config().standalone();
+    bool const isTest =
+        (ctx_.tx.getFlags() & tfTestSuite) && ctx_.app.config().standalone();
 
-    auto [
-        ng_entries,
-        l1_entries,
-        l2_entries,
-        gov_params
-    ] =
+    auto [ng_entries, l1_entries, l2_entries, gov_params] =
         normalizeXahauGenesis(
-            isTest
-                ? TestNonGovernanceDistribution
-                : NonGovernanceDistribution,
-            isTest
-                ? TestL1Membership
-                : L1Membership, 
-            isTest
-                ? TestL2Membership
-                : L2Membership,
-        GovernanceParameters, j_);
+            isTest ? TestNonGovernanceDistribution : NonGovernanceDistribution,
+            isTest ? TestL1Membership : L1Membership,
+            isTest ? TestL2Membership : L2Membership,
+            GovernanceParameters,
+            j_);
 
-    std::vector<
-        std::tuple<
-            uint256,                        // hook on
-            std::vector<uint8_t>,           // hook code
-            std::vector<
-                std::pair<
-                    std::vector<uint8_t>,        // param name
-                    std::vector<uint8_t>>>>>     // param value
-    genesis_hooks =
-    {
-        {
-            GovernanceHookOn,
-            GovernanceHook,
-            gov_params
-        },
-        {
-            RewardHookOn,
-            RewardHook,
-            {}
-        }
-    };
-
+    std::vector<std::tuple<
+        uint256,               // hook on
+        std::vector<uint8_t>,  // hook code
+        std::vector<std::pair<
+            std::vector<uint8_t>,     // param name
+            std::vector<uint8_t>>>>>  // param value
+        genesis_hooks = {
+            {GovernanceHookOn, GovernanceHook, gov_params},
+            {RewardHookOn, RewardHook, {}}};
 
     Sandbox sb(&view());
 
@@ -509,20 +491,21 @@ Change::activateXahauGenesis()
         return;
     }
 
-    // running total of the amount of xrp we will burn from the genesis, less the initial distributions
+    // running total of the amount of xrp we will burn from the genesis, less
+    // the initial distributions
     auto destroyedXRP = sle->getFieldAmount(sfBalance).xrp() - GenesisAmount;
 
     // Step 1: burn genesis funds to (almost) zero
     sle->setFieldAmount(sfBalance, GenesisAmount);
 
     // Step 2: mint genesis distribution
-    auto mint = [&](std::string const& account, XRPAmount const& amount)
-    {
+    auto mint = [&](std::string const& account, XRPAmount const& amount) {
         auto accid_raw = parseBase58<AccountID>(account);
         if (!accid_raw)
         {
             JLOG(j_.warn())
-                << "featureXahauGenesis could not parse an r-address: " << account;
+                << "featureXahauGenesis could not parse an r-address: "
+                << account;
             return;
         }
 
@@ -534,7 +517,8 @@ Change::activateXahauGenesis()
         auto const exists = !!sle;
 
         STAmount newBal = STAmount{amount};
-        STAmount existingBal = exists ? sle->getFieldAmount(sfBalance) : STAmount{XRPAmount{0}};
+        STAmount existingBal =
+            exists ? sle->getFieldAmount(sfBalance) : STAmount{XRPAmount{0}};
         STAmount adjustment = newBal - existingBal;
 
         // the account should not exist but if it does then handle it properly
@@ -542,9 +526,8 @@ Change::activateXahauGenesis()
         {
             sle = std::make_shared<SLE>(kl);
             sle->setAccountID(sfAccount, accid);
-            std::uint32_t const seqno {
-                sb.info().parentCloseTime.time_since_epoch().count()
-            };
+            std::uint32_t const seqno{
+                sb.info().parentCloseTime.time_since_epoch().count()};
             sle->setFieldU32(sfSequence, seqno);
         }
 
@@ -564,7 +547,7 @@ Change::activateXahauGenesis()
 
     // l1 seat distributions
     for (auto const& [account, amount] : l1_entries)
-        mint(account, amount);    
+        mint(account, amount);
 
     // Step 3: blackhole genesis
     sle->setAccountID(sfRegularKey, noAccount());
@@ -575,13 +558,14 @@ Change::activateXahauGenesis()
         SetSignerList::removeFromLedger(ctx_.app, sb, accid, j_);
 
     // Step 4: install genesis hooks
-    sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
+    sle->setFieldU32(
+        sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
     sb.update(sle);
 
     if (sb.exists(keylet::hook(accid)))
     {
-        JLOG(j_.warn())
-            << "featureXahauGenesis genesis account already has hooks object in ledger, bailing";
+        JLOG(j_.warn()) << "featureXahauGenesis genesis account already has "
+                           "hooks object in ledger, bailing";
         return;
     }
 
@@ -591,15 +575,12 @@ Change::activateXahauGenesis()
 
         for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)
         {
-
             std::ostringstream loggerStream;
-            auto result =
-                validateGuards(
-                    wasmBytes,   // wasm to verify
-                    loggerStream,
-                    "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-                    ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0
-                );
+            auto result = validateGuards(
+                wasmBytes,  // wasm to verify
+                loggerStream,
+                "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0);
 
             if (!result)
             {
@@ -623,31 +604,32 @@ Change::activateXahauGenesis()
                 if (last < data + i)
                     j_.warn() << last;
 
-                JLOG(j_.warn())
-                    << "featureXahauGenesis initial hook failed to validate guards, bailing";
-                    
+                JLOG(j_.warn()) << "featureXahauGenesis initial hook failed to "
+                                   "validate guards, bailing";
+
                 return;
             }
 
             std::optional<std::string> result2 =
-                hook::HookExecutor::validateWasm(wasmBytes.data(), (size_t)wasmBytes.size());
+                hook::HookExecutor::validateWasm(
+                    wasmBytes.data(), (size_t)wasmBytes.size());
 
             if (result2)
             {
-                JLOG(j_.warn())
-                    << "featureXahauGenesis tried to set a hook with invalid code. VM error: "
-                    << *result2 << ", bailing";
+                JLOG(j_.warn()) << "featureXahauGenesis tried to set a hook "
+                                   "with invalid code. VM error: "
+                                << *result2 << ", bailing";
                 return;
             }
-            
-            auto const hookHash = 
-                ripple::sha512Half_s(ripple::Slice(wasmBytes.data(), wasmBytes.size()));
+
+            auto const hookHash = ripple::sha512Half_s(
+                ripple::Slice(wasmBytes.data(), wasmBytes.size()));
 
             auto const kl = keylet::hookDefinition(hookHash);
             if (view().exists(kl))
             {
-                JLOG(j_.warn())
-                    << "featureXahauGenesis genesis hookDefinition already exists !!! bailing";
+                JLOG(j_.warn()) << "featureXahauGenesis genesis hookDefinition "
+                                   "already exists !!! bailing";
                 return;
             }
 
@@ -655,36 +637,42 @@ Change::activateXahauGenesis()
 
             hookDef->setFieldH256(sfHookHash, hookHash);
             hookDef->setFieldH256(sfHookOn, hookOn);
-            hookDef->setFieldH256(sfHookNamespace,
-                ripple::uint256("0000000000000000000000000000000000000000000000000000000000000000"));
+            hookDef->setFieldH256(
+                sfHookNamespace,
+                ripple::uint256("0000000000000000000000000000000000000000000000"
+                                "000000000000000000"));
 
             hookDef->setFieldU16(sfHookApiVersion, 0);
             hookDef->setFieldVL(sfCreateCode, wasmBytes);
-            hookDef->setFieldH256(sfHookSetTxnID,  ctx_.tx.getTransactionID());
+            hookDef->setFieldH256(sfHookSetTxnID, ctx_.tx.getTransactionID());
             // governance hook is referenced by the l2tables
-            hookDef->setFieldU64(sfReferenceCount, (hookCount++ == 0 ? l2_entries.size() : 0) + 1);
-            hookDef->setFieldAmount(sfFee,
-                    XRPAmount {hook::computeExecutionFee(result->first)});
+            hookDef->setFieldU64(
+                sfReferenceCount,
+                (hookCount++ == 0 ? l2_entries.size() : 0) + 1);
+            hookDef->setFieldAmount(
+                sfFee, XRPAmount{hook::computeExecutionFee(result->first)});
             if (result->second > 0)
-                hookDef->setFieldAmount(sfHookCallbackFee, 
-                    XRPAmount {hook::computeExecutionFee(result->second)});
+                hookDef->setFieldAmount(
+                    sfHookCallbackFee,
+                    XRPAmount{hook::computeExecutionFee(result->second)});
 
             sb.insert(hookDef);
 
-            STObject hookObj {sfHook};
+            STObject hookObj{sfHook};
             hookObj.setFieldH256(sfHookHash, hookHash);
             // parameters
             {
                 std::vector<STObject> vec;
-                for (auto const& [k, v]: params)
+                for (auto const& [k, v] : params)
                 {
                     STObject param(sfHookParameter);
                     param.setFieldVL(sfHookParameterName, k);
                     param.setFieldVL(sfHookParameterValue, v);
                     vec.emplace_back(std::move(param));
                 };
-            
-                hookObj.setFieldArray(sfHookParameters, STArray(vec, sfHookParameters));
+
+                hookObj.setFieldArray(
+                    sfHookParameters, STArray(vec, sfHookParameters));
             }
 
             hooks.push_back(hookObj);
@@ -701,8 +689,8 @@ Change::activateXahauGenesis()
 
         if (!page)
         {
-            JLOG(j_.warn())
-                << "featureXahauGenesis genesis directory full when trying to insert hooks object, bailing";
+            JLOG(j_.warn()) << "featureXahauGenesis genesis directory full "
+                               "when trying to insert hooks object, bailing";
             return;
         }
         sle->setFieldU64(sfOwnerNode, *page);
@@ -710,38 +698,39 @@ Change::activateXahauGenesis()
     }
 
     // install hooks on layer 2 tables
-    auto const governHash =
-        ripple::sha512Half_s(ripple::Slice(XahauGenesis::GovernanceHook.data(), XahauGenesis::GovernanceHook.size()));
+    auto const governHash = ripple::sha512Half_s(ripple::Slice(
+        XahauGenesis::GovernanceHook.data(),
+        XahauGenesis::GovernanceHook.size()));
     for (auto const& t : l2_entries)
     {
-
-        JLOG(j_.trace())
-            << "featureXahauGenesis: installing L2 table at: " 
-            << t.account << " with " << t.members.size() << " members\n";
+        JLOG(j_.trace()) << "featureXahauGenesis: installing L2 table at: "
+                         << t.account << " with " << t.members.size()
+                         << " members\n";
 
         auto const hookKL = keylet::hook(t.id);
         if (sb.exists(hookKL))
         {
-            JLOG(j_.warn())
-                << "featureXahauGenesis layer2 table account already has hooks object in ledger, bailing";
+            JLOG(j_.warn()) << "featureXahauGenesis layer2 table account "
+                               "already has hooks object in ledger, bailing";
             return;
         }
-            
+
         ripple::STArray hooks{sfHooks, 1};
-        STObject hookObj {sfHook};
+        STObject hookObj{sfHook};
         hookObj.setFieldH256(sfHookHash, governHash);
         // parameters
         {
             std::vector<STObject> vec;
-            for (auto const& [k, v]: t.params)
+            for (auto const& [k, v] : t.params)
             {
                 STObject param(sfHookParameter);
                 param.setFieldVL(sfHookParameterName, k);
                 param.setFieldVL(sfHookParameterValue, v);
                 vec.emplace_back(std::move(param));
             };
-        
-            hookObj.setFieldArray(sfHookParameters, STArray(vec, sfHookParameters));
+
+            hookObj.setFieldArray(
+                sfHookParameters, STArray(vec, sfHookParameters));
         }
 
         hooks.push_back(hookObj);
@@ -751,14 +740,13 @@ Change::activateXahauGenesis()
         sle->setAccountID(sfAccount, t.id);
 
         auto const page = sb.dirInsert(
-            keylet::ownerDir(t.id),
-            keylet::hook(t.id),
-            describeOwnerDir(t.id));
+            keylet::ownerDir(t.id), keylet::hook(t.id), describeOwnerDir(t.id));
 
         if (!page)
         {
             JLOG(j_.warn())
-                << "featureXahauGenesis layer2 table directory full when trying to insert hooks object, bailing";
+                << "featureXahauGenesis layer2 table directory full when "
+                   "trying to insert hooks object, bailing";
             return;
         }
         sle->setFieldU64(sfOwnerNode, *page);
@@ -768,24 +756,22 @@ Change::activateXahauGenesis()
         {
             auto const kl = keylet::account(t.id);
             auto sle = sb.peek(kl);
-    
+
             sle->setAccountID(sfRegularKey, noAccount());
             sle->setFieldU32(sfFlags, lsfDisableMaster);
             sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + 1);
             sb.update(sle);
-        } 
+        }
     }
 
     JLOG(j_.warn()) << "featureXahauGenesis amendment executed successfully";
-    
+
     if (destroyedXRP < beast::zero)
     {
-        JLOG(j_.warn())
-            << "featureXahauGenesis: destroyed XRP tally was negative, bailing.";
+        JLOG(j_.warn()) << "featureXahauGenesis: destroyed XRP tally was "
+                           "negative, bailing.";
         return;
     }
-
-
 
     // record the start ledger
     auto sleFees = sb.peek(keylet::fees());
@@ -1025,8 +1011,8 @@ Change::applyEmitFailure()
     uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
     do
     {
-        JLOG(j_.warn())
-            << "HookEmit[" << txnID << "]: ttEmitFailure removing emitted txn";
+        JLOG(j_.warn()) << "HookEmit[" << txnID
+                        << "]: ttEmitFailure removing emitted txn";
 
         auto key = keylet::emittedTxn(txnID);
 
@@ -1034,10 +1020,13 @@ Change::applyEmitFailure()
 
         if (!sle)
         {
-            // RH NOTE: This will now be the normal execution path, the alternative will only occur if something
-            // went really wrong with the hook callback
-//            JLOG(j_.warn())
-//                << "HookError[" << txnID << "]: ttEmitFailure (Change) tried to remove already removed emittedtxn";
+            // RH NOTE: This will now be the normal execution path, the
+            // alternative will only occur if something went really wrong with
+            // the hook callback
+            //            JLOG(j_.warn())
+            //                << "HookError[" << txnID << "]: ttEmitFailure
+            //                (Change) tried to remove already removed
+            //                emittedtxn";
             break;
         }
 
@@ -1047,8 +1036,8 @@ Change::applyEmitFailure()
                 key,
                 false))
         {
-            JLOG(j_.fatal())
-                << "HookError[" << txnID << "]: ttEmitFailure (Change) tefBAD_LEDGER";
+            JLOG(j_.fatal()) << "HookError[" << txnID
+                             << "]: ttEmitFailure (Change) tefBAD_LEDGER";
             return tefBAD_LEDGER;
         }
 

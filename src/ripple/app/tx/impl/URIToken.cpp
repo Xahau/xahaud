@@ -42,7 +42,8 @@ URIToken::preflight(PreflightContext const& ctx)
     uint32_t flags = ctx.tx.getFlags();
     auto const tt = ctx.tx.getTxnType();
 
-    // the validation for amount is the same regardless of which txn is appears on
+    // the validation for amount is the same regardless of which txn is appears
+    // on
     if (ctx.tx.isFieldPresent(sfAmount))
     {
         auto amt = ctx.tx.getFieldAmount(sfAmount);
@@ -64,8 +65,8 @@ URIToken::preflight(PreflightContext const& ctx)
         {
             if (tt == ttURITOKEN_BUY)
             {
-                // buy operation does not specify a destination, and can have a zero amount
-                // pass
+                // buy operation does not specify a destination, and can have a
+                // zero amount pass
             }
             else
             {
@@ -77,7 +78,8 @@ URIToken::preflight(PreflightContext const& ctx)
         }
     }
 
-    // the validation for the URI field is also the same regardless of the txn type
+    // the validation for the URI field is also the same regardless of the txn
+    // type
     if (ctx.tx.isFieldPresent(sfURI))
     {
         auto const uri = ctx.tx.getFieldVL(sfURI);
@@ -112,8 +114,7 @@ URIToken::preflight(PreflightContext const& ctx)
                     else if ((s[0] & 0xf0) == 0xe0)
                     {
                         /* 1110XXXX 10Xxxxxx 10xxxxxx */
-                        if ((s[1] & 0xc0) != 0x80 ||
-                            (s[2] & 0xc0) != 0x80 ||
+                        if ((s[1] & 0xc0) != 0x80 || (s[2] & 0xc0) != 0x80 ||
                             (s[0] == 0xe0 &&
                              (s[1] & 0xe0) == 0x80) || /* overlong? */
                             (s[0] == 0xed &&
@@ -127,8 +128,7 @@ URIToken::preflight(PreflightContext const& ctx)
                     else if ((s[0] & 0xf8) == 0xf0)
                     {
                         /* 11110XXX 10XXxxxx 10xxxxxx 10xxxxxx */
-                        if ((s[1] & 0xc0) != 0x80 ||
-                            (s[2] & 0xc0) != 0x80 ||
+                        if ((s[1] & 0xc0) != 0x80 || (s[2] & 0xc0) != 0x80 ||
                             (s[3] & 0xc0) != 0x80 ||
                             (s[0] == 0xf0 &&
                              (s[1] & 0xf0) == 0x80) || /* overlong? */
@@ -174,9 +174,8 @@ URIToken::preflight(PreflightContext const& ctx)
 
     // specifying self as a destination is always an error
     if (ctx.tx.isFieldPresent(sfDestination) &&
-            ctx.tx.getAccountID(sfAccount) == ctx.tx.getAccountID(sfDestination))
+        ctx.tx.getAccountID(sfAccount) == ctx.tx.getAccountID(sfDestination))
         return temREDUNDANT;
-
 
     return preflight2(ctx);
 }
@@ -334,7 +333,8 @@ URIToken::doApply()
         STAmount const reserve{
             view().fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
 
-        STAmount const afterFee = mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp();
+        STAmount const afterFee =
+            mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp();
 
         if (afterFee > mPriorBalance || afterFee < reserve)
             return tecINSUFFICIENT_RESERVE;
@@ -393,13 +393,13 @@ URIToken::doApply()
 
             sleU->setAccountID(sfOwner, account_);
             sleU->setAccountID(sfIssuer, account_);
-            
+
             if (dest && !saleAmount)
                 return tefINTERNAL;
 
             if (dest)
                 sleU->setAccountID(sfDestination, *dest);
-        
+
             if (saleAmount)
                 sleU->setFieldAmount(sfAmount, *saleAmount);
 
@@ -434,7 +434,7 @@ URIToken::doApply()
         case ttURITOKEN_CANCEL_SELL_OFFER: {
             if (sleU->isFieldPresent(sfAmount))
                 sleU->makeFieldAbsent(sfAmount);
-            
+
             if (sleU->isFieldPresent(sfDestination))
                 sleU->makeFieldAbsent(sfDestination);
 

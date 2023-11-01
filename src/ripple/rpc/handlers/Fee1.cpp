@@ -17,23 +17,21 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/TxQ.h>
-#include <ripple/basics/mulDiv.h>
+#include <ripple/app/tx/impl/Transactor.h>
+#include <ripple/basics/FeeUnits.h>
 #include <ripple/basics/StringUtilities.h>
+#include <ripple/basics/mulDiv.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/rpc/Context.h>
 #include <ripple/rpc/GRPCHandlers.h>
-#include <ripple/app/hook/applyHook.h>
-#include <ripple/app/tx/impl/Transactor.h>
-#include <ripple/basics/FeeUnits.h>
 namespace ripple {
 
-
-inline
-std::optional<XRPAmount>
+inline std::optional<XRPAmount>
 getHookFees(RPC::JsonContext const& context)
 {
     auto const& params(context.params);
@@ -52,10 +50,8 @@ getHookFees(RPC::JsonContext const& context)
         if (!stpTrans->isFieldPresent(sfAccount))
             throw std::invalid_argument("No sfAccount specified");
 
-        return
-            invoke_calculateBaseFee(
-                *(context.app.openLedger().current()),
-                *stpTrans);
+        return invoke_calculateBaseFee(
+            *(context.app.openLedger().current()), *stpTrans);
     }
 
     return std::nullopt;

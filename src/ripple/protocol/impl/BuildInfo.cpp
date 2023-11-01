@@ -52,73 +52,64 @@ getVersionString()
     // then we will do it ourselves.
     static std::string generatedVersionString;
     if (generatedVersionString == "" &&
-        (versionString == std::string("0.") + std::string("0.0") || versionString == std::string("0.0.0+DEBUG")))
+        (versionString == std::string("0.") + std::string("0.0") ||
+         versionString == std::string("0.0.0+DEBUG")))
     {
         std::string y = std::string(__DATE__ + 7);
-        std::string d = std::string(__DATE__ + 4 +
-            (__DATE__[4] == ' ' ? 1 : 0),
-            __DATE__[4] == ' ' ? 1 : 2 );
+        std::string d = std::string(
+            __DATE__ + 4 + (__DATE__[4] == ' ' ? 1 : 0),
+            __DATE__[4] == ' ' ? 1 : 2);
         std::string m;
         switch (__DATE__[0])
         {
-            case 'J':
-            {
-                m = __DATE__[1] == 'a' ? "1" :
-                    __DATE__[2] == 'n' ? "6" : "7";
+            case 'J': {
+                m = __DATE__[1] == 'a' ? "1" : __DATE__[2] == 'n' ? "6" : "7";
                 break;
             }
-            case 'F':
-            {
+            case 'F': {
                 m = "2";
                 break;
             }
-            case 'M':
-            {
+            case 'M': {
                 m = __DATE__[2] == 'r' ? "3" : "5";
                 break;
             }
-            case 'A':
-            {
+            case 'A': {
                 m = __DATE__[1] == 'p' ? "4" : "8";
                 break;
             }
-            case 'S':
-            {
+            case 'S': {
                 m = "9";
                 break;
             }
-            case 'O':
-            {
+            case 'O': {
                 m = "10";
                 break;
             }
-            case 'N':
-            {
+            case 'N': {
                 m = "11";
                 break;
             }
-            case 'D':
-            {
+            case 'D': {
                 m = "12";
                 break;
             }
-            default:
-            {
+            default: {
                 m = "13";
                 break;
             }
         }
         generatedVersionString = y + "." + m + "." + d;
         generatedVersionString += "-CustomBuild";
-        #ifdef DEBUG
-            generatedVersionString += "+DEBUG";
-        #endif
+#ifdef DEBUG
+        generatedVersionString += "+DEBUG";
+#endif
     }
 
-
     static std::string const value = [&] {
-        std::string const s =
-            generatedVersionString != "" ? generatedVersionString : versionString;
+        std::string const s = generatedVersionString != ""
+            ? generatedVersionString
+            : versionString;
         beast::SemanticVersion v;
         if (!v.parse(s) || v.print() != s)
             LogicError(s + ": Bad server version string");
@@ -142,7 +133,6 @@ static constexpr std::uint64_t implementationVersionIdentifierMask =
 std::uint64_t
 encodeSoftwareVersion(char const* versionStr)
 {
-
     std::uint64_t c = implementationVersionIdentifier;
 
     beast::SemanticVersion v;

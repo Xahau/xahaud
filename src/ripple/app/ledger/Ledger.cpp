@@ -207,13 +207,15 @@ Ledger::Ledger(
     {
         auto const sle = std::make_shared<SLE>(keylet::amendments());
 
-        // filter out XahauGenesis, which should be always activated with an EnableAmendment txn
+        // filter out XahauGenesis, which should be always activated with an
+        // EnableAmendment txn
         std::vector<uint256> amendmentsLessXahauGenesis;
-        for (auto a: amendments)
+        for (auto a : amendments)
             if (a != featureXahauGenesis)
                 amendmentsLessXahauGenesis.push_back(a);
 
-        sle->setFieldV256(sfAmendments, STVector256{amendmentsLessXahauGenesis});
+        sle->setFieldV256(
+            sfAmendments, STVector256{amendmentsLessXahauGenesis});
         rawInsert(sle);
     }
 

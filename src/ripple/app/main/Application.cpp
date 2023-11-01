@@ -1109,7 +1109,11 @@ private:
     loadLedgerFromJson(std::string const& jsonValue);
 
     bool
-    loadOldLedger(std::string const& ledgerID, bool replay, bool isFilename, bool isJson);
+    loadOldLedger(
+        std::string const& ledgerID,
+        bool replay,
+        bool isFilename,
+        bool isJson);
 
     void
     setMaxDisallowedLedger();
@@ -1328,10 +1332,11 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             return false;
         }
     }
-    
+
     if (config_->IMPORT_VL_KEYS.empty())
     {
-        JLOG(m_journal.warn()) << "[import_vl_keys] section not specified validators file. "
+        JLOG(m_journal.warn())
+            << "[import_vl_keys] section not specified validators file. "
             << "Will attempt to use keys from ledger.";
     }
 
@@ -1727,37 +1732,34 @@ ApplicationImp::startGenesisLedger()
     m_ledgerMaster->storeLedger(next);
     m_ledgerMaster->switchLCL(next);
 
-    // XahauGenesis must be activated via an enable amendment pseudo txn, otherwise it does nothing
-    // so rather than add it directly to the amendments table, here is its activation on the first open
-    // ledger.
-    for (auto const& a: initialAmendments)
+    // XahauGenesis must be activated via an enable amendment pseudo txn,
+    // otherwise it does nothing so rather than add it directly to the
+    // amendments table, here is its activation on the first open ledger.
+    for (auto const& a : initialAmendments)
     {
         if (a == featureXahauGenesis)
         {
-             STTx amendTx(
-                 ttAMENDMENT,
-                 [&](auto& obj) {
-                     obj.setAccountID(sfAccount, AccountID());
-                     obj.setFieldH256(sfAmendment, featureXahauGenesis);
-                     obj.setFieldU32(sfLedgerSequence, openLedger_->current()->info().seq);
-                 });
+            STTx amendTx(ttAMENDMENT, [&](auto& obj) {
+                obj.setAccountID(sfAccount, AccountID());
+                obj.setFieldH256(sfAmendment, featureXahauGenesis);
+                obj.setFieldU32(
+                    sfLedgerSequence, openLedger_->current()->info().seq);
+            });
 
-             auto txID = amendTx.getTransactionID();
+            auto txID = amendTx.getTransactionID();
 
-             auto s = std::make_shared<Serializer>();
-             amendTx.add(*s);
+            auto s = std::make_shared<Serializer>();
+            amendTx.add(*s);
 
-             forceValidity(getHashRouter(), txID, Validity::SigGoodOnly);
+            forceValidity(getHashRouter(), txID, Validity::SigGoodOnly);
 
-             openLedger_->modify(
-                 [&txID, &s](OpenView& view, beast::Journal j) {
-                     view.rawTxInsert(txID, std::move(s), nullptr);
-                     return true;
-                 });
-             break;
+            openLedger_->modify([&txID, &s](OpenView& view, beast::Journal j) {
+                view.rawTxInsert(txID, std::move(s), nullptr);
+                return true;
+            });
+            break;
         }
     }
-
 }
 
 std::shared_ptr<Ledger>

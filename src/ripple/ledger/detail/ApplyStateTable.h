@@ -27,9 +27,8 @@
 #include <ripple/ledger/ReadView.h>
 #include <ripple/protocol/TER.h>
 #include <ripple/protocol/TxMeta.h>
-#include <utility>
 #include <memory>
-
+#include <utility>
 
 namespace ripple {
 namespace detail {
@@ -67,7 +66,6 @@ public:
     void
     apply(RawView& to) const;
 
-
     std::pair<TxMeta, Mods>
     generateTxMeta(
         OpenView const& to,
@@ -76,7 +74,7 @@ public:
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
         beast::Journal j);
-    
+
     void
     apply(
         OpenView& to,
@@ -140,7 +138,6 @@ public:
     }
 
 private:
-
     static void
     threadItem(TxMeta& meta, std::shared_ptr<SLE> const& to);
 

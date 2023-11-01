@@ -18,11 +18,11 @@
 //==============================================================================
 
 #include <ripple/app/tx/impl/GenesisMint.h>
+#include <ripple/app/tx/impl/Import.h>
 #include <ripple/basics/Log.h>
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
-#include <ripple/app/tx/impl/Import.h>
 
 namespace ripple {
 
@@ -52,19 +52,18 @@ GenesisMint::preflight(PreflightContext const& ctx)
     static auto const genesisAccountId = calcAccountID(
         generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
             .first);
-                
+
     if (id != genesisAccountId || !tx.isFieldPresent(sfEmitDetails))
     {
-        JLOG(ctx.j.warn())
-            << "GenesisMint: can only be used by the genesis account in an emitted transaction.";
+        JLOG(ctx.j.warn()) << "GenesisMint: can only be used by the genesis "
+                              "account in an emitted transaction.";
         return temMALFORMED;
     }
 
     auto const& dests = tx.getFieldArray(sfGenesisMints);
     if (dests.empty())
     {
-        JLOG(ctx.j.warn())
-            << "GenesisMint: destinations array empty.";
+        JLOG(ctx.j.warn()) << "GenesisMint: destinations array empty.";
         return temMALFORMED;
     }
 
@@ -76,12 +75,12 @@ GenesisMint::preflight(PreflightContext const& ctx)
     }
 
     std::unordered_set<AccountID> alreadySeen;
-    for (auto const& dest: dests)
+    for (auto const& dest : dests)
     {
         if (dest.getFName() != sfGenesisMint)
         {
-            JLOG(ctx.j.warn())
-                << "GenesisMint: destinations array contained an invalid entry.";
+            JLOG(ctx.j.warn()) << "GenesisMint: destinations array contained "
+                                  "an invalid entry.";
             return temMALFORMED;
         }
 
@@ -123,26 +122,24 @@ GenesisMint::preflight(PreflightContext const& ctx)
 
             if (amt.xrp().drops() > 10'000'000'000'000ULL)
             {
-                JLOG(ctx.j.warn())
-                    << "GenesisMint: cannot mint more than 10MM in a single txn.";
+                JLOG(ctx.j.warn()) << "GenesisMint: cannot mint more than 10MM "
+                                      "in a single txn.";
                 return temMALFORMED;
             }
         }
-
 
         auto const accid = dest.getAccountID(sfDestination);
 
         if (accid == noAccount() || accid == xrpAccount())
         {
-            JLOG(ctx.j.warn())
-                << "GenesisMint: destinations includes disallowed account zero or one.";
+            JLOG(ctx.j.warn()) << "GenesisMint: destinations includes "
+                                  "disallowed account zero or one.";
             return temMALFORMED;
         }
-        
+
         if (alreadySeen.find(accid) != alreadySeen.end())
         {
-            JLOG(ctx.j.warn())
-                << "GenesisMint: duplicate in destinations.";
+            JLOG(ctx.j.warn()) << "GenesisMint: duplicate in destinations.";
             return temMALFORMED;
         }
 
@@ -174,8 +171,8 @@ GenesisMint::doApply()
 {
     auto const& dests = ctx_.tx.getFieldArray(sfGenesisMints);
 
-    STAmount dropsAdded { 0 };
-    for (auto const& dest: dests)
+    STAmount dropsAdded{0};
+    for (auto const& dest : dests)
     {
         auto const amt = dest[~sfAmount];
 
@@ -197,9 +194,8 @@ GenesisMint::doApply()
         if (created)
         {
             // Create the account.
-            std::uint32_t const seqno {
-                view().info().parentCloseTime.time_since_epoch().count()
-            };
+            std::uint32_t const seqno{
+                view().info().parentCloseTime.time_since_epoch().count()};
 
             sle = std::make_shared<SLE>(k);
             sle->setAccountID(sfAccount, id);
@@ -211,9 +207,11 @@ GenesisMint::doApply()
                 sle->setFieldAmount(sfBalance, *amt);
                 dropsAdded += *amt;
             }
-            else    // give them 2 XRP if the account didn't exist, same as ttIMPORT
+            else  // give them 2 XRP if the account didn't exist, same as
+                  // ttIMPORT
             {
-                XRPAmount const initialXrp = Import::computeStartingBonus(ctx_.view());
+                XRPAmount const initialXrp =
+                    Import::computeStartingBonus(ctx_.view());
                 sle->setFieldAmount(sfBalance, initialXrp);
                 dropsAdded += initialXrp;
             }
@@ -225,8 +223,8 @@ GenesisMint::doApply()
             STAmount finalBal = startBal + *amt;
             if (finalBal <= startBal)
             {
-                JLOG(ctx_.journal.warn())
-                    << "GenesisMint: cannot credit " << dest << " due to balance overflow";
+                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit "
+                                          << dest << " due to balance overflow";
                 return tecINTERNAL;
             }
 
@@ -248,10 +246,10 @@ GenesisMint::doApply()
     }
 
     // update ledger header
-    if (dropsAdded < beast::zero || dropsAdded.xrp() + view().info().drops < view().info().drops)
+    if (dropsAdded < beast::zero ||
+        dropsAdded.xrp() + view().info().drops < view().info().drops)
     {
-        JLOG(ctx_.journal.warn())
-            << "GenesisMint: dropsAdded overflowed\n";
+        JLOG(ctx_.journal.warn()) << "GenesisMint: dropsAdded overflowed\n";
         return tecINTERNAL;
     }
 
@@ -264,7 +262,7 @@ GenesisMint::doApply()
 XRPAmount
 GenesisMint::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    return XRPAmount { 0 } ;
+    return XRPAmount{0};
 }
 
 }  // namespace ripple

@@ -2390,7 +2390,6 @@ public:
         ;
     }
 
-
     void
     testTransactionRPC()
     {

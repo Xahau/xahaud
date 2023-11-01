@@ -175,15 +175,15 @@ public:
         env.memoize("bob");
         env.fund(XRP(1000), "bob");
         env.close();
-        
+
         env.memoize("alice");
         env.fund(XRP(1000), "alice");
         env.close();
-        
+
         env.memoize("carol");
         env.fund(XRP(1000), "carol");
         env.close();
-        
+
         auto result = env.rpc("ledger_request", "1")[jss::result];
         BEAST_EXPECT(result[jss::ledger][jss::ledger_index] == "1");
         BEAST_EXPECT(

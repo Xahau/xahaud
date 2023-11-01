@@ -80,20 +80,19 @@ isXRP(Currency const& c)
 inline bool
 isBadCurrency(Currency const& c)
 {
-    static const std::set<Currency> badCurrencies {
-        Currency(0x7861680000000000), //xah
-        Currency(0x7861480000000000), //xaH
-        Currency(0x7841680000000000), //xAh
-        Currency(0x7841480000000000), //xAH
-        Currency(0x5861680000000000), //Xah
-        Currency(0x5861480000000000), //XaH
-        Currency(0x5841680000000000), //XAh
-        Currency(0x5841480000000000)  //XAH
+    static const std::set<Currency> badCurrencies{
+        Currency(0x7861680000000000),  // xah
+        Currency(0x7861480000000000),  // xaH
+        Currency(0x7841680000000000),  // xAh
+        Currency(0x7841480000000000),  // xAH
+        Currency(0x5861680000000000),  // Xah
+        Currency(0x5861480000000000),  // XaH
+        Currency(0x5841680000000000),  // XAh
+        Currency(0x5841480000000000)   // XAH
     };
 
     return badCurrencies.find(c) != badCurrencies.end();
 }
-
 
 /** Returns "", "XAH", or three letter ISO code. */
 std::string

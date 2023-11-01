@@ -679,7 +679,7 @@ trustTransferAllowed(
             // the point of transfer.
             continue;
         }
-        
+
         // sanity check the line, insane lines are a bar to xfer
         if (lockedBalanceAllowed)
         {

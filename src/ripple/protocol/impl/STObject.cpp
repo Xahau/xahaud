@@ -199,8 +199,7 @@ STObject::set(SerialIter& sit, int depth)
         {
             if (++nop_counter == 64)
             {
-                JLOG(debugLog().error())
-                    << "Too many NOPS";
+                JLOG(debugLog().error()) << "Too many NOPS";
                 Throw<std::runtime_error>("Too many NOPS");
             }
             continue;

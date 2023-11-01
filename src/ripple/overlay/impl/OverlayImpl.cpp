@@ -470,7 +470,6 @@ OverlayImpl::remove(std::shared_ptr<PeerFinder::Slot> const& slot)
 void
 OverlayImpl::start()
 {
-
     PeerFinder::Config config = PeerFinder::Config::makeConfig(
         app_.config(),
         serverHandler_.setup().overlay.port,
@@ -480,9 +479,7 @@ OverlayImpl::start()
     m_peerFinder->setConfig(config);
     m_peerFinder->start();
 
-    auto addIps = [&](std::vector<std::string> bootstrapIps) -> void
-    {
-
+    auto addIps = [&](std::vector<std::string> bootstrapIps) -> void {
         beast::Journal const& j = app_.journal("Overlay");
         for (auto& ip : bootstrapIps)
         {
@@ -495,18 +492,16 @@ OverlayImpl::start()
 
         m_resolver.resolve(
             bootstrapIps,
-            [&](
-                std::string const& name,
+            [&](std::string const& name,
                 std::vector<beast::IP::Endpoint> const& addresses) {
                 std::vector<std::string> ips;
                 ips.reserve(addresses.size());
                 beast::Journal const& j = app_.journal("Overlay");
                 for (auto const& addr : addresses)
                 {
-                    std::string addrStr = 
-                        addr.port() == 0
-                            ?   to_string(addr.at_port(DEFAULT_PEER_PORT))
-                            :   to_string(addr);
+                    std::string addrStr = addr.port() == 0
+                        ? to_string(addr.at_port(DEFAULT_PEER_PORT))
+                        : to_string(addr);
                     JLOG(j.trace()) << "Parsed boostrap IP: " << addrStr;
                     ips.push_back(addrStr);
                 }
@@ -514,16 +509,15 @@ OverlayImpl::start()
                 std::string const base("config: ");
                 if (!ips.empty())
                     m_peerFinder->addFallbackStrings(base + name, ips);
-
             });
     };
-    
+
     if (!app_.config().IPS.empty())
         addIps(app_.config().IPS);
-    
+
     if (!app_.config().IPS_FIXED.empty())
         addIps(app_.config().IPS_FIXED);
-       
+
     auto const timer = std::make_shared<Timer>(*this);
     std::lock_guard lock(mutex_);
     list_.emplace(timer.get(), timer);

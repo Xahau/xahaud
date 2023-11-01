@@ -127,9 +127,11 @@ public:
     }
 
     void
-    setStatus(TransStatus status, std::uint32_t ledgerSeq,
-        std::optional<uint32_t> transactionSeq = std::nullopt, std::optional<uint16_t> networkID = std::nullopt);
-
+    setStatus(
+        TransStatus status,
+        std::uint32_t ledgerSeq,
+        std::optional<uint32_t> transactionSeq = std::nullopt,
+        std::optional<uint16_t> networkID = std::nullopt);
 
     void
     setStatus(TransStatus status)

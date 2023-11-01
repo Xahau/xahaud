@@ -61,15 +61,17 @@ checkValidity(
             // pass, this txn came out of the emission directory
         }
         else
-            return {Validity::SigBad, "Emitted txn was not marked for preflight nor out of the emission directory"};
-            
+            return {
+                Validity::SigBad,
+                "Emitted txn was not marked for preflight nor out of the "
+                "emission directory"};
+
         std::string reason;
         if (!passesLocalChecks(tx, reason))
             return {Validity::SigGoodOnly, reason};
-        
+
         return {Validity::Valid, ""};
     }
-
 
     if (flags & SF_SIGBAD)
         // Signature is known bad
