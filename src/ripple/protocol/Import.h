@@ -21,11 +21,11 @@
 #define RIPPLE_PROTOCOL_IMPORT_H_INCLUDED
 
 // #include <ripple/basics/Log.h>
-#include <charconv>
 #include <ripple/app/misc/Manifest.h>
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/basics/base64.h>
 #include <ripple/json/json_reader.h>
+#include <charconv>
 
 namespace ripple {
 
@@ -64,10 +64,15 @@ parse_uint64(std::string const& str)
 }
 
 inline bool
-syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 0)
+syntaxCheckProof(
+    Json::Value const& proof,
+    beast::Journal const& j,
+    int depth = 0)
 {
-    if (depth > 64) {
-        JLOG(j.warn()) << "XPOP.transaction.proof list should be less than 64 entries";
+    if (depth > 64)
+    {
+        JLOG(j.warn())
+            << "XPOP.transaction.proof list should be less than 64 entries";
         return false;
     }
 
@@ -76,7 +81,8 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
         // List form
         if (proof.size() != 16)
         {
-            JLOG(j.warn()) << "XPOP.transaction.proof list should be exactly 16 entries";
+            JLOG(j.warn())
+                << "XPOP.transaction.proof list should be exactly 16 entries";
             return false;
         }
         for (const auto& entry : proof)
@@ -85,9 +91,10 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
             {
                 if (!isHex(entry.asString()) || entry.asString().size() != 64)
                 {
-                    JLOG(j.warn()) << "XPOP.transaction.proof list entry missing "
-                                  "or wrong format "
-                               << "(should be hex string with 64 characters)";
+                    JLOG(j.warn())
+                        << "XPOP.transaction.proof list entry missing "
+                           "or wrong format "
+                        << "(should be hex string with 64 characters)";
                     return false;
                 }
             }
@@ -107,7 +114,7 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
     else if (proof.isObject())
     {
         // Tree form
-        if (depth == 0) // root is special case
+        if (depth == 0)  // root is special case
         {
             if (!proof["hash"].isString() ||
                 proof["hash"].asString().size() != 64 ||
@@ -115,8 +122,8 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
                 proof["key"].asString().size() != 64 ||
                 !proof["children"].isObject())
             {
-                JLOG(j.warn())
-                    << "XPOP.transaction.proof tree node has wrong format (root)";
+                JLOG(j.warn()) << "XPOP.transaction.proof tree node has wrong "
+                                  "format (root)";
                 return false;
             }
 
@@ -127,8 +134,9 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
         {
             if (branch.size() != 1 || !isHex(branch))
             {
-                JLOG(j.warn()) << "XPOP.transaction.proof child node was not 0-F "
-                              "hex nibble";
+                JLOG(j.warn())
+                    << "XPOP.transaction.proof child node was not 0-F "
+                       "hex nibble";
                 return false;
             }
 
@@ -143,9 +151,9 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
                     << "XPOP.transaction.proof tree node has wrong format";
                 return false;
             }
-            if (!syntaxCheckProof(node["children"], j, depth + 1)) {
-                JLOG(j.warn())
-                    << "XPOP.transaction.proof bad children format";
+            if (!syntaxCheckProof(node["children"], j, depth + 1))
+            {
+                JLOG(j.warn()) << "XPOP.transaction.proof bad children format";
                 return false;
             }
         }
@@ -153,7 +161,7 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
     else
     {
         JLOG(j.warn()) << "XPOP.transaction.proof has wrong format (should be "
-                      "array or object)";
+                          "array or object)";
         return false;
     }
 
@@ -161,9 +169,8 @@ syntaxCheckProof(Json::Value const& proof, beast::Journal const& j, int depth = 
 }
 
 // does not check signature etc
-inline
-std::optional<Json::Value>
-syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
+inline std::optional<Json::Value>
+syntaxCheckXPOP(Blob const& blob, beast::Journal const& j)
 {
     if (blob.empty())
         return {};
@@ -211,8 +218,9 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             xpop["ledger"]["acroot"].asString().size() != 64 ||
             !isHex(xpop["ledger"]["acroot"].asString()))
         {
-            JLOG(j.warn()) << "XPOP.ledger.acroot missing or wrong format (should "
-                          "be hex string)";
+            JLOG(j.warn())
+                << "XPOP.ledger.acroot missing or wrong format (should "
+                   "be hex string)";
             return {};
         }
 
@@ -221,7 +229,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             !isHex(xpop["ledger"]["txroot"].asString()))
         {
             JLOG(j.warn()) << "XPOP.ledger.txroot missing or wrong format "
-                          "(should be hex string)";
+                              "(should be hex string)";
             return {};
         }
 
@@ -230,14 +238,14 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             !isHex(xpop["ledger"]["phash"].asString()))
         {
             JLOG(j.warn()) << "XPOP.ledger.phash missing or wrong format "
-                          "(should be hex string)";
+                              "(should be hex string)";
             return {};
         }
 
         if (!xpop["ledger"]["close"].isInt())
         {
             JLOG(j.warn()) << "XPOP.ledger.close missing or wrong format "
-                          "(should be int)";
+                              "(should be int)";
             return {};
         }
 
@@ -250,42 +258,42 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             if (!parse_uint64(xpop["ledger"]["coins"].asString()))
             {
                 JLOG(j.warn()) << "XPOP.ledger.coins missing or wrong format "
-                              "(should be int or string)";
+                                  "(should be int or string)";
                 return {};
             }
         }
         else
         {
             JLOG(j.warn()) << "XPOP.ledger.coins missing or wrong format "
-                          "(should be int or string)";
+                              "(should be int or string)";
             return {};
         }
 
         if (!xpop["ledger"]["cres"].isInt())
         {
             JLOG(j.warn()) << "XPOP.ledger.cres missing or wrong format "
-                          "(should be int)";
+                              "(should be int)";
             return {};
         }
 
         if (!xpop["ledger"]["index"].isInt())
         {
             JLOG(j.warn()) << "XPOP.ledger.index missing or wrong format "
-                          "(should be int)";
+                              "(should be int)";
             return {};
         }
 
         if (!xpop["ledger"]["flags"].isInt())
         {
             JLOG(j.warn()) << "XPOP.ledger.flags missing or wrong format "
-                          "(should be int)";
+                              "(should be int)";
             return {};
         }
 
         if (!xpop["ledger"]["pclose"].isInt())
         {
             JLOG(j.warn()) << "XPOP.ledger.pclose missing or wrong format "
-                          "(should be int)";
+                              "(should be int)";
             return {};
         }
 
@@ -293,7 +301,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             !isHex(xpop["transaction"]["blob"].asString()))
         {
             JLOG(j.warn()) << "XPOP.transaction.blob missing or wrong format "
-                          "(should be hex string)";
+                              "(should be hex string)";
             return {};
         }
 
@@ -301,28 +309,28 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             !isHex(xpop["transaction"]["meta"].asString()))
         {
             JLOG(j.warn()) << "XPOP.transaction.meta missing or wrong format "
-                          "(should be hex string)";
+                              "(should be hex string)";
             return {};
         }
 
         if (!syntaxCheckProof(xpop["transaction"]["proof"], j))
         {
             JLOG(j.warn()) << "XPOP.transaction.proof failed syntax check "
-                          "(tree/list form)";
+                              "(tree/list form)";
             return {};
         }
 
         if (!xpop["validation"]["data"].isObject())
         {
             JLOG(j.warn()) << "XPOP.validation.data missing or wrong format "
-                          "(should be JSON object)";
+                              "(should be JSON object)";
             return {};
         }
 
         if (!xpop["validation"]["unl"].isObject())
         {
             JLOG(j.warn()) << "XPOP.validation.unl missing or wrong format "
-                          "(should be JSON object)";
+                              "(should be JSON object)";
             return {};
         }
 
@@ -332,8 +340,8 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             if (!isBase58(key) || !value.isString() || !isHex(value.asString()))
             {
                 JLOG(j.warn()) << "XPOP.validation.data entry has wrong format "
-                           << "(key should be base58 string and value "
-                              "should be hex string)";
+                               << "(key should be base58 string and value "
+                                  "should be hex string)";
                 return {};
             }
         }
@@ -346,8 +354,9 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             {
                 if (!value.isString() || !isHex(value.asString()))
                 {
-                    JLOG(j.warn()) << "XPOP.validation.unl.public_key missing or "
-                                  "wrong format (should be hex string)";
+                    JLOG(j.warn())
+                        << "XPOP.validation.unl.public_key missing or "
+                           "wrong format (should be hex string)";
                     return {};
                 }
 
@@ -355,7 +364,8 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
 
                 if (!publicKeyType(makeSlice(*pk)))
                 {
-                    JLOG(j.warn()) << "XPOP.validation.unl.public_key invalid key type.";
+                    JLOG(j.warn())
+                        << "XPOP.validation.unl.public_key invalid key type.";
                     return {};
                 }
                 found |= 1;
@@ -365,7 +375,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
                 if (!value.isString() || !isBase64(value.asString()))
                 {
                     JLOG(j.warn()) << "XPOP.validation.unl.manifest missing or "
-                                  "wrong format (should be string)";
+                                      "wrong format (should be string)";
                     return {};
                 }
                 found |= 2;
@@ -374,8 +384,9 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
             {
                 if (!value.isString() || !isBase64(value.asString()))
                 {
-                    JLOG(j.warn()) << "XPOP.validation.unl.blob missing or wrong "
-                                  "format (should be base64 string)";
+                    JLOG(j.warn())
+                        << "XPOP.validation.unl.blob missing or wrong "
+                           "format (should be base64 string)";
                     return {};
                 }
                 found |= 4;
@@ -396,7 +407,7 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
                 if (!value.isInt())
                 {
                     JLOG(j.warn()) << "XPOP.validation.unl.version missing or "
-                                  "wrong format (should be int)";
+                                      "wrong format (should be int)";
                     return {};
                 }
                 found |= 16;
@@ -414,8 +425,8 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
 
         if (found != 0b11111)
         {
-            JLOG(j.warn())
-                << "XPOP.validation.unl entry has wrong format (missing field/s)";
+            JLOG(j.warn()) << "XPOP.validation.unl entry has wrong format "
+                              "(missing field/s)";
             return {};
         }
 
@@ -430,26 +441,28 @@ syntaxCheckXPOP(Blob const& blob,  beast::Journal const& j)
 }
 
 // <sequence, master key>
-inline
-std::optional<std::pair< uint32_t, PublicKey>>
+inline std::optional<std::pair<uint32_t, PublicKey>>
 getVLInfo(Json::Value const& xpop, beast::Journal const& j)
-{  
-    auto const data = base64_decode(xpop[jss::validation][jss::unl][jss::blob].asString());
+{
+    auto const data =
+        base64_decode(xpop[jss::validation][jss::unl][jss::blob].asString());
     Json::Reader r;
     Json::Value list;
     if (!r.parse(data, list))
     {
-        JLOG(j.warn()) << "Import: unl blob was not valid json (after base64 decoding)";
+        JLOG(j.warn())
+            << "Import: unl blob was not valid json (after base64 decoding)";
         return {};
     }
     auto const sequence = list[jss::sequence].asUInt();
-    auto const m = deserializeManifest(base64_decode(xpop[jss::validation][jss::unl][jss::manifest].asString()));
+    auto const m = deserializeManifest(base64_decode(
+        xpop[jss::validation][jss::unl][jss::manifest].asString()));
     if (!m)
     {
         JLOG(j.warn()) << "Import: failed to deserialize manifest";
         return {};
     }
-    return { {sequence, m->masterKey} };
+    return {{sequence, m->masterKey}};
 }
 
 }  // namespace ripple

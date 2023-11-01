@@ -352,8 +352,8 @@ Env::postconditions(JTx const& jt, TER ter, bool didApply)
         !test.expect(
             ter == *jt.ter,
             "apply: Got " + transToken(ter) + " (" + transHuman(ter) +
-                ") [=" + std::to_string(ter.code_) + "]; Expected " + transToken(*jt.ter) + " (" +
-                transHuman(*jt.ter) + ")"))
+                ") [=" + std::to_string(ter.code_) + "]; Expected " +
+                transToken(*jt.ter) + " (" + transHuman(*jt.ter) + ")"))
     {
         test.log << pretty(jt.jv) << std::endl;
         auto const& m = meta();
@@ -382,8 +382,7 @@ Env::meta()
     auto cur = current()->txRead(txid_);
     if (cur.second)
         return cur.second;
-    else
-    if (cur.first)
+    else if (cur.first)
         close();
 
     return closed()->txRead(txid_).second;

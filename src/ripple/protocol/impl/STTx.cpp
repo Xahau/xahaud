@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/Enum.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/basics/contract.h>
@@ -34,7 +35,6 @@
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/jss.h>
-#include <ripple/app/hook/Enum.h>
 #include <boost/format.hpp>
 #include <array>
 #include <memory>
@@ -426,7 +426,6 @@ STTx::checkMultiSign(
 static bool
 isMemoOkay(STObject const& st, std::string& reason)
 {
-
     auto const maxKey = hook::maxHookParameterKeySize();
     auto const maxVal = hook::maxHookParameterValueSize();
 
@@ -446,19 +445,21 @@ isMemoOkay(STObject const& st, std::string& reason)
 
             if (!paramObj || (paramObj->getFName() != sfHookParameter))
             {
-                reason = "A HookParameters array may contain only HookParameter objects.";
+                reason =
+                    "A HookParameters array may contain only HookParameter "
+                    "objects.";
                 return false;
             }
 
             if (!paramObj->isFieldPresent(sfHookParameterName) ||
-                    paramObj->getFieldVL(sfHookParameterName).size() > maxKey)
+                paramObj->getFieldVL(sfHookParameterName).size() > maxKey)
             {
                 reason = "HookParameterName cannot exceed 32 bytes.";
                 return false;
             }
 
             if (!paramObj->isFieldPresent(sfHookParameterValue) ||
-                    paramObj->getFieldVL(sfHookParameterValue).size() > maxVal)
+                paramObj->getFieldVL(sfHookParameterValue).size() > maxVal)
             {
                 reason = "HookParameterValue cannot exceed 128 bytes.";
                 return false;
@@ -605,7 +606,8 @@ isPseudoTx(STObject const& tx)
         return false;
 
     auto tt = safe_cast<TxType>(*t);
-    return tt == ttAMENDMENT || tt == ttFEE || tt == ttUNL_MODIFY || tt == ttEMIT_FAILURE || tt == ttUNL_REPORT;
+    return tt == ttAMENDMENT || tt == ttFEE || tt == ttUNL_MODIFY ||
+        tt == ttEMIT_FAILURE || tt == ttUNL_REPORT;
 }
 
 }  // namespace ripple

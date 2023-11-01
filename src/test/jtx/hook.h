@@ -21,15 +21,18 @@
 #define RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 
 #include <ripple/json/json_value.h>
-#include <test/jtx/Account.h>
 #include <optional>
+#include <test/jtx/Account.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
 Json::Value
-hook(Account const& account, std::optional<std::vector<Json::Value>> hooks, std::uint32_t flags);
+hook(
+    Account const& account,
+    std::optional<std::vector<Json::Value>> hooks,
+    std::uint32_t flags);
 
 Json::Value
 hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv) = 0);

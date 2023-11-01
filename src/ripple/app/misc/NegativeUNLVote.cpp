@@ -23,7 +23,10 @@
 
 namespace ripple {
 
-NegativeUNLVote::NegativeUNLVote(NodeID const& myId, beast::Journal j, Application& app)
+NegativeUNLVote::NegativeUNLVote(
+    NodeID const& myId,
+    beast::Journal j,
+    Application& app)
     : myId_(myId), j_(j), app_(app)
 {
 }
@@ -101,7 +104,8 @@ NegativeUNLVote::doVoting(
         }
 
         // do reporting when enabled
-        if (prevLedger->rules().enabled(featureXahauGenesis) && scoreTable->size() > 0)
+        if (prevLedger->rules().enabled(featureXahauGenesis) &&
+            scoreTable->size() > 0)
         {
             addReportingTx(seq, *scoreTable, nidToKeyMap, initialSet);
             addImportVLTx(seq, initialSet);
@@ -119,18 +123,16 @@ NegativeUNLVote::addReportingTx(
     // RH NOTE: now that we use one key per txn with lots of txns
     // this ordering step is probably not needed
     std::set<PublicKey> ordered;
-    for (auto const& [n, score]: scoreTable)
+    for (auto const& [n, score] : scoreTable)
     {
-        if (score > (FLAG_LEDGER_INTERVAL>>1))
+        if (score > (FLAG_LEDGER_INTERVAL >> 1))
             ordered.emplace(nidToKeyMap.at(n));
     }
 
     for (auto const& pk : ordered)
     {
-        STTx repUnlTx(ttUNL_REPORT, [&](auto& obj)
-        {
-            obj.set(([&]()
-            {
+        STTx repUnlTx(ttUNL_REPORT, [&](auto& obj) {
+            obj.set(([&]() {
                 auto inner = std::make_unique<STObject>(sfActiveValidator);
                 inner->setFieldVL(sfPublicKey, pk);
                 return inner;
@@ -150,10 +152,11 @@ NegativeUNLVote::addReportingTx(
         }
         else
         {
-            JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
-                             << ", add a ttUNL_REPORT (active_val) Tx with txID: " << txID
-                             << ", size=" << s.size()
-                             << ", " << repUnlTx.getJson(JsonOptions::none);
+            JLOG(j_.debug())
+                << "R-UNL: ledger seq=" << seq
+                << ", add a ttUNL_REPORT (active_val) Tx with txID: " << txID
+                << ", size=" << s.size() << ", "
+                << repUnlTx.getJson(JsonOptions::none);
         }
     }
 }
@@ -166,10 +169,8 @@ NegativeUNLVote::generateImportVLVoteTx(
     std::vector<STTx> out;
     for (auto const& [_, pk] : importVLKeys)
     {
-        STTx repUnlTx(ttUNL_REPORT, [pk = pk, seq](auto& obj)
-        {
-            obj.set(([&]()
-            {
+        STTx repUnlTx(ttUNL_REPORT, [pk = pk, seq](auto& obj) {
+            obj.set(([&]() {
                 auto inner = std::make_unique<STObject>(sfImportVLKey);
                 inner->setFieldVL(sfPublicKey, pk);
                 return inner;
@@ -192,7 +193,7 @@ NegativeUNLVote::addImportVLTx(
     std::vector<STTx> toInject =
         generateImportVLVoteTx(app_.config().IMPORT_VL_KEYS, seq);
 
-    for (auto const& repUnlTx: toInject)
+    for (auto const& repUnlTx : toInject)
     {
         uint256 txID = repUnlTx.getTransactionID();
         Serializer s;
@@ -206,10 +207,11 @@ NegativeUNLVote::addImportVLTx(
         }
         else
         {
-            JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
-                             << ", add a ttUNL_REPORT (import_vl) Tx with txID: " << txID
-                             << ", size=" << s.size()
-                             << ", " << repUnlTx.getJson(JsonOptions::none);
+            JLOG(j_.debug())
+                << "R-UNL: ledger seq=" << seq
+                << ", add a ttUNL_REPORT (import_vl) Tx with txID: " << txID
+                << ", size=" << s.size() << ", "
+                << repUnlTx.getJson(JsonOptions::none);
         }
     }
 }

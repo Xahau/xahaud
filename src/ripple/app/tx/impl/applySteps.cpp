@@ -29,6 +29,9 @@
 #include <ripple/app/tx/impl/DeleteAccount.h>
 #include <ripple/app/tx/impl/DepositPreauth.h>
 #include <ripple/app/tx/impl/Escrow.h>
+#include <ripple/app/tx/impl/GenesisMint.h>
+#include <ripple/app/tx/impl/Import.h>
+#include <ripple/app/tx/impl/Invoke.h>
 #include <ripple/app/tx/impl/NFTokenAcceptOffer.h>
 #include <ripple/app/tx/impl/NFTokenBurn.h>
 #include <ripple/app/tx/impl/NFTokenCancelOffer.h>
@@ -37,14 +40,11 @@
 #include <ripple/app/tx/impl/PayChan.h>
 #include <ripple/app/tx/impl/Payment.h>
 #include <ripple/app/tx/impl/SetAccount.h>
+#include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/SetRegularKey.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/SetTrust.h>
-#include <ripple/app/tx/impl/SetHook.h>
-#include <ripple/app/tx/impl/Import.h>
-#include <ripple/app/tx/impl/Invoke.h>
 #include <ripple/app/tx/impl/URIToken.h>
-#include <ripple/app/tx/impl/GenesisMint.h>
 
 namespace ripple {
 
@@ -184,7 +184,6 @@ template <class T>
 static TER
 invoke_preclaim(PreclaimContext const& ctx)
 {
-
     // If the transactor requires a valid account and the transaction doesn't
     // list one, preflight will have already a flagged a failure.
     auto const id = ctx.tx.getAccountID(sfAccount);
@@ -201,8 +200,7 @@ invoke_preclaim(PreclaimContext const& ctx)
         if (result != tesSUCCESS)
             return result;
 
-        result = 
-            T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
+        result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
         if (result != tesSUCCESS)
             return result;
@@ -420,7 +418,6 @@ TxConsequences::TxConsequences(STTx const& tx, std::uint32_t sequencesConsumed)
 static std::pair<TER, bool>
 invoke_apply(ApplyContext& ctx)
 {
-
     switch (ctx.tx.getTxnType())
     {
         case ttACCOUNT_DELETE: {
@@ -506,7 +503,7 @@ invoke_apply(ApplyContext& ctx)
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
-        case ttUNL_REPORT: 
+        case ttUNL_REPORT:
         case ttEMIT_FAILURE: {
             Change p(ctx);
             return p();

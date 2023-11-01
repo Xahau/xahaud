@@ -17,8 +17,8 @@
 */
 //==============================================================================
 #include <ripple/app/hook/Enum.h>
-#include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/ledger/LedgerMaster.h>
+#include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/app/SetHook_wasm.h>
@@ -486,7 +486,9 @@ public:
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
-                 {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000000"},
+                 {jss::HookOn,
+                  "000000000000000000000000000000000000000000000000000000000000"
+                  "0000"},
                  {jss::HookApiVersion, "0"},
                  {jss::HookNamespace, to_string(uint256{beast::zero})}})
         {
@@ -647,7 +649,9 @@ public:
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
-                 {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000000"},
+                 {jss::HookOn,
+                  "000000000000000000000000000000000000000000000000000000000000"
+                  "0000"},
                  {jss::HookApiVersion, "0"},
              })
         {
@@ -789,7 +793,9 @@ public:
             Json::Value iv;
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookApiVersion] = 0U;
-            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+            iv[jss::HookOn] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "00";
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -805,7 +811,9 @@ public:
             Json::Value iv;
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
-            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+            iv[jss::HookOn] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "00";
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -822,7 +830,9 @@ public:
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
             iv[jss::HookApiVersion] = 1U;
-            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+            iv[jss::HookOn] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "00";
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -1003,7 +1013,9 @@ public:
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
             iv[jss::HookApiVersion] = 0U;
-            iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+            iv[jss::HookOn] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "00";
             iv[jss::HookParameters] = Json::Value{Json::arrayValue};
             iv[jss::HookParameters][0U] = Json::Value{};
             iv[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
@@ -1082,7 +1094,9 @@ public:
             grants[0U][jss::HookGrant][jss::HookHash] = accept_hash_str;
 
             for (auto const& [key, value] : JSSMap{
-                     {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000001"},
+                     {jss::HookOn,
+                      "00000000000000000000000000000000000000000000000000000000"
+                      "00000001"},
                      {jss::HookNamespace,
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
@@ -1145,7 +1159,9 @@ public:
         // reset hookon and namespace to defaults
         {
             for (auto const& [key, value] : JSSMap{
-                     {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000000"},
+                     {jss::HookOn,
+                      "00000000000000000000000000000000000000000000000000000000"
+                      "00000000"},
                      {jss::HookNamespace, to_string(uint256{beast::zero})}})
             {
                 Json::Value iv;
@@ -1385,7 +1401,9 @@ public:
             grants[0U][jss::HookGrant][jss::HookHash] = accept_hash_str;
 
             for (auto const& [key, value] : JSSMap{
-                     {jss::HookOn, "0000000000000000000000000000000000000000000000000000000000000001"},
+                     {jss::HookOn,
+                      "00000000000000000000000000000000000000000000000000000000"
+                      "00000001"},
                      {jss::HookNamespace,
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
@@ -1545,7 +1563,7 @@ public:
     {
         testcase("with tickets");
         using namespace jtx;
-        
+
         Env env{*this, supported_amendments()};
 
         auto const alice = Account{"alice"};
@@ -1907,16 +1925,20 @@ public:
     {
         testcase("Test float_emit");
         using namespace jtx;
-        Env env{*this, envconfig(), supported_amendments(), nullptr, 
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments(),
+            nullptr,
             beast::severities::kWarning
-//            beast::severities::kTrace
+            //            beast::severities::kTrace
         };
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
-            
+
         TestHook hook = wasm[R"[test.hook](
         #include <stdint.h>
         extern int32_t _g(uint32_t, uint32_t);
@@ -2242,29 +2264,30 @@ public:
             M("set emit"),
             HSFEE);
         env.close();
-        
+
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
 
         Json::Value params{Json::arrayValue};
-        params[0U][jss::HookParameter][jss::HookParameterName ] = strHex(std::string("bob"));
-        params[0U][jss::HookParameter][jss::HookParameterValue] = strHex(bob.id());
+        params[0U][jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("bob"));
+        params[0U][jss::HookParameter][jss::HookParameterValue] =
+            strHex(bob.id());
 
         invoke[jss::HookParameters] = params;
 
         env(invoke, M("test emit"), fee(XRP(1)));
-        
+
         std::optional<uint256> emithash;
         {
-            auto meta = env.meta(); // meta can close
+            auto meta = env.meta();  // meta can close
 
             // ensure hook execution occured
             BEAST_REQUIRE(meta);
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
-            auto const hookExecutions =
-                meta->getFieldArray(sfHookExecutions);
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
             BEAST_REQUIRE(hookExecutions.size() == 1);
 
             // ensure there was one emitted txn
@@ -2277,27 +2300,31 @@ public:
             for (auto const& node : meta->getFieldArray(sfAffectedNodes))
             {
                 SField const& metaType = node.getFName();
-                uint16_t nodeType = node.getFieldU16(sfLedgerEntryType); 
+                uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
                 if (metaType == sfCreatedNode && nodeType == ltEMITTED_TXN)
                 {
                     BEAST_REQUIRE(node.isFieldPresent(sfNewFields));
 
-                    auto const& nf = 
-                        const_cast<ripple::STObject&>(node).getField(sfNewFields).downcast<STObject>();
-            
-                    auto const& et =
-                        const_cast<ripple::STObject&>(nf).getField(sfEmittedTxn).downcast<STObject>();
+                    auto const& nf = const_cast<ripple::STObject&>(node)
+                                         .getField(sfNewFields)
+                                         .downcast<STObject>();
 
-                    auto const& em =
-                        const_cast<ripple::STObject&>(et).getField(sfEmitDetails).downcast<STObject>();
-                   
+                    auto const& et = const_cast<ripple::STObject&>(nf)
+                                         .getField(sfEmittedTxn)
+                                         .downcast<STObject>();
+
+                    auto const& em = const_cast<ripple::STObject&>(et)
+                                         .getField(sfEmitDetails)
+                                         .downcast<STObject>();
+
                     BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == 1);
                     BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == 1);
-                    
+
                     Blob txBlob = et.getSerializer().getData();
-                    auto const tx = std::make_unique<STTx>(Slice { txBlob.data(), txBlob.size() });
+                    auto const tx = std::make_unique<STTx>(
+                        Slice{txBlob.data(), txBlob.size()});
                     emithash = tx->getTransactionID();
-                    
+
                     break;
                 }
             }
@@ -2307,7 +2334,7 @@ public:
 
         {
             auto balbefore = env.balance(bob).value().xrp().drops();
-        
+
             env.close();
 
             auto const ledger = env.closed();
@@ -2328,49 +2355,57 @@ public:
 
             env.close();
         }
-        
+
         uint64_t burden_expected = 2;
         for (int j = 0; j < 7; ++j)
         {
             auto const ledger = env.closed();
             for (auto& i : ledger->txs)
             {
-                auto const& em =
-                    const_cast<ripple::STTx&>(*(i.first)).getField(sfEmitDetails).downcast<STObject>();
+                auto const& em = const_cast<ripple::STTx&>(*(i.first))
+                                     .getField(sfEmitDetails)
+                                     .downcast<STObject>();
                 BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == burden_expected);
                 BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == j + 2);
                 BEAST_REQUIRE(i.second->isFieldPresent(sfHookExecutions));
-                auto const hookExecutions = i.second->getFieldArray(sfHookExecutions);
+                auto const hookExecutions =
+                    i.second->getFieldArray(sfHookExecutions);
                 BEAST_EXPECT(hookExecutions.size() == 1);
-                BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0); 
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
-                BEAST_EXPECT(hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
             }
             env.close();
             burden_expected *= 2U;
         }
-        
-        {    
+
+        {
             auto const ledger = env.closed();
             int txcount = 0;
             for (auto& i : ledger->txs)
             {
                 txcount++;
-                auto const& em =
-                    const_cast<ripple::STTx&>(*(i.first)).getField(sfEmitDetails).downcast<STObject>();
+                auto const& em = const_cast<ripple::STTx&>(*(i.first))
+                                     .getField(sfEmitDetails)
+                                     .downcast<STObject>();
                 BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == 256);
                 BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == 9);
                 BEAST_REQUIRE(i.second->isFieldPresent(sfHookExecutions));
-                auto const hookExecutions = i.second->getFieldArray(sfHookExecutions);
+                auto const hookExecutions =
+                    i.second->getFieldArray(sfHookExecutions);
                 BEAST_EXPECT(hookExecutions.size() == 1);
-                BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 283); // emission failure on first emit
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU64(sfHookReturnCode) ==
+                    283);  // emission failure on first emit
             }
             BEAST_EXPECT(txcount == 256);
         }
-        
+
         // next close will lead to zero transactions
         env.close();
-        {    
+        {
             auto const ledger = env.closed();
             int txcount = 0;
             for ([[maybe_unused]] auto& i : ledger->txs)
@@ -2435,7 +2470,6 @@ public:
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
-
     }
 
     void
@@ -2493,7 +2527,6 @@ public:
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_fee_base"), fee(XRP(1)));
-
     }
 
     void
@@ -2558,7 +2591,6 @@ public:
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_nonce"), fee(XRP(1)));
-
     }
 
     void
@@ -2609,7 +2641,6 @@ public:
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_reserve"), fee(XRP(1)));
-
     }
 
     void
@@ -4952,15 +4983,15 @@ public:
         BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
         // ensure there were two executions
-        auto const hookExecutions =
-            meta->getFieldArray(sfHookExecutions);
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 2);
 
         // get the data in the return code of the execution
         BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
-        
-        // RH TODO: test hook_again on a weak execution not following a strong execution to make sure it fails
+
+        // RH TODO: test hook_again on a weak execution not following a strong
+        // execution to make sure it fails
     }
 
     void
@@ -5227,33 +5258,28 @@ public:
 
         Json::Value iv;
         iv[jss::CreateCode] = strHex(hook);
-        iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+        iv[jss::HookOn] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
         iv[jss::HookApiVersion] = 0U;
-        iv[jss::HookNamespace] =  to_string(uint256{beast::zero});
+        iv[jss::HookNamespace] = to_string(uint256{beast::zero});
         Json::Value params{Json::arrayValue};
         for (uint32_t i = 0; i < 16; ++i)
         {
             Json::Value pv;
             Json::Value piv;
-            piv[jss::HookParameterName] =
-                strHex("param" + std::to_string(i));
-            piv[jss::HookParameterValue] =
-                strHex("value" + std::to_string(i));
+            piv[jss::HookParameterName] = strHex("param" + std::to_string(i));
+            piv[jss::HookParameterValue] = strHex("value" + std::to_string(i));
             pv[jss::HookParameter] = piv;
             params[i] = pv;
         }
         iv[jss::HookParameters] = params;
         jv[jss::Hooks][0U][jss::Hook] = iv;
-        env(jv,
-            M("set hook_param"),
-            HSFEE,
-            ter(tesSUCCESS));
+        env(jv, M("set hook_param"), HSFEE, ter(tesSUCCESS));
         env.close();
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param"), fee(XRP(1)));
         env.close();
-
     }
 
     void
@@ -5267,7 +5293,7 @@ public:
         Account const bob{"bob"};
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
-        
+
         TestHook checker_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -5419,17 +5445,16 @@ public:
 
         Json::Value iv;
         iv[jss::CreateCode] = strHex(setter_wasm);
-        iv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+        iv[jss::HookOn] =
+            "0000000000000000000000000000000000000000000000000000000000000000";
         iv[jss::HookApiVersion] = 0U;
-        iv[jss::HookNamespace] =  to_string(uint256{beast::zero});
+        iv[jss::HookNamespace] = to_string(uint256{beast::zero});
 
         Json::Value checkerpv;
         {
             Json::Value piv;
-            piv[jss::HookParameterName] = 
-                strHex(std::string("checker"));
-            piv[jss::HookParameterValue] =
-                checker_hash_str;
+            piv[jss::HookParameterName] = strHex(std::string("checker"));
+            piv[jss::HookParameterValue] = checker_hash_str;
             checkerpv[jss::HookParameter] = piv;
         }
 
@@ -5438,14 +5463,12 @@ public:
         {
             Json::Value pv;
             Json::Value piv;
-            piv[jss::HookParameterName] =
-                strHex("param" + std::to_string(i));
-            piv[jss::HookParameterValue] =
-                strHex(std::string("value0"));
+            piv[jss::HookParameterName] = strHex("param" + std::to_string(i));
+            piv[jss::HookParameterValue] = strHex(std::string("value0"));
             pv[jss::HookParameter] = piv;
             params[i] = pv;
         }
-        params[4U] = checkerpv;        
+        params[4U] = checkerpv;
 
         iv[jss::HookParameters] = params;
         jv[jss::Hooks][0U][jss::Hook] = iv;
@@ -5459,17 +5482,13 @@ public:
             jv[jss::Hooks][1U][jss::Hook] = Json::objectValue;
             jv[jss::Hooks][2U][jss::Hook] = Json::objectValue;
         }
-   
-        env(jv,
-            M("set hook_param_set"),
-            HSFEE,
-            ter(tesSUCCESS));
+
+        env(jv, M("set hook_param_set"), HSFEE, ter(tesSUCCESS));
         env.close();
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param_set"), fee(XRP(1)));
         env.close();
-
     }
 
     void
@@ -5499,12 +5518,7 @@ public:
 
         // install the hook on alice in all four spots
         env(ripple::test::jtx::hook(
-                alice,
-                {{hso(hook),
-                  hso(hook),
-                  hso(hook),
-                  hso(hook)}},
-                0),
+                alice, {{hso(hook), hso(hook), hso(hook), hso(hook)}}, 0),
             M("set hook_pos"),
             HSFEE,
             ter(tesSUCCESS));
@@ -5521,8 +5535,7 @@ public:
         BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
         // ensure there was four hook executions
-        auto const hookExecutions =
-            meta->getFieldArray(sfHookExecutions);
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 4);
 
         // get the data in the return code of the execution
@@ -5530,7 +5543,6 @@ public:
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
         BEAST_EXPECT(hookExecutions[2].getFieldU64(sfHookReturnCode) == 2);
         BEAST_EXPECT(hookExecutions[3].getFieldU64(sfHookReturnCode) == 3);
-
     }
 
     void
@@ -5604,7 +5616,6 @@ public:
 
         )[test.hook]"];
 
-
         TestHook pos_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -5617,7 +5628,7 @@ public:
                 accept(0,0,255);
             }
         )[test.hook]"];
-        
+
         HASH_WASM(pos);
 
         // install the hook on alice in one places
@@ -5632,7 +5643,6 @@ public:
             HSFEE,
             ter(tesSUCCESS));
         env.close();
-
 
         // invoke the hooks
         {
@@ -5649,8 +5659,7 @@ public:
         BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
         // ensure there was four hook executions
-        auto const hookExecutions =
-            meta->getFieldArray(sfHookExecutions);
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 2);
 
         // get the data in the return code of the execution
@@ -5806,9 +5815,12 @@ public:
 
         for (uint32_t i = 0; i < 3; ++i)
         {
-            auto const llh = env.app().getLedgerMaster().getClosedLedger()->info().hash;
+            auto const llh =
+                env.app().getLedgerMaster().getClosedLedger()->info().hash;
 
-            env(pay(bob, alice, XRP(1)), M("test ledger_last_hash"), fee(XRP(1)));
+            env(pay(bob, alice, XRP(1)),
+                M("test ledger_last_hash"),
+                fee(XRP(1)));
 
             auto meta = env.meta();
 
@@ -5817,8 +5829,7 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             // ensure there was only one hook execution
-            auto const hookExecutions =
-                meta->getFieldArray(sfHookExecutions);
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
             BEAST_REQUIRE(hookExecutions.size() == 1);
 
             // get the data in the return string of the extention
@@ -5866,16 +5877,17 @@ public:
         // invoke the hook a few times
         for (uint32_t i = 0; i < 3; ++i)
         {
-            int64_t llc = 
-            std::chrono::duration_cast<std::chrono::seconds>
-            (
-                env.app().getLedgerMaster()
-                    .getCurrentLedger()->info()
-                        .parentCloseTime
-                            .time_since_epoch()
-            ).count();
+            int64_t llc = std::chrono::duration_cast<std::chrono::seconds>(
+                              env.app()
+                                  .getLedgerMaster()
+                                  .getCurrentLedger()
+                                  ->info()
+                                  .parentCloseTime.time_since_epoch())
+                              .count();
 
-            env(pay(bob, alice, XRP(1)), M("test ledger_last_time"), fee(XRP(1)));
+            env(pay(bob, alice, XRP(1)),
+                M("test ledger_last_time"),
+                fee(XRP(1)));
             env.close();
             {
                 auto meta = env.meta();
@@ -5890,14 +5902,12 @@ public:
                 BEAST_REQUIRE(hookExecutions.size() == 1);
 
                 // get the data in the return code of the execution
-                auto const rc =
-                    hookExecutions[0].getFieldU64(sfHookReturnCode);
+                auto const rc = hookExecutions[0].getFieldU64(sfHookReturnCode);
 
                 // check that it matches the last ledger seq number
                 BEAST_EXPECT(llc == rc);
             }
         }
-
     }
 
     void
@@ -5947,12 +5957,17 @@ public:
             HSFEE);
         env.close();
 
-
-
         // invoke the hook
-        auto const seq = env.app().getLedgerMaster().getCurrentLedger()->info().seq;
-        auto const llc = env.app().getLedgerMaster().getCurrentLedger()->info().parentCloseTime.time_since_epoch().count();
-        auto const llh = env.app().getLedgerMaster().getCurrentLedger()->info().hash;
+        auto const seq =
+            env.app().getLedgerMaster().getCurrentLedger()->info().seq;
+        auto const llc = env.app()
+                             .getLedgerMaster()
+                             .getCurrentLedger()
+                             ->info()
+                             .parentCloseTime.time_since_epoch()
+                             .count();
+        auto const llh =
+            env.app().getLedgerMaster().getCurrentLedger()->info().hash;
 
         env(pay(bob, alice, XRP(1)), M("test ledger_nonce"), fee(XRP(1)));
         auto const txid = env.txid();
@@ -5964,31 +5979,31 @@ public:
         BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
         // ensure there was only one hook execution
-        auto const hookExecutions =
-            meta->getFieldArray(sfHookExecutions);
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
         // get the data in the return string of the extention
-        auto const retStr =
-            hookExecutions[0].getFieldVL(sfHookReturnString);
+        auto const retStr = hookExecutions[0].getFieldVL(sfHookReturnString);
 
         // check that it matches the expected size (two nonces = 64 bytes)
         BEAST_EXPECT(retStr.size() == 64);
 
         auto const computed_hash_1 = ripple::sha512Half(
             ripple::HashPrefix::hookNonce,
-            seq, llc, llh,
+            seq,
+            llc,
+            llh,
             txid,
             (uint16_t)0UL,
-            alice.id()
-        );
+            alice.id());
         auto const computed_hash_2 = ripple::sha512Half(
             ripple::HashPrefix::hookNonce,
-            seq, llc, llh,
+            seq,
+            llc,
+            llh,
             txid,
-            (uint16_t)1UL,              // second nonce
-            alice.id()
-        );
+            (uint16_t)1UL,  // second nonce
+            alice.id());
 
         BEAST_EXPECT(computed_hash_1 == uint256::fromVoid(retStr.data()));
         BEAST_EXPECT(computed_hash_2 == uint256::fromVoid(retStr.data() + 32));
@@ -6043,14 +6058,14 @@ public:
                 BEAST_REQUIRE(hookExecutions.size() == 1);
 
                 // get the data in the return code of the execution
-                auto const rc =
-                    hookExecutions[0].getFieldU64(sfHookReturnCode);
+                auto const rc = hookExecutions[0].getFieldU64(sfHookReturnCode);
 
                 // check that it matches the last ledger seq number
-                BEAST_EXPECT(env.app().getLedgerMaster().getClosedLedger()->info().seq == rc);
+                BEAST_EXPECT(
+                    env.app().getLedgerMaster().getClosedLedger()->info().seq ==
+                    rc);
             }
         }
-
     }
 
     void
@@ -6132,14 +6147,12 @@ public:
         BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
         // ensure there were two executions
-        auto const hookExecutions =
-            meta->getFieldArray(sfHookExecutions);
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 2);
 
         // get the data in the return code of the execution
         BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
-        
     }
 
     void
@@ -6444,7 +6457,7 @@ public:
 
         // invoke the hook
         env(jv, M("test otxn_type 2"), fee(XRP(1)));
-        
+
         // RH TODO: test behaviour on emit failure
     }
 
@@ -6560,10 +6573,8 @@ public:
         {
             Json::Value pv;
             Json::Value piv;
-            piv[jss::HookParameterName] =
-                strHex("param" + std::to_string(i));
-            piv[jss::HookParameterValue] =
-                strHex("value" + std::to_string(i));
+            piv[jss::HookParameterName] = strHex("param" + std::to_string(i));
+            piv[jss::HookParameterValue] = strHex("value" + std::to_string(i));
             pv[jss::HookParameter] = piv;
             params[i] = pv;
         }
@@ -6572,7 +6583,7 @@ public:
         env(invoke, M("test otxn_param"), fee(XRP(1)));
         env.close();
     }
-    
+
     void
     test_slot()
     {
@@ -7328,7 +7339,7 @@ public:
         env.fund(XRP(10000), bob);
 
         // set up a trustline which we can retrieve later
-        env(trust(alice, bob["USD"](600)));        
+        env(trust(alice, bob["USD"](600)));
         TestHook hook = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -7459,7 +7470,6 @@ public:
         testcase("Test state");
         using namespace jtx;
 
-
         Env env{*this, supported_amendments()};
 
         auto const bob = Account{"bob"};
@@ -7539,7 +7549,8 @@ public:
             env.close();
         }
 
-        // override hook with a second version that just reads those state objects
+        // override hook with a second version that just reads those state
+        // objects
         {
             TestHook hook = wasm[R"[test.hook](
                 #include <stdint.h>
@@ -7599,7 +7610,6 @@ public:
     {
         testcase("Test state_foreign");
         using namespace jtx;
-
 
         Env env{*this, supported_amendments()};
 
@@ -7740,15 +7750,17 @@ public:
                 }
             )[test.hook]"];
 
-            // install the hook on bob 
+            // install the hook on bob
             env(ripple::test::jtx::hook(bob, {{hso(hook, overrideFlag)}}, 0),
                 M("set state_foreign 2"),
                 HSFEE);
             env.close();
 
             // invoke the hook
-            
-            env(pay(alice, bob, XRP(1)), M("test state_foreign 2"), fee(XRP(1)));
+
+            env(pay(alice, bob, XRP(1)),
+                M("test state_foreign 2"),
+                fee(XRP(1)));
         }
     }
 
@@ -7758,19 +7770,17 @@ public:
         testcase("Test state_foreign_set");
         using namespace jtx;
 
-
         Env env{*this, supported_amendments()};
-//        Env env{*this, envconfig(), supported_amendments(), nullptr, 
-//            beast::severities::kWarning
-//            beast::severities::kTrace
-//        };
-        
+        //        Env env{*this, envconfig(), supported_amendments(), nullptr,
+        //            beast::severities::kWarning
+        //            beast::severities::kTrace
+        //        };
 
-        auto const david = Account("david"); // grantee generic
-        auto const cho = Account{"cho"};     // invoker
-        auto const bob = Account{"bob"};     // grantee specific
-        auto const alice = Account{"alice"}; // grantor
-        auto const eve = Account{"eve"};     // grantor with small balance
+        auto const david = Account("david");  // grantee generic
+        auto const cho = Account{"cho"};      // invoker
+        auto const bob = Account{"bob"};      // grantee specific
+        auto const alice = Account{"alice"};  // grantor
+        auto const eve = Account{"eve"};      // grantor with small balance
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
         env.fund(XRP(10000), cho);
@@ -7838,7 +7848,7 @@ public:
 
         HASH_WASM(grantee);
 
-        // this is the grantor 
+        // this is the grantor
         TestHook grantor_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -7887,7 +7897,7 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
-            
+
         HASH_WASM(grantor);
 
         // install the grantor hook on alice
@@ -7895,27 +7905,22 @@ public:
             Json::Value grants{Json::arrayValue};
             grants[0U][jss::HookGrant] = Json::Value{};
             grants[0U][jss::HookGrant][jss::HookHash] = grantee_hash_str;
-            grants[0U][jss::HookGrant][jss::Authorize] = bob.human(); 
-            
-            Json::Value json = ripple::test::jtx::hook(alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
+            grants[0U][jss::HookGrant][jss::Authorize] = bob.human();
+
+            Json::Value json = ripple::test::jtx::hook(
+                alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
             json[jss::Hooks][0U][jss::Hook][jss::HookGrants] = grants;
 
-
-            env(json,
-                M("set state_foreign_set"),
-                HSFEE);
+            env(json, M("set state_foreign_set"), HSFEE);
             env.close();
         }
 
-        
         // install the grantee hook on bob
         {
-            
             // invoice ID contains the grantor account
-            Json::Value json = ripple::test::jtx::hook(bob, {{hso(grantee_wasm, overrideFlag)}}, 0);
-            env(json,
-                M("set state_foreign_set 2"),
-                HSFEE);
+            Json::Value json = ripple::test::jtx::hook(
+                bob, {{hso(grantee_wasm, overrideFlag)}}, 0);
+            env(json, M("set state_foreign_set 2"), HSFEE);
             env.close();
         }
 
@@ -7924,82 +7929,95 @@ public:
 
         std::string const invid = std::string(24, '0') + strHex(alice.id());
 
-        auto const one = 
-            ripple::uint256("0000000000000000000000000000000000000000000000000000000000000001");
+        auto const one = ripple::uint256(
+            "0000000000000000000000000000000000000000000000000000000000000001");
 
         // ensure there's no way the state or directory exist before we start
         {
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!nsdir);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 =
+                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
             BEAST_REQUIRE(!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 2);
         }
 
-        // inovke the grantee hook but supply an account to foreign_set (through invoiceid)
-        // should definitely fail 
+        // inovke the grantee hook but supply an account to foreign_set (through
+        // invoiceid) should definitely fail
         {
             Json::Value json = pay(cho, bob, XRP(1));
-            json[jss::InvoiceID] = "0000000000000000000000000000000000000000000000000000000000000001";
-            env(json, fee(XRP(1)), M("test state_foreign_set 6a"), ter(tecHOOK_REJECTED));
+            json[jss::InvoiceID] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "01";
+            env(json,
+                fee(XRP(1)),
+                M("test state_foreign_set 6a"),
+                ter(tecHOOK_REJECTED));
         }
 
-        // invoke the grantee hook but supply a valid account for which no grants exist
+        // invoke the grantee hook but supply a valid account for which no
+        // grants exist
         {
             Json::Value json = pay(cho, bob, XRP(1));
             json[jss::InvoiceID] = std::string(24, '0') + strHex(david.id());
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 6b"),
                 ter(tecHOOK_REJECTED));
             {
                 auto const nsdir = env.le(nsdirkl);
                 BEAST_REQUIRE(!nsdir);
 
-                auto const state1 = env.le(ripple::keylet::hookState(david.id(), one, beast::zero));
+                auto const state1 = env.le(
+                    ripple::keylet::hookState(david.id(), one, beast::zero));
                 BEAST_REQUIRE(!state1);
 
                 BEAST_EXPECT((*env.le("david"))[sfOwnerCount] == 0);
             }
         }
 
-        // invoke the grantee hook, this will create the state on the grantor 
+        // invoke the grantee hook, this will create the state on the grantor
         {
             Json::Value json = pay(cho, bob, XRP(1));
             json[jss::InvoiceID] = invid;
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 6"),
                 ter(tesSUCCESS));
         }
-       
+
         // check state
         {
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!!nsdir);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 =
+                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
-            
+
             BEAST_EXPECT(state1->getFieldH256(sfHookStateKey) == one);
-        
+
             auto const data1 = state1->getFieldVL(sfHookStateData);
             BEAST_EXPECT(data1.size() == 32);
             BEAST_EXPECT(uint256::fromVoid(data1.data()) == env.txid());
         }
-        
 
         // invoke the grantor hook, this will delete the state
-        env(pay(alice, cho, XRP(1)), M("test state_foreign_set 4"), fee(XRP(1)));
+        env(pay(alice, cho, XRP(1)),
+            M("test state_foreign_set 4"),
+            fee(XRP(1)));
 
         // check state was removed
         {
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!nsdir);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 =
+                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
             BEAST_REQUIRE(!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 2);
@@ -8007,12 +8025,10 @@ public:
 
         // install grantee hook on david
         {
-            
             // invoice ID contains the grantor account
-            Json::Value json = ripple::test::jtx::hook(david, {{hso(grantee_wasm, overrideFlag)}}, 0);
-            env(json,
-                M("set state_foreign_set 5"),
-                HSFEE);
+            Json::Value json = ripple::test::jtx::hook(
+                david, {{hso(grantee_wasm, overrideFlag)}}, 0);
+            env(json, M("set state_foreign_set 5"), HSFEE);
             env.close();
         }
 
@@ -8020,23 +8036,23 @@ public:
         {
             Json::Value json = pay(cho, david, XRP(1));
             json[jss::InvoiceID] = invid;
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 6"),
                 ter(tecHOOK_REJECTED));
         }
-        
+
         // remove sfAuthorize from alice grants
         {
             Json::Value grants{Json::arrayValue};
             grants[0U][jss::HookGrant] = Json::Value{};
             grants[0U][jss::HookGrant][jss::HookHash] = grantee_hash_str;
-            
-            Json::Value json = ripple::test::jtx::hook(alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
+
+            Json::Value json = ripple::test::jtx::hook(
+                alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
             json[jss::Hooks][0U][jss::Hook][jss::HookGrants] = grants;
 
-            env(json,
-                M("set state_foreign_set 7"),
-                HSFEE);
+            env(json, M("set state_foreign_set 7"), HSFEE);
             env.close();
         }
 
@@ -8044,23 +8060,25 @@ public:
         {
             Json::Value json = pay(cho, david, XRP(1));
             json[jss::InvoiceID] = invid;
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 8"),
-                 ter(tesSUCCESS));
+                ter(tesSUCCESS));
         }
-        
+
         // check state
         {
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!!nsdir);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 =
+                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
-            
+
             BEAST_EXPECT(state1->getFieldH256(sfHookStateKey) == one);
-        
+
             auto const data1 = state1->getFieldVL(sfHookStateData);
             BEAST_EXPECT(data1.size() == 32);
             BEAST_EXPECT(uint256::fromVoid(data1.data()) == env.txid());
@@ -8068,26 +8086,25 @@ public:
 
         // change alice's namespace
         {
-            
-            Json::Value json = ripple::test::jtx::hook(alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
-            json[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = 
-                    "7777777777777777777777777777777777777777777777777777777777777777";
-            env(json,
-                M("set state_foreign_set 9"),
-                HSFEE);
+            Json::Value json = ripple::test::jtx::hook(
+                alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
+            json[jss::Hooks][0U][jss::Hook][jss::HookNamespace] =
+                "77777777777777777777777777777777777777777777777777777777777777"
+                "77";
+            env(json, M("set state_foreign_set 9"), HSFEE);
             env.close();
         }
-
 
         // invoke david again, expect failure
         {
             Json::Value json = pay(cho, david, XRP(1));
             json[jss::InvoiceID] = invid;
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 10"),
-                 ter(tecHOOK_REJECTED));
+                ter(tecHOOK_REJECTED));
         }
-        
+
         // check reserve exhaustion
         TestHook exhaustion_wasm = wasm[R"[test.hook](
             #include <stdint.h>
@@ -8150,36 +8167,35 @@ public:
             Json::Value grants{Json::arrayValue};
             grants[0U][jss::HookGrant] = Json::Value{};
             grants[0U][jss::HookGrant][jss::HookHash] = exhaustion_hash_str;
-            grants[0U][jss::HookGrant][jss::Authorize] = bob.human(); 
-            
-            Json::Value json = ripple::test::jtx::hook(eve, {{hso(grantor_wasm, overrideFlag)}}, 0);
+            grants[0U][jss::HookGrant][jss::Authorize] = bob.human();
+
+            Json::Value json = ripple::test::jtx::hook(
+                eve, {{hso(grantor_wasm, overrideFlag)}}, 0);
             json[jss::Hooks][0U][jss::Hook][jss::HookGrants] = grants;
 
-            env(json,
-                M("set state_foreign_set 11"),
-                HSFEE);
+            env(json, M("set state_foreign_set 11"), HSFEE);
             env.close();
         }
 
         // install exhaustion grantee on bob
         {
-            
-            Json::Value json = ripple::test::jtx::hook(bob, {{hso(exhaustion_wasm, overrideFlag)}}, 0);
-            env(json,
-                M("set state_foreign_set 12"),
-                HSFEE);
+            Json::Value json = ripple::test::jtx::hook(
+                bob, {{hso(exhaustion_wasm, overrideFlag)}}, 0);
+            env(json, M("set state_foreign_set 12"), HSFEE);
             env.close();
         }
 
         // now invoke repeatedly until exhaustion is reached
         {
-
             Json::Value json = pay(cho, bob, XRP(1));
-            json[jss::InvoiceID] = "01" + std::string(22, '0') + strHex(eve.id());
-            
-            // 2500 xrp less 1 account reserve (200) divided by 50xrp per object reserve = 46 objects
-            // of these we already have: 1 hook, 1 sfAuthorize, so 44 objects can be allocated
-            env(json, fee(XRP(1)),
+            json[jss::InvoiceID] =
+                "01" + std::string(22, '0') + strHex(eve.id());
+
+            // 2500 xrp less 1 account reserve (200) divided by 50xrp per object
+            // reserve = 46 objects of these we already have: 1 hook, 1
+            // sfAuthorize, so 44 objects can be allocated
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 13"),
                 ter(tesSUCCESS));
             env.close();
@@ -8187,33 +8203,34 @@ public:
 
             // now we have allocated 1 state object, so 43 more can be allocated
 
-            // try to set 44 state entries, this will fail            
-            json[jss::InvoiceID] = "2C" + std::string(22, '0') + strHex(eve.id());
-            env(json, fee(XRP(1)),
+            // try to set 44 state entries, this will fail
+            json[jss::InvoiceID] =
+                "2C" + std::string(22, '0') + strHex(eve.id());
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 14"),
                 ter(tecHOOK_REJECTED));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 3);
-            
 
             // try to set 43 state objects, this will succeed
-            json[jss::InvoiceID] = "2B" + std::string(22, '0') + strHex(eve.id());
-            env(json, fee(XRP(1)),
+            json[jss::InvoiceID] =
+                "2B" + std::string(22, '0') + strHex(eve.id());
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 15"),
                 ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 46);
-            
 
             // try to set one state object, this will fail
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_foreign_set 16"),
                 ter(tecHOOK_REJECTED));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 46);
-            
         }
-
     }
 
     void
@@ -8228,8 +8245,8 @@ public:
         auto const alice = Account{"alice"};
         auto const cho = Account{"cho"};
         auto const david = Account{"david"};
-        auto const eve = Account{"eve"};     // small balance
-        auto const frank = Account{"frank"}; // big balance
+        auto const eve = Account{"eve"};      // small balance
+        auto const frank = Account{"frank"};  // big balance
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
         env.fund(XRP(10000), cho);
@@ -8238,7 +8255,8 @@ public:
         env.fund(XRP(1000000000), frank);
 
         // install a rollback hook on cho
-        env(ripple::test::jtx::hook(cho, {{hso(rollback_wasm, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                cho, {{hso(rollback_wasm, overrideFlag)}}, 0),
             M("set state_set rollback"),
             HSFEE);
         env.close();
@@ -8252,13 +8270,15 @@ public:
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!nsdir);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(
+                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
             BEAST_REQUIRE(!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 0);
         }
 
-        // first hook will set two state objects with different keys and data on alice
+        // first hook will set two state objects with different keys and data on
+        // alice
         {
             TestHook hook = wasm[R"[test.hook](
             #include <stdint.h>
@@ -8360,18 +8380,23 @@ public:
                 M("set state_set 1"),
                 HSFEE);
             env.close();
-            
-            BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 1);
-
-            // invoke the hook with cho (rollback after alice's hooks have executed)
-            env(pay(alice, cho, XRP(1)), M("test state_set 1 rollback"), fee(XRP(1)), ter(tecHOOK_REJECTED));
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 1);
-           
+
+            // invoke the hook with cho (rollback after alice's hooks have
+            // executed)
+            env(pay(alice, cho, XRP(1)),
+                M("test state_set 1 rollback"),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+
+            BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 1);
+
             auto const nsdir = env.le(nsdirkl);
             BEAST_EXPECT(!nsdir);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(
+                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
             BEAST_EXPECT(!state1);
 
             // invoke the hook from bob to alice, this will work
@@ -8381,7 +8406,6 @@ public:
 
         // check that the state object and namespace exists
         {
-    
             // owner count should be 1 hook +  2 state objects == 3
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
 
@@ -8390,57 +8414,56 @@ public:
 
             BEAST_EXPECT(nsdir->getFieldV256(sfIndexes).size() == 2);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(
+                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT(state1->getFieldH256(sfHookStateKey) == beast::zero);
-        
+
             auto const data1 = state1->getFieldVL(sfHookStateData);
             BEAST_EXPECT(data1.size() == 4);
-            BEAST_EXPECT(data1[0] == 0xCAU && data1[1] == 0xFEU && data1[2] == 0xBAU && data1[3] == 0xBEU);
-            
-            uint8_t key2[32] = 
-            {
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,1,2,3
-            };
+            BEAST_EXPECT(
+                data1[0] == 0xCAU && data1[1] == 0xFEU && data1[2] == 0xBAU &&
+                data1[3] == 0xBEU);
 
-            auto const state2 = env.le(ripple::keylet::hookState(aliceid, uint256::fromVoid(key2), beast::zero));
+            uint8_t key2[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
+
+            auto const state2 = env.le(ripple::keylet::hookState(
+                aliceid, uint256::fromVoid(key2), beast::zero));
 
             BEAST_REQUIRE(!!state2);
-        
+
             auto const lekey2 = state2->getFieldH256(sfHookStateKey);
-            
+
             BEAST_EXPECT(lekey2 == uint256::fromVoid(key2));
-            
-            uint8_t data2[128] = 
-            {
-                0x23U,0x13U,0x96U,0x68U,0x78U,0xDCU,0xABU,0xC4U,0x40U,0x26U,
-                0x07U,0x2BU,0xA3U,0xD2U,0x0CU,0x69U,0x40U,0xDDU,0xCDU,0xE7U,
-                0x38U,0x9BU,0x0BU,0xA9U,0x6CU,0x3CU,0xB3U,0x87U,0x37U,0x02U,
-                0x81U,0xE8U,0x2BU,0xDDU,0x5DU,0xBBU,0x40U,0xD9U,0x66U,0x96U,
-                0x6FU,0xC1U,0x6BU,0xE8U,0xD4U,0x7CU,0x7BU,0x62U,0x14U,0x4CU,
-                0xD1U,0x4BU,0xAAU,0x99U,0x36U,0x75U,0xE9U,0x22U,0xADU,0x0FU,
-                0x5FU,0x94U,0x1DU,0x86U,0xEBU,0xA8U,0x13U,0x99U,0xF9U,0x98U,
-                0xFFU,0xCAU,0x5BU,0x86U,0x2FU,0xDFU,0x67U,0x8FU,0xE2U,0xE3U,
-                0xC3U,0x37U,0xCCU,0x47U,0x0FU,0x33U,0x88U,0xB0U,0x33U,0x3BU,
-                0x02U,0x55U,0x67U,0x16U,0xA4U,0xFBU,0x8EU,0x85U,0x6FU,0xD8U,
-                0x84U,0x16U,0xA3U,0x54U,0x18U,0x34U,0x06U,0x0EU,0xF6U,0x65U,
-                0x34U,0x05U,0x26U,0x7EU,0x05U,0x74U,0xDAU,0x09U,0xBFU,0x55U,
-                0x8CU,0x75U,0x92U,0xACU,0x33U,0xFBU,0x01U,0x8DU
-            };
+
+            uint8_t data2[128] = {
+                0x23U, 0x13U, 0x96U, 0x68U, 0x78U, 0xDCU, 0xABU, 0xC4U, 0x40U,
+                0x26U, 0x07U, 0x2BU, 0xA3U, 0xD2U, 0x0CU, 0x69U, 0x40U, 0xDDU,
+                0xCDU, 0xE7U, 0x38U, 0x9BU, 0x0BU, 0xA9U, 0x6CU, 0x3CU, 0xB3U,
+                0x87U, 0x37U, 0x02U, 0x81U, 0xE8U, 0x2BU, 0xDDU, 0x5DU, 0xBBU,
+                0x40U, 0xD9U, 0x66U, 0x96U, 0x6FU, 0xC1U, 0x6BU, 0xE8U, 0xD4U,
+                0x7CU, 0x7BU, 0x62U, 0x14U, 0x4CU, 0xD1U, 0x4BU, 0xAAU, 0x99U,
+                0x36U, 0x75U, 0xE9U, 0x22U, 0xADU, 0x0FU, 0x5FU, 0x94U, 0x1DU,
+                0x86U, 0xEBU, 0xA8U, 0x13U, 0x99U, 0xF9U, 0x98U, 0xFFU, 0xCAU,
+                0x5BU, 0x86U, 0x2FU, 0xDFU, 0x67U, 0x8FU, 0xE2U, 0xE3U, 0xC3U,
+                0x37U, 0xCCU, 0x47U, 0x0FU, 0x33U, 0x88U, 0xB0U, 0x33U, 0x3BU,
+                0x02U, 0x55U, 0x67U, 0x16U, 0xA4U, 0xFBU, 0x8EU, 0x85U, 0x6FU,
+                0xD8U, 0x84U, 0x16U, 0xA3U, 0x54U, 0x18U, 0x34U, 0x06U, 0x0EU,
+                0xF6U, 0x65U, 0x34U, 0x05U, 0x26U, 0x7EU, 0x05U, 0x74U, 0xDAU,
+                0x09U, 0xBFU, 0x55U, 0x8CU, 0x75U, 0x92U, 0xACU, 0x33U, 0xFBU,
+                0x01U, 0x8DU};
 
             auto const ledata2 = state2->getFieldVL(sfHookStateData);
             BEAST_REQUIRE(ledata2.size() == sizeof(data2));
 
-            for(uint32_t i = 0; i < sizeof(data2); ++i)
+            for (uint32_t i = 0; i < sizeof(data2); ++i)
                 BEAST_EXPECT(data2[i] == ledata2[i]);
-
         }
 
-        // make amother hook to override an existing state and delete an existing state
+        // make amother hook to override an existing state and delete an
+        // existing state
         {
             TestHook hook = wasm[R"[test.hook](
             #include <stdint.h>
@@ -8543,17 +8566,21 @@ public:
             }
             )[test.hook]"];
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{{hso(hook, overrideFlag)}, {}, {}, {hso(hook2, 0)}}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice,
+                    {{{hso(hook, overrideFlag)}, {}, {}, {hso(hook2, 0)}}},
+                    0),
                 M("set state_set 2"),
                 HSFEE);
             env.close();
 
             // two hooks + two state objects = 4
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 4);
-           
-            // this hook will be installed on bob, and it will verify the newly updated state
-            // is also available on his side. caution must be taken because bob's hooks will execute
-            // first if bob's is the otxn. therefore we will flip to a payment from alice to bob here
+
+            // this hook will be installed on bob, and it will verify the newly
+            // updated state is also available on his side. caution must be
+            // taken because bob's hooks will execute first if bob's is the
+            // otxn. therefore we will flip to a payment from alice to bob here
             TestHook hook3 = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -8614,27 +8641,29 @@ public:
 
             }
             )[test.hook]"];
-            
+
             // install the hook on bob
             env(ripple::test::jtx::hook(bob, {{hso(hook3, overrideFlag)}}, 0),
                 M("set state_set 3"),
                 HSFEE);
             env.close();
-            
-            // invoke the hook with cho (rollback after alice's hooks have executed)
-            env(pay(alice, cho, XRP(1)), M("test state_set 3 rollback"), fee(XRP(1)), ter(tecHOOK_REJECTED));
-            
+
+            // invoke the hook with cho (rollback after alice's hooks have
+            // executed)
+            env(pay(alice, cho, XRP(1)),
+                M("test state_set 3 rollback"),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 4);
 
             // invoke the hook
             env(pay(alice, bob, XRP(1)), M("test state_set 3"), fee(XRP(1)));
             env.close();
-
         }
-        
+
         // check that the updates have been made
         {
-    
             // two hooks + one state == 3
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
             BEAST_EXPECT((*env.le("bob"))[sfOwnerCount] == 1);
@@ -8644,38 +8673,31 @@ public:
 
             BEAST_EXPECT(nsdir->getFieldV256(sfIndexes).size() == 1);
 
-            auto const state1 = env.le(ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(
+                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT(state1->getFieldH256(sfHookStateKey) == beast::zero);
-        
+
             auto const ledata1 = state1->getFieldVL(sfHookStateData);
             BEAST_EXPECT(ledata1.size() == 16);
-            uint8_t data1[16] = 
-            {
-                1,1,1,1,1,1,1,1,
-                1,1,1,1,1,1,1,2
-            };
+            uint8_t data1[16] = {
+                1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2};
 
             for (uint32_t i = 0; i < sizeof(data1); ++i)
                 BEAST_EXPECT(data1[i] == ledata1[i]);
 
-            
-            uint8_t key2[32] = 
-            {
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,1,2,3
-            };
+            uint8_t key2[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
 
-            auto const state2 = env.le(ripple::keylet::hookState(aliceid, uint256::fromVoid(key2), beast::zero));
+            auto const state2 = env.le(ripple::keylet::hookState(
+                aliceid, uint256::fromVoid(key2), beast::zero));
 
             BEAST_REQUIRE(!state2);
         }
 
-        
-        // create a hook state inside the weak side of an execution, while the strong side is rolled back
+        // create a hook state inside the weak side of an execution, while the
+        // strong side is rolled back
         {
             TestHook hook = wasm[R"[test.hook](
             #include <stdint.h>
@@ -8722,52 +8744,47 @@ public:
             }
             )[test.hook]"];
 
-
             // install the hook on alice, deleting the other hook
-            env(ripple::test::jtx::hook(alice, {{
-                {hso(hook, overrideFlag)},
-                {},
-                {}, 
-                {hso_delete()}}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice,
+                    {{{hso(hook, overrideFlag)}, {}, {}, {hso_delete()}}},
+                    0),
                 M("set state_set 4"),
                 HSFEE);
             env.close();
 
-            // invoke from alice to cho, this will cause a rollback, however the hook state should still be updated
-            // because the hook specified hook_again, and in the second weak execution the hook is allowed to
-            // set state
-            env(pay(alice, cho, XRP(1)), M("test state_set 4 rollback"), fee(XRP(1)), ter(tecHOOK_REJECTED));
+            // invoke from alice to cho, this will cause a rollback, however the
+            // hook state should still be updated because the hook specified
+            // hook_again, and in the second weak execution the hook is allowed
+            // to set state
+            env(pay(alice, cho, XRP(1)),
+                M("test state_set 4 rollback"),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
 
+            uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
+                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
+                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFFU};
 
-            uint8_t key[32] = 
-            {
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0xFFU
-            };
-
-            auto const state = env.le(ripple::keylet::hookState(aliceid, uint256::fromVoid(key), beast::zero));
+            auto const state = env.le(ripple::keylet::hookState(
+                aliceid, uint256::fromVoid(key), beast::zero));
 
             BEAST_EXPECT(state);
 
             // one hook + two state objects == 3
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
-           
 
             // delete alice's hook
-            env(ripple::test::jtx::hook(alice, {{
-                {hso_delete()},
-                {},
-                {},
-                {}}}, 0), 
+            env(ripple::test::jtx::hook(
+                    alice, {{{hso_delete()}, {}, {}, {}}}, 0),
                 M("set state_set 5 delete"),
                 HSFEE);
             env.close();
 
             // check the state is still present
             {
-                auto const state = env.le(ripple::keylet::hookState(aliceid, uint256::fromVoid(key), beast::zero));
+                auto const state = env.le(ripple::keylet::hookState(
+                    aliceid, uint256::fromVoid(key), beast::zero));
                 BEAST_EXPECT(state);
             }
 
@@ -8776,22 +8793,23 @@ public:
 
             // put on a different hook
 
-            env(ripple::test::jtx::hook(alice, {{hso(rollback_wasm, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(rollback_wasm, overrideFlag)}}, 0),
                 M("set state_set rollback2"),
                 HSFEE);
             env.close();
-            
+
             // check the state is still present
             {
-                auto const state = env.le(ripple::keylet::hookState(aliceid, uint256::fromVoid(key), beast::zero));
+                auto const state = env.le(ripple::keylet::hookState(
+                    aliceid, uint256::fromVoid(key), beast::zero));
                 BEAST_EXPECT(state);
             }
 
             // one hooks + two state objects == 3
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
-
         }
-        
+
         // check reserve exhaustion
         TestHook exhaustion_wasm = wasm[R"[test.hook](
             #include <stdint.h>
@@ -8841,50 +8859,45 @@ public:
 
         // install the exhaustion hook on eve
         {
-            Json::Value json = ripple::test::jtx::hook(eve, {{hso(exhaustion_wasm, overrideFlag)}}, 0);
+            Json::Value json = ripple::test::jtx::hook(
+                eve, {{hso(exhaustion_wasm, overrideFlag)}}, 0);
 
-            env(json,
-                M("set state_set 6"),
-                HSFEE);
+            env(json, M("set state_set 6"), HSFEE);
             env.close();
         }
 
         // now invoke repeatedly until exhaustion is reached
         {
-
             Json::Value json = pay(david, eve, XRP(1));
             json[jss::InvoiceID] = "0001" + std::string(60, '0');
-            
-            // 2500 xrp less 1 account reserve (200) divided by 50xrp per object reserve = 46 objects
-            // of these we already have: 1 hook, so 45 objects can be allocated
-            env(json, fee(XRP(1)),
-                M("test state_set 7"),
-                ter(tesSUCCESS));
+
+            // 2500 xrp less 1 account reserve (200) divided by 50xrp per object
+            // reserve = 46 objects of these we already have: 1 hook, so 45
+            // objects can be allocated
+            env(json, fee(XRP(1)), M("test state_set 7"), ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 2);
 
             // now we have allocated 1 state object, so 44 more can be allocated
 
-            // try to set 45 state entries, this will fail            
+            // try to set 45 state entries, this will fail
             json[jss::InvoiceID] = "002D" + std::string(60, '0');
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_set 8"),
                 ter(tecHOOK_REJECTED));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 2);
-            
 
             // try to set 44 state objects, this will succeed
             json[jss::InvoiceID] = "002C" + std::string(60, '0');
-            env(json, fee(XRP(1)),
-                M("test state_set 9"),
-                ter(tesSUCCESS));
+            env(json, fee(XRP(1)), M("test state_set 9"), ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT((*env.le("eve"))[sfOwnerCount] == 46);
-            
 
             // try to set one state object, this will fail
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_set 10"),
                 ter(tecHOOK_REJECTED));
             env.close();
@@ -8895,22 +8908,24 @@ public:
         {
             // install the hook into every position on frank
             env(ripple::test::jtx::hook(
-                    frank, {{
-                        hso(exhaustion_wasm), 
-                        hso(exhaustion_wasm), 
-                        hso(exhaustion_wasm), 
-                        hso(exhaustion_wasm)
-                    }}, 0),
+                    frank,
+                    {{hso(exhaustion_wasm),
+                      hso(exhaustion_wasm),
+                      hso(exhaustion_wasm),
+                      hso(exhaustion_wasm)}},
+                    0),
                 M("set state_set 11"),
                 HSFEE,
                 ter(tesSUCCESS));
 
             Json::Value json = pay(david, frank, XRP(1));
 
-            // we can modify 256 entries at a time with the hook, but first we want to test too many modifications
-            // so we will do 65 which times 4 executions is 260
+            // we can modify 256 entries at a time with the hook, but first we
+            // want to test too many modifications so we will do 65 which times
+            // 4 executions is 260
             json[jss::InvoiceID] = "0041" + std::string(60, '0');
-            env(json, fee(XRP(1)),
+            env(json,
+                fee(XRP(1)),
                 M("test state_set 12"),
                 ter(tecHOOK_REJECTED));
             env.close();
@@ -8918,17 +8933,14 @@ public:
 
             // now we will do 64 which is exactly 256, which should be accepted
             json[jss::InvoiceID] = "0040" + std::string(60, '0');
-            env(json, fee(XRP(1)),
-                M("test state_set 13"),
-                ter(tesSUCCESS));
+            env(json, fee(XRP(1)), M("test state_set 13"), ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT((*env.le("frank"))[sfOwnerCount] == 260);
         }
-        
+
         // RH TODO:
         // check state can be set on emit callback
         // check namespacing provides for non-collision of same key
-
     }
 
     void
@@ -9551,7 +9563,6 @@ public:
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test trace"), fee(XRP(1)));
-
     }
 
     void
@@ -11426,7 +11437,6 @@ public:
     void
     run() override
     {
-
         testHooksDisabled();
         testTxStructure();
         testInferHookSetOperation();
@@ -11448,92 +11458,91 @@ public:
 
         testGuards();
 
-        test_emit();                //
-        //test_etxn_burden();       // tested above
-        //test_etxn_generation();   // tested above
-        //test_otxn_burden();       // tested above
-        //test_otxn_generation();   // tested above
-        test_etxn_details();        //
-        test_etxn_fee_base();       //
-        test_etxn_nonce();          //
-        test_etxn_reserve();        //
-        test_fee_base();            //
+        test_emit();  //
+        // test_etxn_burden();       // tested above
+        // test_etxn_generation();   // tested above
+        // test_otxn_burden();       // tested above
+        // test_otxn_generation();   // tested above
+        test_etxn_details();   //
+        test_etxn_fee_base();  //
+        test_etxn_nonce();     //
+        test_etxn_reserve();   //
+        test_fee_base();       //
 
-        test_otxn_field();          //
+        test_otxn_field();  //
 
-        test_ledger_keylet();       //
+        test_ledger_keylet();  //
 
-        test_float_compare();       //
-        test_float_divide();        //
-        test_float_int();           //
-        test_float_invert();        //
-        test_float_log();           //
-        test_float_mantissa();      //
-        test_float_mulratio();      //
-        test_float_multiply();      //
-        test_float_negate();        //
-        test_float_one();           //
-        test_float_root();          //
-        test_float_set();           //
-        test_float_sign();          //
-        test_float_sto();           //
-        test_float_sto_set();       //
-        test_float_sum();           //
+        test_float_compare();   //
+        test_float_divide();    //
+        test_float_int();       //
+        test_float_invert();    //
+        test_float_log();       //
+        test_float_mantissa();  //
+        test_float_mulratio();  //
+        test_float_multiply();  //
+        test_float_negate();    //
+        test_float_one();       //
+        test_float_root();      //
+        test_float_set();       //
+        test_float_sign();      //
+        test_float_sto();       //
+        test_float_sto_set();   //
+        test_float_sum();       //
 
-        test_hook_account();        //
-        test_hook_again();          //
-        test_hook_hash();           //
-        test_hook_param();          //
-        test_hook_param_set();      //
-        test_hook_pos();            //
-        test_hook_skip();           //
+        test_hook_account();    //
+        test_hook_again();      //
+        test_hook_hash();       //
+        test_hook_param();      //
+        test_hook_param_set();  //
+        test_hook_pos();        //
+        test_hook_skip();       //
 
-        test_ledger_last_hash();    //
-        test_ledger_last_time();    //
-        test_ledger_nonce();        //
-        test_ledger_seq();          //
+        test_ledger_last_hash();  //
+        test_ledger_last_time();  //
+        test_ledger_nonce();      //
+        test_ledger_seq();        //
 
-        test_meta_slot();           //
+        test_meta_slot();  //
 
-        test_otxn_id();             //
-        test_otxn_slot();           //
-        test_otxn_type();           //
-        test_otxn_param();          // 
+        test_otxn_id();     //
+        test_otxn_slot();   //
+        test_otxn_type();   //
+        test_otxn_param();  //
 
-        test_slot();                //
-        test_slot_clear();          //
-        test_slot_count();          //
-        test_slot_float();          //
-        test_slot_set();            //
-        test_slot_size();           //
-        test_slot_subarray();       //
-        test_slot_subfield();       //
-        test_slot_type();           //
+        test_slot();           //
+        test_slot_clear();     //
+        test_slot_count();     //
+        test_slot_float();     //
+        test_slot_set();       //
+        test_slot_size();      //
+        test_slot_subarray();  //
+        test_slot_subfield();  //
+        test_slot_type();      //
 
-        test_state();               //
-        test_state_foreign();       //
-        test_state_foreign_set();   // 
-        test_state_set();           //
+        test_state();              //
+        test_state_foreign();      //
+        test_state_foreign_set();  //
+        test_state_set();          //
 
-        test_sto_emplace();         //
-        test_sto_erase();           //
-        test_sto_subarray();        //
-        test_sto_subfield();        //
-        test_sto_validate();        //
+        test_sto_emplace();   //
+        test_sto_erase();     //
+        test_sto_subarray();  //
+        test_sto_subfield();  //
+        test_sto_validate();  //
 
-        test_trace();               //
-        test_trace_float();         //
-        test_trace_num();           //
+        test_trace();        //
+        test_trace_float();  //
+        test_trace_num();    //
 
-        test_util_accid();          //
-        test_util_keylet();         //
-        test_util_raddr();          //
-        test_util_sha512h();        //
-        test_util_verify();         //
+        test_util_accid();    //
+        test_util_keylet();   //
+        test_util_raddr();    //
+        test_util_sha512h();  //
+        test_util_verify();   //
     }
 
 private:
-
     TestHook accept_wasm =  // WASM: 0
         wasm[
             R"[test.hook](

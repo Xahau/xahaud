@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/beast/unit_test.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/protocol/ErrorCodes.h>
-#include <ripple/rpc/impl/RPCHelpers.h>
 #include <ripple/app/hook/Enum.h>
+#include <ripple/app/misc/TxQ.h>
+#include <ripple/beast/unit_test.h>
+#include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/jss.h>
+#include <ripple/rpc/impl/RPCHelpers.h>
 #include <test/jtx.h>
 
 #include <boost/container/flat_set.hpp>
@@ -33,7 +33,7 @@ namespace test {
 
 class AccountTx_test : public beast::unit_test::suite
 {
-    #define HSFEE fee(100'000'000)
+#define HSFEE fee(100'000'000)
 
     // A data structure used to describe the basic structure of a
     // transactions array node as returned by the account_tx RPC command.
@@ -414,7 +414,8 @@ class AccountTx_test : public beast::unit_test::suite
             std::string const uri(maxTokenURILength, '?');
 
             // Mint URIToken
-            auto mintURI = [](test::jtx::Account const& account, std::string const& uri) {
+            auto mintURI = [](test::jtx::Account const& account,
+                              std::string const& uri) {
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::URITokenMint;
                 jv[jss::Flags] = tfBurnable;
@@ -425,15 +426,19 @@ class AccountTx_test : public beast::unit_test::suite
             env(mintURI(alice, uri), sig(alie));
             env.close();
 
-            auto tokenid = [](jtx::Account const& account, std::string const& uri) {
-                auto const k = keylet::uritoken(account, Blob(uri.begin(), uri.end()));
+            auto tokenid = [](jtx::Account const& account,
+                              std::string const& uri) {
+                auto const k =
+                    keylet::uritoken(account, Blob(uri.begin(), uri.end()));
                 return k.key;
             };
             auto const tid = tokenid(alice, uri);
             std::string const hexid{strHex(tid)};
 
             // Sell URIToken
-            auto sellURI = [](test::jtx::Account const& account, std::string const& id, STAmount const& amount) {
+            auto sellURI = [](test::jtx::Account const& account,
+                              std::string const& id,
+                              STAmount const& amount) {
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::URITokenCreateSellOffer;
                 jv[jss::Account] = account.human();
@@ -445,7 +450,9 @@ class AccountTx_test : public beast::unit_test::suite
             env.close();
 
             // Buy URIToken
-            auto buyURI = [](test::jtx::Account const& account, std::string const& id, STAmount const& amount) {
+            auto buyURI = [](test::jtx::Account const& account,
+                             std::string const& id,
+                             STAmount const& amount) {
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::URITokenBuy;
                 jv[jss::Account] = account.human();
@@ -461,7 +468,8 @@ class AccountTx_test : public beast::unit_test::suite
             env.close();
 
             // Clear URIToken
-            auto cancelURI = [](test::jtx::Account const& account, std::string const& id) {
+            auto cancelURI = [](test::jtx::Account const& account,
+                                std::string const& id) {
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::URITokenCancelSellOffer;
                 jv[jss::Account] = account.human();
@@ -472,7 +480,8 @@ class AccountTx_test : public beast::unit_test::suite
             env.close();
 
             // Burn URIToken
-            auto burnURI = [](test::jtx::Account const& account, std::string const& id) {
+            auto burnURI = [](test::jtx::Account const& account,
+                              std::string const& id) {
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::URITokenBurn;
                 jv[jss::Account] = account.human();
@@ -485,11 +494,18 @@ class AccountTx_test : public beast::unit_test::suite
 
         // Hook
         {
-            
             // Create Hook
             auto createHook = [](test::jtx::Account const& account) {
-                std::string const createHookHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
-                Json::Value jv = ripple::test::jtx::hook(account, {{hso(createHookHex)}}, 0);
+                std::string const createHookHex =
+                    "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E"
+                    "02170203656E7606616363657074000003656E76025F67000103020102"
+                    "0503010002062B077F01418088040B7F004180080B7F004180080B7F00"
+                    "4180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B"
+                    "00020AB5800001B1800001017F230041106B220124002001200036020C"
+                    "410022002000420010001A41012200200010011A200141106A24004200"
+                    "0B";
+                Json::Value jv =
+                    ripple::test::jtx::hook(account, {{hso(createHookHex)}}, 0);
                 return jv;
             };
             env(createHook(alice), HSFEE, sig(alie));
@@ -497,33 +513,48 @@ class AccountTx_test : public beast::unit_test::suite
 
             // Update Hook - Binary
             auto updateHook = [](test::jtx::Account const& account) {
-                std::string const updateHookHex = "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E02170203656E7606616363657074000003656E76025F670001030201020503010002062B077F01418088040B7F004180080B7F004180080B7F004180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B00020AB5800001B1800001017F230041106B220124002001200036020C410022002000420010001A41012200200010011A200141106A240042000B";
+                std::string const updateHookHex =
+                    "0061736D0100000001130360037F7F7E017E60027F7F017F60017F017E"
+                    "02170203656E7606616363657074000003656E76025F67000103020102"
+                    "0503010002062B077F01418088040B7F004180080B7F004180080B7F00"
+                    "4180080B7F00418088040B7F0041000B7F0041010B07080104686F6F6B"
+                    "00020AB5800001B1800001017F230041106B220124002001200036020C"
+                    "410022002000420010001A41012200200010011A200141106A24004200"
+                    "0B";
                 Json::Value jhv = hso(updateHookHex);
                 jhv[jss::Flags] = hsfOVERRIDE;
-                Json::Value jv = ripple::test::jtx::hook(account, {{jhv}}, hsfOVERRIDE);
+                Json::Value jv =
+                    ripple::test::jtx::hook(account, {{jhv}}, hsfOVERRIDE);
                 return jv;
             };
             env(updateHook(alice), HSFEE, sig(alie));
             env.close();
 
             // Install Hook - Hash
-            auto hh = [&](jtx::Env const& env, jtx::Account const& account) -> uint256 {
+            auto hh = [&](jtx::Env const& env,
+                          jtx::Account const& account) -> uint256 {
                 auto const hook = env.le(keylet::hook(account.id()));
-                if (hook) {
+                if (hook)
+                {
                     auto const& hooks = hook->getFieldArray(sfHooks);
-                    if (hooks.size() > 0) {
+                    if (hooks.size() > 0)
+                    {
                         return hooks[0].getFieldH256(sfHookHash);
                     }
                 }
                 return uint256{beast::zero};
             };
-            auto installHook = [](test::jtx::Account const& account, uint256 const& hookHash) {
+            auto installHook = [](test::jtx::Account const& account,
+                                  uint256 const& hookHash) {
                 Json::Value jhv;
                 jhv[jss::Flags] = hsfOVERRIDE;
-                jhv[jss::HookOn] = "0000000000000000000000000000000000000000000000000000000000000000";
+                jhv[jss::HookOn] =
+                    "0000000000000000000000000000000000000000000000000000000000"
+                    "000000";
                 jhv[jss::HookNamespace] = to_string(uint256{beast::zero});
                 jhv[jss::HookHash] = to_string(hookHash);
-                Json::Value jv = ripple::test::jtx::hook(account, {{jhv}}, hsfOVERRIDE);
+                Json::Value jv =
+                    ripple::test::jtx::hook(account, {{jhv}}, hsfOVERRIDE);
                 return jv;
             };
             uint256 const hid = hh(env, alice);
@@ -532,7 +563,8 @@ class AccountTx_test : public beast::unit_test::suite
 
             // Delete Hook
             auto deleteHook = [](test::jtx::Account const& account) {
-                Json::Value jv = ripple::test::jtx::hook(account, {{hso_delete()}}, hsfOVERRIDE);
+                Json::Value jv = ripple::test::jtx::hook(
+                    account, {{hso_delete()}}, hsfOVERRIDE);
                 return jv;
             };
             env(deleteHook(alice), HSFEE, sig(alie));
