@@ -42,6 +42,15 @@
 #    ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
 #    ED307A760EE34F2D0CAA103377B1969117C38B8AA0AA1E2A24DAC1F32FC97087ED
 #
+# [import_vl_keys]
+#
+#   This section is used to import the public keys of trusted validator list publishers.
+#   The keys are used to authenticate and accept new lists of trusted validators.
+#   In this example, the key for the publisher "vl.xrplf.org" is imported.
+#   Each key is represented as a hexadecimal string.
+# 
+#   Examples:
+#    ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
 
 # The default validator list publishers that the rippled instance
 # trusts.
@@ -62,6 +71,10 @@ ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
 # vl.xrplf.org
 ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B
 
+[import_vl_keys]
+# vl.xrplf.org
+ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
+
 # To use the test network (see https://xrpl.org/connect-your-rippled-to-the-xrp-test-net.html),
 # use the following configuration instead:
 #
@@ -69,4 +82,7 @@ ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B
 # https://vl.altnet.rippletest.net
 #
 # [validator_list_keys]
+# ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860
+#
+# [import_vl_keys]
 # ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860
