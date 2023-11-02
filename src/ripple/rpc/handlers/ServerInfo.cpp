@@ -367,6 +367,7 @@ private:
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
         }
 
+        ret[jss::native_currency_code] = systemCurrencyCode();
         // generate hash
         {
             const std::string out = Json::FastWriter().write(ret);
@@ -415,6 +416,7 @@ doServerDefinitions(RPC::JsonContext& context)
     {
         Json::Value jv = Json::objectValue;
         jv[jss::hash] = to_string(hash);
+        jv[jss::native_currency_code] = systemCurrencyCode();
         return jv;
     }
 
@@ -440,6 +442,9 @@ doServerInfo(RPC::JsonContext& context)
         ret[jss::info][jss::validation_quorum] = vq.isNull() ? 1 : vq;
         ret[jss::info][jss::load_factor] = lf.isNull() ? 1 : lf;
     }
+
+    ret[jss::native_currency_code] = systemCurrencyCode();
+
     return ret;
 }
 
