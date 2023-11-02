@@ -550,8 +550,11 @@ Change::activateXahauGenesis()
         mint(account, amount);
 
     // Step 3: blackhole genesis
-    sle->setAccountID(sfRegularKey, noAccount());
-    sle->setFieldU32(sfFlags, lsfDisableMaster);
+    if (!isTest)
+    {
+        sle->setAccountID(sfRegularKey, noAccount());
+        sle->setFieldU32(sfFlags, lsfDisableMaster);
+    }
 
     // if somehow there's a signerlist we need to delete it
     if (sb.exists(keylet::signers(accid)))

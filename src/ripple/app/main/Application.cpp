@@ -69,6 +69,7 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Protocol.h>
 #include <ripple/protocol/STParsedJSON.h>
+#include <ripple/protocol/TxFlags.h>
 #include <ripple/resource/Fees.h>
 #include <ripple/rpc/ShardArchiveHandler.h>
 #include <ripple/rpc/impl/RPCHelpers.h>
@@ -1744,6 +1745,8 @@ ApplicationImp::startGenesisLedger()
                 obj.setFieldH256(sfAmendment, featureXahauGenesis);
                 obj.setFieldU32(
                     sfLedgerSequence, openLedger_->current()->info().seq);
+                obj.setFieldU32(
+                    sfFlags, config().standalone() ? tfTestSuite : 0);
             });
 
             auto txID = amendTx.getTransactionID();
