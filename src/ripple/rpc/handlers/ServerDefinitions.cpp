@@ -360,6 +360,7 @@ private:
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
         }
 
+        ret[jss::native_currency_code] = systemCurrencyCode();
         // generate hash
         {
             const std::string out = Json::FastWriter().write(ret);
