@@ -28,7 +28,6 @@ namespace test {
 class ServerDefinitions_test : public beast::unit_test::suite
 {
 public:
-
     static Json::Value
     loadJson(std::string content)
     {
@@ -345,13 +344,17 @@ public:
             // FIELDS
             // DA: Not Tested
             // LEDGER ENTRY TYPES
-            BEAST_EXPECT(result[jss::result]["LEDGER_ENTRY_TYPES"] == loadJson(jsonLE));
+            BEAST_EXPECT(
+                result[jss::result]["LEDGER_ENTRY_TYPES"] == loadJson(jsonLE));
             // TRANSACTION TYPES
-            BEAST_EXPECT(result[jss::result]["TRANSACTION_TYPES"] == loadJson(jsonTT));
+            BEAST_EXPECT(
+                result[jss::result]["TRANSACTION_TYPES"] == loadJson(jsonTT));
             // TYPES
             BEAST_EXPECT(result[jss::result]["TYPES"] == loadJson(jsonTY));
             // TRANSACTION_RESULTS
-            BEAST_EXPECT(result[jss::result]["TRANSACTION_RESULTS"] == loadJson(jsonTEC));
+            BEAST_EXPECT(
+                result[jss::result]["TRANSACTION_RESULTS"] ==
+                loadJson(jsonTEC));
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
         }
     }

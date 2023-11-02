@@ -147,10 +147,11 @@ private:
 
         ret[jss::TYPES]["Done"] = -1;
         std::map<int32_t, std::string> type_map{{-1, "Done"}};
-        for (auto const& entry : magic_enum::enum_entries<SerializedTypeID>()) 
+        for (auto const& entry : magic_enum::enum_entries<SerializedTypeID>())
         {
             const auto name = entry.second;
-            std::string type_name = translate(name.data() + 4 /* remove STI_ */);
+            std::string type_name =
+                translate(name.data() + 4 /* remove STI_ */);
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::TYPES][type_name] = type_value;
             type_map[type_value] = type_name;
@@ -158,7 +159,7 @@ private:
 
         ret[jss::LEDGER_ENTRY_TYPES] = Json::objectValue;
         ret[jss::LEDGER_ENTRY_TYPES][jss::Invalid] = -1;
-        for (auto const& entry : magic_enum::enum_entries<LedgerEntryType>()) 
+        for (auto const& entry : magic_enum::enum_entries<LedgerEntryType>())
         {
             const auto name = entry.second;
             std::string type_name = translate(name.data() + 2 /* remove lt_ */);
@@ -305,35 +306,41 @@ private:
         }
 
         ret[jss::TRANSACTION_RESULTS] = Json::objectValue;
-        for (auto const& entry : magic_enum::enum_entries<TELcodes>()) 
+        for (auto const& entry : magic_enum::enum_entries<TELcodes>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][STR(name)] =
+                static_cast<int32_t>(entry.first);
         }
-        for (auto const& entry : magic_enum::enum_entries<TEMcodes>()) 
+        for (auto const& entry : magic_enum::enum_entries<TEMcodes>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][STR(name)] =
+                static_cast<int32_t>(entry.first);
         }
-        for (auto const& entry : magic_enum::enum_entries<TEFcodes>()) 
+        for (auto const& entry : magic_enum::enum_entries<TEFcodes>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][STR(name)] =
+                static_cast<int32_t>(entry.first);
         }
-        for (auto const& entry : magic_enum::enum_entries<TERcodes>()) 
+        for (auto const& entry : magic_enum::enum_entries<TERcodes>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][STR(name)] =
+                static_cast<int32_t>(entry.first);
         }
-        for (auto const& entry : magic_enum::enum_entries<TEScodes>()) 
+        for (auto const& entry : magic_enum::enum_entries<TEScodes>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][STR(name)] =
+                static_cast<int32_t>(entry.first);
         }
-        for (auto const& entry : magic_enum::enum_entries<TECcodes>()) 
+        for (auto const& entry : magic_enum::enum_entries<TECcodes>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] = static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][STR(name)] =
+                static_cast<int32_t>(entry.first);
         }
 
         auto const translate_tt = [](std::string inp) -> std::string {
@@ -352,7 +359,7 @@ private:
 
         ret[jss::TRANSACTION_TYPES] = Json::objectValue;
         ret[jss::TRANSACTION_TYPES][jss::Invalid] = -1;
-        for (auto const& entry : magic_enum::enum_entries<TxType>()) 
+        for (auto const& entry : magic_enum::enum_entries<TxType>())
         {
             const auto name = entry.second;
             std::string type_name = translate_tt(translate(name.data() + 2));
