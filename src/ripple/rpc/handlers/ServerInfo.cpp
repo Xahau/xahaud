@@ -44,6 +44,9 @@ doServerInfo(RPC::JsonContext& context)
         ret[jss::info][jss::validation_quorum] = vq.isNull() ? 1 : vq;
         ret[jss::info][jss::load_factor] = lf.isNull() ? 1 : lf;
     }
+
+    ret[jss::native_currency_code] = systemCurrencyCode();
+
     return ret;
 }
 
