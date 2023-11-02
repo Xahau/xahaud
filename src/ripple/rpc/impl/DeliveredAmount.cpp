@@ -72,7 +72,8 @@ getDeliveredAmount(
         // Amount field. DeliveredAmount went live January 24, 2014.
         // 446000000 is in Feb 2014, well after DeliveredAmount went live
         if (getLedgerIndex() >= 4594095 ||
-            getCloseTime() > NetClock::time_point{446000000s})
+            getCloseTime() > NetClock::time_point{446000000s} ||
+            (serializedTx && serializedTx->isFieldPresent(sfNetworkID)))
         {
             return serializedTx->getFieldAmount(sfAmount);
         }
