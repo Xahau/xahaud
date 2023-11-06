@@ -2,6 +2,8 @@
 
 # Exit script on any error
 set -e
+# Fail on pipeline errors
+set -o pipefail
 
 echo "START INSIDE CONTAINER - CORE"
 
