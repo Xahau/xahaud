@@ -174,6 +174,7 @@ transResults()
         MAKE_ERROR(temSEQ_AND_TICKET,            "Transaction contains a TicketSequence and a non-zero Sequence."),
         MAKE_ERROR(temBAD_NFTOKEN_TRANSFER_FEE,  "Malformed: The NFToken transfer fee must be between 1 and 5000, inclusive."),
 
+        MAKE_ERROR(temHOOK_DATA_TOO_LARGE,    "Malformed: The hook CreateCode field is to large to be applied to the ledger."),
         MAKE_ERROR(terRETRY,                  "Retry transaction."),
         MAKE_ERROR(terFUNDS_SPENT,            "DEPRECATED."),
         MAKE_ERROR(terINSUF_FEE_B,            "Account balance can't pay fee."),
