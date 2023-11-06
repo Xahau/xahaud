@@ -16,9 +16,8 @@ jobs:
       fail-fast: true
     runs-on: [self-hosted, vanity]
     steps:
-    - uses: actions/checkout@v3
-      with:
-        clean: false
+    - name: checkout
+      uses: actions/checkout@v3
     - name: Build using Docker
       run: /bin/bash release-builder.sh
     - name: Cleanup on failure
@@ -31,6 +30,8 @@ jobs:
     needs: builder
     runs-on: [self-hosted, vanity]
     steps:
+    - name: checkout
+      uses: actions/checkout@v3
     - name: Unit tests
       run: /bin/bash docker-unit-tests.sh
 

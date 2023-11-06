@@ -2,8 +2,13 @@
 
 echo "START BUILDING (HOST)"
 
-echo "Cleaning previously built binary"
-rm -f release-build/xahaud
+if [ -d "release-build" ]; then
+  echo "Cleaning previously built binary"
+  rm -f release-build/xahaud
+else
+  echo "release-build directory does not exist. Creating it now."
+  mkdir release-build
+fi
 
 BUILD_CORES=$(echo "scale=0 ; `nproc` / 3" | bc)
 
