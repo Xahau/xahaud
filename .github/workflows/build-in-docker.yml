@@ -21,6 +21,9 @@ jobs:
         clean: false
     - name: Build using Docker
       run: /bin/bash release-builder.sh
+    - name: Cleanup on failure
+      if: ${{ failure() }}
+      run: docker rm -f xahaud_cached_builder
       
   unittests:
     strategy:

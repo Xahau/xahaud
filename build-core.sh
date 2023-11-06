@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit script on any error
+set -e
+
 echo "START INSIDE CONTAINER - CORE"
 
 echo "-- BUILD CORES:       $3"
