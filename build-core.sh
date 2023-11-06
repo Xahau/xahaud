@@ -12,6 +12,9 @@ echo "-- GITHUB_REPOSITORY: $1"
 echo "-- GITHUB_SHA:        $2"
 echo "-- GITHUB_RUN_NUMBER: $4"
 
+umask 0000;
+
+cd /io/ &&
 export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-7/g"` &&
 export BOOST_ROOT="/usr/local/src/boost_1_75_0" &&
 export Boost_LIBRARY_DIRS="/usr/local/lib" &&
@@ -20,11 +23,7 @@ export PATH=`echo $PATH | sed -E "s/devtoolset-7/devtoolset-9/g"` &&
 export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-10/g"` &&
 printenv > .env.temp &&
 cat .env.temp | grep '=' | sed s/\\\(^[^=]\\+=\\\)/\\1\\\"/g|sed s/\$/\\\"/g > .env &&
-rm .env.temp;
-
-umask 0000;
-
-cd /io/ &&
+rm .env.temp &&
 cat .env &&
 echo "Importing env... Lines:" && wc -l .env &&
 source .env &&
