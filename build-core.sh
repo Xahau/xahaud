@@ -15,8 +15,8 @@ echo "-- GITHUB_RUN_NUMBER: $4"
 umask 0000;
 
 cd /io/ &&
-echo "Importing env... Lines:" &&
-cat .env|wc -l &&
+cat .env &&
+echo "Importing env... Lines:" && wc -l .env &&
 source .env &&
 perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" Builds/CMake/deps/Rocksdb.cmake &&
 mv Builds/CMake/deps/WasmEdge.cmake Builds/CMake/deps/WasmEdge.old &&
