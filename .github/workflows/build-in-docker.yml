@@ -13,7 +13,7 @@ concurrency:
 jobs:
   builder:
     strategy:
-      fail-fast: false
+      fail-fast: true
     runs-on: [self-hosted, vanity]
     steps:
     - uses: actions/checkout@v3
