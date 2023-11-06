@@ -86,7 +86,7 @@ Payment::preflight(PreflightContext const& ctx)
     auto const& uSrcCurrency = maxSourceAmount.getCurrency();
     auto const& uDstCurrency = saDstAmount.getCurrency();
 
-    // isZero() is XRP.  FIX!
+    // isZero() is XAH.  FIX!
     bool const bXRPDirect = uSrcCurrency.isZero() && uDstCurrency.isZero();
 
     if (!isLegalNet(saDstAmount) || !isLegalNet(maxSourceAmount))
@@ -132,36 +132,36 @@ Payment::preflight(PreflightContext const& ctx)
     {
         // Consistent but redundant transaction.
         JLOG(j.trace()) << "Malformed transaction: "
-                        << "SendMax specified for XRP to XRP.";
-        return temBAD_SEND_XRP_MAX;
+                        << "SendMax specified for XAH to XAH.";
+        return temBAD_SEND_NATIVE_MAX;
     }
     if (bXRPDirect && bPaths)
     {
-        // XRP is sent without paths.
+        // XAH is sent without paths.
         JLOG(j.trace()) << "Malformed transaction: "
-                        << "Paths specified for XRP to XRP.";
-        return temBAD_SEND_XRP_PATHS;
+                        << "Paths specified for XAH to XAH.";
+        return temBAD_SEND_NATIVE_PATHS;
     }
     if (bXRPDirect && partialPaymentAllowed)
     {
         // Consistent but redundant transaction.
         JLOG(j.trace()) << "Malformed transaction: "
-                        << "Partial payment specified for XRP to XRP.";
-        return temBAD_SEND_XRP_PARTIAL;
+                        << "Partial payment specified for XAH to XAH.";
+        return temBAD_SEND_NATIVE_PARTIAL;
     }
     if (bXRPDirect && limitQuality)
     {
         // Consistent but redundant transaction.
         JLOG(j.trace()) << "Malformed transaction: "
-                        << "Limit quality specified for XRP to XRP.";
-        return temBAD_SEND_XRP_LIMIT;
+                        << "Limit quality specified for XAH to XAH.";
+        return temBAD_SEND_NATIVE_LIMIT;
     }
     if (bXRPDirect && !defaultPathsAllowed)
     {
         // Consistent but redundant transaction.
         JLOG(j.trace()) << "Malformed transaction: "
-                        << "No ripple direct specified for XRP to XRP.";
-        return temBAD_SEND_XRP_NO_DIRECT;
+                        << "No ripple direct specified for XAH to XAH.";
+        return temBAD_SEND_NATIVE_NO_DIRECT;
     }
 
     auto const deliverMin = tx[~sfDeliverMin];
@@ -252,7 +252,7 @@ Payment::preclaim(PreclaimContext const& ctx)
             // TODO: dedupe
             // Another transaction could create the account and then this
             // transaction would succeed.
-            return tecNO_DST_INSUF_XRP;
+            return tecNO_DST_INSUF_NATIVE;
         }
     }
     else if (
