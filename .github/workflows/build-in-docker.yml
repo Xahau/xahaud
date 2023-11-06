@@ -16,9 +16,8 @@ jobs:
       fail-fast: false
     runs-on: [self-hosted, vanity]
     steps:
-    - uses: actions/checkout@v3
-      with:
-        clean: false
+    - name: checkout
+      uses: actions/checkout@v3
     - name: Build using Docker
       run: /bin/bash release-builder.sh
       
