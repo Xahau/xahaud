@@ -78,7 +78,8 @@ URIToken::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (ctx.tx.isFieldPresent(sfDestination) && !ctx.tx.isFieldPresent(sfAmount))
+    if (ctx.tx.isFieldPresent(sfDestination) &&
+        !ctx.tx.isFieldPresent(sfAmount))
     {
         return temMALFORMED;
     }
