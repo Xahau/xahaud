@@ -298,6 +298,12 @@ struct URIToken_test : public beast::unit_test::suite
             env(badXrpTx, ter(temBAD_CURRENCY));
             env.close();
 
+            // temMALFORMED - cannot include sfDestination without sfAmount
+            Json::Value destTx = mint(alice, uri);
+            destTx[jss::Destination] = bob.human();
+            env(destTx, ter(temMALFORMED));
+            env.close();
+
             // temMALFORMED - XRP cannot be 0 without sfDestination
             Json::Value nodestTx = mint(alice, uri);
             nodestTx[jss::Amount] = XRP(0).value().getJson(JsonOptions::none);

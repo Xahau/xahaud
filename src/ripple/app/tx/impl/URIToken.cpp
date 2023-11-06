@@ -78,6 +78,11 @@ URIToken::preflight(PreflightContext const& ctx)
         }
     }
 
+    if (ctx.tx.isFieldPresent(sfDestination) && !ctx.tx.isFieldPresent(sfAmount))
+    {
+        return temMALFORMED;
+    }
+
     // the validation for the URI field is also the same regardless of the txn
     // type
     if (ctx.tx.isFieldPresent(sfURI))
