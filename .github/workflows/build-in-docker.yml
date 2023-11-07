@@ -24,4 +24,6 @@ jobs:
       run: /bin/bash release.sh ${{ github.sha }} ${{ github.run_number }}
     - name: Test using Docker
       run: docker run --rm -i transia/xahaud-binary:${{ github.sha }} sh -c '/io/release-build/xahaud -u'
+    - name: Clean up Docker
+      run: docker rmi transia/xahaud-binary:${{ github.sha }}
 
