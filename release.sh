@@ -3,6 +3,7 @@
 # Define the build identifier and git abbreviation
 GITHUB_BRANCH=$1
 GIT_SHA=$2
+GITHUB_RUN_NUMBER=$3
 
 # Create a temporary container
 container_id=$(docker create transia/xahaud-binary:$GIT_SHA)

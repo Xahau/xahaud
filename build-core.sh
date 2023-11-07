@@ -10,17 +10,8 @@ echo "-- GITHUB_RUN_NUMBER: $4"
 umask 0000;
 
 cd /io/ &&
-export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-7/g"` &&
-export BOOST_ROOT="/usr/local/src/boost_1_75_0" &&
-export Boost_LIBRARY_DIRS="/usr/local/lib" &&
-export BOOST_INCLUDEDIR="/usr/local/src/boost_1_75_0" &&
-export PATH=`echo $PATH | sed -E "s/devtoolset-7/devtoolset-9/g"` &&
-export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-10/g"` &&
-printenv > .env.temp &&
-cat .env.temp | grep '=' | sed s/\\\(^[^=]\\+=\\\)/\\1\\\"/g|sed s/\$/\\\"/g > .env &&
-rm .env.temp &&
-cat .env &&
-echo "Importing env... Lines:" && wc -l .env &&
+echo "Importing env... Lines:" &&
+cat .env|wc -l &&
 source .env &&
 perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" Builds/CMake/deps/Rocksdb.cmake &&
 mv Builds/CMake/deps/WasmEdge.cmake Builds/CMake/deps/WasmEdge.old &&
@@ -44,7 +35,7 @@ echo "Build host: `hostname`" > release.info &&
 echo "Build date: `date`" >> release.info &&
 echo "Build md5: `md5sum xahaud`" >> release.info &&
 echo "Git remotes:" >> release.info && 
-git remote -v >> release.info &&
+git remote -v >> release.info 
 echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
