@@ -414,7 +414,8 @@ public:
         using namespace test::jtx;
         Env env{*this};
 
-        auto jrr = env.rpc("server_definitions", "MultiSignReserve")[jss::result];
+        auto jrr =
+            env.rpc("server_definitions", "MultiSignReserve")[jss::result];
         BEAST_EXPECTS(jrr[jss::status] == jss::success, "status");
         jrr.removeMember(jss::status);
         // Because features endpoint doesnt add `features` field
@@ -606,7 +607,7 @@ public:
         }
     }
 
-	void
+    void
     testServerFeatures(FeatureBitset features)
     {
         testNoParams();
@@ -614,13 +615,13 @@ public:
         testInvalidFeature();
         testSomeEnabled();
         testWithMajorities();
-	}
+    }
 
     void
     run() override
     {
-		using namespace test::jtx;
-		auto const sa = supported_amendments();
+        using namespace test::jtx;
+        auto const sa = supported_amendments();
         testServerDefinitions(sa);
         testServerFeatures(sa);
     }
