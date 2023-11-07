@@ -2,7 +2,7 @@
 # Use a base image that includes the necessary build tools and libraries
 FROM transia/xahaud-hbb-deps
 
-ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
+ARG GITHUB_RUN_NUMBER
 
 # Copy the project source code into the container
 COPY . /io

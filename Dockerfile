@@ -1,4 +1,4 @@
-# docker build -t transia/xahaud-hbb-dependencies .
+# docker build -t transia/xahaud-hbb-deps .
 # Use the Holy Build Box image as the base image
 FROM ghcr.io/foobarwidget/holy-build-box-x64
 
