@@ -1,4 +1,4 @@
-# docker build -t transia/xahaud-hbb-deps .
+# docker build -t transia/xahaud-hbb-dependencies .
 # Use the Holy Build Box image as the base image
 FROM ghcr.io/foobarwidget/holy-build-box-x64
 
@@ -7,7 +7,7 @@ FROM ghcr.io/foobarwidget/holy-build-box-x64
 # USER root:$(id -g)
 
 # Install wget and other necessary tools
-RUN yum update -y && \
+RUN /hbb_exe/activate-exec bash -c "yum update -y && \
     yum install -y wget lz4 lz4-devel git llvm13-static.x86_64 llvm13-devel.x86_64 devtoolset-10-binutils zlib-static ncurses-static \
     devtoolset-7-gcc-c++ \
     devtoolset-9-gcc-c++ \
@@ -17,18 +17,15 @@ RUN yum update -y && \
     lz4-devel \
     libasan && \
     yum clean all && \
-    rm -rf /var/cache/yum
+    rm -rf /var/cache/yum"
 
 COPY . /io/
 
 # Create and set the working directory to /io
 WORKDIR /io
 
-# Start the build process inside the container
-RUN echo "START INSIDE CONTAINER - FULL"
-
 # Set file permissions mask
-RUN umask 0000
+RUN /hbb_exe/activate-exec bash -c "umask 0000"
 
 ENV ZSTD_VERSION="1.1.3" \
     BOOST_ROOT="/usr/local/src/boost_1_75_0" \
@@ -37,27 +34,24 @@ ENV ZSTD_VERSION="1.1.3" \
     LLVM_DIR="/usr/lib64/llvm13/lib/cmake/llvm/" \
     LLVM_LIBRARY_DIR="/usr/lib64/llvm13/lib/"
 
-# Change devtoolset version
-RUN sed -i -E "s/devtoolset-9/devtoolset-7/g" /etc/yum.conf
-
 # Install ZStd 1.1.3
-RUN echo "-- Install ZStd 1.1.3 --" && \
+RUN /hbb_exe/activate-exec bash -c "source /opt/rh/devtoolset-7/enable && echo '-- Install ZStd 1.1.3 --' && \
     yum install epel-release -y && \
     wget -nc -q -O zstd-${ZSTD_VERSION}.tar.gz https://github.com/facebook/zstd/archive/v${ZSTD_VERSION}.tar.gz && \
     tar xzvf zstd-${ZSTD_VERSION}.tar.gz && \
     cd zstd-${ZSTD_VERSION} && \
     make -j$(nproc) install && \
     cd .. && \
-    rm -rf zstd-${ZSTD_VERSION} zstd-${ZSTD_VERSION}.tar.gz
+    rm -rf zstd-${ZSTD_VERSION} zstd-${ZSTD_VERSION}.tar.gz"
 
 # Install Cmake 3.23.1
-RUN echo "-- Install Cmake 3.23.1 --" && \
+RUN /hbb_exe/activate-exec bash -c "source /opt/rh/devtoolset-7/enable && echo '-- Install Cmake 3.23.1 --' && \
     wget -nc -q https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1-linux-x86_64.tar.gz && \
     tar -xzf cmake-3.23.1-linux-x86_64.tar.gz -C /hbb/ && \
-    rm cmake-3.23.1-linux-x86_64.tar.gz
+    rm cmake-3.23.1-linux-x86_64.tar.gz"
 
 # Install Boost 1.75.0
-RUN echo "-- Install Boost 1.75.0 --" && \
+RUN /hbb_exe/activate-exec bash -c "source /opt/rh/devtoolset-7/enable && echo '-- Install Boost 1.75.0 --' && \
     wget -nc -q https://boostorg.jfrog.io/artifactory/main/release/1.75.0/source/boost_1_75_0.tar.gz && \
     tar -xzf boost_1_75_0.tar.gz && \
     cd boost_1_75_0 && \
@@ -65,10 +59,10 @@ RUN echo "-- Install Boost 1.75.0 --" && \
     ./b2 link=static -j$(nproc) && \
     ./b2 install && \
     cd ../ && \
-    rm -rf boost_1_75_0 boost_1_75_0.tar.gz
+    rm -rf boost_1_75_0 boost_1_75_0.tar.gz"
 
 # Install Protobuf 3.20.0
-RUN echo "-- Install Protobuf 3.20.0 --" && \
+RUN /hbb_exe/activate-exec bash -c "source /opt/rh/devtoolset-7/enable && echo '-- Install Protobuf 3.20.0 --' && \
     wget -nc -q https://github.com/protocolbuffers/protobuf/releases/download/v3.20.0/protobuf-all-3.20.0.tar.gz && \
     tar -xzf protobuf-all-3.20.0.tar.gz && \
     cd protobuf-3.20.0/ && \
@@ -77,10 +71,10 @@ RUN echo "-- Install Protobuf 3.20.0 --" && \
     make -j$(nproc) && \
     make install && \
     cd .. && \
-    rm -rf protobuf-3.20.0 protobuf-all-3.20.0.tar.gz
+    rm -rf protobuf-3.20.0 protobuf-all-3.20.0.tar.gz"
 
 # Build LLD
-RUN echo "-- Build LLD --" && \
+RUN /hbb_exe/activate-exec bash -c "source /opt/rh/devtoolset-7/enable && echo '-- Build LLD --' && \
     ln /usr/bin/llvm-config-13 /usr/bin/llvm-config && \
     mv /opt/rh/devtoolset-9/root/usr/bin/ar /opt/rh/devtoolset-9/root/usr/bin/ar-9 && \
     ln /opt/rh/devtoolset-10/root/usr/bin/ar /opt/rh/devtoolset-9/root/usr/bin/ar && \
@@ -98,16 +92,15 @@ RUN echo "-- Build LLD --" && \
     ln -s /usr/lib64/llvm13/lib/include/lld /usr/include/lld && \
     cp /usr/lib64/llvm13/lib/liblld*.a /usr/local/lib/ && \
     cd ../../ && \
-    rm -rf lld-13.0.1.src libunwind-13.0.1.src lld-13.0.1.src.tar.xz libunwind-13.0.1.src.tar.xz
+    rm -rf lld-13.0.1.src libunwind-13.0.1.src lld-13.0.1.src.tar.xz libunwind-13.0.1.src.tar.xz"
 
 # Build WasmEdge
-RUN echo "-- Build WasmEdge --" && \
+RUN /hbb_exe/activate-exec bash -c "source /opt/rh/devtoolset-9/enable && echo '-- Build WasmEdge --' && \
     wget -nc -q https://github.com/WasmEdge/WasmEdge/archive/refs/tags/0.11.2.zip && \
     unzip -o 0.11.2.zip && \
     cd WasmEdge-0.11.2 && \
     mkdir build && \
     cd build && \
-    sed -i -E "s/devtoolset-7/devtoolset-9/g" /etc/yum.conf && \
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
         -DWASMEDGE_BUILD_SHARED_LIB=OFF \
@@ -120,10 +113,9 @@ RUN echo "-- Build WasmEdge --" && \
         -DWASMEDGE_LINK_TOOLS_STATIC=ON \
         -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ && \
     make -j$(nproc) install && \
-    sed -i -E "s/devtoolset-9/devtoolset-10/g" /etc/yum.conf && \
     cp -r include/api/wasmedge /usr/include/ && \
     cd ../../ && \
-    rm -rf WasmEdge-0.11.2 0.11.2.zip
+    rm -rf WasmEdge-0.11.2 0.11.2.zip"
 
 # Set the entrypoint to the activate-exec script with bash
 # This will be the default command that runs when the container starts

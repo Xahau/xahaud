@@ -2,6 +2,8 @@
 # Use a base image that includes the necessary build tools and libraries
 FROM transia/xahaud-hbb-deps
 
+ENV GITHUB_RUN_NUMBER=${GITHUB_RUN_NUMBER}
+
 # Copy the project source code into the container
 COPY . /io
 
@@ -28,7 +30,7 @@ RUN perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\
 RUN /hbb_exe/activate-exec bash -c "echo -e 'find_package(LLVM REQUIRED CONFIG)\nmessage(STATUS \"Found LLVM ${LLVM_PACKAGE_VERSION}\")\nmessage(STATUS \"Using LLVMConfig.cmake in: \${LLVM_DIR}\")\nadd_library (wasmedge STATIC IMPORTED GLOBAL)\nset_target_properties(wasmedge PROPERTIES IMPORTED_LOCATION \${WasmEdge_LIB})\ntarget_link_libraries (ripple_libs INTERFACE wasmedge)\nadd_library (NIH::WasmEdge ALIAS wasmedge)\nmessage(\"WasmEdge DONE\")' > Builds/CMake/deps/WasmEdge.cmake"
 
 # Update BuildInfo.cpp with the current date and Git information
-RUN sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)\"/g src/ripple/protocol/impl/BuildInfo.cpp
+RUN sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+${GITHUB_RUN_NUMBER}\"/g src/ripple/protocol/impl/BuildInfo.cpp
 
 # Create build directory
 RUN /hbb_exe/activate-exec bash -c "mkdir -p release-build"
@@ -50,16 +52,6 @@ RUN cd release-build && \
     git status -v >> release.info && \
     echo "Git log [last 20]:" >> release.info && \
     git log -n 20 >> release.info
-
-# RUN cp /io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-${GIT_ABBRV}+${BUILD_IDENTIFIER} && \
-#     cp /io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-${GIT_ABBRV}+${BUILD_IDENTIFIER}.releaseinfo && \
-#     echo "Published build to: http://build.xahau.tech/" && \
-#     echo $(date +%Y).$(date +%-m).$(date +%-d)-${GIT_ABBRV}+${BUILD_IDENTIFIER}
-
-# # Restore the original files
-# RUN mv src/ripple/net/impl/RegisterSSLCerts.cpp.old src/ripple/net/impl/RegisterSSLCerts.cpp && \
-#     mv Builds/CMake/deps/Rocksdb.cmake.old Builds/CMake/deps/Rocksdb.cmake && \
-#     mv Builds/CMake/deps/WasmEdge.old Builds/CMake/deps/WasmEdge.cmake
 
 ENTRYPOINT ["/hbb_exe/activate-exec"]
 CMD ["bash"]

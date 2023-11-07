@@ -1,9 +1,2 @@
-# Ignore everything
-# *
 
-# Allow files and directories
-# !/build-inner.sh
-# !/release-builder.sh
-# !/release.sh
-# !xahaud.binary.dockerfile
 

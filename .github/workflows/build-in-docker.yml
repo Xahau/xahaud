@@ -18,10 +18,12 @@ jobs:
     steps:
     - name: checkout
       uses: actions/checkout@v3
+    - name: Set GITHUB_BRANCH as an environment variable
+      run: echo "GITHUB_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
     - name: Build using Docker
-      run: docker build -f xahaud.binary.dockerfile -t transia/xahaud-binary:${{ github.sha }} .
+      run: docker build -f xahaud.binary.dockerfile -e GITHUB_RUN_NUMBER=${{ env.GITHUB_RUN_NUMBER }} -t transia/xahaud-binary:${{ github.sha }} .
     - name: Release using Docker
-      run: /bin/bash release.sh ${{ github.sha }}
+      run: /bin/bash release.sh ${{ env.GITHUB_BRANCH }} ${{ github.sha }}
     - name: Test using Docker
       run: docker run --rm -i transia/xahaud-binary:${{ github.sha }} sh -c '/io/release-build/xahaud -u'
 
