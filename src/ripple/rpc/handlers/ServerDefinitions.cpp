@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <ripple/app/main/Application.h>
+#include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/reporting/P2pProxy.h>
 #include <ripple/json/json_value.h>
@@ -419,7 +420,34 @@ doServerDefinitions(RPC::JsonContext& context)
         return jv;
     }
 
-    return defs();
+    Json::Value ret = defs();
+    // Get majority amendment status
+    majorityAmendments_t majorities;
+    if (auto const valLedger = context.ledgerMaster.getValidatedLedger())
+        majorities = getMajorityAmendments(*valLedger);
+    auto& table = context.app.getAmendmentTable();
+    if (!context.params.isMember(jss::feature))
+    {
+        auto features = table.getJson();
+        for (auto const& [h, t] : majorities)
+        {
+            features[to_string(h)][jss::majority] =
+                t.time_since_epoch().count();
+        }
+        ret[jss::features] = features;
+        return ret;
+    }
+    auto feature = table.find(context.params[jss::feature].asString());
+    // If the feature is not found by name, try to parse the `feature` param as
+    // a feature ID. If that fails, return an error.
+    if (!feature && !feature.parseHex(context.params[jss::feature].asString()))
+        return rpcError(rpcBAD_FEATURE);
+    Json::Value amendments = table.getJson(feature);
+    auto m = majorities.find(feature);
+    if (m != majorities.end())
+        amendments[jss::majority] = m->second.time_since_epoch().count();
+    ret[jss::features] = amendments;
+    return ret;
 }
 
 }  // namespace ripple
