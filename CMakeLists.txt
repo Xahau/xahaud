@@ -45,7 +45,7 @@ include(RippledSanity)
 include(RippledVersion)
 include(RippledSettings)
 include(RippledNIH)
-include(RippledRelease)
+# include(RippledRelease)
 # this check has to remain in the top-level cmake
 # because of the early return statement
 if (packages_only)

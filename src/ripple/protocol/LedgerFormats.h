@@ -310,6 +310,9 @@ enum LedgerSpecificFlags {
 
     // ltNFTOKEN_OFFER
     lsfSellNFToken = 0x00000001,
+
+    // ltURI_TOKEN
+    lsfBurnable = 0x00000001,  // True, issuer can burn the token
 };
 
 //------------------------------------------------------------------------------

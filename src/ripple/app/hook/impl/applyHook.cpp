@@ -135,7 +135,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             // issuer is also a strong TSH if the burnable flag is set
             auto const issuer = ut->getAccountID(sfIssuer);
             if (issuer != owner)
-                ADD_TSH(issuer, ut->getFlags() & tfBurnable);
+                ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
 
             break;
         }
@@ -154,7 +154,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             // issuer is a strong TSH if the burnable flag is set
             if (issuer != owner)
-                ADD_TSH(issuer, ut->getFlags() & tfBurnable);
+                ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
 
             // destination is a strong tsh
             if (tx.isFieldPresent(sfDestination))
