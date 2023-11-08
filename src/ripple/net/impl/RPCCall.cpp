@@ -587,6 +587,18 @@ private:
         return jvRequest;
     }
 
+    // feature [<feature>]
+    Json::Value
+    parseServerDefinitions(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+
+        if (jvParams.size() > 0)
+            jvRequest[jss::feature] = jvParams[0u].asString();
+
+        return jvRequest;
+    }
+
     // fee [<txblob>]
     Json::Value
     parseFee(Json::Value const& jvParams)
@@ -1462,6 +1474,7 @@ public:
             {"sign_for", &RPCParser::parseSignFor, 3, 4},
             {"submit", &RPCParser::parseSignSubmit, 1, 3},
             {"submit_multisigned", &RPCParser::parseSubmitMultiSigned, 1, 1},
+            {"server_definitions", &RPCParser::parseServerDefinitions, 0, 1},
             {"server_info", &RPCParser::parseServerInfo, 0, 1},
             {"server_state", &RPCParser::parseServerInfo, 0, 1},
             {"crawl_shards", &RPCParser::parseAsIs, 0, 2},
