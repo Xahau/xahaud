@@ -19,7 +19,7 @@ jobs:
     - name: checkout
       uses: actions/checkout@v3
     - name: Set branch name
-      run: echo "GITHUB_BRANCH=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      run: echo "GITHUB_BRANCH=${{ github.head_ref || github.ref }}" >> $GITHUB_ENV
     - name: Build using Docker
       run: docker build -f xahaud.binary.dockerfile --build-arg GITHUB_RUN_NUMBER=${{ github.run_number }} --build-arg GITHUB_BRANCH=${{ env.GITHUB_BRANCH }} -t transia/xahaud-binary:${{ github.sha }} .
     - name: Release using Docker
