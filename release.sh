@@ -3,16 +3,15 @@ set -e
 umask 0000;
 
 # Create a temporary container
-container_id=$(docker create transia/xahaud-binary:$1)
+container_id=$(docker create transia/xahaud-binary:$3)
 
 # Copy the xahaud and release.info files from the container to the host
-git config --global --add safe.directory /data/actions-runner/_work/xahaud/xahaud
-docker cp $container_id:/io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$2
-docker cp $container_id:/io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$2.releaseinfo
+docker cp $container_id:/io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$1+$2
+docker cp $container_id:/io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$1+$2.releaseinfo
 
 # Remove the temporary container
 docker rm $container_id
 
 # Print the published build
 echo "Published build to: http://build.xahau.tech/"
-echo $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$2
+echo $(date +%Y).$(date +%-m).$(date +%-d)-$1+$2

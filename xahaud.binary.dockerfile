@@ -2,6 +2,7 @@
 # Use a base image that includes the necessary build tools and libraries
 FROM transia/xahaud-hbb-deps
 
+ARG GITHUB_BRANCH
 ARG GITHUB_RUN_NUMBER
 
 # Copy the project source code into the container
@@ -30,7 +31,7 @@ RUN perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\
 RUN /hbb_exe/activate-exec bash -c "echo -e 'find_package(LLVM REQUIRED CONFIG)\nmessage(STATUS \"Found LLVM ${LLVM_PACKAGE_VERSION}\")\nmessage(STATUS \"Using LLVMConfig.cmake in: \${LLVM_DIR}\")\nadd_library (wasmedge STATIC IMPORTED GLOBAL)\nset_target_properties(wasmedge PROPERTIES IMPORTED_LOCATION \${WasmEdge_LIB})\ntarget_link_libraries (ripple_libs INTERFACE wasmedge)\nadd_library (NIH::WasmEdge ALIAS wasmedge)\nmessage(\"WasmEdge DONE\")' > Builds/CMake/deps/WasmEdge.cmake"
 
 # Update BuildInfo.cpp with the current date and Git information
-RUN sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+${GITHUB_RUN_NUMBER}\"/g src/ripple/protocol/impl/BuildInfo.cpp
+RUN sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-${GITHUB_BRANCH}+${GITHUB_RUN_NUMBER}\"/g src/ripple/protocol/impl/BuildInfo.cpp
 
 # Create build directory
 RUN /hbb_exe/activate-exec bash -c "mkdir -p release-build"
