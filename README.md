@@ -1,6 +1,6 @@
 # Xahau
 
-[Xahau](https://xahau.network/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. The XAH Ledger uses a novel Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
+[Xahau](https://xahau.network/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. Xahau uses a novel Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
 
 ## XAH
 XAH is a public, counterparty-free asset native to Xahau, and is designed to bridge the many different currencies in use worldwide. XAH is traded on the open-market and is available for anyone to access. Xahau was created in 2023 with a finite supply of 600 million units of XAH.
