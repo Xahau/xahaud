@@ -15,7 +15,7 @@ Version 2023.10.30-release+443 of `xahaud`, the reference server implementation 
 
 ## Action Required
 
-New amendments are now open for voting according to the XAH Ledger's [amendment process](https://docs.xahau.network/features/amendments), which enables protocol changes following 5 days of >80% support from trusted validators.
+New amendments are now open for voting according to the XAH Ledger's [amendment process](https://docs.xahau.network/features/amendments), which enables protocol changes following five days of >80% support from trusted validators.
 
 If you operate an XAH Ledger server, upgrade to version 2023.10.30-release+443 by November 1 to ensure service continuity. The exact time that protocol changes take effect depends on the voting decisions of the decentralized network.
 
@@ -27,19 +27,27 @@ On supported platforms, see the [instructions on installing or updating `xahaud`
 
 ## New Amendments
 
-- **`Hooks`**: Enables hooks and the hook api.
-- **`BalanceRewards`**: Enables ClaimReward and GenesisMint transactions to allow for balance rewards paid in XAH.
-- **`PaychanAndEscrowForTokens`**: Enables IOUs for PaymentChannels and Escrow.
-- **`URIToken`**: Enables URITokens, Xahau's non fungible hook friendly tokens.
-- **`Import`**: Enables the Import transaction for B2M xpop processing.
-- **`XahauGenesis`**: Enables the genesis amendment for the initial distribution of XAH and the governance game.
-- **`HooksUpdate1`**: Adds Xpop functionality to the hooks api.
+- **`Hooks`**: This amendment activates hooks and the hook API in the Xahau network, allowing custom logic to be executed on the ledger in response to transactions.
+
+- **`BalanceRewards`**: This amendment enables `ClaimReward`` and `GenesisMint`` transactions, facilitating balance rewards to be paid in XAH, the Xahau network's native currency.
+
+- **`PaychanAndEscrowForTokens`**: This amendment allows the use of IOU tokens for PaymentChannels and Escrow transactions, enhancing flexibility and functionality.
+
+- **`URIToken`**: This amendment activates URITokens, which are non-fungible, hook-friendly tokens in the Xahau network.
+
+- **`Import`**: This amendment enables the Import transaction for B2M xpop processing, allowing transactions to be imported from another network or system.
+
+- **`XahauGenesis`**: This amendment activates the genesis amendment for the initial distribution of XAH and the establishment of the governance game.
+
+- **`HooksUpdate1`**: This amendment extends the hooks API to include Xpop functionality, enabling more complex transactions involving Xpop.
 
 ## Changelog
 
 ### New Features and Improvements
 
-- **Server Definitions**: Adds `server_definitions` endpoint which returns the definitions.json in an rpc endpoint.
+- **Server Definitions**: The new feature introduces a `server_definitions` endpoint. This endpoint is designed to return a JSON object that contains the definitions of various types, fields, and transaction results used in the Xahau protocol.
+
+This feature enhances the functionality of the system by providing an efficient way to fetch and verify the current definitions used in the Ripple protocol.
 
 ### GitHub
 
