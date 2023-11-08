@@ -24,10 +24,11 @@
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/Protocol.h>
+#include <ripple/protocol/STBase.h>
 #include <ripple/protocol/STTx.h>
 #include <ripple/protocol/TER.h>
 #include <ripple/protocol/TxMeta.h>
-#include <boost/optional.hpp>
+
 #include <optional>
 #include <variant>
 
@@ -99,13 +100,13 @@ public:
     LedgerIndex
     getLedger() const
     {
-        return mInLedger;
+        return mLedgerIndex;
     }
 
     bool
     isValidated() const
     {
-        return mInLedger != 0;
+        return mLedgerIndex != 0;
     }
 
     TransStatus
@@ -142,7 +143,7 @@ public:
     void
     setLedger(LedgerIndex ledger)
     {
-        mInLedger = ledger;
+        mLedgerIndex = ledger;
     }
 
     /**
@@ -390,7 +391,7 @@ private:
 
     uint256 mTransactionID;
 
-    LedgerIndex mInLedger = 0;
+    LedgerIndex mLedgerIndex = 0;
     std::optional<uint32_t> mTxnSeq;
     std::optional<uint16_t> mNetworkID;
 

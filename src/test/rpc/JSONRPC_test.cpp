@@ -2535,13 +2535,15 @@ public:
         // A list of all the functions we want to test.
         using signFunc = Json::Value (*)(
             Json::Value params,
+            unsigned int apiVersion,
             NetworkOPs::FailHard failType,
             Role role,
             std::chrono::seconds validatedLedgerAge,
-            Application & app);
+            Application& app);
 
         using submitFunc = Json::Value (*)(
             Json::Value params,
+            unsigned int apiVersion,
             NetworkOPs::FailHard failType,
             Role role,
             std::chrono::seconds validatedLedgerAge,
@@ -2584,6 +2586,7 @@ public:
                         assert(get<1>(testFunc) == nullptr);
                         result = signFn(
                             req,
+                            1,
                             NetworkOPs::FailHard::yes,
                             testRole,
                             1s,
@@ -2595,6 +2598,7 @@ public:
                         assert(submitFn != nullptr);
                         result = submitFn(
                             req,
+                            1,
                             NetworkOPs::FailHard::yes,
                             testRole,
                             1s,

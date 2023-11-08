@@ -185,12 +185,6 @@ ledgerFromSpecifier(
     org::xrpl::rpc::v1::LedgerSpecifier const& specifier,
     Context& context);
 
-bool
-isValidated(
-    LedgerMaster& ledgerMaster,
-    ReadView const& ledger,
-    Application& app);
-
 hash_set<AccountID>
 parseAccountIds(Json::Value const& jvArray);
 
