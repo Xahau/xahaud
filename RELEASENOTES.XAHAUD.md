@@ -1,13 +1,13 @@
 # Release Notes
 
-This document contains the release notes for `xahaud`, the reference server implementation of the XAH Ledger protocol. To learn more about how to build, run or update a `xahaud` server, visit https://docs.xahau.network/infrastructure/building-xahau
+This document contains the release notes for `xahaud`, the reference server implementation of the Xahau protocol. To learn more about how to build, run or update a `xahaud` server, visit https://docs.xahau.network/infrastructure/building-xahau
 
  
 Have new ideas? Need help with setting up your node? [Please open an issue here](https://github.com/xrplf/rippled/issues/new/choose).
 
-# Introducing XAH Ledger version 2023.10.30-release+443
+# Introducing Xahau version 2023.10.30-release+443
 
-Version 2023.10.30-release+443 of `xahaud`, the reference server implementation of the XAH Ledger protocol, is now available.
+Version 2023.10.30-release+443 of `xahaud`, the reference server implementation of the Xahau protocol, is now available.
 
 [Sign Up for Future Release Announcements](https://groups.google.com/g/xahau-server)
 
@@ -15,9 +15,9 @@ Version 2023.10.30-release+443 of `xahaud`, the reference server implementation 
 
 ## Action Required
 
-New amendments are now open for voting according to the XAH Ledger's [amendment process](https://docs.xahau.network/features/amendments), which enables protocol changes following five days of >80% support from trusted validators.
+New amendments are now open for voting according to Xahau's [amendment process](https://docs.xahau.network/features/amendments), which enables protocol changes following five days of >80% support from trusted validators.
 
-If you operate an XAH Ledger server, upgrade to version 2023.10.30-release+443 by November 1 to ensure service continuity. The exact time that protocol changes take effect depends on the voting decisions of the decentralized network.
+If you operate a Xahau server, upgrade to version 2023.10.30-release+443 by November 1 to ensure service continuity. The exact time that protocol changes take effect depends on the voting decisions of the decentralized network.
 
 
 ## Install / Upgrade
@@ -53,7 +53,7 @@ This feature enhances the functionality of the system by providing an efficient 
 
 The public source code repository for `xahaud` is hosted on GitHub at <https://github.com/xahau/xahaud>.
 
-We welcome all contributions and invite everyone to join the community of XAH Ledger developers to help build the Internet of Value.
+We welcome all contributions and invite everyone to join the community of Xahau developers to help build the Internet of Value.
 
 ### Credits
 

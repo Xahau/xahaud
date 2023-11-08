@@ -1,19 +1,19 @@
-# The XAH Ledger
+# Xahau
 
-The [XAH Ledger](https://xahau.network/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. The XAH Ledger uses a novel Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
+[Xahau](https://xahau.network/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. The XAH Ledger uses a novel Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
 
 ## XAH
-XAH is a public, counterparty-free asset native to the XAH Ledger, and is designed to bridge the many different currencies in use worldwide. XAH is traded on the open-market and is available for anyone to access. The XAH Ledger was created in 2012 with a finite supply of 100 billion units of XAH.
+XAH is a public, counterparty-free asset native to Xahau, and is designed to bridge the many different currencies in use worldwide. XAH is traded on the open-market and is available for anyone to access. Xahau was created in 2023 with a finite supply of 600 million units of XAH.
 
 ## xahaud
-The server software that powers the XAH Ledger is called `xahaud` and is available in this repository under the permissive [ISC open-source license](LICENSE.md). The `xahaud` server software is written primarily in C++ and runs on a variety of platforms. The `xahaud` server software can run in several modes depending on its configuration.
+The server software that powers Xahau is called `xahaud` and is available in this repository under the permissive [ISC open-source license](LICENSE.md). The `xahaud` server software is written primarily in C++ and runs on a variety of platforms. The `xahaud` server software can run in several modes depending on its configuration.
 
 ### Build from Source
 
 * [Read the build instructions in our documentation](https://docs.xahau.network/infrastructure/building-xahau)
 * If you encounter any issues, please [open an issue](https://github.com/xahau/xahaud/issues)
 
-## Key Features of the XAH Ledger
+## Key Features of Xahau
 
 
 
@@ -40,5 +40,5 @@ git-subtree. See those directories' README files for more details.
 
 ## Additional Documentation
 
-* [XAH Ledger Dev Portal](https://docs.xahau.network/)
+* [Xahau Documentation](https://docs.xahau.network/)
 * [Setup and Installation](https://docs.xahau.network/infrastructure/building-xahau)

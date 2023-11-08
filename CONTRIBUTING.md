@@ -1,6 +1,5 @@
-The XAH Ledger has many and diverse stakeholders, and everyone deserves
-a chance to contribute meaningful changes to the code that runs the
-XAHL.
+Xahau has many and diverse stakeholders, and everyone deserves
+a chance to contribute meaningful changes to the code that runs Xahau.
 
 # Contributing
 
@@ -33,8 +32,8 @@ your verifying key. Please set up [signature verification][signing].
 ## Major contributions
 
 If your contribution is a major feature or breaking change, then you
-must first write an XAH Ledger Standard (XLS) describing it. Go to
-[XAHL-Standards](https://github.com/XRPLF/XRPL-Standards/discussions),
+must first write an Xahau Standard (XLS) describing it. Go to
+[Xahau-Standards](https://github.com/XRPLF/XRPL-Standards/discussions),
 choose the next available standard number, and open a discussion with an
 appropriate title to propose your draft standard.
 
@@ -171,7 +170,7 @@ rejected.
 Existing maintainers can resign, or be subject to a vote for removal at the
 behest of two existing maintainers.
 A minimum of 60% agreement and 50% participation are required.
-The XAH Ledger Foundation will have the ability, for cause, to remove an
+The XRP Ledger Foundation will have the ability, for cause, to remove an
 existing maintainer without a vote.
 
 

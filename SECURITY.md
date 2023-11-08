@@ -1,6 +1,6 @@
-### Operating an XAH Ledger server securely
+### Operating the Xahau server securely
 
-For more details on operating an XAH Ledger server securely, please visit https://docs.xahau.network/infrastructure/building-xahau.
+For more details on operating the Xahau server securely, please visit https://docs.xahau.network/infrastructure/building-xahau.
 
 
 # Security Policy
@@ -21,7 +21,7 @@ Responsible investigation includes, but isn't limited to, the following:
 
 - Not performing tests on the main network. If testing is necessary, use the [Testnet](https://xahau-test.net/).
 - Not targeting physical security measures, or attempting to use social engineering, spam, distributed denial of service (DDOS) attacks, etc.
-- Investigating bugs in a way that makes a reasonable, good faith effort not to be disruptive or harmful to the XAH Ledger and the broader ecosystem.
+- Investigating bugs in a way that makes a reasonable, good faith effort not to be disruptive or harmful to Xahau and the broader ecosystem.
 
 ### Responsible Disclosure
 
