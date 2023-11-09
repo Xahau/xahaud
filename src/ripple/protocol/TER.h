@@ -138,7 +138,6 @@ enum TEMcodes : TERUnderlyingType {
     temXCHAIN_TOO_MANY_ATTESTATIONS,                 // RESERVED - XCHAIN
 
     temHOOK_DATA_TOO_LARGE,
-    temHOOK_REJECTED,
 };
 
 //------------------------------------------------------------------------------
