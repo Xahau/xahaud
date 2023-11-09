@@ -12,8 +12,6 @@ concurrency:
 
 jobs:
   builder:
-    strategy:
-      fail-fast: false
     runs-on: [self-hosted, vanity]
     steps:
     - uses: actions/checkout@v3
@@ -23,8 +21,6 @@ jobs:
       run: /bin/bash release-builder.sh
       
   unittests:
-    strategy:
-      fail-fast: false
     needs: builder
     runs-on: [self-hosted, vanity]
     steps:
