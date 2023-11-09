@@ -11,23 +11,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  builder:
+  hbb:
     strategy:
-      fail-fast: false
+      fail-fast: true
     runs-on: [self-hosted, vanity]
     steps:
-    - uses: actions/checkout@v3
-      with:
-        clean: false
+    - name: checkout
+      uses: actions/checkout@v3
+    - name: Set branch name
+      run: echo "GITHUB_BRANCH=${{ github.head_ref || github.ref }}" >> $GITHUB_ENV
     - name: Build using Docker
-      run: /bin/bash release-builder.sh
-      
-  unittests:
-    strategy:
-      fail-fast: false
-    needs: builder
-    runs-on: [self-hosted, vanity]
-    steps:
-    - name: Unit tests
-      run: /bin/bash docker-unit-tests.sh
+      run: docker build -f xahaud.binary.dockerfile --build-arg GITHUB_RUN_NUMBER=${{ github.run_number }} --build-arg GITHUB_BRANCH=${{ env.GITHUB_BRANCH }} -t transia/xahaud-binary:${{ github.sha }} .
+    - name: Release using Docker
+      run: /bin/bash release.sh ${{ env.GITHUB_BRANCH }} ${{ github.run_number }} ${{ github.sha }}
+    - name: Test using Docker
+      run: docker run --rm -i transia/xahaud-binary:${{ github.sha }} sh -c '/io/release-build/xahaud -u'
+    - name: Clean up Docker
+      run: docker rmi transia/xahaud-binary:${{ github.sha }}
 
