@@ -429,8 +429,7 @@ doServerDefinitions(RPC::JsonContext& context)
     auto features = table.getJson();
     for (auto const& [h, t] : majorities)
     {
-        features[to_string(h)][jss::majority] =
-            t.time_since_epoch().count();
+        features[to_string(h)][jss::majority] = t.time_since_epoch().count();
     }
     ret[jss::features] = features;
     return ret;
