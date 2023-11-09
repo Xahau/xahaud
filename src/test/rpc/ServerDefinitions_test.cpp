@@ -406,52 +406,6 @@ public:
     }
 
     void
-    testSingleFeature()
-    {
-        testcase("Feature Param");
-
-        using namespace test::jtx;
-        Env env{*this};
-
-        auto jrr =
-            env.rpc("server_definitions", "MultiSignReserve")[jss::result];
-        BEAST_EXPECTS(jrr[jss::status] == jss::success, "status");
-        jrr.removeMember(jss::status);
-        // Because features endpoint doesnt add `features` field
-        jrr = jrr[jss::features];
-        BEAST_EXPECT(jrr.size() == 1);
-        BEAST_EXPECT(
-            jrr.isMember("586480873651E106F1D6339B0C4A8945BA705A777F3F4524626FF"
-                         "1FC07EFE41D"));
-        auto feature = *(jrr.begin());
-
-        BEAST_EXPECTS(feature[jss::name] == "MultiSignReserve", "name");
-        BEAST_EXPECTS(!feature[jss::enabled].asBool(), "enabled");
-        BEAST_EXPECTS(
-            feature[jss::vetoed].isBool() && !feature[jss::vetoed].asBool(),
-            "vetoed");
-        BEAST_EXPECTS(feature[jss::supported].asBool(), "supported");
-
-        // feature names are case-sensitive - expect error here
-        jrr = env.rpc("server_definitions", "multiSignReserve")[jss::result];
-        BEAST_EXPECT(jrr[jss::error] == "badFeature");
-        BEAST_EXPECT(jrr[jss::error_message] == "Feature unknown or invalid.");
-    }
-
-    void
-    testInvalidFeature()
-    {
-        testcase("Invalid Feature");
-
-        using namespace test::jtx;
-        Env env{*this};
-
-        auto jrr = env.rpc("server_definitions", "AllTheThings")[jss::result];
-        BEAST_EXPECT(jrr[jss::error] == "badFeature");
-        BEAST_EXPECT(jrr[jss::error_message] == "Feature unknown or invalid.");
-    }
-
-    void
     testSomeEnabled()
     {
         testcase("No Params, Some Enabled");
@@ -610,8 +564,6 @@ public:
     testServerFeatures(FeatureBitset features)
     {
         testNoParams();
-        testSingleFeature();
-        testInvalidFeature();
         testSomeEnabled();
         testWithMajorities();
     }

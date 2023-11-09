@@ -426,27 +426,13 @@ doServerDefinitions(RPC::JsonContext& context)
     if (auto const valLedger = context.ledgerMaster.getValidatedLedger())
         majorities = getMajorityAmendments(*valLedger);
     auto& table = context.app.getAmendmentTable();
-    if (!context.params.isMember(jss::feature))
+    auto features = table.getJson();
+    for (auto const& [h, t] : majorities)
     {
-        auto features = table.getJson();
-        for (auto const& [h, t] : majorities)
-        {
-            features[to_string(h)][jss::majority] =
-                t.time_since_epoch().count();
-        }
-        ret[jss::features] = features;
-        return ret;
+        features[to_string(h)][jss::majority] =
+            t.time_since_epoch().count();
     }
-    auto feature = table.find(context.params[jss::feature].asString());
-    // If the feature is not found by name, try to parse the `feature` param as
-    // a feature ID. If that fails, return an error.
-    if (!feature && !feature.parseHex(context.params[jss::feature].asString()))
-        return rpcError(rpcBAD_FEATURE);
-    Json::Value amendments = table.getJson(feature);
-    auto m = majorities.find(feature);
-    if (m != majorities.end())
-        amendments[jss::majority] = m->second.time_since_epoch().count();
-    ret[jss::features] = amendments;
+    ret[jss::features] = features;
     return ret;
 }
 
