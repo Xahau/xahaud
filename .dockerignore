@@ -1,2 +1,7 @@
+# Ignore everything
+*
 
-
+# Allow files and directories
+!/build-core.sh
+!/build-full.sh
+!/release-builder.sh
