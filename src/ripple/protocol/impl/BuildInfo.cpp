@@ -139,6 +139,14 @@ encodeSoftwareVersion(char const* versionStr)
 
     if (v.parse(std::string(versionStr)))
     {
+        // substract year, unless this cases a wrap around
+        {
+            auto prev = v.majorVersion;
+            v.majorVersion -= 2023;
+            if (prev < v.majorVersion)
+                v.majorVersion = prev;
+        }
+
         if (v.majorVersion >= 0 && v.majorVersion <= 255)
             c |= static_cast<std::uint64_t>(v.majorVersion) << 40;
 
@@ -191,6 +199,28 @@ encodeSoftwareVersion(char const* versionStr)
             }
         }
     }
+
+    // extract and append build number as the final two bytes
+    auto extractBuildNumber = [](const std::string& str) noexcept -> std::optional<uint16_t> {
+        size_t plusPos = str.find('+');
+        if (plusPos == std::string::npos || plusPos == str.length() - 1)
+            return std::nullopt;
+
+        std::string numStr = str.substr(plusPos + 1);
+        uint64_t buildNum = 0;
+
+        for (char c : numStr)
+        {
+            if (!isdigit(c))
+                return std::nullopt;
+
+            buildNum = (buildNum * 10 + (c - '0')) & 0xFFFF;
+        }
+
+        return static_cast<uint16_t>(buildNum); // Explicitly cast to uint16_t
+    };
+
+    c |= extractBuildNumber(versionStr).value_or(0);
 
     return c;
 }
