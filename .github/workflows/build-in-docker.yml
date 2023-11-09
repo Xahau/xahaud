@@ -12,8 +12,6 @@ concurrency:
 
 jobs:
   builder:
-    strategy:
-      fail-fast: false
     runs-on: [self-hosted, vanity]
     steps:
     - uses: actions/checkout@v3
@@ -21,13 +19,6 @@ jobs:
         clean: false
     - name: Build using Docker
       run: /bin/bash release-builder.sh
-      
-  unittests:
-    strategy:
-      fail-fast: false
-    needs: builder
-    runs-on: [self-hosted, vanity]
-    steps:
     - name: Unit tests
       run: /bin/bash docker-unit-tests.sh
 

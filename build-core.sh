@@ -12,7 +12,14 @@ umask 0000;
 cd /io/ &&
 echo "Importing env... Lines:" &&
 cat .env|wc -l &&
-source .env &&
+source .env
+
+echo $?
+if [[ "$?" -ne "0" ]]; then
+  echo "ERR no .env found/sourced"
+  exit 127
+fi
+
 perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" Builds/CMake/deps/Rocksdb.cmake &&
 mv Builds/CMake/deps/WasmEdge.cmake Builds/CMake/deps/WasmEdge.old &&
 echo "find_package(LLVM REQUIRED CONFIG)
@@ -53,6 +60,7 @@ else
 fi
 
 cd ..;
+
 mv src/ripple/net/impl/RegisterSSLCerts.cpp.old src/ripple/net/impl/RegisterSSLCerts.cpp;
 mv Builds/CMake/deps/Rocksdb.cmake.old Builds/CMake/deps/Rocksdb.cmake;
 mv Builds/CMake/deps/WasmEdge.old Builds/CMake/deps/WasmEdge.cmake;

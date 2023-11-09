@@ -152,6 +152,13 @@ echo "Persisting ENV:"
 cat .env
 
 ./build-core.sh "$1" "$2" "$3" "$4"
+
+echo $?
+if [[ "$?" -ne "0" ]]; then
+  echo "ERR build-core.sh non 0 exit code"
+  exit 127
+fi
+
 echo "END [ build-core.sh ]"
 
 echo "END INSIDE CONTAINER - FULL"
