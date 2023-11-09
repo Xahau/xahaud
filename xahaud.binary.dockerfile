@@ -24,7 +24,7 @@ RUN perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\
 
 # Create build directory, configure the build with CMake, and build the project
 RUN mkdir -p release-build && \
-    cd release-build && source /opt/rh/devtoolset-10/enable && cmake .. -DCMAKE_BUILD_TYPE=Release -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ -DWasmEdge_LIB=/usr/local/lib64/libwasmedge.a && make -j$(nproc) VERBOSE=1
+    /hbb_exe/activate-exec bash -c "cd release-build && source /opt/rh/devtoolset-10/enable && cmake .. -DCMAKE_BUILD_TYPE=Release -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ -DWasmEdge_LIB=/usr/local/lib64/libwasmedge.a && make -j$(nproc) VERBOSE=1"
 
 # Strip the binary, rename it, and create release information
 RUN cd release-build && \
