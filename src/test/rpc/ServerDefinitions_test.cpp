@@ -302,7 +302,6 @@ public:
 			"temDST_IS_SRC" : -279,
 			"temDST_NEEDED" : -278,
 			"temHOOK_DATA_TOO_LARGE" : -253,
-			"temHOOK_REJECTED" : -252,
 			"temINVALID" : -277,
 			"temINVALID_ACCOUNT_ID" : -268,
 			"temINVALID_COUNT" : -266,
@@ -340,7 +339,6 @@ public:
         {
             Env env(*this);
             auto const result = env.rpc("server_definitions");
-            std::cout << "RESULT: " << result << "\n";
             BEAST_EXPECT(!result[jss::result].isMember(jss::error));
             // FIELDS
             // DA: Not Tested
