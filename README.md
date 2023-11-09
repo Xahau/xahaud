@@ -15,13 +15,13 @@ The server software that powers Xahau is called `xahaud` and is available in thi
 
 ## Highlights of Xahau
 
-1. **Hooks**: Hooks are small, efficient WebAssembly modules designed specifically for the XRPL. They add a robust smart contract functionality to the XRPL, allowing you to construct and deploy applications with bespoke functionalities. Hooks can block or allow transactions to and from the account, change and keep track of the hook’s internal state and logic, and autonomously initiate new transactions on the account’s behalf. They can be written in any language that can be compiled into WebAssembly.
+1. **Hooks**: Hooks are small, efficient WebAssembly modules designed specifically for Xahau. They add a robust smart contract functionality to Xahau, allowing you to construct and deploy applications with bespoke functionalities. Hooks can block or allow transactions to and from the account, change and keep track of the hook’s internal state and logic, and autonomously initiate new transactions on the account’s behalf. They can be written in any language that can be compiled into WebAssembly.
 
 2. **Balance Rewards**: Xahau offers a Balance Rewards feature that provides a 4% per annum reward. This feature encourages users to maintain a balance in their accounts and rewards them for doing so.
 
-3. **URIToken**: The URIToken is a feature in Xahau that allows for the creation and management of tokens within the network. This feature can be used for a variety of purposes, including the creation of custom tokens for specific use cases.
+3. **URIToken**: The URIToken is a feature in Xahau that allows for the creation and management of non fungible tokens within the network. This feature can be used for a variety of purposes and specific use cases.
 
-4. **Importing/B2M**: The Importing/B2M feature in Xahau allows for the importation of data and assets into the network. This feature can be used to bring external assets into the Xahau network, expanding the range of assets that can be managed and traded within the network.
+4. **Import/B2M**: The Import/B2M feature in Xahau allows for the importation of assets into the network. This feature can be used to bring external assets into the Xahau network, expanding the range of assets that can be managed and traded within the network.
 
 5. **Governance Game**: The Governance Game is a feature in Xahau that allows for the decentralized governance of the network. This feature allows users to participate in the decision-making process of the network, ensuring that the network remains democratic and responsive to the needs of its users.
 
