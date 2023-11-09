@@ -2,6 +2,6 @@
 *
 
 # Allow files and directories
-!/build-inner.sh
+!/build-core.sh
+!/build-full.sh
 !/release-builder.sh
-

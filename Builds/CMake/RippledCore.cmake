@@ -637,6 +637,7 @@ target_sources (rippled PRIVATE
   src/ripple/rpc/handlers/Random.cpp
   src/ripple/rpc/handlers/Reservations.cpp
   src/ripple/rpc/handlers/RipplePathFind.cpp
+  src/ripple/rpc/handlers/ServerDefinitions.cpp
   src/ripple/rpc/handlers/ServerInfo.cpp
   src/ripple/rpc/handlers/ServerState.cpp
   src/ripple/rpc/handlers/SignFor.cpp
@@ -993,6 +994,7 @@ if (tests)
     src/test/rpc/RPCCall_test.cpp
     src/test/rpc/RPCOverload_test.cpp
     src/test/rpc/RobustTransaction_test.cpp
+    src/test/rpc/ServerDefinitions_test.cpp
     src/test/rpc/ServerInfo_test.cpp
     src/test/rpc/ShardArchiveHandler_test.cpp
     src/test/rpc/Status_test.cpp
