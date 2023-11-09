@@ -201,7 +201,8 @@ encodeSoftwareVersion(char const* versionStr)
     }
 
     // extract and append build number as the final two bytes
-    auto extractBuildNumber = [](const std::string& str) noexcept -> std::optional<uint16_t> {
+    auto extractBuildNumber =
+        [](const std::string& str) noexcept -> std::optional<uint16_t> {
         size_t plusPos = str.find('+');
         if (plusPos == std::string::npos || plusPos == str.length() - 1)
             return std::nullopt;
@@ -217,7 +218,7 @@ encodeSoftwareVersion(char const* versionStr)
             buildNum = (buildNum * 10 + (c - '0')) & 0xFFFF;
         }
 
-        return static_cast<uint16_t>(buildNum); // Explicitly cast to uint16_t
+        return static_cast<uint16_t>(buildNum);  // Explicitly cast to uint16_t
     };
 
     c |= extractBuildNumber(versionStr).value_or(0);
