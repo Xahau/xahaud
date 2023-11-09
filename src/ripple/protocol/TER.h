@@ -97,11 +97,11 @@ enum TEMcodes : TERUnderlyingType {
     temBAD_PATH,
     temBAD_PATH_LOOP,
     temBAD_REGKEY,
-    temBAD_SEND_XRP_LIMIT,
-    temBAD_SEND_XRP_MAX,
-    temBAD_SEND_XRP_NO_DIRECT,
-    temBAD_SEND_XRP_PARTIAL,
-    temBAD_SEND_XRP_PATHS,
+    temBAD_SEND_NATIVE_LIMIT,
+    temBAD_SEND_NATIVE_MAX,
+    temBAD_SEND_NATIVE_NO_DIRECT,
+    temBAD_SEND_NATIVE_PARTIAL,
+    temBAD_SEND_NATIVE_PATHS,
     temBAD_SEQUENCE,
     temBAD_SIGNATURE,
     temBAD_SRC_ACCOUNT,
@@ -138,7 +138,6 @@ enum TEMcodes : TERUnderlyingType {
     temXCHAIN_TOO_MANY_ATTESTATIONS,                 // RESERVED - XCHAIN
 
     temHOOK_DATA_TOO_LARGE,
-    temHOOK_REJECTED,
 };
 
 //------------------------------------------------------------------------------
@@ -276,7 +275,7 @@ enum TECcodes : TERUnderlyingType {
     tecINSUF_RESERVE_LINE = 122,
     tecINSUF_RESERVE_OFFER = 123,
     tecNO_DST = 124,
-    tecNO_DST_INSUF_XRP = 125,
+    tecNO_DST_INSUF_NATIVE = 125,
     tecNO_LINE_INSUF_RESERVE = 126,
     tecNO_LINE_REDUNDANT = 127,
     tecPATH_DRY = 128,
