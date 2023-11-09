@@ -1,9 +1,9 @@
 # Xahau
 
-[Xahau](https://xahau.network/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. Xahau uses a novel Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
+[Xahau](https://xahau.network/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. Xahau uses the xrp ledger Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
 
 ## XAH
-XAH is a public, counterparty-free asset native to Xahau, and is designed to bridge the many different currencies in use worldwide. XAH is traded on the open-market and is available for anyone to access. Xahau was created in 2023 with a finite supply of 600 million units of XAH.
+XAH is the public, counterparty-free asset native to Xahau and functions primarily as network gas. Transactions submitted to the Xahau network must supply an appropriate amount of XAH, to be burnt by the network as a fee, in order to be successfully included in a validated ledger. In addition, XAH also acts as a bridge currency within the Xahau DEX. XAH is traded on the open-market and is available for anyone to access. Xahau was created in 2023 with a finite supply of 600 million units of XAH.
 
 ## xahaud
 The server software that powers Xahau is called `xahaud` and is available in this repository under the permissive [ISC open-source license](LICENSE.md). The `xahaud` server software is written primarily in C++ and runs on a variety of platforms. The `xahaud` server software can run in several modes depending on its configuration.
