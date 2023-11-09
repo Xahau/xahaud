@@ -52,7 +52,7 @@ class TrustAndBalance_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         Env env{*this, features};
-        env(pay(env.master, "alice", XRP(1)), ter(tecNO_DST_INSUF_XRP));
+        env(pay(env.master, "alice", XRP(1)), ter(tecNO_DST_INSUF_NATIVE));
         env.close();
     }
 

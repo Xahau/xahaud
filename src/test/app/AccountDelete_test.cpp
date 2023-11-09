@@ -513,12 +513,12 @@ public:
         // Verify that becky's account root is gone.
         BEAST_EXPECT(!env.closed()->exists(beckyAcctKey));
 
-        // All it takes is a large enough XRP payment to resurrect
+        // All it takes is a large enough XAH payment to resurrect
         // becky's account.  Try too small a payment.
         env(pay(alice,
                 becky,
                 drops(env.current()->fees().accountReserve(0)) - XRP(1)),
-            ter(tecNO_DST_INSUF_XRP));
+            ter(tecNO_DST_INSUF_NATIVE));
         env.close();
 
         // Actually resurrect becky's account.
