@@ -302,7 +302,6 @@ public:
 			"temDST_IS_SRC" : -279,
 			"temDST_NEEDED" : -278,
 			"temHOOK_DATA_TOO_LARGE" : -253,
-			"temHOOK_REJECTED" : -252,
 			"temINVALID" : -277,
 			"temINVALID_ACCOUNT_ID" : -268,
 			"temINVALID_COUNT" : -266,
