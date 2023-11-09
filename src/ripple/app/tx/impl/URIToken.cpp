@@ -78,10 +78,15 @@ URIToken::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (ctx.tx.isFieldPresent(sfDestination) &&
-        !ctx.tx.isFieldPresent(sfAmount))
+    // fix amendment to return temMALFORMED if sfDestination field is present
+    // and sfAmount field is not present
+    if (ctx.rules.enabled(fixURITokenV1))
     {
-        return temMALFORMED;
+        if (ctx.tx.isFieldPresent(sfDestination) &&
+            !ctx.tx.isFieldPresent(sfAmount))
+        {
+            return temMALFORMED;
+        }
     }
 
     // the validation for the URI field is also the same regardless of the txn
