@@ -420,13 +420,12 @@ doServerDefinitions(RPC::JsonContext& context)
         features[to_string(h)][jss::majority] = t.time_since_epoch().count();
     }
     ret[jss::features] = features;
-    
+
     // generate hash
     std::optional<uint256> defsHash;
     {
         const std::string out = Json::FastWriter().write(ret);
-        defsHash =
-            ripple::sha512Half(ripple::Slice{out.data(), out.size()});
+        defsHash = ripple::sha512Half(ripple::Slice{out.data(), out.size()});
         ret[jss::hash] = to_string(*defsHash);
     }
 
