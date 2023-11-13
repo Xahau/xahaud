@@ -1,13 +1,14 @@
 # Release Notes
 
-This document contains the release notes for `xahaud`, the reference server implementation of the Xahau protocol. To learn more about how to build, run or update a `xahaud` server, visit https://docs.xahau.network/infrastructure/building-xahau
+This document contains the release notes for `xahaud`, the reference server implementation of the Xahau protocol. To learn more about how to build, run or update a `xahaud` server, visit https://docs.xahau.network/infrastructure/peering/connect-to-xahau-mainnet
 
- 
-Have new ideas? Need help with setting up your node? [Please open an issue here](https://github.com/xrplf/rippled/issues/new/choose).
+Have new ideas? Need help with setting up your node? [Please open an issue here](https://github.com/xahau/xahaud/issues/new/choose).
 
 # Introducing Xahau version 2023.10.30-release+443
 
-Version 2023.10.30-release+443 of `xahaud`, the reference server implementation of the Xahau protocol, is now available.
+Version 2023.10.30-release+443 of `xahaud`, the reference server implementation of the Xahau protocol, is now available at [Build Server](https://build.xahau.tech/).
+
+[Download Release Binary](https://build.xahau.tech/2023.10.30-release%2B443)
 
 [Sign Up for Future Release Announcements](https://groups.google.com/g/xahau-server)
 
@@ -22,7 +23,7 @@ If you operate a Xahau server, upgrade to version 2023.10.30-release+443 by Nove
 
 ## Install / Upgrade
 
-On supported platforms, see the [instructions on installing or updating `xahaud`](https://docs.xahau.network/infrastructure/building-xahau).
+On supported platforms, see the [instructions on installing or updating `xahaud`](https://docs.xahau.network/infrastructure/peering/connect-to-xahau-mainnet).
 
 
 ## New Amendments
@@ -70,4 +71,4 @@ responsibly disclose any issues they may find.
 
 To report a bug, please send a detailed report to:
 
-    bugs@xrpl.org
+    bugs@xahau.network

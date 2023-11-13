@@ -1,9 +1,9 @@
 # Xahau
 
-[Xahau](https://xahau.network/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. Xahau uses the xrp ledger Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
+[Xahau](https://xahau.network/) is a decentralized cryptographic ledger that builds upon the robust foundation of the XRP Ledger. It inherits the XRP Ledger's Byzantine Fault Tolerant consensus algorithm and enhances it with additional features and functionalities. Developers and users familiar with the XRP Ledger will find that most documentation and tutorials available on [xrpl.org](https://xrpl.org) are relevant and applicable to Xahau, including those related to running validators and managing validator keys. For Xahau specific documentation you can visit our [documentation](https://docs.xahau.network/)
 
 ## XAH
-XAH is the public, counterparty-free asset native to Xahau and functions primarily as network gas. Transactions submitted to the Xahau network must supply an appropriate amount of XAH, to be burnt by the network as a fee, in order to be successfully included in a validated ledger. In addition, XAH also acts as a bridge currency within the Xahau DEX. XAH is traded on the open-market and is available for anyone to access. Xahau was created in 2023 with a finite supply of 600 million units of XAH.
+XAH is the public, counterparty-free asset native to Xahau and functions primarily as network gas. Transactions submitted to the Xahau network must supply an appropriate amount of XAH, to be burnt by the network as a fee, in order to be successfully included in a validated ledger. In addition, XAH also acts as a bridge currency within the Xahau DEX. XAH is traded on the open-market and is available for anyone to access. Xahau was created in 2023 with a supply of 600 million units of XAH.
 
 ## xahaud
 The server software that powers Xahau is called `xahaud` and is available in this repository under the permissive [ISC open-source license](LICENSE.md). The `xahaud` server software is written primarily in C++ and runs on a variety of platforms. The `xahaud` server software can run in several modes depending on its configuration.
@@ -25,6 +25,13 @@ The server software that powers Xahau is called `xahaud` and is available in thi
 
 5. **Governance Game**: The Governance Game is a feature in Xahau that allows for the decentralized governance of the network. This feature allows users to participate in the decision-making process of the network, ensuring that the network remains democratic and responsive to the needs of its users.
 
+## Binary Releases and Versioning System
+
+Xahau provides pre-compiled binary releases of its software, which are ready-to-run versions that users can download and execute without compiling the source code themselves. These binaries are built automatically using GitHub Actions whenever a new commit is pushed or a pull request is merged.
+
+The versioning system for Xahau binaries is based on the date of the build, the branch name, and a build number, following the format `YYYY.MM.DD-branch+buildnumber`. For example, `2023.10.30-release+443` indicates a binary built on October 30, 2023, from the `release` branch, and it is the 443rd build from that branch.
+
+Users can access these binaries on the [Xahau Build Server](https://build.xahau.tech/), which provides an organized list of releases along with release notes for each version. This system simplifies the deployment process for users and ensures they can easily identify and download the appropriate version for their needs.
 
 ## Source Code
 
@@ -45,9 +52,18 @@ Here are some good places to start learning the source code:
 Some of the directories under `src` are external repositories included using
 git-subtree. See those directories' README files for more details.
 
+## Resources
 
-## Additional Documentation
-
-* [Xahau Documentation](https://docs.xahau.network/)
-* [Hooks Documentation](https://xrpl-hooks.readme.io/)
-* [Setup and Installation](https://docs.xahau.network/infrastructure/building-xahau)
+- **Documentation**: Documentation for XRPL, Xahau and Hooks.
+  - [Xrpl Documentation](https://xrpl.org)
+  - [Xahau Documentation](https://docs.xahau.network/)
+  - [Hooks Technical Documentation](https://xrpl-hooks.readme.io/)
+- **Explorers**: Explore the Xahau ledger using various explorers:
+  - [xahauexplorer.com](https://xahauexplorer.com)
+  - [xahscan.com](https://xahscan.com)
+  - [xahau.xrpl.org](https://xahau.xrpl.org)
+  - [explorer.xahau.network](https://explorer.xahau.network)
+- **Testnet & Faucet**: Test applications and obtain test XAH at [xahau-test.net](https://xahau-test.net) and use the testnet explorer at [explorer.xahau.network](https://explorer.xahau.network).
+- **Supporting Wallets**: A list of wallets that support XAH and Xahau-based assets.
+  - [Xumm](https://xumm.app)
+  - [Crossmark](https://crossmark.io)

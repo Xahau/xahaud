@@ -9,51 +9,66 @@ For more details on operating the Xahau server securely, please visit https://do
 
 Software constantly evolves. In order to focus resources, we only generally only accept vulnerability reports that affect recent and current versions of the software. We always accept reports for issues present in the **release**, **candidate** or **dev** branches, and with proposed, [open pull requests](https://github.com/xahau/xahaud/pulls).
 
-## Identifying and Reporting Vulnerabilities
+# Responsible Disclosure
 
-We take security seriously and we do our best to ensure that all our releases are bug free. But we aren't perfect and sometimes things will slip through.
+## Responsible disclosure policy
 
-### Responsible Investigation
+At [Xahau](https://xahau.network) we believe that the security of our systems is extremely important.
 
-We urge you to examine our code carefully and responsibly, and to disclose any issues that you identify in a responsible fashion.
+Despite our concern for the security of our systems during product development and maintenance, there's always the possibility of someone finding something we need to improve / update / change / fix / ...
 
-Responsible investigation includes, but isn't limited to, the following:
+We appreciate you notifying us if you found a weak point in one of our systems as soon as possible so that we can take measures immediately to protect our customers and their data.
 
-- Not performing tests on the main network. If testing is necessary, use the [Testnet](https://xahau-test.net/).
-- Not targeting physical security measures, or attempting to use social engineering, spam, distributed denial of service (DDOS) attacks, etc.
-- Investigating bugs in a way that makes a reasonable, good faith effort not to be disruptive or harmful to Xahau and the broader ecosystem.
+## How to report
 
-### Responsible Disclosure
+If you believe you found a security issue in one of our systems, please notify us as soon as possible by [send an email to bugs@xahau.network](mailto:bugs@xahau.network).
 
-If you discover a vulnerability or potential threat, or if you _think_
-you have, please reach out by dropping an email using the contact
-information below.
+## Rules
 
-Your report should include the following:
+This responsible disclosure policy is not an open invitation to actively scan our network and applications for vulnerabilities. Our continuous monitoring will likely detect your scan and these will be investigated.
 
-- Your contact information (typically, an email address);
-- The description of the vulnerability;
-- The attack scenario (if any);
-- The steps to reproduce the vulnerability;
-- Any other relevant details or artifacts, including code, scripts or patches.
+### We ask you to:
 
-In your mail, please describe of the issue or the potential threat; if possible, please include a "repro" (code that can reproduce the issue) or describe the best way to reproduce and replicate the issue. Please make your report as extensive as possible.
+- Not share information about the security issue with others until the problem is resolved and to immediately delete any confidential data acquired
+- Not further abuse the problem, for example, by downloading more data than is necessary in order to demonstrate the leak or to view, delete or amend the data of third parties
+- Provide detailed information in order for us to reproduce, validate and resolve the problem as quickly as possible. Include your test data, timestamps and URL(s) of the system(s) involved
+- Leave your contact details (e-mail address and/or phone number) so that we may contact you about the progress of the solution. We do accept anonymous reports
+- Do not use attacks on physical security, social engineering, distributed denial of service, spam or applications of third parties
 
-For more information on responsible disclosure, please read this [Wikipedia article](https://en.wikipedia.org/wiki/Responsible_disclosure).
+## Responsible Disclosure procedure(s)
 
-## Report Handling Process
+### When you report a security issue, we will act according to the following:
 
-Please report the bug directly to us and limit further disclosure. If you want to prove that you knew the bug as of a given time, consider using a cryptographic precommitment: hash the content of your report and publish the hash on a medium of your choice (e.g. on Twitter or as a memo in a transaction) as "proof" that you had written the text at a given point in time.
+- You will receive a confirmation of receipt from us within 4 working days after the report was made
+- You will receive a response with the assessment of the security issue and an expected date of resolution within 4 working days after the confirmation of receipt was sent
+- We will take no legal steps against you in relation to the report if you have kept to the conditions as set out above
+- We will handle your report confidentially and we will not share your details with third parties without your permission, unless that is necessary in order to fulfil a legal obligation
 
-Once we receive a report, we:
+### This responsible disclosure scheme is not intended for:
 
-1. Assign two people to independently evaluate the report;
-2. Consider their recommendations;
-3. If action is necessary, formulate a plan to address the issue;
-4. Communicate privately with the reporter to explain our plan.
-5. Prepare, test and release a version which fixes the issue; and
-6. Announce the vulnerability publicly.
+- Complaints
+- Website unavailable reports
+- Phishing reports
+- Fraud reports
 
-We will triage and respond to your disclosure within 24 hours. Beyond that, we will work to analyze the issue in more detail, formulate, develop and test a fix.
+For these complaints or reports, please [contact our support team](mailto:bugs@xahau.network).
 
-While we commit to responding with 24 hours of your initial report with our triage assessment, we cannot guarantee a response time for the remaining steps. We will communicate with you throughout this process, letting you know where we are and keeping you updated on the timeframe.
+## Bug bounty program
+
+[Xahau](https://xahau.network) encourages the reporting of security issues or vulnerabilities. We may make an appropriate reward for confidential disclosure of any design or implementation issue that could be used to compromise the confidentiality or integrity of our users' data that was not yet known to us. We decide whether the report is eligible and the amount of the reward.
+
+## Exclusions
+
+### The following type of security problems are excluded
+
+- (D)DOS attacks
+- Error messages or error pages without sensitive data
+- Tests & sample data as publicly available in our repositories at Github
+- Common issues like browser header warnings or DNS configuration, identified by vulnerability scans
+- Vulnerability scan reports for software we publicly use
+- Security issues related to outdated OS's, browsers or plugins
+- Reports for security problems that we have been notified of before
+
+Please note: Reports that are lacking any proof (such as screenshots or other data), detailed information or details on how to reproduce any unexpected result will be investigated but will not be eligible for any reward.
+
+This policy is based on the National Cyber Security Centre’s Responsible Disclosure Guidelines and an [example by Floor Terra](https://responsibledisclosure.nl).
