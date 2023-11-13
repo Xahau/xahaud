@@ -41,7 +41,7 @@ public:
         // 0x010203
         BEAST_EXPECT(
             (encodedVersion & 0x0000'FFFF'FF00'0000LLU) ==
-            0x0000'0102'0300'0000LLU);
+            0x0000'0002'0300'0000LLU);
 
         // the next two bits:
         {
@@ -100,6 +100,19 @@ public:
 
         auto vMax = BuildInfo::encodeSoftwareVersion("9999.12.30");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vMax));
+
+        auto vRelease1 = BuildInfo::encodeSoftwareVersion("2023.10.30-release+443");
+        BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease1));
+
+        auto vRelease2 = BuildInfo::encodeSoftwareVersion("2023.10.30-release+444");
+        BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease2));
+
+        auto vRelease3 = BuildInfo::encodeSoftwareVersion("2023.10.31-release+444");
+        BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease3));
+
+        BEAST_EXPECT(vMax > vRelease1);
+        BEAST_EXPECT(vRelease2 > vRelease1);
+        BEAST_EXPECT(vRelease3 > vRelease2);
     }
 
     void
