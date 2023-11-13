@@ -917,6 +917,14 @@ hook::setHookState(
 
     if (!sleAccount)
         return tefINTERNAL;
+    
+    if (applyCtx.view().rules().enabled(fixHooksV1))
+    {
+        STVector256 vec = sleAccount->getFieldV256(sfHookNamespaces);
+        if (vec.size() > 256) {
+            return tefMAX_NAMESPACES;
+        }
+    }
 
     // if the blob is too large don't set it
     if (data.size() > hook::maxHookStateDataSize())
