@@ -456,13 +456,22 @@ EscrowFinish::doApply()
         return temDISABLED;
 
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
+    std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
-    if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-        return temMALFORMED;
+    if (!view().rules().enabled(fixHooksV1))
+    {
+        if (escrowID && ctx_.tx[sfOfferSequence] != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if ((escrowID && offerSequence) || (!escrowID && !offerSequence))
+            return temMALFORMED;
+    }
 
     Keylet k = escrowID
         ? Keylet(ltESCROW, *escrowID)
-        : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
+        : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
 
     auto const slep = ctx_.view().peek(k);
     if (!slep)
@@ -704,13 +713,22 @@ EscrowCancel::doApply()
         return temDISABLED;
 
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
+    std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
-    if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-        return temMALFORMED;
+    if (!view().rules().enabled(fixHooksV1))
+    {
+        if (escrowID && ctx_.tx[sfOfferSequence] != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if ((escrowID && offerSequence) || (!escrowID && !offerSequence))
+            return temMALFORMED;
+    }
 
     Keylet k = escrowID
         ? Keylet(ltESCROW, *escrowID)
-        : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
+        : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
 
     auto const slep = ctx_.view().peek(k);
     if (!slep)

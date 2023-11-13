@@ -88,7 +88,7 @@ TxFormats::TxFormats()
     add(jss::OfferCancel,
         ttOFFER_CANCEL,
         {
-            {sfOfferSequence, soeREQUIRED},
+            {sfOfferSequence, soeOPTIONAL},
             {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfTicketSequence, soeOPTIONAL},
         },
@@ -133,7 +133,7 @@ TxFormats::TxFormats()
         ttESCROW_FINISH,
         {
             {sfOwner, soeREQUIRED},
-            {sfOfferSequence, soeREQUIRED},
+            {sfOfferSequence, soeOPTIONAL},
             {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfFulfillment, soeOPTIONAL},
             {sfCondition, soeOPTIONAL},
@@ -145,7 +145,7 @@ TxFormats::TxFormats()
         ttESCROW_CANCEL,
         {
             {sfOwner, soeREQUIRED},
-            {sfOfferSequence, soeREQUIRED},
+            {sfOfferSequence, soeOPTIONAL},
             {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfTicketSequence, soeOPTIONAL},
         },
