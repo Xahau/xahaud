@@ -367,27 +367,16 @@ private:
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
         }
-
-        ret[jss::native_currency_code] = systemCurrencyCode();
-        // generate hash
-        {
-            const std::string out = Json::FastWriter().write(ret);
-            defsHash =
-                ripple::sha512Half(ripple::Slice{out.data(), out.size()});
-            ret[jss::hash] = to_string(*defsHash);
-        }
-
         return ret;
     }
 
-    std::optional<uint256> defsHash;
     Json::Value defs;
 
 public:
     Definitions() : defs(generate()){};
 
     bool
-    hashMatches(uint256 hash) const
+    hashMatches(std::optional<uint256> defsHash, uint256 hash) const
     {
         return defsHash && *defsHash == hash;
     }
@@ -413,15 +402,14 @@ doServerDefinitions(RPC::JsonContext& context)
     }
 
     static const Definitions defs{};
-    if (defs.hashMatches(hash))
-    {
-        Json::Value jv = Json::objectValue;
-        jv[jss::hash] = to_string(hash);
-        return jv;
-    }
 
+    // definitions
     Json::Value ret = defs();
-    // Get majority amendment status
+
+    // native currency
+    ret[jss::native_currency_code] = systemCurrencyCode();
+
+    // features
     majorityAmendments_t majorities;
     if (auto const valLedger = context.ledgerMaster.getValidatedLedger())
         majorities = getMajorityAmendments(*valLedger);
@@ -432,6 +420,24 @@ doServerDefinitions(RPC::JsonContext& context)
         features[to_string(h)][jss::majority] = t.time_since_epoch().count();
     }
     ret[jss::features] = features;
+    
+    // generate hash
+    std::optional<uint256> defsHash;
+    {
+        const std::string out = Json::FastWriter().write(ret);
+        defsHash =
+            ripple::sha512Half(ripple::Slice{out.data(), out.size()});
+        ret[jss::hash] = to_string(*defsHash);
+    }
+
+    // verify hash
+    if (defs.hashMatches(defsHash, hash))
+    {
+        Json::Value jv = Json::objectValue;
+        jv[jss::hash] = to_string(hash);
+        return jv;
+    }
+
     return ret;
 }
 

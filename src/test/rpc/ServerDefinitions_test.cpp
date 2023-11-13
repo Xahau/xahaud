@@ -48,8 +48,10 @@ public:
     }
 
     void
-    testServerDefinitions(FeatureBitset features)
+    testDefinitions(FeatureBitset features)
     {
+        testcase("Definitions");
+
         using namespace test::jtx;
 
         std::string jsonLE = R"json({
@@ -361,7 +363,56 @@ public:
     }
 
     void
-    testNoParams()
+    testDefitionsHash(FeatureBitset features)
+    {
+        testcase("Definitions Hash");
+
+        using namespace test::jtx;
+        // test providing the same hash
+        {
+            Env env(*this, features);
+            auto const firstResult = env.rpc("server_definitions");
+            auto const hash = firstResult[jss::result][jss::hash].asString();
+            Json::Value params;
+            params[jss::hash] = hash;
+            auto const result =
+                env.rpc("json", "server_definitions", to_string(params));
+            BEAST_EXPECT(!result[jss::result].isMember(jss::error));
+            BEAST_EXPECT(result[jss::result][jss::status] == "success");
+            BEAST_EXPECT(!result[jss::result].isMember(jss::FIELDS));
+            BEAST_EXPECT(
+                !result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));
+            BEAST_EXPECT(
+                !result[jss::result].isMember(jss::TRANSACTION_RESULTS));
+            BEAST_EXPECT(!result[jss::result].isMember(jss::TRANSACTION_TYPES));
+            BEAST_EXPECT(!result[jss::result].isMember(jss::TYPES));
+            BEAST_EXPECT(result[jss::result].isMember(jss::hash));
+        }
+
+        // test providing a different hash
+        {
+            Env env(*this, features);
+            std::string const hash =
+                "54296160385A27154BFA70A239DD8E8FD4CC2DB7BA32D970BA3A5B132CF749"
+                "D1";
+            Json::Value params;
+            params[jss::hash] = hash;
+            auto const result =
+                env.rpc("json", "server_definitions", to_string(params));
+            BEAST_EXPECT(!result[jss::result].isMember(jss::error));
+            BEAST_EXPECT(result[jss::result][jss::status] == "success");
+            BEAST_EXPECT(result[jss::result].isMember(jss::FIELDS));
+            BEAST_EXPECT(result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));
+            BEAST_EXPECT(
+                result[jss::result].isMember(jss::TRANSACTION_RESULTS));
+            BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_TYPES));
+            BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
+            BEAST_EXPECT(result[jss::result].isMember(jss::hash));
+        }
+    }
+
+    void
+    testNoParams(FeatureBitset features)
     {
         testcase("No Params, None Enabled");
 
@@ -406,7 +457,7 @@ public:
     }
 
     void
-    testSomeEnabled()
+    testSomeEnabled(FeatureBitset features)
     {
         testcase("No Params, Some Enabled");
 
@@ -462,7 +513,7 @@ public:
     }
 
     void
-    testWithMajorities()
+    testWithMajorities(FeatureBitset features)
     {
         testcase("With Majorities");
 
@@ -563,9 +614,16 @@ public:
     void
     testServerFeatures(FeatureBitset features)
     {
-        testNoParams();
-        testSomeEnabled();
-        testWithMajorities();
+        testNoParams(features);
+        testSomeEnabled(features);
+        testWithMajorities(features);
+    }
+
+    void
+    testServerDefinitions(FeatureBitset features)
+    {
+        testDefinitions(features);
+        testDefitionsHash(features);
     }
 
     void
