@@ -140,6 +140,7 @@ class AccountTx_test : public beast::unit_test::suite
                          j[jss::result][jss::transactions][1u][jss::tx]
                           [jss::DeliverMax]);
                 case 2:
+                case 3:
                     if (j.isMember(jss::result) &&
                         (j[jss::result][jss::status] == "success") &&
                         (j[jss::result][jss::transactions].size() == 2) &&
@@ -201,20 +202,22 @@ class AccountTx_test : public beast::unit_test::suite
             rpcACT_MALFORMED));
 
         jParms[jss::account] = A1.human();
-        BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(jParms))));
+        BEAST_EXPECT(hasTxs(
+            env.rpc(apiVersion, "json", "account_tx", to_string(jParms))));
 
         // Ledger min/max index
         {
             Json::Value p{jParms};
             p[jss::ledger_index_min] = -1;
             p[jss::ledger_index_max] = -1;
-            BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(p))));
+            BEAST_EXPECT(hasTxs(
+                env.rpc(apiVersion, "json", "account_tx", to_string(p))));
 
             p[jss::ledger_index_min] = 0;
             p[jss::ledger_index_max] = 100;
             if (apiVersion < 2u)
-                BEAST_EXPECT(
-                    hasTxs(env.rpc("json", "account_tx", to_string(p))));
+                BEAST_EXPECT(hasTxs(
+                    env.rpc(apiVersion, "json", "account_tx", to_string(p))));
             else
                 BEAST_EXPECT(isErr(
                     env.rpc("json", "account_tx", to_string(p)),
@@ -241,12 +244,13 @@ class AccountTx_test : public beast::unit_test::suite
         {
             Json::Value p{jParms};
             p[jss::ledger_index_min] = -1;
-            BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(p))));
+            BEAST_EXPECT(hasTxs(
+                env.rpc(apiVersion, "json", "account_tx", to_string(p))));
 
             p[jss::ledger_index_min] = 1;
             if (apiVersion < 2u)
-                BEAST_EXPECT(
-                    hasTxs(env.rpc("json", "account_tx", to_string(p))));
+                BEAST_EXPECT(hasTxs(
+                    env.rpc(apiVersion, "json", "account_tx", to_string(p))));
             else
                 BEAST_EXPECT(isErr(
                     env.rpc("json", "account_tx", to_string(p)),
@@ -263,22 +267,25 @@ class AccountTx_test : public beast::unit_test::suite
         {
             Json::Value p{jParms};
             p[jss::ledger_index_max] = -1;
-            BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(p))));
+            BEAST_EXPECT(hasTxs(
+                env.rpc(apiVersion, "json", "account_tx", to_string(p))));
 
             p[jss::ledger_index_max] = env.current()->info().seq;
             if (apiVersion < 2u)
-                BEAST_EXPECT(
-                    hasTxs(env.rpc("json", "account_tx", to_string(p))));
+                BEAST_EXPECT(hasTxs(
+                    env.rpc(apiVersion, "json", "account_tx", to_string(p))));
             else
                 BEAST_EXPECT(isErr(
                     env.rpc("json", "account_tx", to_string(p)),
                     rpcLGR_IDX_MALFORMED));
 
             p[jss::ledger_index_max] = 3;
-            BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(p))));
+            BEAST_EXPECT(hasTxs(
+                env.rpc(apiVersion, "json", "account_tx", to_string(p))));
 
             p[jss::ledger_index_max] = env.closed()->info().seq;
-            BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(p))));
+            BEAST_EXPECT(hasTxs(
+                env.rpc(apiVersion, "json", "account_tx", to_string(p))));
 
             p[jss::ledger_index_max] = env.closed()->info().seq - 1;
             BEAST_EXPECT(noTxs(env.rpc("json", "account_tx", to_string(p))));
@@ -289,7 +296,8 @@ class AccountTx_test : public beast::unit_test::suite
             Json::Value p{jParms};
 
             p[jss::ledger_index] = env.closed()->info().seq;
-            BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(p))));
+            BEAST_EXPECT(hasTxs(
+                env.rpc(apiVersion, "json", "account_tx", to_string(p))));
 
             p[jss::ledger_index] = env.closed()->info().seq - 1;
             BEAST_EXPECT(noTxs(env.rpc("json", "account_tx", to_string(p))));
@@ -309,7 +317,8 @@ class AccountTx_test : public beast::unit_test::suite
             Json::Value p{jParms};
 
             p[jss::ledger_hash] = to_string(env.closed()->info().hash);
-            BEAST_EXPECT(hasTxs(env.rpc("json", "account_tx", to_string(p))));
+            BEAST_EXPECT(hasTxs(
+                env.rpc(apiVersion, "json", "account_tx", to_string(p))));
 
             p[jss::ledger_hash] = to_string(env.closed()->info().parentHash);
             BEAST_EXPECT(noTxs(env.rpc("json", "account_tx", to_string(p))));
@@ -327,8 +336,8 @@ class AccountTx_test : public beast::unit_test::suite
             p[jss::ledger_index] = -1;
 
             if (apiVersion < 2u)
-                BEAST_EXPECT(
-                    hasTxs(env.rpc("json", "account_tx", to_string(p))));
+                BEAST_EXPECT(hasTxs(
+                    env.rpc(apiVersion, "json", "account_tx", to_string(p))));
             else
                 BEAST_EXPECT(isErr(
                     env.rpc("json", "account_tx", to_string(p)),
@@ -340,8 +349,8 @@ class AccountTx_test : public beast::unit_test::suite
             Json::Value p{jParms};
             p[jss::ledger_index_max] = env.current()->info().seq;
             if (apiVersion < 2u)
-                BEAST_EXPECT(
-                    hasTxs(env.rpc("json", "account_tx", to_string(p))));
+                BEAST_EXPECT(hasTxs(
+                    env.rpc(apiVersion, "json", "account_tx", to_string(p))));
             else
                 BEAST_EXPECT(isErr(
                     env.rpc("json", "account_tx", to_string(p)),
