@@ -78,6 +78,17 @@ URIToken::preflight(PreflightContext const& ctx)
         }
     }
 
+    // fix amendment to return temMALFORMED if sfDestination field is present
+    // and sfAmount field is not present
+    if (ctx.rules.enabled(fixURITokenV1))
+    {
+        if (ctx.tx.isFieldPresent(sfDestination) &&
+            !ctx.tx.isFieldPresent(sfAmount))
+        {
+            return temMALFORMED;
+        }
+    }
+
     // the validation for the URI field is also the same regardless of the txn
     // type
     if (ctx.tx.isFieldPresent(sfURI))
@@ -231,7 +242,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
         }
 
         case ttURITOKEN_BURN: {
-            if (leFlags == tfBurnable && acc == *issuer)
+            if (leFlags == lsfBurnable && acc == *issuer)
             {
                 // pass, the issuer can burn the URIToken if they minted it with
                 // a burn flag
@@ -805,9 +816,9 @@ URIToken::doApply()
             }
             else if (
                 sleU->getAccountID(sfIssuer) == account_ &&
-                (sleU->getFlags() & tfBurnable))
+                (sleU->getFlags() & lsfBurnable))
             {
-                // pass, issuer may burn if the tfBurnable flag was set during
+                // pass, issuer may burn if the lsfBurnable flag was set during
                 // minting
             }
             else

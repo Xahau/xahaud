@@ -1705,7 +1705,7 @@ public:
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
             BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
             BEAST_EXPECT(jrr[jss::node][sfURI.jsonName] == strHex(uri));
-            BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == 1);
+            BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == lsfBurnable);
         }
         {
             // Request an index that is not a uritoken.
