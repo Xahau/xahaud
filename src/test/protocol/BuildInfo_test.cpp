@@ -101,28 +101,22 @@ public:
         auto vMax = BuildInfo::encodeSoftwareVersion("9999.12.30");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vMax));
 
-        auto vRelease1 =
-            BuildInfo::encodeSoftwareVersion("2023.1.1-release+1");
+        auto vRelease1 = BuildInfo::encodeSoftwareVersion("2023.1.1-release+1");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease1));
 
-        auto vRelease2 =
-            BuildInfo::encodeSoftwareVersion("2023.1.1-release+2");
+        auto vRelease2 = BuildInfo::encodeSoftwareVersion("2023.1.1-release+2");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease2));
 
-        auto vRelease3 =
-            BuildInfo::encodeSoftwareVersion("2023.1.2-release+2");
+        auto vRelease3 = BuildInfo::encodeSoftwareVersion("2023.1.2-release+2");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease3));
 
-        auto vRelease4 =
-            BuildInfo::encodeSoftwareVersion("2023.2.1-release+2");
+        auto vRelease4 = BuildInfo::encodeSoftwareVersion("2023.2.1-release+2");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease4));
 
-        auto vRelease5 =
-            BuildInfo::encodeSoftwareVersion("2024.1.1-release+1");
+        auto vRelease5 = BuildInfo::encodeSoftwareVersion("2024.1.1-release+1");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease5));
 
-        auto vRelease6 =
-            BuildInfo::encodeSoftwareVersion("2024.1.1-release+2");
+        auto vRelease6 = BuildInfo::encodeSoftwareVersion("2024.1.1-release+2");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vRelease6));
 
         BEAST_EXPECT(vMax > vRelease1);
