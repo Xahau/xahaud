@@ -300,6 +300,10 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
     if (isFieldPresent(sfSigners))
         return Unexpected("Cannot both single- and multi-sign.");
 
+    // wildcard network gets a free pass on all signatures
+    if (isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535)
+        return {};
+
     bool validSig = false;
     try
     {
@@ -368,6 +372,9 @@ STTx::checkMultiSign(
     // Signers must be in sorted order by AccountID.
     AccountID lastAccountID(beast::zero);
 
+    bool const isWildcardNetwork =
+        isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
+
     for (auto const& signer : signers)
     {
         auto const accountID = signer.getAccountID(sfAccount);
@@ -386,6 +393,10 @@ STTx::checkMultiSign(
 
         // The next signature must be greater than this one.
         lastAccountID = accountID;
+
+        // wildcard network gets a free pass
+        if (isWildcardNetwork)
+            continue;
 
         // Verify the signature.
         bool validSig = false;
