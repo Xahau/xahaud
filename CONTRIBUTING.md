@@ -32,7 +32,7 @@ your verifying key. Please set up [signature verification][signing].
 ## Major contributions
 
 If your contribution is a major feature or breaking change, then you
-must first write an Xahau Standard (XLS) describing it. Go to
+must first write a Xahau Standard (XLS) describing it. Go to
 [Standards](https://github.com/XRPLF/XRPL-Standards/discussions),
 choose the next available standard number, and open a discussion with an
 appropriate title to propose your draft standard.
