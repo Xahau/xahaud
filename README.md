@@ -1,5 +1,7 @@
 # Xahau
 
+**Note:** Throughout this README, references to "we" or "our" pertain to the community and contributors involved in the Xahau network. It does not imply a legal entity or a specific collection of individuals.
+
 [Xahau](https://xahau.network/) is a decentralized cryptographic ledger that builds upon the robust foundation of the XRP Ledger. It inherits the XRP Ledger's Byzantine Fault Tolerant consensus algorithm and enhances it with additional features and functionalities. Developers and users familiar with the XRP Ledger will find that most documentation and tutorials available on [xrpl.org](https://xrpl.org) are relevant and applicable to Xahau, including those related to running validators and managing validator keys. For Xahau specific documentation you can visit our [documentation](https://docs.xahau.network/)
 
 ## XAH
