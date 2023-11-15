@@ -4,9 +4,9 @@ This document contains the release notes for `xahaud`, the reference server impl
 
 Have new ideas? Need help with setting up your node? [Please open an issue here](https://github.com/xahau/xahaud/issues/new/choose).
 
-# Introducing Xahau version 2023.10.30+443
+# Introducing Xahau version 2023.10.30-release+443
 
-Version 2023.10.30+443 of `xahaud`, the reference server implementation of the Xahau protocol, is now available at [Build Server](https://build.xahau.tech/).
+Version 2023.10.30-release+443 of `xahaud`, the reference server implementation of the Xahau protocol, is now available at [Build Server](https://build.xahau.tech/).
 
 [Download Release Binary](https://build.xahau.tech/2023.10.30-release%2B443)
 
@@ -18,7 +18,7 @@ Version 2023.10.30+443 of `xahaud`, the reference server implementation of the X
 
 New amendments are now open for voting according to Xahau's [amendment process](https://docs.xahau.network/features/amendments), which enables protocol changes following five days of >80% support from trusted validators.
 
-If you operate a Xahau server, upgrade to version 2023.10.30+443 by October 31 to ensure service continuity. The exact time that protocol changes take effect depends on the voting decisions of the decentralized network.
+If you operate a Xahau server, upgrade to version 2023.10.30-release+443 by October 31 to ensure service continuity. The exact time that protocol changes take effect depends on the voting decisions of the decentralized network.
 
 
 ## Install / Upgrade
