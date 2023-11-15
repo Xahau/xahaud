@@ -260,6 +260,34 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
+        // fixURITokenV1
+        {
+            for (bool const withFixURITokenV1 : {true, false})
+            {
+                auto const amend =
+                    withFixURITokenV1 ? features : features - fixURITokenV1;
+
+                auto const txResult =
+                    withFixURITokenV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
+
+                Env env{*this, amend};
+                auto const alice = Account("alice");
+                auto const bob = Account("bob");
+                env.fund(XRP(1000), alice, bob);
+                env.close();
+
+                std::string const uri(2, '?');
+                auto const tid = tokenid(alice, uri);
+                std::string const hexid{strHex(tid)};
+
+                // temMALFORMED - cannot include sfDestination without sfAmount
+                Json::Value destTx = mint(alice, uri);
+                destTx[jss::Destination] = bob.human();
+                env(destTx, txResult);
+                env.close();
+            }
+        }
+
         // setup env
         Env env{*this, features};
         auto const alice = Account("alice");
