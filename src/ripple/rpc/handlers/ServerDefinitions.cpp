@@ -367,18 +367,35 @@ private:
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
         }
+
+        ret[jss::native_currency_code] = systemCurrencyCode();
+
+        // generate hash
+        {
+            const std::string out = Json::FastWriter().write(ret);
+            defsHash =
+                ripple::sha512Half(ripple::Slice{out.data(), out.size()});
+            ret[jss::hash] = to_string(*defsHash);
+        }        
         return ret;
     }
 
+    std::optional<uint256> defsHash;
     Json::Value defs;
 
 public:
     Definitions() : defs(generate()){};
 
-    bool
-    hashMatches(std::optional<uint256> defsHash, uint256 hash) const
+    uint256 const&
+    getHash() const
     {
-        return defsHash && *defsHash == hash;
+        if (!defsHash)
+        {
+            // should be unreachable
+            // if this does happen we don't want 0 xor 0 so use a random value here
+            return uint256("DF4220E93ADC6F5569063A01B4DC79F8DB9553B6A3222ADE23DEA0");
+        }
+        return *defsHash;
     }
 
     Json::Value const&
@@ -391,51 +408,58 @@ public:
 Json::Value
 doServerDefinitions(RPC::JsonContext& context)
 {
+
     auto& params = context.params;
 
-    uint256 hash;
+    uint256 reqHash;
     if (params.isMember(jss::hash))
     {
         if (!params[jss::hash].isString() ||
-            !hash.parseHex(params[jss::hash].asString()))
+            !reqHash.parseHex(params[jss::hash].asString()))
             return RPC::invalid_field_error(jss::hash);
+    }
+
+    uint32_t curLgrSeq = context.ledgerMaster.getValidatedLedger()->info().seq;
+    
+    // static values used for cache
+    static uint32_t             lastGenerated = 0;  // last ledger seq it was generated
+    static Json::Value          lastFeatures {Json::objectValue};  // the actual features JSON last generated
+    static uint256              lastFeatureHash;   // the hash of the features JSON last time it was generated
+
+    // if a flag ledger has passed since it was last generated, regenerate it, update the cache above
+    if (curLgrSeq > ((lastGenerated >> 8) + 1) << 8 || lastGenerated == 0)
+    {
+        majorityAmendments_t majorities;
+        if (auto const valLedger = context.ledgerMaster.getValidatedLedger())
+            majorities = getMajorityAmendments(*valLedger);
+        auto& table = context.app.getAmendmentTable();
+        auto features = table.getJson();
+        for (auto const& [h, t] : majorities)
+            features[to_string(h)][jss::majority] = t.time_since_epoch().count();
+    
+        lastFeatures = features;
+        {
+            const std::string out = Json::FastWriter().write(features);
+            lastFeatureHash = ripple::sha512Half(ripple::Slice{out.data(), out.size()});
+        }
     }
 
     static const Definitions defs{};
 
-    // definitions
-    Json::Value ret = defs();
+    // the hash is the xor of the two parts
+    uint256 retHash = lastFeatureHash ^ defs.getHash();
 
-    // native currency
-    ret[jss::native_currency_code] = systemCurrencyCode();
-
-    // features
-    majorityAmendments_t majorities;
-    if (auto const valLedger = context.ledgerMaster.getValidatedLedger())
-        majorities = getMajorityAmendments(*valLedger);
-    auto& table = context.app.getAmendmentTable();
-    auto features = table.getJson();
-    for (auto const& [h, t] : majorities)
-    {
-        features[to_string(h)][jss::majority] = t.time_since_epoch().count();
-    }
-    ret[jss::features] = features;
-
-    // generate hash
-    std::optional<uint256> defsHash;
-    {
-        const std::string out = Json::FastWriter().write(ret);
-        defsHash = ripple::sha512Half(ripple::Slice{out.data(), out.size()});
-        ret[jss::hash] = to_string(*defsHash);
-    }
-
-    // verify hash
-    if (defs.hashMatches(defsHash, hash))
+    if (reqHash == retHash)
     {
         Json::Value jv = Json::objectValue;
-        jv[jss::hash] = to_string(hash);
+        jv[jss::hash] = to_string(retHash);
         return jv;
     }
+
+    // definitions
+    Json::Value ret = defs();
+    ret[jss::hash] = to_string(retHash);
+    ret[jss::features] = lastFeatures;
 
     return ret;
 }
