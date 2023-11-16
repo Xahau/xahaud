@@ -375,8 +375,7 @@ private:
             const std::string out = Json::FastWriter().write(ret);
             defsHash =
                 ripple::sha512Half(ripple::Slice{out.data(), out.size()});
-            ret[jss::hash] = to_string(*defsHash);
-        }        
+        }
         return ret;
     }
 
@@ -392,8 +391,10 @@ public:
         if (!defsHash)
         {
             // should be unreachable
-            // if this does happen we don't want 0 xor 0 so use a random value here
-            return uint256("DF4220E93ADC6F5569063A01B4DC79F8DB9553B6A3222ADE23DEA0");
+            // if this does happen we don't want 0 xor 0 so use a random value
+            // here
+            return uint256(
+                "DF4220E93ADC6F5569063A01B4DC79F8DB9553B6A3222ADE23DEA0");
         }
         return *defsHash;
     }
@@ -408,7 +409,6 @@ public:
 Json::Value
 doServerDefinitions(RPC::JsonContext& context)
 {
-
     auto& params = context.params;
 
     uint256 reqHash;
@@ -420,13 +420,16 @@ doServerDefinitions(RPC::JsonContext& context)
     }
 
     uint32_t curLgrSeq = context.ledgerMaster.getValidatedLedger()->info().seq;
-    
-    // static values used for cache
-    static uint32_t             lastGenerated = 0;  // last ledger seq it was generated
-    static Json::Value          lastFeatures {Json::objectValue};  // the actual features JSON last generated
-    static uint256              lastFeatureHash;   // the hash of the features JSON last time it was generated
 
-    // if a flag ledger has passed since it was last generated, regenerate it, update the cache above
+    // static values used for cache
+    static uint32_t lastGenerated = 0;  // last ledger seq it was generated
+    static Json::Value lastFeatures{
+        Json::objectValue};          // the actual features JSON last generated
+    static uint256 lastFeatureHash;  // the hash of the features JSON last time
+                                     // it was generated
+
+    // if a flag ledger has passed since it was last generated, regenerate it,
+    // update the cache above
     if (curLgrSeq > ((lastGenerated >> 8) + 1) << 8 || lastGenerated == 0)
     {
         majorityAmendments_t majorities;
@@ -435,12 +438,14 @@ doServerDefinitions(RPC::JsonContext& context)
         auto& table = context.app.getAmendmentTable();
         auto features = table.getJson();
         for (auto const& [h, t] : majorities)
-            features[to_string(h)][jss::majority] = t.time_since_epoch().count();
-    
+            features[to_string(h)][jss::majority] =
+                t.time_since_epoch().count();
+
         lastFeatures = features;
         {
             const std::string out = Json::FastWriter().write(features);
-            lastFeatureHash = ripple::sha512Half(ripple::Slice{out.data(), out.size()});
+            lastFeatureHash =
+                ripple::sha512Half(ripple::Slice{out.data(), out.size()});
         }
     }
 
