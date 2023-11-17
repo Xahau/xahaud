@@ -30,7 +30,7 @@ On supported platforms, see the [instructions on installing or updating `xahaud`
 
 - **`Hooks`**: This amendment activates hooks and the hook API in the Xahau network, allowing custom logic to be executed on the ledger in response to transactions.
 
-- **`BalanceRewards`**: This amendment enables `ClaimReward`` and `GenesisMint`` transactions, facilitating balance rewards to be paid in XAH, the Xahau network's native currency.
+- **`BalanceRewards`**: This amendment enables `ClaimReward` and `GenesisMint` transactions, facilitating balance rewards to be paid in XAH, the Xahau network's native currency.
 
 - **`PaychanAndEscrowForTokens`**: This amendment allows the use of IOU tokens for PaymentChannels and Escrow transactions, enhancing flexibility and functionality.
 
