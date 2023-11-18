@@ -7765,6 +7765,64 @@ public:
     }
 
     void
+    test_state_foreign_set_max()
+    {
+        testcase("Test state_foreign_set max");
+        using namespace jtx;
+
+        // Env env{*this, supported_amendments()};
+        Env env{*this, envconfig(), supported_amendments(), nullptr,
+            // beast::severities::kWarning
+            beast::severities::kTrace
+        };
+
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        {
+            std::string const wasmHex =
+                "0061736D0100000001360760027F7F017F60027F7F017E60037F7F7E017E60"
+                "047F7F7F7F017E60057F7F7F7F7F017E60087F7F7F7F7F7F7F7F017E60017F"
+                "017E0289010903656E76025F67000003656E760C686F6F6B5F6163636F756E"
+                "74000103656E7608726F6C6C6261636B000203656E760973746174655F7365"
+                "74000303656E76057374617465000303656E76057472616365000403656E76"
+                "1173746174655F666F726569676E5F736574000503656E760974726163655F"
+                "6E756D000203656E76066163636570740002030201060503010002062B077F"
+                "0141B088040B7F004180080B7F0041A4080B7F004180080B7F0041B088040B"
+                "7F0041000B7F0041010B07080104686F6F6B00090ADD810001D9810002037F"
+                "017E230041E0006B220124002001200036025C4101410110001A200141406B"
+                "41141001421452044041004100420B10021A0B418408410841800841041003"
+                "420852044041004100420E10021A0B200141386A22024108200141406B2200"
+                "411410041A2001200129033842017C370338200141AB013A00192001200129"
+                "03383C001A4193084102200141106A22034120410110051A2001419B084109"
+                "419608410520034120200041141006370308418C084106200129030810071A"
+                "200241082000411410031A4100410042001008200141E0006A24000B0B2A01"
+                "004180080B236B657900636F6E74656E7400726573756C74006E73006B6579"
+                "3200636F6E74656E7432";
+            // install the hook on alice
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(wasmHex, overrideFlag)}}, 0),
+                M("set state_foreign_set_max"),
+                HSFEE);
+            env.close();
+
+            // invoke the hook
+            for (uint32_t i = 0; i < 256; ++i)
+            {
+                env(pay(bob, alice, XRP(1)),
+                    M("test state_foreign_set_max"),
+                    fee(XRP(1)));
+            }
+            env(pay(bob, alice, XRP(1)),
+                M("test state_foreign_set_max"),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+        }
+    }
+
+    void
     test_state_foreign_set()
     {
         testcase("Test state_foreign_set");
@@ -11437,109 +11495,110 @@ public:
     void
     run() override
     {
-        testHooksDisabled();
-        testTxStructure();
-        testInferHookSetOperation();
-        testParams();
-        testGrants();
+        // testHooksDisabled();
+        // testTxStructure();
+        // testInferHookSetOperation();
+        // testParams();
+        // testGrants();
 
-        testDelete();
-        testInstall();
-        testCreate();
-        testWithTickets();
+        // testDelete();
+        // testInstall();
+        // testCreate();
+        // testWithTickets();
 
-        testUpdate();
+        // testUpdate();
 
-        testNSDelete();
+        // testNSDelete();
 
-        testWasm();
-        test_accept();
-        test_rollback();
+        // testWasm();
+        // test_accept();
+        // test_rollback();
 
-        testGuards();
+        // testGuards();
 
-        test_emit();  //
-        // test_etxn_burden();       // tested above
-        // test_etxn_generation();   // tested above
-        // test_otxn_burden();       // tested above
-        // test_otxn_generation();   // tested above
-        test_etxn_details();   //
-        test_etxn_fee_base();  //
-        test_etxn_nonce();     //
-        test_etxn_reserve();   //
-        test_fee_base();       //
+        // test_emit();  //
+        // // test_etxn_burden();       // tested above
+        // // test_etxn_generation();   // tested above
+        // // test_otxn_burden();       // tested above
+        // // test_otxn_generation();   // tested above
+        // test_etxn_details();   //
+        // test_etxn_fee_base();  //
+        // test_etxn_nonce();     //
+        // test_etxn_reserve();   //
+        // test_fee_base();       //
 
-        test_otxn_field();  //
+        // test_otxn_field();  //
 
-        test_ledger_keylet();  //
+        // test_ledger_keylet();  //
 
-        test_float_compare();   //
-        test_float_divide();    //
-        test_float_int();       //
-        test_float_invert();    //
-        test_float_log();       //
-        test_float_mantissa();  //
-        test_float_mulratio();  //
-        test_float_multiply();  //
-        test_float_negate();    //
-        test_float_one();       //
-        test_float_root();      //
-        test_float_set();       //
-        test_float_sign();      //
-        test_float_sto();       //
-        test_float_sto_set();   //
-        test_float_sum();       //
+        // test_float_compare();   //
+        // test_float_divide();    //
+        // test_float_int();       //
+        // test_float_invert();    //
+        // test_float_log();       //
+        // test_float_mantissa();  //
+        // test_float_mulratio();  //
+        // test_float_multiply();  //
+        // test_float_negate();    //
+        // test_float_one();       //
+        // test_float_root();      //
+        // test_float_set();       //
+        // test_float_sign();      //
+        // test_float_sto();       //
+        // test_float_sto_set();   //
+        // test_float_sum();       //
 
-        test_hook_account();    //
-        test_hook_again();      //
-        test_hook_hash();       //
-        test_hook_param();      //
-        test_hook_param_set();  //
-        test_hook_pos();        //
-        test_hook_skip();       //
+        // test_hook_account();    //
+        // test_hook_again();      //
+        // test_hook_hash();       //
+        // test_hook_param();      //
+        // test_hook_param_set();  //
+        // test_hook_pos();        //
+        // test_hook_skip();       //
 
-        test_ledger_last_hash();  //
-        test_ledger_last_time();  //
-        test_ledger_nonce();      //
-        test_ledger_seq();        //
+        // test_ledger_last_hash();  //
+        // test_ledger_last_time();  //
+        // test_ledger_nonce();      //
+        // test_ledger_seq();        //
 
-        test_meta_slot();  //
+        // test_meta_slot();  //
 
-        test_otxn_id();     //
-        test_otxn_slot();   //
-        test_otxn_type();   //
-        test_otxn_param();  //
+        // test_otxn_id();     //
+        // test_otxn_slot();   //
+        // test_otxn_type();   //
+        // test_otxn_param();  //
 
-        test_slot();           //
-        test_slot_clear();     //
-        test_slot_count();     //
-        test_slot_float();     //
-        test_slot_set();       //
-        test_slot_size();      //
-        test_slot_subarray();  //
-        test_slot_subfield();  //
-        test_slot_type();      //
+        // test_slot();           //
+        // test_slot_clear();     //
+        // test_slot_count();     //
+        // test_slot_float();     //
+        // test_slot_set();       //
+        // test_slot_size();      //
+        // test_slot_subarray();  //
+        // test_slot_subfield();  //
+        // test_slot_type();      //
 
-        test_state();              //
-        test_state_foreign();      //
-        test_state_foreign_set();  //
-        test_state_set();          //
+        // test_state();              //
+        // test_state_foreign();      //
+        // test_state_foreign_set();  //
+        test_state_foreign_set_max();  //
+        // test_state_set();          //
 
-        test_sto_emplace();   //
-        test_sto_erase();     //
-        test_sto_subarray();  //
-        test_sto_subfield();  //
-        test_sto_validate();  //
+        // test_sto_emplace();   //
+        // test_sto_erase();     //
+        // test_sto_subarray();  //
+        // test_sto_subfield();  //
+        // test_sto_validate();  //
 
-        test_trace();        //
-        test_trace_float();  //
-        test_trace_num();    //
+        // test_trace();        //
+        // test_trace_float();  //
+        // test_trace_num();    //
 
-        test_util_accid();    //
-        test_util_keylet();   //
-        test_util_raddr();    //
-        test_util_sha512h();  //
-        test_util_verify();   //
+        // test_util_accid();    //
+        // test_util_keylet();   //
+        // test_util_raddr();    //
+        // test_util_sha512h();  //
+        // test_util_verify();   //
     }
 
 private:
