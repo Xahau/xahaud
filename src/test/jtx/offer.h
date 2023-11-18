@@ -40,6 +40,9 @@ offer(
 Json::Value
 offer_cancel(Account const& account, std::uint32_t offerSeq);
 
+Json::Value
+offer_cancel(Account const& account, uint256 offerId);
+
 }  // namespace jtx
 }  // namespace test
 }  // namespace ripple

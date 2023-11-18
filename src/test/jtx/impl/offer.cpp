@@ -51,6 +51,16 @@ offer_cancel(Account const& account, std::uint32_t offerSeq)
     return jv;
 }
 
+Json::Value
+offer_cancel(Account const& account, uint256 offerId)
+{
+    Json::Value jv;
+    jv[jss::Account] = account.human();
+    jv[sfOfferID.jsonName] = to_string(offerId);
+    jv[jss::TransactionType] = jss::OfferCancel;
+    return jv;
+}
+
 }  // namespace jtx
 }  // namespace test
 }  // namespace ripple
