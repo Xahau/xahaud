@@ -7765,6 +7765,60 @@ public:
     }
 
     void
+    test_state_foreign_set_max()
+    {
+        testcase("Test state_foreign_set max");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments()};
+
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        {
+            std::string const wasmHex =
+                "0061736D0100000001360760027F7F017F60027F7F017E60037F7F7E017E60"
+                "047F7F7F7F017E60057F7F7F7F7F017E60087F7F7F7F7F7F7F7F017E60017F"
+                "017E0289010903656E76025F67000003656E760C686F6F6B5F6163636F756E"
+                "74000103656E7608726F6C6C6261636B000203656E760973746174655F7365"
+                "74000303656E76057374617465000303656E76057472616365000403656E76"
+                "1173746174655F666F726569676E5F736574000503656E760974726163655F"
+                "6E756D000203656E76066163636570740002030201060503010002062B077F"
+                "0141B088040B7F004180080B7F0041A4080B7F004180080B7F0041B088040B"
+                "7F0041000B7F0041010B07080104686F6F6B00090ADD810001D9810002037F"
+                "017E230041E0006B220124002001200036025C4101410110001A200141406B"
+                "41141001421452044041004100420B10021A0B418408410841800841041003"
+                "420852044041004100420E10021A0B200141386A22024108200141406B2200"
+                "411410041A2001200129033842017C370338200141AB013A00192001200129"
+                "03383C001A4193084102200141106A22034120410110051A2001419B084109"
+                "419608410520034120200041141006370308418C084106200129030810071A"
+                "200241082000411410031A4100410042001008200141E0006A24000B0B2A01"
+                "004180080B236B657900636F6E74656E7400726573756C74006E73006B6579"
+                "3200636F6E74656E7432";
+            // install the hook on alice
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(wasmHex, overrideFlag)}}, 0),
+                M("set state_foreign_set_max"),
+                HSFEE);
+            env.close();
+
+            // invoke the hook
+            for (uint32_t i = 0; i < 256; ++i)
+            {
+                env(pay(bob, alice, XRP(1)),
+                    M("test state_foreign_set_max"),
+                    fee(XRP(1)));
+            }
+            env(pay(bob, alice, XRP(1)),
+                M("test state_foreign_set_max"),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+        }
+    }
+
+    void
     test_state_foreign_set()
     {
         testcase("Test state_foreign_set");
@@ -11523,6 +11577,7 @@ public:
         test_state();              //
         test_state_foreign();      //
         test_state_foreign_set();  //
+        test_state_foreign_set_max();  //
         test_state_set();          //
 
         test_sto_emplace();   //
