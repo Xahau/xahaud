@@ -1303,7 +1303,8 @@ Import::doApply()
     }
 
     // update the ledger header
-    STAmount added = create ? finalBal : finalBal - startBal;
+    // Actual XAH minted = ( Final Balance + Import tx fee ) – ( Previous Balance )
+    STAmount added = create ? finalBal : finalBal + sfFee - startBal;
     ctx_.rawView().rawDestroyXRP(-added.xrp());
 
     return tesSUCCESS;
