@@ -86,7 +86,7 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
         extraFee +=
             XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
 
-    if (view.rules.enabled(fixHooksV1))
+    if (view.rules().enabled(fixHooksV1))
     {
         // pass
     }
