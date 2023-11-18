@@ -11574,11 +11574,11 @@ public:
         test_slot_subfield();  //
         test_slot_type();      //
 
-        test_state();              //
-        test_state_foreign();      //
-        test_state_foreign_set();  //
+        test_state();                  //
+        test_state_foreign();          //
+        test_state_foreign_set();      //
         test_state_foreign_set_max();  //
-        test_state_set();          //
+        test_state_set();              //
 
         test_sto_emplace();   //
         test_sto_erase();     //
