@@ -86,20 +86,27 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
         extraFee +=
             XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
 
-    if (tx.isFieldPresent(sfHookParameters))
+    if (view.rules.enabled(fixHooksV1))
     {
-        uint64_t paramBytes = 0;
-        auto const& params = tx.getFieldArray(sfHookParameters);
-        for (auto const& param : params)
+        // pass
+    }
+    else
+    {
+        if (tx.isFieldPresent(sfHookParameters))
         {
-            paramBytes += (param.isFieldPresent(sfHookParameterName)
-                               ? param.getFieldVL(sfHookParameterName).size()
-                               : 0) +
-                (param.isFieldPresent(sfHookParameterValue)
-                     ? param.getFieldVL(sfHookParameterValue).size()
-                     : 0);
+            uint64_t paramBytes = 0;
+            auto const& params = tx.getFieldArray(sfHookParameters);
+            for (auto const& param : params)
+            {
+                paramBytes += (param.isFieldPresent(sfHookParameterName)
+                                ? param.getFieldVL(sfHookParameterName).size()
+                                : 0) +
+                    (param.isFieldPresent(sfHookParameterValue)
+                        ? param.getFieldVL(sfHookParameterValue).size()
+                        : 0);
+            }
+            extraFee += XRPAmount{static_cast<XRPAmount>(paramBytes)};
         }
-        extraFee += XRPAmount{static_cast<XRPAmount>(paramBytes)};
     }
 
     return Transactor::calculateBaseFee(view, tx) + extraFee;
