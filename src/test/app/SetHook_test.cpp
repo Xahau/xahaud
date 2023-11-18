@@ -7774,8 +7774,8 @@ public:
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
-        env.fund(XRP(10000), alice);
-        env.fund(XRP(10000), bob);
+        env.fund(XRP(1000000), alice);
+        env.fund(XRP(1000000), bob);
 
         {
             std::string const wasmHex =
