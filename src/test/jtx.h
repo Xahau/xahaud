@@ -36,23 +36,29 @@
 #include <test/jtx/deposit.h>
 #include <test/jtx/fee.h>
 #include <test/jtx/flags.h>
+#include <test/jtx/genesis.h>
 #include <test/jtx/hook.h>
+#include <test/jtx/import.h>
 #include <test/jtx/invoice_id.h>
+#include <test/jtx/invoke.h>
 #include <test/jtx/jtx_json.h>
 #include <test/jtx/last_ledger_sequence.h>
 #include <test/jtx/memo.h>
 #include <test/jtx/multisign.h>
+#include <test/jtx/network.h>
 #include <test/jtx/noop.h>
 #include <test/jtx/offer.h>
 #include <test/jtx/owners.h>
 #include <test/jtx/paths.h>
 #include <test/jtx/pay.h>
+#include <test/jtx/paychan.h>
 #include <test/jtx/prop.h>
 #include <test/jtx/quality.h>
 #include <test/jtx/rate.h>
 #include <test/jtx/regkey.h>
 #include <test/jtx/require.h>
 #include <test/jtx/requires.h>
+#include <test/jtx/reward.h>
 #include <test/jtx/sendmax.h>
 #include <test/jtx/seq.h>
 #include <test/jtx/sig.h>
@@ -64,5 +70,6 @@
 #include <test/jtx/trust.h>
 #include <test/jtx/txflags.h>
 #include <test/jtx/utility.h>
+#include <test/jtx/uritoken.h>
 
 #endif

@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
+#define RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
 
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
@@ -27,15 +27,28 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+/** Invoke operations. */
+namespace invoke {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+Json::Value
+invoke(
+    jtx::Account const& account, 
+    std::optional<jtx::Account> const& dest);
+
+Json::Value
+invoke(
+    jtx::Account const& account, 
+    std::optional<jtx::Account> const& dest,
+    std::optional<std::string> const& blob);
+
+std::string
+makeBlob(std::vector<std::tuple<
+        std::optional<AccountID>,
+        std::optional<STAmount>,
+        std::optional<uint256>,
+        std::optional<uint256>>> entries);
+
+}  // namespace invoke
 
 }  // namespace jtx
 

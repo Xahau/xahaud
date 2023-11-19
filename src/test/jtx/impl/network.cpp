@@ -17,29 +17,39 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-
-#include <test/jtx/Account.h>
-#include <test/jtx/Env.h>
+#include <ripple/protocol/TxFlags.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/network.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+namespace network {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+std::unique_ptr<Config>
+makeNetworkConfig(
+    uint32_t networkID,
+    std::string fee,
+    std::string a_res,
+    std::string o_res)
+{
+    using namespace jtx;
+    return envconfig([&](std::unique_ptr<Config> cfg) {
+        cfg->NETWORK_ID = networkID;
+        Section config;
+        config.append(
+            {"reference_fee = " + fee,
+             "account_reserve = " + a_res,
+             "owner_reserve = " + o_res});
+        auto setup = setup_FeeVote(config);
+        cfg->FEES = setup;
+        return cfg;
+    });
+}
+
+}  // namespace network
 
 }  // namespace jtx
-
 }  // namespace test
 }  // namespace ripple
-
-#endif

@@ -1441,22 +1441,34 @@ Transactor::doTSH(
         // obviously we will never execute OTXN account
         // as a TSH because they already had first execution
         if (tshAccountID == account_)
+        {
+            JLOG(j_.trace()) << "doTSH: tshAccountID == account_";
             continue;
+        }
 
         if (alreadyProcessed.find(tshAccountID) != alreadyProcessed.end())
+        {
+            JLOG(j_.trace()) << "doTSH: alreadyProcessed.find(tshAccountID) != alreadyProcessed.end()";
             continue;
+        }
 
         alreadyProcessed.emplace(tshAccountID);
 
         // only process the relevant ones
         if ((!canRollback && strong) || (canRollback && !strong))
+        {
+            JLOG(j_.trace()) << "doTSH: (!canRollback && strong) || (canRollback && !strong)";
             continue;
+        }
 
         auto klTshHook = keylet::hook(tshAccountID);
 
         auto tshHook = view.read(klTshHook);
         if (!(tshHook && tshHook->isFieldPresent(sfHooks)))
+        {
+            JLOG(j_.trace()) << "doTSH: !(tshHook && tshHook->isFieldPresent(sfHooks))";
             continue;
+        }
 
         // scoping here allows tshAcc to leave scope before
         // hook execution, which is probably safer
@@ -1464,7 +1476,10 @@ Transactor::doTSH(
             // check if the TSH exists and/or has any hooks
             auto tshAcc = view.peek(keylet::account(tshAccountID));
             if (!tshAcc)
+            {
+                JLOG(j_.trace()) << "doTSH: !tshAcc";
                 continue;
+            }
 
             // compute and deduct fees for the TSH if applicable
             XRPAmount tshFeeDrops =

@@ -31,6 +31,7 @@
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <string>
+#include <test/csf.h>
 #include <test/jtx.h>
 #include <vector>
 
@@ -60,12 +61,12 @@ namespace test {
 //  * @param hasToReEnable if expect ToDisable in ledger
 //  * @return true if meet all three expectation
 //  */
-// bool
-// negUnlSizeTest(
-//     std::shared_ptr<Ledger const> const& l,
-//     size_t size,
-//     bool hasToDisable,
-//     bool hasToReEnable);
+inline bool
+negUnlSizeTest(
+    std::shared_ptr<Ledger const> const& l,
+    size_t size,
+    bool hasToDisable,
+    bool hasToReEnable);
 
 // /**
 //  * Try to apply a ttUNL_MODIFY Tx, and test the apply result
@@ -163,6 +164,38 @@ createUNLRTx(
     LedgerIndex seq,
     PublicKey const& importKey,
     PublicKey const& valKey);
+
+/**
+ * Count the number of Tx in a TxSet
+ *
+ * @param txSet the TxSet
+ * @return the number of Tx
+ */
+inline std::size_t
+countTx(std::shared_ptr<SHAMap> const& txSet);
+
+/**
+ * Create ttUNL_MODIFY Tx
+ *
+ * @param disabling disabling or re-enabling a validator
+ * @param seq current ledger seq
+ * @param txKey the public key of the validator
+ * @return the ttUNL_MODIFY Tx
+ */
+inline STTx
+createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey);
+
+/**
+ * Try to apply a ttUNL_MODIFY Tx, and test the apply result
+ *
+ * @param env the test environment
+ * @param view the OpenView of the ledger
+ * @param tx the ttUNL_MODIFY Tx
+ * @param pass if the Tx should be applied successfully
+ * @return true if meet the expectation of apply result
+ */
+inline bool
+applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass);
 
 class UNLReport_test : public beast::unit_test::suite
 {
@@ -1201,6 +1234,23 @@ BEAST_DEFINE_TESTSUITE(UNLReportVoteNewValidator, consensus, ripple);
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
+
+inline bool
+negUnlSizeTest(
+    std::shared_ptr<Ledger const> const& l,
+    size_t size,
+    bool hasToDisable,
+    bool hasToReEnable)
+{
+    bool sameSize = l->negativeUNL().size() == size;
+    bool sameToDisable =
+        (l->validatorToDisable() != std::nullopt) == hasToDisable;
+    bool sameToReEnable =
+        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
+
+    return sameSize && sameToDisable && sameToReEnable;
+}
+
 bool
 applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
 {
@@ -1360,6 +1410,55 @@ createUNLRTx(
         })());
     };
     return STTx(ttUNL_REPORT, fill);
+}
+
+inline STTx
+createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey)
+{
+    auto fill = [&](auto& obj) {
+        obj.setFieldU8(sfUNLModifyDisabling, disabling ? 1 : 0);
+        obj.setFieldU32(sfLedgerSequence, seq);
+        obj.setFieldVL(sfUNLModifyValidator, txKey);
+    };
+    return STTx(ttUNL_MODIFY, fill);
+}
+
+inline std::size_t
+countTx(std::shared_ptr<SHAMap> const& txSet)
+{
+    /*uint64_t counter = 0;
+    if (txSet)
+    for (auto const& item : *txSet)
+    {
+
+        SerialIter sit(item.slice());
+        auto tx = std::make_shared<STTx
+    const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
+
+        if (tx->getFieldU16(sfTransactionType) == ttUNL_MODIFY)
+            counter++;
+    }
+    */
+
+    std::size_t count = 0;
+    for (auto i = txSet->begin(); i != txSet->end(); ++i)
+    {
+        // RH TODO: why does the above parse??
+        auto raw = i->slice();
+        if (raw[0] == 0x12U && raw[1] == 0 && raw[2] == 0x66U)
+            count++;
+    }
+    return count;
+};
+
+inline bool
+applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
+{
+    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
+    if (pass)
+        return res.first == tesSUCCESS;
+    else
+        return res.first == tefFAILURE || res.first == temDISABLED;
 }
 
 }  // namespace test

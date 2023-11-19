@@ -150,9 +150,7 @@ struct ClaimReward_test : public beast::unit_test::suite
                     .count();
 
             // CLAIM
-            auto tx = claim(alice);
-            tx[sfIssuer.jsonName] = issuer.human();
-            env(tx, txResult);
+            env(reward::claim(alice, issuer), txResult);
             env.close();
 
             if (withClaimReward)
@@ -287,7 +285,7 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice);
             env.close();
 
-            env(claim(alice), ter(temMALFORMED));
+            env(reward::claim(alice), ter(temMALFORMED));
             env.close();
         }
 

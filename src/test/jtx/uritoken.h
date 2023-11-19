@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2021 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,29 +17,32 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
+#define RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
 
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
+#include <test/jtx/owners.h>
+#include <ripple/basics/strHex.h>
+#include <initializer_list>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+namespace uritoken {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+uint256
+tokenid(jtx::Account const& account, std::string const& uri);
+
+Json::Value
+mint(jtx::Account const& account, std::string const& uri);
+
+}  // namespace uritoken
 
 }  // namespace jtx
 
 }  // namespace test
 }  // namespace ripple
 
-#endif
+#endif  // RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
