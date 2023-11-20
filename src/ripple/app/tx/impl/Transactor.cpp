@@ -788,6 +788,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
 NotTEC
 Transactor::checkSingleSign(PreclaimContext const& ctx)
 {
+    // wildcard network gets a free pass on all signatures
+    if (ctx.tx.isFieldPresent(sfNetworkID) &&
+        ctx.tx.getFieldU32(sfNetworkID) == 65535)
+        return tesSUCCESS;
+    
     // Check that the value in the signing key slot is a public key.
     auto const pkSigner = ctx.tx.getSigningPubKey();
     if (!publicKeyType(makeSlice(pkSigner)))
