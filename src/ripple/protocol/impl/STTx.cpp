@@ -228,7 +228,8 @@ STTx::checkSign(
     return Unexpected("Internal signature check failure.");
 }
 
-Json::Value STTx::getJson(JsonOptions) const
+Json::Value
+STTx::getJson(JsonOptions) const
 {
     Json::Value ret = STObject::getJson(JsonOptions::none);
     ret[jss::hash] = to_string(getTransactionID());
@@ -394,10 +395,6 @@ STTx::checkMultiSign(
         // The next signature must be greater than this one.
         lastAccountID = accountID;
 
-        // wildcard network gets a free pass
-        if (isWildcardNetwork)
-            continue;
-
         // Verify the signature.
         bool validSig = false;
         try
@@ -411,11 +408,12 @@ STTx::checkMultiSign(
             {
                 Blob const signature = signer.getFieldVL(sfTxnSignature);
 
-                validSig = verify(
-                    PublicKey(makeSlice(spk)),
-                    s.slice(),
-                    makeSlice(signature),
-                    fullyCanonical);
+                // wildcard network gets a free pass
+                validSig = isWildcardNetwork ||
+                    verify(PublicKey(makeSlice(spk)),
+                           s.slice(),
+                           makeSlice(signature),
+                           fullyCanonical);
             }
         }
         catch (std::exception const&)
