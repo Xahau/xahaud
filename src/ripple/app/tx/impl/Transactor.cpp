@@ -792,7 +792,7 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     if (ctx.tx.isFieldPresent(sfNetworkID) &&
         ctx.tx.getFieldU32(sfNetworkID) == 65535)
         return tesSUCCESS;
-    
+
     // Check that the value in the signing key slot is a public key.
     auto const pkSigner = ctx.tx.getSigningPubKey();
     if (!publicKeyType(makeSlice(pkSigner)))
