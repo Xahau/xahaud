@@ -17,6 +17,8 @@ jobs:
     - uses: actions/checkout@v3
       with:
         clean: false
+    - name: Check for suspicious patterns
+      run: /bin/bash suspicious_patterns.sh
     - name: Build using Docker
       run: /bin/bash release-builder.sh
     - name: Unit tests

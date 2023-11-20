@@ -1,6 +1,5 @@
-The XRP Ledger has many and diverse stakeholders, and everyone deserves
-a chance to contribute meaningful changes to the code that runs the
-XRPL.
+Xahau has many and diverse stakeholders, and everyone deserves
+a chance to contribute meaningful changes to the code that runs Xahau.
 
 # Contributing
 
@@ -12,7 +11,7 @@ instructions specific to this project.
 ## Before you start
 
 In general, contributions should be developed in your personal
-[fork](https://github.com/XRPLF/rippled/fork).
+[fork](https://github.com/xahau/xahaud/fork).
 
 The following branches exist in the main project repository:
 
@@ -25,7 +24,7 @@ The tip of each branch must be signed. In order for GitHub to sign a
 squashed commit that it builds from your pull request, GitHub must know
 your verifying key. Please set up [signature verification][signing].
 
-[rippled]: https://github.com/XRPLF/rippled
+[rippled]: https://github.com/xahau/xahaud
 [signing]:
     https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification
 
@@ -33,8 +32,8 @@ your verifying key. Please set up [signature verification][signing].
 ## Major contributions
 
 If your contribution is a major feature or breaking change, then you
-must first write an XRP Ledger Standard (XLS) describing it. Go to
-[XRPL-Standards](https://github.com/XRPLF/XRPL-Standards/discussions),
+must first write a Xahau Standard (XLS) describing it. Go to
+[Standards](https://github.com/XRPLF/XRPL-Standards/discussions),
 choose the next available standard number, and open a discussion with an
 appropriate title to propose your draft standard.
 
@@ -50,12 +49,12 @@ author delegates that responsibility to others.
 ## Before making a pull request
 
 Changes that alter transaction processing must be guarded by an
-[Amendment](https://xrpl.org/amendments.html).
+[Amendment](https://docs.xahau.network/features/amendments).
 All other changes that maintain the existing behavior do not need an
 Amendment.
 
-Ensure that your code compiles according to the build instructions in
-[`BUILD.md`](./BUILD.md).
+Ensure that your code compiles according to the build instructions in the
+[`documentation`](https://docs.xahau.network/infrastructure/building-xahau).
 If you create new source files, they must go under `src/ripple`.
 You will need to add them to one of the
 [source lists](./Builds/CMake/RippledCore.cmake) in CMake.
