@@ -302,8 +302,8 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
         return Unexpected("Cannot both single- and multi-sign.");
 
     // wildcard network gets a free pass on all signatures
-    if (isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535)
-        return {};
+    bool const isWildcardNetwork =
+        isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
 
     bool validSig = false;
     try
@@ -318,11 +318,11 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
             Blob const signature = getFieldVL(sfTxnSignature);
             Blob const data = getSigningData(*this);
 
-            validSig = verify(
-                PublicKey(makeSlice(spk)),
-                makeSlice(data),
-                makeSlice(signature),
-                fullyCanonical);
+            validSig = isWildcardNetwork ||
+                verify(PublicKey(makeSlice(spk)),
+                       makeSlice(data),
+                       makeSlice(signature),
+                       fullyCanonical);
         }
     }
     catch (std::exception const&)
