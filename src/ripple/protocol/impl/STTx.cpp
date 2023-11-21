@@ -300,6 +300,10 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
     if (isFieldPresent(sfSigners))
         return Unexpected("Cannot both single- and multi-sign.");
 
+    // wildcard network gets a free pass on all signatures
+    bool const isWildcardNetwork =
+        isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
+
     bool validSig = false;
     try
     {
@@ -313,11 +317,11 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
             Blob const signature = getFieldVL(sfTxnSignature);
             Blob const data = getSigningData(*this);
 
-            validSig = verify(
-                PublicKey(makeSlice(spk)),
-                makeSlice(data),
-                makeSlice(signature),
-                fullyCanonical);
+            validSig = isWildcardNetwork ||
+                verify(PublicKey(makeSlice(spk)),
+                       makeSlice(data),
+                       makeSlice(signature),
+                       fullyCanonical);
         }
     }
     catch (std::exception const&)
@@ -368,6 +372,9 @@ STTx::checkMultiSign(
     // Signers must be in sorted order by AccountID.
     AccountID lastAccountID(beast::zero);
 
+    bool const isWildcardNetwork =
+        isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
+
     for (auto const& signer : signers)
     {
         auto const accountID = signer.getAccountID(sfAccount);
@@ -400,11 +407,12 @@ STTx::checkMultiSign(
             {
                 Blob const signature = signer.getFieldVL(sfTxnSignature);
 
-                validSig = verify(
-                    PublicKey(makeSlice(spk)),
-                    s.slice(),
-                    makeSlice(signature),
-                    fullyCanonical);
+                // wildcard network gets a free pass
+                validSig = isWildcardNetwork ||
+                    verify(PublicKey(makeSlice(spk)),
+                           s.slice(),
+                           makeSlice(signature),
+                           fullyCanonical);
             }
         }
         catch (std::exception const&)

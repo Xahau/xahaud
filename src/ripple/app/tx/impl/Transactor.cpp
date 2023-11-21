@@ -772,6 +772,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
         return telNON_LOCAL_EMITTED_TXN;
     }
 
+    // wildcard network gets a free pass on all signatures
+    if (ctx.tx.isFieldPresent(sfNetworkID) &&
+        ctx.tx.getFieldU32(sfNetworkID) == 65535)
+        return tesSUCCESS;
+
     // pass ttIMPORTs, their signatures are checked at the preflight against the
     // internal xpop txn
     if (ctx.view.rules().enabled(featureImport) &&
