@@ -89,11 +89,11 @@ class Wildcard_test : public beast::unit_test::suite
                 env(signers(alice, 1, {{bob, 1}, {carol, 1}}));
                 env.close();
 
-                JTx tx = env.jt(jv, sig(dave));
+                JTx tx = env.jt(jv, msig(dave), fee(XRP(1)));
                 STTx local = *(tx.stx);
                 auto const info = submitSTTx(local);
                 auto const tecResult =
-                    wildcardNetwork ? "tesSUCCESS" : "tefBAD_AUTH";
+                    wildcardNetwork ? "tesSUCCESS" : "tefBAD_SIGNATURE";
                 BEAST_EXPECT(
                     info[jss::result][jss::engine_result] == tecResult);
             }
