@@ -17,11 +17,10 @@
 */
 //==============================================================================
 
-#include <test/jtx/flags.h>
-#include <test/jtx/uritoken.h>
-
 #include <ripple/protocol/SField.h>
 #include <ripple/protocol/jss.h>
+#include <test/jtx/flags.h>
+#include <test/jtx/uritoken.h>
 
 namespace ripple {
 namespace test {
@@ -43,6 +42,67 @@ mint(jtx::Account const& account, std::string const& uri)
     jv[jss::TransactionType] = jss::URITokenMint;
     jv[jss::Account] = account.human();
     jv[sfURI.jsonName] = strHex(uri);
+    return jv;
+}
+
+void
+dest::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfDestination.jsonName] = dest_.human();
+}
+
+void
+amt::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfAmount.jsonName] = amt_.getJson(JsonOptions::none);
+}
+
+Json::Value
+burn(jtx::Account const& account, std::string const& id)
+{
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::URITokenBurn;
+    jv[jss::Account] = account.human();
+    jv[sfURITokenID.jsonName] = id;
+    return jv;
+}
+
+Json::Value
+sell(
+    jtx::Account const& account,
+    std::string const& id)
+{
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::URITokenCreateSellOffer;
+    jv[jss::Account] = account.human();
+    jv[sfURITokenID.jsonName] = id;
+    return jv;
+}
+
+Json::Value
+cancel(
+    jtx::Account const& account,
+    std::string const& id)
+{
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::URITokenCancelSellOffer;
+    jv[jss::Account] = account.human();
+    jv[sfURITokenID.jsonName] = id;
+    return jv;
+}
+
+Json::Value
+buy(jtx::Account const& account,
+    std::string const& id)
+{
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::URITokenBuy;
+    jv[jss::Account] = account.human();
+    jv[sfURITokenID.jsonName] = id;
     return jv;
 }
 

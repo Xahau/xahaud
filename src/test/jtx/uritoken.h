@@ -20,11 +20,12 @@
 #ifndef RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
 #define RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
 
+#include <ripple/basics/strHex.h>
+#include <ripple/protocol/STAmount.h>
+#include <initializer_list>
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
 #include <test/jtx/owners.h>
-#include <ripple/basics/strHex.h>
-#include <initializer_list>
 
 namespace ripple {
 namespace test {
@@ -37,6 +38,48 @@ tokenid(jtx::Account const& account, std::string const& uri);
 
 Json::Value
 mint(jtx::Account const& account, std::string const& uri);
+
+/** Sets the optional Destination on an URITokenMint. */
+class dest
+{
+private:
+    jtx::Account dest_;
+
+public:
+    explicit dest(jtx::Account const& dest) : dest_(dest)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+/** Sets the optional Amount on an URITokenMint. */
+class amt
+{
+private:
+    STAmount amt_;
+
+public:
+    explicit amt(STAmount const& amt) : amt_(amt)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+Json::Value
+burn(jtx::Account const& account, std::string const& id);
+
+Json::Value
+sell(jtx::Account const& account, std::string const& id);
+
+Json::Value
+cancel(jtx::Account const& account, std::string const& id);
+
+Json::Value
+buy(jtx::Account const& account, std::string const& id);
 
 }  // namespace uritoken
 
