@@ -90,7 +90,6 @@ test.app > ripple.overlay
 test.app > ripple.protocol
 test.app > ripple.resource
 test.app > ripple.rpc
-test.app > test.jtx
 test.app > test.rpc
 test.app > test.toplevel
 test.app > test.unit_test
