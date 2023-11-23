@@ -17,9 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/SField.h>
 #include <ripple/protocol/jss.h>
-#include <test/jtx/flags.h>
 #include <test/jtx/uritoken.h>
 
 namespace ripple {

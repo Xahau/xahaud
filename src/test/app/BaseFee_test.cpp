@@ -27,30 +27,6 @@ namespace test {
 
 class BaseFee_test : public beast::unit_test::suite
 {
-    static uint256
-    tokenid(jtx::Account const& account, std::string const& uri)
-    {
-        auto const k = keylet::uritoken(account, Blob(uri.begin(), uri.end()));
-        return k.key;
-    }
-
-    std::unique_ptr<Config>
-    makeNetworkConfig(uint32_t networkID)
-    {
-        using namespace jtx;
-        return envconfig([&](std::unique_ptr<Config> cfg) {
-            cfg->NETWORK_ID = networkID;
-            Section config;
-            config.append(
-                {"reference_fee = 10",
-                 "account_reserve = 1000000",
-                 "owner_reserve = 200000"});
-            auto setup = setup_FeeVote(config);
-            cfg->FEES = setup;
-            return cfg;
-        });
-    }
-
     void
     testInvoke(FeatureBitset features)
     {
@@ -59,15 +35,14 @@ class BaseFee_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
         auto const alice = Account("alice");
         env.fund(XRP(1000), alice);
         env.close();
 
         // build tx
-        std::string const uri(maxTokenURILength, '?');
-        auto tx = uritoken::mint(alice, uri);
+        auto tx = invoke::invoke(alice);
         tx[jss::HookParameters] = Json::Value{Json::arrayValue};
         tx[jss::HookParameters][0U] = Json::Value{};
         tx[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
@@ -97,7 +72,7 @@ class BaseFee_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
         auto const alice = Account("alice");
         env.fund(XRP(1000), alice);
@@ -130,6 +105,7 @@ class BaseFee_test : public beast::unit_test::suite
     void
     testWithFeats(FeatureBitset features)
     {
+        testInvoke(features);
         testURITokenFee(features);
     }
 

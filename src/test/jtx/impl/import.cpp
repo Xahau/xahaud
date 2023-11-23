@@ -19,7 +19,6 @@
 
 #include <ripple/json/json_reader.h>
 #include <ripple/json/json_writer.h>
-#include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx/import.h>
 
