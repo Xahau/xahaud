@@ -17,29 +17,55 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-
-#include <test/jtx/Account.h>
-#include <test/jtx/Env.h>
+#include <ripple/json/json_reader.h>
+#include <ripple/json/json_writer.h>
+#include <ripple/protocol/TxFlags.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/import.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+namespace import {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+// Import tx.
+Json::Value
+import(
+    jtx::Account const& account,
+    Json::Value const& xpop,
+    std::optional<jtx::Account> const& issuer)
+{
+    using namespace jtx;
+    Json::Value jv;
+    std::string strJson = Json::FastWriter().write(xpop);
+    jv[jss::TransactionType] = jss::Import;
+    jv[jss::Account] = account.human();
+    jv[jss::Blob] = strHex(strJson);
+    if (issuer)
+        jv[sfIssuer.jsonName] = issuer->human();
+    return jv;
+}
+
+Json::Value
+loadXpop(std::string content)
+{
+    // If the string is empty, return an empty Json::Value
+    if (content.empty())
+    {
+        std::cout << "JSON string was empty"
+                    << "\n";
+        return {};
+    }
+
+    Json::Value jsonValue;
+    Json::Reader reader;
+    reader.parse(content, jsonValue);
+    return jsonValue;
+}
+
+}  // namespace import
 
 }  // namespace jtx
-
 }  // namespace test
 }  // namespace ripple
-
-#endif

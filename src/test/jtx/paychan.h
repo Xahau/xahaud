@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2012, 2013 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,28 +17,49 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_PAYCHAN_H_INCLUDED
+#define RIPPLE_TEST_JTX_PAYCHAN_H_INCLUDED
 
+#include <ripple/json/json_value.h>
+#include <ripple/protocol/STAmount.h>
 #include <test/jtx/Account.h>
-#include <test/jtx/Env.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+/** PayChan operations. */
+namespace paychan {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+Json::Value
+create(
+    jtx::Account const& account,
+    jtx::Account const& to,
+    STAmount const& amount,
+    NetClock::duration const& settleDelay,
+    PublicKey const& pk,
+    std::optional<NetClock::time_point> const& cancelAfter = std::nullopt,
+    std::optional<std::uint32_t> const& dstTag = std::nullopt);
+
+Json::Value
+fund(
+    jtx::Account const& account,
+    uint256 const& channel,
+    STAmount const& amount,
+    std::optional<NetClock::time_point> const& expiration = std::nullopt);
+
+Json::Value
+claim(
+    jtx::Account const& account,
+    uint256 const& channel,
+    std::optional<STAmount> const& balance = std::nullopt,
+    std::optional<STAmount> const& amount = std::nullopt,
+    std::optional<Slice> const& signature = std::nullopt,
+    std::optional<PublicKey> const& pk = std::nullopt);
+
+}  // namespace paychan
 
 }  // namespace jtx
-
 }  // namespace test
 }  // namespace ripple
 

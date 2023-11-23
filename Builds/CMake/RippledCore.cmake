@@ -703,6 +703,7 @@ if (tests)
     src/test/app/AccountDelete_test.cpp
     src/test/app/AccountTxPaging_test.cpp
     src/test/app/AmendmentTable_test.cpp
+    src/test/app/BaseFee_test.cpp
     src/test/app/Check_test.cpp
     src/test/app/ClaimReward_test.cpp
     src/test/app/CrossingLimits_test.cpp
@@ -868,18 +869,23 @@ if (tests)
     src/test/jtx/impl/envconfig.cpp
     src/test/jtx/impl/fee.cpp
     src/test/jtx/impl/flags.cpp
+    src/test/jtx/impl/import.cpp
     src/test/jtx/impl/invoice_id.cpp
+    src/test/jtx/impl/invoke.cpp
     src/test/jtx/impl/jtx_json.cpp
     src/test/jtx/impl/last_ledger_sequence.cpp
     src/test/jtx/impl/memo.cpp
     src/test/jtx/impl/multisign.cpp
+    src/test/jtx/impl/network.cpp
     src/test/jtx/impl/offer.cpp
     src/test/jtx/impl/owners.cpp
     src/test/jtx/impl/paths.cpp
     src/test/jtx/impl/pay.cpp
+    src/test/jtx/impl/paychan.cpp
     src/test/jtx/impl/quality2.cpp
     src/test/jtx/impl/rate.cpp
     src/test/jtx/impl/regkey.cpp
+    src/test/jtx/impl/reward.cpp
     src/test/jtx/impl/sendmax.cpp
     src/test/jtx/impl/seq.cpp
     src/test/jtx/impl/sig.cpp
@@ -889,6 +895,7 @@ if (tests)
     src/test/jtx/impl/trust.cpp
     src/test/jtx/impl/txflags.cpp
     src/test/jtx/impl/utility.cpp
+    src/test/jtx/impl/uritoken.cpp
 
     #[===============================[
        test sources:

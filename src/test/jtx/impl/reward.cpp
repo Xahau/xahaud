@@ -17,29 +17,35 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-
-#include <test/jtx/Account.h>
-#include <test/jtx/Env.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/reward.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+namespace reward {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+// Claim a reward.
+Json::Value
+claim(
+    jtx::Account const& account,
+    std::optional<jtx::Account> const& issuer,
+    std::uint32_t flags)
+{
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::ClaimReward;
+    jv[jss::Account] = account.human();
+    if (issuer)
+        jv[sfIssuer.jsonName] = issuer->human();
+    if (flags)
+        jv[jss::Flags] = flags;
+    return jv;
+}
+
+}  // namespace reward
 
 }  // namespace jtx
-
 }  // namespace test
 }  // namespace ripple
-
-#endif

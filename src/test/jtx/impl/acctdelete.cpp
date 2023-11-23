@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <ripple/protocol/jss.h>
+#include <test/jtx/Env.h>
 #include <test/jtx/acctdelete.h>
 
 namespace ripple {
@@ -33,6 +34,21 @@ acctdelete(jtx::Account const& account, jtx::Account const& dest)
     jv[sfDestination.jsonName] = dest.human();
     jv[sfTransactionType.jsonName] = jss::AccountDelete;
     return jv;
+}
+
+void
+incLgrSeqForAccDel(
+    jtx::Env& env,
+    jtx::Account const& acc,
+    std::uint32_t margin)
+{
+    int const delta = [&]() -> int {
+        if (env.seq(acc) + 255 > env.current()->seq())
+            return env.seq(acc) - env.current()->seq() + 255 - margin;
+        return 0;
+    }();
+    for (int i = 0; i < delta; ++i)
+        env.close();
 }
 
 }  // namespace jtx

@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_IMPORT_H_INCLUDED
+#define RIPPLE_TEST_JTX_IMPORT_H_INCLUDED
 
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
@@ -27,15 +27,19 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+/** Import operations. */
+namespace import {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+Json::Value
+import(
+    jtx::Account const& account,
+    Json::Value const& xpop,
+    std::optional<jtx::Account> const& issuer);
+
+Json::Value
+loadXpop(std::string content);
+
+}  // namespace import
 
 }  // namespace jtx
 
