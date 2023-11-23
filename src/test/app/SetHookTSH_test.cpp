@@ -42,91 +42,91 @@ private:
         jv[jss::Flags] = hsfOVERRIDE | hsfCOLLECT;
     }
 
-    // static const std::vector<uint8_t> TshHook = {
-    //     0x00U, 0x61U, 0x73U, 0x6dU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x1cU,
-    //     0x04U, 0x60U, 0x05U, 0x7fU, 0x7fU, 0x7fU, 0x7fU, 0x7fU, 0x01U, 0x7eU,
-    //     0x60U, 0x03U, 0x7fU, 0x7fU, 0x7eU, 0x01U, 0x7eU, 0x60U, 0x02U, 0x7fU,
-    //     0x7fU, 0x01U, 0x7fU, 0x60U, 0x01U, 0x7fU, 0x01U, 0x7eU, 0x02U, 0x23U,
-    //     0x03U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x05U, 0x74U, 0x72U, 0x61U, 0x63U,
-    //     0x65U, 0x00U, 0x00U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x06U, 0x61U, 0x63U,
-    //     0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x01U, 0x03U, 0x65U, 0x6eU, 0x76U,
-    //     0x02U, 0x5fU, 0x67U, 0x00U, 0x02U, 0x03U, 0x02U, 0x01U, 0x03U, 0x05U,
-    //     0x03U, 0x01U, 0x00U, 0x02U, 0x06U, 0x2bU, 0x07U, 0x7fU, 0x01U, 0x41U,
-    //     0xc0U, 0x8bU, 0x04U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0bU,
-    //     0x7fU, 0x00U, 0x41U, 0xb8U, 0x0bU, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U,
-    //     0x08U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0xc0U, 0x8bU, 0x04U, 0x0bU, 0x7fU,
-    //     0x00U, 0x41U, 0x00U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x01U, 0x0bU, 0x07U,
-    //     0x08U, 0x01U, 0x04U, 0x68U, 0x6fU, 0x6fU, 0x6bU, 0x00U, 0x03U, 0x0aU,
-    //     0xf3U, 0x81U, 0x00U, 0x01U, 0xefU, 0x81U, 0x00U, 0x01U, 0x01U, 0x7fU,
-    //     0x23U, 0x00U, 0x41U, 0x10U, 0x6bU, 0x22U, 0x01U, 0x24U, 0x00U, 0x20U,
-    //     0x01U, 0x20U, 0x00U, 0x36U, 0x02U, 0x0cU, 0x41U, 0x9aU, 0x0bU, 0x41U,
-    //     0x0fU, 0x41U, 0xbdU, 0x09U, 0x41U, 0x0eU, 0x41U, 0x00U, 0x10U, 0x00U,
-    //     0x1aU, 0x02U, 0x40U, 0x02U, 0x40U, 0x02U, 0x40U, 0x02U, 0x40U, 0x20U,
-    //     0x01U, 0x28U, 0x02U, 0x0cU, 0x0eU, 0x03U, 0x00U, 0x01U, 0x02U, 0x03U,
-    //     0x0bU, 0x41U, 0xd9U, 0x0aU, 0x41U, 0xc0U, 0x00U, 0x41U, 0xfeU, 0x08U,
-    //     0x41U, 0x3fU, 0x41U, 0x00U, 0x10U, 0x00U, 0x1aU, 0x0cU, 0x02U, 0x0bU,
-    //     0x41U, 0x9bU, 0x0aU, 0x41U, 0x3dU, 0x41U, 0xc2U, 0x08U, 0x41U, 0x3cU,
-    //     0x41U, 0x00U, 0x10U, 0x00U, 0x1aU, 0x0cU, 0x01U, 0x0bU, 0x41U, 0xd7U,
-    //     0x09U, 0x41U, 0xc3U, 0x00U, 0x41U, 0x80U, 0x08U, 0x41U, 0xc2U, 0x00U,
-    //     0x41U, 0x00U, 0x10U, 0x00U, 0x1aU, 0x0bU, 0x41U, 0xaaU, 0x0bU, 0x41U,
-    //     0x0dU, 0x41U, 0xcbU, 0x09U, 0x41U, 0x0cU, 0x41U, 0x00U, 0x10U, 0x00U,
-    //     0x1aU, 0x20U, 0x01U, 0x20U, 0x01U, 0x41U, 0x08U, 0x6aU, 0x22U, 0x00U,
-    //     0x36U, 0x02U, 0x04U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
-    //     0x35U, 0x02U, 0x0cU, 0x42U, 0x18U, 0x88U, 0x42U, 0xffU, 0x01U, 0x83U,
-    //     0x3cU, 0x00U, 0x00U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
-    //     0x35U, 0x02U, 0x0cU, 0x42U, 0x10U, 0x88U, 0x42U, 0xffU, 0x01U, 0x83U,
-    //     0x3cU, 0x00U, 0x01U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
-    //     0x35U, 0x02U, 0x0cU, 0x42U, 0x08U, 0x88U, 0x42U, 0xffU, 0x01U, 0x83U,
-    //     0x3cU, 0x00U, 0x02U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
-    //     0x35U, 0x02U, 0x0cU, 0x42U, 0xffU, 0x01U, 0x83U, 0x3cU, 0x00U, 0x03U,
-    //     0x20U, 0x00U, 0x41U, 0x04U, 0x42U, 0x18U, 0x10U, 0x01U, 0x1aU, 0x41U,
-    //     0x01U, 0x41U, 0x01U, 0x10U, 0x02U, 0x1aU, 0x20U, 0x01U, 0x41U, 0x10U,
-    //     0x6aU, 0x24U, 0x00U, 0x42U, 0x00U, 0x0bU, 0x0bU, 0xbfU, 0x03U, 0x01U,
-    //     0x00U, 0x41U, 0x80U, 0x08U, 0x0bU, 0xb7U, 0x03U, 0x74U, 0x73U, 0x68U,
-    //     0x2eU, 0x63U, 0x3aU, 0x20U, 0x57U, 0x65U, 0x61U, 0x6bU, 0x20U, 0x41U,
-    //     0x67U, 0x61U, 0x69U, 0x6eU, 0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U,
-    //     0x75U, 0x74U, 0x65U, 0x20U, 0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U,
-    //     0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU,
-    //     0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U,
-    //     0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U,
-    //     0x65U, 0x72U, 0x00U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
-    //     0x57U, 0x65U, 0x61U, 0x6bU, 0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U,
-    //     0x75U, 0x74U, 0x65U, 0x20U, 0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U,
-    //     0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU,
-    //     0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U,
-    //     0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U,
-    //     0x65U, 0x72U, 0x00U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
-    //     0x53U, 0x74U, 0x72U, 0x6fU, 0x6eU, 0x67U, 0x2eU, 0x20U, 0x45U, 0x78U,
-    //     0x65U, 0x63U, 0x75U, 0x74U, 0x65U, 0x20U, 0x42U, 0x45U, 0x46U, 0x4fU,
-    //     0x52U, 0x45U, 0x20U, 0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U,
-    //     0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U,
-    //     0x70U, 0x6cU, 0x69U, 0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU,
-    //     0x65U, 0x64U, 0x67U, 0x65U, 0x72U, 0x00U, 0x74U, 0x73U, 0x68U, 0x2eU,
-    //     0x63U, 0x3aU, 0x20U, 0x53U, 0x74U, 0x61U, 0x72U, 0x74U, 0x2eU, 0x00U,
-    //     0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U, 0x45U, 0x6eU, 0x64U,
-    //     0x2eU, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
-    //     0x57U, 0x65U, 0x61U, 0x6bU, 0x20U, 0x41U, 0x67U, 0x61U, 0x69U, 0x6eU,
-    //     0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U, 0x75U, 0x74U, 0x65U, 0x20U,
-    //     0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U, 0x74U, 0x72U, 0x61U, 0x6eU,
-    //     0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U, 0x69U, 0x73U,
-    //     0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U, 0x65U, 0x64U, 0x20U, 0x74U,
-    //     0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U, 0x65U, 0x72U, 0x22U, 0x00U,
-    //     0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U, 0x57U, 0x65U,
-    //     0x61U, 0x6bU, 0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U, 0x75U, 0x74U,
-    //     0x65U, 0x20U, 0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U, 0x74U, 0x72U,
-    //     0x61U, 0x6eU, 0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U,
-    //     0x69U, 0x73U, 0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U, 0x65U, 0x64U,
-    //     0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U, 0x65U, 0x72U,
-    //     0x22U, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
-    //     0x53U, 0x74U, 0x72U, 0x6fU, 0x6eU, 0x67U, 0x2eU, 0x20U, 0x45U, 0x78U,
-    //     0x65U, 0x63U, 0x75U, 0x74U, 0x65U, 0x20U, 0x42U, 0x45U, 0x46U, 0x4fU,
-    //     0x52U, 0x45U, 0x20U, 0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U,
-    //     0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U,
-    //     0x70U, 0x6cU, 0x69U, 0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU,
-    //     0x65U, 0x64U, 0x67U, 0x65U, 0x72U, 0x22U, 0x00U, 0x22U, 0x74U, 0x73U,
-    //     0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U, 0x53U, 0x74U, 0x61U, 0x72U, 0x74U,
-    //     0x2eU, 0x22U, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU,
-    //     0x20U, 0x45U, 0x6eU, 0x64U, 0x2eU, 0x22U};
+    const std::vector<uint8_t> TshHook = {
+        0x00U, 0x61U, 0x73U, 0x6dU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x1cU,
+        0x04U, 0x60U, 0x05U, 0x7fU, 0x7fU, 0x7fU, 0x7fU, 0x7fU, 0x01U, 0x7eU,
+        0x60U, 0x03U, 0x7fU, 0x7fU, 0x7eU, 0x01U, 0x7eU, 0x60U, 0x02U, 0x7fU,
+        0x7fU, 0x01U, 0x7fU, 0x60U, 0x01U, 0x7fU, 0x01U, 0x7eU, 0x02U, 0x23U,
+        0x03U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x05U, 0x74U, 0x72U, 0x61U, 0x63U,
+        0x65U, 0x00U, 0x00U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x06U, 0x61U, 0x63U,
+        0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x01U, 0x03U, 0x65U, 0x6eU, 0x76U,
+        0x02U, 0x5fU, 0x67U, 0x00U, 0x02U, 0x03U, 0x02U, 0x01U, 0x03U, 0x05U,
+        0x03U, 0x01U, 0x00U, 0x02U, 0x06U, 0x2bU, 0x07U, 0x7fU, 0x01U, 0x41U,
+        0xc0U, 0x8bU, 0x04U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0bU,
+        0x7fU, 0x00U, 0x41U, 0xb8U, 0x0bU, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U,
+        0x08U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0xc0U, 0x8bU, 0x04U, 0x0bU, 0x7fU,
+        0x00U, 0x41U, 0x00U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x01U, 0x0bU, 0x07U,
+        0x08U, 0x01U, 0x04U, 0x68U, 0x6fU, 0x6fU, 0x6bU, 0x00U, 0x03U, 0x0aU,
+        0xf3U, 0x81U, 0x00U, 0x01U, 0xefU, 0x81U, 0x00U, 0x01U, 0x01U, 0x7fU,
+        0x23U, 0x00U, 0x41U, 0x10U, 0x6bU, 0x22U, 0x01U, 0x24U, 0x00U, 0x20U,
+        0x01U, 0x20U, 0x00U, 0x36U, 0x02U, 0x0cU, 0x41U, 0x9aU, 0x0bU, 0x41U,
+        0x0fU, 0x41U, 0xbdU, 0x09U, 0x41U, 0x0eU, 0x41U, 0x00U, 0x10U, 0x00U,
+        0x1aU, 0x02U, 0x40U, 0x02U, 0x40U, 0x02U, 0x40U, 0x02U, 0x40U, 0x20U,
+        0x01U, 0x28U, 0x02U, 0x0cU, 0x0eU, 0x03U, 0x00U, 0x01U, 0x02U, 0x03U,
+        0x0bU, 0x41U, 0xd9U, 0x0aU, 0x41U, 0xc0U, 0x00U, 0x41U, 0xfeU, 0x08U,
+        0x41U, 0x3fU, 0x41U, 0x00U, 0x10U, 0x00U, 0x1aU, 0x0cU, 0x02U, 0x0bU,
+        0x41U, 0x9bU, 0x0aU, 0x41U, 0x3dU, 0x41U, 0xc2U, 0x08U, 0x41U, 0x3cU,
+        0x41U, 0x00U, 0x10U, 0x00U, 0x1aU, 0x0cU, 0x01U, 0x0bU, 0x41U, 0xd7U,
+        0x09U, 0x41U, 0xc3U, 0x00U, 0x41U, 0x80U, 0x08U, 0x41U, 0xc2U, 0x00U,
+        0x41U, 0x00U, 0x10U, 0x00U, 0x1aU, 0x0bU, 0x41U, 0xaaU, 0x0bU, 0x41U,
+        0x0dU, 0x41U, 0xcbU, 0x09U, 0x41U, 0x0cU, 0x41U, 0x00U, 0x10U, 0x00U,
+        0x1aU, 0x20U, 0x01U, 0x20U, 0x01U, 0x41U, 0x08U, 0x6aU, 0x22U, 0x00U,
+        0x36U, 0x02U, 0x04U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
+        0x35U, 0x02U, 0x0cU, 0x42U, 0x18U, 0x88U, 0x42U, 0xffU, 0x01U, 0x83U,
+        0x3cU, 0x00U, 0x00U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
+        0x35U, 0x02U, 0x0cU, 0x42U, 0x10U, 0x88U, 0x42U, 0xffU, 0x01U, 0x83U,
+        0x3cU, 0x00U, 0x01U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
+        0x35U, 0x02U, 0x0cU, 0x42U, 0x08U, 0x88U, 0x42U, 0xffU, 0x01U, 0x83U,
+        0x3cU, 0x00U, 0x02U, 0x20U, 0x01U, 0x28U, 0x02U, 0x04U, 0x20U, 0x01U,
+        0x35U, 0x02U, 0x0cU, 0x42U, 0xffU, 0x01U, 0x83U, 0x3cU, 0x00U, 0x03U,
+        0x20U, 0x00U, 0x41U, 0x04U, 0x42U, 0x18U, 0x10U, 0x01U, 0x1aU, 0x41U,
+        0x01U, 0x41U, 0x01U, 0x10U, 0x02U, 0x1aU, 0x20U, 0x01U, 0x41U, 0x10U,
+        0x6aU, 0x24U, 0x00U, 0x42U, 0x00U, 0x0bU, 0x0bU, 0xbfU, 0x03U, 0x01U,
+        0x00U, 0x41U, 0x80U, 0x08U, 0x0bU, 0xb7U, 0x03U, 0x74U, 0x73U, 0x68U,
+        0x2eU, 0x63U, 0x3aU, 0x20U, 0x57U, 0x65U, 0x61U, 0x6bU, 0x20U, 0x41U,
+        0x67U, 0x61U, 0x69U, 0x6eU, 0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U,
+        0x75U, 0x74U, 0x65U, 0x20U, 0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U,
+        0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU,
+        0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U,
+        0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U,
+        0x65U, 0x72U, 0x00U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
+        0x57U, 0x65U, 0x61U, 0x6bU, 0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U,
+        0x75U, 0x74U, 0x65U, 0x20U, 0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U,
+        0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU,
+        0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U,
+        0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U,
+        0x65U, 0x72U, 0x00U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
+        0x53U, 0x74U, 0x72U, 0x6fU, 0x6eU, 0x67U, 0x2eU, 0x20U, 0x45U, 0x78U,
+        0x65U, 0x63U, 0x75U, 0x74U, 0x65U, 0x20U, 0x42U, 0x45U, 0x46U, 0x4fU,
+        0x52U, 0x45U, 0x20U, 0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U,
+        0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U,
+        0x70U, 0x6cU, 0x69U, 0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU,
+        0x65U, 0x64U, 0x67U, 0x65U, 0x72U, 0x00U, 0x74U, 0x73U, 0x68U, 0x2eU,
+        0x63U, 0x3aU, 0x20U, 0x53U, 0x74U, 0x61U, 0x72U, 0x74U, 0x2eU, 0x00U,
+        0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U, 0x45U, 0x6eU, 0x64U,
+        0x2eU, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
+        0x57U, 0x65U, 0x61U, 0x6bU, 0x20U, 0x41U, 0x67U, 0x61U, 0x69U, 0x6eU,
+        0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U, 0x75U, 0x74U, 0x65U, 0x20U,
+        0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U, 0x74U, 0x72U, 0x61U, 0x6eU,
+        0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U, 0x69U, 0x73U,
+        0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U, 0x65U, 0x64U, 0x20U, 0x74U,
+        0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U, 0x65U, 0x72U, 0x22U, 0x00U,
+        0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U, 0x57U, 0x65U,
+        0x61U, 0x6bU, 0x2eU, 0x20U, 0x45U, 0x78U, 0x65U, 0x63U, 0x75U, 0x74U,
+        0x65U, 0x20U, 0x41U, 0x46U, 0x54U, 0x45U, 0x52U, 0x20U, 0x74U, 0x72U,
+        0x61U, 0x6eU, 0x73U, 0x61U, 0x63U, 0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U,
+        0x69U, 0x73U, 0x20U, 0x61U, 0x70U, 0x70U, 0x6cU, 0x69U, 0x65U, 0x64U,
+        0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU, 0x65U, 0x64U, 0x67U, 0x65U, 0x72U,
+        0x22U, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U,
+        0x53U, 0x74U, 0x72U, 0x6fU, 0x6eU, 0x67U, 0x2eU, 0x20U, 0x45U, 0x78U,
+        0x65U, 0x63U, 0x75U, 0x74U, 0x65U, 0x20U, 0x42U, 0x45U, 0x46U, 0x4fU,
+        0x52U, 0x45U, 0x20U, 0x74U, 0x72U, 0x61U, 0x6eU, 0x73U, 0x61U, 0x63U,
+        0x74U, 0x69U, 0x6fU, 0x6eU, 0x20U, 0x69U, 0x73U, 0x20U, 0x61U, 0x70U,
+        0x70U, 0x6cU, 0x69U, 0x65U, 0x64U, 0x20U, 0x74U, 0x6fU, 0x20U, 0x6cU,
+        0x65U, 0x64U, 0x67U, 0x65U, 0x72U, 0x22U, 0x00U, 0x22U, 0x74U, 0x73U,
+        0x68U, 0x2eU, 0x63U, 0x3aU, 0x20U, 0x53U, 0x74U, 0x61U, 0x72U, 0x74U,
+        0x2eU, 0x22U, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU,
+        0x20U, 0x45U, 0x6eU, 0x64U, 0x2eU, 0x22U};
 
     // Json::Value
     // setAcceptHook(jtx::Account const& account)
@@ -213,6 +213,13 @@ private:
     //     BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
     // }
 
+    // // Check
+    // // | otxn | tsh | cancel | create | cash |
+    // // |   A  |  A  |   S    |   S    |  N   |
+    // // |   A  |  D  |   W    |   S    |  N   |
+    // // |   D  |  D  |   S    |   N    |  S   |
+    // // |   D  |  A  |   W    |   N    |  W   |
+
     // static uint256
     // getCheckIndex(AccountID const& account, std::uint32_t uSequence)
     // {
@@ -227,82 +234,180 @@ private:
     //     using namespace test::jtx;
     //     using namespace std::literals;
 
-    //     test::jtx::Env env{
-    //         *this,
-    //         network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-    //         features};
-
-    //     auto const alice = Account("alice");
-    //     auto const bob = Account("bob");
-    //     env.fund(XRP(1000), alice, bob);
-    //     env.close();
-
-    //     // Weak Execution Destination
-    //     // DA: TODO  FAILS
+    //     // otxn: account
+    //     // tsh account
+    //     // w/s: strong
     //     {
-    //         // set tsh collect on bob
-    //         env(fset(bob, asfTshCollect));
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
     //         env.close();
 
-    //         // set tsh hook on bob
-    //         env(hook(bob, {{hso(TshHook, collectFlag)}}, 0),
+    //         // create check
+    //         uint256 const checkId{getCheckIndex(account, env.seq(account))};
+    //         env(check::create(account, dest, XRP(100)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
 
-    //         // ttCHECK_CANCEL
-    //         uint256 const checkId{getCheckIndex(alice, env.seq(alice))};
-    //         env(check::create(alice, bob, XRP(100)),
-    //             fee(XRP(1)),
-    //             ter(tesSUCCESS));
-    //         env.close();
-
-    //         env(check::cancel(alice, checkId), fee(XRP(1)), ter(tesSUCCESS));
+    //         // cancel check
+    //         env(check::cancel(account, checkId), fee(XRP(1)), ter(tesSUCCESS));
     //         env.close();
 
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
-    //         std::cout << "jrr: " << jrr << "\n";
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
     //         auto const execution = executions[0u][sfHookExecution.jsonName];
     //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000001");
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
     //     }
 
-    //     // Strong Execution Account
+    //     // otxn: account
+    //     // tsh destination
+    //     // w/s: weak
     //     {
-    //         // set tsh hook on alice
-    //         env(hook(alice, {{hso(TshHook, overrideFlag)}}, 0),
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
+    //         env.close();
+
+    //         // set tsh collect
+    //         env(fset(dest, asfTshCollect));
+    //         env.close();
+
+    //         // create check
+    //         uint256 const checkId{getCheckIndex(account, env.seq(account))};
+    //         env(check::create(account, dest, XRP(100)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
 
-    //         // ttCHECK_CANCEL
-    //         uint256 const checkId{getCheckIndex(alice, env.seq(alice))};
-    //         env(check::create(alice, bob, XRP(100)),
-    //             fee(XRP(1)),
-    //             ter(tesSUCCESS));
-    //         env.close();
-
-    //         env(check::cancel(alice, checkId), fee(XRP(1)), ter(tesSUCCESS));
+    //         // cancel check
+    //         env(check::cancel(account, checkId), fee(XRP(1)), ter(tesSUCCESS));
     //         env.close();
 
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
     //         auto const execution = executions[0u][sfHookExecution.jsonName];
     //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000000");
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+    //     }
+
+    //     // otxn: dest
+    //     // tsh dest
+    //     // w/s: strong
+    //     {
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
+    //         env.close();
+
+    //         // create check
+    //         uint256 const checkId{getCheckIndex(account, env.seq(account))};
+    //         env(check::create(account, dest, XRP(100)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
+    //             fee(XRP(1)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // cancel check
+    //         env(check::cancel(dest, checkId), fee(XRP(1)), ter(tesSUCCESS));
+    //         env.close();
+
+    //         // verify tsh hook triggered
+    //         Json::Value params;
+    //         params[jss::transaction] =
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
+    //         auto const jrr = env.rpc("json", "tx", to_string(params));
+    //         auto const meta = jrr[jss::result][jss::meta];
+    //         auto const executions = meta[sfHookExecutions.jsonName];
+    //         auto const execution = executions[0u][sfHookExecution.jsonName];
+    //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+    //     }
+
+    //     // otxn: dest
+    //     // tsh account
+    //     // w/s: weak
+    //     {
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
+    //         env.close();
+
+    //         // set tsh collect
+    //         env(fset(account, asfTshCollect));
+    //         env.close();
+
+    //         // create check
+    //         uint256 const checkId{getCheckIndex(account, env.seq(account))};
+    //         env(check::create(account, dest, XRP(100)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
+    //             fee(XRP(1)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // cancel check
+    //         env(check::cancel(dest, checkId), fee(XRP(1)), ter(tesSUCCESS));
+    //         env.close();
+
+    //         // verify tsh hook triggered
+    //         Json::Value params;
+    //         params[jss::transaction] =
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
+    //         auto const jrr = env.rpc("json", "tx", to_string(params));
+    //         auto const meta = jrr[jss::result][jss::meta];
+    //         auto const executions = meta[sfHookExecutions.jsonName];
+    //         auto const execution = executions[0u][sfHookExecution.jsonName];
+    //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
     //     }
     // }
 
@@ -311,54 +416,97 @@ private:
     // {
     //     testcase("check cash tsh");
 
-    //     // DA: Is marked with TSH Account & Destination but only the
-    //     destination
-    //     // can cash a check
-
     //     using namespace test::jtx;
     //     using namespace std::literals;
 
-    //     test::jtx::Env env{
-    //         *this,
-    //         network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-    //         features};
-
-    //     auto const alice = Account("alice");
-    //     auto const bob = Account("bob");
-    //     env.fund(XRP(1000), alice, bob);
-    //     env.close();
-
-    //     // Strong Execution Account
+    //     // otxn: dest
+    //     // tsh dest
+    //     // w/s: strong
     //     {
-    //         // set tsh hook on bob
-    //         env(hook(bob, {{hso(TshHook, overrideFlag)}}, 0),
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
+    //         env.close();
+
+    //         // create check
+    //         uint256 const checkId{getCheckIndex(account, env.seq(account))};
+    //         env(check::create(account, dest, XRP(100)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
 
-    //         // ttCHECK_CASH
-    //         uint256 const checkId{getCheckIndex(alice, env.seq(alice))};
-    //         env(check::create(alice, bob, XRP(100)),
-    //             fee(XRP(1)),
-    //             ter(tesSUCCESS));
-    //         env.close();
-
-    //         env(check::cash(bob, checkId, XRP(100)),
-    //             fee(XRP(1)),
-    //             ter(tesSUCCESS));
+    //         // cash check
+    //         env(check::cash(dest, checkId, XRP(100)), fee(XRP(1)), ter(tesSUCCESS));
     //         env.close();
 
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
+    //         std::cout << "jrr: " << jrr << "\n";
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
     //         auto const execution = executions[0u][sfHookExecution.jsonName];
     //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000000");
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+    //     }
+
+    //     // otxn: dest
+    //     // tsh account
+    //     // w/s: weak
+    //     {
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
+    //         env.close();
+
+    //         // set tsh collect
+    //         env(fset(account, asfTshCollect));
+    //         env.close();
+
+    //         // create check
+    //         uint256 const checkId{getCheckIndex(account, env.seq(account))};
+    //         env(check::create(account, dest, XRP(100)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
+    //             fee(XRP(1)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // cash check
+    //         env(check::cash(dest, checkId, XRP(100)), fee(XRP(1)), ter(tesSUCCESS));
+    //         env.close();
+
+    //         // verify tsh hook triggered
+    //         Json::Value params;
+    //         params[jss::transaction] =
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
+    //         auto const jrr = env.rpc("json", "tx", to_string(params));
+    //         std::cout << "jrr: " << jrr << "\n";
+    //         auto const meta = jrr[jss::result][jss::meta];
+    //         auto const executions = meta[sfHookExecutions.jsonName];
+    //         auto const execution = executions[0u][sfHookExecution.jsonName];
+    //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
     //     }
     // }
 
@@ -370,27 +518,28 @@ private:
     //     using namespace test::jtx;
     //     using namespace std::literals;
 
-    //     test::jtx::Env env{
-    //         *this,
-    //         network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-    //         features};
-
-    //     auto const alice = Account("alice");
-    //     auto const bob = Account("bob");
-    //     env.fund(XRP(1000), alice, bob);
-    //     env.close();
-
-    //     // Strong Execution Account
+    //     // otxn: account
+    //     // tsh account
+    //     // w/s: strong
     //     {
-    //         // set tsh hook on alice
-    //         env(hook(alice, {{hso(TshHook, overrideFlag)}}, 0),
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
 
-    //         // ttCHECK_CREATE
-    //         uint256 const checkId{getCheckIndex(alice, env.seq(alice))};
-    //         env(check::create(alice, bob, XRP(100)),
+    //         // create check
+    //         env(check::create(account, dest, XRP(100)),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
@@ -398,27 +547,37 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
     //         auto const execution = executions[0u][sfHookExecution.jsonName];
     //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000000");
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
     //     }
 
-    //     // Strong Execution Destination
+    //     // otxn: account
+    //     // tsh destination
+    //     // w/s: strong
     //     {
-    //         // set tsh hook on bob
-    //         env(hook(bob, {{hso(TshHook, overrideFlag)}}, 0),
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const dest = Account("bob");
+    //         env.fund(XRP(1000), account, dest);
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
 
-    //         // ttCHECK_CREATE
-    //         uint256 const checkId{getCheckIndex(alice, env.seq(alice))};
-    //         env(check::create(alice, bob, XRP(100)),
+    //         // create check
+    //         env(check::create(account, dest, XRP(100)),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
@@ -426,16 +585,21 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
     //         auto const execution = executions[0u][sfHookExecution.jsonName];
     //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000000");
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
     //     }
+        
     // }
+
+    // ClaimReward
+    // | otxn | tsh | claim |
+    // |   A  |  A  |   S   |
+    // |   A  |  I  |   S   |
 
     // void
     // testClaimRewardTSH(FeatureBitset features)
@@ -445,230 +609,337 @@ private:
     //     using namespace test::jtx;
     //     using namespace std::literals;
 
-    //     test::jtx::Env env{
-    //         *this,
-    //         network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-    //         features};
-
-    //     auto const alice = Account("alice");
-    //     auto const issuer = Account("issuer");
-    //     env.fund(XRP(1000), alice, issuer);
-    //     env.close();
-
-    //     // Strong Execution Issuer
+    //     // otxn: account
+    //     // tsh account
+    //     // w/s: strong
     //     {
-    //         // set tsh hook on issuer
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const issuer = Account("issuer");
+    //         env.fund(XRP(1000), account, issuer);
+    //         env.close();
+
+    //         // set tsh hook
+    //         env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
+    //             fee(XRP(1)),
+    //             ter(tesSUCCESS));
+    //         env.close();
+
+    //         // claim reward
+    //         env(reward::claim(account, issuer), fee(XRP(1)), ter(tesSUCCESS));
+    //         env.close();
+
+    //         // verify tsh hook triggered
+    //         Json::Value params;
+    //         params[jss::transaction] =
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
+    //         auto const jrr = env.rpc("json", "tx", to_string(params));
+    //         auto const meta = jrr[jss::result][jss::meta];
+    //         auto const executions = meta[sfHookExecutions.jsonName];
+    //         auto const execution = executions[0u][sfHookExecution.jsonName];
+    //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+    //     }
+
+    //     // otxn: account
+    //     // tsh issuer
+    //     // w/s: strong
+    //     {
+    //         test::jtx::Env env{
+    //             *this,
+    //             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+    //             features};
+
+    //         auto const account = Account("alice");
+    //         auto const issuer = Account("issuer");
+    //         env.fund(XRP(1000), account, issuer);
+    //         env.close();
+
+    //         // set tsh hook
     //         env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
     //             fee(XRP(1)),
     //             ter(tesSUCCESS));
     //         env.close();
 
-    //         // ttCLAIM_REWARD
-    //         env(reward::claim(alice, issuer), fee(XRP(1)), ter(tesSUCCESS));
+    //         // claim reward
+    //         env(reward::claim(account, issuer), fee(XRP(1)), ter(tesSUCCESS));
     //         env.close();
 
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
     //         auto const execution = executions[0u][sfHookExecution.jsonName];
     //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000000");
+    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
     //     }
     // }
 
-    // void
-    // testDepositPreauthTSH(FeatureBitset features)
-    // {
-    //     testcase("deposit preauth tsh");
+    // DepositPreauth
+    // | otxn  | tsh | preauth |
+    // |   A   |  A  |    S    |
+    // |   A   |  Au |    S    |
 
-    //     using namespace test::jtx;
-    //     using namespace std::literals;
+    void
+    testDepositPreauthTSH(FeatureBitset features)
+    {
+        testcase("deposit preauth tsh");
 
-    //     test::jtx::Env env{
-    //         *this,
-    //         network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-    //         features};
+        using namespace test::jtx;
+        using namespace std::literals;
 
-    //     auto const alice = Account("alice");
-    //     auto const bob = Account("bob");
-    //     env.fund(XRP(1000), alice, bob);
-    //     env.close();
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
 
-    //     // Strong Execution Authorized
-    //     {
-    //         // require authorization for deposits.
-    //         env(fset(bob, asfDepositAuth));
+            auto const authed = Account("alice");
+            auto const account = Account("bob");
+            env.fund(XRP(1000), authed, account);
+            env.close();
 
-    //         // set tsh hook on alice
-    //         env(hook(alice, {{hso(TshHook, overrideFlag)}}, 0),
-    //             fee(XRP(1)),
-    //             ter(tesSUCCESS));
-    //         env.close();
+            // require authorization for deposits.
+            env(fset(account, asfDepositAuth));
 
-    //         // ttDEPOSIT_PREAUTH
-    //         env(deposit::auth(bob, alice), fee(XRP(1)), ter(tesSUCCESS));
-    //         env.close();
+            // set tsh hook
+            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
 
-    //         // verify tsh hook triggered
-    //         Json::Value params;
-    //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
-    //         auto const jrr = env.rpc("json", "tx", to_string(params));
-    //         std::cout << "jrr: " << jrr << "\n";
-    //         auto const meta = jrr[jss::result][jss::meta];
-    //         auto const executions = meta[sfHookExecutions.jsonName];
-    //         auto const execution = executions[0u][sfHookExecution.jsonName];
-    //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000000");
-    //     }
-    // }
+            // deposit preauth
+            env(deposit::auth(account, authed), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
 
-    // static Json::Value
-    // escrowCreate(
-    //     jtx::Account const& account,
-    //     jtx::Account const& to,
-    //     STAmount const& amount)
-    // {
-    //     using namespace jtx;
-    //     Json::Value jv;
-    //     jv[jss::TransactionType] = jss::EscrowCreate;
-    //     jv[jss::Flags] = tfUniversal;
-    //     jv[jss::Account] = account.human();
-    //     jv[jss::Destination] = to.human();
-    //     jv[jss::Amount] = amount.getJson(JsonOptions::none);
-    //     return jv;
-    // }
+            // verify tsh hook triggered
+            Json::Value params;
+            params[jss::transaction] =
+                env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const executions = meta[sfHookExecutions.jsonName];
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+        }
 
-    // static Json::Value
-    // escrowFinish(
-    //     jtx::Account const& account,
-    //     jtx::Account const& from,
-    //     std::uint32_t seq)
-    // {
-    //     Json::Value jv;
-    //     jv[jss::TransactionType] = jss::EscrowFinish;
-    //     jv[jss::Flags] = tfUniversal;
-    //     jv[jss::Account] = account.human();
-    //     jv[sfOwner.jsonName] = from.human();
-    //     jv[sfOfferSequence.jsonName] = seq;
-    //     return jv;
-    // }
+        // otxn: account
+        // tsh authorize
+        // w/s: strong
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
 
-    // static Json::Value
-    // escrowCancel(
-    //     jtx::Account const& account,
-    //     jtx::Account const& from,
-    //     std::uint32_t seq)
-    // {
-    //     Json::Value jv;
-    //     jv[jss::TransactionType] = jss::EscrowCancel;
-    //     jv[jss::Flags] = tfUniversal;
-    //     jv[jss::Account] = account.human();
-    //     jv[sfOwner.jsonName] = from.human();
-    //     jv[sfOfferSequence.jsonName] = seq;
-    //     return jv;
-    // }
+            auto const authed = Account("alice");
+            auto const account = Account("bob");
+            env.fund(XRP(1000), authed, account);
+            env.close();
 
-    // void
-    // testEscrowCancelTSH(FeatureBitset features)
-    // {
-    //     testcase("escrow cancel tsh");
+            // require authorization for deposits.
+            env(fset(account, asfDepositAuth));
 
-    //     using namespace jtx;
-    //     using namespace std::chrono;
-    //     using namespace std::literals;
+            // set tsh hook
+            env(hook(authed, {{hso(TshHook, overrideFlag)}}, 0),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
 
-    //     test::jtx::Env env{
-    //         *this,
-    //         network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-    //         features};
+            // deposit preauth
+            env(deposit::auth(account, authed), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
 
-    //     auto const alice = Account("alice");
-    //     auto const bob = Account("bob");
-    //     env.fund(XRP(1000), alice, bob);
-    //     env.close();
+            // verify tsh hook triggered
+            Json::Value params;
+            params[jss::transaction] =
+                env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const executions = meta[sfHookExecutions.jsonName];
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+        }
+    }
 
-    //     // Weak Execution Destination
-    //     {
-    //         // set tsh collect on bob
-    //         env(fset(bob, asfTshCollect));
-    //         env.close();
+    // Escrow
+    // | otxn  | tsh | cancel | create | finish |
+    // |   A   |  A  |    S   |    S   |    S   |
+    // |   A   |  D  |    W   |    S   |    S   |
+    // |   D   |  D  |    S   |    S   |    S   |
+    // |   D   |  A  |    W   |    S   |    S   |
 
-    //         // set tsh hook on alice
-    //         env(hook(bob, {{hso(TshHook, collectFlag)}}, 0),
-    //             fee(XRP(1)),
-    //             ter(tesSUCCESS));
-    //         env.close();
+    static Json::Value
+    escrowCreate(
+        jtx::Account const& account,
+        jtx::Account const& to,
+        STAmount const& amount)
+    {
+        using namespace jtx;
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::EscrowCreate;
+        jv[jss::Flags] = tfUniversal;
+        jv[jss::Account] = account.human();
+        jv[jss::Destination] = to.human();
+        jv[jss::Amount] = amount.getJson(JsonOptions::none);
+        return jv;
+    }
 
-    //         auto const seq1 = env.seq(alice);
+    static Json::Value
+    escrowFinish(
+        jtx::Account const& account,
+        jtx::Account const& from,
+        std::uint32_t seq)
+    {
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::EscrowFinish;
+        jv[jss::Flags] = tfUniversal;
+        jv[jss::Account] = account.human();
+        jv[sfOwner.jsonName] = from.human();
+        jv[sfOfferSequence.jsonName] = seq;
+        return jv;
+    }
 
-    //         NetClock::time_point const finishTime = env.now() 1s;
-    //         NetClock::time_point const cancelTime = env.now() 2s;
-    //         auto createTx = escrowCreate(alice, bob, XRP(10));
-    //         createTx[sfFinishAfter.jsonName] =
-    //             finishTime.time_since_epoch().count();
-    //         createTx[sfCancelAfter.jsonName] =
-    //             cancelTime.time_since_epoch().count();
-    //         env(createTx, fee(XRP(1)), ter(tesSUCCESS));
-    //         env.close();
+    static Json::Value
+    escrowCancel(
+        jtx::Account const& account,
+        jtx::Account const& from,
+        std::uint32_t seq)
+    {
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::EscrowCancel;
+        jv[jss::Flags] = tfUniversal;
+        jv[jss::Account] = account.human();
+        jv[sfOwner.jsonName] = from.human();
+        jv[sfOfferSequence.jsonName] = seq;
+        return jv;
+    }
 
-    //         env(escrowCancel(alice, alice, seq1), fee(XRP(1)),
-    //         ter(tesSUCCESS)); env.close();
+    void
+    testEscrowCancelTSH(FeatureBitset features)
+    {
+        testcase("escrow cancel tsh");
 
-    //         // verify tsh hook triggered
-    //         Json::Value params;
-    //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
-    //         auto const jrr = env.rpc("json", "tx", to_string(params));
-    //         std::cout << "jrr: " << jrr << "\n";
-    //         auto const meta = jrr[jss::result][jss::meta];
-    //         auto const executions = meta[sfHookExecutions.jsonName];
-    //         auto const execution = executions[0u][sfHookExecution.jsonName];
-    //         BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         "00000000");
+        using namespace jtx;
+        using namespace std::chrono;
+        using namespace std::literals;
 
-    //         // env(escrow(alice, bob, XRP(1000)),
-    //         //     condition(cb1),
-    //         //     finish_time(env.now()  1s),
-    //         //     fee(1500));
-    //         // env.close();
-    //         // env(finish(bob, alice, seq1),
-    //         //     condition(cb1),
-    //         //     fulfillment(fb1),
-    //         //     fee(1500));
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
 
-    //         // auto const seq2 = env.seq(alice);
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            env.fund(XRP(1000), account, dest);
+            env.close();
 
-    //         // env(escrow(alice, bob, XRP(1000)),
-    //         //     condition(cb2),
-    //         //     finish_time(env.now()  1s),
-    //         //     cancel_time(env.now()  2s),
-    //         //     fee(1500));
-    //         // env.close();
-    //         // env(cancel(bob, alice, seq2), fee(1500));
+            // create escrow
+            auto const seq1 = env.seq(account);
+            NetClock::time_point const finishTime = env.now() + 1s;
+            NetClock::time_point const cancelTime = env.now() + 2s;
+            auto createTx = escrowCreate(account, dest, XRP(10));
+            createTx[sfFinishAfter.jsonName] =
+                finishTime.time_since_epoch().count();
+            createTx[sfCancelAfter.jsonName] =
+                cancelTime.time_since_epoch().count();
+            env(createTx, fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
 
-    //         // // verify tsh hook triggered
-    //         // Json::Value params;
-    //         // params[jss::transaction] =
-    //         //     env.tx()->getJson(JsonOptions::none)[jss::hash];
-    //         // auto const jrr = env.rpc("json", "tx", to_string(params));
-    //         // std::cout << "jrr: " << jrr << "\n";
-    //         // auto const meta = jrr[jss::result][jss::meta];
-    //         // auto const executions = meta[sfHookExecutions.jsonName];
-    //         // auto const execution =
-    //         executions[0u][sfHookExecution.jsonName];
-    //         // BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-    //         // BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-    //         // "00000000");
-    //     }
-    // }
+            // set tsh hook
+            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // cancel escrow
+            env(escrowCancel(account, account, seq1),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            Json::Value params;
+            params[jss::transaction] =
+                env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const executions = meta[sfHookExecutions.jsonName];
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+        }
+
+        // otxn: account
+        // tsh dest
+        // w/s: strong
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            env.fund(XRP(1000), account, dest);
+            env.close();
+
+            // set tsh collect
+            env(fset(dest, asfTshCollect));
+            env.close();
+
+            // create escrow
+            auto const seq1 = env.seq(account);
+            NetClock::time_point const finishTime = env.now() + 1s;
+            NetClock::time_point const cancelTime = env.now() + 2s;
+            auto createTx = escrowCreate(account, dest, XRP(10));
+            createTx[sfFinishAfter.jsonName] =
+                finishTime.time_since_epoch().count();
+            createTx[sfCancelAfter.jsonName] =
+                cancelTime.time_since_epoch().count();
+            env(createTx, ter(tesSUCCESS));
+            env.close();
+
+            // set tsh hook
+            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // cancel escrow
+            env(escrowCancel(account, account, seq1),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            Json::Value params;
+            params[jss::transaction] =
+                env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const executions = meta[sfHookExecutions.jsonName];
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+        }
+    }
 
     // void
     // testEscrowCreateTSH(FeatureBitset features)
@@ -712,7 +983,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -765,7 +1036,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -846,7 +1117,7 @@ private:
     //         // get the emitted txn id
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const emissions = meta[sfHookEmissions.jsonName];
@@ -917,7 +1188,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -961,7 +1232,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -1020,7 +1291,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -1067,7 +1338,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -1115,7 +1386,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -1220,7 +1491,7 @@ private:
     //         // verify tsh hook triggered
     //         Json::Value params;
     //         params[jss::transaction] =
-    //             env.tx()->getJsonJsonOptions::none)[jss::hash];
+    //             env.tx()->getJson(JsonOptions::none)[jss::hash];
     //         auto const jrr = env.rpc("json", "tx", to_string(params));
     //         auto const meta = jrr[jss::result][jss::meta];
     //         auto const executions = meta[sfHookExecutions.jsonName];
@@ -3445,7 +3716,7 @@ private:
         // testCheckCreateTSH(features);
         // testClaimRewardTSH(features);
         // testDepositPreauthTSH(features);
-        // testEscrowCancelTSH(features);
+        testEscrowCancelTSH(features);
         // testEscrowCreateTSH(features);
         // testEscrowFinishTSH(features);
         // testGenesisMintTSH(features);

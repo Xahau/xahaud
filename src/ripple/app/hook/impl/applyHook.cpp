@@ -301,17 +301,35 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
             if (!tx.isFieldPresent(sfOwner) ||
-                !tx.isFieldPresent(sfOfferSequence))
+                !tx.isFieldPresent(sfOfferSequence) ||
+                !tx.isFieldPresent(sfEscrowID))
                 return {};
 
-            auto escrow = rv.read(keylet::escrow(
-                tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+            std::optional<uint256> escrowID = tx.getFieldH256(sfEscrowID);
+            std::optional<std::uint32_t> offerSeq =
+                tx.getFieldU32(sfOfferSequence);
 
+            Keylet k = escrowID
+                ? Keylet(ltESCROW, *escrowID)
+                : keylet::escrow(tx.getAccountID(sfOwner), *offerSeq);
+
+            auto escrow = rv.read(k);
             if (!escrow)
                 return {};
 
-            ADD_TSH(escrow->getAccountID(sfAccount), true);
-            ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
+            // ADD_TSH(escrow->getAccountID(sfAccount), true);
+            // ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
+
+            if (otxnAcc == escrow->getAccountID(sfAccount))
+            {
+                // ADD_TSH(escrow->getAccountID(sfAccount), true);
+                ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
+            }
+            if (otxnAcc == escrow->getAccountID(sfDestination))
+            {
+                // ADD_TSH(escrow->getAccountID(sfDestination), true);
+                ADD_TSH(escrow->getAccountID(sfAccount), canRollback);
+            }
             break;
         }
 
@@ -337,9 +355,17 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             auto check = rv.read(Keylet{ltCHECK, tx.getFieldH256(sfCheckID)});
             if (!check)
                 return {};
-
-            ADD_TSH(check->getAccountID(sfAccount), true);
-            ADD_TSH(check->getAccountID(sfDestination), canRollback);
+            
+            if (otxnAcc == check->getAccountID(sfAccount))
+            {
+                // ADD_TSH(check->getAccountID(sfAccount), true);
+                ADD_TSH(check->getAccountID(sfDestination), canRollback);
+            }
+            if (otxnAcc == check->getAccountID(sfDestination))
+            {
+                // ADD_TSH(check->getAccountID(sfDestination), true);
+                ADD_TSH(check->getAccountID(sfAccount), canRollback);
+            }
             break;
         }
 

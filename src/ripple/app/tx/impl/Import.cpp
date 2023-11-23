@@ -818,7 +818,7 @@ Import::preflight(PreflightContext const& ctx)
                         << " validation count: " << validationCount;
 
     // check if the validation count is adequate
-    if (quorum >= validationCount)
+    if (quorum > validationCount)
     {
         JLOG(ctx.j.warn()) << "Import: xpop did not contain an 80% quorum for "
                               "the txn it purports to prove. "

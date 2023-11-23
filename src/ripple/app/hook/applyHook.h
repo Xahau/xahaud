@@ -59,7 +59,7 @@ static const std::map<uint16_t, uint8_t> TSHAllowances = {
     {ttPAYCHAN_FUND, tshCOLLECT},
     {ttPAYCHAN_CLAIM, tshCOLLECT},
     {ttCHECK_CREATE, tshROLLBACK},
-    {ttCHECK_CASH, tshROLLBACK},
+    {ttCHECK_CASH, tshCOLLECT},
     {ttCHECK_CANCEL, tshCOLLECT},
     {ttDEPOSIT_PREAUTH, tshROLLBACK},
     {ttTRUST_SET, tshCOLLECT},
