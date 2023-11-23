@@ -896,8 +896,8 @@ if (tests)
     src/test/jtx/impl/token.cpp
     src/test/jtx/impl/trust.cpp
     src/test/jtx/impl/txflags.cpp
-    src/test/jtx/impl/utility.cpp
     src/test/jtx/impl/uritoken.cpp
+    src/test/jtx/impl/utility.cpp
 
     #[===============================[
        test sources:

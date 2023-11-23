@@ -20,12 +20,9 @@
 #ifndef RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
 #define RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
 
-#include <ripple/basics/strHex.h>
 #include <ripple/protocol/STAmount.h>
-#include <initializer_list>
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
-#include <test/jtx/owners.h>
 
 namespace ripple {
 namespace test {

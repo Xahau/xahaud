@@ -20,6 +20,7 @@
 #ifndef RIPPLE_TEST_JTX_ESCROW_H_INCLUDED
 #define RIPPLE_TEST_JTX_ESCROW_H_INCLUDED
 
+#include <ripple/basics/chrono.h>
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
 
