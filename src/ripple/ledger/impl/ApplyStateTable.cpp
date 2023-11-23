@@ -130,6 +130,9 @@ ApplyStateTable::generateTxMeta(
     if (!hookEmission.empty())
         meta.setHookEmissions(STArray{hookEmission, sfHookEmissions});
 
+    bool const recordDefaultAmounts =
+        to.rules().enabled(fixXahau1);
+
     Mods newMod;
     for (auto& item : items_)
     {
@@ -232,8 +235,11 @@ ApplyStateTable::generateTxMeta(
             STObject news(sfNewFields);
             for (auto const& obj : *curNode)
             {
+                bool const shouldRecord =
+                    (obj.getSType() == STI_AMOUNT && recordDefaultAmounts)  || !obj.isDefault();
+
                 // save non-default values
-                if (!obj.isDefault() &&
+                if (shouldRecord &&
                     obj.getFName().shouldMeta(
                         SField::sMD_Create | SField::sMD_Always))
                     news.emplace_back(obj);
