@@ -33,9 +33,22 @@ namespace reward {
 /** Claim a reward. */
 Json::Value
 claim(
-    jtx::Account const& account,
-    std::optional<jtx::Account> const& issuer = std::nullopt,
-    std::uint32_t flags = 0);
+    jtx::Account const& account);
+
+/** Sets the optional Issuer on a JTx. */
+class issuer
+{
+private:
+    jtx::Account issuer_;
+
+public:
+    explicit issuer(jtx::Account const& issuer) : issuer_(issuer)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
 
 }  // namespace reward
 
@@ -44,4 +57,4 @@ claim(
 }  // namespace test
 }  // namespace ripple
 
-#endif
+#endif // RIPPLE_TEST_JTX_REWARD_H_INCLUDED

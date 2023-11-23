@@ -29,19 +29,19 @@ namespace reward {
 // Claim a reward.
 Json::Value
 claim(
-    jtx::Account const& account,
-    std::optional<jtx::Account> const& issuer,
-    std::uint32_t flags)
+    jtx::Account const& account)
 {
     using namespace jtx;
     Json::Value jv;
     jv[jss::TransactionType] = jss::ClaimReward;
     jv[jss::Account] = account.human();
-    if (issuer)
-        jv[sfIssuer.jsonName] = issuer->human();
-    if (flags)
-        jv[jss::Flags] = flags;
     return jv;
+}
+
+void
+issuer::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfIssuer.jsonName] = issuer_.human();
 }
 
 }  // namespace reward

@@ -33,9 +33,27 @@ namespace network {
 std::unique_ptr<Config>
 makeNetworkConfig(
     uint32_t networkID,
-    std::string fee,
-    std::string a_res,
-    std::string o_res);
+    std::string fee = "10",
+    std::string a_res = "1000000",
+    std::string o_res = "200000");
+
+std::unique_ptr<Config>
+makeNetworkVLConfig(
+    uint32_t networkID,
+    std::vector<std::string> keys,
+    std::string fee = "10",
+    std::string a_res = "1000000",
+    std::string o_res = "200000");
+
+std::unique_ptr<Config>
+makeGenesisConfig(
+    FeatureBitset features,
+    uint32_t networkID,
+    std::vector<std::string> keys,
+    std::string fee = "10",
+    std::string a_res = "1000000",
+    std::string o_res = "200000",
+    uint32_t ledgerID = 0);
 
 }  // namespace network
 
@@ -44,4 +62,4 @@ makeNetworkConfig(
 }  // namespace test
 }  // namespace ripple
 
-#endif 
+#endif // RIPPLE_TEST_JTX_NETWORK_H_INCLUDED

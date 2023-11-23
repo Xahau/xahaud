@@ -33,8 +33,7 @@ namespace import {
 Json::Value
 import(
     jtx::Account const& account,
-    Json::Value const& xpop,
-    std::optional<jtx::Account> const& issuer)
+    Json::Value const& xpop)
 {
     using namespace jtx;
     Json::Value jv;
@@ -42,9 +41,13 @@ import(
     jv[jss::TransactionType] = jss::Import;
     jv[jss::Account] = account.human();
     jv[jss::Blob] = strHex(strJson);
-    if (issuer)
-        jv[sfIssuer.jsonName] = issuer->human();
     return jv;
+}
+
+void
+issuer::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfIssuer.jsonName] = issuer_.human();
 }
 
 Json::Value

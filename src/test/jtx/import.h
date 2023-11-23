@@ -33,8 +33,22 @@ namespace import {
 Json::Value
 import(
     jtx::Account const& account,
-    Json::Value const& xpop,
-    std::optional<jtx::Account> const& issuer);
+    Json::Value const& xpop);
+
+/** Sets the optional Issuer on a JTx. */
+class issuer
+{
+private:
+    jtx::Account issuer_;
+
+public:
+    explicit issuer(jtx::Account const& issuer) : issuer_(issuer)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
 
 Json::Value
 loadXpop(std::string content);

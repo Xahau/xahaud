@@ -867,8 +867,10 @@ if (tests)
     src/test/jtx/impl/delivermin.cpp
     src/test/jtx/impl/deposit.cpp
     src/test/jtx/impl/envconfig.cpp
+    src/test/jtx/impl/escrow.cpp
     src/test/jtx/impl/fee.cpp
     src/test/jtx/impl/flags.cpp
+    src/test/jtx/impl/genesis.cpp
     src/test/jtx/impl/import.cpp
     src/test/jtx/impl/invoice_id.cpp
     src/test/jtx/impl/invoke.cpp

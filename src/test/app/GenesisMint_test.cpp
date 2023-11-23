@@ -24,95 +24,6 @@ namespace ripple {
 namespace test {
 struct GenesisMint_test : public beast::unit_test::suite
 {
-    struct GenMint
-    {
-        std::optional<std::string> dest;
-        std::optional<jtx::PrettyAmount> amt;
-        std::optional<std::string> marks;
-        std::optional<std::string> flags;
-
-        GenMint(
-            AccountID const& dst,
-            jtx::PrettyAmount const& x,
-            std::optional<std::string> m = std::nullopt,
-            std::optional<std::string> f = std::nullopt)
-            : dest(toBase58(dst)), amt(x), marks(m), flags(f)
-        {
-        }
-    };
-
-    Json::Value
-    mint(jtx::Account const& account, std::vector<GenMint> mints)
-    {
-        using namespace jtx;
-        Json::Value jv;
-        jv[jss::TransactionType] = jss::GenesisMint;
-        jv[jss::Account] = account.human();
-        jv[jss::GenesisMints] = Json::arrayValue;
-
-        uint32_t counter = 0;
-        for (auto const& m : mints)
-        {
-            Json::Value inner = Json::objectValue;
-            if (m.dest)
-                inner[jss::Destination] = *m.dest;
-            if (m.amt)
-                inner[jss::Amount] =
-                    (*m.amt).value().getJson(JsonOptions::none);
-            if (m.marks)
-                inner[jss::GovernanceMarks] = *m.marks;
-            if (m.flags)
-                inner[jss::GovernanceFlags] = *m.flags;
-
-            jv[jss::GenesisMints][counter] = Json::objectValue;
-            jv[jss::GenesisMints][counter][jss::GenesisMint] = inner;
-            counter++;
-        }
-        return jv;
-    }
-
-    Json::Value
-    setMintHook(jtx::Account const& account)
-    {
-        using namespace jtx;
-        Json::Value tx;
-        tx[jss::Account] = account.human();
-        tx[jss::TransactionType] = "SetHook";
-        tx[jss::Hooks] = Json::arrayValue;
-        tx[jss::Hooks][0u] = Json::objectValue;
-        tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
-        tx[jss::Hooks][0u][jss::Hook][jss::HookOn] =
-            "0000000000000000000000000000000000000000000000000000000000000000";
-        tx[jss::Hooks][0u][jss::Hook][jss::HookNamespace] =
-            "0000000000000000000000000000000000000000000000000000000000000000";
-        tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = 0;
-
-        tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] =
-            strHex(XahauGenesis::MintTestHook);
-        return tx;
-    }
-
-    Json::Value
-    setAcceptHook(jtx::Account const& account)
-    {
-        using namespace jtx;
-        Json::Value tx;
-        tx[jss::Account] = account.human();
-        tx[jss::TransactionType] = "SetHook";
-        tx[jss::Hooks] = Json::arrayValue;
-        tx[jss::Hooks][0u] = Json::objectValue;
-        tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
-        tx[jss::Hooks][0u][jss::Hook][jss::HookOn] =
-            "0000000000000000000000000000000000000000000000000000000000000000";
-        tx[jss::Hooks][0u][jss::Hook][jss::HookNamespace] =
-            "0000000000000000000000000000000000000000000000000000000000000000";
-        tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = 0;
-        tx[jss::Hooks][0u][jss::Hook][jss::Flags] = 5;
-        tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] =
-            strHex(XahauGenesis::AcceptHook);
-        return tx;
-    }
-
     void
     testDisabled(FeatureBitset features)
     {
@@ -129,7 +40,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             env.fund(XRP(10000), alice, bob);
             env.close();
 
-            env(mint(env.master, {GenMint(bob.id(), XRP(123))}),
+            env(genesis::mint(env.master, {genesis::GenMint(bob.id(), XRP(123))}),
                 ter(temDISABLED));
         }
 
@@ -142,52 +53,8 @@ struct GenesisMint_test : public beast::unit_test::suite
             env.fund(XRP(10000), alice, bob);
             env.close();
 
-            env(mint(env.master, {{bob.id(), XRP(123)}}), ter(temDISABLED));
+            env(genesis::mint(env.master, {{bob.id(), XRP(123)}}), ter(temDISABLED));
         }
-    }
-
-    std::string
-    makeBlob(std::vector<std::tuple<
-                 std::optional<AccountID>,
-                 std::optional<STAmount>,
-                 std::optional<uint256>,
-                 std::optional<uint256>>> entries)
-    {
-        std::string blob = "F060";
-
-        for (auto const& [acc, amt, flags, marks] : entries)
-        {
-            STObject m(sfGenesisMint);
-            if (acc)
-                m.setAccountID(sfDestination, *acc);
-            if (amt)
-                m.setFieldAmount(sfAmount, *amt);
-            if (flags)
-                m.setFieldH256(sfGovernanceFlags, *flags);
-            if (marks)
-                m.setFieldH256(sfGovernanceMarks, *marks);
-
-            Serializer s;
-            m.add(s);
-            blob += "E060" + strHex(s.getData()) + "E1";
-        }
-
-        blob += "F1";
-        return blob;
-    }
-
-    Json::Value
-    invoke(
-        jtx::Account const& account,
-        jtx::Account const& destination,
-        std::string blob)
-    {
-        Json::Value tx = Json::objectValue;
-        tx[jss::Account] = account.human();
-        tx[jss::TransactionType] = "Invoke";
-        tx[jss::Destination] = destination.human();
-        tx[jss::Blob] = blob;
-        return tx;
     }
 
     void
@@ -205,15 +72,15 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.close();
 
         // set the test hook
-        env(setMintHook(alice), fee(XRP(10)));
+        env(genesis::setMintHook(alice), fee(XRP(10)));
         env.close();
 
         // this should fail because emitted txns are preflighted
         // and the preflight checks the account and will find it's not genesis
-        env(invoke(
+        env(invoke::invoke(
                 invoker,
                 alice,
-                makeBlob({
+                genesis::makeBlob({
                     {bob.id(), XRP(123).value(), std::nullopt, std::nullopt},
                 })),
             fee(XRP(1)),
@@ -248,7 +115,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.close();
 
         // set the test hook
-        env(setMintHook(env.master), fee(XRP(10)));
+        env(genesis::setMintHook(env.master), fee(XRP(10)));
         env.close();
 
         // test a mint
@@ -261,10 +128,10 @@ struct GenesisMint_test : public beast::unit_test::suite
                     10000000000ULL);
             }
 
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {bob.id(),
                          XRP(123).value(),
                          std::nullopt,
@@ -296,10 +163,10 @@ struct GenesisMint_test : public beast::unit_test::suite
         BEAST_EXPECT(!env.le(keylet::account(carol.id())));
         BEAST_EXPECT(!env.le(keylet::account(david.id())));
 
-        env(invoke(
+        env(invoke::invoke(
                 invoker,
                 env.master,
-                makeBlob({
+                genesis::makeBlob({
                     {david.id(),
                      XRP(12345).value(),
                      std::nullopt,
@@ -348,7 +215,7 @@ struct GenesisMint_test : public beast::unit_test::suite
                 acc, XRP(i + 1).value(), std::nullopt, std::nullopt);
         }
 
-        env(invoke(invoker, env.master, makeBlob(mints)), fee(XRP(1)));
+        env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)), fee(XRP(1)));
 
         env.close();
         env.close();
@@ -360,7 +227,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         }
 
         // again, and check the amounts increased x2
-        env(invoke(invoker, env.master, makeBlob(mints)), fee(XRP(1)));
+        env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)), fee(XRP(1)));
 
         env.close();
         env.close();
@@ -379,7 +246,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             mints.emplace_back(acc, XRP(1).value(), std::nullopt, std::nullopt);
         }
 
-        env(invoke(invoker, env.master, makeBlob(mints)),
+        env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)),
             fee(XRP(1)),
             ter(tecHOOK_REJECTED));
 
@@ -399,36 +266,36 @@ struct GenesisMint_test : public beast::unit_test::suite
         auto const gw = Account("gateway");
         auto const USD = gw["USD"];
         auto const edward = Account("edward");
-        env(invoke(
+        env(invoke::invoke(
                 invoker,
                 env.master,
-                makeBlob(
+                genesis::makeBlob(
                     {{edward.id(), USD(100), std::nullopt, std::nullopt}})),
             fee(XRP(1)),
             ter(tecHOOK_REJECTED));
 
         // zero xrp is allowed
-        env(invoke(
+        env(invoke::invoke(
                 invoker,
                 env.master,
-                makeBlob({{edward.id(), XRP(0), std::nullopt, std::nullopt}})),
+                genesis::makeBlob({{edward.id(), XRP(0), std::nullopt, std::nullopt}})),
             fee(XRP(1)));
 
         // missing an amount
-        env(invoke(
+        env(invoke::invoke(
                 invoker,
                 env.master,
-                makeBlob({
+                genesis::makeBlob({
                     {edward.id(), std::nullopt, std::nullopt, std::nullopt},
                 })),
             fee(XRP(1)),
             ter(tecHOOK_REJECTED));
 
         // missing a destination
-        env(invoke(
+        env(invoke::invoke(
                 invoker,
                 env.master,
-                makeBlob({
+                genesis::makeBlob({
                     {std::nullopt, XRP(1), std::nullopt, std::nullopt},
                 })),
             fee(XRP(1)),
@@ -445,10 +312,10 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         // dest + flags
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {alice.id(), std::nullopt, flags, std::nullopt},
                     })),
                 fee(XRP(1)));
@@ -469,10 +336,10 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         // now governance marks on bob
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {bob.id(), std::nullopt, std::nullopt, marks},
                     })),
                 fee(XRP(1)));
@@ -494,10 +361,10 @@ struct GenesisMint_test : public beast::unit_test::suite
         // all at once
         auto const fred = Account("fred");
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {fred.id(), XRP(589).value(), flags, marks},
                     })),
                 fee(XRP(1)));
@@ -522,10 +389,10 @@ struct GenesisMint_test : public beast::unit_test::suite
         // mint a zero account
         auto const greg = Account("greg");
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob(
+                    genesis::makeBlob(
                         {{greg.id(),
                           XRP(0).value(),
                           std::nullopt,
@@ -544,10 +411,10 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         // try to mint negative
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob(
+                    genesis::makeBlob(
                         {{greg.id(),
                           XRP(-1).value(),
                           std::nullopt,
@@ -567,10 +434,10 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         // try to mint too much
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob(
+                    genesis::makeBlob(
                         {{greg.id(),
                           XRP(100000000000ULL).value(),
                           std::nullopt,
@@ -590,10 +457,10 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         // mint a regular amount
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob(
+                    genesis::makeBlob(
                         {{greg.id(),
                           XRP(10).value(),
                           std::nullopt,
@@ -613,10 +480,10 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         // try destination is genesis
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {env.master.id(),
                          XRP(10).value(),
                          std::nullopt,
@@ -630,10 +497,10 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         // try to include the same destination twice
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {greg.id(),
                          XRP(10).value(),
                          std::nullopt,
@@ -660,10 +527,10 @@ struct GenesisMint_test : public beast::unit_test::suite
         // trip the supply cap invariant
         {
             auto const initCoins = env.current()->info().drops;
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {greg.id(),
                          XRP(9'999'999).value(),
                          std::nullopt,
@@ -699,7 +566,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob);
         env.close();
 
-        env(mint(env.master, {GenMint(bob.id(), XRP(123))}), ter(temMALFORMED));
+        env(genesis::mint(env.master, {genesis::GenMint(bob.id(), XRP(123))}), ter(temMALFORMED));
 
         auto const le = env.le(keylet::account(bob.id()));
         BEAST_EXPECT(
@@ -720,7 +587,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob);
         env.close();
 
-        env(mint(alice, {GenMint(bob.id(), XRP(123))}), ter(temMALFORMED));
+        env(genesis::mint(alice, {genesis::GenMint(bob.id(), XRP(123))}), ter(temMALFORMED));
 
         auto const le = env.le(keylet::account(bob.id()));
         BEAST_EXPECT(
@@ -751,19 +618,19 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.close();
 
         // set the test hook
-        env(setMintHook(env.master), fee(XRP(10)));
+        env(genesis::setMintHook(env.master), fee(XRP(10)));
         env.close();
 
         // set the accept hook
-        env(setAcceptHook(bob), fee(XRP(10)));
+        env(genesis::setAcceptHook(bob), fee(XRP(10)));
         env.close();
 
         // test a mint
         {
-            env(invoke(
+            env(invoke::invoke(
                     invoker,
                     env.master,
-                    makeBlob({
+                    genesis::makeBlob({
                         {bob.id(),
                          XRP(123).value(),
                          std::nullopt,

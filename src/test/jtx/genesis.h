@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
-#define RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_GENESIS_H_INCLUDED
+#define RIPPLE_TEST_JTX_GENESIS_H_INCLUDED
 
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
@@ -27,54 +27,47 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Invoke operations. */
-namespace invoke {
+/** Genesis operations. */
+namespace genesis {
 
-Json::Value
-invoke(
-    jtx::Account const& account);
-
-Json::Value
-invoke(
-    jtx::Account const& account, 
-    std::optional<jtx::Account> const& dest,
-    std::optional<std::string> const& blob);
-
-/** Set the optional "Blob" on a JTx */
-class blob
+struct GenMint
 {
-private:
-   std::string value_;
+    std::optional<std::string> dest;
+    std::optional<jtx::PrettyAmount> amt;
+    std::optional<std::string> marks;
+    std::optional<std::string> flags;
 
-public:
-    explicit blob(std::string const& value) : value_(value)
+    GenMint(
+        AccountID const& dst,
+        jtx::PrettyAmount const& x,
+        std::optional<std::string> m = std::nullopt,
+        std::optional<std::string> f = std::nullopt)
+        : dest(toBase58(dst)), amt(x), marks(m), flags(f)
     {
     }
-
-    void
-    operator()(Env&, JTx& jtx) const;
 };
 
-/** Sets the optional "Destination" on a JTx. */
-class dest
-{
-private:
-    jtx::Account dest_;
+Json::Value
+mint(jtx::Account const& account, std::vector<genesis::GenMint> mints);
 
-public:
-    explicit dest(jtx::Account const& dest) : dest_(dest)
-    {
-    }
+Json::Value
+setMintHook(jtx::Account const& account);
 
-    void
-    operator()(Env&, JTx& jtx) const;
-};
+Json::Value
+setAcceptHook(jtx::Account const& account);
 
-}  // namespace invoke
+std::string
+makeBlob(std::vector<std::tuple<
+                std::optional<AccountID>,
+                std::optional<STAmount>,
+                std::optional<uint256>,
+                std::optional<uint256>>> entries);
+
+}  // namespace genesis
 
 }  // namespace jtx
 
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
+#endif // RIPPLE_TEST_JTX_GENESIS_H_INCLUDED

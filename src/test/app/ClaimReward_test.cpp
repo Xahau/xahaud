@@ -24,40 +24,6 @@ namespace ripple {
 namespace test {
 struct ClaimReward_test : public beast::unit_test::suite
 {
-    Json::Value
-    claim(
-        jtx::Account const& account,
-        std::optional<jtx::Account> const& issuer = std::nullopt,
-        std::uint32_t flags = 0)
-    {
-        using namespace jtx;
-        Json::Value jv;
-        jv[jss::TransactionType] = jss::ClaimReward;
-        jv[jss::Account] = account.human();
-        if (issuer)
-            jv[sfIssuer.jsonName] = issuer->human();
-        if (flags)
-            jv[jss::Flags] = flags;
-        return jv;
-    }
-
-    std::unique_ptr<Config>
-    makeNetworkConfig(uint32_t networkID)
-    {
-        using namespace jtx;
-        return envconfig([&](std::unique_ptr<Config> cfg) {
-            cfg->NETWORK_ID = networkID;
-            Section config;
-            config.append(
-                {"reference_fee = 10",
-                 "account_reserve = 1000000",
-                 "owner_reserve = 200000"});
-            auto setup = setup_FeeVote(config);
-            cfg->FEES = setup;
-            return cfg;
-        });
-    }
-
     bool
     expectRewards(
         jtx::Env const& env,
@@ -150,7 +116,7 @@ struct ClaimReward_test : public beast::unit_test::suite
                     .count();
 
             // CLAIM
-            env(reward::claim(alice, issuer), txResult);
+            env(reward::claim(alice), reward::issuer(issuer), txResult);
             env.close();
 
             if (withClaimReward)
@@ -186,7 +152,7 @@ struct ClaimReward_test : public beast::unit_test::suite
         {
             test::jtx::Env env{
                 *this,
-                makeNetworkConfig(21337),
+                network::makeNetworkConfig(21337),
                 features - featureBalanceRewards};
 
             auto const alice = Account("alice");
@@ -195,15 +161,15 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, issuer);
             env.close();
 
-            auto tx = claim(alice, issuer);
-            env(tx, ter(temDISABLED));
+            auto tx = reward::claim(alice);
+            env(tx, reward::issuer(issuer), ter(temDISABLED));
             env.close();
         }
 
         // temINVALID_FLAG
         // can have flag 1 set to opt-out of rewards
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
             auto const alice = Account("alice");
             auto const issuer = Account("issuer");
@@ -211,21 +177,24 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, issuer);
             env.close();
 
-            auto tx = claim(alice, issuer);
-            env(tx, txflags(tfClose), ter(temINVALID_FLAG));
+            auto tx = reward::claim(alice);
+            env(tx,
+                reward::issuer(issuer),
+                txflags(tfClose),
+                ter(temINVALID_FLAG));
             env.close();
         }
 
         // temMALFORMED
         // Issuer cannot be the source account.
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
             env.close();
 
-            env(claim(alice, alice), ter(temMALFORMED));
+            env(reward::claim(alice), reward::issuer(alice), ter(temMALFORMED));
             env.close();
         }
     }
@@ -246,7 +215,7 @@ struct ClaimReward_test : public beast::unit_test::suite
         // terNO_ACCOUNT
         // otxn account does not exist.
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
             auto const alice = Account("alice");
             auto const issuer = Account("issuer");
@@ -255,17 +224,17 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), issuer);
             env.close();
 
-            auto tx = claim(alice, issuer);
+            auto tx = reward::claim(alice);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 10;
-            env(tx, ter(terNO_ACCOUNT));
+            env(tx, reward::issuer(issuer), ter(terNO_ACCOUNT));
             env.close();
         }
 
         // temMALFORMED
         // (issuer && isOptOut)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
             auto const alice = Account("alice");
             auto const issuer = Account("issuer");
@@ -273,12 +242,15 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, issuer);
             env.close();
 
-            env(claim(alice, issuer, tfOptOut), ter(temMALFORMED));
+            env(reward::claim(alice),
+                reward::issuer(issuer),
+                txflags(tfOptOut),
+                ter(temMALFORMED));
             env.close();
         }
         // (!issuer && !isOptOut)
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
             auto const alice = Account("alice");
 
@@ -292,7 +264,7 @@ struct ClaimReward_test : public beast::unit_test::suite
         // tecNO_ISSUER
         // issuer account does not exist.
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
             auto const alice = Account("alice");
             auto const issuer = Account("issuer");
@@ -301,8 +273,8 @@ struct ClaimReward_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice);
             env.close();
 
-            auto tx = claim(alice, issuer);
-            env(tx, ter(tecNO_ISSUER));
+            auto tx = reward::claim(alice);
+            env(tx, reward::issuer(issuer), ter(tecNO_ISSUER));
             env.close();
         }
     }
@@ -314,7 +286,7 @@ struct ClaimReward_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
         auto const alice = Account("alice");
         auto const issuer = Account("issuer");
@@ -333,8 +305,8 @@ struct ClaimReward_test : public beast::unit_test::suite
                     .parentCloseTime.time_since_epoch())
                 .count();
 
-        auto tx = claim(alice, issuer);
-        env(tx, ter(tesSUCCESS));
+        auto tx = reward::claim(alice);
+        env(tx, reward::issuer(issuer), ter(tesSUCCESS));
         env.close();
 
         BEAST_EXPECT(
@@ -343,7 +315,7 @@ struct ClaimReward_test : public beast::unit_test::suite
             true);
 
         // test claim rewards - opt out
-        env(claim(alice, std::nullopt, tfOptOut), ter(tesSUCCESS));
+        env(reward::claim(alice), txflags(tfOptOut), ter(tesSUCCESS));
         env.close();
 
         BEAST_EXPECT(expectNoRewards(env, alice) == true);
@@ -364,7 +336,8 @@ struct ClaimReward_test : public beast::unit_test::suite
         std::uint32_t const aliceSeq{env.seq(alice)};
         env.require(owners(alice, 10));
 
-        env(claim(alice, issuer),
+        env(reward::claim(alice),
+            reward::issuer(issuer),
             ticket::use(aliceTicketSeq++),
             ter(tesSUCCESS));
 

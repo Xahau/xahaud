@@ -31,16 +31,12 @@ namespace invoke {
 
 Json::Value
 invoke(
-    jtx::Account const& account, 
-    std::optional<jtx::Account> const& dest)
+    jtx::Account const& account)
 {
     using namespace jtx;
     Json::Value jv;
     jv[jss::TransactionType] = jss::Invoke;
     jv[jss::Account] = account.human();
-    if (dest)
-        jv[jss::Destination] = dest->human();
-    
     return jv;
 }
 
@@ -63,34 +59,16 @@ invoke(
     return jv;
 }
 
-std::string
-makeBlob(std::vector<std::tuple<
-        std::optional<AccountID>,
-        std::optional<STAmount>,
-        std::optional<uint256>,
-        std::optional<uint256>>> entries)
+void
+blob::operator()(Env& env, JTx& jt) const
 {
-    std::string blob = "F060";
+    jt.jv[sfBlob.jsonName] = value_;
+}
 
-    for (auto const& [acc, amt, flags, marks] : entries)
-    {
-        STObject m(sfGenesisMint);
-        if (acc)
-            m.setAccountID(sfDestination, *acc);
-        if (amt)
-            m.setFieldAmount(sfAmount, *amt);
-        if (flags)
-            m.setFieldH256(sfGovernanceFlags, *flags);
-        if (marks)
-            m.setFieldH256(sfGovernanceMarks, *marks);
-
-        Serializer s;
-        m.add(s);
-        blob += "E060" + strHex(s.getData()) + "E1";
-    }
-
-    blob += "F1";
-    return blob;
+void
+dest::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfDestination.jsonName] = dest_.human();
 }
 
 }  // namespace invoke

@@ -39,7 +39,7 @@ tokenid(jtx::Account const& account, std::string const& uri);
 Json::Value
 mint(jtx::Account const& account, std::string const& uri);
 
-/** Sets the optional Destination on an URITokenMint. */
+/** Sets the optional Destination on a JTx. */
 class dest
 {
 private:
@@ -54,7 +54,7 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
-/** Sets the optional Amount on an URITokenMint. */
+/** Sets the optional Amount on a JTx. */
 class amt
 {
 private:
@@ -88,4 +88,4 @@ buy(jtx::Account const& account, std::string const& id);
 }  // namespace test
 }  // namespace ripple
 
-#endif  // RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
+#endif // RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
