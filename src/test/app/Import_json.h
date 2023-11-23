@@ -21,7 +21,7 @@ public:
     static std::string unl_seq_2_1;
 };
 
-inline inline std::string ImportTCAccountSet::min = R"json({
+inline std::string ImportTCAccountSet::min = R"json({
 "ledger": {
     "acroot": "97A33800660C87FB79EA1E7F998B6E0F864FBB8C36E1828D5F44E5AE2C7B0832",
     "close": 742337421,

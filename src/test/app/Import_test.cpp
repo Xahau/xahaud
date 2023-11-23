@@ -4917,7 +4917,6 @@ class Import_test : public beast::unit_test::suite
                                        : features - featureDeletableAccounts;
                 test::jtx::Env env{
                     *this, network::makeNetworkVLConfig(21337, keys), amend};
-                auto const feeDrops = env.current()->fees().base;
                 env.close();
 
                 auto const alice = Account("alice");

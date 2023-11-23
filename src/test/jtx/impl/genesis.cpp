@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/impl/XahauGenesis.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx/genesis.h>
@@ -74,7 +73,7 @@ setMintHook(jtx::Account const& account)
     tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = 0;
 
     tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] =
-        strHex(XahauGenesis::MintTestHook);
+        strHex(genesis::MintTestHook);
     return tx;
 }
 
@@ -95,7 +94,7 @@ setAcceptHook(jtx::Account const& account)
     tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = 0;
     tx[jss::Hooks][0u][jss::Hook][jss::Flags] = 5;
     tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] =
-        strHex(XahauGenesis::AcceptHook);
+        strHex(genesis::AcceptHook);
     return tx;
 }
 

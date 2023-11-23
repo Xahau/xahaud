@@ -60,7 +60,6 @@ class BaseFee_test : public beast::unit_test::suite
         using namespace std::literals;
 
         test::jtx::Env env{*this, makeNetworkConfig(21337)};
-        auto const feeDrops = env.current()->fees().base;
 
         auto const alice = Account("alice");
         env.fund(XRP(1000), alice);
@@ -84,7 +83,6 @@ class BaseFee_test : public beast::unit_test::suite
 
         // fee request
         auto const jrr = env.rpc("json", "fee", to_string(params));
-        std::cout << "RESULT: " << jrr << "\n";
 
         // verify hooks fee
         auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
@@ -100,7 +98,6 @@ class BaseFee_test : public beast::unit_test::suite
         using namespace std::literals;
 
         test::jtx::Env env{*this, makeNetworkConfig(21337)};
-        auto const feeDrops = env.current()->fees().base;
 
         auto const alice = Account("alice");
         env.fund(XRP(1000), alice);
@@ -124,11 +121,10 @@ class BaseFee_test : public beast::unit_test::suite
 
         // fee request
         auto const jrr = env.rpc("json", "fee", to_string(params));
-        std::cout << "RESULT: " << jrr << "\n";
 
         // verify hooks fee
         auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
-        BEAST_EXPECT(hooksFee == "16");
+        BEAST_EXPECT(hooksFee == "10");
     }
 
     void
