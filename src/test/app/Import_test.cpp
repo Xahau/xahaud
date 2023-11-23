@@ -4855,7 +4855,8 @@ class Import_test : public beast::unit_test::suite
         {
             for (std::uint32_t const withFeature : {0, 1, 2})
             {
-                auto const amend = withFeature == 0 ? features
+                auto const amend = withFeature == 0
+                    ? features
                     : withFeature == 1 ? features - featureXahauGenesis
                                        : features - featureDeletableAccounts;
                 test::jtx::Env env{
@@ -4894,9 +4895,8 @@ class Import_test : public beast::unit_test::suite
                 {
                     BEAST_EXPECT((*acctSle)[sfAccountIndex] == 0);
                 }
-                std::uint64_t const seq = withFeature == 0 ? 12
-                    : withFeature == 1                     ? 6
-                                                           : 12;
+                std::uint64_t const seq =
+                    withFeature == 0 ? 12 : withFeature == 1 ? 6 : 12;
                 BEAST_EXPECT((*acctSle)[sfSequence] == seq);
 
                 // confirm account count was set
@@ -4912,7 +4912,8 @@ class Import_test : public beast::unit_test::suite
         {
             for (std::uint32_t const withFeature : {0, 1, 2})
             {
-                auto const amend = withFeature == 0 ? features
+                auto const amend = withFeature == 0
+                    ? features
                     : withFeature == 1 ? features - featureXahauGenesis
                                        : features - featureDeletableAccounts;
                 test::jtx::Env env{
@@ -4932,9 +4933,8 @@ class Import_test : public beast::unit_test::suite
                     std::uint64_t sequence;
                 };
 
-                std::uint64_t const seq = withFeature == 0 ? 11
-                    : withFeature == 1                     ? 5
-                                                           : 11;
+                std::uint64_t const seq =
+                    withFeature == 0 ? 11 : withFeature == 1 ? 5 : 11;
                 std::array<TestAccountData, 3> acctTests = {{
                     {alice, 0, seq},
                     {bob, 1, seq},

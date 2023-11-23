@@ -31,9 +31,7 @@ namespace jtx {
 namespace import {
 
 Json::Value
-import(
-    jtx::Account const& account,
-    Json::Value const& xpop);
+import(jtx::Account const& account, Json::Value const& xpop);
 
 /** Sets the optional Issuer on a JTx. */
 class issuer
@@ -60,4 +58,4 @@ loadXpop(std::string content);
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_IMPORT_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_IMPORT_H_INCLUDED

@@ -171,10 +171,10 @@ setAcceptHook(jtx::Account const& account);
 
 std::string
 makeBlob(std::vector<std::tuple<
-                std::optional<AccountID>,
-                std::optional<STAmount>,
-                std::optional<uint256>,
-                std::optional<uint256>>> entries);
+             std::optional<AccountID>,
+             std::optional<STAmount>,
+             std::optional<uint256>,
+             std::optional<uint256>>> entries);
 
 }  // namespace genesis
 
@@ -183,4 +183,4 @@ makeBlob(std::vector<std::tuple<
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_GENESIS_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_GENESIS_H_INCLUDED

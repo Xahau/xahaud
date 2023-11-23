@@ -67,10 +67,7 @@ create(
 }
 
 Json::Value
-finish(
-    jtx::Account const& account,
-    jtx::Account const& from,
-    std::uint32_t seq)
+finish(jtx::Account const& account, jtx::Account const& from, std::uint32_t seq)
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::EscrowFinish;
@@ -82,10 +79,7 @@ finish(
 }
 
 Json::Value
-cancel(
-    jtx::Account const& account,
-    jtx::Account const& from,
-    std::uint32_t seq)
+cancel(jtx::Account const& account, jtx::Account const& from, std::uint32_t seq)
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::EscrowCancel;

@@ -32,8 +32,7 @@ namespace reward {
 
 /** Claim a reward. */
 Json::Value
-claim(
-    jtx::Account const& account);
+claim(jtx::Account const& account);
 
 /** Sets the optional Issuer on a JTx. */
 class issuer
@@ -57,4 +56,4 @@ public:
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_REWARD_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_REWARD_H_INCLUDED

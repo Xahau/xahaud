@@ -63,4 +63,4 @@ claim(
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_PAYCHAN_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_PAYCHAN_H_INCLUDED

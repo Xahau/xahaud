@@ -62,4 +62,4 @@ makeGenesisConfig(
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_NETWORK_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_NETWORK_H_INCLUDED

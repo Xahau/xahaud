@@ -30,8 +30,7 @@ namespace invoke {
 // Invoke a tx.
 
 Json::Value
-invoke(
-    jtx::Account const& account)
+invoke(jtx::Account const& account)
 {
     using namespace jtx;
     Json::Value jv;
@@ -42,7 +41,7 @@ invoke(
 
 Json::Value
 invoke(
-    jtx::Account const& account, 
+    jtx::Account const& account,
     std::optional<jtx::Account> const& dest,
     std::optional<std::string> const& blob)
 {
@@ -55,7 +54,7 @@ invoke(
 
     if (blob.has_value())
         jv[jss::Blob] = blob.value();
-    
+
     return jv;
 }
 

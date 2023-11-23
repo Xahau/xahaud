@@ -69,9 +69,7 @@ burn(jtx::Account const& account, std::string const& id)
 }
 
 Json::Value
-sell(
-    jtx::Account const& account,
-    std::string const& id)
+sell(jtx::Account const& account, std::string const& id)
 {
     using namespace jtx;
     Json::Value jv;
@@ -82,9 +80,7 @@ sell(
 }
 
 Json::Value
-cancel(
-    jtx::Account const& account,
-    std::string const& id)
+cancel(jtx::Account const& account, std::string const& id)
 {
     using namespace jtx;
     Json::Value jv;
@@ -95,8 +91,7 @@ cancel(
 }
 
 Json::Value
-buy(jtx::Account const& account,
-    std::string const& id)
+buy(jtx::Account const& account, std::string const& id)
 {
     using namespace jtx;
     Json::Value jv;

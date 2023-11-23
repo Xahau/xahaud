@@ -31,9 +31,7 @@ namespace import {
 
 // Import tx.
 Json::Value
-import(
-    jtx::Account const& account,
-    Json::Value const& xpop)
+import(jtx::Account const& account, Json::Value const& xpop)
 {
     using namespace jtx;
     Json::Value jv;
@@ -57,7 +55,7 @@ loadXpop(std::string content)
     if (content.empty())
     {
         std::cout << "JSON string was empty"
-                    << "\n";
+                  << "\n";
         return {};
     }
 

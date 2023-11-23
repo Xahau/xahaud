@@ -107,8 +107,7 @@ makeGenesisConfig(
 
     foreachFeature(features, [&](uint256 const& feature) {
         std::string featureName = featureToName(feature);
-        std::optional<uint256> featureHash =
-            getRegisteredFeature(featureName);
+        std::optional<uint256> featureHash = getRegisteredFeature(featureName);
         if (featureHash.has_value())
         {
             std::string hashString = to_string(featureHash.value());
@@ -128,8 +127,8 @@ makeGenesisConfig(
         Section config;
         config.append(
             {"reference_fee = " + fee,
-                "account_reserve = " + a_res,
-                "owner_reserve = " + o_res});
+             "account_reserve = " + a_res,
+             "owner_reserve = " + o_res});
         auto setup = setup_FeeVote(config);
         cfg->FEES = setup;
 
@@ -143,8 +142,7 @@ makeGenesisConfig(
             auto const pkType = publicKeyType(makeSlice(*pkHex));
             if (!pkType)
                 Throw<std::runtime_error>(
-                    "Import VL Key '" + strPk +
-                    "' was not a valid key type.");
+                    "Import VL Key '" + strPk + "' was not a valid key type.");
 
             cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
         }

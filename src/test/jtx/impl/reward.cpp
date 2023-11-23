@@ -28,8 +28,7 @@ namespace reward {
 
 // Claim a reward.
 Json::Value
-claim(
-    jtx::Account const& account)
+claim(jtx::Account const& account)
 {
     using namespace jtx;
     Json::Value jv;

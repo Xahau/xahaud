@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
 
@@ -72,9 +72,9 @@ class BaseFee_test : public beast::unit_test::suite
         tx[jss::HookParameters][0U] = Json::Value{};
         tx[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
         tx[jss::HookParameters][0U][jss::HookParameter]
-            [jss::HookParameterName] = "CAFE";
+          [jss::HookParameterName] = "CAFE";
         tx[jss::HookParameters][0U][jss::HookParameter]
-            [jss::HookParameterValue] = "DEADBEEF";
+          [jss::HookParameterValue] = "DEADBEEF";
         auto const jtx = env.jt(tx);
 
         // build tx_blob
@@ -110,9 +110,9 @@ class BaseFee_test : public beast::unit_test::suite
         tx[jss::HookParameters][0U] = Json::Value{};
         tx[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
         tx[jss::HookParameters][0U][jss::HookParameter]
-            [jss::HookParameterName] = "CAFE";
+          [jss::HookParameterName] = "CAFE";
         tx[jss::HookParameters][0U][jss::HookParameter]
-            [jss::HookParameterValue] = "DEADBEEF";
+          [jss::HookParameterValue] = "DEADBEEF";
         auto const jtx = env.jt(tx);
 
         // build tx_blob

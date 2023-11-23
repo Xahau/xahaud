@@ -37,10 +37,7 @@ acctdelete(jtx::Account const& account, jtx::Account const& dest)
 }
 
 void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin)
+incLgrSeqForAccDel(jtx::Env& env, jtx::Account const& acc, std::uint32_t margin)
 {
     int const delta = [&]() -> int {
         if (env.seq(acc) + 255 > env.current()->seq())

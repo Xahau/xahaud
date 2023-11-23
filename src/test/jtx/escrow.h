@@ -89,8 +89,7 @@ public:
     }
 
     template <size_t N>
-    explicit condition(std::array<std::uint8_t, N> c)
-        : condition(makeSlice(c))
+    explicit condition(std::array<std::uint8_t, N> c) : condition(makeSlice(c))
     {
     }
 
@@ -125,4 +124,4 @@ public:
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_ESCROW_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_ESCROW_H_INCLUDED

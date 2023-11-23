@@ -31,12 +31,11 @@ namespace jtx {
 namespace invoke {
 
 Json::Value
-invoke(
-    jtx::Account const& account);
+invoke(jtx::Account const& account);
 
 Json::Value
 invoke(
-    jtx::Account const& account, 
+    jtx::Account const& account,
     std::optional<jtx::Account> const& dest,
     std::optional<std::string> const& blob);
 
@@ -44,7 +43,7 @@ invoke(
 class blob
 {
 private:
-   std::string value_;
+    std::string value_;
 
 public:
     explicit blob(std::string const& value) : value_(value)
@@ -77,4 +76,4 @@ public:
 }  // namespace test
 }  // namespace ripple
 
-#endif // RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
