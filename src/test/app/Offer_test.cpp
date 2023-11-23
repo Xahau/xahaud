@@ -5100,6 +5100,172 @@ public:
         env.require(owners(alice, 1), tickets(alice, 0), offers(alice, 0));
     }
 
+    static uint256
+    getOfferIndex(AccountID const& account, std::uint32_t uSequence)
+    {
+        return keylet::offer(account, uSequence).key;
+    }
+
+    void
+    testOfferID(FeatureBitset features)
+    {
+        testcase("using offer id");
+
+        using namespace jtx;
+
+        // OfferCreate - OfferID
+        {
+            Env env{*this, features};
+
+            auto const gw = Account{"gateway"};
+            auto const alice = Account{"alice"};
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(10000), gw, alice);
+            env.close();
+
+            env(trust(alice, USD(1000)));
+            env.close();
+
+            env(pay(gw, alice, USD(200)));
+            env.close();
+
+            uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+            env(offer(alice, XRP(50), USD(50)));
+            env.close();
+
+            auto offers = sortedOffersOnAccount(env, alice);
+            BEAST_EXPECT(offers.size() == 1);
+
+            auto tx = offer(alice, XRP(50), USD(50));
+            tx[sfOfferID.jsonName] = to_string(offerId);
+            env(tx, ter(tesSUCCESS));
+            env.close();
+
+            offers = sortedOffersOnAccount(env, alice);
+            BEAST_EXPECT(offers.size() == 1);
+        }
+
+        // OfferCreate - OfferSequence
+        {
+            Env env{*this, features};
+            auto const gw = Account{"gateway"};
+            auto const alice = Account{"alice"};
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(10000), gw, alice);
+            env.close();
+
+            env(trust(alice, USD(1000)));
+            env.close();
+
+            env(pay(gw, alice, USD(200)));
+            env.close();
+
+            // OfferCreate - OfferID
+            std::uint32_t const offerSeqId{env.seq(alice)};
+            env(offer(alice, XRP(50), USD(50)));
+            env.close();
+
+            auto offers = sortedOffersOnAccount(env, alice);
+            BEAST_EXPECT(offers.size() == 1);
+
+            auto tx = offer(alice, XRP(50), USD(50));
+            tx[sfOfferSequence.jsonName] = offerSeqId;
+            env(tx, ter(tesSUCCESS));
+            env.close();
+
+            offers = sortedOffersOnAccount(env, alice);
+            BEAST_EXPECT(offers.size() == 1);
+        }
+
+        // OfferCancel
+        {
+            Env env{*this, features};
+            auto const gw = Account{"gateway"};
+            auto const alice = Account{"alice"};
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(10000), gw, alice);
+            env.close();
+
+            env(trust(alice, USD(1000)));
+            env.close();
+
+            env(pay(gw, alice, USD(200)));
+            env.close();
+
+            // sequence id - no offer id
+            {
+                std::uint32_t const offerSeqId{env.seq(alice)};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
+
+                auto tx = offer_cancel(alice, offerSeqId);
+                env(tx, ter(tesSUCCESS));
+                env.close();
+                auto const offers = sortedOffersOnAccount(env, alice);
+                BEAST_EXPECT(offers.size() == 0);
+            }
+
+            // offer id - no sequence id
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
+
+                auto tx = offer_cancel(alice, offerId);
+                env(tx, ter(temMALFORMED));
+                env.close();
+                auto const offers = sortedOffersOnAccount(env, alice);
+                BEAST_EXPECT(offers.size() == 1);
+            }
+
+            // offer id (offer sequence required)
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
+
+                auto tx = offer_cancel(alice, offerId);
+                tx[jss::OfferSequence] = 0;
+                env(tx, ter(temBAD_SEQUENCE));
+                env.close();
+                auto const offers = sortedOffersOnAccount(env, alice);
+                BEAST_EXPECT(offers.size() == 2);
+            }
+
+            // no offer id or offer sequence
+            {
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
+
+                Json::Value jv;
+                jv[jss::Account] = alice.human();
+                jv[jss::TransactionType] = jss::OfferCancel;
+                env(jv, ter(temMALFORMED));
+                env.close();
+                auto const offers = sortedOffersOnAccount(env, alice);
+                BEAST_EXPECT(offers.size() == 3);
+            }
+
+            // both offer id and offer sequence
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                std::uint32_t const offerSeqId{env.seq(alice)};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
+
+                auto tx = offer_cancel(alice, offerId);
+                tx[jss::OfferSequence] = offerSeqId;
+                env(tx, ter(tesSUCCESS));
+                env.close();
+                auto const offers = sortedOffersOnAccount(env, alice);
+                BEAST_EXPECT(offers.size() == 3);
+            }
+        }
+    }
+
     void
     testFalseAssert()
     {
@@ -5179,6 +5345,7 @@ public:
         testTicketCancelOffer(features);
         testRmSmallIncreasedQOffersXRP(features);
         testRmSmallIncreasedQOffersIOU(features);
+        testOfferID(features);
     }
 
     void
@@ -5216,7 +5383,6 @@ class Offer_manual_test : public Offer_test
         testAll(all - flowCross - immediateOfferKilled);
         testAll(all - immediateOfferKilled);
         testAll(all);
-
         testAll(all - flowCross - takerDryOffer);
     }
 };

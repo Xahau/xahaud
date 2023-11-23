@@ -175,6 +175,18 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     static Json::Value
+    finish(jtx::Account const& account, jtx::Account const& from, uint256 id)
+    {
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::EscrowFinish;
+        jv[jss::Flags] = tfUniversal;
+        jv[jss::Account] = account.human();
+        jv[sfOwner.jsonName] = from.human();
+        jv[sfEscrowID.jsonName] = to_string(id);
+        return jv;
+    }
+
+    static Json::Value
     cancel(
         jtx::Account const& account,
         jtx::Account const& from,
@@ -186,6 +198,18 @@ struct Escrow_test : public beast::unit_test::suite
         jv[jss::Account] = account.human();
         jv[sfOwner.jsonName] = from.human();
         jv[sfOfferSequence.jsonName] = seq;
+        return jv;
+    }
+
+    static Json::Value
+    cancel(jtx::Account const& account, jtx::Account const& from, uint256 id)
+    {
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::EscrowCancel;
+        jv[jss::Flags] = tfUniversal;
+        jv[jss::Account] = account.human();
+        jv[sfOwner.jsonName] = from.human();
+        jv[sfEscrowID.jsonName] = to_string(id);
         return jv;
     }
 
@@ -4314,6 +4338,147 @@ struct Escrow_test : public beast::unit_test::suite
         }
     }
 
+    static uint256
+    getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
+    {
+        return keylet::escrow(account, uSequence).key;
+    }
+
+    void
+    testEscrowID(FeatureBitset features)
+    {
+        testcase("Escrow ID");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        Env env{*this, features};
+        env.fund(XRP(10000), alice, bob, gw);
+        env.close();
+        env.trust(USD(1000000), alice);
+        env.trust(USD(1000000), bob);
+        env.close();
+        env(pay(gw, alice, USD(10000)));
+        env(pay(gw, bob, USD(10000)));
+        env.close();
+
+        // EscrowCancel - EscrowID
+        {
+            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+            env(escrow(alice, bob, USD(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s),
+                fee(1500));
+            env.close();
+
+            auto tx = cancel(bob, alice, escrowId);
+            tx[jss::OfferSequence] = 0;
+            env(tx, fee(1500));
+            env.close();
+
+            auto const escrowLE = env.le(keylet::unchecked(escrowId));
+            BEAST_EXPECT(!escrowLE);
+        }
+
+        // EscrowCancel - no EscrowID or OfferSequence
+        {
+            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+            env(escrow(alice, bob, USD(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s),
+                fee(1500));
+            env.close();
+
+            Json::Value jv;
+            jv[jss::TransactionType] = jss::EscrowCancel;
+            jv[jss::Flags] = tfUniversal;
+            jv[jss::Account] = bob.human();
+            jv[sfOwner.jsonName] = alice.human();
+            env(jv, fee(1500), ter(temMALFORMED));
+            env.close();
+
+            auto const escrowLE = env.le(keylet::unchecked(escrowId));
+            BEAST_EXPECT(escrowLE);
+        }
+
+        // EscrowCancel - EscrowID & OfferSequence
+        {
+            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+            env(escrow(alice, bob, USD(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s),
+                fee(1500));
+            env.close();
+
+            auto tx = cancel(bob, alice, escrowId);
+            tx[jss::OfferSequence] = 0;
+            env(tx, fee(1500), ter(tesSUCCESS));
+            env.close();
+
+            auto const escrowLE = env.le(keylet::unchecked(escrowId));
+            BEAST_EXPECT(!escrowLE);
+        }
+
+        // EscrowFinish - EscrowID
+        {
+            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+            env(escrow(alice, bob, USD(1000)),
+                finish_time(env.now() + 1s),
+                fee(1500));
+            env.close(5s);
+
+            auto tx = finish(bob, alice, escrowId);
+            tx[jss::OfferSequence] = 0;
+            env(tx, fee(1500));
+            env.close();
+
+            auto const escrowLE = env.le(keylet::unchecked(escrowId));
+            BEAST_EXPECT(!escrowLE);
+        }
+
+        // EscrowFinish - no EscrowID or OfferSequence
+        {
+            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+            env(escrow(alice, bob, USD(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s),
+                fee(1500));
+            env.close();
+
+            Json::Value jv;
+            jv[jss::TransactionType] = jss::EscrowFinish;
+            jv[jss::Flags] = tfUniversal;
+            jv[jss::Account] = bob.human();
+            jv[sfOwner.jsonName] = alice.human();
+            env(jv, fee(1500), ter(temMALFORMED));
+            env.close();
+
+            auto const escrowLE = env.le(keylet::unchecked(escrowId));
+            BEAST_EXPECT(escrowLE);
+        }
+
+        // EscrowFinish- EscrowID & OfferSequence
+        {
+            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+            env(escrow(alice, bob, USD(1000)),
+                finish_time(env.now() + 1s),
+                fee(1500));
+            env.close(5s);
+
+            auto tx = finish(bob, alice, escrowId);
+            tx[jss::OfferSequence] = 0;
+            env(tx, fee(1500), ter(tesSUCCESS));
+            env.close();
+
+            auto const escrowLE = env.le(keylet::unchecked(escrowId));
+            BEAST_EXPECT(!escrowLE);
+        }
+    }
+
     void
     testWithFeats(FeatureBitset features)
     {
@@ -4363,6 +4528,7 @@ public:
         testWithFeats(all - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
         testIOUWithFeats(all);
+        testEscrowID(all);
     }
 };
 
