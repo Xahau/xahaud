@@ -32,13 +32,6 @@ namespace ripple {
 namespace test {
 struct URIToken_test : public beast::unit_test::suite
 {
-    // static uint256
-    // uritoken::tokenid(jtx::Account const& account, std::string const& uri)
-    // {
-    //     auto const k = keylet::uritoken(account, Blob(uri.begin(),
-    //     uri.end())); return k.key;
-    // }
-
     static bool
     inOwnerDir(
         ReadView const& view,
