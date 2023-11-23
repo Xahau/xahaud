@@ -102,8 +102,8 @@ namespace test {
 struct XahauGenesis_test : public beast::unit_test::suite
 {
     uint256 const acceptHookHash = ripple::sha512Half_s(ripple::Slice(
-        XahauGenesis::AcceptHook.data(),
-        XahauGenesis::AcceptHook.size()));
+        jtx::genesis::AcceptHook.data(),
+        jtx::genesis::AcceptHook.size()));
     uint256 const governHookHash = ripple::sha512Half_s(ripple::Slice(
         XahauGenesis::GovernanceHook.data(),
         XahauGenesis::GovernanceHook.size()));
@@ -977,7 +977,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
 
             tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] =
-                strHex(XahauGenesis::AcceptHook);
+                strHex(jtx::genesis::AcceptHook);
 
             tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = "0";
             tx[jss::Hooks][0u][jss::Hook][jss::HookNamespace] =
@@ -3144,7 +3144,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             tx[jss::Hooks][0u][jss::Hook] = Json::objectValue;
 
             tx[jss::Hooks][0u][jss::Hook][jss::CreateCode] =
-                strHex(XahauGenesis::AcceptHook);
+                strHex(jtx::genesis::AcceptHook);
 
             tx[jss::Hooks][0u][jss::Hook][jss::HookApiVersion] = "0";
             tx[jss::Hooks][0u][jss::Hook][jss::HookNamespace] =
@@ -3496,8 +3496,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 BEAST_REQUIRE(!!genesisHooksLE);
                 auto genesisHookArray = genesisHooksLE->getFieldArray(sfHooks);
                 BEAST_EXPECT(genesisHookArray.size() >= 3);
-                auto const acceptHash = ripple::sha512Half_s(
-                    ripple::Slice(AcceptHook.data(), AcceptHook.size()));
+                auto const acceptHash = ripple::sha512Half_s(ripple::Slice(
+                    jtx::genesis::AcceptHook.data(),
+                    jtx::genesis::AcceptHook.size()));
                 BEAST_EXPECT(
                     genesisHookArray.size() >= 3 &&
                     genesisHookArray[2].isFieldPresent(sfHookHash) &&

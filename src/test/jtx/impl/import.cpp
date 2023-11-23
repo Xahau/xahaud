@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,29 +17,55 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-
-#include <test/jtx/Account.h>
-#include <test/jtx/Env.h>
+#include <ripple/json/json_reader.h>
+#include <ripple/json/json_writer.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/import.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
+namespace import {
+
+// Import tx.
 Json::Value
-acctdelete(Account const& account, Account const& dest);
+import(jtx::Account const& account, Json::Value const& xpop)
+{
+    using namespace jtx;
+    Json::Value jv;
+    std::string strJson = Json::FastWriter().write(xpop);
+    jv[jss::TransactionType] = jss::Import;
+    jv[jss::Account] = account.human();
+    jv[jss::Blob] = strHex(strJson);
+    return jv;
+}
 
 void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+issuer::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfIssuer.jsonName] = issuer_.human();
+}
+
+Json::Value
+loadXpop(std::string content)
+{
+    // If the string is empty, return an empty Json::Value
+    if (content.empty())
+    {
+        std::cout << "JSON string was empty"
+                  << "\n";
+        return {};
+    }
+
+    Json::Value jsonValue;
+    Json::Reader reader;
+    reader.parse(content, jsonValue);
+    return jsonValue;
+}
+
+}  // namespace import
 
 }  // namespace jtx
-
 }  // namespace test
 }  // namespace ripple
-
-#endif

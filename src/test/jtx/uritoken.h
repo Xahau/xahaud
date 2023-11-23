@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,9 +17,10 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
+#define RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED
 
+#include <ripple/protocol/STAmount.h>
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
 
@@ -27,19 +28,61 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+namespace uritoken {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+uint256
+tokenid(jtx::Account const& account, std::string const& uri);
+
+Json::Value
+mint(jtx::Account const& account, std::string const& uri);
+
+/** Sets the optional Destination on a JTx. */
+class dest
+{
+private:
+    jtx::Account dest_;
+
+public:
+    explicit dest(jtx::Account const& dest) : dest_(dest)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+/** Sets the optional Amount on a JTx. */
+class amt
+{
+private:
+    STAmount amt_;
+
+public:
+    explicit amt(STAmount const& amt) : amt_(amt)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+Json::Value
+burn(jtx::Account const& account, std::string const& id);
+
+Json::Value
+sell(jtx::Account const& account, std::string const& id);
+
+Json::Value
+cancel(jtx::Account const& account, std::string const& id);
+
+Json::Value
+buy(jtx::Account const& account, std::string const& id);
+
+}  // namespace uritoken
 
 }  // namespace jtx
 
 }  // namespace test
 }  // namespace ripple
 
-#endif
+#endif  // RIPPLE_TEST_JTX_URITOKEN_H_INCLUDED

@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2023 XRPLF
+    Copyright (c) 2023 XRPL-Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -24,23 +24,6 @@ namespace test {
 
 class Invoke_test : public beast::unit_test::suite
 {
-    std::unique_ptr<Config>
-    makeNetworkConfig(uint32_t networkID)
-    {
-        using namespace jtx;
-        return envconfig([&](std::unique_ptr<Config> cfg) {
-            cfg->NETWORK_ID = networkID;
-            Section config;
-            config.append(
-                {"reference_fee = 10",
-                 "account_reserve = 1000000",
-                 "owner_reserve = 200000"});
-            auto setup = setup_FeeVote(config);
-            cfg->FEES = setup;
-            return cfg;
-        });
-    }
-
     static Json::Value
     invoke(jtx::Account const& account)
     {
@@ -78,7 +61,7 @@ class Invoke_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
@@ -104,7 +87,7 @@ class Invoke_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337)};
+        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
 
         auto const alice = Account("alice");
 
@@ -118,13 +101,14 @@ class Invoke_test : public beast::unit_test::suite
         {
             ripple::Blob blob;
             blob.resize(129 * 1024);
-            auto jv = invoke(alice);
-            jv[sfBlob.jsonName] = strHex(blob);
 
             XRPAmount const extraFee =
                 XRPAmount{static_cast<XRPAmount>(blob.size())};
 
-            env(jv, fee(10 + extraFee), ter(temMALFORMED));
+            env(invoke::invoke(alice),
+                invoke::blob(strHex(blob)),
+                fee(10 + extraFee),
+                ter(temMALFORMED));
         }
     }
 
@@ -142,31 +126,33 @@ class Invoke_test : public beast::unit_test::suite
         // temDISABLED
         {
             test::jtx::Env env{
-                *this, makeNetworkConfig(21337), features - featureHooks};
+                *this,
+                network::makeNetworkConfig(21337),
+                features - featureHooks};
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
             env.close();
 
-            env(invoke(alice), ter(temDISABLED));
+            env(invoke::invoke(alice), ter(temDISABLED));
         }
 
         // terNO_ACCOUNT
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
             auto const feeDrops = env.current()->fees().base;
 
             auto const alice = Account("alice");
             env.memoize(alice);
 
-            Json::Value tx = invoke(alice);
+            Json::Value tx = invoke::invoke(alice);
             tx[jss::Sequence] = 0;
             env(tx, fee(feeDrops), ter(terNO_ACCOUNT));
         }
 
         // tecNO_TARGET
         {
-            test::jtx::Env env{*this, makeNetworkConfig(21337)};
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
             auto const feeDrops = env.current()->fees().base;
 
             auto const alice = Account("alice");
@@ -176,9 +162,10 @@ class Invoke_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice);
             env.close();
 
-            Json::Value tx = invoke(alice);
-            tx[jss::Destination] = bob.human();
-            env(tx, fee(feeDrops), ter(tecNO_TARGET));
+            env(invoke::invoke(alice),
+                invoke::dest(bob),
+                fee(feeDrops),
+                ter(tecNO_TARGET));
         }
     }
 
@@ -190,7 +177,7 @@ class Invoke_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, makeNetworkConfig(21337), features};
+        test::jtx::Env env{*this, network::makeNetworkConfig(21337), features};
         auto const feeDrops = env.current()->fees().base;
 
         auto const alice = Account("alice");
@@ -202,36 +189,21 @@ class Invoke_test : public beast::unit_test::suite
         {
             ripple::Blob blob;
             blob.resize(128 * 1024);
-            auto jv = invoke(alice);
-            jv[sfBlob.jsonName] = strHex(blob);
             XRPAmount const extraFee =
                 XRPAmount{static_cast<XRPAmount>(blob.size())};
-            env(jv, fee(feeDrops + extraFee), ter(tesSUCCESS));
+            env(invoke::invoke(alice),
+                invoke::blob(strHex(blob)),
+                fee(feeDrops + extraFee),
+                ter(tesSUCCESS));
         }
 
         // No Destination
         {
-            env(invoke(alice), ter(tesSUCCESS));
+            env(invoke::invoke(alice), ter(tesSUCCESS));
         }
         // W/ Destination
         {
-            Json::Value tx = invoke(alice);
-            tx[jss::Destination] = bob.human();
-            env(tx, ter(tesSUCCESS));
-        }
-        // W/ Params
-        {
-            auto jv = invoke(alice);
-            jv[jss::HookParameters] = Json::Value{Json::arrayValue};
-            jv[jss::HookParameters][0U] = Json::Value{};
-            jv[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
-            jv[jss::HookParameters][0U][jss::HookParameter]
-              [jss::HookParameterName] = "CAFE";
-            jv[jss::HookParameters][0U][jss::HookParameter]
-              [jss::HookParameterValue] = "";
-
-            XRPAmount extraFee = calcParamFee(jv);
-            env(jv, fee(feeDrops + extraFee), ter(tesSUCCESS));
+            env(invoke::invoke(alice), invoke::dest(bob), ter(tesSUCCESS));
         }
     }
 
@@ -249,8 +221,12 @@ class Invoke_test : public beast::unit_test::suite
         std::uint32_t const aliceSeq{env.seq(alice)};
         env.require(owners(alice, 10));
 
-        env(invoke(alice), ticket::use(aliceTicketSeq++), ter(tesSUCCESS));
-        env(invoke(alice), ticket::use(aliceTicketSeq++), ter(tesSUCCESS));
+        env(invoke::invoke(alice),
+            ticket::use(aliceTicketSeq++),
+            ter(tesSUCCESS));
+        env(invoke::invoke(alice),
+            ticket::use(aliceTicketSeq++),
+            ter(tesSUCCESS));
 
         env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
         BEAST_EXPECT(env.seq(alice) == aliceSeq);
