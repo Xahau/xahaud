@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2023 XRPLF
+    Copyright (c) 2023 XRPL-Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -105,7 +105,10 @@ class Invoke_test : public beast::unit_test::suite
             XRPAmount const extraFee =
                 XRPAmount{static_cast<XRPAmount>(blob.size())};
 
-            env(invoke::invoke(alice), invoke::blob(strHex(blob)), fee(10 + extraFee), ter(temMALFORMED));
+            env(invoke::invoke(alice),
+                invoke::blob(strHex(blob)),
+                fee(10 + extraFee),
+                ter(temMALFORMED));
         }
     }
 
@@ -123,7 +126,9 @@ class Invoke_test : public beast::unit_test::suite
         // temDISABLED
         {
             test::jtx::Env env{
-                *this, network::makeNetworkConfig(21337), features - featureHooks};
+                *this,
+                network::makeNetworkConfig(21337),
+                features - featureHooks};
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
@@ -157,7 +162,10 @@ class Invoke_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice);
             env.close();
 
-            env(invoke::invoke(alice), invoke::dest(bob), fee(feeDrops), ter(tecNO_TARGET));
+            env(invoke::invoke(alice),
+                invoke::dest(bob),
+                fee(feeDrops),
+                ter(tecNO_TARGET));
         }
     }
 
@@ -181,8 +189,12 @@ class Invoke_test : public beast::unit_test::suite
         {
             ripple::Blob blob;
             blob.resize(128 * 1024);
-            XRPAmount const extraFee = XRPAmount{static_cast<XRPAmount>(blob.size())};
-            env(invoke::invoke(alice), invoke::blob(strHex(blob)), fee(feeDrops + extraFee), ter(tesSUCCESS));
+            XRPAmount const extraFee =
+                XRPAmount{static_cast<XRPAmount>(blob.size())};
+            env(invoke::invoke(alice),
+                invoke::blob(strHex(blob)),
+                fee(feeDrops + extraFee),
+                ter(tesSUCCESS));
         }
 
         // No Destination
@@ -209,8 +221,12 @@ class Invoke_test : public beast::unit_test::suite
         std::uint32_t const aliceSeq{env.seq(alice)};
         env.require(owners(alice, 10));
 
-        env(invoke::invoke(alice), ticket::use(aliceTicketSeq++), ter(tesSUCCESS));
-        env(invoke::invoke(alice), ticket::use(aliceTicketSeq++), ter(tesSUCCESS));
+        env(invoke::invoke(alice),
+            ticket::use(aliceTicketSeq++),
+            ter(tesSUCCESS));
+        env(invoke::invoke(alice),
+            ticket::use(aliceTicketSeq++),
+            ter(tesSUCCESS));
 
         env.require(tickets(alice, env.seq(alice) - aliceTicketSeq));
         BEAST_EXPECT(env.seq(alice) == aliceSeq);

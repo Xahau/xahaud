@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2017 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
     copyright notice and this permission notice appear in all copies.
@@ -40,7 +40,8 @@ struct GenesisMint_test : public beast::unit_test::suite
             env.fund(XRP(10000), alice, bob);
             env.close();
 
-            env(genesis::mint(env.master, {genesis::GenMint(bob.id(), XRP(123))}),
+            env(genesis::mint(
+                    env.master, {genesis::GenMint(bob.id(), XRP(123))}),
                 ter(temDISABLED));
         }
 
@@ -53,7 +54,8 @@ struct GenesisMint_test : public beast::unit_test::suite
             env.fund(XRP(10000), alice, bob);
             env.close();
 
-            env(genesis::mint(env.master, {{bob.id(), XRP(123)}}), ter(temDISABLED));
+            env(genesis::mint(env.master, {{bob.id(), XRP(123)}}),
+                ter(temDISABLED));
         }
     }
 
@@ -215,7 +217,8 @@ struct GenesisMint_test : public beast::unit_test::suite
                 acc, XRP(i + 1).value(), std::nullopt, std::nullopt);
         }
 
-        env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)), fee(XRP(1)));
+        env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)),
+            fee(XRP(1)));
 
         env.close();
         env.close();
@@ -227,7 +230,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         }
 
         // again, and check the amounts increased x2
-        env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)), fee(XRP(1)));
+        env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)),
+            fee(XRP(1)));
 
         env.close();
         env.close();
@@ -278,7 +282,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         env(invoke::invoke(
                 invoker,
                 env.master,
-                genesis::makeBlob({{edward.id(), XRP(0), std::nullopt, std::nullopt}})),
+                genesis::makeBlob(
+                    {{edward.id(), XRP(0), std::nullopt, std::nullopt}})),
             fee(XRP(1)));
 
         // missing an amount
@@ -566,7 +571,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob);
         env.close();
 
-        env(genesis::mint(env.master, {genesis::GenMint(bob.id(), XRP(123))}), ter(temMALFORMED));
+        env(genesis::mint(env.master, {genesis::GenMint(bob.id(), XRP(123))}),
+            ter(temMALFORMED));
 
         auto const le = env.le(keylet::account(bob.id()));
         BEAST_EXPECT(
@@ -587,7 +593,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob);
         env.close();
 
-        env(genesis::mint(alice, {genesis::GenMint(bob.id(), XRP(123))}), ter(temMALFORMED));
+        env(genesis::mint(alice, {genesis::GenMint(bob.id(), XRP(123))}),
+            ter(temMALFORMED));
 
         auto const le = env.le(keylet::account(bob.id()));
         BEAST_EXPECT(
