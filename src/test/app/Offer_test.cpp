@@ -5218,7 +5218,7 @@ public:
                     ter(temBAD_SEQUENCE));
                 env.close();
                 auto const offers = sortedOffersOnAccount(env, alice);
-                BEAST_EXPECT(offers.size() == 2);
+                BEAST_EXPECT(offers.size() == 1);
             }
 
             // no offer id or offer sequence
@@ -5232,7 +5232,7 @@ public:
                 env(jv, ter(temMALFORMED));
                 env.close();
                 auto const offers = sortedOffersOnAccount(env, alice);
-                BEAST_EXPECT(offers.size() == 3);
+                BEAST_EXPECT(offers.size() == 2);
             }
 
             // both offer id and offer sequence
@@ -5247,7 +5247,7 @@ public:
                     ter(tesSUCCESS));
                 env.close();
                 auto const offers = sortedOffersOnAccount(env, alice);
-                BEAST_EXPECT(offers.size() == 3);
+                BEAST_EXPECT(offers.size() == 2);
             }
         }
     }
