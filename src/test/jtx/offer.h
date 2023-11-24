@@ -44,10 +44,10 @@ offer_cancel(Account const& account, std::uint32_t offerSeq);
 class offer_id
 {
 private:
-    uint256 offer_id_;
+    uint256 value_;
 
 public:
-    explicit offer_id(uint256 const& offer_id) : offer_id_(to_string(offer_id))
+    explicit offer_id(uint256 const& offer_id) : value_(offer_id)
     {
     }
 

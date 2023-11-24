@@ -54,7 +54,7 @@ offer_cancel(Account const& account, std::uint32_t offerSeq)
 void
 offer_id::operator()(Env& env, JTx& jt) const
 {
-    jt.jv[sfOfferID.jsonName] = offer_id;
+    jt.jv[sfOfferID.jsonName] = to_string(value_);
 }
 
 }  // namespace jtx
