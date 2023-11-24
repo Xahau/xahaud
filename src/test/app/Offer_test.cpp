@@ -5213,7 +5213,9 @@ public:
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
-                env(offer_cancel(alice, 0), offer_id(offerId), ter(temBAD_SEQUENCE));
+                env(offer_cancel(alice, 0),
+                    offer_id(offerId),
+                    ter(temBAD_SEQUENCE));
                 env.close();
                 auto const offers = sortedOffersOnAccount(env, alice);
                 BEAST_EXPECT(offers.size() == 2);
@@ -5240,7 +5242,9 @@ public:
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
-                env(offer_cancel(alice, offerSeqId), offer_id(offerId), ter(tesSUCCESS));
+                env(offer_cancel(alice, offerSeqId),
+                    offer_id(offerId),
+                    ter(tesSUCCESS));
                 env.close();
                 auto const offers = sortedOffersOnAccount(env, alice);
                 BEAST_EXPECT(offers.size() == 3);
