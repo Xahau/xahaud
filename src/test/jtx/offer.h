@@ -40,6 +40,21 @@ offer(
 Json::Value
 offer_cancel(Account const& account, std::uint32_t offerSeq);
 
+/** Sets the optional "OfferID" on a JTx. */
+class offer_id
+{
+private:
+    uint256 offer_id_;
+
+public:
+    explicit offer_id(uint256 const& offer_id) : offer_id_(to_string(offer_id))
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
 }  // namespace jtx
 }  // namespace test
 }  // namespace ripple
