@@ -122,11 +122,10 @@ public:
 class escrow_id
 {
 private:
-    uint256 escrow_id_;
+    uint256 value_;
 
 public:
-    explicit escrow_id(uint256 const& escrow_id)
-        : escrow_id_(to_string(escrow_id))
+    explicit escrow_id(uint256 const& escrow_id) : value_(escrow_id)
     {
     }
 

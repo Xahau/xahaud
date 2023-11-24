@@ -4269,13 +4269,15 @@ struct Escrow_test : public beast::unit_test::suite
         // EscrowCancel - EscrowID
         {
             uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow(alice, bob, USD(1000)),
-                finish_time(env.now() + 1s),
-                cancel_time(env.now() + 2s),
+            env(escrow::create(alice, bob, USD(1000)),
+                escrow::finish_time(env.now() + 1s),
+                escrow::cancel_time(env.now() + 2s),
                 fee(1500));
             env.close();
 
-            env(cancel(bob, alice, 0), escrow::escrow_id(escrowId), fee(1500));
+            env(escrow::cancel(bob, alice, 0),
+                escrow::escrow_id(escrowId),
+                fee(1500));
             env.close();
 
             auto const escrowLE = env.le(keylet::unchecked(escrowId));
@@ -4285,9 +4287,9 @@ struct Escrow_test : public beast::unit_test::suite
         // EscrowCancel - no EscrowID or OfferSequence
         {
             uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow(alice, bob, USD(1000)),
-                finish_time(env.now() + 1s),
-                cancel_time(env.now() + 2s),
+            env(escrow::create(alice, bob, USD(1000)),
+                escrow::finish_time(env.now() + 1s),
+                escrow::cancel_time(env.now() + 2s),
                 fee(1500));
             env.close();
 
@@ -4306,13 +4308,13 @@ struct Escrow_test : public beast::unit_test::suite
         // EscrowCancel - EscrowID & OfferSequence
         {
             uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow(alice, bob, USD(1000)),
-                finish_time(env.now() + 1s),
-                cancel_time(env.now() + 2s),
+            env(escrow::create(alice, bob, USD(1000)),
+                escrow::finish_time(env.now() + 1s),
+                escrow::cancel_time(env.now() + 2s),
                 fee(1500));
             env.close();
 
-            env(cancel(bob, alice, 0),
+            env(escrow::cancel(bob, alice, 0),
                 escrow::escrow_id(escrowId),
                 fee(1500),
                 ter(tesSUCCESS));
@@ -4325,12 +4327,14 @@ struct Escrow_test : public beast::unit_test::suite
         // EscrowFinish - EscrowID
         {
             uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow(alice, bob, USD(1000)),
-                finish_time(env.now() + 1s),
+            env(escrow::create(alice, bob, USD(1000)),
+                escrow::finish_time(env.now() + 1s),
                 fee(1500));
             env.close(5s);
 
-            env(finish(bob, alice, 0), escrow::escrow_id(escrowId), fee(1500));
+            env(escrow::finish(bob, alice, 0),
+                escrow::escrow_id(escrowId),
+                fee(1500));
             env.close();
 
             auto const escrowLE = env.le(keylet::unchecked(escrowId));
@@ -4340,9 +4344,9 @@ struct Escrow_test : public beast::unit_test::suite
         // EscrowFinish - no EscrowID or OfferSequence
         {
             uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow(alice, bob, USD(1000)),
-                finish_time(env.now() + 1s),
-                cancel_time(env.now() + 2s),
+            env(escrow::create(alice, bob, USD(1000)),
+                escrow::finish_time(env.now() + 1s),
+                escrow::cancel_time(env.now() + 2s),
                 fee(1500));
             env.close();
 
@@ -4361,12 +4365,12 @@ struct Escrow_test : public beast::unit_test::suite
         // EscrowFinish- EscrowID & OfferSequence
         {
             uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow(alice, bob, USD(1000)),
-                finish_time(env.now() + 1s),
+            env(escrow::create(alice, bob, USD(1000)),
+                escrow::finish_time(env.now() + 1s),
                 fee(1500));
             env.close(5s);
 
-            env(finish(bob, alice, 0),
+            env(escrow::finish(bob, alice, 0),
                 escrow::escrow_id(escrowId),
                 fee(1500),
                 ter(tesSUCCESS));

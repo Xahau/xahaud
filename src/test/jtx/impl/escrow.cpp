@@ -53,7 +53,7 @@ fulfillment::operator()(Env& env, JTx& jt) const
 void
 escrow_id::operator()(Env& env, JTx& jt) const
 {
-    jt.jv[sfEscrowID.jsonName] = escrow_id;
+    jt.jv[sfEscrowID.jsonName] = to_string(value_);
 }
 
 Json::Value
