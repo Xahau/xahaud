@@ -50,6 +50,12 @@ fulfillment::operator()(Env& env, JTx& jt) const
     jt.jv[sfFulfillment.jsonName] = value_;
 }
 
+void
+escrow_id::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfEscrowID.jsonName] = escrow_id;
+}
+
 Json::Value
 create(
     jtx::Account const& account,
