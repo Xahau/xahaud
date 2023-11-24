@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/basics/StringUtilities.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx/network.h>
@@ -44,6 +45,43 @@ makeNetworkConfig(
              "owner_reserve = " + o_res});
         auto setup = setup_FeeVote(config);
         cfg->FEES = setup;
+        return cfg;
+    });
+}
+
+std::unique_ptr<Config>
+makeNetworkVLConfig(
+    uint32_t networkID,
+    std::string fee,
+    std::string a_res,
+    std::string o_res,
+    std::vector<std::string> keys)
+{
+    using namespace jtx;
+    return envconfig([&](std::unique_ptr<Config> cfg) {
+        cfg->NETWORK_ID = networkID;
+        Section config;
+        config.append(
+            {"reference_fee = " + fee,
+             "account_reserve = " + a_res,
+             "owner_reserve = " + o_res});
+        auto setup = setup_FeeVote(config);
+        cfg->FEES = setup;
+
+        for (auto const& strPk : keys)
+        {
+            auto pkHex = strUnHex(strPk);
+            if (!pkHex)
+                Throw<std::runtime_error>(
+                    "Import VL Key '" + strPk + "' was not valid hex.");
+
+            auto const pkType = publicKeyType(makeSlice(*pkHex));
+            if (!pkType)
+                Throw<std::runtime_error>(
+                    "Import VL Key '" + strPk + "' was not a valid key type.");
+
+            cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
+        }
         return cfg;
     });
 }

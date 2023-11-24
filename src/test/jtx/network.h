@@ -37,6 +37,14 @@ makeNetworkConfig(
     std::string a_res,
     std::string o_res);
 
+std::unique_ptr<Config>
+makeNetworkVLConfig(
+    uint32_t networkID,
+    std::string fee,
+    std::string a_res,
+    std::string o_res,
+    std::vector<std::string> keys);
+
 }  // namespace network
 
 }  // namespace jtx

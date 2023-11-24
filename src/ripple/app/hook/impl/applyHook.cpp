@@ -300,14 +300,15 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            if (!tx.isFieldPresent(sfOwner) ||
-                !tx.isFieldPresent(sfOfferSequence) ||
+            if (!tx.isFieldPresent(sfOwner))
+                return {};
+
+            if (!tx.isFieldPresent(sfOfferSequence) &&
                 !tx.isFieldPresent(sfEscrowID))
                 return {};
 
-            std::optional<uint256> escrowID = tx.getFieldH256(sfEscrowID);
-            std::optional<std::uint32_t> offerSeq =
-                tx.getFieldU32(sfOfferSequence);
+            std::optional<uint256> escrowID = tx[~sfEscrowID];
+            std::optional<std::uint32_t> offerSeq = tx[~sfOfferSequence];
 
             Keylet k = escrowID
                 ? Keylet(ltESCROW, *escrowID)
