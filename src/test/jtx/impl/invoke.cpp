@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,29 +17,60 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-
-#include <test/jtx/Account.h>
-#include <test/jtx/Env.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/invoke.h>
 
 namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
+namespace invoke {
+
+// Invoke a tx.
+
 Json::Value
-acctdelete(Account const& account, Account const& dest);
+invoke(jtx::Account const& account)
+{
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::Invoke;
+    jv[jss::Account] = account.human();
+    return jv;
+}
+
+Json::Value
+invoke(
+    jtx::Account const& account,
+    std::optional<jtx::Account> const& dest,
+    std::optional<std::string> const& blob)
+{
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::Invoke;
+    jv[jss::Account] = account.human();
+    if (dest)
+        jv[jss::Destination] = dest->human();
+
+    if (blob.has_value())
+        jv[jss::Blob] = blob.value();
+
+    return jv;
+}
 
 void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+blob::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfBlob.jsonName] = value_;
+}
+
+void
+dest::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfDestination.jsonName] = dest_.human();
+}
+
+}  // namespace invoke
 
 }  // namespace jtx
-
 }  // namespace test
 }  // namespace ripple
-
-#endif

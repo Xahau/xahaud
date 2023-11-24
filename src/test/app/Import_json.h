@@ -21,7 +21,7 @@ public:
     static std::string unl_seq_2_1;
 };
 
-std::string ImportTCAccountSet::min = R"json({
+inline std::string ImportTCAccountSet::min = R"json({
 "ledger": {
     "acroot": "97A33800660C87FB79EA1E7F998B6E0F864FBB8C36E1828D5F44E5AE2C7B0832",
     "close": 742337421,
@@ -62,7 +62,7 @@ std::string ImportTCAccountSet::min = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::max = R"json({
+inline std::string ImportTCAccountSet::max = R"json({
 "ledger": {
     "acroot": "AD9748D06C5CFD7E48271985A7CAAE3CA4E4E8791AAA2CD0D4B72150808A2288",
     "close": 748341281,
@@ -103,7 +103,7 @@ std::string ImportTCAccountSet::max = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::w_seed = R"json({
+inline std::string ImportTCAccountSet::w_seed = R"json({
 "ledger": {
     "acroot": "8D612AAAEA2C875978527851BB0727CE64B21D792E91B791FEC769C01410B405",
     "close": 743212280,
@@ -196,7 +196,7 @@ std::string ImportTCAccountSet::w_seed = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::w_regular_key = R"json({
+inline std::string ImportTCAccountSet::w_regular_key = R"json({
 "ledger": {
     "acroot": "9F5FE56CF5184831882F49386A0BC4458D787A28BD7CE8A1643D8F906647ED85",
     "close": 743211212,
@@ -237,7 +237,7 @@ std::string ImportTCAccountSet::w_regular_key = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::w_signers = R"json({
+inline std::string ImportTCAccountSet::w_signers = R"json({
 "ledger": {
     "acroot": "F2AA543F4F1D53ECE1B6DC8BAE3C97E201F9403E324C41AB377A0F21BF78A987",
     "close": 742912362,
@@ -278,7 +278,7 @@ std::string ImportTCAccountSet::w_signers = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::w_flags = R"json({
+inline std::string ImportTCAccountSet::w_flags = R"json({
 "ledger": {
     "acroot": "54096307B907CB442BD9C1DB57EB2171927E157714462BB72B4C2FEBD25BF73A",
     "close": 742411861,
@@ -319,7 +319,7 @@ std::string ImportTCAccountSet::w_flags = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::unl_seq_1_1 = R"json({
+inline std::string ImportTCAccountSet::unl_seq_1_1 = R"json({
 "ledger": {
     "acroot": "A0A93026933F344C144231B6AA775A19F37CB1D11D7BC84D79934E0348EF7CF4",
     "close": 748090601,
@@ -421,7 +421,7 @@ std::string ImportTCAccountSet::unl_seq_1_1 = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::unl_seq_1_2 = R"json({
+inline std::string ImportTCAccountSet::unl_seq_1_2 = R"json({
 "ledger": {
     "acroot": "BCD3709EE7C290CE7766CB0C13E7CEDDE97B9C4452DF995ED22D6B86B85C5F98",
     "close": 748090611,
@@ -462,7 +462,7 @@ std::string ImportTCAccountSet::unl_seq_1_2 = R"json({
     }
 }
 })json";
-std::string ImportTCAccountSet::unl_seq_2_1 = R"json({
+inline std::string ImportTCAccountSet::unl_seq_2_1 = R"json({
 "ledger": {
     "acroot": "50ED9A8EE14A78437A063A529D6DFBB821B39A75D429967DE5A38EAEE09759F1",
     "close": 748091081,
@@ -518,7 +518,7 @@ public:
     static std::string w_signers_empty;
 };
 
-std::string ImportTCSetRegularKey::w_seed_bad_fee = R"json({
+inline std::string ImportTCSetRegularKey::w_seed_bad_fee = R"json({
 "ledger": {
     "acroot": "64F75A08037D9F8ED8A103893401EB2AD726E7D6AAC3EAA249005916A9354892",
     "close": 743008501,
@@ -579,7 +579,7 @@ std::string ImportTCSetRegularKey::w_seed_bad_fee = R"json({
     }
 }
 })json";
-std::string ImportTCSetRegularKey::w_seed_zero = R"json({
+inline std::string ImportTCSetRegularKey::w_seed_zero = R"json({
 "ledger": {
     "acroot": "64F75A08037D9F8ED8A103893401EB2AD726E7D6AAC3EAA249005916A9354892",
     "close": 743008501,
@@ -640,7 +640,7 @@ std::string ImportTCSetRegularKey::w_seed_zero = R"json({
     }
 }
 })json";
-std::string ImportTCSetRegularKey::w_seed = R"json({
+inline std::string ImportTCSetRegularKey::w_seed = R"json({
 "ledger": {
     "acroot": "1C4B7BA1F41E8CE7990AAAE112E173837F30D0B2F54B75E43BD3713C75F39518",
     "close": 743235971,
@@ -681,7 +681,7 @@ std::string ImportTCSetRegularKey::w_seed = R"json({
     }
 }
 })json";
-std::string ImportTCSetRegularKey::w_seed_empty = R"json({
+inline std::string ImportTCSetRegularKey::w_seed_empty = R"json({
 "ledger": {
     "acroot": "84E97969C15407AF9ADFA4E54086F4AB490557950C198B51B6AD81A4EEC1ED01",
     "close": 742952510,
@@ -722,7 +722,7 @@ std::string ImportTCSetRegularKey::w_seed_empty = R"json({
     }
 }
 })json";
-std::string ImportTCSetRegularKey::w_regular_key_empty = R"json({
+inline std::string ImportTCSetRegularKey::w_regular_key_empty = R"json({
 "ledger": {
     "acroot": "D9EE30E9023D8AA0C6313B3B333DE18AA78B44EB47CB38D66D5F284C4B25DD23",
     "close": 742955742,
@@ -763,7 +763,7 @@ std::string ImportTCSetRegularKey::w_regular_key_empty = R"json({
     }
 }
 })json";
-std::string ImportTCSetRegularKey::w_signers_empty = R"json({
+inline std::string ImportTCSetRegularKey::w_signers_empty = R"json({
 "ledger": {
     "acroot": "7F6338E21FF1E6AE92C5C60358DE3ECC08B12AED298093DFC1DA6966FDD8D196",
     "close": 742956561,
@@ -804,7 +804,7 @@ std::string ImportTCSetRegularKey::w_signers_empty = R"json({
     }
 }
 })json";
-std::string ImportTCSetRegularKey::w_regular_key = R"json({
+inline std::string ImportTCSetRegularKey::w_regular_key = R"json({
 "ledger": {
     "acroot": "DB4ABE881FD4559A2332E0F52A77C88F5451E1DB437628C059547578E7329DEE",
     "close": 742942750,
@@ -845,7 +845,7 @@ std::string ImportTCSetRegularKey::w_regular_key = R"json({
     }
 }
 })json";
-std::string ImportTCSetRegularKey::w_signers = R"json({
+inline std::string ImportTCSetRegularKey::w_signers = R"json({
 "ledger": {
     "acroot": "286B589185ABF9432405869E0FBCA96CAA64F57757206951A1596521A5BBAA02",
     "close": 742945892,
@@ -899,7 +899,7 @@ public:
     static std::string w_signers_empty;
 };
 
-std::string ImportTCSignersListSet::w_seed_bad_fee = R"json({
+inline std::string ImportTCSignersListSet::w_seed_bad_fee = R"json({
 "ledger": {
     "acroot": "64F75A08037D9F8ED8A103893401EB2AD726E7D6AAC3EAA249005916A9354892",
     "close": 743008501,
@@ -960,7 +960,7 @@ std::string ImportTCSignersListSet::w_seed_bad_fee = R"json({
     }
 }
 })json";
-std::string ImportTCSignersListSet::w_seed = R"json({
+inline std::string ImportTCSignersListSet::w_seed = R"json({
 "ledger": {
     "acroot": "8112FF5F3FEEA34894A16CCCD64A24D552521F2E699780A587A9E6F5F5117CE5",
     "close": 743008510,
@@ -1001,7 +1001,7 @@ std::string ImportTCSignersListSet::w_seed = R"json({
     }
 }
 })json";
-std::string ImportTCSignersListSet::w_regular_key = R"json({
+inline std::string ImportTCSignersListSet::w_regular_key = R"json({
 "ledger": {
     "acroot": "2A25CA219781A3144C72FD5FB6EB62763214E050050DA6176624A046C51EECBD",
     "close": 743015350,
@@ -1042,7 +1042,7 @@ std::string ImportTCSignersListSet::w_regular_key = R"json({
     }
 }
 })json";
-std::string ImportTCSignersListSet::w_signers = R"json({
+inline std::string ImportTCSignersListSet::w_signers = R"json({
 "ledger": {
     "acroot": "BC35E65B52724CF258BDAC8B8E0D3B9CA0F012F5B243F6AAD1B671EDABD5188E",
     "close": 745594953,
@@ -1083,7 +1083,7 @@ std::string ImportTCSignersListSet::w_signers = R"json({
     }
 }
 })json";
-std::string ImportTCSignersListSet::w_seed_empty = R"json({
+inline std::string ImportTCSignersListSet::w_seed_empty = R"json({
 "ledger": {
     "acroot": "ECCAFDE52A6D5F1E36EB82EAA5247FF1D8ADE51FCF1ED0842850193018A510F7",
     "close": 743056482,
@@ -1124,7 +1124,7 @@ std::string ImportTCSignersListSet::w_seed_empty = R"json({
     }
 }
 })json";
-std::string ImportTCSignersListSet::w_regular_key_empty = R"json({
+inline std::string ImportTCSignersListSet::w_regular_key_empty = R"json({
 "ledger": {
     "acroot": "E222F46D5F35C79FDA3BB98973E2024EF9F6FA7B26471CC9CEF2CE033FA0E6E7",
     "close": 743169800,
@@ -1165,7 +1165,7 @@ std::string ImportTCSignersListSet::w_regular_key_empty = R"json({
     }
 }
 })json";
-std::string ImportTCSignersListSet::w_signers_empty = R"json({
+inline std::string ImportTCSignersListSet::w_signers_empty = R"json({
 "ledger": {
     "acroot": "987438A87AD998B7D7ED04A280FB5414C76E8475D621A55FB8463F15CEEEAD49",
     "close": 743172592,
@@ -1213,7 +1213,7 @@ public:
     static std::string base_genesis;
 };
 
-std::string ImportTCHalving::base_genesis = R"json({
+inline std::string ImportTCHalving::base_genesis = R"json({
   "ledger": {
     "accepted": true,
     "accountState": [

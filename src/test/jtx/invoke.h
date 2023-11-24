@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
+#define RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
 
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
@@ -27,19 +27,53 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+/** Invoke operations. */
+namespace invoke {
 
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+Json::Value
+invoke(jtx::Account const& account);
+
+Json::Value
+invoke(
+    jtx::Account const& account,
+    std::optional<jtx::Account> const& dest,
+    std::optional<std::string> const& blob);
+
+/** Set the optional "Blob" on a JTx */
+class blob
+{
+private:
+    std::string value_;
+
+public:
+    explicit blob(std::string const& value) : value_(value)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+/** Sets the optional "Destination" on a JTx. */
+class dest
+{
+private:
+    jtx::Account dest_;
+
+public:
+    explicit dest(jtx::Account const& dest) : dest_(dest)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+}  // namespace invoke
 
 }  // namespace jtx
 
 }  // namespace test
 }  // namespace ripple
 
-#endif
+#endif  // RIPPLE_TEST_JTX_INVOKE_H_INCLUDED
