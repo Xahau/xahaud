@@ -200,8 +200,10 @@ class NegativeUNL_test : public beast::unit_test::suite
             auto txReEnable_1 = unl::createTx(false, l->seq(), publicKeys[1]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_0, false));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, false));
             accum.apply(*l);
             BEAST_EXPECT(unl::negUnlSizeTest(l, 0, false, false));
         }
@@ -224,9 +226,12 @@ class NegativeUNL_test : public beast::unit_test::suite
             // can apply 1 and only 1 ToDisable Tx,
             // cannot apply ToReEnable Tx, since negative UNL is empty
             OpenView accum(&*l);
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_0, true));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_1, false));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_2, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_2, false));
             accum.apply(*l);
             auto good_size = unl::negUnlSizeTest(l, 0, true, false);
             BEAST_EXPECT(good_size);
@@ -270,11 +275,16 @@ class NegativeUNL_test : public beast::unit_test::suite
             auto txReEnable_2 = unl::createTx(false, l->seq(), publicKeys[2]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_0, false));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_1, true));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_1, false));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_2, false));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_1, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_2, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_0, true));
             accum.apply(*l);
             good_size = unl::negUnlSizeTest(l, 1, true, true);
             BEAST_EXPECT(good_size);
@@ -318,7 +328,8 @@ class NegativeUNL_test : public beast::unit_test::suite
             auto txDisable_0 = unl::createTx(true, l->seq(), publicKeys[0]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, true));
             accum.apply(*l);
             good_size = unl::negUnlSizeTest(l, 1, true, false);
             BEAST_EXPECT(good_size);
@@ -366,9 +377,12 @@ class NegativeUNL_test : public beast::unit_test::suite
             auto txReEnable_1 = unl::createTx(false, l->seq(), publicKeys[1]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_0, true));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_1, false));
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_0, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, false));
             accum.apply(*l);
             good_size = unl::negUnlSizeTest(l, 2, false, true);
             BEAST_EXPECT(good_size);
@@ -413,7 +427,8 @@ class NegativeUNL_test : public beast::unit_test::suite
             auto txReEnable_1 = unl::createTx(false, l->seq(), publicKeys[1]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(unl::applyAndTestResult(env, accum, txReEnable_1, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, true));
             accum.apply(*l);
             good_size = unl::negUnlSizeTest(l, 1, false, true);
             BEAST_EXPECT(good_size);

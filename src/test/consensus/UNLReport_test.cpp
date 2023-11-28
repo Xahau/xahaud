@@ -296,7 +296,10 @@ class UNLReport_test : public beast::unit_test::suite
         // telIMPORT_VL_KEY_NOT_RECOGNISED
         {
             test::jtx::Env env{
-                *this, jtx::network::makeNetworkVLConfig(21337, keys), features, nullptr};
+                *this,
+                jtx::network::makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr};
 
             auto l = std::make_shared<Ledger>(
                 create_genesis,
@@ -325,7 +328,10 @@ class UNLReport_test : public beast::unit_test::suite
         // SUCCESS
         {
             test::jtx::Env env{
-                *this, jtx::network::makeNetworkVLConfig(21337, keys), features, nullptr};
+                *this,
+                jtx::network::makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr};
 
             auto l = std::make_shared<Ledger>(
                 create_genesis,
@@ -364,7 +370,10 @@ class UNLReport_test : public beast::unit_test::suite
         using namespace jtx;
 
         test::jtx::Env env{
-            *this, jtx::network::makeNetworkVLConfig(21337, keys), features, nullptr};
+            *this,
+            jtx::network::makeNetworkVLConfig(21337, keys),
+            features,
+            nullptr};
 
         std::vector<PublicKey> ivlKeys;
         for (auto const& strPk : _ivlKeys)
@@ -625,7 +634,8 @@ struct URNetworkHistory
 
     URNetworkHistory(beast::unit_test::suite& suite, Parameter const& p)
         : env(suite,
-              p.withVL ? jtx::network::makeNetworkVLConfig(21337, keys) : jtx::envconfig(),
+              p.withVL ? jtx::network::makeNetworkVLConfig(21337, keys)
+                       : jtx::envconfig(),
               jtx::supported_amendments() | featureNegativeUNL)
         , param(p)
         , validations(env.app().getValidations())
@@ -805,7 +815,8 @@ voteAndCheckUNLR(
     vote.doVoting(
         history.lastLedger(), history.UNLKeySet, history.validations, txSet);
 
-    return countUNLRTx(txSet) == expectReport && unl::countTx(txSet) >= expectModify;
+    return countUNLRTx(txSet) == expectReport &&
+        unl::countTx(txSet) >= expectModify;
 }
 
 /*

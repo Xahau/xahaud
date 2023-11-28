@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <ripple/app/tx/apply.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx/unl.h>
-#include <ripple/app/tx/apply.h>
 
 namespace ripple {
 namespace test {
