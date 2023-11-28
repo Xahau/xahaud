@@ -645,9 +645,10 @@ int64_t hook(uint32_t r)
                         i == 1 ? 'D' :
                         i < 12 ? i - 2 :
                         i - 12;
+                    previous_member[3] = l;
 
                     uint8_t vote_key[32];
-                    if (state(SBUF(vote_key), SBUF(previous_member)) == 32)
+                    if (state(vote_key + 12, 20, SBUF(previous_member)) == 20)
                     {
                         uint8_t vote_count = 0;
 
@@ -655,6 +656,7 @@ int64_t hook(uint32_t r)
                         vote_key[0] = 'C';
                         vote_key[1] = previous_member[1];
                         vote_key[2] = previous_member[2];
+                        vote_key[3] = l;
                         if (state(&vote_count, 1, SBUF(vote_key)) == 1)
                         {
                             // if we're down to 1 vote then delete state
