@@ -88,6 +88,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
                 return {};
 
+            // ut->getFlags() & lsfBurnable
+
             auto const owner = ut->getAccountID(sfOwner);
             auto const issuer = ut->getAccountID(sfIssuer);
 
@@ -126,7 +128,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             auto const owner = ut->getAccountID(sfOwner);
 
-            if (owner != tx.getAccountID(sfAccount))
+            if (*otxnAcc != owner)
             {
                 // current owner is a strong TSH
                 ADD_TSH(owner, canRollback);
@@ -134,11 +136,36 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             // issuer is also a strong TSH if the burnable flag is set
             auto const issuer = ut->getAccountID(sfIssuer);
-            if (issuer != owner)
+            if (*otxnAcc != issuer)
                 ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
 
             break;
         }
+
+        case ttURITOKEN_CANCEL_SELL_OFFER: {
+            Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
+            if (!rv.exists(id))
+                return {};
+
+            auto const ut = rv.read(id);
+            if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                return {};
+
+            // destination is weak tsh
+            if (ut->isFieldPresent(sfDestination))
+                ADD_TSH(ut->getAccountID(sfDestination), canRollback);
+
+            break;
+        }
+
+        case ttURITOKEN_MINT: {
+            // destination is a weak tsh
+            if (tx.isFieldPresent(sfDestination))
+                ADD_TSH(tx.getAccountID(sfDestination), canRollback);
+
+            break;
+        }
+        
 
         case ttURITOKEN_CREATE_SELL_OFFER: {
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
@@ -250,8 +277,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         // self transactions
-        case ttURITOKEN_MINT:
-        case ttURITOKEN_CANCEL_SELL_OFFER:
         case ttACCOUNT_SET:
         case ttOFFER_CANCEL:
         case ttTICKET_CREATE:
@@ -343,8 +368,20 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!chan)
                 return {};
 
-            ADD_TSH(chan->getAccountID(sfAccount), true);
-            ADD_TSH(chan->getAccountID(sfDestination), canRollback);
+            // ADD_TSH(chan->getAccountID(sfAccount), true);
+            // ADD_TSH(chan->getAccountID(sfDestination), canRollback);
+
+            if (otxnAcc == chan->getAccountID(sfAccount))
+            {
+                // ADD_TSH(escrow->getAccountID(sfAccount), true);
+                ADD_TSH(chan->getAccountID(sfDestination), canRollback);
+            }
+            if (otxnAcc == chan->getAccountID(sfDestination))
+            {
+                // ADD_TSH(escrow->getAccountID(sfDestination), true);
+                ADD_TSH(chan->getAccountID(sfAccount), canRollback);
+            }
+
             break;
         }
 
