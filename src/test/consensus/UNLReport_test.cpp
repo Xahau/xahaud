@@ -61,28 +61,57 @@ namespace test {
 //  * @param hasToReEnable if expect ToDisable in ledger
 //  * @return true if meet all three expectation
 //  */
-inline bool
+/*
+bool
+inline
 negUnlSizeTest(
-    std::shared_ptr<Ledger const> const& l,
+    std::shared_ptr<ripple::Ledger const> const& l,
     size_t size,
     bool hasToDisable,
-    bool hasToReEnable);
+    bool hasToReEnable)
+{
+    bool sameSize = l->negativeUNL().size() == size;
+    bool sameToDisable =
+        (l->validatorToDisable() != std::nullopt) == hasToDisable;
+    bool sameToReEnable =
+        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
 
-// /**
-//  * Try to apply a ttUNL_MODIFY Tx, and test the apply result
-//  *
-//  * @param env the test environment
-//  * @param view the OpenView of the ledger
-//  * @param tx the ttUNL_MODIFY Tx
-//  * @param pass if the Tx should be applied successfully
-//  * @return true if meet the expectation of apply result
-//  */
+    return sameSize && sameToDisable && sameToReEnable;
+}
+*/
+/**
+ * Try to apply a ttUNL_MODIFY Tx, and test the apply result
+ *
+ * @param env the test environment
+ * @param view the OpenView of the ledger
+ * @param tx the ttUNL_MODIFY Tx
+ * @param pass if the Tx should be applied successfully
+ * @return true if meet the expectation of apply result
+ */
+/*
 bool
-applyAndTestUNLRResult(
-    jtx::Env& env,
-    OpenView& view,
-    STTx const& tx,
-    bool pass);
+inline
+applyAndTestResult(jtx::Env& env, ripple::OpenView& view, ripple::STTx const&
+tx, bool pass)
+{
+    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
+    if (pass)
+        return res.first == tesSUCCESS;
+    else
+        return res.first == tefFAILURE || res.first == temDISABLED;
+}
+*/
+inline bool
+applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
+{
+    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
+    if (pass)
+        return res.first == tesSUCCESS;
+    else
+        return res.first == tefFAILURE || res.first == temDISABLED ||
+            res.first == temMALFORMED ||
+            res.first == telIMPORT_VL_KEY_NOT_RECOGNISED;
+}
 
 /**
  * Verify the content of UNL Report entries (public key and ledger sequence)
@@ -1235,34 +1264,6 @@ BEAST_DEFINE_TESTSUITE(UNLReportVoteNewValidator, consensus, ripple);
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
 
-inline bool
-negUnlSizeTest(
-    std::shared_ptr<Ledger const> const& l,
-    size_t size,
-    bool hasToDisable,
-    bool hasToReEnable)
-{
-    bool sameSize = l->negativeUNL().size() == size;
-    bool sameToDisable =
-        (l->validatorToDisable() != std::nullopt) == hasToDisable;
-    bool sameToReEnable =
-        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
-
-    return sameSize && sameToDisable && sameToReEnable;
-}
-
-bool
-applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
-{
-    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
-    if (pass)
-        return res.first == tesSUCCESS;
-    else
-        return res.first == tefFAILURE || res.first == temDISABLED ||
-            res.first == temMALFORMED ||
-            res.first == telIMPORT_VL_KEY_NOT_RECOGNISED;
-}
-
 bool
 VerifyUNLRPubKeyAndSeq(
     std::shared_ptr<Ledger const> const& l,
@@ -1412,6 +1413,7 @@ createUNLRTx(
     return STTx(ttUNL_REPORT, fill);
 }
 
+/*
 inline STTx
 createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey)
 {
@@ -1422,35 +1424,24 @@ createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey)
     };
     return STTx(ttUNL_MODIFY, fill);
 }
+*/
 
+/*
 inline std::size_t
 countTx(std::shared_ptr<SHAMap> const& txSet)
 {
-    /*uint64_t counter = 0;
-    if (txSet)
-    for (auto const& item : *txSet)
-    {
-
-        SerialIter sit(item.slice());
-        auto tx = std::make_shared<STTx
-    const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
-
-        if (tx->getFieldU16(sfTransactionType) == ttUNL_MODIFY)
-            counter++;
-    }
-    */
-
     std::size_t count = 0;
     for (auto i = txSet->begin(); i != txSet->end(); ++i)
     {
-        // RH TODO: why does the above parse??
         auto raw = i->slice();
         if (raw[0] == 0x12U && raw[1] == 0 && raw[2] == 0x66U)
             count++;
     }
     return count;
 };
+*/
 
+/*
 inline bool
 applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
 {
@@ -1460,6 +1451,7 @@ applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
     else
         return res.first == tefFAILURE || res.first == temDISABLED;
 }
+*/
 
 }  // namespace test
 }  // namespace ripple

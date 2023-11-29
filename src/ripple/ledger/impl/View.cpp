@@ -1150,7 +1150,7 @@ rippleCredit(
 // Send regardless of limits.
 // --> saAmount: Amount/currency/issuer to deliver to receiver.
 // <-- saActual: Amount actually cost.  Sender pays fees.
-static TER
+TER
 rippleSend(
     ApplyView& view,
     AccountID const& uSenderID,
