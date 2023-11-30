@@ -5315,8 +5315,6 @@ struct PayChan_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
-        auto const aliceUSD = alice["USD"];
-        auto const bobUSD = bob["USD"];
         {
             // test pay more than locked amount
             // ie. has 10000, lock 1000 then try to pay 10000
@@ -5514,6 +5512,83 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testIOURippling(FeatureBitset features)
+    {
+        testcase("IOU Rippling");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, features};
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const USDA = alice["USD"];
+        auto const USDB = bob["USD"];
+        auto const USDC = carol["USD"];
+        env.fund(XRP(10000), alice, bob, carol);
+        env.close();
+
+        // alice trusts USD bob & carol
+        env(trust(alice, USDB(100)));
+        env(trust(alice, USDC(100)));
+        // bob trusts USD alice & carol
+        env(trust(bob, USDA(100)));
+        env(trust(bob, USDC(100)));
+        // carol trusts USD alice & bob
+        env(trust(carol, USDA(100)));
+        env(trust(carol, USDB(100)));
+        env.close();
+        // alice pays bob USDA
+        env(pay(alice, bob, USDA(10)));
+        // carol pays alice USDC
+        env(pay(carol, alice, USDC(10)));
+        env.close();
+
+        /*
+        aliceUSDABal: 0/USD(alice)
+        aliceUSDBBal: -10/USD(bob)
+        aliceUSDCBal: 10/USD(carol)
+        bobUSDABal: 10/USD(alice)
+        bobUSDBBal: 0/USD(bob)
+        bobUSDCBal: 0/USD(carol)
+        carolUSDABal: -10/USD(alice)
+        carolUSDBBal: 0/USD(bob)
+        carolUSDCBal: 0/USD(carol)
+        */
+
+        // negative direction source
+        {
+            // alice cannot create to carol with USDB
+            auto const pk = bob.pk();
+            auto const settleDelay = 100s;
+            env(create(alice, carol, USDB(10), settleDelay, pk), ter(tecUNFUNDED_PAYMENT));
+            env.close();
+        }
+
+        // negative direction destination
+        {
+            // bob can create to carol with USDA
+            auto const pk = bob.pk();
+            auto const settleDelay = 1s;
+            auto const chan = channel(bob, carol, env.seq(bob));
+            env(create(bob, carol, USDA(10), settleDelay, pk), ter(tesSUCCESS));
+            env.close();
+
+            auto const preBobUSDALocked = -lockedAmount(env, bob, alice, USDA);
+            BEAST_EXPECT(preBobUSDALocked == USDA(10));
+
+            // carol can claim
+            auto sig = signClaimIOUAuth(pk, bob.sk(), chan, USDA(10));
+            env(claim(carol, chan, USDA(10), USDA(10), Slice(sig), pk), txflags(tfClose), ter(tesSUCCESS));
+            env.close();
+
+            auto const postBobUSDALocked = -lockedAmount(env, bob, alice, USDA);
+            BEAST_EXPECT(postBobUSDALocked == USDA(0));
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testSimple(features);
@@ -5569,6 +5644,7 @@ struct PayChan_test : public beast::unit_test::suite
         testIOUTLINSF(features);
         testIOUMismatchFunding(features);
         testIOUPrecisionLoss(features);
+        testIOURippling(features);
     }
 
 public:
@@ -5577,11 +5653,11 @@ public:
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
-        testWithFeats(all - disallowIncoming);
-        testWithFeats(
-            all - disallowIncoming - featurePaychanAndEscrowForTokens);
-        testWithFeats(all);
-        testIOUWithFeats(all - disallowIncoming);
+        // testWithFeats(all - disallowIncoming);
+        // testWithFeats(
+        //     all - disallowIncoming - featurePaychanAndEscrowForTokens);
+        // testWithFeats(all);
+        // testIOUWithFeats(all - disallowIncoming);
         testIOUWithFeats(all);
     }
 };

@@ -535,7 +535,10 @@ trustAdjustLockedBalance(
 
     // this would mean somehow the issuer is trying to lock balance
     if (balance < beast::zero)
-        return tecINTERNAL;
+    {
+        JLOG(j.warn()) << "balance < beast::zero" << "balance=" << balance << "\n";
+        return tecUNFUNDED_PAYMENT;
+    }
 
     if (deltaAmt == beast::zero)
         return tesSUCCESS;
@@ -568,7 +571,10 @@ trustAdjustLockedBalance(
     }
 
     if (finalLockedBalance < beast::zero)
+    {
+        JLOG(j.warn()) << "finalLockedBalance < beast::zero" << "\n";
         return tecINTERNAL;
+    }
 
     // check if there is significant precision loss
     if (!isAddable(balance, deltaAmt) ||
@@ -657,7 +663,10 @@ trustTransferAllowed(
     for (AccountID const& p : parties)
     {
         if (p == issue.account)
+        {
+            JLOG(j.warn()) << "p == issue.account" << "\n";
             continue;
+        }
 
         auto const line =
             view.read(keylet::line(p, issue.account, issue.currency));
@@ -686,8 +695,11 @@ trustTransferAllowed(
             // these "strange" old lines, if they even exist anymore are
             // always a bar to xfer
             if (line->getFieldAmount(sfLowLimit).getIssuer() ==
-                line->getFieldAmount(sfHighLimit).getIssuer())
+                line->getFieldAmount(sfHighLimit).getIssuer()) 
+            {
+                JLOG(j.warn()) << "sfLowLimit == sfHighLimit" << "\n";
                 return tecINTERNAL;
+            }
 
             if (line->isFieldPresent(sfLockedBalance))
             {
