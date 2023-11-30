@@ -85,6 +85,17 @@ finish(jtx::Account const& account, jtx::Account const& from, std::uint32_t seq)
 }
 
 Json::Value
+finish(jtx::Account const& account, jtx::Account const& from)
+{
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::EscrowFinish;
+    jv[jss::Flags] = tfUniversal;
+    jv[jss::Account] = account.human();
+    jv[sfOwner.jsonName] = from.human();
+    return jv;
+}
+
+Json::Value
 cancel(jtx::Account const& account, jtx::Account const& from, std::uint32_t seq)
 {
     Json::Value jv;
@@ -93,6 +104,17 @@ cancel(jtx::Account const& account, jtx::Account const& from, std::uint32_t seq)
     jv[jss::Account] = account.human();
     jv[sfOwner.jsonName] = from.human();
     jv[sfOfferSequence.jsonName] = seq;
+    return jv;
+}
+
+Json::Value
+cancel(jtx::Account const& account, jtx::Account const& from)
+{
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::EscrowCancel;
+    jv[jss::Flags] = tfUniversal;
+    jv[jss::Account] = account.human();
+    jv[sfOwner.jsonName] = from.human();
     return jv;
 }
 

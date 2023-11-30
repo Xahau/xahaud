@@ -44,10 +44,20 @@ finish(
     std::uint32_t seq);
 
 Json::Value
+finish(
+    jtx::Account const& account,
+    jtx::Account const& from);
+
+Json::Value
 cancel(
     jtx::Account const& account,
     jtx::Account const& from,
     std::uint32_t seq);
+
+Json::Value
+cancel(
+    jtx::Account const& account,
+    jtx::Account const& from);
 
 /** Set the "FinishAfter" time tag on a JTx */
 class finish_time

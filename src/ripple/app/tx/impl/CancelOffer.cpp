@@ -39,10 +39,26 @@ CancelOffer::preflight(PreflightContext const& ctx)
         return temINVALID_FLAG;
     }
 
-    if (!ctx.tx[sfOfferSequence])
+    if (ctx.rules.enabled(fixXahauV1))
     {
-        JLOG(ctx.j.trace()) << "CancelOffer::preflight: missing sequence";
-        return temBAD_SEQUENCE;
+        if ((!ctx.tx.isFieldPresent(sfOfferSequence) &&
+             !ctx.tx.isFieldPresent(sfOfferID)) ||
+            (ctx.tx.isFieldPresent(sfOfferSequence) &&
+             ctx.tx.isFieldPresent(sfOfferID)))
+        {
+            JLOG(ctx.j.trace())
+                << "CancelOffer::preflight: invalid sequence or offer id";
+            return temBAD_SEQUENCE;
+        }
+    }
+    else
+    {
+        if (!ctx.tx.isFieldPresent(sfOfferSequence) ||
+            ctx.tx[sfOfferSequence] == 0)
+        {
+            JLOG(ctx.j.trace()) << "CancelOffer::preflight: missing sequence";
+            return temBAD_SEQUENCE;
+        }
     }
 
     return preflight2(ctx);
@@ -54,29 +70,18 @@ TER
 CancelOffer::preclaim(PreclaimContext const& ctx)
 {
     auto const id = ctx.tx[sfAccount];
-    auto const offerSequence = ctx.tx[sfOfferSequence];
 
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
         return terNO_ACCOUNT;
 
-    bool hooksEnabled = ctx.view.rules().enabled(featureHooks);
+    auto const offerSequence = ctx.tx[~sfOfferSequence];
 
-    auto const offerID = ctx.tx[~sfOfferID];
-
-    if ((*sle)[sfSequence] <= offerSequence)
+    if (offerSequence && (*sle)[sfSequence] <= *offerSequence)
     {
-        if (hooksEnabled && offerID && offerSequence == 0)
-        {
-            // pass, here the txn provides offerID instead of offerSequence
-        }
-        else
-        {
-            JLOG(ctx.j.trace())
-                << "Malformed transaction: "
-                << "Sequence " << offerSequence << " is invalid.";
-            return temBAD_SEQUENCE;
-        }
+        JLOG(ctx.j.trace()) << "Malformed transaction: "
+                            << "Sequence " << *offerSequence << " is invalid.";
+        return temBAD_SEQUENCE;
     }
 
     return tesSUCCESS;
@@ -87,36 +92,32 @@ CancelOffer::preclaim(PreclaimContext const& ctx)
 TER
 CancelOffer::doApply()
 {
-    auto const offerSequence = ctx_.tx[sfOfferSequence];
-
     auto const sle = view().read(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
 
+    auto const offerSequence = ctx_.tx[~sfOfferSequence];
+    auto const offerID = ctx_.tx[~sfOfferID];
+
     bool hooksEnabled = view().rules().enabled(featureHooks);
 
-    std::optional<uint256> offerID;
-
-    if (hooksEnabled)
-        offerID = ctx_.tx[~sfOfferID];
-
-    Keylet cancel = hooksEnabled && offerID && offerSequence == 0
+    Keylet cancel = hooksEnabled && offerID && !offerSequence
         ? Keylet(ltOFFER, *offerID)
-        : keylet::offer(account_, offerSequence);
+        : keylet::offer(account_, *offerSequence);
 
     if (auto sleOffer = view().peek(cancel))
     {
         if (offerID)
             JLOG(j_.debug()) << "Trying to cancel offer :" << *offerID;
         else
-            JLOG(j_.debug()) << "Trying to cancel offer #" << offerSequence;
+            JLOG(j_.debug()) << "Trying to cancel offer #" << *offerSequence;
         return offerDelete(view(), sleOffer, ctx_.app.journal("View"));
     }
 
     if (offerID)
         JLOG(j_.debug()) << "Offer :" << *offerID << " can't be found.";
     else
-        JLOG(j_.debug()) << "Offer #" << offerSequence << " can't be found.";
+        JLOG(j_.debug()) << "Offer #" << *offerSequence << " can't be found.";
     return tesSUCCESS;
 }
 

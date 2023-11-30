@@ -431,6 +431,9 @@ EscrowFinish::preflight(PreflightContext const& ctx)
         }
     }
 
+    if (!ctx.tx.isFieldPresent(sfEscrowID) && !ctx.tx.isFieldPresent(sfOfferSequence))
+        return temMALFORMED;
+
     return tesSUCCESS;
 }
 
@@ -456,13 +459,21 @@ EscrowFinish::doApply()
         return temDISABLED;
 
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
+    std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
-    if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-        return temMALFORMED;
+    if (!view().rules().enabled(fixXahauV1))
+    {
+        if (escrowID && ctx_.tx[sfOfferSequence] != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if (escrowID && offerSequence)
+            return temMALFORMED;
+    }
 
-    Keylet k = escrowID
-        ? Keylet(ltESCROW, *escrowID)
-        : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
+    Keylet k = escrowID ? Keylet(ltESCROW, *escrowID)
+                        : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
 
     auto const slep = ctx_.view().peek(k);
     if (!slep)
@@ -692,6 +703,9 @@ EscrowCancel::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
+    if (!ctx.tx.isFieldPresent(sfEscrowID) && !ctx.tx.isFieldPresent(sfOfferSequence))
+        return temMALFORMED;
+
     return preflight2(ctx);
 }
 
@@ -704,13 +718,21 @@ EscrowCancel::doApply()
         return temDISABLED;
 
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
+    std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
-    if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-        return temMALFORMED;
+    if (!view().rules().enabled(fixXahauV1))
+    {
+        if (escrowID && ctx_.tx[sfOfferSequence] != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if (escrowID && offerSequence)
+            return temMALFORMED;
+    }
 
-    Keylet k = escrowID
-        ? Keylet(ltESCROW, *escrowID)
-        : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
+    Keylet k = escrowID ? Keylet(ltESCROW, *escrowID)
+                        : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
 
     auto const slep = ctx_.view().peek(k);
     if (!slep)
