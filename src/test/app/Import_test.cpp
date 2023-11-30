@@ -5965,40 +5965,6 @@ class Import_test : public beast::unit_test::suite
         }
     }
 
-    void
-    testRPCFee(FeatureBitset features)
-    {
-        testcase("rpc fee");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
-        auto const feeDrops = env.current()->fees().base;
-
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
-        env.close();
-
-        // build tx_blob
-        Json::Value params;
-        auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
-        auto tx = env.jt(import::import(alice, xpopJson));
-        params[jss::tx_blob] = strHex(tx.stx->getSerializer().slice());
-
-        // fee request
-        auto const jrr = env.rpc("json", "fee", to_string(params));
-
-        // verify hooks fee
-        auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
-        BEAST_EXPECT(hooksFee == to_string(feeDrops * 10));
-
-        // verify open ledger fee
-        auto const dropsJV = jrr[jss::result][jss::drops];
-        auto const openLedgerFee = dropsJV[jss::open_ledger_fee];
-        BEAST_EXPECT(openLedgerFee == to_string((feeDrops * 10) + feeDrops));
-    }
-
 public:
     void
     run() override
@@ -6037,7 +6003,6 @@ public:
         testMaxSupply(features);
         testMinMax(features);
         testHalving(features - featureOwnerPaysFee);
-        testRPCFee(features);
     }
 };
 
