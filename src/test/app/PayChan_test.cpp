@@ -5653,11 +5653,11 @@ public:
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
-        // testWithFeats(all - disallowIncoming);
-        // testWithFeats(
-        //     all - disallowIncoming - featurePaychanAndEscrowForTokens);
-        // testWithFeats(all);
-        // testIOUWithFeats(all - disallowIncoming);
+        testWithFeats(all - disallowIncoming);
+        testWithFeats(
+            all - disallowIncoming - featurePaychanAndEscrowForTokens);
+        testWithFeats(all);
+        testIOUWithFeats(all - disallowIncoming);
         testIOUWithFeats(all);
     }
 };
