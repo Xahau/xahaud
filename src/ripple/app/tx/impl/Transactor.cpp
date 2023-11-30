@@ -350,7 +350,8 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     XRPAmount accumulator = baseFee;
 
-    if (view.rules().enabled(featureHooks) && tx.isFieldPresent(sfHookParameters))
+    if (view.rules().enabled(featureHooks) &&
+        tx.isFieldPresent(sfHookParameters))
     {
         uint64_t paramBytes = 0;
         auto const& params = tx.getFieldArray(sfHookParameters);

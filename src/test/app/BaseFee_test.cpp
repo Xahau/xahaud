@@ -28,7 +28,6 @@ namespace test {
 
 class BaseFee_test : public beast::unit_test::suite
 {
-
     Json::Value
     addTxParams(Json::Value jv)
     {
@@ -67,7 +66,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
         BEAST_EXPECT(hooksFee == expected);
     }
-  
+
     void
     testAccountSet(FeatureBitset features)
     {
@@ -88,7 +87,7 @@ class BaseFee_test : public beast::unit_test::suite
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
-  
+
     void
     testAccountDelete(FeatureBitset features)
     {
@@ -116,7 +115,7 @@ class BaseFee_test : public beast::unit_test::suite
     {
         return keylet::check(account, uSequence).key;
     }
-  
+
     void
     testCheckCancel(FeatureBitset features)
     {
@@ -134,7 +133,7 @@ class BaseFee_test : public beast::unit_test::suite
         // build tx
         uint256 const checkId{getCheckIndex(account, env.seq(account))};
         auto tx = check::cancel(account, checkId);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -157,7 +156,7 @@ class BaseFee_test : public beast::unit_test::suite
         // build tx
         uint256 const checkId{getCheckIndex(account, env.seq(account))};
         auto tx = check::cash(dest, checkId, XRP(100));
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -179,11 +178,11 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = check::create(account, dest, XRP(100));
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
-  
+
     void
     testClaimReward(FeatureBitset features)
     {
@@ -200,11 +199,11 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = reward::claim(account);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
-  
+
     void
     testDepositPreauth(FeatureBitset features)
     {
@@ -222,11 +221,11 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = deposit::auth(account, authed);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
-  
+
     void
     testEscrowCancel(FeatureBitset features)
     {
@@ -244,7 +243,7 @@ class BaseFee_test : public beast::unit_test::suite
         // build tx
         auto const seq1 = env.seq(account);
         auto tx = escrow::cancel(account, account, seq1);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -266,7 +265,7 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = escrow::create(account, dest, XRP(10));
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -288,7 +287,7 @@ class BaseFee_test : public beast::unit_test::suite
         // build tx
         auto const seq1 = env.seq(account);
         auto tx = escrow::finish(account, account, seq1);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -308,8 +307,9 @@ class BaseFee_test : public beast::unit_test::suite
         env.close();
 
         // build tx
-        auto tx = import::import(account, import::loadXpop(ImportTCAccountSet::w_seed));
-        
+        auto tx = import::import(
+            account, import::loadXpop(ImportTCAccountSet::w_seed));
+
         // verify hooks fee
         testRPCCall(env, tx, "106");
     }
@@ -330,11 +330,11 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = invoke::invoke(account);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
-  
+
     void
     testOfferCancel(FeatureBitset features)
     {
@@ -352,7 +352,7 @@ class BaseFee_test : public beast::unit_test::suite
         // build tx
         auto const offerSeq = env.seq(account);
         auto tx = offer_cancel(account, offerSeq);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -375,7 +375,7 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = offer(account, USD(1000), XRP(1000));
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -397,7 +397,7 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = pay(account, dest, XRP(1));
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -433,7 +433,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto const reqBal = delta;
         auto const authAmt = reqBal + XRP(1);
         auto tx = paychan::claim(account, chan, reqBal, authAmt);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -457,11 +457,11 @@ class BaseFee_test : public beast::unit_test::suite
         auto const pk = account.pk();
         auto const settleDelay = 100s;
         auto tx = paychan::create(account, dest, XRP(10), settleDelay, pk);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
-  
+
     void
     testPaymentChannelFund(FeatureBitset features)
     {
@@ -477,14 +477,14 @@ class BaseFee_test : public beast::unit_test::suite
         env.fund(XRP(1000), account, dest);
         env.close();
 
-         // build tx
+        // build tx
         auto const chan = channel(account, dest, env.seq(account));
         auto tx = paychan::fund(account, chan, XRP(1));
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
-  
+
     void
     testSetHook(FeatureBitset features)
     {
@@ -499,9 +499,9 @@ class BaseFee_test : public beast::unit_test::suite
         env.fund(XRP(1000), account);
         env.close();
 
-         // build tx
+        // build tx
         auto tx = genesis::setAcceptHook(account);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "73016");
     }
@@ -523,7 +523,7 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto tx = regkey(account, dest);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "0");
     }
@@ -544,9 +544,9 @@ class BaseFee_test : public beast::unit_test::suite
         env.fund(XRP(1000), account, signer1, signer2);
         env.close();
 
-         // build tx
+        // build tx
         auto tx = signers(account, 2, {{signer1, 1}, {signer2, 1}});
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -565,9 +565,9 @@ class BaseFee_test : public beast::unit_test::suite
         env.fund(XRP(1000), account);
         env.close();
 
-         // build tx
+        // build tx
         auto tx = ticket::create(account, 2);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -588,9 +588,9 @@ class BaseFee_test : public beast::unit_test::suite
         env.fund(XRP(1000), account, gw);
         env.close();
 
-         // build tx
+        // build tx
         auto tx = trust(account, USD(1000));
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -614,7 +614,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto const tid = uritoken::tokenid(issuer, uri);
         std::string const hexid{strHex(tid)};
         auto tx = uritoken::burn(issuer, hexid);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -639,7 +639,7 @@ class BaseFee_test : public beast::unit_test::suite
         std::string const hexid{strHex(tid)};
         auto tx = uritoken::buy(issuer, hexid);
         tx[jss::Amount] = "1000000";
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -663,7 +663,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto const tid = uritoken::tokenid(issuer, uri);
         std::string const hexid{strHex(tid)};
         auto tx = uritoken::cancel(issuer, hexid);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -690,7 +690,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = uritoken::sell(issuer, hexid);
         tx[jss::Destination] = buyer.human();
         tx[jss::Amount] = "1000000";
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
@@ -712,7 +712,7 @@ class BaseFee_test : public beast::unit_test::suite
         // build tx
         std::string const uri(maxTokenURILength, '?');
         auto tx = uritoken::mint(account, uri);
-        
+
         // verify hooks fee
         testRPCCall(env, tx, "16");
     }
