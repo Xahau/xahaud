@@ -93,9 +93,6 @@ countUNLRTx(std::shared_ptr<SHAMap> const& txSet);
 std::vector<std::string> const keys = {
     "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"};
 
-// std::unique_ptr<Config>
-// makeNetworkVLConfig(uint32_t networkID, std::vector<std::string> keys);
-
 /**
  * Verify if the UNL report exists
  *
