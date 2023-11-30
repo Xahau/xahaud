@@ -47,6 +47,8 @@ class BaseFee_test : public beast::unit_test::suite
         auto const jv = addTxParams(tx);
         auto const jtx = env.jt(jv);
 
+        auto const feeDrops = env.current()->fees().base;
+
         // build tx_blob
         Json::Value params;
         params[jss::tx_blob] = strHex(jtx.stx->getSerializer().slice());
@@ -58,7 +60,7 @@ class BaseFee_test : public beast::unit_test::suite
         // verify base fee & open ledger fee
         auto const drops = jrr[jss::result][jss::drops];
         auto const baseFee = drops[jss::base_fee];
-        BEAST_EXPECT(baseFee == expected);
+        BEAST_EXPECT(baseFee == to_string(feeDrops));
         auto const openLedgerFee = drops[jss::open_ledger_fee];
         BEAST_EXPECT(openLedgerFee == expected);
 
