@@ -534,10 +534,17 @@ trustAdjustLockedBalance(
     STAmount balance = high ? -(*sleLine)[sfBalance] : (*sleLine)[sfBalance];
 
     // this would mean somehow the issuer is trying to lock balance
-    if (balance < beast::zero)
+    if (view.rules().enabled(fixXahauV1) && balance < beast::zero)
     {
-        JLOG(j.warn()) << "balance < beast::zero" << "balance=" << balance << "\n";
+        JLOG(j.warn()) << "trustAdjustLockedBalance: negative balance"
+                       << "\n";
         return tecUNFUNDED_PAYMENT;
+    }
+    else if (balance < beast::zero)
+    {
+        JLOG(j.warn()) << "trustAdjustLockedBalance: negative balance"
+                       << "\n";
+        return tecINTERNAL;
     }
 
     if (deltaAmt == beast::zero)
@@ -546,7 +553,7 @@ trustAdjustLockedBalance(
     // can't lock or unlock a zero balance
     if (balance == beast::zero)
     {
-        JLOG(j.trace()) << "trustAdjustLockedBalance failed, zero balance";
+        JLOG(j.trace()) << "trustAdjustLockedBalance: zero balance";
         return tecUNFUNDED_PAYMENT;
     }
 
@@ -572,7 +579,9 @@ trustAdjustLockedBalance(
 
     if (finalLockedBalance < beast::zero)
     {
-        JLOG(j.warn()) << "finalLockedBalance < beast::zero" << "\n";
+        JLOG(j.warn())
+            << "trustAdjustLockedBalance: finalLockedBalance < beast::zero"
+            << "\n";
         return tecINTERNAL;
     }
 
@@ -664,7 +673,8 @@ trustTransferAllowed(
     {
         if (p == issue.account)
         {
-            JLOG(j.warn()) << "p == issue.account" << "\n";
+            JLOG(j.warn()) << "trustAdjustLockedBalance: p == issue.account"
+                           << "\n";
             continue;
         }
 
@@ -688,16 +698,18 @@ trustTransferAllowed(
             // the point of transfer.
             continue;
         }
-        
+
         // sanity check the line, insane lines are a bar to xfer
         if (lockedBalanceAllowed)
         {
             // these "strange" old lines, if they even exist anymore are
             // always a bar to xfer
             if (line->getFieldAmount(sfLowLimit).getIssuer() ==
-                line->getFieldAmount(sfHighLimit).getIssuer()) 
+                line->getFieldAmount(sfHighLimit).getIssuer())
             {
-                JLOG(j.warn()) << "sfLowLimit == sfHighLimit" << "\n";
+                JLOG(j.warn())
+                    << "trustAdjustLockedBalance: sfLowLimit == sfHighLimit"
+                    << "\n";
                 return tecINTERNAL;
             }
 
