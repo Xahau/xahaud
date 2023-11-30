@@ -431,7 +431,8 @@ EscrowFinish::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (!ctx.tx.isFieldPresent(sfEscrowID) && !ctx.tx.isFieldPresent(sfOfferSequence))
+    if (!ctx.tx.isFieldPresent(sfEscrowID) &&
+        !ctx.tx.isFieldPresent(sfOfferSequence))
         return temMALFORMED;
 
     return tesSUCCESS;
@@ -703,7 +704,8 @@ EscrowCancel::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
-    if (!ctx.tx.isFieldPresent(sfEscrowID) && !ctx.tx.isFieldPresent(sfOfferSequence))
+    if (!ctx.tx.isFieldPresent(sfEscrowID) &&
+        !ctx.tx.isFieldPresent(sfOfferSequence))
         return temMALFORMED;
 
     return preflight2(ctx);

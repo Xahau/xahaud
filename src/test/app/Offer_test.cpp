@@ -5179,9 +5179,7 @@ public:
 
                 auto tx = offer(alice, XRP(50), USD(50));
                 tx[sfOfferSequence.jsonName] = offerSeqId;
-                env(tx,
-                    offer_id(offerId),
-                    ter(temBAD_SEQUENCE));
+                env(tx, offer_id(offerId), ter(temBAD_SEQUENCE));
                 env.close();
                 auto const offerLE = env.le(keylet::unchecked(offerId));
                 BEAST_EXPECT(offerLE);
@@ -5195,9 +5193,7 @@ public:
 
                 auto tx = offer(alice, XRP(50), USD(50));
                 tx[sfOfferSequence.jsonName] = 0;
-                env(tx,
-                    offer_id(offerId),
-                    ter(temBAD_SEQUENCE));
+                env(tx, offer_id(offerId), ter(temBAD_SEQUENCE));
                 env.close();
                 auto const offerLE = env.le(keylet::unchecked(offerId));
                 BEAST_EXPECT(offerLE);
