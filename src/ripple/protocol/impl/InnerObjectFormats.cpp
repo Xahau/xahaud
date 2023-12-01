@@ -154,6 +154,7 @@ InnerObjectFormats::InnerObjectFormats()
         {
             {sfURI, soeREQUIRED},
             {sfDigest, soeOPTIONAL},
+            {sfFlags, soeOPTIONAL},
         });
 
 }

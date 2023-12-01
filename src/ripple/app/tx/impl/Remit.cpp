@@ -44,9 +44,12 @@ Remit::preflight(PreflightContext const& ctx)
         JLOG(ctx.j.warn()) << "Malformed transaction: Invalid flags set.";
         return temINVALID_FLAG;
     }
-    if (ctx.tx[sfAccount] == ctx.tx[sfDestination])
+    
+    AccountID const dstID = ctx.tx.getAccountID(sfDestination);
+    AccountID const srcID = ctx.tx.getAccountID(sfAccount);
+
+    if (dstID == srcID)
     {
-        // They wrote a check to themselves.
         JLOG(ctx.j.warn()) << "Malformed transaction: Remit to self.";
         return temREDUNDANT;
     }
@@ -68,21 +71,21 @@ Remit::preflight(PreflightContext const& ctx)
                 return temMALFORMED;
             }
 
-            STAmount const amt = sEntry.getFieldAmount(sfAmount);
-            if (!isLegalNet(amt) || amt.signum() <= 0)
+            STAmount const amount = sEntry.getFieldAmount(sfAmount);
+            if (!isLegalNet(amount) || amount.signum() <= 0)
             {
                 JLOG(ctx.j.warn()) << "Malformed transaction: bad amount: "
-                                   << amt.getFullText();
+                                   << amount.getFullText();
                 return temBAD_AMOUNT;
             }
 
-            if (isBadCurrency(amt.getCurrency()))
+            if (isBadCurrency(amount.getCurrency()))
             {
                 JLOG(ctx.j.warn()) << "Malformed transaction: Bad currency.";
                 return temBAD_CURRENCY;
             }
 
-            if (isXRP(amt))
+            if (isXRP(amount))
             {
                 if (nativeAlready)
                 {
@@ -94,21 +97,20 @@ Remit::preflight(PreflightContext const& ctx)
                 continue;
             }
 
-
-            auto& found = already.find(amt.getCurrency());
+            auto& found = already.find(amount.getCurrency());
             if (found == already.end())
             {
-                already.emplace(amt.getCurrency(), {amt.getIssuer()});
+                already.emplace(amount.getCurrency(), {issuerAccID});
                 continue;
             }
 
-            if (found->second.find(amt.getIssuer()))
+            if (found->second.find(issuerAccID))
             {
                 JLOG(ctx.j.warn()) << "Malformed transaction: Issued Currency appears more than once.";
                 return temMALFORMED;
             }
 
-            found->second.emplace(amt.getIssuer());
+            found->second.emplace(issuerAccID);
         }
     }
 
@@ -118,11 +120,27 @@ Remit::preflight(PreflightContext const& ctx)
         STObject const& mint = const_cast<ripple::STTx&>(tx)
                                       .getField(sfMintURIToken)
                                       .downcast<STObject>();
+        // RH TODO: iterate mint fields detect any that shouldnt be there
+
+        Blob const uri = mint.getFieldVL(sfURI);
+        if (uri.size() < 1 || uri.size() > 256)
+        {
+            JLOG(ctx.j.warn())
+                << "Malformed transaction: URI was too short/long.";
+            return temMALFORMED;
+        }
+
         if (!URToken::validateUTF(mint.getFieldVL(sfURI)))
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";
             return temMALFORMED;
+        }
+
+        if (mint.isFieldPresent(sfFlags))
+        {
+            if (mint.getFieldU32(sfFlags) & tfURITokenMintMask)
+                return temINVALID_FLAG;
         }
     }
 
@@ -142,207 +160,314 @@ Remit::preflight(PreflightContext const& ctx)
     return preflight2(ctx);
 }
 
-TER
-Remit::preclaim(PreclaimContext const& ctx)
+Remit::doApply()
 {
-    if (!ctx.view.rules().enabled(featureRemit))
+    if (!sb.rules().enabled(featureRemit))
         return temDISABLED;
 
-    auto const id = ctx.tx[sfAccount];
+    Sandbox sb(&ctx_.view());
 
-    auto const sle = ctx.view.read(keylet::account(id));
-    if (!sle)
+    beast::Journal& j = journal;
+
+    auto const srcAccID = ctx_.tx[sfAccount];
+
+    auto sleSrcAcc = sb.peek(keylet::account(srcAccID));
+    if (!sleSrcAcc)
         return terNO_ACCOUNT;
 
-
+    XRPAmount const accountReserve { sb.fees().accountReserve(0) };
+    XRPAmount const objectReserve { sb.fees().accountReserve(1) - accountReserve };
+    
     // amount of native tokens we will transfer to cover reserves for the tls/acc/uritokens created, and
     // native tokens listed in amounts
     XRPAmount nativeRemit { 0 };
 
-    XRPAmount const accountReserve { ctx.view.fees().accountReserve(0) };
-    XRPAmount const objectReserve { ctx.view.fees().accountReserve(1) - accountReserve };
-    AccountID const dstId{ctx.tx[sfDestination]};
-    auto const sleDst = ctx.view.read(keylet::account(dstId));
+    AccountID const dstAccID{ctx_.tx[sfDestination]};
+    auto sleDstAcc = sb.peek(keylet::account(dstAccID));
+    auto const flags = !sleDstAcc ? 0 : sleDstAcc->getFlags();
 
-    // the sender must pay for the destination acc if it doesn't exist
-    if (!sleDst)
-        nativeRemit += accountReserve;
-    else
-    {
-        auto const flags = sleDst->getFlags();
-
-        // Check if the destination has disallowed incoming
-        if (ctx.view.rules().enabled(featureDisallowIncoming) &&
-            (flags & lsfDisallowIncomingRemit))
+    // Check if the destination has disallowed incoming
+    if (sb.rules().enabled(featureDisallowIncoming) &&
+        (flags & lsfDisallowIncomingRemit))
             return tecNO_PERMISSION;
-    }
     
     // the destination may require a dest tag
-    if ((flags & lsfRequireDestTag) && !ctx.tx.isFieldPresent(sfDestinationTag))
+    if ((flags & lsfRequireDestTag) && !ctx_.tx.isFieldPresent(sfDestinationTag))
     {
-        JLOG(ctx.j.warn()) << "Remit: DestinationTag required for this destination.";
+        JLOG(j.warn()) << "Remit: DestinationTag required for this destination.";
         return tecDST_TAG_NEEDED;
     }
 
+
+    // if the destination doesn't exist, create it.
+    if (!sleDstAcc)
+    {
+        // sender will pay the reserve
+        nativeRemit += accountReserve;
+        
+        // Create the account.
+        std::uint32_t const seqno{
+            sb.rules().enabled(featureXahauGenesis)
+                ? sb.info().parentCloseTime.time_since_epoch().count()
+                : sb.rules().enabled(featureDeletableAccounts)
+                    ? sb.seq()
+                    : 1};
+
+        sleDstAcc = std::make_shared<SLE>(keylet::account(srcAccID));
+        sleDstAcc->setAccountID(sfAccount, srcAccID);
+
+        sleDstAcc->setFieldU32(sfSequence, seqno);
+        sleDstAcc->setFieldU32(sfOwnerCount, 0);
+        if (sleDstAccFees && view().rules().enabled(featureXahauGenesis))
+        {
+            uint64_t accIdx = sleDstAccFees->isFieldPresent(sfAccountCount)
+                ? sleDstAccFees->getFieldU64(sfAccountCount)
+                : 0;
+            sleDstAcc->setFieldU64(sfAccountIndex, accIdx);
+            sleDstAccFees->setFieldU64(sfAccountCount, accIdx + 1);
+        }
+
+        // we'll fix this up at the end
+        sleDstAcc->setFieldAmount(sfBalance, 0);
+        sb.insert(sleDstAcc);
+        sleDstAcc = sb.peek(sleDstAcc);
+    }
+        
+
     // if theres a minted uritoken the sender pays for that
-    std::optional<Keylet> mintKL;
-    std::optional<Blob> mintURI;
-    std::optional<uint256> mintDigest;
-    if (ctx.tx.isFieldPresent(sfMintURIToken))
+    if (ctx_.tx.isFieldPresent(sfMintURIToken))
     {
         nativeRemit += objectReserve;
-
         STObject const& mint = const_cast<ripple::STTx&>(tx)
                                       .getField(sfMintURIToken)
                                       .downcast<STObject>();
-        mintURI = mint.getFieldVL(sfURI);
+    
+        Blob const& mintURI = mint.getFieldVL(sfURI);
 
+        std::optional<uint256> mintDigest;
         if (mint.isFieldPresent(sfDigest))
             mintDigest = mint.getFieldH256(sfDigest);
 
-        // check that it doesn't already exist
-        mintKL = keylet::uritoken(id, *mintURI);
+        Keylet kl = keylet::uritoken(srcAccID, mintURI);
         
-        if (ctx.view.exists(*mintKL))
+        // check that it doesn't already exist
+        if (sb.exists(kl))
         {
-            JLOG(ctx.j.trace())
+            JLOG(j.trace())
                 << "Remit: tried to creat duplicate URIToken. Tx: "
-                << ctx.tx.getTransactionID();
+                << ctx_.tx.getTransactionID();
             return tecDUPLICATE;
         }
+
+
+        sleMint = std::make_shared<SLE>(kl);
+
+        sleMint->setAccountID(sfOwner, dstAccID);
+        sleMint->setAccountID(sfIssuer, srcAccID);
+
+        sleMint->setFieldVL(sfURI, mintURI);
+
+        if (mint.isFieldPresent(sfDigest))
+            sleMint->setFieldH256(sfDigest, mint.getFieldH256(sfDigest));
+
+        sleMint->setFieldU32(sfFlags, mint.isFieldPresent(sfFlags) ? mint.getFieldU32(sfFlags) : 0);
+
+
+        auto const page = view().dirInsert(
+            keylet::ownerDir(sleDstAcc), kl, describeOwnerDir(sleDstAcc));
+
+        JLOG(j_.trace())
+            << "Adding URIToken to owner directory " << to_string(kl->key)
+            << ": " << (page ? "success" : "failure");
+
+        if (!page)
+            return tecDIR_FULL;
+
+        sleMint->setFieldU64(sfOwnerNode, *page);
+        sb.insert(sleU);
+
+        // ensure there is a deletion blocker against the issuer now
+        sleSrcAcc->setFieldU32(sfFlags, sle->getFlags() | lsfURITokenIssuer);
+
+        adjustOwnerCount(sb, sleSrcAcc, 1, j);
     }
 
-    // iterate trustlines to see if these exist
-    if (ctx.tx.isFieldPresent(sfAmounts))
-    {
-        STArray const& sEntries(obj.getFieldArray(sfAmounts));
-        for (STObject const& sEntry : sEntries)
-        {
-            STAmount const amt = sEntry.getFieldAmount(sfAmount);
-            if (isXRP(amt))
-            {
-                nativeRemit = amt.xrp();
-                continue;
-            }
-
-            Keylet destLineKL = keylet::line(dstID, amt.getIssuer(), amt.getCurrency());
-            if (!ctx.view.exists(destLineKL))
-                nativeRemit += objectReserve;
-
-            // if the sender is the issuer we'll just assume they're allowed to send it
-            // the trustline might be frozen but since its their asset they can do what they want
-            if (id == amt.getIssuer())
-                continue;
-
-            // check there's a source line and the amount is sufficient
-            Keylet srcLineKL = keylet::line(id, amt.getIssuer(), amt.getCurrency());
-            if (!ctx.view.exists(srcLineKL))
-            {
-                JLOG(ctx.j.trace())
-                    << "Remit: sender lacked one or more trustlines for remitted currencies.";
-                return tecUNFUNDED_PAYMENT;
-            }
-
-            // check permissions
-            if (TER canXfer =
-                trustTransferAllowed(
-                    ctx.view,
-                    {id, dstID},
-                    ctx.j); canXfer != tesSUCCESS)
-                return canXfer;
-
-            //bool srcHigh = id > amt.getIssuer();
-
-            auto const srcLine = ctx.view.read(srcLineKL);
-            STAmount bal = srcLine.getFieldAmount(sfBalance);
-
-            /*
-               A = src acc
-               B = amt.getIssuer()
-
-               A > B    | bal > 0   | issuer is         | low acc | high acc
-               ----------------------------             
-               false    | false     | A                     A           B
-               false    | true      | B                     A           B
-               true     | false     | B                     B           A
-               true     | true      | A                     B           A
-
-               A cannot be the issuer, this would mean you specify someone who holds a trustline with you
-               and has a balance issued by you, as the issuer on a transfer to someone else.
-
-             */
-
-
-            bool const srcHigh = id > amt.getIssuer();
-            bool const balPos = bal >= beast::zero;
-
-            if (srcHigh && balPos || !srcHigh && !balPos)
-            {
-                JLOG(ctx.j.warn())
-                    << "Remit: specified issuer is not the issuer in the trustline between source and that account.";
-                return tecUNFUNDED_PAYMENT;
-            }
-
-            if (bal < beast::zero)
-                bal = -bal;
-
-            if (bal.iou() < amt.iou())
-            {
-                JLOG(ctx.j.warn())
-                    << "Remit: one or more currencies were not adequately covered by available funds in account.";
-                return tecUNFUNDED_PAYMENT;
-            }
-        }
-    }
-    
 
     // iterate uritokens
-    if (ctx.tx.isFieldPresent(sfURITokenIDs))
+    if (ctx_.tx.isFieldPresent(sfURITokenIDs))
     {
-        STVector256 ids = ctx.tx.getFieldV256(sfURITokenIDs);
-        for (uint256 const utKL : ids)
+        STVector256 ids = ctx_.tx.getFieldV256(sfURITokenIDs);
+        for (uint256 const kl : ids)
         {
-            auto ut = ctx.view.read(utKL);
+            auto sleU = sb.peek(kl);
             
             // does it exist
-            if (!ut)
+            if (!sleU)
             {
-                JLOG(ctx.j.warn())
+                JLOG(j.warn())
                     << "Remit: one or more uritokens did not exist on the source account.";
                 return tecUNFUNDED_PAYMENT;
             }
 
             // is it a uritoken?
-            if (ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+            if (sleU->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
             {
-                JLOG(ctx.j.warn())
+                JLOG(j.warn())
                     << "Remit: one or more supplied URITokenIDs was not actually a uritoken.";
                 return tecNO_ENTRY;
             }
 
             // is it our uritoken?
-            if (ut->getAccounntID(sfOwner) != id)
+            if (sleU->getAccounntID(sfOwner) != srcAccID)
             {
-                JLOG(ctx.j.warn())
+                JLOG(j.warn())
                     << "Remit: one or more supplied URITokenIDs was not owned by sender.";
                 return tecNO_PERMISSION;
             }
+
+            // erase current sale offers, if any
+            if (sleU->isFieldPresent(sfAmount))
+                sleU->makeFieldAbsent(sfAmount);
+            if (sleU->isFieldPresent(sfDestination))
+                sleU->makeFieldAbsent(sfDestination);
+
+            // pay the reserve
+            nativeRemit += objectReserve;
+
+            // remove from sender dir
+            {
+                auto const page = (*sleU)[sfOwnerNode];
+                if (!sb.dirRemove(keylet::ownerDir(srcAccID), page, kl->key, true))
+                {
+                    JLOG(j.fatal())
+                        << "Could not remove URIToken from owner directory";
+                    return tefBAD_LEDGER;
+                }
+                
+                adjustOwnerCount(sb, sleSrcAcc, -1, j);
+            }
+
+            // add to dest dir
+            {
+                auto const page = 
+                    sb.dirInsert(keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));
+
+                JLOG(j_.trace())
+                    << "Adding URIToken to owner directory " << to_string(kl->key)
+                    << ": " << (page ? "success" : "failure");
+
+                if (!page)
+                    return tecDIR_FULL;
+
+                sleU->setFieldU64(sfOwnerNode, *page);
+
+                adjustOwnerCount(sb, sleDstAcc, 1, j);
+            }
+            
+            // change the owner
+            sleU->setAccountID(sfOwner, sleDstAcc);
         }
     }
 
-    // ensure the account can cover the native remit
-   
-    // RH UPTO 
+
+    // iterate trustlines
+    if (ctx_.tx.isFieldPresent(sfAmounts))
+    {
+
+        // process trustline remits
+        STArray const& sEntries(obj.getFieldArray(sfAmounts));
+        for (STObject const& sEntry : sEntries)
+        {
+            STAmount const amount = sEntry.getFieldAmount(sfAmount);
+            if (isXRP(amount))
+            {
+                // since we have to pay for all the created objects including possibly the account itself
+                // this is paid right at the end, and only if there is balance enough to cover.
+                nativeRemit += amount.xrp();
+                continue;
+            }
+            
+            // check permissions
+            if (TER canXfer =
+                trustTransferAllowed(
+                    sb,
+                    {srcAccID, dstID},
+                    j); canXfer != tesSUCCESS)
+                return canXfer;
+
+            AccountID const issuerAccID = amount.getIssuer();
+            
+            // compute the amount the source will need to send
+            // in remit the sender pays all transfer fees, so that
+            // the destination can always be assured they got the exact amount specified.
+            // therefore we need to compute the amount + transfer fee
+            auto const srcAmt = 
+                issuerAccID != srcAccID && issuerAccID != dstAccID && xferRate != parityRate
+                    ? multiply(amount, transferRate(sb, issuerAccID))
+                    : amount;
+
+            auto const dstAmt = amount;
+
+            STAmount availableFunds{accountFunds(
+                sb, srcAccID, srcAmt, fhZERO_IF_FROZEN, j)};
+
+            if (availableFunds < srcAmt)
+                return tecUNFUNDED_PAYMENT;
+
+            // if the target trustline doesn't exist we need to create it and pay its reserve
+            if (!sb.exists(keylet::line(
+                issuerAccID == dstAccID
+                    ? srcAccID 
+                    : dstAccID, issuerAccID, amount.getCurrency())))            
+                nativeRemit += objectReserve;
+
+            // action the transfer
+            STAmount sentAmt;
+            if (TER result =
+                rippleSend(sb, srcAccID, dstAccID, dstAmt, sentAmt, j); result != tesSUCCESS)
+                return result;
+
+            if (sentAmt != srcAmt)
+                return tecINTERNAL;
+        }
+    }
+    
+    if (nativeRemit < beast::zero)
+        return tecINTERNAL;
+    
+    if (nativeRemit > beast::zero)
+    {
+        // ensure the account can cover the native remit
+        if (mSourceBalance < nativeRemit)
+            return tecUNFUNDED_PAYMENT;
+
+        // subtract the balance from the sender
+        {
+            STAmount bal = mSourceBalance;
+            bal -= nativeRemit;
+            if (bal < beast::zero || bal > mSourceBalance)
+                return tecINTERNAL;
+            sleSrcAcc.setFieldAmount(sfBalance, bal);
+        }
+
+        // add the balance to the destination
+        {
+            STAmount bal = sleDstAcc.getFieldAmount(sfBalance);
+            STAmount prior = bal;
+            bal += nativeRemit;
+            if (bal < beast::zero || bal < prior)
+                return tecINTERNAL;
+            sleDstAcc.setField(sfBalance, bal);
+        }
+    }
+
+    // apply 
+    sb.apply(ctx_.rawView());
 
     return tesSUCCESS;
 }
 
-TER
-Remit::doApply()
 {
-    // RH TODO
-
-    return tesSUCCESS;
 }
 
 XRPAmount
@@ -353,6 +478,8 @@ Remit::calculateBaseFee(ReadView const& view, STTx const& tx)
     if (tx.isFieldPresent(sfBlob))
         extraFee +=
             XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
+
+    // RH TODO: add fees
 
     return Transactor::calculateBaseFee(view, tx) + extraFee;
 }
