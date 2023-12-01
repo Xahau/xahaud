@@ -126,13 +126,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             auto const owner = ut->getAccountID(sfOwner);
 
-            if (owner != tx.getAccountID(sfAccount))
+            if (owner != *otxnAcc)
             {
-                // current owner is a strong TSH
+                // current owner is a TSH
                 ADD_TSH(owner, canRollback);
             }
 
-            // issuer is also a strong TSH if the burnable flag is set
+            // issuer is also a TSH if the burnable flag is set
             auto const issuer = ut->getAccountID(sfIssuer);
             if (issuer != owner)
                 ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
@@ -159,6 +159,22 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             // destination is a strong tsh
             if (tx.isFieldPresent(sfDestination))
                 ADD_TSH(tx.getAccountID(sfDestination), canRollback);
+
+            break;
+        }
+
+        case ttURITOKEN_CANCEL_SELL_OFFER: {
+            Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
+            if (!rv.exists(id))
+                return {};
+
+            auto const ut = rv.read(id);
+            if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                return {};
+
+            // destination is weak tsh
+            if (ut->isFieldPresent(sfDestination))
+                ADD_TSH(ut->getAccountID(sfDestination), canRollback);
 
             break;
         }
@@ -250,8 +266,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         // self transactions
-        case ttURITOKEN_MINT:
-        case ttURITOKEN_CANCEL_SELL_OFFER:
         case ttACCOUNT_SET:
         case ttOFFER_CANCEL:
         case ttTICKET_CREATE:
@@ -276,6 +290,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         // simple two party transactions
+        case ttURITOKEN_MINT:
         case ttPAYMENT:
         case ttESCROW_CREATE:
         case ttCHECK_CREATE:
@@ -300,17 +315,25 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            if (!tx.isFieldPresent(sfOwner) ||
-                !tx.isFieldPresent(sfOfferSequence))
+            if (!tx.isFieldPresent(sfOwner))
                 return {};
 
-            auto escrow = rv.read(keylet::escrow(
-                tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+            if (!tx.isFieldPresent(sfOfferSequence) &&
+                !tx.isFieldPresent(sfEscrowID))
+                return {};
 
+            std::optional<uint256> escrowID = tx[~sfEscrowID];
+            std::optional<std::uint32_t> offerSeq = tx[~sfOfferSequence];
+
+            Keylet k = escrowID
+                ? Keylet(ltESCROW, *escrowID)
+                : keylet::escrow(tx.getAccountID(sfOwner), *offerSeq);
+
+            auto escrow = rv.read(k);
             if (!escrow)
                 return {};
 
-            ADD_TSH(escrow->getAccountID(sfAccount), true);
+            ADD_TSH(escrow->getAccountID(sfAccount), canRollback);
             ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
             break;
         }
@@ -324,7 +347,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!chan)
                 return {};
 
-            ADD_TSH(chan->getAccountID(sfAccount), true);
+            ADD_TSH(chan->getAccountID(sfAccount), canRollback);
             ADD_TSH(chan->getAccountID(sfDestination), canRollback);
             break;
         }
@@ -338,7 +361,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!check)
                 return {};
 
-            ADD_TSH(check->getAccountID(sfAccount), true);
+            ADD_TSH(check->getAccountID(sfAccount), canRollback);
             ADD_TSH(check->getAccountID(sfDestination), canRollback);
             break;
         }

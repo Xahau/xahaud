@@ -223,11 +223,11 @@ private:
     }
 
     // Check
-    // | otxn | tsh | cancel | create | cash |
-    // |   A  |  A  |   S    |   S    |  N   |
-    // |   A  |  D  |   N    |   S    |  N   |
-    // |   D  |  D  |   S    |   N    |  S   |
-    // |   D  |  A  |   S    |   N    |  S   |
+    // | otxn | tsh | cancel | cash | create |
+    // |   A  |  A  |   S    |   N  |    S   |
+    // |   A  |  D  |   W    |   N  |    S   |
+    // |   D  |  D  |   S    |   S  |    N   |
+    // |   D  |  A  |   W    |   W  |    N   |
     static uint256
     getCheckIndex(AccountID const& account, std::uint32_t uSequence)
     {
@@ -285,7 +285,7 @@ private:
 
         // otxn: account
         // tsh destination
-        // w/s: none
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -323,7 +323,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: dest
@@ -369,7 +371,7 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -381,13 +383,17 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            env(fset(account, asfTshCollect));
+            env.close();
+
             // create check
             uint256 const checkId{getCheckIndex(account, env.seq(account))};
             env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
             env.close();
 
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -405,7 +411,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -462,7 +468,7 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -504,7 +510,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -782,7 +788,7 @@ private:
     // |   A   |  A  |    S   |    S   |    S   |
     // |   A   |  D  |    W   |    S   |    W   |
     // |   D   |  D  |    S   |    N   |    S   |
-    // |   D   |  A  |    S   |    N   |    S   |
+    // |   D   |  A  |    W   |    N   |    S   |
 
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
@@ -898,7 +904,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: dest
@@ -953,7 +961,7 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -1002,7 +1010,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -1116,11 +1124,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
-            // auto const execution = executions[0u][sfHookExecution.jsonName];
-            // BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            // BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-            // "00000001");
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: dest
@@ -1224,7 +1230,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -1382,7 +1390,7 @@ private:
 
         // otxn: account
         // tsh dest
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -1395,8 +1403,8 @@ private:
             env.close();
 
             // set tsh collect
-            // env(fset(dest, asfTshCollect));
-            // env.close();
+            env(fset(dest, asfTshCollect));
+            env.close();
 
             // create escrow
             auto const seq1 = env.seq(account);
@@ -1408,7 +1416,7 @@ private:
             env.close();
 
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -1428,7 +1436,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: dest
@@ -1480,7 +1488,7 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -1490,6 +1498,10 @@ private:
             auto const account = Account("alice");
             auto const dest = Account("bob");
             env.fund(XRP(1000), account, dest);
+            env.close();
+
+            // set tsh collect
+            env(fset(account, asfTshCollect));
             env.close();
 
             // create escrow
@@ -1502,7 +1514,7 @@ private:
             env.close();
 
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -1522,7 +1534,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -1630,7 +1642,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: dest
@@ -1728,7 +1742,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -2138,7 +2154,7 @@ private:
     // Offer
     // | otxn  | tsh | cancel | create |
     // |   A   |  A  |    S   |    S   |
-    // |   A   |  C  |    N  |     N   |
+    // |   A   |  C  |    N  |     W   |
 
     void
     testOfferCancelTSH(FeatureBitset features)
@@ -2260,13 +2276,15 @@ private:
             auto const gw = Account{"gateway"};
             auto const USD = gw["USD"];
             env.fund(XRP(1000), account, cross, gw);
+            env.trust(USD(10000), cross);
+            env(pay(gw, cross, USD(1000)));
             env.close();
 
             // set tsh collect
             env(fset(cross, asfTshCollect));
 
-            // gw create offer
-            env(offer(gw, USD(1000), XRP(1000)));
+            // cross create offer
+            env(offer(cross, XRP(1000), USD(1000)));
             env.close();
 
             // set tsh hook
@@ -2288,7 +2306,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -2433,7 +2453,7 @@ private:
     // |   A   |  A  |   S   |   S    |   S  |
     // |   A   |  D  |   W   |   S    |   W  |
     // |   D   |  D  |   S   |   N    |   N  |
-    // |   D   |  A  |   S   |   N    |   N  |
+    // |   D   |  A  |   W   |   N    |   N  |
 
     static uint256
     channel(
@@ -2499,6 +2519,7 @@ private:
 
             // claim paychannel
             env(paychan::claim(account, chan, reqBal, authAmt),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -2552,6 +2573,7 @@ private:
 
             // claim paychannel
             env(paychan::claim(account, chan, reqBal, authAmt),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -2605,6 +2627,7 @@ private:
                 signClaimAuth(account.pk(), account.sk(), chan, authAmt);
             env(paychan::claim(
                     dest, chan, reqBal, authAmt, Slice(sig), account.pk()),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -2623,7 +2646,7 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -2635,6 +2658,9 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            env(fset(account, asfTshCollect));
+
             // create paychannel
             auto const pk = account.pk();
             auto const settleDelay = 100s;
@@ -2644,7 +2670,7 @@ private:
             env.close();
 
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -2658,6 +2684,7 @@ private:
                 signClaimAuth(account.pk(), account.sk(), chan, authAmt);
             env(paychan::claim(
                     dest, chan, reqBal, authAmt, Slice(sig), account.pk()),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -2671,7 +2698,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
@@ -2971,7 +2998,7 @@ private:
 
         // otxn: account
         // tsh dest
-        // w/s: weak
+        // w/s: strong
         {
             test::jtx::Env env{
                 *this,
@@ -3246,19 +3273,18 @@ private:
     // | otxn | tfBurnable | tsh | mint | burn | buy | sell | cancel
     // |   O  |    false   |  O  |   N  |   S  |  S  |   S  |   S
     // |   O  |    false   |  I  |   N  |   W  |  W  |   W  |   N
-    // |   O  |    false   |  B  |   N  |   N  |  N  |   S  |   N
-    // |   O  |    true    |  B  |   N  |   N  |  N  |   S  |   N
+    // |   O  |    false   |  B  |   N  |   N  |  N  |   S  |   W
+    // |   O  |    true    |  B  |   N  |   N  |  N  |   S  |   W
     // |   O  |    true    |  O  |   N  |   S  |  S  |   S  |   S
     // |   O  |    true    |  I  |   N  |   W  |  S  |   S  |   N
     // |   I  |    false   |  O  |   N  |   N  |  N  |   N  |   N
     // |   I  |    false   |  I  |   S  |   N  |  N  |   N  |   N
-    // |   I  |    false   |  B  |   N  |   N  |  N  |   N  |   N
+    // |   I  |    false   |  B  |   W  |   N  |  N  |   N  |   N
     // |   I  |    true    |  O  |   N  |   W  |  N  |   N  |   N
     // |   I  |    true    |  I  |   S  |   S  |  N  |   N  |   N
-    // |   I  |    true    |  B  |   N  |   N  |  N  |   N  |   N
+    // |   I  |    true    |  B  |   W  |   N  |  N  |   N  |   N
     // |   B  |    true    |  O  |   N  |   N  |  ?  |   N  |   N
     // |   B  |    true    |  B  |   N  |   N  |  ?  |   N  |   N
-
     void
     testURITokenBurnTSH(FeatureBitset features)
     {
@@ -3324,7 +3350,7 @@ private:
         // otxn: owner
         // flag: not burnable
         // tsh issuer
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -3340,6 +3366,9 @@ private:
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
 
+            env(fset(issuer, asfTshCollect));
+            env.close();
+
             // mint uritoken
             env(uritoken::mint(issuer, uri),
                 uritoken::dest(owner),
@@ -3354,7 +3383,7 @@ private:
             env.close();
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(issuer, {{hso(TshHook, collectFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -3372,7 +3401,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: owner
@@ -3433,7 +3462,7 @@ private:
         // otxn: owner
         // flag: burnable
         // tsh issuer
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -3448,6 +3477,9 @@ private:
             std::string const uri(2, '?');
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
+
+            env(fset(issuer, asfTshCollect));
+            env.close();
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -3464,7 +3496,7 @@ private:
             env.close();
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(issuer, {{hso(TshHook, collectFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -3482,13 +3514,13 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: issuer
         // flag: burnable
         // tsh owner
-        // w/s: strong
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -3503,6 +3535,9 @@ private:
             std::string const uri(2, '?');
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
+
+            env(fset(owner, asfTshCollect));
+            env.close();
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -3519,7 +3554,7 @@ private:
             env.close();
 
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(owner, {{hso(TshHook, collectFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -3537,7 +3572,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: issuer
@@ -3604,213 +3639,8 @@ private:
         using namespace test::jtx;
         using namespace std::literals;
 
-        // otxn: owner
-        // flag: not burnable
-        // tsh owner
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: owner
-        // flag: not burnable
-        // tsh issuer
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: owner
-        // flag: burnable
-        // tsh owner
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                txflags(tfBurnable),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: owner
-        // flag: burnable
-        // tsh issuer
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                txflags(tfBurnable),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
         // otxn: buyer
+        // flag: not burnable
         // tsh owner
         // w/s: strong
         {
@@ -3876,8 +3706,9 @@ private:
         }
 
         // otxn: buyer
-        // tsh buyer
-        // w/s: strong
+        // flag: not burnable
+        // tsh issuer
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -3893,6 +3724,9 @@ private:
             std::string const uri(2, '?');
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
+
+            env(fset(issuer, asfTshCollect));
+            env.close();
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -3916,7 +3750,141 @@ private:
             env.close();
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
+            env(hook(issuer, {{hso(TshHook, collectFlag)}}, 0),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(buyer, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            Json::Value params;
+            params[jss::transaction] =
+                env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const executions = meta[sfHookExecutions.jsonName];
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+        }
+
+        // otxn: buyer
+        // flag: burnable
+        // tsh owner
+        // w/s: strong
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(owner),
+                uritoken::amt(XRP(1)),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(owner, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // sell uritoken
+            env(uritoken::sell(owner, hexid),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // set tsh hook
+            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(buyer, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            Json::Value params;
+            params[jss::transaction] =
+                env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const executions = meta[sfHookExecutions.jsonName];
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+        }
+
+        // otxn: buyer
+        // flag: burnable
+        // tsh issuer
+        // w/s: strong
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(owner),
+                uritoken::amt(XRP(1)),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(owner, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // sell uritoken
+            env(uritoken::sell(owner, hexid),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // set tsh hook
+            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -4014,7 +3982,7 @@ private:
         // otxn: owner
         // flag: not burnable
         // tsh buyer
-        // w/s: none
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -4071,13 +4039,15 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: owner
         // flag: burnable
         // tsh buyer
-        // w/s: none
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -4135,7 +4105,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: owner
@@ -4626,7 +4598,7 @@ private:
         // otxn: issuer
         // flag: not burnable
         // tsh buyer
-        // w/s: none
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -4666,7 +4638,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
 
         // otxn: issuer
@@ -4718,7 +4692,7 @@ private:
         // otxn: issuer
         // flag: burnable
         // tsh buyer
-        // w/s: none
+        // w/s: weak
         {
             test::jtx::Env env{
                 *this,
@@ -4759,7 +4733,9 @@ private:
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
             auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const execution = executions[0u][sfHookExecution.jsonName];
+            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
         }
     }
 
