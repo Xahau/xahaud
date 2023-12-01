@@ -5,7 +5,7 @@ echo "START BUILDING (HOST)"
 echo "Cleaning previously built binary"
 rm -f release-build/xahaud
 
-BUILD_CORES=$(echo "scale=0 ; `nproc` / 3" | bc)
+BUILD_CORES=$(echo "scale=0 ; `nproc` / 1.337" | bc)
 
 if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   #Default
