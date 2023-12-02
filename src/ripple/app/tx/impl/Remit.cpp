@@ -390,7 +390,15 @@ Remit::doApply()
                 continue;
             }
             
+            AccountID const issuerAccID = amount.getIssuer();
+
             // check permissions
+            if (issuerAccID == srcAccID || issuerAccID == dstAccID)
+            {
+                // no permission check needed when the issuer sends out or a subscriber sends back
+                // RH TODO: move this condition into trustTransferAllowed, guarded by an amendment
+            }
+            else
             if (TER canXfer =
                 trustTransferAllowed(
                     sb,
@@ -399,7 +407,6 @@ Remit::doApply()
                     j); canXfer != tesSUCCESS)
                 return canXfer;
 
-            AccountID const issuerAccID = amount.getIssuer();
             
             // compute the amount the source will need to send
             // in remit the sender pays all transfer fees, so that
