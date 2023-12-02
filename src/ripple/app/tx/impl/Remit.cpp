@@ -369,6 +369,8 @@ Remit::doApply()
             
             // change the owner
             sleU->setAccountID(sfOwner, dstAccID);
+
+            sb.update(sleU);
         }
     }
 
