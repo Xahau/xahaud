@@ -552,6 +552,7 @@ extern SF_ACCOUNT const sfEmitCallback;
 // account (uncommon)
 extern SF_ACCOUNT const sfHookAccount;
 extern SF_ACCOUNT const sfNFTokenMinter;
+extern SF_ACCOUNT const sfInform;
 
 // path set
 extern SField const sfPaths;
@@ -562,6 +563,7 @@ extern SF_VECTOR256 const sfHashes;
 extern SF_VECTOR256 const sfAmendments;
 extern SF_VECTOR256 const sfNFTokenOffers;
 extern SF_VECTOR256 const sfHookNamespaces;
+extern SF_VECTOR256 const sfURITokenIDs;
 
 // inner object
 // OBJECT/1 is reserved for end of object
@@ -620,7 +622,6 @@ extern SField const sfActiveValidators;
 extern SField const sfImportVLKeys;
 extern SField const sfHookEmissions;
 extern SField const sfAmounts;
-extern SField const sfURITokenIDs;
 
 //------------------------------------------------------------------------------
 

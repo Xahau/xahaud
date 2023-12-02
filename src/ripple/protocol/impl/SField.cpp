@@ -305,6 +305,7 @@ CONSTRUCT_TYPED_SFIELD(sfEmitCallback,          "EmitCallback",         ACCOUNT,
 
 // account (uncommon)
 CONSTRUCT_TYPED_SFIELD(sfHookAccount,           "HookAccount",          ACCOUNT,   16);
+CONSTRUCT_TYPED_SFIELD(sfInform,                "Inform",               ACCOUNT,   99);
 
 // vector of 256-bit
 CONSTRUCT_TYPED_SFIELD(sfIndexes,               "Indexes",              VECTOR256,  1, SField::sMD_Never);

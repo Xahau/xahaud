@@ -23,7 +23,6 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/app/tx/impl/URIToken.h>
-
 namespace ripple {
 
 TxConsequences
@@ -60,14 +59,14 @@ Remit::preflight(PreflightContext const& ctx)
         std::map<Currency, std::set<AccountID>> already;
         bool nativeAlready = false;
 
-        STArray const& sEntries(obj.getFieldArray(sfAmounts));
+        STArray const& sEntries(ctx.tx.getFieldArray(sfAmounts));
         for (STObject const& sEntry : sEntries)
         {
             // Validate the AmountEntry.
             if (sEntry.getFName() != sfAmountEntry)
             {
                 JLOG(ctx.j.warn())
-                    << "Malformed " << annotation << ": Expected AmountEntry.";
+                    << "Malformed: Expected AmountEntry.";
                 return temMALFORMED;
             }
 
@@ -97,27 +96,27 @@ Remit::preflight(PreflightContext const& ctx)
                 continue;
             }
 
-            auto& found = already.find(amount.getCurrency());
+            auto found = already.find(amount.getCurrency());
             if (found == already.end())
             {
-                already.emplace(amount.getCurrency(), {issuerAccID});
+                already.emplace(amount.getCurrency(), std::set<AccountID>{amount.getIssuer()});
                 continue;
             }
 
-            if (found->second.find(issuerAccID))
+            if (found->second.find(amount.getIssuer()) != found->second.end())
             {
                 JLOG(ctx.j.warn()) << "Malformed transaction: Issued Currency appears more than once.";
                 return temMALFORMED;
             }
 
-            found->second.emplace(issuerAccID);
+            found->second.emplace(amount.getIssuer());
         }
     }
 
     // sanity check minturitoken
     if (ctx.tx.isFieldPresent(sfMintURIToken))
     {
-        STObject const& mint = const_cast<ripple::STTx&>(tx)
+        STObject const& mint = const_cast<ripple::STTx&>(ctx.tx)
                                       .getField(sfMintURIToken)
                                       .downcast<STObject>();
         // RH TODO: iterate mint fields detect any that shouldnt be there
@@ -130,7 +129,7 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!URToken::validateUTF(mint.getFieldVL(sfURI)))
+        if (!URIToken::validateUTF8(mint.getFieldVL(sfURI)))
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";
@@ -160,14 +159,15 @@ Remit::preflight(PreflightContext const& ctx)
     return preflight2(ctx);
 }
 
+TER
 Remit::doApply()
 {
-    if (!sb.rules().enabled(featureRemit))
+    if (!view().rules().enabled(featureRemit))
         return temDISABLED;
 
     Sandbox sb(&ctx_.view());
 
-    beast::Journal& j = journal;
+    beast::Journal const& j = ctx_.journal;
 
     auto const srcAccID = ctx_.tx[sfAccount];
 
@@ -218,19 +218,23 @@ Remit::doApply()
 
         sleDstAcc->setFieldU32(sfSequence, seqno);
         sleDstAcc->setFieldU32(sfOwnerCount, 0);
-        if (sleDstAccFees && view().rules().enabled(featureXahauGenesis))
+        auto sleFees = view().peek(keylet::fees());
+        if (sleFees && view().rules().enabled(featureXahauGenesis))
         {
-            uint64_t accIdx = sleDstAccFees->isFieldPresent(sfAccountCount)
-                ? sleDstAccFees->getFieldU64(sfAccountCount)
+            uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount)
+                ? sleFees->getFieldU64(sfAccountCount)
                 : 0;
             sleDstAcc->setFieldU64(sfAccountIndex, accIdx);
-            sleDstAccFees->setFieldU64(sfAccountCount, accIdx + 1);
+            sleFees->setFieldU64(sfAccountCount, accIdx + 1);
+            sb.update(sleFees);
         }
 
         // we'll fix this up at the end
-        sleDstAcc->setFieldAmount(sfBalance, 0);
+        sleDstAcc->setFieldAmount(sfBalance, STAmount{XRPAmount{0}});
         sb.insert(sleDstAcc);
-        sleDstAcc = sb.peek(sleDstAcc);
+
+        // pull a new shrptr so we can update as we go 
+        sleDstAcc = sb.peek(keylet::account(dstAccID));
     }
         
 
@@ -238,7 +242,7 @@ Remit::doApply()
     if (ctx_.tx.isFieldPresent(sfMintURIToken))
     {
         nativeRemit += objectReserve;
-        STObject const& mint = const_cast<ripple::STTx&>(tx)
+        STObject const& mint = const_cast<ripple::STTx&>(ctx_.tx)
                                       .getField(sfMintURIToken)
                                       .downcast<STObject>();
     
@@ -260,7 +264,7 @@ Remit::doApply()
         }
 
 
-        sleMint = std::make_shared<SLE>(kl);
+        auto sleMint = std::make_shared<SLE>(kl);
 
         sleMint->setAccountID(sfOwner, dstAccID);
         sleMint->setAccountID(sfIssuer, srcAccID);
@@ -274,20 +278,20 @@ Remit::doApply()
 
 
         auto const page = view().dirInsert(
-            keylet::ownerDir(sleDstAcc), kl, describeOwnerDir(sleDstAcc));
+            keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));
 
         JLOG(j_.trace())
-            << "Adding URIToken to owner directory " << to_string(kl->key)
+            << "Adding URIToken to owner directory " << to_string(kl.key)
             << ": " << (page ? "success" : "failure");
 
         if (!page)
             return tecDIR_FULL;
 
         sleMint->setFieldU64(sfOwnerNode, *page);
-        sb.insert(sleU);
+        sb.insert(sleMint);
 
         // ensure there is a deletion blocker against the issuer now
-        sleSrcAcc->setFieldU32(sfFlags, sle->getFlags() | lsfURITokenIssuer);
+        sleSrcAcc->setFieldU32(sfFlags, sleSrcAcc->getFlags() | lsfURITokenIssuer);
 
         adjustOwnerCount(sb, sleSrcAcc, 1, j);
     }
@@ -297,8 +301,9 @@ Remit::doApply()
     if (ctx_.tx.isFieldPresent(sfURITokenIDs))
     {
         STVector256 ids = ctx_.tx.getFieldV256(sfURITokenIDs);
-        for (uint256 const kl : ids)
+        for (uint256 const klRaw : ids)
         {
+            Keylet kl = keylet::unchecked(klRaw);
             auto sleU = sb.peek(kl);
             
             // does it exist
@@ -318,7 +323,7 @@ Remit::doApply()
             }
 
             // is it our uritoken?
-            if (sleU->getAccounntID(sfOwner) != srcAccID)
+            if (sleU->getAccountID(sfOwner) != srcAccID)
             {
                 JLOG(j.warn())
                     << "Remit: one or more supplied URITokenIDs was not owned by sender.";
@@ -337,7 +342,7 @@ Remit::doApply()
             // remove from sender dir
             {
                 auto const page = (*sleU)[sfOwnerNode];
-                if (!sb.dirRemove(keylet::ownerDir(srcAccID), page, kl->key, true))
+                if (!sb.dirRemove(keylet::ownerDir(srcAccID), page, kl.key, true))
                 {
                     JLOG(j.fatal())
                         << "Could not remove URIToken from owner directory";
@@ -353,7 +358,7 @@ Remit::doApply()
                     sb.dirInsert(keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));
 
                 JLOG(j_.trace())
-                    << "Adding URIToken to owner directory " << to_string(kl->key)
+                    << "Adding URIToken to owner directory " << to_string(kl.key)
                     << ": " << (page ? "success" : "failure");
 
                 if (!page)
@@ -365,7 +370,7 @@ Remit::doApply()
             }
             
             // change the owner
-            sleU->setAccountID(sfOwner, sleDstAcc);
+            sleU->setAccountID(sfOwner, dstAccID);
         }
     }
 
@@ -375,7 +380,7 @@ Remit::doApply()
     {
 
         // process trustline remits
-        STArray const& sEntries(obj.getFieldArray(sfAmounts));
+        STArray const& sEntries(ctx_.tx.getFieldArray(sfAmounts));
         for (STObject const& sEntry : sEntries)
         {
             STAmount const amount = sEntry.getFieldAmount(sfAmount);
@@ -391,7 +396,8 @@ Remit::doApply()
             if (TER canXfer =
                 trustTransferAllowed(
                     sb,
-                    {srcAccID, dstID},
+                    std::vector<AccountID>{srcAccID, dstAccID},
+                    amount.issue(),
                     j); canXfer != tesSUCCESS)
                 return canXfer;
 
@@ -402,7 +408,7 @@ Remit::doApply()
             // the destination can always be assured they got the exact amount specified.
             // therefore we need to compute the amount + transfer fee
             auto const srcAmt = 
-                issuerAccID != srcAccID && issuerAccID != dstAccID && xferRate != parityRate
+                issuerAccID != srcAccID && issuerAccID != dstAccID
                     ? multiply(amount, transferRate(sb, issuerAccID))
                     : amount;
 
@@ -447,17 +453,17 @@ Remit::doApply()
             bal -= nativeRemit;
             if (bal < beast::zero || bal > mSourceBalance)
                 return tecINTERNAL;
-            sleSrcAcc.setFieldAmount(sfBalance, bal);
+            sleSrcAcc->setFieldAmount(sfBalance, bal);
         }
 
         // add the balance to the destination
         {
-            STAmount bal = sleDstAcc.getFieldAmount(sfBalance);
+            STAmount bal = sleDstAcc->getFieldAmount(sfBalance);
             STAmount prior = bal;
             bal += nativeRemit;
             if (bal < beast::zero || bal < prior)
                 return tecINTERNAL;
-            sleDstAcc.setField(sfBalance, bal);
+            sleDstAcc->setFieldAmount(sfBalance, bal);
         }
     }
 
@@ -465,9 +471,6 @@ Remit::doApply()
     sb.apply(ctx_.rawView());
 
     return tesSUCCESS;
-}
-
-{
 }
 
 XRPAmount

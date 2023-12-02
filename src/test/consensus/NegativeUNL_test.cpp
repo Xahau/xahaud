@@ -53,12 +53,21 @@ namespace test {
  * @return true if meet all three expectation
  */
 bool
+inline
 negUnlSizeTest(
-    std::shared_ptr<Ledger const> const& l,
+    std::shared_ptr<ripple::Ledger const> const& l,
     size_t size,
     bool hasToDisable,
-    bool hasToReEnable);
+    bool hasToReEnable)
+{
+    bool sameSize = l->negativeUNL().size() == size;
+    bool sameToDisable =
+        (l->validatorToDisable() != std::nullopt) == hasToDisable;
+    bool sameToReEnable =
+        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
 
+    return sameSize && sameToDisable && sameToReEnable;
+}
 /**
  * Try to apply a ttUNL_MODIFY Tx, and test the apply result
  *
@@ -69,7 +78,15 @@ negUnlSizeTest(
  * @return true if meet the expectation of apply result
  */
 bool
-applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass);
+inline
+applyAndTestResult(jtx::Env& env, ripple::OpenView& view, ripple::STTx const& tx, bool pass)
+{
+    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
+    if (pass)
+        return res.first == tesSUCCESS;
+    else
+        return res.first == tefFAILURE || res.first == temDISABLED;
+}
 
 /**
  * Verify the content of negative UNL entries (public key and ledger sequence)
@@ -1912,31 +1929,7 @@ BEAST_DEFINE_TESTSUITE(NegativeUNLVoteFilterValidations, consensus, ripple);
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
-bool
-negUnlSizeTest(
-    std::shared_ptr<Ledger const> const& l,
-    size_t size,
-    bool hasToDisable,
-    bool hasToReEnable)
-{
-    bool sameSize = l->negativeUNL().size() == size;
-    bool sameToDisable =
-        (l->validatorToDisable() != std::nullopt) == hasToDisable;
-    bool sameToReEnable =
-        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
 
-    return sameSize && sameToDisable && sameToReEnable;
-}
-
-bool
-applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
-{
-    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
-    if (pass)
-        return res.first == tesSUCCESS;
-    else
-        return res.first == tefFAILURE || res.first == temDISABLED;
-}
 
 bool
 VerifyPubKeyAndSeq(

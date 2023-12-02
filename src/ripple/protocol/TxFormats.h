@@ -148,7 +148,7 @@ enum TxType : std::uint16_t
 
     /* A payment transactor that delivers only the exact amounts specified, creating accounts and TLs as needed 
      * that the sender pays for. */
-    ttREMIT = 95;
+    ttREMIT = 95,
 
     /** This transaction can only be used by the genesis account, which is controlled exclusively by
      * rewards/governance hooks, to print new XRP to be delivered directly to an array of destinations,

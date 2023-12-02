@@ -27,6 +27,7 @@
 #include <ripple/ledger/OpenView.h>
 #include <ripple/ledger/RawView.h>
 #include <ripple/ledger/ReadView.h>
+#include <ripple/ledger/Sandbox.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Protocol.h>
 #include <ripple/protocol/Rate.h>
@@ -388,6 +389,18 @@ rippleCredit(
     bool bCheckIssuer,
     beast::Journal j);
 
+// Send regardless of limits.
+// --> saAmount: Amount/currency/issuer to deliver to receiver.
+// <-- saActual: Amount actually cost.  Sender pays fees.
+TER
+rippleSend(
+    ApplyView& view,
+    AccountID const& uSenderID,
+    AccountID const& uReceiverID,
+    STAmount const& saAmount,
+    STAmount& saActual,
+    beast::Journal j);
+
 [[nodiscard]] TER
 accountSend(
     ApplyView& view,
@@ -627,12 +640,13 @@ trustTransferAllowed(
 {
     static_assert(
         std::is_same<V, ReadView const>::value ||
-        std::is_same<V, ApplyView>::value);
+        std::is_same<V, ApplyView>::value ||
+        std::is_same<V, Sandbox>::value);
 
     typedef typename std::conditional<
-        std::is_same<V, ApplyView>::value,
-        std::shared_ptr<SLE>,
-        std::shared_ptr<SLE const>>::type SLEPtr;
+        std::is_same<V, ReadView const>::value,
+        std::shared_ptr<SLE const>,
+        std::shared_ptr<SLE>>::type SLEPtr;
 
     if (isBadCurrency(issue.currency))
         return tecNO_PERMISSION;
