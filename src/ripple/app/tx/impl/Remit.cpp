@@ -200,7 +200,8 @@ Remit::doApply()
 
 
     // if the destination doesn't exist, create it.
-    if (!sleDstAcc)
+    bool const createDst = !sleDstAcc;
+    if (createDst)
     {
         // sender will pay the reserve
         nativeRemit += accountReserve;
@@ -213,8 +214,8 @@ Remit::doApply()
                     ? sb.seq()
                     : 1};
 
-        sleDstAcc = std::make_shared<SLE>(keylet::account(srcAccID));
-        sleDstAcc->setAccountID(sfAccount, srcAccID);
+        sleDstAcc = std::make_shared<SLE>(keylet::account(dstAccID));
+        sleDstAcc->setAccountID(sfAccount, dstAccID);
 
         sleDstAcc->setFieldU32(sfSequence, seqno);
         sleDstAcc->setFieldU32(sfOwnerCount, 0);
@@ -232,11 +233,8 @@ Remit::doApply()
         // we'll fix this up at the end
         sleDstAcc->setFieldAmount(sfBalance, STAmount{XRPAmount{0}});
         sb.insert(sleDstAcc);
-
-        // pull a new shrptr so we can update as we go 
-        sleDstAcc = sb.peek(keylet::account(dstAccID));
     }
-        
+
 
     // if theres a minted uritoken the sender pays for that
     if (ctx_.tx.isFieldPresent(sfMintURIToken))
@@ -467,7 +465,8 @@ Remit::doApply()
         }
     }
 
-    // apply 
+    // apply
+    sb.update(sleSrcAcc); 
     sb.apply(ctx_.rawView());
 
     return tesSUCCESS;
