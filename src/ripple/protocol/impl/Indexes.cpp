@@ -45,6 +45,7 @@ namespace ripple {
 */
 enum class LedgerNameSpace : std::uint16_t {
     ACCOUNT = 'a',
+    ATTESTATION = 'A',
     DIR_NODE = 'd',
     TRUST_LINE = 'r',
     OFFER = 'o',
@@ -441,6 +442,16 @@ uritoken(AccountID const& issuer, Blob const& uri)
         ltURI_TOKEN,
         indexHash(
             LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+}
+
+Keylet attestationDir(uint32_t ledgerSeq)
+{
+    return {ltDIR_NODE, indexHash(LedgerNameSpace::ATTESTATION_DIR, ledgerSeq)};
+}
+
+Keylet attestation(AccountID const& issuer, uint256 const& txnid)
+{
+    return {ltATTESTATION, indexHash(LedgerNameSpace::ATTESTATION, issuer, txnid)};
 }
 
 }  // namespace keylet

@@ -483,6 +483,7 @@ extern SF_UINT256 const sfURITokenID;
 extern SF_UINT256 const sfGovernanceFlags;
 extern SF_UINT256 const sfGovernanceMarks;
 extern SF_UINT256 const sfEmittedTxnID;
+extern SF_UINT256 const sfAttestedTxnID;
 
 // currency amount (common)
 extern SF_AMOUNT const sfAmount;

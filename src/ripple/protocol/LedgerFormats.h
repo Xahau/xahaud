@@ -52,6 +52,12 @@ namespace ripple {
 // clang-format off
 enum LedgerEntryType : std::uint16_t
 {
+    /** A ledger object which describes an attested txn 
+
+        \sa kelet::attestation
+    */
+    ltATTESTATION = 0x0041,
+
     /** A ledger object which describes an account.
 
         \sa keylet::account

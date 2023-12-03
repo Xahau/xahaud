@@ -146,6 +146,10 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
+    /** This transaction acts as an attestation for another txn currently in the TxQ */
+    ttATTEST = 94,
+
+
     /** This transaction can only be used by the genesis account, which is controlled exclusively by
      * rewards/governance hooks, to print new XRP to be delivered directly to an array of destinations,
      * according to reward schedule */

@@ -295,7 +295,10 @@ Keylet
 import_vlseq(PublicKey const& key) noexcept;
 
 Keylet
-uritoken(AccountID const& issuer, Blob const& uri);
+uritoken(AccountID const& issuer, Blob const& uri) noexcept;
+
+Keylet
+attestation(AccountID const& issuer, uint256 const& txnid) noexcept;
 
 }  // namespace keylet
 

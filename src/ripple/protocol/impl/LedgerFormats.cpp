@@ -363,6 +363,17 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::Attestation,
+        ltATTESTATION,
+        {
+            {sfOwner,                soeREQUIRED},
+            {sfOwnerNode,            soeREQUIRED},
+            {sfAttestedTxnID,        soeREQUIRED},
+            {sfPreviousTxnID,        soeREQUIRED},
+            {sfPreviousTxnLgrSeq,    soeREQUIRED},
+        },
+        commonField);
+
     // clang-format on
 }
 

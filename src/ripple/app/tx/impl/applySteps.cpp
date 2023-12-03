@@ -32,6 +32,7 @@
 #include <ripple/app/tx/impl/GenesisMint.h>
 #include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/Invoke.h>
+#include <ripple/app/tx/impl/Attest.h>
 #include <ripple/app/tx/impl/NFTokenAcceptOffer.h>
 #include <ripple/app/tx/impl/NFTokenBurn.h>
 #include <ripple/app/tx/impl/NFTokenCancelOffer.h>
@@ -164,6 +165,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<Import>(ctx);
         case ttINVOKE:
             return invoke_preflight_helper<Invoke>(ctx);
+        case ttATTEST:
+            return invoke_preflight_helper<Attest>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -283,6 +286,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<Import>(ctx);
         case ttINVOKE:
             return invoke_preclaim<Invoke>(ctx);
+        case ttATTEST:
+            return invoke_preclaim<Attest>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -364,6 +369,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return Import::calculateBaseFee(view, tx);
         case ttINVOKE:
             return Invoke::calculateBaseFee(view, tx);
+        case ttATTEST:
+            return Attest::calculateBaseFee(view, tx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -542,6 +549,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttINVOKE: {
             Invoke p(ctx);
+            return p();
+        }
+        case ttATTEST: {
+            Attest p(ctx);
             return p();
         }
         case ttURITOKEN_MINT:
