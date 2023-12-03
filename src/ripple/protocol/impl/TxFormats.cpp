@@ -117,6 +117,21 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    add(jss::Remit,
+        ttREMIT,
+        {
+            {sfDestination, soeREQUIRED},
+            {sfAmounts, soeOPTIONAL},
+            {sfURITokenIDs, soeOPTIONAL},
+            {sfMintURIToken, soeOPTIONAL},
+            {sfInvoiceID, soeOPTIONAL},
+            {sfDestinationTag, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
+            {sfBlob, soeOPTIONAL},
+            {sfInform, soeOPTIONAL},
+        },
+        commonFields);
+
     add(jss::EscrowCreate,
         ttESCROW_CREATE,
         {

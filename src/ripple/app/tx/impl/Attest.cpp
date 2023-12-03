@@ -74,7 +74,7 @@ Attest::preclaim(PreclaimContext const& ctx)
 
     uint32_t flags = ctx.tx.getFlags();
 
-    bool const isDelete = (flags | tfDeleteAttestation) == tfDeleteAttestation;
+    bool const isDelete = (flags & tfDeleteAttestation) == tfDeleteAttestation;
     bool const exists = ctx.view.exists(kl);
     
     if (exists && !isDelete)
@@ -95,7 +95,18 @@ Attest::doApply()
     if (!sle)
         return tefINTERNAL;
 
+    Keylet kl =
+        ctx_.tx.isFieldPresent(sfAttestedTxnID) 
+            ? keylet::attestationTxn(account_, ctx_.tx.getFieldH256(sfAttestedTxnID))
+            : keylet::attestationAcc(account_, ctx_.tx.getAccountID(sfAttestedAccID));
+
+    uint32_t flags = ctx_.tx.getFlags();
+    
+    bool const isDelete = (flags & tfDeleteAttestation) == tfDeleteAttestation;
+    bool const exists = view().exists(kl);
+
     // check for sufficient reserves
+    if (!isDelete)
     {
         STAmount const reserve{
             view().fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
@@ -106,16 +117,6 @@ Attest::doApply()
         if (afterFee > mPriorBalance || afterFee < reserve)
             return tecINSUFFICIENT_RESERVE;
     }
-
-    Keylet kl =
-        ctx_.tx.isFieldPresent(sfAttestedTxnID) 
-            ? keylet::attestationTxn(account_, ctx_.tx.getFieldH256(sfAttestedTxnID))
-            : keylet::attestationAcc(account_, ctx_.tx.getAccountID(sfAttestedAccID));
-
-    uint32_t flags = ctx_.tx.getFlags();
-    
-    bool const isDelete = (flags | tfDeleteAttestation) == tfDeleteAttestation;
-    bool const exists = view().exists(kl);
 
     // delete mode
     if (exists && isDelete)
@@ -142,6 +143,7 @@ Attest::doApply()
     {
         auto sleA = std::make_shared<SLE>(kl);
 
+        sleA->setFieldU16(sfLedgerEntryType, ltATTESTATION);
         sleA->setAccountID(sfOwner, account_);
 
         if (ctx_.tx.isFieldPresent(sfAttestedTxnID))

@@ -142,6 +142,21 @@ InnerObjectFormats::InnerObjectFormats()
             {sfAccount, soeOPTIONAL},
         });
 
+    add(sfAmountEntry.jsonName.c_str(),
+        sfAmountEntry.getCode(),
+        {
+            {sfAmount, soeREQUIRED},
+            {sfFlags, soeOPTIONAL},
+        });
+
+    add(sfMintURIToken.jsonName.c_str(),
+        sfMintURIToken.getCode(),
+        {
+            {sfURI, soeREQUIRED},
+            {sfDigest, soeOPTIONAL},
+            {sfFlags, soeOPTIONAL},
+        });
+
     add(sfAttesterEntry.jsonName.c_str(),
         sfAttesterEntry.getCode(),
         {
