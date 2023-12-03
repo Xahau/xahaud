@@ -59,7 +59,7 @@ Attest::preclaim(PreclaimContext const& ctx)
         return terNO_ACCOUNT;
 
     Keylet kl =
-        keylet::attestation(id, ctx.tx.getFieldH256(sfAttestedTxnId));
+        keylet::attestation(id, ctx.tx.getFieldH256(sfAttestedTxnID));
 
     uint32_t flags = ctx.tx.getFlags();
 
@@ -84,7 +84,7 @@ Attest::doApply()
         return tefINTERNAL;
 
     Keylet kl =
-        keylet::attestation(account_, ctx.tx.getFieldH256(sfAttestedTxnId));
+        keylet::attestation(account_, ctx_.tx.getFieldH256(sfAttestedTxnID));
 
     uint32_t flags = ctx_.tx.getFlags();
     
@@ -94,7 +94,7 @@ Attest::doApply()
     // delete mode
     if (exists && isDelete)
     {
-        auto sleA = view().peek(kl)
+        auto sleA = view().peek(kl);
 
         AccountID owner = sleA->getAccountID(sfOwner);
 
@@ -138,7 +138,7 @@ Attest::doApply()
     }
     // everything else is invalid
     else
-        return tecINTRERNAL;
+        return tecINTERNAL;
 }
 
 XRPAmount

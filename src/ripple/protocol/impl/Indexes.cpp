@@ -436,7 +436,7 @@ nft_sells(uint256 const& id) noexcept
 }
 
 Keylet
-uritoken(AccountID const& issuer, Blob const& uri)
+uritoken(AccountID const& issuer, Blob const& uri) noexcept
 {
     return {
         ltURI_TOKEN,
@@ -444,12 +444,7 @@ uritoken(AccountID const& issuer, Blob const& uri)
             LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
 }
 
-Keylet attestationDir(uint32_t ledgerSeq)
-{
-    return {ltDIR_NODE, indexHash(LedgerNameSpace::ATTESTATION_DIR, ledgerSeq)};
-}
-
-Keylet attestation(AccountID const& issuer, uint256 const& txnid)
+Keylet attestation(AccountID const& issuer, uint256 const& txnid) noexcept
 {
     return {ltATTESTATION, indexHash(LedgerNameSpace::ATTESTATION, issuer, txnid)};
 }

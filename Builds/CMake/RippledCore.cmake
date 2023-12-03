@@ -455,7 +455,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/GenesisMint.cpp
   src/ripple/app/tx/impl/Import.cpp
   src/ripple/app/tx/impl/Invoke.cpp
-  src/ripple/app/tx/impl/Attestation.cpp
+  src/ripple/app/tx/impl/Attest.cpp
   src/ripple/app/tx/impl/SetSignerList.cpp
   src/ripple/app/tx/impl/SetTrust.cpp
   src/ripple/app/tx/impl/SignerEntries.cpp

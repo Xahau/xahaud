@@ -372,7 +372,7 @@ LedgerFormats::LedgerFormats()
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED},
         },
-        commonField);
+        commonFields);
 
     // clang-format on
 }
