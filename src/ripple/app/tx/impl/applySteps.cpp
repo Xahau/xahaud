@@ -212,6 +212,27 @@ invoke_preclaim(PreclaimContext const& ctx)
 
         if (result != tesSUCCESS)
             return result;
+        
+        if (ctx.tx.isFieldPresent(sfAttesters) && ctx.view.rules().enabled(featureAttestations))
+        {
+            // check last ledger sequence
+            if (!ctx.tx.isFieldPresent(sfLastLedgerSequence))
+                return tecINTERNAL;
+
+            if (ctx.tx.getFieldU32(sfLastLedgerSequence) > ctx.view.seq() + 256)
+                return tecLAST_LEDGER_SEQ_TOO_HIGH;
+
+            // check if the required attestations are present on ledger
+            auto const& attesters = ctx.tx.getFieldArray(sfAttesters);
+
+            auto const txid = ctx.tx.getTransactionID();
+
+            // each required attestation must exist on the ledger to allow the txn through
+            // otherwise it gets marked retry
+            for (auto const& attester : attesters)
+                if (!ctx.view.exists(keylet::attestationTxn(attester.getAccountID(sfAccount), txid)))
+                    return terAWAITING_ATTESTATION;
+        }
     }
 
     return T::preclaim(ctx);

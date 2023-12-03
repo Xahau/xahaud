@@ -161,7 +161,6 @@ InnerObjectFormats::InnerObjectFormats()
         sfAttesterEntry.getCode(),
         {
             {sfAccount, soeREQUIRED},
-            {sfFlags,   soeREQUIRED},
         });
 }
 

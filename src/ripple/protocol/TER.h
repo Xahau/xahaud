@@ -223,8 +223,9 @@ enum TERcodes : TERUnderlyingType {
     terQUEUED,       // Transaction is being held in TxQ until fee drops
     terPRE_TICKET,   // Ticket is not yet in ledger but might be on its way
     terNO_AMM,       // RESERVED - AMM
-    terNO_HOOK       // Transaction requires a non-existent hook definition
+    terNO_HOOK,      // Transaction requires a non-existent hook definition
                      // (referenced by sfHookHash)
+    terAWAITING_ATTESTATION,
 };
 
 //------------------------------------------------------------------------------
