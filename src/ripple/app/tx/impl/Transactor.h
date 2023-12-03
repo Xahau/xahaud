@@ -160,6 +160,20 @@ public:
     {
         // Most transactors do nothing
         // after checkSeq/Fee/Sign.
+        
+        if (ctx.tx.isFieldPresent(sfAttesters) && ctx.view.rules().enabled(featureAttestations))
+        {
+            // check if the required attestations are present on ledger
+            auto const& attesters = ctx.tx.getFieldArray(sfAttesters);
+
+            auto const txid = ctx.tx.getTransactionID();
+
+            // each required attestation must exist on the ledger to allow the txn through
+            // otherwise it gets marked retry
+            for (auto const& attester : attesters)
+                if (!ctx.view.exists(keylet::attestation(attester.getAccountID(sfAccount), txid)))
+                    return terRETRY;
+        }
         return tesSUCCESS;
     }
     /////////////////////////////////////////////////////

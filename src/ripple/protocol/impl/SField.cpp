@@ -347,6 +347,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfGenesisMint,         "GenesisMint",          OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidator,     "ActiveValidator",      OBJECT,    95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKey,         "ImportVLKey",          OBJECT,    94);
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmission,        "HookEmission",         OBJECT,    93);
+CONSTRUCT_UNTYPED_SFIELD(sfAttesterEntry,       "AttesterEntry",        OBJECT,    90);
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array
@@ -371,6 +372,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfGenesisMints,        "GenesisMints",         ARRAY,  
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidators,    "ActiveValidators",     ARRAY,     95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKeys,        "ImportVLKeys",         ARRAY,     94);
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmissions,       "HookEmissions",        ARRAY,     93);
+CONSTRUCT_UNTYPED_SFIELD(sfAttesters,           "Attesters",            ARRAY,     91);
 
 // clang-format on
 

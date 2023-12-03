@@ -591,6 +591,7 @@ extern SField const sfHookGrant;
 extern SField const sfActiveValidator;
 extern SField const sfImportVLKey;
 extern SField const sfHookEmission;
+extern SField const sfAttesterEntry;
 
 // array of objects (common)
 // ARRAY/1 is reserved for end of array
@@ -618,6 +619,7 @@ extern SField const sfGenesisMints;
 extern SField const sfActiveValidators;
 extern SField const sfImportVLKeys;
 extern SField const sfHookEmissions;
+extern SField const sfAttesters;
 
 //------------------------------------------------------------------------------
 

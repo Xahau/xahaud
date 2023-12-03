@@ -85,6 +85,41 @@ preflight0(PreflightContext const& ctx)
         return temINVALID;
     }
 
+    // don't allow attestations unless enabled
+    if (ctx.tx.isFieldPresent(sfAttesters))
+    {
+        if (!ctx.rules.enabled(featureAttestations))
+            return temDISABLED;
+
+        // make sure they can't spam millions of attesters
+        auto const& attesters = ctx.tx.getFieldArray(sfAttesters);
+        if (attesters.empty() || attesters.size() > 32)
+        {
+            JLOG(ctx.j.warn())
+                << "applyTransaction: attesters array too big (max 32) or empty.";
+            return temMALFORMED;
+        }
+  
+        // sanity check entries
+        std::set<AccountID> used; 
+        for (auto const& attester: attesters)
+        {
+            if (attester.getFName() != sfAttesterEntry)
+            {
+                JLOG(ctx.j.warn())
+                    << "applyTransaction: attesters array contained non AttesterEntry object.";
+                return temMALFORMED;
+            }
+
+            if (used.find(attester.getAccountID(sfAccount)) != used.end())
+            {
+                JLOG(ctx.j.warn())
+                    << "applyTransaction: attesters array contained duplicate attester ID.";
+                return temMALFORMED;
+            }
+        }
+    }
+
     return tesSUCCESS;
 }
 
@@ -1925,6 +1960,54 @@ Transactor::operator()()
             sle->setFieldU32(sfRewardLgrLast, lgrCur);
 
             view().update(sle);
+        }
+    }
+
+    if (applied && ctx_.tx.isFieldPresent(sfAttesters) && view().rules().enabled(featureAttestations))
+    {
+        // delete used attestation objects 
+        
+        auto const& attesters = ctx_.tx.getFieldArray(sfAttesters);
+        auto const txid = ctx_.tx.getTransactionID();
+
+        auto const& j = ctx_.app.journal("View");
+
+        for (auto const& attester : attesters)
+        {
+            Keylet kl = keylet::attestation(attester.getAccountID(sfAccount), txid);
+            if (!view().exists(kl))
+            {
+                JLOG(j.warn())
+                    << "Transactor: Warning!!! Attestation does not exist at end of attested txn "
+                    << txid;
+                continue;
+            }
+
+            // remove from dir
+            auto sleA = view().peek(kl);
+
+            AccountID owner = sleA->getAccountID(sfOwner);
+            auto sle = view().peek(keylet::account(owner));
+
+            if (!sle)
+            {
+                JLOG(j.warn()) 
+                    << "Transactor: Warning!!! Attester account does not exist at the end of attested txn "
+                    << txid;
+                continue;
+            }
+
+            auto const page = (*sleA)[sfOwnerNode];
+            if (!view().dirRemove(
+                    keylet::ownerDir(owner), page, kl.key, true))
+            {
+                JLOG(j.warn())
+                    << "Could not remove Attestation from owner directory";
+                continue;
+            }
+
+            view().erase(sleA);
+            adjustOwnerCount(view(), sle, -1, j);
         }
     }
 

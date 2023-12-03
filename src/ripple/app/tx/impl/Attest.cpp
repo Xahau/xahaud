@@ -71,6 +71,7 @@ Attest::preclaim(PreclaimContext const& ctx)
     else if (!exists && isDelete)
         return tecNO_ENTRY;
 
+
     return tesSUCCESS;
 }
 
@@ -82,6 +83,19 @@ Attest::doApply()
     auto const sle = view().peek(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
+
+    // check for sufficient reserves
+    {
+        STAmount const reserve{
+            view().fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
+
+        STAmount const afterFee =
+            mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp();
+
+        if (afterFee > mPriorBalance || afterFee < reserve)
+            return tecINSUFFICIENT_RESERVE;
+    }
+
 
     Keylet kl =
         keylet::attestation(account_, ctx_.tx.getFieldH256(sfAttestedTxnID));

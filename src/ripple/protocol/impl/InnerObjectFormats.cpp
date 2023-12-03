@@ -141,6 +141,13 @@ InnerObjectFormats::InnerObjectFormats()
             {sfPublicKey, soeREQUIRED},
             {sfAccount, soeOPTIONAL},
         });
+
+    add(sfAttesterEntry.jsonName.c_str(),
+        sfAttesterEntry.getCode(),
+        {
+            {sfAccount, soeREQUIRED},
+            {sfFlags,   soeREQUIRED},
+        });
 }
 
 InnerObjectFormats const&
