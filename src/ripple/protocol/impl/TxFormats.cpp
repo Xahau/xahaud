@@ -446,7 +446,8 @@ TxFormats::TxFormats()
     add(jss::Attest,
         ttATTEST,
         {
-            {sfAttestedTxnID, soeREQUIRED},
+            {sfAttestedTxnID, soeOPTIONAL},
+            {sfAttestedAccID, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);

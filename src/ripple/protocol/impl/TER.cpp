@@ -91,6 +91,7 @@ transResults()
         MAKE_ERROR(tecHOOK_REJECTED,                 "Rejected by hook on sending or receiving account."),
         MAKE_ERROR(tecREQUIRES_FLAG,                 "The transaction or part-thereof requires a flag that wasn't set."),
         MAKE_ERROR(tecPRECISION_LOSS,                "The amounts used by the transaction cannot interact."),
+        MAKE_ERROR(tecLAST_LEDGER_SEQ_TOO_HIGH,      "The sfLastLedgerSequence was higher than seq + 256."),
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),
         MAKE_ERROR(tefBAD_AUTH,                    "Transaction's public key is not authorized."),

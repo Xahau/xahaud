@@ -298,7 +298,10 @@ Keylet
 uritoken(AccountID const& issuer, Blob const& uri) noexcept;
 
 Keylet
-attestation(AccountID const& issuer, uint256 const& txnid) noexcept;
+attestationTxn(AccountID const& issuer, uint256 const& txnid) noexcept;
+
+Keylet
+attestationAcc(AccountID const& issuer, AccountID const& issuee) noexcept;
 
 }  // namespace keylet
 

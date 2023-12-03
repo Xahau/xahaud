@@ -39,9 +39,18 @@ Attest::preflight(PreflightContext const& ctx)
 
     auto const flags = ctx.tx.getFlags();
 
-    if (ctx.rules.enabled(fix1543) && (flags & tfAttestMask))
+    if (flags & tfAttestMask)
         return temINVALID_FLAG;
 
+    bool const hasTxnID = ctx.tx.isFieldPresent(sfAttestedTxnID);
+    bool const hasAccID = ctx.tx.isFieldPresent(sfAttestedAccID);
+
+    if ((hasTxnID && hasAccID) || (!hasTxnID && !hasAccID))
+    {
+        JLOG(ctx.j.warn())
+            << "Attest: must specify exactly one of: AttestedTxnID, AttestedAccID";
+        return temMALFORMED;
+    }
 
     return preflight2(ctx);
 }
@@ -59,7 +68,9 @@ Attest::preclaim(PreclaimContext const& ctx)
         return terNO_ACCOUNT;
 
     Keylet kl =
-        keylet::attestation(id, ctx.tx.getFieldH256(sfAttestedTxnID));
+        ctx.tx.isFieldPresent(sfAttestedTxnID) 
+            ? keylet::attestationTxn(id, ctx.tx.getFieldH256(sfAttestedTxnID))
+            : keylet::attestationAcc(id, ctx.tx.getAccountID(sfAttestedAccID));
 
     uint32_t flags = ctx.tx.getFlags();
 
@@ -96,9 +107,10 @@ Attest::doApply()
             return tecINSUFFICIENT_RESERVE;
     }
 
-
     Keylet kl =
-        keylet::attestation(account_, ctx_.tx.getFieldH256(sfAttestedTxnID));
+        ctx_.tx.isFieldPresent(sfAttestedTxnID) 
+            ? keylet::attestationTxn(account_, ctx_.tx.getFieldH256(sfAttestedTxnID))
+            : keylet::attestationAcc(account_, ctx_.tx.getAccountID(sfAttestedAccID));
 
     uint32_t flags = ctx_.tx.getFlags();
     
@@ -132,7 +144,11 @@ Attest::doApply()
 
         sleA->setAccountID(sfOwner, account_);
 
-        sleA->setFieldH256(sfAttestedTxnID, ctx_.tx.getFieldH256(sfAttestedTxnID));
+        if (ctx_.tx.isFieldPresent(sfAttestedTxnID))
+            sleA->setFieldH256(sfAttestedTxnID, ctx_.tx.getFieldH256(sfAttestedTxnID));
+        else
+            sleA->setAccountID(sfAttestedAccID, ctx_.tx.getAccountID(sfAttestedAccID));
+        
 
         auto const page = view().dirInsert(
             keylet::ownerDir(account_), kl, describeOwnerDir(account_));

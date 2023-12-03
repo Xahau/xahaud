@@ -368,7 +368,8 @@ LedgerFormats::LedgerFormats()
         {
             {sfOwner,                soeREQUIRED},
             {sfOwnerNode,            soeREQUIRED},
-            {sfAttestedTxnID,        soeREQUIRED},
+            {sfAttestedTxnID,        soeOPTIONAL},
+            {sfAttestedAccID,        soeOPTIONAL},
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED},
         },

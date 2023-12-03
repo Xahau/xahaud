@@ -99,7 +99,16 @@ preflight0(PreflightContext const& ctx)
                 << "applyTransaction: attesters array too big (max 32) or empty.";
             return temMALFORMED;
         }
-  
+ 
+
+        // enforce that it must specify a last ledger seq
+        if (!ctx.tx.isFieldPresent(sfLastLedgerSequence))
+        {
+            JLOG(ctx.j.warn())
+                << "applyTransaction: txns with attesters must specify a last ledger sequence <= cur + 256";
+            return temMALFORMED;
+        }
+
         // sanity check entries
         std::set<AccountID> used; 
         for (auto const& attester: attesters)
@@ -111,12 +120,16 @@ preflight0(PreflightContext const& ctx)
                 return temMALFORMED;
             }
 
-            if (used.find(attester.getAccountID(sfAccount)) != used.end())
+            AccountID const& id = attester.getAccountID(sfAccount);
+
+            if (used.find(id) != used.end())
             {
                 JLOG(ctx.j.warn())
                     << "applyTransaction: attesters array contained duplicate attester ID.";
                 return temMALFORMED;
             }
+
+            used.emplace(id);
         }
     }
 
@@ -1974,7 +1987,7 @@ Transactor::operator()()
 
         for (auto const& attester : attesters)
         {
-            Keylet kl = keylet::attestation(attester.getAccountID(sfAccount), txid);
+            Keylet kl = keylet::attestationTxn(attester.getAccountID(sfAccount), txid);
             if (!view().exists(kl))
             {
                 JLOG(j.warn())
@@ -1985,6 +1998,14 @@ Transactor::operator()()
 
             // remove from dir
             auto sleA = view().peek(kl);
+
+            if (!sleA->isFieldPresent(sfAttestedTxnID))
+            {
+                JLOG(j.warn())
+                    << "Transactor: Warning!!! Attestation is of the wrong type at end of attested txn "
+                    << txid;
+                continue;
+            }
 
             AccountID owner = sleA->getAccountID(sfOwner);
             auto sle = view().peek(keylet::account(owner));
