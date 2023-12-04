@@ -52,43 +52,14 @@ namespace test {
 //  */
 
 // /**
-//  * Test the size of the negative UNL in a ledger,
-//  * also test if the ledger has ToDisalbe and/or ToReEnable
+//  * Try to apply a ttUNL_MODIFY Tx, and test the apply result
 //  *
-//  * @param l the ledger
-//  * @param size the expected negative UNL size
-//  * @param hasToDisable if expect ToDisable in ledger
-//  * @param hasToReEnable if expect ToDisable in ledger
-//  * @return true if meet all three expectation
+//  * @param env the test environment
+//  * @param view the OpenView of the ledger
+//  * @param tx the ttUNL_MODIFY Tx
+//  * @param pass if the Tx should be applied successfully
+//  * @return true if meet the expectation of apply result
 //  */
-/*
-bool
-inline
-negUnlSizeTest(
-    std::shared_ptr<ripple::Ledger const> const& l,
-    size_t size,
-    bool hasToDisable,
-    bool hasToReEnable)
-{
-    bool sameSize = l->negativeUNL().size() == size;
-    bool sameToDisable =
-        (l->validatorToDisable() != std::nullopt) == hasToDisable;
-    bool sameToReEnable =
-        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
-
-    return sameSize && sameToDisable && sameToReEnable;
-}
-*/
-/**
- * Try to apply a ttUNL_MODIFY Tx, and test the apply result
- *
- * @param env the test environment
- * @param view the OpenView of the ledger
- * @param tx the ttUNL_MODIFY Tx
- * @param pass if the Tx should be applied successfully
- * @return true if meet the expectation of apply result
- */
-/*
 bool
 inline
 applyAndTestResult(jtx::Env& env, ripple::OpenView& view, ripple::STTx const&
@@ -138,9 +109,6 @@ countUNLRTx(std::shared_ptr<SHAMap> const& txSet);
 
 std::vector<std::string> const keys = {
     "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"};
-
-std::unique_ptr<Config>
-makeNetworkVLConfig(uint32_t networkID, std::vector<std::string> keys);
 
 /**
  * Verify if the UNL report exists
@@ -193,38 +161,6 @@ createUNLRTx(
     LedgerIndex seq,
     PublicKey const& importKey,
     PublicKey const& valKey);
-
-/**
- * Count the number of Tx in a TxSet
- *
- * @param txSet the TxSet
- * @return the number of Tx
- */
-inline std::size_t
-countTx(std::shared_ptr<SHAMap> const& txSet);
-
-/**
- * Create ttUNL_MODIFY Tx
- *
- * @param disabling disabling or re-enabling a validator
- * @param seq current ledger seq
- * @param txKey the public key of the validator
- * @return the ttUNL_MODIFY Tx
- */
-inline STTx
-createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey);
-
-/**
- * Try to apply a ttUNL_MODIFY Tx, and test the apply result
- *
- * @param env the test environment
- * @param view the OpenView of the ledger
- * @param tx the ttUNL_MODIFY Tx
- * @param pass if the Tx should be applied successfully
- * @return true if meet the expectation of apply result
- */
-inline bool
-applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass);
 
 class UNLReport_test : public beast::unit_test::suite
 {
@@ -374,7 +310,10 @@ class UNLReport_test : public beast::unit_test::suite
         // telIMPORT_VL_KEY_NOT_RECOGNISED
         {
             test::jtx::Env env{
-                *this, makeNetworkVLConfig(21337, keys), features, nullptr};
+                *this,
+                jtx::network::makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr};
 
             auto l = std::make_shared<Ledger>(
                 create_genesis,
@@ -403,7 +342,10 @@ class UNLReport_test : public beast::unit_test::suite
         // SUCCESS
         {
             test::jtx::Env env{
-                *this, makeNetworkVLConfig(21337, keys), features, nullptr};
+                *this,
+                jtx::network::makeNetworkVLConfig(21337, keys),
+                features,
+                nullptr};
 
             auto l = std::make_shared<Ledger>(
                 create_genesis,
@@ -442,7 +384,10 @@ class UNLReport_test : public beast::unit_test::suite
         using namespace jtx;
 
         test::jtx::Env env{
-            *this, makeNetworkVLConfig(21337, keys), features, nullptr};
+            *this,
+            jtx::network::makeNetworkVLConfig(21337, keys),
+            features,
+            nullptr};
 
         std::vector<PublicKey> ivlKeys;
         for (auto const& strPk : _ivlKeys)
@@ -703,7 +648,8 @@ struct URNetworkHistory
 
     URNetworkHistory(beast::unit_test::suite& suite, Parameter const& p)
         : env(suite,
-              p.withVL ? makeNetworkVLConfig(21337, keys) : jtx::envconfig(),
+              p.withVL ? jtx::network::makeNetworkVLConfig(21337, keys)
+                       : jtx::envconfig(),
               jtx::supported_amendments() | featureNegativeUNL)
         , param(p)
         , validations(env.app().getValidations())
@@ -757,8 +703,8 @@ struct URNetworkHistory
                 OpenView accum(&*l);
                 if (l->negativeUNL().size() < param.negUNLSize)
                 {
-                    auto tx = createTx(true, l->seq(), UNLKeys[nidx]);
-                    if (!applyAndTestResult(env, accum, tx, true))
+                    auto tx = unl::createTx(true, l->seq(), UNLKeys[nidx]);
+                    if (!unl::applyAndTestResult(env, accum, tx, true))
                         break;
                     ++nidx;
                 }
@@ -766,15 +712,15 @@ struct URNetworkHistory
                 {
                     if (param.hasToDisable)
                     {
-                        auto tx = createTx(true, l->seq(), UNLKeys[nidx]);
-                        if (!applyAndTestResult(env, accum, tx, true))
+                        auto tx = unl::createTx(true, l->seq(), UNLKeys[nidx]);
+                        if (!unl::applyAndTestResult(env, accum, tx, true))
                             break;
                         ++nidx;
                     }
                     if (param.hasToReEnable)
                     {
-                        auto tx = createTx(false, l->seq(), UNLKeys[0]);
-                        if (!applyAndTestResult(env, accum, tx, true))
+                        auto tx = unl::createTx(false, l->seq(), UNLKeys[0]);
+                        if (!unl::applyAndTestResult(env, accum, tx, true))
                             break;
                     }
                 }
@@ -782,7 +728,7 @@ struct URNetworkHistory
             }
             l->updateSkipList();
         }
-        return negUnlSizeTest(
+        return unl::negUnlSizeTest(
             l, param.negUNLSize, param.hasToDisable, param.hasToReEnable);
     }
 
@@ -883,7 +829,8 @@ voteAndCheckUNLR(
     vote.doVoting(
         history.lastLedger(), history.UNLKeySet, history.validations, txSet);
 
-    return countUNLRTx(txSet) == expectReport && countTx(txSet) >= expectModify;
+    return countUNLRTx(txSet) == expectReport &&
+        unl::countTx(txSet) >= expectModify;
 }
 
 /*
@@ -1265,6 +1212,18 @@ BEAST_DEFINE_TESTSUITE(UNLReportVoteNewValidator, consensus, ripple);
 ///////////////////////////////////////////////////////////////////////
 
 bool
+applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
+{
+    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
+    if (pass)
+        return res.first == tesSUCCESS;
+    else
+        return res.first == tefFAILURE || res.first == temDISABLED ||
+            res.first == temMALFORMED ||
+            res.first == telIMPORT_VL_KEY_NOT_RECOGNISED;
+}
+
+bool
 VerifyUNLRPubKeyAndSeq(
     std::shared_ptr<Ledger const> const& l,
     hash_map<PublicKey, std::uint32_t> nUnlLedgerSeq)
@@ -1313,38 +1272,6 @@ countUNLRTx(std::shared_ptr<SHAMap> const& txSet)
     }
     return count;
 };
-
-std::unique_ptr<Config>
-makeNetworkVLConfig(uint32_t networkID, std::vector<std::string> keys)
-{
-    using namespace jtx;
-    return envconfig([&](std::unique_ptr<Config> cfg) {
-        cfg->NETWORK_ID = networkID;
-        Section config;
-        config.append(
-            {"reference_fee = 10",
-             "account_reserve = 1000000",
-             "owner_reserve = 200000"});
-        auto setup = setup_FeeVote(config);
-        cfg->FEES = setup;
-
-        for (auto const& strPk : keys)
-        {
-            auto pkHex = strUnHex(strPk);
-            if (!pkHex)
-                Throw<std::runtime_error>(
-                    "Import VL Key '" + strPk + "' was not valid hex.");
-
-            auto const pkType = publicKeyType(makeSlice(*pkHex));
-            if (!pkType)
-                Throw<std::runtime_error>(
-                    "Import VL Key '" + strPk + "' was not a valid key type.");
-
-            cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
-        }
-        return cfg;
-    });
-}
 
 bool
 hasUNLReport(jtx::Env const& env)
@@ -1412,46 +1339,6 @@ createUNLRTx(
     };
     return STTx(ttUNL_REPORT, fill);
 }
-
-/*
-inline STTx
-createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey)
-{
-    auto fill = [&](auto& obj) {
-        obj.setFieldU8(sfUNLModifyDisabling, disabling ? 1 : 0);
-        obj.setFieldU32(sfLedgerSequence, seq);
-        obj.setFieldVL(sfUNLModifyValidator, txKey);
-    };
-    return STTx(ttUNL_MODIFY, fill);
-}
-*/
-
-/*
-inline std::size_t
-countTx(std::shared_ptr<SHAMap> const& txSet)
-{
-    std::size_t count = 0;
-    for (auto i = txSet->begin(); i != txSet->end(); ++i)
-    {
-        auto raw = i->slice();
-        if (raw[0] == 0x12U && raw[1] == 0 && raw[2] == 0x66U)
-            count++;
-    }
-    return count;
-};
-*/
-
-/*
-inline bool
-applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
-{
-    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
-    if (pass)
-        return res.first == tesSUCCESS;
-    else
-        return res.first == tefFAILURE || res.first == temDISABLED;
-}
-*/
 
 }  // namespace test
 }  // namespace ripple

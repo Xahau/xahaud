@@ -43,52 +43,6 @@ namespace test {
  */
 
 /**
- * Test the size of the negative UNL in a ledger,
- * also test if the ledger has ToDisalbe and/or ToReEnable
- *
- * @param l the ledger
- * @param size the expected negative UNL size
- * @param hasToDisable if expect ToDisable in ledger
- * @param hasToReEnable if expect ToDisable in ledger
- * @return true if meet all three expectation
- */
-bool inline negUnlSizeTest(
-    std::shared_ptr<ripple::Ledger const> const& l,
-    size_t size,
-    bool hasToDisable,
-    bool hasToReEnable)
-{
-    bool sameSize = l->negativeUNL().size() == size;
-    bool sameToDisable =
-        (l->validatorToDisable() != std::nullopt) == hasToDisable;
-    bool sameToReEnable =
-        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
-
-    return sameSize && sameToDisable && sameToReEnable;
-}
-/**
- * Try to apply a ttUNL_MODIFY Tx, and test the apply result
- *
- * @param env the test environment
- * @param view the OpenView of the ledger
- * @param tx the ttUNL_MODIFY Tx
- * @param pass if the Tx should be applied successfully
- * @return true if meet the expectation of apply result
- */
-bool inline applyAndTestResult(
-    jtx::Env& env,
-    ripple::OpenView& view,
-    ripple::STTx const& tx,
-    bool pass)
-{
-    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
-    if (pass)
-        return res.first == tesSUCCESS;
-    else
-        return res.first == tefFAILURE || res.first == temDISABLED;
-}
-
-/**
  * Verify the content of negative UNL entries (public key and ledger sequence)
  * of a ledger
  *
@@ -103,15 +57,6 @@ VerifyPubKeyAndSeq(
     hash_map<PublicKey, std::uint32_t> nUnlLedgerSeq);
 
 /**
- * Count the number of Tx in a TxSet
- *
- * @param txSet the TxSet
- * @return the number of Tx
- */
-std::size_t
-countTx(std::shared_ptr<SHAMap> const& txSet);
-
-/**
  * Create fake public keys
  *
  * @param n the number of public keys
@@ -119,17 +64,6 @@ countTx(std::shared_ptr<SHAMap> const& txSet);
  */
 std::vector<PublicKey>
 createPublicKeys(std::size_t n);
-
-/**
- * Create ttUNL_MODIFY Tx
- *
- * @param disabling disabling or re-enabling a validator
- * @param seq current ledger seq
- * @param txKey the public key of the validator
- * @return the ttUNL_MODIFY Tx
- */
-STTx
-createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey);
 
 class NegativeUNL_test : public beast::unit_test::suite
 {
@@ -262,14 +196,16 @@ class NegativeUNL_test : public beast::unit_test::suite
             l = std::make_shared<Ledger>(
                 *l, env.app().timeKeeper().closeTime());
 
-            auto txDisable_0 = createTx(true, l->seq(), publicKeys[0]);
-            auto txReEnable_1 = createTx(false, l->seq(), publicKeys[1]);
+            auto txDisable_0 = unl::createTx(true, l->seq(), publicKeys[0]);
+            auto txReEnable_1 = unl::createTx(false, l->seq(), publicKeys[1]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_0, false));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, false));
             accum.apply(*l);
-            BEAST_EXPECT(negUnlSizeTest(l, 0, false, false));
+            BEAST_EXPECT(unl::negUnlSizeTest(l, 0, false, false));
         }
 
         {
@@ -283,18 +219,21 @@ class NegativeUNL_test : public beast::unit_test::suite
             BEAST_EXPECT(l->isFlagLedger());
             l->updateNegativeUNL();
 
-            auto txDisable_0 = createTx(true, l->seq(), publicKeys[0]);
-            auto txDisable_1 = createTx(true, l->seq(), publicKeys[1]);
-            auto txReEnable_2 = createTx(false, l->seq(), publicKeys[2]);
+            auto txDisable_0 = unl::createTx(true, l->seq(), publicKeys[0]);
+            auto txDisable_1 = unl::createTx(true, l->seq(), publicKeys[1]);
+            auto txReEnable_2 = unl::createTx(false, l->seq(), publicKeys[2]);
 
             // can apply 1 and only 1 ToDisable Tx,
             // cannot apply ToReEnable Tx, since negative UNL is empty
             OpenView accum(&*l);
-            BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_0, true));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_1, false));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_2, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_2, false));
             accum.apply(*l);
-            auto good_size = negUnlSizeTest(l, 0, true, false);
+            auto good_size = unl::negUnlSizeTest(l, 0, true, false);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -309,7 +248,7 @@ class NegativeUNL_test : public beast::unit_test::suite
             //(3) ledgers before the next flag ledger
             for (auto i = 0; i < 256; ++i)
             {
-                auto good_size = negUnlSizeTest(l, 0, true, false);
+                auto good_size = unl::negUnlSizeTest(l, 0, true, false);
                 BEAST_EXPECT(good_size);
                 if (good_size)
                     BEAST_EXPECT(l->validatorToDisable() == publicKeys[0]);
@@ -321,7 +260,7 @@ class NegativeUNL_test : public beast::unit_test::suite
 
             //(4) next flag ledger
             // test if the ledger updated correctly
-            auto good_size = negUnlSizeTest(l, 1, false, false);
+            auto good_size = unl::negUnlSizeTest(l, 1, false, false);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -329,20 +268,25 @@ class NegativeUNL_test : public beast::unit_test::suite
                 nUnlLedgerSeq.emplace(publicKeys[0], l->seq());
             }
 
-            auto txDisable_0 = createTx(true, l->seq(), publicKeys[0]);
-            auto txDisable_1 = createTx(true, l->seq(), publicKeys[1]);
-            auto txReEnable_0 = createTx(false, l->seq(), publicKeys[0]);
-            auto txReEnable_1 = createTx(false, l->seq(), publicKeys[1]);
-            auto txReEnable_2 = createTx(false, l->seq(), publicKeys[2]);
+            auto txDisable_0 = unl::createTx(true, l->seq(), publicKeys[0]);
+            auto txDisable_1 = unl::createTx(true, l->seq(), publicKeys[1]);
+            auto txReEnable_0 = unl::createTx(false, l->seq(), publicKeys[0]);
+            auto txReEnable_1 = unl::createTx(false, l->seq(), publicKeys[1]);
+            auto txReEnable_2 = unl::createTx(false, l->seq(), publicKeys[2]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_0, false));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_1, true));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_1, false));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_2, false));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_1, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_2, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_0, true));
             accum.apply(*l);
-            good_size = negUnlSizeTest(l, 1, true, true);
+            good_size = unl::negUnlSizeTest(l, 1, true, true);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -358,7 +302,7 @@ class NegativeUNL_test : public beast::unit_test::suite
             //(5) ledgers before the next flag ledger
             for (auto i = 0; i < 256; ++i)
             {
-                auto good_size = negUnlSizeTest(l, 1, true, true);
+                auto good_size = unl::negUnlSizeTest(l, 1, true, true);
                 BEAST_EXPECT(good_size);
                 if (good_size)
                 {
@@ -374,19 +318,20 @@ class NegativeUNL_test : public beast::unit_test::suite
 
             //(6) next flag ledger
             // test if the ledger updated correctly
-            auto good_size = negUnlSizeTest(l, 1, false, false);
+            auto good_size = unl::negUnlSizeTest(l, 1, false, false);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
                 BEAST_EXPECT(l->negativeUNL().count(publicKeys[1]));
             }
 
-            auto txDisable_0 = createTx(true, l->seq(), publicKeys[0]);
+            auto txDisable_0 = unl::createTx(true, l->seq(), publicKeys[0]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, true));
             accum.apply(*l);
-            good_size = negUnlSizeTest(l, 1, true, false);
+            good_size = unl::negUnlSizeTest(l, 1, true, false);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -402,7 +347,7 @@ class NegativeUNL_test : public beast::unit_test::suite
             //(7) ledgers before the next flag ledger
             for (auto i = 0; i < 256; ++i)
             {
-                auto good_size = negUnlSizeTest(l, 1, true, false);
+                auto good_size = unl::negUnlSizeTest(l, 1, true, false);
                 BEAST_EXPECT(good_size);
                 if (good_size)
                 {
@@ -417,7 +362,7 @@ class NegativeUNL_test : public beast::unit_test::suite
 
             //(8) next flag ledger
             // test if the ledger updated correctly
-            auto good_size = negUnlSizeTest(l, 2, false, false);
+            auto good_size = unl::negUnlSizeTest(l, 2, false, false);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -427,16 +372,19 @@ class NegativeUNL_test : public beast::unit_test::suite
                 BEAST_EXPECT(VerifyPubKeyAndSeq(l, nUnlLedgerSeq));
             }
 
-            auto txDisable_0 = createTx(true, l->seq(), publicKeys[0]);
-            auto txReEnable_0 = createTx(false, l->seq(), publicKeys[0]);
-            auto txReEnable_1 = createTx(false, l->seq(), publicKeys[1]);
+            auto txDisable_0 = unl::createTx(true, l->seq(), publicKeys[0]);
+            auto txReEnable_0 = unl::createTx(false, l->seq(), publicKeys[0]);
+            auto txReEnable_1 = unl::createTx(false, l->seq(), publicKeys[1]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_0, true));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_1, false));
-            BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_0, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_0, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, false));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txDisable_0, false));
             accum.apply(*l);
-            good_size = negUnlSizeTest(l, 2, false, true);
+            good_size = unl::negUnlSizeTest(l, 2, false, true);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -451,7 +399,7 @@ class NegativeUNL_test : public beast::unit_test::suite
             //(9) ledgers before the next flag ledger
             for (auto i = 0; i < 256; ++i)
             {
-                auto good_size = negUnlSizeTest(l, 2, false, true);
+                auto good_size = unl::negUnlSizeTest(l, 2, false, true);
                 BEAST_EXPECT(good_size);
                 if (good_size)
                 {
@@ -467,7 +415,7 @@ class NegativeUNL_test : public beast::unit_test::suite
 
             //(10) next flag ledger
             // test if the ledger updated correctly
-            auto good_size = negUnlSizeTest(l, 1, false, false);
+            auto good_size = unl::negUnlSizeTest(l, 1, false, false);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -476,12 +424,13 @@ class NegativeUNL_test : public beast::unit_test::suite
                 BEAST_EXPECT(VerifyPubKeyAndSeq(l, nUnlLedgerSeq));
             }
 
-            auto txReEnable_1 = createTx(false, l->seq(), publicKeys[1]);
+            auto txReEnable_1 = unl::createTx(false, l->seq(), publicKeys[1]);
 
             OpenView accum(&*l);
-            BEAST_EXPECT(applyAndTestResult(env, accum, txReEnable_1, true));
+            BEAST_EXPECT(
+                unl::applyAndTestResult(env, accum, txReEnable_1, true));
             accum.apply(*l);
-            good_size = negUnlSizeTest(l, 1, false, true);
+            good_size = unl::negUnlSizeTest(l, 1, false, true);
             BEAST_EXPECT(good_size);
             if (good_size)
             {
@@ -495,7 +444,7 @@ class NegativeUNL_test : public beast::unit_test::suite
             //(11) ledgers before the next flag ledger
             for (auto i = 0; i < 256; ++i)
             {
-                auto good_size = negUnlSizeTest(l, 1, false, true);
+                auto good_size = unl::negUnlSizeTest(l, 1, false, true);
                 BEAST_EXPECT(good_size);
                 if (good_size)
                 {
@@ -509,14 +458,14 @@ class NegativeUNL_test : public beast::unit_test::suite
             l->updateNegativeUNL();
 
             //(12) next flag ledger
-            BEAST_EXPECT(negUnlSizeTest(l, 0, false, false));
+            BEAST_EXPECT(unl::negUnlSizeTest(l, 0, false, false));
         }
 
         {
             //(13) ledgers before the next flag ledger
             for (auto i = 0; i < 256; ++i)
             {
-                BEAST_EXPECT(negUnlSizeTest(l, 0, false, false));
+                BEAST_EXPECT(unl::negUnlSizeTest(l, 0, false, false));
                 l = std::make_shared<Ledger>(
                     *l, env.app().timeKeeper().closeTime());
             }
@@ -524,7 +473,7 @@ class NegativeUNL_test : public beast::unit_test::suite
             l->updateNegativeUNL();
 
             //(14) next flag ledger
-            BEAST_EXPECT(negUnlSizeTest(l, 0, false, false));
+            BEAST_EXPECT(unl::negUnlSizeTest(l, 0, false, false));
         }
     }
 
@@ -559,11 +508,11 @@ class NegativeUNLNoAmendment_test : public beast::unit_test::suite
                 *l, env.app().timeKeeper().closeTime());
         }
         BEAST_EXPECT(l->seq() == 256);
-        auto txDisable_0 = createTx(true, l->seq(), publicKeys[0]);
+        auto txDisable_0 = unl::createTx(true, l->seq(), publicKeys[0]);
         OpenView accum(&*l);
-        BEAST_EXPECT(applyAndTestResult(env, accum, txDisable_0, false));
+        BEAST_EXPECT(unl::applyAndTestResult(env, accum, txDisable_0, false));
         accum.apply(*l);
-        BEAST_EXPECT(negUnlSizeTest(l, 0, false, false));
+        BEAST_EXPECT(unl::negUnlSizeTest(l, 0, false, false));
     }
 
     void
@@ -651,8 +600,8 @@ struct NetworkHistory
                 OpenView accum(&*l);
                 if (l->negativeUNL().size() < param.negUNLSize)
                 {
-                    auto tx = createTx(true, l->seq(), UNLKeys[nidx]);
-                    if (!applyAndTestResult(env, accum, tx, true))
+                    auto tx = unl::createTx(true, l->seq(), UNLKeys[nidx]);
+                    if (!unl::applyAndTestResult(env, accum, tx, true))
                         break;
                     ++nidx;
                 }
@@ -660,15 +609,15 @@ struct NetworkHistory
                 {
                     if (param.hasToDisable)
                     {
-                        auto tx = createTx(true, l->seq(), UNLKeys[nidx]);
-                        if (!applyAndTestResult(env, accum, tx, true))
+                        auto tx = unl::createTx(true, l->seq(), UNLKeys[nidx]);
+                        if (!unl::applyAndTestResult(env, accum, tx, true))
                             break;
                         ++nidx;
                     }
                     if (param.hasToReEnable)
                     {
-                        auto tx = createTx(false, l->seq(), UNLKeys[0]);
-                        if (!applyAndTestResult(env, accum, tx, true))
+                        auto tx = unl::createTx(false, l->seq(), UNLKeys[0]);
+                        if (!unl::applyAndTestResult(env, accum, tx, true))
                             break;
                     }
                 }
@@ -676,7 +625,7 @@ struct NetworkHistory
             }
             l->updateSkipList();
         }
-        return negUnlSizeTest(
+        return unl::negUnlSizeTest(
             l, param.negUNLSize, param.hasToDisable, param.hasToReEnable);
     }
 
@@ -776,7 +725,7 @@ voteAndCheck(
     vote.doVoting(
         history.lastLedger(), history.UNLKeySet, history.validations, txSet);
 
-    return countTx(txSet) >= expect;
+    return unl::countTx(txSet) >= expect;
 }
 
 /**
@@ -799,11 +748,11 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
         PublicKey toDisableKey;
         PublicKey toReEnableKey;
         LedgerIndex seq(1234);
-        BEAST_EXPECT(countTx(txSet) == 0);
+        BEAST_EXPECT(unl::countTx(txSet) == 0);
         vote.addTx(seq, toDisableKey, NegativeUNLVote::ToDisable, txSet);
-        BEAST_EXPECT(countTx(txSet) == 1);
+        BEAST_EXPECT(unl::countTx(txSet) == 1);
         vote.addTx(seq, toReEnableKey, NegativeUNLVote::ToReEnable, txSet);
-        BEAST_EXPECT(countTx(txSet) == 2);
+        BEAST_EXPECT(unl::countTx(txSet) == 2);
         // content of a tx is implicitly tested after applied to a ledger
         // in later test cases
     }
@@ -1967,34 +1916,6 @@ VerifyPubKeyAndSeq(
     return nUnlLedgerSeq.size() == 0;
 }
 
-std::size_t
-countTx(std::shared_ptr<SHAMap> const& txSet)
-{
-    /*uint64_t counter = 0;
-    if (txSet)
-    for (auto const& item : *txSet)
-    {
-
-        SerialIter sit(item.slice());
-        auto tx = std::make_shared<STTx
-    const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
-
-        if (tx->getFieldU16(sfTransactionType) == ttUNL_MODIFY)
-            counter++;
-    }
-    */
-
-    std::size_t count = 0;
-    for (auto i = txSet->begin(); i != txSet->end(); ++i)
-    {
-        // RH TODO: why does the above parse??
-        auto raw = i->slice();
-        if (raw[0] == 0x12U && raw[1] == 0 && raw[2] == 0x66U)
-            count++;
-    }
-    return count;
-};
-
 std::vector<PublicKey>
 createPublicKeys(std::size_t n)
 {
@@ -2009,17 +1930,6 @@ createPublicKeys(std::size_t n)
         keys.emplace_back(s);
     }
     return keys;
-}
-
-STTx
-createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey)
-{
-    auto fill = [&](auto& obj) {
-        obj.setFieldU8(sfUNLModifyDisabling, disabling ? 1 : 0);
-        obj.setFieldU32(sfLedgerSequence, seq);
-        obj.setFieldVL(sfUNLModifyValidator, txKey);
-    };
-    return STTx(ttUNL_MODIFY, fill);
 }
 
 }  // namespace test
