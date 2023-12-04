@@ -141,7 +141,7 @@ InnerObjectFormats::InnerObjectFormats()
             {sfPublicKey, soeREQUIRED},
             {sfAccount, soeOPTIONAL},
         });
-    
+
     add(sfAmountEntry.jsonName.c_str(),
         sfAmountEntry.getCode(),
         {
@@ -156,7 +156,6 @@ InnerObjectFormats::InnerObjectFormats()
             {sfDigest, soeOPTIONAL},
             {sfFlags, soeOPTIONAL},
         });
-
 }
 
 InnerObjectFormats const&

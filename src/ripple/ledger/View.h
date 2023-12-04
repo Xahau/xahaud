@@ -640,8 +640,7 @@ trustTransferAllowed(
 {
     static_assert(
         std::is_same<V, ReadView const>::value ||
-        std::is_same<V, ApplyView>::value ||
-        std::is_same<V, Sandbox>::value);
+        std::is_same<V, ApplyView>::value || std::is_same<V, Sandbox>::value);
 
     typedef typename std::conditional<
         std::is_same<V, ReadView const>::value,

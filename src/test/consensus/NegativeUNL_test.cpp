@@ -52,9 +52,7 @@ namespace test {
  * @param hasToReEnable if expect ToDisable in ledger
  * @return true if meet all three expectation
  */
-bool
-inline
-negUnlSizeTest(
+bool inline negUnlSizeTest(
     std::shared_ptr<ripple::Ledger const> const& l,
     size_t size,
     bool hasToDisable,
@@ -77,9 +75,11 @@ negUnlSizeTest(
  * @param pass if the Tx should be applied successfully
  * @return true if meet the expectation of apply result
  */
-bool
-inline
-applyAndTestResult(jtx::Env& env, ripple::OpenView& view, ripple::STTx const& tx, bool pass)
+bool inline applyAndTestResult(
+    jtx::Env& env,
+    ripple::OpenView& view,
+    ripple::STTx const& tx,
+    bool pass)
 {
     auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
     if (pass)
@@ -1929,7 +1929,6 @@ BEAST_DEFINE_TESTSUITE(NegativeUNLVoteFilterValidations, consensus, ripple);
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
-
 
 bool
 VerifyPubKeyAndSeq(

@@ -597,7 +597,8 @@ ValidNewAccountRoot::finalize(
         return false;
     }
 
-    if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT || tt == ttREMIT) &&
+    if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT ||
+         tt == ttREMIT) &&
         result == tesSUCCESS)
     {
         std::uint32_t const startingSeq{
