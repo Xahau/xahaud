@@ -60,34 +60,12 @@ namespace test {
 //  * @param pass if the Tx should be applied successfully
 //  * @return true if meet the expectation of apply result
 //  */
-bool inline applyAndTestResult(
+inline bool
+applyAndTestUNLRResult(
     jtx::Env& env,
-    ripple::OpenView& view,
-    ripple::STTx const& tx,
-    bool pass)
-{
-    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
-    if (pass)
-        return res.first == tesSUCCESS;
-    else
-        return res.first == tefFAILURE || res.first == temDISABLED;
-}
-* /
-    inline bool
-    applyAndTestUNLRResult(
-        jtx::Env& env,
-        OpenView& view,
-        STTx const& tx,
-        bool pass)
-{
-    auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
-    if (pass)
-        return res.first == tesSUCCESS;
-    else
-        return res.first == tefFAILURE || res.first == temDISABLED ||
-            res.first == temMALFORMED ||
-            res.first == telIMPORT_VL_KEY_NOT_RECOGNISED;
-}
+    OpenView& view,
+    STTx const& tx,
+    bool pass);
 
 /**
  * Verify the content of UNL Report entries (public key and ledger sequence)
