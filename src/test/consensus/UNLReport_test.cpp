@@ -60,10 +60,11 @@ namespace test {
 //  * @param pass if the Tx should be applied successfully
 //  * @return true if meet the expectation of apply result
 //  */
-bool
-inline
-applyAndTestResult(jtx::Env& env, ripple::OpenView& view, ripple::STTx const&
-tx, bool pass)
+bool inline applyAndTestResult(
+    jtx::Env& env,
+    ripple::OpenView& view,
+    ripple::STTx const& tx,
+    bool pass)
 {
     auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
     if (pass)
@@ -71,9 +72,13 @@ tx, bool pass)
     else
         return res.first == tefFAILURE || res.first == temDISABLED;
 }
-*/
-inline bool
-applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
+* /
+    inline bool
+    applyAndTestUNLRResult(
+        jtx::Env& env,
+        OpenView& view,
+        STTx const& tx,
+        bool pass)
 {
     auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
     if (pass)
