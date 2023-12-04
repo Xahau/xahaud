@@ -755,6 +755,7 @@ if (tests)
     src/test/app/ValidatorList_test.cpp
     src/test/app/ValidatorSite_test.cpp
     src/test/app/SetHook_test.cpp
+    src/test/app/SetHookTSH_test.cpp
     src/test/app/Wildcard_test.cpp
     src/test/app/XahauGenesis_test.cpp
     src/test/app/tx/apply_test.cpp
@@ -896,6 +897,7 @@ if (tests)
     src/test/jtx/impl/token.cpp
     src/test/jtx/impl/trust.cpp
     src/test/jtx/impl/txflags.cpp
+    src/test/jtx/impl/unl.cpp
     src/test/jtx/impl/uritoken.cpp
     src/test/jtx/impl/utility.cpp
 
