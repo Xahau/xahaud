@@ -477,6 +477,7 @@ Remit::doApply()
 
     // apply
     sb.update(sleSrcAcc);
+    sb.update(sleDstAcc);
     sb.apply(ctx_.rawView());
 
     return tesSUCCESS;
