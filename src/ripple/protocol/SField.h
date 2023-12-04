@@ -604,6 +604,7 @@ extern SField const sfMemos;
 extern SField const sfNFTokens;
 extern SField const sfHooks;
 extern SField const sfGenesisMint;
+extern SField const sfEmittedTxns;
 
 // array of objects (uncommon)
 extern SField const sfMajorities;

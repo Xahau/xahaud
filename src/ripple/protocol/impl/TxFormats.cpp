@@ -441,6 +441,13 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::Batch,
+        ttBATCH,
+        {
+            {sfEmittedTxns, soeOPTIONAL},
+        },
+        commonFields);
 }
 
 TxFormats const&

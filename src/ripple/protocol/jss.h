@@ -50,6 +50,7 @@ JSS(AccountSet);     // transaction type.
 JSS(Amendments);     // ledger type.
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
+JSS(Batch);          // transaction type.
 JSS(Blob);
 JSS(Check);              // ledger type.
 JSS(CheckCancel);        // transaction type.

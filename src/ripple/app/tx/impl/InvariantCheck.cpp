@@ -241,6 +241,9 @@ XRPNotCreated::finalize(
         return drops_ == drops;
     }
 
+    if (tt == ttBATCH)
+        return true;
+
     // The net change should never be positive, as this would mean that the
     // transaction created XRP out of thin air. That's not possible.
     if (drops_ > 0)
