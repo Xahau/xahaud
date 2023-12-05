@@ -116,6 +116,7 @@ ApplyStateTable::generateTxMeta(
     OpenView const& to,
     STTx const& tx,
     std::optional<STAmount> const& deliver,
+    std::vector<STObject> const& batchExecution,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
     beast::Journal j)
@@ -124,6 +125,9 @@ ApplyStateTable::generateTxMeta(
     if (deliver)
         meta.setDeliveredAmount(*deliver);
 
+    if (!batchExecution.empty())
+        meta.setBatchExecutions(STArray{batchExecution, sfBatchExecutions});
+    
     if (!hookExecution.empty())
         meta.setHookExecutions(STArray{hookExecution, sfHookExecutions});
 
@@ -257,6 +261,7 @@ ApplyStateTable::apply(
     STTx const& tx,
     TER ter,
     std::optional<STAmount> const& deliver,
+    std::vector<STObject> const& batchExecution,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
     beast::Journal j)
@@ -269,7 +274,7 @@ ApplyStateTable::apply(
     {
         // generate meta
         auto [meta, newMod] =
-            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
+            generateTxMeta(to, tx, deliver, batchExecution, hookExecution, hookEmission, j);
 
         // add any new modified nodes to the modification set
         for (auto& mod : newMod)

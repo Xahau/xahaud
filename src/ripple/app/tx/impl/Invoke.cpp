@@ -34,7 +34,6 @@ Invoke::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 Invoke::preflight(PreflightContext const& ctx)
 {
-    std::cout << "Invoke::preflight" << "\n";
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
@@ -47,14 +46,12 @@ Invoke::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    std::cout << "Invoke::preflight" << "FINISHED" << "\n";
     return preflight2(ctx);
 }
 
 TER
 Invoke::preclaim(PreclaimContext const& ctx)
 {
-    std::cout << "Invoke::preclaim" << "\n";
     if (!ctx.view.rules().enabled(featureHooks))
         return temDISABLED;
 
@@ -70,14 +67,12 @@ Invoke::preclaim(PreclaimContext const& ctx)
             return tecNO_TARGET;
     }
 
-    std::cout << "Invoke::preclaim" << "FINISHED" << "\n";
     return tesSUCCESS;
 }
 
 TER
 Invoke::doApply()
 {
-    std::cout << "Invoke::doApply" << "\n";
     // everything happens in the hooks!
     return tesSUCCESS;
 }

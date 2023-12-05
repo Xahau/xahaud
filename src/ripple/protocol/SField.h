@@ -618,6 +618,8 @@ extern SField const sfGenesisMints;
 extern SField const sfActiveValidators;
 extern SField const sfImportVLKeys;
 extern SField const sfHookEmissions;
+extern SField const sfBatchExecutions;
+extern SField const sfBatchExecution;
 
 //------------------------------------------------------------------------------
 
