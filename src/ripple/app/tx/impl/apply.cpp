@@ -75,8 +75,6 @@ checkValidity(
 
     if (rules.enabled(featureBatch) && applyFlags == tapPREFLIGHT_BATCH)
     {
-        auto const tt = tx.getFieldU16(sfTransactionType);
-        std::cout << "tt: " << tt << "\n";
         // batched transactions do not contain signatures
         if (tx.isFieldPresent(sfTxnSignature))
             return {Validity::SigBad, "Batch txn contains signature."};
