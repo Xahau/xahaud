@@ -313,6 +313,7 @@ enum hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 5000 modified state
                                          // entires in the combined hook chains
+    TOO_MANY_NAMESPACES = -45
 };
 
 enum ExitType : uint8_t {

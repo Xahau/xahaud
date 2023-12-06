@@ -1498,7 +1498,7 @@ DEFINE_HOOK_FUNCTION(
         STVector256 vec = sleAccount->getFieldV256(sfHookNamespaces);
         if (vec.size() > 256)
         {
-            return OUT_OF_BOUNDS;
+            return TOO_MANY_NAMESPACES;
         }
     }
 
