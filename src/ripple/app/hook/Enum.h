@@ -54,6 +54,12 @@ maxHookChainLength(void)
     return 10;
 }
 
+inline uint32_t
+maxNamespaces(void)
+{
+    return 256;
+}
+
 enum TSHFlags : uint8_t {
     tshNONE = 0b000,
     tshROLLBACK = 0b001,
