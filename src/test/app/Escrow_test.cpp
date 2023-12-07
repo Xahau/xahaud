@@ -4256,128 +4256,216 @@ struct Escrow_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
-        Env env{*this, features};
-        env.fund(XRP(10000), alice, bob, gw);
-        env.close();
-        env.trust(USD(1000000), alice);
-        env.trust(USD(1000000), bob);
-        env.close();
-        env(pay(gw, alice, USD(10000)));
-        env(pay(gw, bob, USD(10000)));
-        env.close();
-
-        // EscrowCancel - EscrowID
+        for (bool const withXahauV1 : {true, false})
         {
-            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow::create(alice, bob, USD(1000)),
-                escrow::finish_time(env.now() + 1s),
-                escrow::cancel_time(env.now() + 2s),
-                fee(1500));
+            auto const amend = withXahauV1 ? features : features - fixXahauV1;
+            Env env{*this, amend};
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(1000000), alice);
+            env.trust(USD(1000000), bob);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
             env.close();
 
-            env(escrow::cancel(bob, alice, 0),
-                escrow::escrow_id(escrowId),
-                fee(1500));
-            env.close();
+            // EscrowCancel - EscrowID
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    escrow::cancel_time(env.now() + 2s),
+                    fee(1500));
+                env.close();
 
-            auto const escrowLE = env.le(keylet::unchecked(escrowId));
-            BEAST_EXPECT(!escrowLE);
-        }
+                if (withXahauV1)
+                {
+                    // withXahauV1 - no OfferSequence
+                    env(escrow::cancel(bob, alice),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(tesSUCCESS));
+                    env.close();
+                }
+                else
+                {
+                    // !withXahauV1 - OfferSequence == 0
+                    env(escrow::cancel(bob, alice, 0),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(tesSUCCESS));
+                    env.close();
+                }
 
-        // EscrowCancel - no EscrowID or OfferSequence
-        {
-            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow::create(alice, bob, USD(1000)),
-                escrow::finish_time(env.now() + 1s),
-                escrow::cancel_time(env.now() + 2s),
-                fee(1500));
-            env.close();
+                auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                BEAST_EXPECT(!escrowLE);
+            }
 
-            Json::Value jv;
-            jv[jss::TransactionType] = jss::EscrowCancel;
-            jv[jss::Flags] = tfUniversal;
-            jv[jss::Account] = bob.human();
-            jv[sfOwner.jsonName] = alice.human();
-            env(jv, fee(1500), ter(temMALFORMED));
-            env.close();
+            // EscrowCancel - no EscrowID or OfferSequence
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    escrow::cancel_time(env.now() + 2s),
+                    fee(1500));
+                env.close();
 
-            auto const escrowLE = env.le(keylet::unchecked(escrowId));
-            BEAST_EXPECT(escrowLE);
-        }
+                env(escrow::cancel(bob, alice), fee(1500), ter(temMALFORMED));
+                env.close();
 
-        // EscrowCancel - EscrowID & OfferSequence
-        {
-            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow::create(alice, bob, USD(1000)),
-                escrow::finish_time(env.now() + 1s),
-                escrow::cancel_time(env.now() + 2s),
-                fee(1500));
-            env.close();
+                auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                BEAST_EXPECT(escrowLE);
+            }
 
-            env(escrow::cancel(bob, alice, 0),
-                escrow::escrow_id(escrowId),
-                fee(1500),
-                ter(tesSUCCESS));
-            env.close();
+            // EscrowCancel - EscrowID & OfferSequence
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                auto const seq = env.seq(alice);
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    escrow::cancel_time(env.now() + 2s),
+                    fee(1500));
+                env.close();
 
-            auto const escrowLE = env.le(keylet::unchecked(escrowId));
-            BEAST_EXPECT(!escrowLE);
-        }
+                env(escrow::cancel(bob, alice, seq),
+                    escrow::escrow_id(escrowId),
+                    fee(1500),
+                    ter(temMALFORMED));
+                env.close();
 
-        // EscrowFinish - EscrowID
-        {
-            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow::create(alice, bob, USD(1000)),
-                escrow::finish_time(env.now() + 1s),
-                fee(1500));
-            env.close(5s);
+                auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                BEAST_EXPECT(escrowLE);
+            }
 
-            env(escrow::finish(bob, alice, 0),
-                escrow::escrow_id(escrowId),
-                fee(1500));
-            env.close();
+            // EscrowCancel - EscrowID & OfferSequence 0
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    escrow::cancel_time(env.now() + 2s),
+                    fee(1500));
+                env.close();
 
-            auto const escrowLE = env.le(keylet::unchecked(escrowId));
-            BEAST_EXPECT(!escrowLE);
-        }
+                if (withXahauV1)
+                {
+                    // withXahauV1 - OfferSequence 0 == temMALFORMED
+                    env(escrow::cancel(bob, alice, 0),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(temMALFORMED));
+                    env.close();
+                    auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                    BEAST_EXPECT(escrowLE);
+                }
+                else
+                {
+                    // withXahauV1 - OfferSequence 0 == tesSUCCESS
+                    env(escrow::cancel(bob, alice, 0),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(tesSUCCESS));
+                    env.close();
+                    auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                    BEAST_EXPECT(!escrowLE);
+                }
+            }
 
-        // EscrowFinish - no EscrowID or OfferSequence
-        {
-            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow::create(alice, bob, USD(1000)),
-                escrow::finish_time(env.now() + 1s),
-                escrow::cancel_time(env.now() + 2s),
-                fee(1500));
-            env.close();
+            // EscrowFinish - EscrowID
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    fee(1500));
+                env.close(5s);
 
-            Json::Value jv;
-            jv[jss::TransactionType] = jss::EscrowFinish;
-            jv[jss::Flags] = tfUniversal;
-            jv[jss::Account] = bob.human();
-            jv[sfOwner.jsonName] = alice.human();
-            env(jv, fee(1500), ter(temMALFORMED));
-            env.close();
+                if (withXahauV1)
+                {
+                    // withXahauV1 - no OfferSequence
+                    env(escrow::finish(bob, alice),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(tesSUCCESS));
+                    env.close();
+                }
+                else
+                {
+                    // !withXahauV1 - OfferSequence == 0
+                    env(escrow::finish(bob, alice, 0),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(tesSUCCESS));
+                    env.close();
+                }
 
-            auto const escrowLE = env.le(keylet::unchecked(escrowId));
-            BEAST_EXPECT(escrowLE);
-        }
+                auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                BEAST_EXPECT(!escrowLE);
+            }
 
-        // EscrowFinish- EscrowID & OfferSequence
-        {
-            uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
-            env(escrow::create(alice, bob, USD(1000)),
-                escrow::finish_time(env.now() + 1s),
-                fee(1500));
-            env.close(5s);
+            // EscrowFinish - no EscrowID or OfferSequence
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    fee(1500));
+                env.close();
 
-            env(escrow::finish(bob, alice, 0),
-                escrow::escrow_id(escrowId),
-                fee(1500),
-                ter(tesSUCCESS));
-            env.close();
+                env(escrow::finish(bob, alice), fee(1500), ter(temMALFORMED));
+                env.close();
 
-            auto const escrowLE = env.le(keylet::unchecked(escrowId));
-            BEAST_EXPECT(!escrowLE);
+                auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                BEAST_EXPECT(escrowLE);
+            }
+
+            // EscrowFinish- EscrowID & OfferSequence
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                auto const seq = env.seq(alice);
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    fee(1500));
+                env.close(5s);
+
+                env(escrow::finish(bob, alice, seq),
+                    escrow::escrow_id(escrowId),
+                    fee(1500),
+                    ter(temMALFORMED));
+                env.close();
+
+                auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                BEAST_EXPECT(escrowLE);
+            }
+
+            // EscrowFinish- EscrowID & OfferSequence 0
+            {
+                uint256 const escrowId{getEscrowIndex(alice, env.seq(alice))};
+                env(escrow::create(alice, bob, USD(1000)),
+                    escrow::finish_time(env.now() + 1s),
+                    fee(1500));
+                env.close(5s);
+
+                if (withXahauV1)
+                {
+                    // withXahauV1 - OfferSequence 0 == temMALFORMED
+                    env(escrow::finish(bob, alice, 0),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(temMALFORMED));
+                    env.close();
+                    auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                    BEAST_EXPECT(escrowLE);
+                }
+                else
+                {
+                    // !withXahauV1 - OfferSequence 0 == tesSUCCESS
+                    env(escrow::finish(bob, alice, 0),
+                        escrow::escrow_id(escrowId),
+                        fee(1500),
+                        ter(tesSUCCESS));
+                    env.close();
+                    auto const escrowLE = env.le(keylet::unchecked(escrowId));
+                    BEAST_EXPECT(!escrowLE);
+                }
+            }
         }
     }
 

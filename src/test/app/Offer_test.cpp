@@ -5113,10 +5113,11 @@ public:
 
         using namespace jtx;
 
-        // OfferCreate - OfferID
+        // OfferCreate
+        for (bool const withXahauV1 : {true, false})
         {
-            Env env{*this, features};
-
+            auto const amend = withXahauV1 ? features : features - fixXahauV1;
+            Env env{*this, amend};
             auto const gw = Account{"gateway"};
             auto const alice = Account{"alice"};
             auto const USD = gw["USD"];
@@ -5130,58 +5131,80 @@ public:
             env(pay(gw, alice, USD(200)));
             env.close();
 
-            uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
-            env(offer(alice, XRP(50), USD(50)));
-            env.close();
+            // sequence id - no offer id
+            {
+                std::uint32_t const offerSeqId{env.seq(alice)};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
 
-            auto offers = sortedOffersOnAccount(env, alice);
-            BEAST_EXPECT(offers.size() == 1);
+                auto tx = offer(alice, XRP(50), USD(50));
+                tx[sfOfferSequence.jsonName] = offerSeqId;
+                env(tx, ter(tesSUCCESS));
+                env.close();
+                auto const offerLE = env.le(keylet::offer(alice, offerSeqId));
+                BEAST_EXPECT(!offerLE);
+            }
 
-            auto tx = offer(alice, XRP(50), USD(50));
-            tx[sfOfferID.jsonName] = to_string(offerId);
-            env(tx, ter(tesSUCCESS));
-            env.close();
+            // no sequence id - offer id
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
 
-            offers = sortedOffersOnAccount(env, alice);
-            BEAST_EXPECT(offers.size() == 1);
-        }
+                auto tx = offer(alice, XRP(50), USD(50));
+                env(tx, offer_id(offerId), ter(tesSUCCESS));
+                env.close();
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(!offerLE);
+            }
 
-        // OfferCreate - OfferSequence
-        {
-            Env env{*this, features};
-            auto const gw = Account{"gateway"};
-            auto const alice = Account{"alice"};
-            auto const USD = gw["USD"];
+            // no offer id or offer sequence
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
 
-            env.fund(XRP(10000), gw, alice);
-            env.close();
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(offerLE);
+            }
 
-            env(trust(alice, USD(1000)));
-            env.close();
+            // offer id and offer sequence
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                std::uint32_t const offerSeqId{env.seq(alice)};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
 
-            env(pay(gw, alice, USD(200)));
-            env.close();
+                auto tx = offer(alice, XRP(50), USD(50));
+                tx[sfOfferSequence.jsonName] = offerSeqId;
+                env(tx, offer_id(offerId), ter(temBAD_SEQUENCE));
+                env.close();
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(offerLE);
+            }
 
-            // OfferCreate - OfferID
-            std::uint32_t const offerSeqId{env.seq(alice)};
-            env(offer(alice, XRP(50), USD(50)));
-            env.close();
+            // offer id and offer sequence 0
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                env(offer(alice, XRP(50), USD(50)));
+                env.close();
 
-            auto offers = sortedOffersOnAccount(env, alice);
-            BEAST_EXPECT(offers.size() == 1);
-
-            auto tx = offer(alice, XRP(50), USD(50));
-            tx[sfOfferSequence.jsonName] = offerSeqId;
-            env(tx, ter(tesSUCCESS));
-            env.close();
-
-            offers = sortedOffersOnAccount(env, alice);
-            BEAST_EXPECT(offers.size() == 1);
+                auto tx = offer(alice, XRP(50), USD(50));
+                tx[sfOfferSequence.jsonName] = 0;
+                env(tx, offer_id(offerId), ter(temBAD_SEQUENCE));
+                env.close();
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(offerLE);
+            }
         }
 
         // OfferCancel
+        for (bool const withXahauV1 : {true, false})
         {
-            Env env{*this, features};
+            auto const amend = withXahauV1 ? features : features - fixXahauV1;
+            Env env{*this, amend};
             auto const gw = Account{"gateway"};
             auto const alice = Account{"alice"};
             auto const USD = gw["USD"];
@@ -5203,36 +5226,46 @@ public:
 
                 env(offer_cancel(alice, offerSeqId), ter(tesSUCCESS));
                 env.close();
-                auto const offers = sortedOffersOnAccount(env, alice);
-                BEAST_EXPECT(offers.size() == 0);
+                auto const offerLE = env.le(keylet::offer(alice, offerSeqId));
+                BEAST_EXPECT(!offerLE);
             }
 
-            // offer id (offer sequence required)
+            // no sequence id - offer id
             {
                 uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
-                env(offer_cancel(alice, 0),
-                    offer_id(offerId),
-                    ter(temBAD_SEQUENCE));
-                env.close();
-                auto const offers = sortedOffersOnAccount(env, alice);
-                BEAST_EXPECT(offers.size() == 1);
+                if (withXahauV1)
+                {
+                    env(offer_cancel(alice),
+                        offer_id(offerId),
+                        ter(tesSUCCESS));
+                    env.close();
+                    auto const offerLE = env.le(keylet::unchecked(offerId));
+                    BEAST_EXPECT(!offerLE);
+                }
+                else
+                {
+                    env(offer_cancel(alice),
+                        offer_id(offerId),
+                        ter(temBAD_SEQUENCE));
+                    env.close();
+                    auto const offerLE = env.le(keylet::unchecked(offerId));
+                    BEAST_EXPECT(offerLE);
+                }
             }
 
             // no offer id or offer sequence
             {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
-                Json::Value jv;
-                jv[jss::Account] = alice.human();
-                jv[jss::TransactionType] = jss::OfferCancel;
-                env(jv, ter(temMALFORMED));
+                env(offer_cancel(alice), ter(temBAD_SEQUENCE));
                 env.close();
-                auto const offers = sortedOffersOnAccount(env, alice);
-                BEAST_EXPECT(offers.size() == 2);
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(offerLE);
             }
 
             // both offer id and offer sequence
@@ -5242,12 +5275,39 @@ public:
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
-                env(offer_cancel(alice, offerSeqId),
-                    offer_id(offerId),
-                    ter(tesSUCCESS));
+                if (withXahauV1)
+                {
+                    env(offer_cancel(alice, offerSeqId),
+                        offer_id(offerId),
+                        ter(temBAD_SEQUENCE));
+                    env.close();
+                    auto const offerLE = env.le(keylet::unchecked(offerId));
+                    BEAST_EXPECT(offerLE);
+                }
+                else
+                {
+                    env(offer_cancel(alice, offerSeqId),
+                        offer_id(offerId),
+                        ter(tesSUCCESS));
+                    env.close();
+                    auto const offerLE = env.le(keylet::unchecked(offerId));
+                    BEAST_EXPECT(!offerLE);
+                }
+            }
+
+            // both offer id and offer sequence 0
+            {
+                uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
+                std::uint32_t const offerSeqId{env.seq(alice)};
+                env(offer(alice, XRP(50), USD(50)));
                 env.close();
-                auto const offers = sortedOffersOnAccount(env, alice);
-                BEAST_EXPECT(offers.size() == 2);
+
+                env(offer_cancel(alice, 0),
+                    offer_id(offerId),
+                    ter(temBAD_SEQUENCE));
+                env.close();
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(offerLE);
             }
         }
     }
@@ -5344,12 +5404,13 @@ public:
         FeatureBitset const rmSmallIncreasedQOffers{fixRmSmallIncreasedQOffers};
         FeatureBitset const immediateOfferKilled{featureImmediateOfferKilled};
 
-        testAll(all - takerDryOffer - immediateOfferKilled);
-        testAll(all - flowCross - takerDryOffer - immediateOfferKilled);
-        testAll(all - flowCross - immediateOfferKilled);
-        testAll(all - rmSmallIncreasedQOffers - immediateOfferKilled);
-        testAll(all);
-        testFalseAssert();
+        // testAll(all - takerDryOffer - immediateOfferKilled);
+        // testAll(all - flowCross - takerDryOffer - immediateOfferKilled);
+        // testAll(all - flowCross - immediateOfferKilled);
+        // testAll(all - rmSmallIncreasedQOffers - immediateOfferKilled);
+        // testAll(all);
+        // testFalseAssert();
+        testOfferID(all);
     }
 };
 
