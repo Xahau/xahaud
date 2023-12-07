@@ -102,6 +102,8 @@ CONSTRUCT_TYPED_SFIELD(sfHookStateChangeCount,  "HookStateChangeCount", UINT16, 
 CONSTRUCT_TYPED_SFIELD(sfHookEmitCount,         "HookEmitCount",        UINT16,    18);
 CONSTRUCT_TYPED_SFIELD(sfHookExecutionIndex,    "HookExecutionIndex",   UINT16,    19);
 CONSTRUCT_TYPED_SFIELD(sfHookApiVersion,        "HookApiVersion",       UINT16,    20);
+CONSTRUCT_TYPED_SFIELD(sfLocationX,             "LocationX",            UINT16,    21);
+CONSTRUCT_TYPED_SFIELD(sfLocationY,             "LocationY",            UINT16,    22);
 
 // 32-bit integers (common)
 CONSTRUCT_TYPED_SFIELD(sfNetworkID,             "NetworkID",            UINT32,     1);
@@ -290,6 +292,9 @@ CONSTRUCT_TYPED_SFIELD(sfHookReturnString,      "HookReturnString",     VL,     
 CONSTRUCT_TYPED_SFIELD(sfHookParameterName,     "HookParameterName",    VL,        24);
 CONSTRUCT_TYPED_SFIELD(sfHookParameterValue,    "HookParameterValue",   VL,        25);
 CONSTRUCT_TYPED_SFIELD(sfBlob,                  "Blob",                 VL,        26);
+CONSTRUCT_TYPED_SFIELD(sfUniverse,              "Universe",             VL,        99);
+CONSTRUCT_TYPED_SFIELD(sfCellURI,               "CellURI",              VL,        98);
+CONSTRUCT_TYPED_SFIELD(sfDisplayURI,            "DisplayURI",           VL,        97);
 
 // account
 CONSTRUCT_TYPED_SFIELD(sfAccount,               "Account",              ACCOUNT,    1);
