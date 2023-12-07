@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL-Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -20,6 +20,7 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
+#include <test/app/Import_json.h>
 #include <test/jtx.h>
 
 namespace ripple {
@@ -27,6 +28,294 @@ namespace test {
 
 class BaseFee_test : public beast::unit_test::suite
 {
+    Json::Value
+    addTxParams(Json::Value jv)
+    {
+        jv[jss::HookParameters] = Json::Value{Json::arrayValue};
+        jv[jss::HookParameters][0U] = Json::Value{};
+        jv[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
+        jv[jss::HookParameters][0U][jss::HookParameter]
+          [jss::HookParameterName] = "CAFE";
+        jv[jss::HookParameters][0U][jss::HookParameter]
+          [jss::HookParameterValue] = "DEADBEEF";
+        return jv;
+    }
+
+    void
+    testRPCCall(jtx::Env& env, Json::Value tx, std::string expected)
+    {
+        auto const jv = addTxParams(tx);
+        auto const jtx = env.jt(jv);
+
+        auto const feeDrops = env.current()->fees().base;
+
+        // build tx_blob
+        Json::Value params;
+        params[jss::tx_blob] = strHex(jtx.stx->getSerializer().slice());
+
+        // fee request
+        auto const jrr = env.rpc("json", "fee", to_string(params));
+        // std::cout << "RESULT: " << jrr << "\n";
+
+        // verify base fee & open ledger fee
+        auto const drops = jrr[jss::result][jss::drops];
+        auto const baseFee = drops[jss::base_fee];
+        BEAST_EXPECT(baseFee == to_string(feeDrops));
+        auto const openLedgerFee = drops[jss::open_ledger_fee];
+        BEAST_EXPECT(openLedgerFee == expected);
+
+        // verify hooks fee
+        auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
+        BEAST_EXPECT(hooksFee == expected);
+    }
+
+    void
+    testAccountSet(FeatureBitset features)
+    {
+        testcase("account set w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto tx = fset(account, asfTshCollect);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testAccountDelete(FeatureBitset features)
+    {
+        testcase("account delete w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const bene = Account("bob");
+        env.fund(XRP(1000), account, bene);
+        env.close();
+
+        // build tx
+        auto tx = acctdelete(account, bene);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "200000");
+    }
+
+    static uint256
+    getCheckIndex(AccountID const& account, std::uint32_t uSequence)
+    {
+        return keylet::check(account, uSequence).key;
+    }
+
+    void
+    testCheckCancel(FeatureBitset features)
+    {
+        testcase("check cancel w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        uint256 const checkId{getCheckIndex(account, env.seq(account))};
+        auto tx = check::cancel(account, checkId);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testCheckCash(FeatureBitset features)
+    {
+        testcase("check cash w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        uint256 const checkId{getCheckIndex(account, env.seq(account))};
+        auto tx = check::cash(dest, checkId, XRP(100));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testCheckCreate(FeatureBitset features)
+    {
+        testcase("check create w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        auto tx = check::create(account, dest, XRP(100));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testClaimReward(FeatureBitset features)
+    {
+        testcase("claim reward w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto tx = reward::claim(account);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testDepositPreauth(FeatureBitset features)
+    {
+        testcase("deposit preauth w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const authed = Account("bob");
+        env.fund(XRP(1000), account, authed);
+        env.close();
+
+        // build tx
+        auto tx = deposit::auth(account, authed);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testEscrowCancel(FeatureBitset features)
+    {
+        testcase("escrow cancel w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto const seq1 = env.seq(account);
+        auto tx = escrow::cancel(account, account, seq1);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testEscrowCreate(FeatureBitset features)
+    {
+        testcase("escrow create w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        auto tx = escrow::create(account, dest, XRP(10));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testEscrowFinish(FeatureBitset features)
+    {
+        testcase("escrow finish w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto const seq1 = env.seq(account);
+        auto tx = escrow::finish(account, account, seq1);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testImport(FeatureBitset features)
+    {
+        testcase("import w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto tx = import::import(
+            account, import::loadXpop(ImportTCAccountSet::w_seed));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "106");
+    }
+
     void
     testInvoke(FeatureBitset features)
     {
@@ -35,78 +324,443 @@ class BaseFee_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+        Env env{*this, network::makeNetworkConfig(21337)};
 
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
         env.close();
 
         // build tx
-        auto tx = invoke::invoke(alice);
-        tx[jss::HookParameters] = Json::Value{Json::arrayValue};
-        tx[jss::HookParameters][0U] = Json::Value{};
-        tx[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
-        tx[jss::HookParameters][0U][jss::HookParameter]
-          [jss::HookParameterName] = "CAFE";
-        tx[jss::HookParameters][0U][jss::HookParameter]
-          [jss::HookParameterValue] = "DEADBEEF";
-        auto const jtx = env.jt(tx);
-
-        // build tx_blob
-        Json::Value params;
-        params[jss::tx_blob] = strHex(jtx.stx->getSerializer().slice());
-
-        // fee request
-        auto const jrr = env.rpc("json", "fee", to_string(params));
+        auto tx = invoke::invoke(account);
 
         // verify hooks fee
-        auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
-        BEAST_EXPECT(hooksFee == "16");
+        testRPCCall(env, tx, "16");
     }
 
     void
-    testURITokenFee(FeatureBitset features)
+    testOfferCancel(FeatureBitset features)
     {
-        testcase("uritoken w/ hook params");
+        testcase("offer cancel w/ hook params");
 
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+        Env env{*this, network::makeNetworkConfig(21337)};
 
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto const offerSeq = env.seq(account);
+        auto tx = offer_cancel(account, offerSeq);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testOfferCreate(FeatureBitset features)
+    {
+        testcase("offer create w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto tx = offer(account, USD(1000), XRP(1000));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testPayment(FeatureBitset features)
+    {
+        testcase("payment w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        auto tx = pay(account, dest, XRP(1));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    static uint256
+    channel(
+        jtx::Account const& account,
+        jtx::Account const& dst,
+        std::uint32_t seqProxyValue)
+    {
+        auto const k = keylet::payChan(account, dst, seqProxyValue);
+        return k.key;
+    }
+
+    void
+    testPaymentChannelClaim(FeatureBitset features)
+    {
+        testcase("payment channel claim w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        auto const chan = channel(account, dest, env.seq(account));
+        auto const delta = XRP(1);
+        auto const reqBal = delta;
+        auto const authAmt = reqBal + XRP(1);
+        auto tx = paychan::claim(account, chan, reqBal, authAmt);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testPaymentChannelCreate(FeatureBitset features)
+    {
+        testcase("payment channel create w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        auto const pk = account.pk();
+        auto const settleDelay = 100s;
+        auto tx = paychan::create(account, dest, XRP(10), settleDelay, pk);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testPaymentChannelFund(FeatureBitset features)
+    {
+        testcase("payment channel fund w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        auto const chan = channel(account, dest, env.seq(account));
+        auto tx = paychan::fund(account, chan, XRP(1));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testSetHook(FeatureBitset features)
+    {
+        testcase("set hook w/ hook params and otxn params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto tx = genesis::setAcceptHook(account);
+
+        // add hook params
+        tx[jss::Hooks][0u][jss::Hook][jss::HookParameters] =
+            Json::Value{Json::arrayValue};
+        tx[jss::Hooks][0u][jss::Hook][jss::HookParameters][0U] = Json::Value{};
+        Json::Value& hookParams =
+            tx[jss::Hooks][0u][jss::Hook][jss::HookParameters][0U];
+        hookParams[jss::HookParameter] = Json::Value{};
+        hookParams[jss::HookParameter][jss::HookParameterName] = "CAFE";
+        hookParams[jss::HookParameter][jss::HookParameterValue] = "DEADBEEF";
+
+        // verify hooks fee
+        testRPCCall(env, tx, "73022");
+    }
+
+    void
+    testSetRegularKey(FeatureBitset features)
+    {
+        testcase("set regular key w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(1000), account, dest);
+        env.close();
+
+        // build tx
+        auto tx = regkey(account, dest);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "0");
+    }
+
+    void
+    testSignersListSet(FeatureBitset features)
+    {
+        testcase("signers list set w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const signer1 = Account("bob");
+        auto const signer2 = Account("carol");
+        env.fund(XRP(1000), account, signer1, signer2);
+        env.close();
+
+        // build tx
+        auto tx = signers(account, 2, {{signer1, 1}, {signer2, 1}});
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testTicketCreate(FeatureBitset features)
+    {
+        testcase("ticket create w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        auto tx = ticket::create(account, 2);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testTrustSet(FeatureBitset features)
+    {
+        testcase("trust set w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+        env.fund(XRP(1000), account, gw);
+        env.close();
+
+        // build tx
+        auto tx = trust(account, USD(1000));
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testURITokenBurnFee(FeatureBitset features)
+    {
+        testcase("uritoken burn w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const issuer = Account("alice");
+        env.fund(XRP(1000), issuer);
         env.close();
 
         // build tx
         std::string const uri(maxTokenURILength, '?');
-        auto tx = uritoken::mint(alice, uri);
-        tx[jss::HookParameters] = Json::Value{Json::arrayValue};
-        tx[jss::HookParameters][0U] = Json::Value{};
-        tx[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
-        tx[jss::HookParameters][0U][jss::HookParameter]
-          [jss::HookParameterName] = "CAFE";
-        tx[jss::HookParameters][0U][jss::HookParameter]
-          [jss::HookParameterValue] = "DEADBEEF";
-        auto const jtx = env.jt(tx);
-
-        // build tx_blob
-        Json::Value params;
-        params[jss::tx_blob] = strHex(jtx.stx->getSerializer().slice());
-
-        // fee request
-        auto const jrr = env.rpc("json", "fee", to_string(params));
+        auto const tid = uritoken::tokenid(issuer, uri);
+        std::string const hexid{strHex(tid)};
+        auto tx = uritoken::burn(issuer, hexid);
 
         // verify hooks fee
-        auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
-        BEAST_EXPECT(hooksFee == "10");
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testURITokenBuyFee(FeatureBitset features)
+    {
+        testcase("uritoken buy w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const issuer = Account("alice");
+        env.fund(XRP(1000), issuer);
+        env.close();
+
+        // build tx
+        std::string const uri(maxTokenURILength, '?');
+        auto const tid = uritoken::tokenid(issuer, uri);
+        std::string const hexid{strHex(tid)};
+        auto tx = uritoken::buy(issuer, hexid);
+        tx[jss::Amount] = "1000000";
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testURITokenCancelSellOfferFee(FeatureBitset features)
+    {
+        testcase("uritoken cancel sell offer w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const issuer = Account("alice");
+        env.fund(XRP(1000), issuer);
+        env.close();
+
+        // build tx
+        std::string const uri(maxTokenURILength, '?');
+        auto const tid = uritoken::tokenid(issuer, uri);
+        std::string const hexid{strHex(tid)};
+        auto tx = uritoken::cancel(issuer, hexid);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testURITokenCreateSellOfferFee(FeatureBitset features)
+    {
+        testcase("uritoken create sell offer w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const issuer = Account("alice");
+        auto const buyer = Account("bob");
+        env.fund(XRP(1000), issuer, buyer);
+        env.close();
+
+        // build tx
+        std::string const uri(maxTokenURILength, '?');
+        auto const tid = uritoken::tokenid(issuer, uri);
+        std::string const hexid{strHex(tid)};
+        auto tx = uritoken::sell(issuer, hexid);
+        tx[jss::Destination] = buyer.human();
+        tx[jss::Amount] = "1000000";
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
+    }
+
+    void
+    testURITokenMintFee(FeatureBitset features)
+    {
+        testcase("uritoken mint w/ hook params");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, network::makeNetworkConfig(21337)};
+
+        auto const account = Account("alice");
+        env.fund(XRP(1000), account);
+        env.close();
+
+        // build tx
+        std::string const uri(maxTokenURILength, '?');
+        auto tx = uritoken::mint(account, uri);
+
+        // verify hooks fee
+        testRPCCall(env, tx, "16");
     }
 
     void
     testWithFeats(FeatureBitset features)
     {
+        testAccountSet(features);
+        testAccountDelete(features);
+        testCheckCancel(features);
+        testCheckCash(features);
+        testCheckCreate(features);
+        testClaimReward(features);
+        testDepositPreauth(features);
+        testEscrowCancel(features);
+        testEscrowCreate(features);
+        testEscrowFinish(features);
+        // testGenesisMint(features); // N/A
+        testImport(features);
         testInvoke(features);
-        testURITokenFee(features);
+        testOfferCancel(features);
+        testOfferCreate(features);
+        testPayment(features);
+        testPaymentChannelClaim(features);
+        testPaymentChannelCreate(features);
+        testPaymentChannelFund(features);
+        testSetHook(features);
+        testSetRegularKey(features);
+        testSignersListSet(features);
+        testTicketCreate(features);
+        testTrustSet(features);
+        testURITokenBurnFee(features);
+        testURITokenBuyFee(features);
+        testURITokenCancelSellOfferFee(features);
+        testURITokenCreateSellOfferFee(features);
+        testURITokenMintFee(features);
     }
 
 public:
