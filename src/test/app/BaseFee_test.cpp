@@ -490,7 +490,7 @@ class BaseFee_test : public beast::unit_test::suite
     void
     testSetHook(FeatureBitset features)
     {
-        testcase("set hook w/ hook params");
+        testcase("set hook w/ hook params and otxn params");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -504,8 +504,16 @@ class BaseFee_test : public beast::unit_test::suite
         // build tx
         auto tx = genesis::setAcceptHook(account);
 
+        // add hook params
+        tx[jss::Hooks][0u][jss::Hook][jss::HookParameters] = Json::Value{Json::arrayValue};
+        tx[jss::Hooks][0u][jss::Hook][jss::HookParameters][0U] = Json::Value{};
+        Json::Value& hookParams = tx[jss::Hooks][0u][jss::Hook][jss::HookParameters][0U];
+        hookParams[jss::HookParameter] = Json::Value{};
+        hookParams[jss::HookParameter][jss::HookParameterName] = "CAFE";
+        hookParams[jss::HookParameter][jss::HookParameterValue] = "DEADBEEF";
+
         // verify hooks fee
-        testRPCCall(env, tx, "73016");
+        testRPCCall(env, tx, "73022");
     }
 
     void

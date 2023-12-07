@@ -566,6 +566,40 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
             createFee = XRPAmount{hook::computeCreationFee(
                 hookSetObj.getFieldVL(sfCreateCode).size())};
 
+        XRPAmount paramFee{0};
+        // parameters are billed at the same rate as code bytes
+        if (hookSetObj.isFieldPresent(sfHookParameters))
+        {
+            int64_t paramBytes = 0;
+            auto const& params = hookSetObj.getFieldArray(sfHookParameters);
+            for (auto const& param : params)
+            {
+                int64_t entryBytes = 0;
+                if (param.isFieldPresent(sfHookParameterName))
+                {
+                    entryBytes += param.getFieldVL(sfHookParameterName).size();
+                }
+                if (param.isFieldPresent(sfHookParameterValue))
+                {
+                    entryBytes += param.getFieldVL(sfHookParameterValue).size();
+                }
+
+                // overflow
+                if (paramBytes + entryBytes < paramBytes)
+                    return INITIAL_XRP;
+
+                paramBytes += entryBytes;
+            }
+
+            // one drop per byte
+            paramFee = XRPAmount{paramBytes};
+        }
+
+        if (hookFee + paramFee < hookFee)
+            return INITIAL_XRP;
+
+        hookFee += paramFee;
+
         if (hookFee + createFee < hookFee)
             return INITIAL_XRP;
 
