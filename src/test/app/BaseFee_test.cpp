@@ -505,9 +505,11 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = genesis::setAcceptHook(account);
 
         // add hook params
-        tx[jss::Hooks][0u][jss::Hook][jss::HookParameters] = Json::Value{Json::arrayValue};
+        tx[jss::Hooks][0u][jss::Hook][jss::HookParameters] =
+            Json::Value{Json::arrayValue};
         tx[jss::Hooks][0u][jss::Hook][jss::HookParameters][0U] = Json::Value{};
-        Json::Value& hookParams = tx[jss::Hooks][0u][jss::Hook][jss::HookParameters][0U];
+        Json::Value& hookParams =
+            tx[jss::Hooks][0u][jss::Hook][jss::HookParameters][0U];
         hookParams[jss::HookParameter] = Json::Value{};
         hookParams[jss::HookParameter][jss::HookParameterName] = "CAFE";
         hookParams[jss::HookParameter][jss::HookParameterValue] = "DEADBEEF";
