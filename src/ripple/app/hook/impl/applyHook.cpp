@@ -891,13 +891,19 @@ hook::removeHookNamespaceEntry(ripple::SLE& sleAccount, ripple::uint256 ns)
 bool
 hook::canHook(ripple::TxType txType, ripple::uint256 hookOn)
 {
+
+    uint16_t tt = safe_cast<uint16_t>(txType);
+
+    // only the low order byte is used to determine HookOn
+    tt &= 0xFFU;
+
     // invert ttHOOK_SET bit
     hookOn ^= UINT256_BIT[ttHOOK_SET];
 
     // invert entire field
     hookOn = ~hookOn;
 
-    return (hookOn & UINT256_BIT[txType]) != beast::zero;
+    return (hookOn & UINT256_BIT[tt]) != beast::zero;
 }
 
 // Update HookState ledger objects for the hook... only called after accept()

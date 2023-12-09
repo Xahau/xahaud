@@ -51,6 +51,13 @@ JSS(Amendments);     // ledger type.
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
 JSS(Blob);
+JSS(Cadastre);                  // ledger type
+JSS(CadastreMint);              // txn type
+JSS(CadastreBurn);              // txn type
+JSS(CadastreCreateSellOffer);   // txn type
+JSS(CadastreCancelSellOffer);   // txn type
+JSS(CadastreBuy);               // txn type
+JSS(CadastreSet);               // txn type
 JSS(Check);              // ledger type.
 JSS(CheckCancel);        // transaction type.
 JSS(CheckCash);          // transaction type.

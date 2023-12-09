@@ -45,6 +45,7 @@
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/SetTrust.h>
 #include <ripple/app/tx/impl/URIToken.h>
+#include <ripple/app/tx/impl/Cadastre.h>
 
 namespace ripple {
 
@@ -170,6 +171,13 @@ invoke_preflight(PreflightContext const& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preflight_helper<URIToken>(ctx);
+        case ttCADASTRE_MINT:
+        case ttCADASTRE_BURN:
+        case ttCADASTRE_CREATE_SELL_OFFER:
+        case ttCADASTRE_CANCEL_SELL_OFFER:
+        case ttCADASTRE_BUY:
+        case ttCADASTRE_SET:
+            return invoke_preflight_helper<Cadastre>(ctx);
         default:
             assert(false);
             return {temUNKNOWN, TxConsequences{temUNKNOWN}};
@@ -289,6 +297,13 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preclaim<URIToken>(ctx);
+        case ttCADASTRE_MINT:
+        case ttCADASTRE_BURN:
+        case ttCADASTRE_CREATE_SELL_OFFER:
+        case ttCADASTRE_CANCEL_SELL_OFFER:
+        case ttCADASTRE_BUY:
+        case ttCADASTRE_SET:
+            return invoke_preclaim<Cadastre>(ctx);
         default:
             assert(false);
             return temUNKNOWN;
@@ -370,6 +385,13 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return URIToken::calculateBaseFee(view, tx);
+        case ttCADASTRE_MINT:
+        case ttCADASTRE_BURN:
+        case ttCADASTRE_CREATE_SELL_OFFER:
+        case ttCADASTRE_CANCEL_SELL_OFFER:
+        case ttCADASTRE_BUY:
+        case ttCADASTRE_SET:
+            return Cadastre::calculateBaseFee(view, tx);
         default:
             assert(false);
             return XRPAmount{0};
@@ -550,6 +572,15 @@ invoke_apply(ApplyContext& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER: {
             URIToken p(ctx);
+            return p();
+        }
+        case ttCADASTRE_MINT:
+        case ttCADASTRE_BURN:
+        case ttCADASTRE_CREATE_SELL_OFFER:
+        case ttCADASTRE_CANCEL_SELL_OFFER:
+        case ttCADASTRE_BUY:
+        case ttCADASTRE_SET: {
+            Cadastre p(ctx);
             return p();
         }
         default:

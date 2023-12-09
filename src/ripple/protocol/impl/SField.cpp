@@ -102,8 +102,8 @@ CONSTRUCT_TYPED_SFIELD(sfHookStateChangeCount,  "HookStateChangeCount", UINT16, 
 CONSTRUCT_TYPED_SFIELD(sfHookEmitCount,         "HookEmitCount",        UINT16,    18);
 CONSTRUCT_TYPED_SFIELD(sfHookExecutionIndex,    "HookExecutionIndex",   UINT16,    19);
 CONSTRUCT_TYPED_SFIELD(sfHookApiVersion,        "HookApiVersion",       UINT16,    20);
-CONSTRUCT_TYPED_SFIELD(sfLocationX,             "LocationX",            UINT16,    21);
-CONSTRUCT_TYPED_SFIELD(sfLocationY,             "LocationY",            UINT16,    22);
+CONSTRUCT_TYPED_SFIELD(sfLocationX,             "LocationX",            UINT16,    99);
+CONSTRUCT_TYPED_SFIELD(sfLocationY,             "LocationY",            UINT16,    98);
 
 // 32-bit integers (common)
 CONSTRUCT_TYPED_SFIELD(sfNetworkID,             "NetworkID",            UINT32,     1);
@@ -185,6 +185,8 @@ CONSTRUCT_TYPED_SFIELD(sfEmitBurden,            "EmitBurden",           UINT64, 
 CONSTRUCT_TYPED_SFIELD(sfHookInstructionCount,  "HookInstructionCount", UINT64,    17);
 CONSTRUCT_TYPED_SFIELD(sfHookReturnCode,        "HookReturnCode",       UINT64,    18);
 CONSTRUCT_TYPED_SFIELD(sfReferenceCount,        "ReferenceCount",       UINT64,    19);
+CONSTRUCT_TYPED_SFIELD(sfCadastreCount,         "CadastreCount",        UINT64,    96); 
+CONSTRUCT_TYPED_SFIELD(sfAssociationNode,       "AssociationNode",      UINT64,    97);
 CONSTRUCT_TYPED_SFIELD(sfAccountIndex,          "AccountIndex",         UINT64,    98);
 CONSTRUCT_TYPED_SFIELD(sfAccountCount,          "AccountCount",         UINT64,    99);
 CONSTRUCT_TYPED_SFIELD(sfRewardAccumulator,     "RewardAccumulator",    UINT64,   100);
@@ -238,6 +240,7 @@ CONSTRUCT_TYPED_SFIELD(sfURITokenID,            "URITokenID",           UINT256,
 CONSTRUCT_TYPED_SFIELD(sfGovernanceFlags,       "GovernanceFlags",      UINT256,   99);
 CONSTRUCT_TYPED_SFIELD(sfGovernanceMarks,       "GovernanceMarks",      UINT256,   98);
 CONSTRUCT_TYPED_SFIELD(sfEmittedTxnID,          "EmittedTxnID",         UINT256,   97);
+CONSTRUCT_TYPED_SFIELD(sfUniverse,              "Universe",             UINT256,   96);
 
 // currency amount (common)
 CONSTRUCT_TYPED_SFIELD(sfAmount,                "Amount",               AMOUNT,     1);
@@ -292,9 +295,8 @@ CONSTRUCT_TYPED_SFIELD(sfHookReturnString,      "HookReturnString",     VL,     
 CONSTRUCT_TYPED_SFIELD(sfHookParameterName,     "HookParameterName",    VL,        24);
 CONSTRUCT_TYPED_SFIELD(sfHookParameterValue,    "HookParameterValue",   VL,        25);
 CONSTRUCT_TYPED_SFIELD(sfBlob,                  "Blob",                 VL,        26);
-CONSTRUCT_TYPED_SFIELD(sfUniverse,              "Universe",             VL,        99);
-CONSTRUCT_TYPED_SFIELD(sfCellURI,               "CellURI",              VL,        98);
-CONSTRUCT_TYPED_SFIELD(sfDisplayURI,            "DisplayURI",           VL,        97);
+CONSTRUCT_TYPED_SFIELD(sfBroadcastURI,          "BroadcastURI",         VL,        99);
+CONSTRUCT_TYPED_SFIELD(sfDisplayURI,            "DisplayURI",           VL,        98);
 
 // account
 CONSTRUCT_TYPED_SFIELD(sfAccount,               "Account",              ACCOUNT,    1);
@@ -310,6 +312,7 @@ CONSTRUCT_TYPED_SFIELD(sfEmitCallback,          "EmitCallback",         ACCOUNT,
 
 // account (uncommon)
 CONSTRUCT_TYPED_SFIELD(sfHookAccount,           "HookAccount",          ACCOUNT,   16);
+CONSTRUCT_TYPED_SFIELD(sfAssociation,           "Association",          ACCOUNT,   99);
 
 // vector of 256-bit
 CONSTRUCT_TYPED_SFIELD(sfIndexes,               "Indexes",              VECTOR256,  1, SField::sMD_Never);

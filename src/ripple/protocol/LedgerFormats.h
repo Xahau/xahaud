@@ -179,6 +179,15 @@ enum LedgerEntryType : std::uint16_t
      */
     ltUNL_REPORT = 0x0052, 
 
+    /** A ledger object that contains cadastral information about a unit of virtual land
+     * in a given universe. The block at 0x8000, 0x8000 is the center of the universe
+     * and has special rights and privileges, namely it is the god block whose hooks are
+     * strongly executed whenever dealings with land in that universe occur.
+     *
+     * \sa keylet::cadastre
+     */
+    ltCADASTRE = 0x004B,
+
     //---------------------------------------------------------------------------
     /** A special type, matching any ledger entry type.
 

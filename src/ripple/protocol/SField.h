@@ -354,6 +354,8 @@ extern SF_UINT16 const sfHookStateChangeCount;
 extern SF_UINT16 const sfHookEmitCount;
 extern SF_UINT16 const sfHookExecutionIndex;
 extern SF_UINT16 const sfHookApiVersion;
+extern SF_UINT16 const sfLocationX;
+extern SF_UINT16 const sfLocationY;
 
 // 32-bit integers (common)
 extern SF_UINT32 const sfNetworkID;
@@ -433,6 +435,8 @@ extern SF_UINT64 const sfReferenceCount;
 extern SF_UINT64 const sfRewardAccumulator;
 extern SF_UINT64 const sfAccountCount;
 extern SF_UINT64 const sfAccountIndex;
+extern SF_UINT64 const sfAssociationNode;
+extern SF_UINT64 const sfCadastreCount;
 
 // 128-bit
 extern SF_UINT128 const sfEmailHash;
@@ -483,6 +487,7 @@ extern SF_UINT256 const sfURITokenID;
 extern SF_UINT256 const sfGovernanceFlags;
 extern SF_UINT256 const sfGovernanceMarks;
 extern SF_UINT256 const sfEmittedTxnID;
+extern SF_UINT256 const sfUniverse;
 
 // currency amount (common)
 extern SF_AMOUNT const sfAmount;
@@ -537,6 +542,8 @@ extern SF_VL const sfHookReturnString;
 extern SF_VL const sfHookParameterName;
 extern SF_VL const sfHookParameterValue;
 extern SF_VL const sfBlob;
+extern SF_VL const sfBroadcastURI;
+extern SF_VL const sfDisplayURI;
 
 // account
 extern SF_ACCOUNT const sfAccount;
@@ -552,6 +559,7 @@ extern SF_ACCOUNT const sfEmitCallback;
 // account (uncommon)
 extern SF_ACCOUNT const sfHookAccount;
 extern SF_ACCOUNT const sfNFTokenMinter;
+extern SF_ACCOUNT const sfAssociation;
 
 // path set
 extern SField const sfPaths;
