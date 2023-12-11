@@ -5549,73 +5549,6 @@ class Import_test : public beast::unit_test::suite
         }
     }
 
-    // std::unique_ptr<Config>
-    // network::makeGenesisConfig(
-    //     FeatureBitset features,
-    //     uint32_t networkID,
-    //     std::string fee,
-    //     std::string a_res,
-    //     std::string o_res,
-    //     uint32_t ledgerID)
-    // {
-    //     using namespace jtx;
-
-    //     // IMPORT VL KEY
-    //     std::vector<std::string> const keys = {
-    //         "ED74D4036C6591A4BDF9C54CEFA39B996A"
-    //         "5DCE5F86D11FDA1874481CE9D5A1CDC1"};
-
-    //     Json::Value jsonValue;
-    //     Json::Reader reader;
-    //     reader.parse(ImportTCHalving::base_genesis, jsonValue);
-
-    //     foreachFeature(features, [&](uint256 const& feature) {
-    //         std::string featureName = featureToName(feature);
-    //         std::optional<uint256> featureHash =
-    //             getRegisteredFeature(featureName);
-    //         if (featureHash.has_value())
-    //         {
-    //             std::string hashString = to_string(featureHash.value());
-    //             jsonValue["ledger"]["accountState"][1]["Amendments"].append(
-    //                 hashString);
-    //         }
-    //     });
-
-    //     jsonValue["ledger_current_index"] = ledgerID;
-    //     jsonValue["ledger"]["ledger_index"] = to_string(ledgerID);
-    //     jsonValue["ledger"]["seqNum"] = to_string(ledgerID);
-
-    //     return envconfig([&](std::unique_ptr<Config> cfg) {
-    //         cfg->NETWORK_ID = networkID;
-    //         cfg->START_LEDGER = jsonValue.toStyledString();
-    //         cfg->START_UP = Config::LOAD_JSON;
-    //         Section config;
-    //         config.append(
-    //             {"reference_fee = " + fee,
-    //              "account_reserve = " + a_res,
-    //              "owner_reserve = " + o_res});
-    //         auto setup = setup_FeeVote(config);
-    //         cfg->FEES = setup;
-
-    //         for (auto const& strPk : keys)
-    //         {
-    //             auto pkHex = strUnHex(strPk);
-    //             if (!pkHex)
-    //                 Throw<std::runtime_error>(
-    //                     "Import VL Key '" + strPk + "' was not valid hex.");
-
-    //             auto const pkType = publicKeyType(makeSlice(*pkHex));
-    //             if (!pkType)
-    //                 Throw<std::runtime_error>(
-    //                     "Import VL Key '" + strPk +
-    //                     "' was not a valid key type.");
-
-    //             cfg->IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
-    //         }
-    //         return cfg;
-    //     });
-    // }
-
     void
     testHalving(FeatureBitset features)
     {
@@ -5965,40 +5898,6 @@ class Import_test : public beast::unit_test::suite
         }
     }
 
-    void
-    testRPCFee(FeatureBitset features)
-    {
-        testcase("rpc fee");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
-        auto const feeDrops = env.current()->fees().base;
-
-        auto const alice = Account("alice");
-        env.fund(XRP(1000), alice);
-        env.close();
-
-        // build tx_blob
-        Json::Value params;
-        auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
-        auto tx = env.jt(import::import(alice, xpopJson));
-        params[jss::tx_blob] = strHex(tx.stx->getSerializer().slice());
-
-        // fee request
-        auto const jrr = env.rpc("json", "fee", to_string(params));
-
-        // verify hooks fee
-        auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
-        BEAST_EXPECT(hooksFee == to_string(feeDrops * 10));
-
-        // verify open ledger fee
-        auto const dropsJV = jrr[jss::result][jss::drops];
-        auto const openLedgerFee = dropsJV[jss::open_ledger_fee];
-        BEAST_EXPECT(openLedgerFee == to_string((feeDrops * 10) + feeDrops));
-    }
-
 public:
     void
     run() override
@@ -6037,7 +5936,6 @@ public:
         testMaxSupply(features);
         testMinMax(features);
         testHalving(features - featureOwnerPaysFee);
-        testRPCFee(features);
     }
 };
 

@@ -70,6 +70,7 @@
 #include <test/jtx/token.h>
 #include <test/jtx/trust.h>
 #include <test/jtx/txflags.h>
+#include <test/jtx/unl.h>
 #include <test/jtx/uritoken.h>
 #include <test/jtx/utility.h>
 
