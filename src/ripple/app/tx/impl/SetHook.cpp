@@ -1856,6 +1856,10 @@ SetHook::setHook()
         else if (oldHookSLE && !newHooksEmpty)
         {
             // UPDATE ltHOOK
+            if (view().rules().enabled(fixXahauV1))
+            {
+                (*newHookSLE)[sfOwnerNode] = (*oldHookSLE)[sfOwnerNode];
+            }
             view().erase(oldHookSLE);
             view().insert(newHookSLE);
         }

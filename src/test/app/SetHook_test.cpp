@@ -90,6 +90,67 @@ public:
 #define HSFEE fee(100'000'000)
 #define M(m) memo(m, "", "")
     void
+    testHooksOwnerDir()
+    {
+        testcase("Test owner directory");
+
+        using namespace jtx;
+
+        for (bool const withXahauV1 : {true, false})
+        {
+            auto const amend = withXahauV1
+                ? supported_amendments()
+                : supported_amendments() - fixXahauV1;
+
+            Env env{*this, amend};
+
+            auto const alice = Account{"alice"};
+            auto const gw = Account{"gateway"};
+            auto const USD = gw["USD"];
+            env.fund(XRP(10000), alice, gw);
+            env.close();
+            env.trust(USD(100000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+
+            for (int i = 1; i < 34; ++i)
+            {
+                std::string const uri(i, '?');
+                env(uritoken::mint(alice, uri));
+            }
+            env.close();
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // delete hook
+            Json::Value jv;
+            jv[jss::Account] = alice.human();
+            jv[jss::TransactionType] = jss::SetHook;
+            jv[jss::Flags] = 0;
+            jv[jss::Hooks] = Json::Value{Json::arrayValue};
+            Json::Value iv;
+            iv[jss::Flags] = 1;
+            iv[jss::CreateCode] = "";
+            jv[jss::Hooks][0U][jss::Hook] = iv;
+
+            auto const txResult =
+                withXahauV1 ? ter(tesSUCCESS) : ter(tefBAD_LEDGER);
+            env(jv, HSFEE, txResult);
+            env.close();
+        }
+    }
+
+    void
     testHooksDisabled()
     {
         testcase("Check for disabled amendment");
@@ -100,7 +161,8 @@ public:
 
         // RH TODO: does it matter that passing malformed txn here gives back
         // temMALFORMED (and not disabled)?
-        env(ripple::test::jtx::hook(alice, {{hso(accept_wasm)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hso(accept_wasm, overrideFlag)}}, 0),
             M("Hooks Disabled"),
             HSFEE,
             ter(temDISABLED));
@@ -11437,6 +11499,7 @@ public:
     void
     run() override
     {
+        testHooksOwnerDir();
         testHooksDisabled();
         testTxStructure();
         testInferHookSetOperation();
