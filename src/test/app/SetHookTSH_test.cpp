@@ -1056,7 +1056,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(account, account, 0),
+            env(escrow::cancel(account, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1111,7 +1111,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(account, account, 0),
+            env(escrow::cancel(account, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1162,7 +1162,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(dest, account, 0),
+            env(escrow::cancel(dest, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1217,7 +1217,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(dest, account, 0),
+            env(escrow::cancel(dest, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1556,6 +1556,11 @@ private:
                 network::makeNetworkConfig(21337, "10", "1000000", "200000"),
                 features};
 
+            // Env env{*this, envconfig(), features, nullptr,
+            //     // beast::severities::kWarning
+            //     beast::severities::kTrace
+            // };
+
             auto const account = Account("alice");
             auto const dest = Account("bob");
             env.fund(XRP(1000), account, dest);
@@ -1577,7 +1582,7 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(account, account, 0),
+            env(escrow::finish(account, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1629,7 +1634,7 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(account, account, 0),
+            env(escrow::finish(account, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1677,7 +1682,7 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(dest, account, 0),
+            env(escrow::finish(dest, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1729,7 +1734,7 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(dest, account, 0),
+            env(escrow::finish(dest, account),
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -4781,6 +4786,7 @@ public:
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
+        testWithFeats(sa - fixXahauV1);
         testWithFeats(sa);
     }
 };
