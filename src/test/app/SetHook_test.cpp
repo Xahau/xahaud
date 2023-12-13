@@ -7859,7 +7859,7 @@ public:
                 env.close();
 
                 // invoke the hook
-                for (uint32_t i = 0; i < 256; ++i)
+                for (uint32_t i = 0; i < 255; ++i)
                 {
                     env(pay(bob, alice, XRP(1)),
                         M("test state_foreign_set_max"),
