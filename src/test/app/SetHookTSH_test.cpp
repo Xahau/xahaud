@@ -1058,10 +1058,7 @@ private:
                 tx = escrow::cancel(account, account);
             }
 
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1122,10 +1119,7 @@ private:
             {
                 tx = escrow::cancel(account, account);
             }
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1184,10 +1178,7 @@ private:
             {
                 tx = escrow::cancel(dest, account);
             }
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1248,10 +1239,7 @@ private:
             {
                 tx = escrow::cancel(dest, account);
             }
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1611,10 +1599,7 @@ private:
             {
                 tx = escrow::finish(account, account);
             }
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1672,10 +1657,7 @@ private:
             {
                 tx = escrow::finish(account, account);
             }
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1727,10 +1709,7 @@ private:
             {
                 tx = escrow::finish(dest, account);
             }
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1788,10 +1767,7 @@ private:
             {
                 tx = escrow::finish(dest, account);
             }
-            env(tx,
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
