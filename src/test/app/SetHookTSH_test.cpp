@@ -1048,7 +1048,17 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(account, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(account, account);
+            }
+
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1103,7 +1113,16 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(account, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(account, account);
+            }
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1156,7 +1175,16 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(dest, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(dest, account);
+            }
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1211,7 +1239,16 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(dest, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(dest, account);
+            }
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1565,7 +1602,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(account, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(account, account);
+            }
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1617,7 +1663,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(account, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(account, account);
+            }
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1663,7 +1718,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(dest, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(dest, account);
+            }
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -1715,7 +1779,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(dest, account, 0),
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(dest, account);
+            }
+            env(tx,
                 escrow::escrow_id(escrowId),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -4806,6 +4879,7 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testWithFeats(sa);
+        testWithFeats(sa - fixXahauV1);
     }
 };
 
