@@ -1317,9 +1317,8 @@ set_state_cache(
     if (modified && stateMap.modified_entry_count >= max_state_modifications)
         return TOO_MANY_STATE_MODIFICATIONS;
 
-    bool const createNamespace = 
-            view.rules().enabled(fixXahauV1) &&
-            !view.exists(keylet::hookStateDir(acc, ns));
+    bool const createNamespace = view.rules().enabled(fixXahauV1) &&
+        !view.exists(keylet::hookStateDir(acc, ns));
 
     if (stateMap.find(acc) == stateMap.end())
     {
@@ -1327,8 +1326,7 @@ set_state_cache(
         // we will compute how many available reserve positions there are
         auto const& fees = hookCtx.applyCtx.view().fees();
 
-        auto const accSLE =
-            view.read(ripple::keylet::account(acc));
+        auto const accSLE = view.read(ripple::keylet::account(acc));
 
         if (!accSLE)
             return DOESNT_EXIST;
@@ -1348,8 +1346,9 @@ set_state_cache(
         if (availableForReserves < 1 && modified)
             return RESERVE_INSUFFICIENT;
 
-        int64_t namespaceCount = 
-            accSLE->isFieldPresent(sfHookNamespaces) ? accSLE->getFieldV256(sfHookNamespaces).size() : 0;
+        int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
+            ? accSLE->getFieldV256(sfHookNamespaces).size()
+            : 0;
 
         if (createNamespace)
         {
@@ -1360,7 +1359,6 @@ set_state_cache(
             if (++namespaceCount > hook::maxNamespaces())
                 return TOO_MANY_NAMESPACES;
         }
-
 
         stateMap.modified_entry_count++;
 
