@@ -1521,10 +1521,12 @@ DEFINE_HOOK_FUNCTION(
     auto const key = make_state_key(
         std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
 
-    auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
-
-    if (!sleAccount)
-        return tefINTERNAL;
+    if (view.rules().enabled(fixXahauV1))
+    {
+        auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+        if (!sleAccount)
+            return tefINTERNAL;
+    }
 
     if (!key)
         return INTERNAL_ERROR;
