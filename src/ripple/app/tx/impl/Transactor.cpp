@@ -1468,7 +1468,8 @@ Transactor::doTSH(
 
         if (alreadyProcessed.find(tshAccountID) != alreadyProcessed.end())
         {
-            JLOG(j_.trace()) << "doTSH: alreadyProcessed.find(tshAccountID) != alreadyProcessed.end()";
+            JLOG(j_.trace()) << "doTSH: alreadyProcessed.find(tshAccountID) != "
+                                "alreadyProcessed.end()";
             continue;
         }
 
@@ -1477,7 +1478,8 @@ Transactor::doTSH(
         // only process the relevant ones
         if ((!canRollback && strong) || (canRollback && !strong))
         {
-            JLOG(j_.trace()) << "doTSH: (!canRollback && strong) || (canRollback && !strong)";
+            JLOG(j_.trace()) << "doTSH: (!canRollback && strong) || "
+                                "(canRollback && !strong)";
             continue;
         }
 
@@ -1486,7 +1488,8 @@ Transactor::doTSH(
         auto tshHook = view.read(klTshHook);
         if (!(tshHook && tshHook->isFieldPresent(sfHooks)))
         {
-            JLOG(j_.trace()) << "doTSH: !(tshHook && tshHook->isFieldPresent(sfHooks))";
+            JLOG(j_.trace())
+                << "doTSH: !(tshHook && tshHook->isFieldPresent(sfHooks))";
             continue;
         }
 
@@ -1714,7 +1717,8 @@ Transactor::operator()()
     // application to the ledger
     std::map<AccountID, std::set<uint256>> aawMap;
 
-    std::vector<std::pair<AccountID, bool>> tsh = hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
+    std::vector<std::pair<AccountID, bool>> tsh =
+        hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
 
     // Pre-application (Strong TSH) Hooks are executed here
     // These TSH have the right to rollback.
