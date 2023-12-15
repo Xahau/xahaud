@@ -1056,10 +1056,17 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(account, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(account, account);
+            }
+
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1111,10 +1118,16 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(account, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(account, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1162,10 +1175,16 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(dest, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1217,10 +1236,16 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(dest, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1582,10 +1607,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(account, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(account, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1634,10 +1665,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(account, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(account, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1682,10 +1719,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(dest, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1734,10 +1777,16 @@ private:
             env.close();
 
             // finish escrow
-            env(escrow::finish(dest, account),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -4788,6 +4837,7 @@ public:
         auto const sa = supported_amendments();
         testWithFeats(sa - fixXahauV1);
         testWithFeats(sa);
+        testWithFeats(sa - fixXahauV1);
     }
 };
 

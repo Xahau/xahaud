@@ -1682,6 +1682,36 @@ class Import_test : public beast::unit_test::suite
                 ter(temDISABLED));
         }
 
+        // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
+        // it purports to prove.
+        for (bool const withXahauV1 : {true, false})
+        {
+            auto const amend = withXahauV1 ? features : features - fixXahauV1;
+            test::jtx::Env env{
+                *this, network::makeNetworkVLConfig(21337, keys), amend};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value valData = tmpXpop[jss::validation][jss::data];
+            valData["n9MNStvsHZxrCYnShytCfKMCXBcq8wJjR6fLTS7L2Q8qoFVNioQ8"] =
+                "";
+            valData["n9MTTavZe6EPqqyQ27pJbNWpfHw8ZNspVgznrwx5HWm7cdTjKQie"] =
+                "";
+            if (withXahauV1)
+            {
+                valData
+                    ["n94J5LCRu9bBWrJiwRWujvuVECVPWbXFcQ2VN38qLD378F5pDSDM"] =
+                        "";
+            }
+            tmpXpop[jss::validation][jss::data] = valData;
+            auto const txResult =
+                withXahauV1 ? ter(temMALFORMED) : ter(temMALFORMED);
+            env(import::import(alice, tmpXpop), txResult);
+        }
+
         test::jtx::Env env{*this, network::makeNetworkVLConfig(21337, keys)};
 
         auto const feeDrops = env.current()->fees().base;
@@ -2572,19 +2602,6 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: validation inside xpop was not able to be
         // parsed
         // DA: Catch All
-
-        // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
-        // it purports to prove.
-        {
-            Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
-            Json::Value valData;
-            valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
-                "";
-            valData["n9KXYzdZD8YpsNiChtMjP6yhvQAhkkh5XeSTbvYyV1waF8wkNnBT"] =
-                "";
-            tmpXpop[jss::validation][jss::data] = valData;
-            env(import::import(alice, tmpXpop), ter(temMALFORMED));
-        }
 
         // temMALFORMED - Import: xpop inner txn did not contain a sequence
         // number or fee No Sequence

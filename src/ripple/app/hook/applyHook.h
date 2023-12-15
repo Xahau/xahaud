@@ -29,8 +29,9 @@ isEmittedTxn(ripple::STTx const& tx);
 // only upon tesSuccess for the otxn.
 class HookStateMap : public std::map<
                          ripple::AccountID,  // account that owns the state
-                         std::pair<
+                         std::tuple<
                              int64_t,  // remaining available ownercount
+                             int64_t,  // total namespace count
                              std::map<
                                  ripple::uint256,  // namespace
                                  std::map<

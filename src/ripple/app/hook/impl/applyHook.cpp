@@ -1310,7 +1310,7 @@ lookup_state_cache(
     if (stateMap.find(acc) == stateMap.end())
         return std::nullopt;
 
-    auto& stateMapAcc = stateMap[acc].second;
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
     if (stateMapAcc.find(ns) == stateMapAcc.end())
         return std::nullopt;
 
@@ -1335,9 +1335,13 @@ set_state_cache(
     bool modified)
 {
     auto& stateMap = hookCtx.result.stateMap;
+    auto& view = hookCtx.applyCtx.view();
 
     if (modified && stateMap.modified_entry_count >= max_state_modifications)
         return TOO_MANY_STATE_MODIFICATIONS;
+
+    bool const createNamespace = view.rules().enabled(fixXahauV1) &&
+        !view.exists(keylet::hookStateDir(acc, ns));
 
     if (stateMap.find(acc) == stateMap.end())
     {
@@ -1345,8 +1349,8 @@ set_state_cache(
         // we will compute how many available reserve positions there are
         auto const& fees = hookCtx.applyCtx.view().fees();
 
-        auto const accSLE =
-            hookCtx.applyCtx.view().read(ripple::keylet::account(acc));
+        auto const accSLE = view.read(ripple::keylet::account(acc));
+
         if (!accSLE)
             return DOESNT_EXIST;
 
@@ -1365,15 +1369,32 @@ set_state_cache(
         if (availableForReserves < 1 && modified)
             return RESERVE_INSUFFICIENT;
 
+        int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
+            ? accSLE->getFieldV256(sfHookNamespaces).size()
+            : 0;
+
+        if (createNamespace)
+        {
+            // overflow should never ever happen but check anyway
+            if (namespaceCount + 1 < namespaceCount)
+                return INTERNAL_ERROR;
+
+            if (++namespaceCount > hook::maxNamespaces())
+                return TOO_MANY_NAMESPACES;
+        }
+
         stateMap.modified_entry_count++;
 
         stateMap[acc] = {
-            availableForReserves - 1, {{ns, {{key, {modified, data}}}}}};
+            availableForReserves - 1,
+            namespaceCount,
+            {{ns, {{key, {modified, data}}}}}};
         return 1;
     }
 
-    auto& stateMapAcc = stateMap[acc].second;
-    auto& availableForReserves = stateMap[acc].first;
+    auto& availableForReserves = std::get<0>(stateMap[acc]);
+    auto& namespaceCount = std::get<1>(stateMap[acc]);
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
     bool const canReserveNew = availableForReserves > 0;
 
     if (stateMapAcc.find(ns) == stateMapAcc.end())
@@ -1382,6 +1403,18 @@ set_state_cache(
         {
             if (!canReserveNew)
                 return RESERVE_INSUFFICIENT;
+
+            if (createNamespace)
+            {
+                // overflow should never ever happen but check anyway
+                if (namespaceCount + 1 < namespaceCount)
+                    return INTERNAL_ERROR;
+
+                if (namespaceCount + 1 > hook::maxNamespaces())
+                    return TOO_MANY_NAMESPACES;
+
+                namespaceCount++;
+            }
 
             availableForReserves--;
             stateMap.modified_entry_count++;
@@ -1511,6 +1544,13 @@ DEFINE_HOOK_FUNCTION(
     auto const key = make_state_key(
         std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
 
+    if (view.rules().enabled(fixXahauV1))
+    {
+        auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+        if (!sleAccount)
+            return tefINTERNAL;
+    }
+
     if (!key)
         return INTERNAL_ERROR;
 
@@ -1633,7 +1673,7 @@ hook::finalizeHookState(
     for (const auto& accEntry : stateMap)
     {
         const auto& acc = accEntry.first;
-        for (const auto& nsEntry : accEntry.second.second)
+        for (const auto& nsEntry : std::get<2>(accEntry.second))
         {
             const auto& ns = nsEntry.first;
             for (const auto& cacheEntry : nsEntry.second)
