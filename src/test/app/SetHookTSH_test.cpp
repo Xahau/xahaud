@@ -3333,10 +3333,10 @@ private:
     // |   O  |    true    |  I  |   N  |   W  |  S  |   S  |   N
     // |   I  |    false   |  O  |   N  |   N  |  N  |   N  |   N
     // |   I  |    false   |  I  |   S  |   N  |  N  |   N  |   N
-    // |   I  |    false   |  B  |   W  |   N  |  N  |   N  |   N
+    // |   I  |    false   |  B  |   S  |   N  |  N  |   N  |   N
     // |   I  |    true    |  O  |   N  |   W  |  N  |   N  |   N
     // |   I  |    true    |  I  |   S  |   S  |  N  |   N  |   N
-    // |   I  |    true    |  B  |   W  |   N  |  N  |   N  |   N
+    // |   I  |    true    |  B  |   S  |   N  |  N  |   N  |   N
     // |   B  |    true    |  O  |   N  |   N  |  ?  |   N  |   N
     // |   B  |    true    |  B  |   N  |   N  |  ?  |   N  |   N
     void
@@ -4652,7 +4652,7 @@ private:
         // otxn: issuer
         // flag: not burnable
         // tsh buyer
-        // w/s: weak
+        // w/s: strong
         {
             test::jtx::Env env{
                 *this,
@@ -4664,15 +4664,12 @@ private:
             env.fund(XRP(1000), issuer, buyer);
             env.close();
 
-            env(fset(buyer, asfTshCollect));
-            env.close();
-
             std::string const uri(2, '?');
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
+            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -4694,7 +4691,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
         }
 
         // otxn: issuer
@@ -4746,7 +4743,7 @@ private:
         // otxn: issuer
         // flag: burnable
         // tsh buyer
-        // w/s: weak
+        // w/s: strong
         {
             test::jtx::Env env{
                 *this,
@@ -4758,15 +4755,12 @@ private:
             env.fund(XRP(1000), issuer, buyer);
             env.close();
 
-            env(fset(buyer, asfTshCollect));
-            env.close();
-
             std::string const uri(2, '?');
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
+            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -4789,7 +4783,7 @@ private:
             auto const executions = meta[sfHookExecutions.jsonName];
             auto const execution = executions[0u][sfHookExecution.jsonName];
             BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
         }
     }
 
@@ -4835,7 +4829,6 @@ public:
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
-        testWithFeats(sa - fixXahauV1);
         testWithFeats(sa);
         testWithFeats(sa - fixXahauV1);
     }
