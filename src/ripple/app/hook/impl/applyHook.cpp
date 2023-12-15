@@ -55,8 +55,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
     };
 
-    bool const tshSTRONG = true; // tshROLLBACK
-    bool const tshWEAK = false; // tshCOLLECT
+    bool const tshSTRONG = true;  // tshROLLBACK
+    bool const tshWEAK = false;   // tshCOLLECT
 
     switch (tt)
     {
