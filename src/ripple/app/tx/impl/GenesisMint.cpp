@@ -213,8 +213,11 @@ GenesisMint::doApply()
         auto const id = dest.getAccountID(sfDestination);
         auto const k = keylet::account(id);
 
+        bool const createDest = !view().exists(k);
+        bool const firstOccurance = mints.find(id) == mints.end();
+
         // if the account doesnt exist they get 2 for free
-        if (!view().exists(k))
+        if (createDest && firstOccurance)
         {
             if (toCredit + initialXrp < toCredit)
             {
@@ -228,7 +231,7 @@ GenesisMint::doApply()
         dropsAdded += toCredit;
 
         // if flags / marks appear more than once we just take the first appearance
-        if (mints.find(id) == mints.end())
+        if (firstOccurance)
             mints[id] = {toCredit, flags, marks};
         else
         {
