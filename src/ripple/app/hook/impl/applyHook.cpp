@@ -55,6 +55,15 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
     };
 
+    auto const getNFTOffer =
+        [](std::optional<uint256> id,
+           ReadView const& rv) -> std::shared_ptr<const SLE> {
+        if (!id || *id == beast::zero)
+            return nullptr;
+
+        return rv.read(keylet::nftoffer(*id));
+    };
+
     bool const tshSTRONG = true;  // tshROLLBACK
     bool const tshWEAK = false;   // tshCOLLECT
 
@@ -166,7 +175,85 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             break;
         }
 
-        // CLAIM_REWARD
+        case ttNFTOKEN_BURN:
+        case ttNFTOKEN_CREATE_OFFER: {
+            if (!tx.isFieldPresent(sfNFTokenID) ||
+                !tx.isFieldPresent(sfAccount))
+                return {};
+
+            uint256 nid = tx.getFieldH256(sfNFTokenID);
+            bool hasOwner = tx.isFieldPresent(sfOwner);
+            AccountID owner = tx.getAccountID(hasOwner ? sfOwner : sfAccount);
+
+            if (!nft::findToken(rv, owner, nid))
+                return {};
+
+            auto const issuer = nft::getIssuer(nid);
+
+            bool issuerCanRollback = nft::getFlags(nid) & tfStrongTSH;
+
+            ADD_TSH(issuer, issuerCanRollback);
+            if (hasOwner)
+                ADD_TSH(owner, tshWEAK);
+            break;
+        }
+
+        case ttNFTOKEN_ACCEPT_OFFER: {
+            auto const bo = getNFTOffer(tx[~sfNFTokenBuyOffer], rv);
+            auto const so = getNFTOffer(tx[~sfNFTokenSellOffer], rv);
+
+            if (!bo && !so)
+                return {};
+
+            // issuer only has rollback ability if NFT specifies it in flags
+            uint256 nid = (bo ? bo : so)->getFieldH256(sfNFTokenID);
+            auto const issuer = nft::getIssuer(nid);
+            bool issuerCanRollback = nft::getFlags(nid) & tfStrongTSH;
+            ADD_TSH(issuer, issuerCanRollback);
+
+            if (bo)
+            {
+                ADD_TSH(bo->getAccountID(sfOwner), tshSTRONG);
+                if (bo->isFieldPresent(sfDestination))
+                    ADD_TSH(bo->getAccountID(sfDestination), tshSTRONG);
+            }
+
+            if (so)
+            {
+                ADD_TSH(so->getAccountID(sfOwner), tshSTRONG);
+                if (so->isFieldPresent(sfDestination))
+                    ADD_TSH(so->getAccountID(sfDestination), tshSTRONG);
+            }
+
+            break;
+        }
+
+        case ttNFTOKEN_CANCEL_OFFER: {
+            if (!tx.isFieldPresent(sfNFTokenOffers))
+                return {};
+
+            auto const& offerVec = tx.getFieldV256(sfNFTokenOffers);
+            for (auto const& offerID : offerVec)
+            {
+                auto const offer = getNFTOffer(offerID, rv);
+                if (offer)
+                {
+                    ADD_TSH(offer->getAccountID(sfOwner), tshWEAK);
+                    if (offer->isFieldPresent(sfDestination))
+                        ADD_TSH(
+                            offer->getAccountID(sfDestination), tshWEAK);
+
+                    // issuer can't stop people canceling their offers, but can
+                    // get weak executions
+                    uint256 nid = offer->getFieldH256(sfNFTokenID);
+                    auto const issuer = nft::getIssuer(nid);
+                    ADD_TSH(issuer, false);
+                }
+            }
+            break;
+        }
+
+        case ttNFTOKEN_MINT:
         case ttCLAIM_REWARD: {
             if (tx.isFieldPresent(sfIssuer))
                 ADD_TSH(tx.getAccountID(sfIssuer), tshSTRONG);
