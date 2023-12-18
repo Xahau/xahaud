@@ -22,6 +22,7 @@
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/app/tx/impl/URIToken.h>
 
 namespace ripple {
 
@@ -64,9 +65,6 @@ Cadastre::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
-    auto const tt = tx.getTxnType();
-
-
     // the validation for amount is the same regardless of which txn is appears
     // on
     if (ctx.tx.isFieldPresent(sfAmount))
@@ -107,34 +105,35 @@ Cadastre::preflight(PreflightContext const& ctx)
         !ctx.tx.isFieldPresent(sfAmount))
         return temMALFORMED;
 
-    switch(tt)
+
+    auto checkURI = [&ctx](SField const& f) -> TER
     {
-        case ttCADASTRE_MINT:
-        case ttCADASTRE_SET:
+        if (ctx.tx.isFieldPresent(f))
         {
-            // the two uris have to follow the utf8 compliance and size compliance
+            auto const& vl = ctx.tx.getFieldVL(f);
+            if (vl.size() < 1 || vl.size() > 256)
+            {
+                JLOG(ctx.j.warn())
+                    << "Cadastre: Malformed transaction, "
+                    << f.getName()
+                    << " was invalid size (too big/small)";
+                return temMALFORMED;   
+            }
 
+            if (!URIToken::validateUTF8(ctx.tx.getFieldVL(sfDisplayURI)))
+            {
+                JLOG(ctx.j.warn())
+                    << "Cadastre: Malformed transaction, "
+                    << f.getName()
+                    << " was not valid utf-8";
+                return temMALFORMED;   
+            }
+        }
+        return tesSUCCESS;
+    };
 
-            break;
-        }
-        case ttCADASTRE_BURN:
-        {
-            break;
-        }
-        case ttCADASTRE_CREATE_SELL_OFFER:
-        {
-            break;
-        }
-        case ttCADASTRE_CANCEL_SELL_OFFER:
-        {
-            break;
-        }
-        case ttCADASTRE_BUY:
-        {
-            break;
-        }
-    }
-
+    checkURI(sfDisplayURI);
+    checkURI(sfBroadcastURI);
 
     return preflight2(ctx);
 }
@@ -156,6 +155,36 @@ Cadastre::preclaim(PreclaimContext const& ctx)
         if (!ctx.view.exists(keylet::account(ctx.tx[sfDestination])))
             return tecNO_TARGET;
     }
+
+    auto const tt = tx.getTxnType();
+
+    switch(tt)
+    {
+        case ttCADASTRE_MINT:
+        case ttCADASTRE_SET:
+        {
+            
+
+            break;
+        }
+        case ttCADASTRE_BURN:
+        {
+            break;
+        }
+        case ttCADASTRE_CREATE_SELL_OFFER:
+        {
+            break;
+        }
+        case ttCADASTRE_CANCEL_SELL_OFFER:
+        {
+            break;
+        }
+        case ttCADASTRE_BUY:
+        {
+            break;
+        }
+    }
+
 
     return tesSUCCESS;
 }
