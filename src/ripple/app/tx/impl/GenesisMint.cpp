@@ -176,7 +176,6 @@ GenesisMint::doApply()
 {
     auto const& dests = ctx_.tx.getFieldArray(sfGenesisMints);
 
-    
     // RH NOTE:
     // As of fixXahauV1, duplicate accounts are allowed
     // so we first do a summation loop then an actioning loop
@@ -185,13 +184,14 @@ GenesisMint::doApply()
 
     XRPAmount const initialXrp = Import::computeStartingBonus(view());
 
-    std::map<AccountID,                     // account to credit
-             std::tuple<
-                XRPAmount,                  // amount to credit
-                std::optional<uint256>,     // gov flags
-                std::optional<uint256>>>    // gov marks
+    std::map<
+        AccountID,  // account to credit
+        std::tuple<
+            XRPAmount,                // amount to credit
+            std::optional<uint256>,   // gov flags
+            std::optional<uint256>>>  // gov marks
 
-                mints;
+        mints;
 
     STAmount dropsAdded{0};
 
@@ -206,7 +206,7 @@ GenesisMint::doApply()
             return tecINTERNAL;
         }
 
-        XRPAmount toCredit = amt ? amt->xrp() : XRPAmount { 0 };
+        XRPAmount toCredit = amt ? amt->xrp() : XRPAmount{0};
 
         auto const flags = dest[~sfGovernanceFlags];
         auto const marks = dest[~sfGovernanceMarks];
@@ -221,8 +221,8 @@ GenesisMint::doApply()
         {
             if (toCredit + initialXrp < toCredit)
             {
-                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit "
-                                      << id << " due to balance overflow";
+                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit " << id
+                                          << " due to balance overflow";
                 return tecINTERNAL;
             }
             toCredit += initialXrp;
@@ -230,7 +230,8 @@ GenesisMint::doApply()
 
         dropsAdded += toCredit;
 
-        // if flags / marks appear more than once we just take the first appearance
+        // if flags / marks appear more than once we just take the first
+        // appearance
         if (firstOccurance)
             mints[id] = {toCredit, flags, marks};
         else
@@ -242,8 +243,8 @@ GenesisMint::doApply()
             // detect overflow
             if (accTotal + toCredit < accTotal)
             {
-                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit "
-                                          << id << " due to balance overflow";
+                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit " << id
+                                          << " due to balance overflow";
                 return tecINTERNAL;
             }
 
@@ -263,7 +264,7 @@ GenesisMint::doApply()
     for (auto const& [id, values] : mints)
     {
         auto const& [amt, flags, marks] = values;
-        
+
         auto const k = keylet::account(id);
         auto sle = view().peek(k);
         bool const created = !sle;
@@ -288,8 +289,8 @@ GenesisMint::doApply()
             STAmount finalBal = startBal + amt;
             if (finalBal <= startBal)
             {
-                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit "
-                                          << id << " due to balance overflow";
+                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit " << id
+                                          << " due to balance overflow";
                 return tecINTERNAL;
             }
 

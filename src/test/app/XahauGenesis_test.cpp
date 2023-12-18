@@ -4251,7 +4251,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::chrono_literals;
         testcase("test claim reward valid for L1 with unl report");
-        
+
         for (bool const withXahauV1 : {true, false})
         {
             FeatureBitset _features = features - featureXahauGenesis;
@@ -4299,15 +4299,20 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 ivlKeys.emplace_back(makeSlice(*pkHex));
             }
             std::vector<std::string> const _vlKeys = {
-                "0388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C05"
+                "0388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97"
+                "C05"
                 "2",
-                "02691AC5AE1C4C333AE5DF8A93BDC495F0EEBFC6DB0DA7EB6EF808F3AFC006E3F"
+                "02691AC5AE1C4C333AE5DF8A93BDC495F0EEBFC6DB0DA7EB6EF808F3AFC006"
+                "E3F"
                 "E",
-                "028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EAAFEC466F5C095407B"
+                "028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EAAFEC466F5C0954"
+                "07B"
                 "F",
-                "027BAEF0CB02EA8B95F50DF4BC16C740B17B50C85F3757AA06A5DB6ADE0ED9210"
+                "027BAEF0CB02EA8B95F50DF4BC16C740B17B50C85F3757AA06A5DB6ADE0ED9"
+                "210"
                 "6",
-                "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B213"
+                "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B"
+                "213"
                 "6"};
             std::vector<PublicKey> vlKeys;
             for (auto const& strPk : _vlKeys)
@@ -4342,10 +4347,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
             STAmount const preEdward = env.balance(edward);
             NetClock::time_point const preTime = lastClose(env);
             std::uint32_t const preLedger = env.current()->seq();
-            auto const [acct, acctSle] = accountKeyAndSle(*env.current(), alice);
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
 
             // claim reward
-            auto const txResult = withXahauV1 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED);
+            auto const txResult =
+                withXahauV1 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED);
             env(claimReward(alice, env.master), fee(feesXRP), txResult);
             env.close();
 
@@ -4355,7 +4362,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // calculate rewards
             STAmount const netReward =
                 rewardUserAmount(*acctSle, preLedger, rateDrops);
-            STAmount const l1Reward = withXahauV1 ? rewardL1Amount(netReward, 20) : STAmount(0);
+            STAmount const l1Reward =
+                withXahauV1 ? rewardL1Amount(netReward, 20) : STAmount(0);
 
             // validate govern rewards
             BEAST_EXPECT(env.balance(bob) == preBob + l1Reward);
@@ -4366,8 +4374,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // validate account fields
             STAmount const postAlice = preAlice + netReward + l1Reward;
             bool const boolResult = withXahauV1 ? true : false;
-            BEAST_EXPECT(expectAccountFields(
-                env, alice, preLedger, preLedger + 1, postAlice, preTime) == boolResult);
+            BEAST_EXPECT(
+                expectAccountFields(
+                    env, alice, preLedger, preLedger + 1, postAlice, preTime) ==
+                boolResult);
         }
     }
 
