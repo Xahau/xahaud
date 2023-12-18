@@ -74,7 +74,7 @@ GenesisMint::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    bool const allowDuplicates = !ctx.rules.enabled(fixXahauV1);
+    bool const allowDuplicates = ctx.rules.enabled(fixXahauV1);
 
     std::unordered_set<AccountID> alreadySeen;
     for (auto const& dest : dests)
