@@ -292,9 +292,9 @@ struct GenesisMint_test : public beast::unit_test::suite
                         {{edward.id(), XRP(0), std::nullopt, std::nullopt}})),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
-            
+
             env.close();
-            
+
             // get the emitted txn id
             Json::Value params;
             params[jss::transaction] =
@@ -588,7 +588,8 @@ struct GenesisMint_test : public beast::unit_test::suite
             params1[jss::transaction] = txId;
             auto const jrr1 = env.rpc("json", "tx", to_string(params1));
             auto const meta1 = jrr1[jss::result][jss::meta];
-            BEAST_EXPECT(meta1[sfTransactionResult.jsonName] == "tecINVARIANT_FAILED");
+            BEAST_EXPECT(
+                meta1[sfTransactionResult.jsonName] == "tecINVARIANT_FAILED");
 
             // check balance wasn't changed
             auto const le = env.le(keylet::account(greg.id()));
