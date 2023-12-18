@@ -31,6 +31,31 @@ Cadastre::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
+/*
+    add(jss::Cadastre,
+        ltCADASTRE,
+        {
+            {sfOwner,                soeREQUIRED},
+            {sfOwnerNode,            soeREQUIRED},
+            {sfAssociation,          soeOPTIONAL},
+            {sfAssociationNode,      soeOPTIONAL},
+            {sfLocationX,            soeREQUIRED},
+            {sfLocationY,            soeREQUIRED},
+            {sfUniverse,             soeREQUIRED},
+            {sfDisplayURI,           soeOPTIONAL},
+            {sfBroadcastURI,         soeOPTIONAL},
+            {sfCadastreCount,        soeOPTIONAL},  // for 0x8000,0x8000 tile only
+        },
+        commonFields);
+
+    ttCADASTRE_MINT                 = 0x005D,    // HookOn = 93
+    ttCADASTRE_BURN                 = 0x015D,
+    ttCADASTRE_CREATE_SELL_OFFER    = 0x025D,
+    ttCADASTRE_CANCEL_SELL_OFFER    = 0x035D,
+    ttCADASTRE_BUY                  = 0x045D,
+    ttCADASTRE_SET                  = 0x055D,
+*/
+
 NotTEC
 Cadastre::preflight(PreflightContext const& ctx)
 {
@@ -39,6 +64,76 @@ Cadastre::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
+    auto const tt = tx.getTxnType();
+
+
+    // the validation for amount is the same regardless of which txn is appears
+    // on
+    if (ctx.tx.isFieldPresent(sfAmount))
+    {
+        auto amt = ctx.tx.getFieldAmount(sfAmount);
+
+        if (!isLegalNet(amt) || amt.signum() < 0)
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction. Negative or "
+                                  "invalid amount/currency specified.";
+            return temBAD_AMOUNT;
+        }
+
+        if (isBadCurrency(amt.getCurrency()))
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction. Bad currency.";
+            return temBAD_CURRENCY;
+        }
+
+        if (amt == beast::zero && !ctx.tx.isFieldPresent(sfDestination))
+        {
+            if (tt == ttCADASTRE_BUY)
+            {
+                // buy operation does not specify a destination, and can have a
+                // zero amount pass
+            }
+            else
+            {
+                JLOG(ctx.j.warn()) << "Malformed transaction. "
+                                   << "If no sell-to destination is specified "
+                                      "then a non-zero price must be set.";
+                return temMALFORMED;
+            }
+        }
+    }
+
+    if (ctx.tx.isFieldPresent(sfDestination) &&
+        !ctx.tx.isFieldPresent(sfAmount))
+        return temMALFORMED;
+
+    switch(tt)
+    {
+        case ttCADASTRE_MINT:
+        case ttCADASTRE_SET:
+        {
+            // the two uris have to follow the utf8 compliance and size compliance
+
+
+            break;
+        }
+        case ttCADASTRE_BURN:
+        {
+            break;
+        }
+        case ttCADASTRE_CREATE_SELL_OFFER:
+        {
+            break;
+        }
+        case ttCADASTRE_CANCEL_SELL_OFFER:
+        {
+            break;
+        }
+        case ttCADASTRE_BUY:
+        {
+            break;
+        }
+    }
 
 
     return preflight2(ctx);
