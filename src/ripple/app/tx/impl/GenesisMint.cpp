@@ -260,6 +260,8 @@ GenesisMint::doApply()
         return tecINTERNAL;
     }
 
+    bool const fixV1Enabled = view().rules().enabled(fixXahauV1);
+
     // action loop
     for (auto const& [id, values] : mints)
     {
@@ -296,6 +298,8 @@ GenesisMint::doApply()
 
             sle->setFieldAmount(sfBalance, finalBal);
         }
+        else if (amt == beast::zero && !fixV1Enabled)
+            return tecINTERNAL;
 
         // set flags and marks as applicable
         if (flags)
