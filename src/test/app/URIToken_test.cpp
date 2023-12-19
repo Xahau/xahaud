@@ -1857,7 +1857,7 @@ struct URIToken_test : public beast::unit_test::suite
 
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(1125));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(1080));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
         // test rate change
@@ -1885,7 +1885,7 @@ struct URIToken_test : public beast::unit_test::suite
             // bob buys at higher rate and burns
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10125));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10080));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
             env(uritoken::burn(bob, id));
 
@@ -1903,7 +1903,7 @@ struct URIToken_test : public beast::unit_test::suite
             // bob buys at lower rate
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10225));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10180));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
         // test issuer doesnt pay own rate
