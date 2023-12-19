@@ -540,7 +540,7 @@ URIToken::doApply()
                         {
                             JLOG(j_.trace())
                                 << "Trust line does not exist. "
-                                    "Insufficent reserve to create line.";
+                                   "Insufficent reserve to create line.";
 
                             return tecNO_LINE_INSUF_RESERVE;
                         }
