@@ -1199,7 +1199,8 @@ rippleSend(
                     << " : deliver=" << saAmount.getFullText()
                     << " cost=" << saActual.getFullText();
 
-    TER terResult = rippleCredit(view, issuer, uReceiverID, destReceives, true, j);
+    TER terResult =
+        rippleCredit(view, issuer, uReceiverID, destReceives, true, j);
 
     if (tesSUCCESS == terResult)
         terResult = rippleCredit(view, uSenderID, issuer, senderPays, true, j);
@@ -1232,7 +1233,14 @@ accountSend(
                         << to_string(uReceiverID) << " : "
                         << saAmount.getFullText();
 
-        return rippleSend(view, uSenderID, uReceiverID, saAmount, saActual, j, senderPaysXferFees);
+        return rippleSend(
+            view,
+            uSenderID,
+            uReceiverID,
+            saAmount,
+            saActual,
+            j,
+            senderPaysXferFees);
     }
 
     /* XRP send which does not check reserve and can do pure adjustment.
