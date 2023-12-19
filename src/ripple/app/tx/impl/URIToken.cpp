@@ -523,6 +523,28 @@ URIToken::doApply()
 
                     if (purchaseAmount > availableFunds)
                         return tecINSUFFICIENT_FUNDS;
+
+                    // check if seller has the trustline
+                    std::optional<Keylet> const tlSeller = keylet::line(
+                        *owner,
+                        purchaseAmount.getIssuer(),
+                        purchaseAmount.getCurrency());
+                    std::shared_ptr<SLE> const sleSellLine = sb.peek(*tlSeller);
+                    if (!sleSellLine)
+                    {
+                        // check if seller has sufficient balance to create tl
+                        if (std::uint32_t const ownerCount = {sleOwner->at(
+                                sfOwnerCount)};
+                            (*sleOwner)[sfBalance] <
+                            sb.fees().accountReserve(ownerCount + 1))
+                        {
+                            JLOG(j_.trace())
+                                << "Trust line does not exist. "
+                                    "Insufficent reserve to create line.";
+
+                            return tecNO_LINE_INSUF_RESERVE;
+                        }
+                    }
                 }
 
                 // execute the funds transfer
