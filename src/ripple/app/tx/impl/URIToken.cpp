@@ -443,8 +443,8 @@ URIToken::doApply()
             sle->setFieldU32(sfFlags, sle->getFlags() | lsfURITokenIssuer);
 
             adjustOwnerCount(sb, sle, 1, j);
-        
-            sb.update(sle);    
+
+            sb.update(sle);
             sb.apply(ctx_.rawView());
             return tesSUCCESS;
         }
@@ -461,8 +461,7 @@ URIToken::doApply()
             return tesSUCCESS;
         }
 
-        case ttURITOKEN_BUY:
-        {
+        case ttURITOKEN_BUY: {
             if (account_ == *owner)
             {
                 // this is a clear operation
@@ -473,7 +472,7 @@ URIToken::doApply()
                 sb.apply(ctx_.rawView());
                 return tesSUCCESS;
             }
-            
+
             STAmount const purchaseAmount = ctx_.tx.getFieldAmount(sfAmount);
 
             // check if the seller has listed it at all
@@ -497,8 +496,8 @@ URIToken::doApply()
                 // if it's an xrp sale/purchase then no trustline needed
                 if (purchaseAmount.native())
                 {
-
-                    if (purchaseAmount > ((*sleOwner)[sfBalance] - ctx_.tx[sfFee]))
+                    if (purchaseAmount >
+                        ((*sleOwner)[sfBalance] - ctx_.tx[sfFee]))
                         return tecINSUFFICIENT_FUNDS;
                 }
                 else
@@ -525,19 +524,22 @@ URIToken::doApply()
                     if (purchaseAmount > availableFunds)
                         return tecINSUFFICIENT_FUNDS;
                 }
-                    
+
                 // execute the funds transfer
-                if (TER result =
-                    accountSend(sb, account_, *owner, purchaseAmount, j, false); result != tesSUCCESS)
+                if (TER result = accountSend(
+                        sb, account_, *owner, purchaseAmount, j, false);
+                    result != tesSUCCESS)
                     return result;
-                
+
                 // add token to new owner dir
                 auto const newPage = sb.dirInsert(
-                    keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
+                    keylet::ownerDir(account_),
+                    *kl,
+                    describeOwnerDir(account_));
 
-                JLOG(j_.trace())
-                    << "Adding URIToken to owner directory " << to_string(kl->key)
-                    << ": " << (newPage ? "success" : "failure");
+                JLOG(j_.trace()) << "Adding URIToken to owner directory "
+                                 << to_string(kl->key) << ": "
+                                 << (newPage ? "success" : "failure");
 
                 if (!newPage)
                     return tecDIR_FULL;
@@ -570,7 +572,6 @@ URIToken::doApply()
                 // tell the ledger where to find it
                 sleU->setFieldU64(sfOwnerNode, *newPage);
 
-
                 sb.update(sle);
                 sb.update(sleU);
                 sb.update(sleOwner);
@@ -580,7 +581,8 @@ URIToken::doApply()
 
             // old logic
             {
-                STAmount const purchaseAmount = ctx_.tx.getFieldAmount(sfAmount);
+                STAmount const purchaseAmount =
+                    ctx_.tx.getFieldAmount(sfAmount);
 
                 bool const sellerLow = purchaseAmount.getIssuer() > *owner;
                 bool const buyerLow = purchaseAmount.getIssuer() > account_;
@@ -591,7 +593,8 @@ URIToken::doApply()
                 if (!saleAmount)
                     return tecNO_PERMISSION;
 
-                // check if the seller has listed it for sale to a specific account
+                // check if the seller has listed it for sale to a specific
+                // account
                 if (dest && *dest != account_)
                     return tecNO_PERMISSION;
 
@@ -613,7 +616,8 @@ URIToken::doApply()
                     if (purchaseAmount < saleAmount)
                         return tecINSUFFICIENT_PAYMENT;
 
-                    if (purchaseAmount > ((*sleOwner)[sfBalance] - ctx_.tx[sfFee]))
+                    if (purchaseAmount >
+                        ((*sleOwner)[sfBalance] - ctx_.tx[sfFee]))
                         return tecINSUFFICIENT_FUNDS;
 
                     dstAmt = purchaseAmount;
@@ -671,8 +675,8 @@ URIToken::doApply()
                     }
                     else if (!sleDstLine)
                     {
-                        // they do not, so we can create one if they have sufficient
-                        // reserve
+                        // they do not, so we can create one if they have
+                        // sufficient reserve
 
                         if (std::uint32_t const ownerCount = {sleOwner->at(
                                 sfOwnerCount)};
@@ -706,7 +710,10 @@ URIToken::doApply()
                     if (!sellerIssuer && !buyerIssuer && xferRate != parityRate)
                     {
                         dstAmt = multiplyRound(
-                            purchaseAmount, xferRate, purchaseAmount.issue(), true);
+                            purchaseAmount,
+                            xferRate,
+                            purchaseAmount.issue(),
+                            true);
                     }
 
                     initSellerBal = !sleDstLine
@@ -717,8 +724,8 @@ URIToken::doApply()
                     finSellerBal = *initSellerBal + *dstAmt;
                 }
 
-                // sanity check balance mutations (xrp or iou, both are checked the
-                // same way now)
+                // sanity check balance mutations (xrp or iou, both are checked
+                // the same way now)
                 if (*finSellerBal < *initSellerBal)
                 {
                     JLOG(j.warn())
@@ -752,28 +759,31 @@ URIToken::doApply()
                 }
 
                 // to this point no ledger changes have been made
-                // make them in a sensible order such that failure doesn't require
-                // cleanup
+                // make them in a sensible order such that failure doesn't
+                // require cleanup
 
-                // add to new owner's directory first, this can fail if they have
-                // too many objects
+                // add to new owner's directory first, this can fail if they
+                // have too many objects
                 auto const newPage = sb.dirInsert(
-                    keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
+                    keylet::ownerDir(account_),
+                    *kl,
+                    describeOwnerDir(account_));
 
-                JLOG(j_.trace())
-                    << "Adding URIToken to owner directory " << to_string(kl->key)
-                    << ": " << (newPage ? "success" : "failure");
+                JLOG(j_.trace()) << "Adding URIToken to owner directory "
+                                 << to_string(kl->key) << ": "
+                                 << (newPage ? "success" : "failure");
 
                 if (!newPage)
                 {
-                    // nothing has happened at all and there is nothing to clean up
-                    // we can just leave with DIR_FULL
+                    // nothing has happened at all and there is nothing to clean
+                    // up we can just leave with DIR_FULL
                     return tecDIR_FULL;
                 }
 
-                // Next create destination trustline where applicable. This could
-                // fail for a variety of reasons. If it does fail we need to remove
-                // the dir entry we just added to the buyer before we leave.
+                // Next create destination trustline where applicable. This
+                // could fail for a variety of reasons. If it does fail we need
+                // to remove the dir entry we just added to the buyer before we
+                // leave.
                 bool lineCreated = false;
                 if (!isXRP(purchaseAmount) && !sleDstLine && !sellerIssuer)
                 {
@@ -817,8 +827,8 @@ URIToken::doApply()
                 }
 
                 // execution to here means we added the URIToken to the buyer's
-                // directory and we definitely have a way to send the funds to the
-                // seller.
+                // directory and we definitely have a way to send the funds to
+                // the seller.
 
                 // remove from current owner directory
                 if (!sb.dirRemove(
@@ -832,10 +842,13 @@ URIToken::doApply()
 
                     // remove the newly inserted directory entry before we leave
                     if (!sb.dirRemove(
-                            keylet::ownerDir(account_), *newPage, kl->key, true))
+                            keylet::ownerDir(account_),
+                            *newPage,
+                            kl->key,
+                            true))
                     {
-                        JLOG(j.fatal())
-                            << "Could not remove URIToken from owner directory (2)";
+                        JLOG(j.fatal()) << "Could not remove URIToken from "
+                                           "owner directory (2)";
                     }
 
                     // clean up any trustline we might have made
@@ -849,12 +862,12 @@ URIToken::doApply()
                     return tefBAD_LEDGER;
                 }
 
-                // above is all the things that could fail. we now have swapped the
-                // ownership as far as the ownerdirs are concerned, and we have a
-                // place to pay to and from.
+                // above is all the things that could fail. we now have swapped
+                // the ownership as far as the ownerdirs are concerned, and we
+                // have a place to pay to and from.
 
-                // if a trustline was created then the ownercount stays the same on
-                // the seller +1 TL -1 URIToken
+                // if a trustline was created then the ownercount stays the same
+                // on the seller +1 TL -1 URIToken
                 if (!lineCreated && !isXRP(purchaseAmount))
                     adjustOwnerCount(sb, sleOwner, -1, j);
 
@@ -902,11 +915,13 @@ URIToken::doApply()
                 {
                     // the line already existed on the seller side so update it
                     sleDstLine->setFieldAmount(
-                        sfBalance, sellerLow ? *finSellerBal : -(*finSellerBal));
+                        sfBalance,
+                        sellerLow ? *finSellerBal : -(*finSellerBal));
                 }
                 else if (lineCreated)
                 {
-                    // pass, the TL already has this balance set on it at creation
+                    // pass, the TL already has this balance set on it at
+                    // creation
                 }
                 else if (sellerIssuer)
                 {
@@ -946,8 +961,7 @@ URIToken::doApply()
             // execution to here means there is permission to burn
 
             auto const page = (*sleU)[sfOwnerNode];
-            if (!sb.dirRemove(
-                    keylet::ownerDir(*owner), page, kl->key, true))
+            if (!sb.dirRemove(keylet::ownerDir(*owner), page, kl->key, true))
             {
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
