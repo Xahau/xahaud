@@ -2346,16 +2346,15 @@ struct URIToken_test : public beast::unit_test::suite
     void
     testWithFeats(FeatureBitset features)
     {
-/*        testEnabled(features);
+        testEnabled(features);
         testMintInvalid(features);
         testBurnInvalid(features);
         testSellInvalid(features);
         testBuyInvalid(features);
         testClearInvalid(features);
-        testMintValid(features); */
-
+        testMintValid(features); 
         testBurnValid(features);
-/*        testBuyValid(features);
+        testBuyValid(features);
         testSellValid(features);
         testClearValid(features);
         testMetaAndOwnership(features);
@@ -2368,7 +2367,7 @@ struct URIToken_test : public beast::unit_test::suite
         testTransferRate(features);
         testDisallowXRP(features);
         testLimitAmount(features);
-        testURIUTF8(features); */
+        testURIUTF8(features); 
     }
 
 public:
