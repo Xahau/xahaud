@@ -171,18 +171,108 @@ GenesisMint::preclaim(PreclaimContext const& ctx)
     return tesSUCCESS;
 }
 
+
 TER
 GenesisMint::doApply()
 {
     auto const& dests = ctx_.tx.getFieldArray(sfGenesisMints);
 
+    if (!view().rules().enabled(fixXahauV1))
+    {
+        STAmount dropsAdded{0};
+        for (auto const& dest : dests)
+        {
+            auto const amt = dest[~sfAmount];
+
+            if (amt && !isXRP(*amt))
+            {
+                JLOG(ctx_.journal.warn()) << "GenesisMint: Non-xrp amount.";
+                return tecINTERNAL;
+            }
+
+            auto const flags = dest[~sfGovernanceFlags];
+            auto const marks = dest[~sfGovernanceMarks];
+
+            auto const id = dest.getAccountID(sfDestination);
+            auto const k = keylet::account(id);
+            auto sle = view().peek(k);
+
+            bool const created = !sle;
+
+            if (created)
+            {
+                // Create the account.
+                std::uint32_t const seqno{
+                    view().info().parentCloseTime.time_since_epoch().count()};
+
+                sle = std::make_shared<SLE>(k);
+                sle->setAccountID(sfAccount, id);
+
+                sle->setFieldU32(sfSequence, seqno);
+
+                if (amt)
+                {
+                    sle->setFieldAmount(sfBalance, *amt);
+                    dropsAdded += *amt;
+                }
+                else  // give them 2 XRP if the account didn't exist, same as
+                      // ttIMPORT
+                {
+                    XRPAmount const initialXrp =
+                        Import::computeStartingBonus(ctx_.view());
+                    sle->setFieldAmount(sfBalance, initialXrp);
+                    dropsAdded += initialXrp;
+                }
+            }
+            else if (amt)
+            {
+                // Credit the account
+                STAmount startBal = sle->getFieldAmount(sfBalance);
+                STAmount finalBal = startBal + *amt;
+                if (finalBal <= startBal)
+                {
+                    JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit "
+                                              << dest << " due to balance overflow";
+                    return tecINTERNAL;
+                }
+
+                sle->setFieldAmount(sfBalance, finalBal);
+                dropsAdded += *amt;
+            }
+
+            // set flags and marks as applicable
+            if (flags)
+                sle->setFieldH256(sfGovernanceFlags, *flags);
+
+            if (marks)
+                sle->setFieldH256(sfGovernanceMarks, *marks);
+
+            if (created)
+                view().insert(sle);
+            else
+                view().update(sle);
+        }
+
+        // update ledger header
+        if (dropsAdded < beast::zero ||
+            dropsAdded.xrp() + view().info().drops < view().info().drops)
+        {
+            JLOG(ctx_.journal.warn()) << "GenesisMint: dropsAdded overflowed\n";
+            return tecINTERNAL;
+        }
+
+        if (dropsAdded > beast::zero)
+            ctx_.rawView().rawDestroyXRP(-dropsAdded.xrp());
+
+        return tesSUCCESS;
+    }
+
+
+
     // RH NOTE:
     // As of fixXahauV1, duplicate accounts are allowed
     // so we first do a summation loop then an actioning loop
     // if amendment is not active then there's exactly one entry per
-    // account and the logic should be identical to previous code.
-
-    XRPAmount const initialXrp = Import::computeStartingBonus(view());
 
     std::map<
         AccountID,  // account to credit
@@ -216,18 +306,6 @@ GenesisMint::doApply()
         bool const createDest = !view().exists(k);
         bool const firstOccurance = mints.find(id) == mints.end();
 
-        // if the account doesnt exist they get 2 for free
-        if (createDest && firstOccurance)
-        {
-            if (toCredit + initialXrp < toCredit)
-            {
-                JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit " << id
-                                          << " due to balance overflow";
-                return tecINTERNAL;
-            }
-            toCredit += initialXrp;
-        }
-
         dropsAdded += toCredit;
 
         // if flags / marks appear more than once we just take the first
@@ -259,8 +337,6 @@ GenesisMint::doApply()
         JLOG(ctx_.journal.warn()) << "GenesisMint: dropsAdded overflowed\n";
         return tecINTERNAL;
     }
-
-    bool const fixV1Enabled = view().rules().enabled(fixXahauV1);
 
     // action loop
     for (auto const& [id, values] : mints)
@@ -298,8 +374,6 @@ GenesisMint::doApply()
 
             sle->setFieldAmount(sfBalance, finalBal);
         }
-        else if (amt == beast::zero && !fixV1Enabled)
-            return tecINTERNAL;
 
         // set flags and marks as applicable
         if (flags)
