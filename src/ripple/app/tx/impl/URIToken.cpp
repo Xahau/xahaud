@@ -443,7 +443,8 @@ URIToken::doApply()
             sle->setFieldU32(sfFlags, sle->getFlags() | lsfURITokenIssuer);
 
             adjustOwnerCount(sb, sle, 1, j);
-            
+        
+            sb.update(sle);    
             sb.apply(ctx_.rawView());
             return tesSUCCESS;
         }
@@ -919,6 +920,7 @@ URIToken::doApply()
                 if (sleDstLine)
                     sb.update(sleDstLine);
 
+                sb.update(sle);
                 sb.update(sleU);
                 sb.update(sleOwner);
                 sb.apply(ctx_.rawView());
@@ -953,7 +955,11 @@ URIToken::doApply()
             }
 
             sb.erase(sleU);
-            adjustOwnerCount(sb, sle, -1, j);
+
+            auto& sleAcc = fixV1 ? sleOwner : sle;
+
+            adjustOwnerCount(sb, sleAcc, -1, j);
+            sb.update(sleAcc);
             sb.apply(ctx_.rawView());
             return tesSUCCESS;
         }
