@@ -171,7 +171,6 @@ GenesisMint::preclaim(PreclaimContext const& ctx)
     return tesSUCCESS;
 }
 
-
 TER
 GenesisMint::doApply()
 {
@@ -231,8 +230,9 @@ GenesisMint::doApply()
                 STAmount finalBal = startBal + *amt;
                 if (finalBal <= startBal)
                 {
-                    JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit "
-                                              << dest << " due to balance overflow";
+                    JLOG(ctx_.journal.warn())
+                        << "GenesisMint: cannot credit " << dest
+                        << " due to balance overflow";
                     return tecINTERNAL;
                 }
 
@@ -266,8 +266,6 @@ GenesisMint::doApply()
 
         return tesSUCCESS;
     }
-
-
 
     // RH NOTE:
     // As of fixXahauV1, duplicate accounts are allowed

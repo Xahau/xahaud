@@ -24,8 +24,8 @@ namespace ripple {
 namespace test {
 struct GenesisMint_test : public beast::unit_test::suite
 {
-
-    void validateEmittedTxn(jtx::Env& env, std::string result, uint64_t lineno)
+    void
+    validateEmittedTxn(jtx::Env& env, std::string result, uint64_t lineno)
     {
         // get the emitted txn id
         Json::Value params;
@@ -43,8 +43,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         params1[jss::transaction] = txId;
         auto const jrr1 = env.rpc("json", "tx", to_string(params1));
         auto const meta1 = jrr1[jss::result][jss::meta];
-        BEAST_EXPECT(
-            meta1[sfTransactionResult.jsonName] == result);
+        BEAST_EXPECT(meta1[sfTransactionResult.jsonName] == result);
         if (meta1[sfTransactionResult.jsonName] != result)
         {
             std::cout << "validateEmittedTxn failed " << lineno
@@ -180,7 +179,7 @@ struct GenesisMint_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
 
             env.close();
-            
+
             // validate emitted txn
             validateEmittedTxn(env, "tesSUCCESS", __LINE__);
 
@@ -221,7 +220,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             ter(tesSUCCESS));
 
         env.close();
-        
+
         // validate emitted txn
         validateEmittedTxn(env, "tesSUCCESS", __LINE__);
 
@@ -263,7 +262,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             fee(XRP(1)));
 
         env.close();
-        
+
         // validate emitted txn
         validateEmittedTxn(env, "tesSUCCESS", __LINE__);
 
@@ -380,7 +379,7 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)));
 
             env.close();
-            
+
             // validate emitted txn
             validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
@@ -433,7 +432,7 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)));
 
             env.close();
-            
+
             // validate emitted txn
             validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
@@ -535,7 +534,7 @@ struct GenesisMint_test : public beast::unit_test::suite
                           std::nullopt}})),
                 fee(XRP(1)));
             env.close();
-            
+
             // validate emitted txn
             validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
@@ -562,14 +561,14 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
-            
+
             // validate emitted txn
             validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
         auto const amtResult = env.current()->rules().enabled(fixXahauV1)
-                ? 30000000ULL
-                : 10000000ULL;
+            ? 30000000ULL
+            : 10000000ULL;
         // try to include the same destination twice
         {
             auto const txResult = env.current()->rules().enabled(fixXahauV1)
