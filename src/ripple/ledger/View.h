@@ -35,6 +35,7 @@
 #include <ripple/protocol/STTx.h>
 #include <ripple/protocol/Serializer.h>
 #include <ripple/protocol/TER.h>
+#include <ripple/ledger/Sandbox.h>
 #include <functional>
 #include <map>
 #include <memory>
@@ -394,7 +395,8 @@ accountSend(
     AccountID const& from,
     AccountID const& to,
     const STAmount& saAmount,
-    beast::Journal j);
+    beast::Journal j,
+    bool const senderPaysXferFees = true);
 
 [[nodiscard]] TER
 issueIOU(
@@ -627,7 +629,7 @@ trustTransferAllowed(
 {
     static_assert(
         std::is_same<V, ReadView const>::value ||
-        std::is_same<V, ApplyView>::value);
+        std::is_same<V, ApplyView>::value || std::is_same<V, Sandbox>::value);
 
     typedef typename std::conditional<
         std::is_same<V, ApplyView>::value,
