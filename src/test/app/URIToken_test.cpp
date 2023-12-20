@@ -621,9 +621,10 @@ struct URIToken_test : public beast::unit_test::suite
 
             // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
             auto const txResult = env.current()->rules().enabled(fixXahauV1)
-                ? ter(tesSUCCESS)
+                ? ter(tecINSUF_RESERVE_SELLER)
                 : ter(tecNO_LINE_INSUF_RESERVE);
 
+            env(noop(echo), fee(XRP(50)), ter(tesSUCCESS));
             env(uritoken::buy(dave, hexid), uritoken::amt(USD(1)), txResult);
             env.close();
         }
