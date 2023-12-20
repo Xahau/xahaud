@@ -71,6 +71,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         return rv.read(keylet::nftoffer(*id));
     };
 
+    bool const fixV1 = rv.rules().enabled(fixXahauV1);
+
     switch (tt)
     {
         case ttIMPORT: {
@@ -97,19 +99,36 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             //  the burner is the issuer and not the owner of the token
 
             if (issuer == owner)
-            {
-                // pass, already a TSH
-            }
-            else if (*otxnAcc == owner)
+                break;
+            // pass, already a TSH
+
+            // new logic
+            if (fixV1)
             {
                 // the owner burns their token, and the issuer is a weak TSH
-                ADD_TSH(issuer, canRollback);
-            }
-            else
-            {
+                if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
+                    ADD_TSH(issuer, false);
                 // the issuer burns the owner's token, and the owner is a weak
                 // TSH
-                ADD_TSH(owner, canRollback);
+                else if (rv.exists(keylet::account(owner)))
+                    ADD_TSH(owner, !fixV1);
+
+                break;
+            }
+
+            // old logic
+            {
+                if (*otxnAcc == owner)
+                {
+                    // the owner burns their token, and the issuer is a weak TSH
+                    ADD_TSH(issuer, true);
+                }
+                else
+                {
+                    // the issuer burns the owner's token, and the owner is a
+                    // weak TSH
+                    ADD_TSH(owner, true);
+                }
             }
 
             break;
@@ -300,19 +319,58 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            if (!tx.isFieldPresent(sfOwner) ||
-                !tx.isFieldPresent(sfOfferSequence))
-                return {};
+            // new logic
+            if (fixV1)
+            {
+                if (!tx.isFieldPresent(sfOwner))
+                    return {};
 
-            auto escrow = rv.read(keylet::escrow(
-                tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+                AccountID const owner = tx.getAccountID(sfOwner);
 
-            if (!escrow)
-                return {};
+                bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
+                bool const hasID = tx.isFieldPresent(sfEscrowID);
+                if (!hasSeq && !hasID)
+                    return {};
 
-            ADD_TSH(escrow->getAccountID(sfAccount), true);
-            ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
-            break;
+                Keylet kl = hasSeq
+                    ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
+                    : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
+
+                auto escrow = rv.read(kl);
+
+                if (!escrow)
+                    return {};
+
+                // this should always be the same as owner, but defensively...
+                AccountID const src = escrow->getAccountID(sfAccount);
+                AccountID const dst = escrow->getAccountID(sfDestination);
+
+                // the source account is a strong transacitonal stakeholder for
+                // fin and can
+                ADD_TSH(src, true);
+
+                // the dest acc is a strong tsh for fin and weak for can
+                if (src != dst)
+                    ADD_TSH(dst, tt == ttESCROW_FINISH);
+
+                break;
+            }
+            // old logic
+            {
+                if (!tx.isFieldPresent(sfOwner) ||
+                    !tx.isFieldPresent(sfOfferSequence))
+                    return {};
+
+                auto escrow = rv.read(keylet::escrow(
+                    tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+
+                if (!escrow)
+                    return {};
+
+                ADD_TSH(escrow->getAccountID(sfAccount), true);
+                ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
+                break;
+            }
         }
 
         case ttPAYCHAN_FUND:
@@ -2757,10 +2815,10 @@ DEFINE_HOOK_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::CHILD
                     ? ripple::keylet::child(id)
                     : keylet_type == keylet_code::EMITTED_TXN
-                        ? ripple::keylet::emittedTxn(id)
-                        : keylet_type == keylet_code::HOOK_DEFINITION
-                            ? ripple::keylet::hookDefinition(id)
-                            : ripple::keylet::unchecked(id);
+                    ? ripple::keylet::emittedTxn(id)
+                    : keylet_type == keylet_code::HOOK_DEFINITION
+                    ? ripple::keylet::hookDefinition(id)
+                    : ripple::keylet::unchecked(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -2789,10 +2847,10 @@ DEFINE_HOOK_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::HOOK
                     ? ripple::keylet::hook(id)
                     : keylet_type == keylet_code::SIGNERS
-                        ? ripple::keylet::signers(id)
-                        : keylet_type == keylet_code::OWNER_DIR
-                            ? ripple::keylet::ownerDir(id)
-                            : ripple::keylet::account(id);
+                    ? ripple::keylet::signers(id)
+                    : keylet_type == keylet_code::OWNER_DIR
+                    ? ripple::keylet::ownerDir(id)
+                    : ripple::keylet::account(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -2832,10 +2890,10 @@ DEFINE_HOOK_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::CHECK
                     ? ripple::keylet::check(id, seq)
                     : keylet_type == keylet_code::ESCROW
-                        ? ripple::keylet::escrow(id, seq)
-                        : keylet_type == keylet_code::NFT_OFFER
-                            ? ripple::keylet::nftoffer(id, seq)
-                            : ripple::keylet::offer(id, seq);
+                    ? ripple::keylet::escrow(id, seq)
+                    : keylet_type == keylet_code::NFT_OFFER
+                    ? ripple::keylet::nftoffer(id, seq)
+                    : ripple::keylet::offer(id, seq);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -2953,13 +3011,11 @@ DEFINE_HOOK_FUNCTION(
                 WRITE_WASM_MEMORY_AND_RETURN(
                     write_ptr,
                     write_len,
-                    keylet_type == keylet_code::AMENDMENTS
-                        ? cAmendments.data()
-                        : keylet_type == keylet_code::FEES
-                            ? cFees.data()
-                            : keylet_type == keylet_code::NEGATIVE_UNL
-                                ? cNegativeUNL.data()
-                                : cEmittedDir.data(),
+                    keylet_type == keylet_code::AMENDMENTS ? cAmendments.data()
+                        : keylet_type == keylet_code::FEES ? cFees.data()
+                        : keylet_type == keylet_code::NEGATIVE_UNL
+                        ? cNegativeUNL.data()
+                        : cEmittedDir.data(),
                     34,
                     memory,
                     memory_length);
@@ -5797,9 +5853,9 @@ DEFINE_HOOK_FUNCTION(
 
     size_t free_count = hook_api::max_slots - hookCtx.slot.size();
 
-    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0
-        ? 2
-        : slot_into_tx != 0 && slot_into_meta != 0 ? 0 : 1;
+    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0 ? 2
+        : slot_into_tx != 0 && slot_into_meta != 0                 ? 0
+                                                                   : 1;
 
     if (free_count < needed_count)
         return NO_FREE_SLOTS;
