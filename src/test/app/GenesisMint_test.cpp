@@ -25,6 +25,34 @@ namespace test {
 struct GenesisMint_test : public beast::unit_test::suite
 {
     void
+    validateEmittedTxn(jtx::Env& env, std::string result, uint64_t lineno)
+    {
+        // get the emitted txn id
+        Json::Value params;
+        params[jss::transaction] =
+            env.tx()->getJson(JsonOptions::none)[jss::hash];
+        auto const jrr = env.rpc("json", "tx", to_string(params));
+        auto const meta = jrr[jss::result][jss::meta];
+        auto const emissions = meta[sfHookEmissions.jsonName];
+        auto const emission = emissions[0u][sfHookEmission.jsonName];
+        auto const txId = emission[sfEmittedTxnID.jsonName];
+        env.close();
+
+        // verify emitted result
+        Json::Value params1;
+        params1[jss::transaction] = txId;
+        auto const jrr1 = env.rpc("json", "tx", to_string(params1));
+        auto const meta1 = jrr1[jss::result][jss::meta];
+        BEAST_EXPECT(meta1[sfTransactionResult.jsonName] == result);
+        if (meta1[sfTransactionResult.jsonName] != result)
+        {
+            std::cout << "validateEmittedTxn failed " << lineno
+                      << " expected: " << result
+                      << " result: " << meta1[sfTransactionResult.jsonName]
+                      << "\n";
+        }
+    }
+    void
     testDisabled(FeatureBitset features)
     {
         testcase("Disabled");
@@ -151,7 +179,9 @@ struct GenesisMint_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
 
             env.close();
-            env.close();
+
+            // validate emitted txn
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
 
             {
                 auto acc = env.le(keylet::account(bob.id()));
@@ -190,7 +220,10 @@ struct GenesisMint_test : public beast::unit_test::suite
             ter(tesSUCCESS));
 
         env.close();
-        env.close();
+
+        // validate emitted txn
+        validateEmittedTxn(env, "tesSUCCESS", __LINE__);
+
         env.close();
 
         {
@@ -229,7 +262,9 @@ struct GenesisMint_test : public beast::unit_test::suite
             fee(XRP(1)));
 
         env.close();
-        env.close();
+
+        // validate emitted txn
+        validateEmittedTxn(env, "tesSUCCESS", __LINE__);
 
         for (auto const& [acc, amt, _, __] : mints)
         {
@@ -242,7 +277,9 @@ struct GenesisMint_test : public beast::unit_test::suite
             fee(XRP(1)));
 
         env.close();
-        env.close();
+
+        // validate emitted txn
+        validateEmittedTxn(env, "tesSUCCESS", __LINE__);
 
         for (auto const& [acc, amt, _, __] : mints)
         {
@@ -295,23 +332,11 @@ struct GenesisMint_test : public beast::unit_test::suite
 
             env.close();
 
-            // get the emitted txn id
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const emissions = meta[sfHookEmissions.jsonName];
-            auto const emission = emissions[0u][sfHookEmission.jsonName];
-            auto const txId = emission[sfEmittedTxnID.jsonName];
-            env.close();
-
-            // verify emitted result
-            Json::Value params1;
-            params1[jss::transaction] = txId;
-            auto const jrr1 = env.rpc("json", "tx", to_string(params1));
-            auto const meta1 = jrr1[jss::result][jss::meta];
-            BEAST_EXPECT(meta1[sfTransactionResult.jsonName] == "tecINTERNAL");
+            // validate emitted txn
+            auto const txResult = env.current()->rules().enabled(fixXahauV1)
+                ? "tesSUCCESS"
+                : "tecINTERNAL";
+            validateEmittedTxn(env, txResult, __LINE__);
         }
 
         // missing an amount
@@ -354,7 +379,9 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)));
 
             env.close();
-            env.close();
+
+            // validate emitted txn
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
         // check that alice has the right balance, and Governance Flags set
@@ -378,7 +405,9 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)));
 
             env.close();
-            env.close();
+
+            // validate emitted txn
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
         // check that bob has the right balance, and Governance Marks set
@@ -403,7 +432,9 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)));
 
             env.close();
-            env.close();
+
+            // validate emitted txn
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
         // check
@@ -430,9 +461,12 @@ struct GenesisMint_test : public beast::unit_test::suite
                           XRP(0).value(),
                           std::nullopt,
                           std::nullopt}})),
-                fee(XRP(1)));
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
-            env.close();
+
+            // validate emitted txn
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
         // check
@@ -500,7 +534,9 @@ struct GenesisMint_test : public beast::unit_test::suite
                           std::nullopt}})),
                 fee(XRP(1)));
             env.close();
-            env.close();
+
+            // validate emitted txn
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
         // check
@@ -525,11 +561,19 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
-            env.close();
+
+            // validate emitted txn
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
+        auto const amtResult = env.current()->rules().enabled(fixXahauV1)
+            ? 30000000ULL
+            : 10000000ULL;
         // try to include the same destination twice
         {
+            auto const txResult = env.current()->rules().enabled(fixXahauV1)
+                ? ter(tesSUCCESS)
+                : ter(tecHOOK_REJECTED);
             env(invoke::invoke(
                     invoker,
                     env.master,
@@ -544,7 +588,7 @@ struct GenesisMint_test : public beast::unit_test::suite
                          std::nullopt},
                     })),
                 fee(XRP(1)),
-                ter(tecHOOK_REJECTED));
+                txResult);
             env.close();
             env.close();
         }
@@ -554,7 +598,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             auto const le = env.le(keylet::account(greg.id()));
             BEAST_EXPECT(
                 !!le &&
-                le->getFieldAmount(sfBalance).xrp().drops() == 10000000ULL);
+                le->getFieldAmount(sfBalance).xrp().drops() == amtResult);
         }
 
         // trip the supply cap invariant
@@ -572,30 +616,14 @@ struct GenesisMint_test : public beast::unit_test::suite
                 fee(XRP(1)));
             env.close();
 
-            // get the emitted txn id
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const emissions = meta[sfHookEmissions.jsonName];
-            auto const emission = emissions[0u][sfHookEmission.jsonName];
-            auto const txId = emission[sfEmittedTxnID.jsonName];
-            env.close();
-
-            // verify emitted result
-            Json::Value params1;
-            params1[jss::transaction] = txId;
-            auto const jrr1 = env.rpc("json", "tx", to_string(params1));
-            auto const meta1 = jrr1[jss::result][jss::meta];
-            BEAST_EXPECT(
-                meta1[sfTransactionResult.jsonName] == "tecINVARIANT_FAILED");
+            // validate emitted txn
+            validateEmittedTxn(env, "tecINVARIANT_FAILED", __LINE__);
 
             // check balance wasn't changed
             auto const le = env.le(keylet::account(greg.id()));
             BEAST_EXPECT(
                 !!le &&
-                le->getFieldAmount(sfBalance).xrp().drops() == 10000000ULL);
+                le->getFieldAmount(sfBalance).xrp().drops() == amtResult);
 
             auto const postCoins = env.current()->info().drops;
             BEAST_EXPECT(
@@ -664,6 +692,7 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testWithFeats(sa);
+        testWithFeats(sa - fixXahauV1);
     }
 };
 
