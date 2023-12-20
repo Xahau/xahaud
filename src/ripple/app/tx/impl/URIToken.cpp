@@ -80,7 +80,7 @@ URIToken::preflight(PreflightContext const& ctx)
 
     // fix amendment to return temMALFORMED if sfDestination field is present
     // and sfAmount field is not present
-    if (ctx.rules.enabled(fixURITokenV1))
+    if (ctx.rules.enabled(fixXahauV1))
     {
         if (ctx.tx.isFieldPresent(sfDestination) &&
             !ctx.tx.isFieldPresent(sfAmount))
