@@ -111,7 +111,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 // the issuer burns the owner's token, and the owner is a weak
                 // TSH
                 else if (rv.exists(keylet::account(owner)))
-                    ADD_TSH(owner, !fixV1);
+                    ADD_TSH(owner, false);
 
                 break;
             }
