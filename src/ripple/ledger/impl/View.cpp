@@ -1157,7 +1157,8 @@ rippleSend(
     AccountID const& uReceiverID,
     STAmount const& saAmount,
     STAmount& saActual,
-    beast::Journal j)
+    beast::Journal j,
+    bool const senderPaysXferFees)
 {
     auto const issuer = saAmount.getIssuer();
 
@@ -1179,17 +1180,30 @@ rippleSend(
 
     // Calculate the amount to transfer accounting
     // for any transfer fees:
-    saActual = multiply(saAmount, transferRate(view, issuer));
+
+    STAmount senderPays = saAmount;
+    STAmount destReceives = saAmount;
+    if (senderPaysXferFees)
+    {
+        senderPays = multiply(saAmount, transferRate(view, issuer));
+        saActual = senderPays;
+    }
+    else
+    {
+        destReceives = divide(saAmount, transferRate(view, issuer));
+        saActual = destReceives;
+    }
 
     JLOG(j.debug()) << "rippleSend> " << to_string(uSenderID) << " - > "
                     << to_string(uReceiverID)
                     << " : deliver=" << saAmount.getFullText()
                     << " cost=" << saActual.getFullText();
 
-    TER terResult = rippleCredit(view, issuer, uReceiverID, saAmount, true, j);
+    TER terResult =
+        rippleCredit(view, issuer, uReceiverID, destReceives, true, j);
 
     if (tesSUCCESS == terResult)
-        terResult = rippleCredit(view, uSenderID, issuer, saActual, true, j);
+        terResult = rippleCredit(view, uSenderID, issuer, senderPays, true, j);
 
     return terResult;
 }
@@ -1200,7 +1214,8 @@ accountSend(
     AccountID const& uSenderID,
     AccountID const& uReceiverID,
     STAmount const& saAmount,
-    beast::Journal j)
+    beast::Journal j,
+    bool const senderPaysXferFees)
 {
     assert(saAmount >= beast::zero);
 
@@ -1218,7 +1233,14 @@ accountSend(
                         << to_string(uReceiverID) << " : "
                         << saAmount.getFullText();
 
-        return rippleSend(view, uSenderID, uReceiverID, saAmount, saActual, j);
+        return rippleSend(
+            view,
+            uSenderID,
+            uReceiverID,
+            saAmount,
+            saActual,
+            j,
+            senderPaysXferFees);
     }
 
     /* XRP send which does not check reserve and can do pure adjustment.
@@ -1227,7 +1249,6 @@ accountSend(
      * ensure that transfers are balanced.
      */
     TER terResult(tesSUCCESS);
-
     SLE::pointer sender = uSenderID != beast::zero
         ? view.peek(keylet::account(uSenderID))
         : SLE::pointer();
