@@ -173,29 +173,29 @@ JSS(accounts);                    // in: LedgerEntry, Subscribe,
 JSS(accounts_proposed);           // in: Subscribe, Unsubscribe
 JSS(acroot);
 JSS(action);
-JSS(acquiring);              // out: LedgerRequest
-JSS(address);                // out: PeerImp
-JSS(affected);               // out: AcceptedLedgerTx
-JSS(age);                    // out: NetworkOPs, Peers
-JSS(alternatives);           // out: PathRequest, RipplePathFind
-JSS(amendment_blocked);      // out: NetworkOPs
-JSS(amendments);             // in: AccountObjects, out: NetworkOPs
-JSS(amount);                 // out: AccountChannels
-JSS(api_version);            // in: many, out: Version
-JSS(api_version_low);        // out: Version
-JSS(applied);                // out: SubmitTransaction
-JSS(asks);                   // out: Subscribe
-JSS(assets);                 // out: GatewayBalances
-JSS(authorized);             // out: AccountLines
-JSS(auth_change);            // out: AccountInfo
-JSS(auth_change_queued);     // out: AccountInfo
-JSS(available);              // out: ValidatorList
-JSS(avg_bps_recv);           // out: Peers
-JSS(avg_bps_sent);           // out: Peers
-JSS(balance);                // out: AccountLines
-JSS(balances);               // out: GatewayBalances
-JSS(base);                   // out: LogLevel
-JSS(base_fee);               // out: NetworkOPs
+JSS(acquiring);           // out: LedgerRequest
+JSS(address);             // out: PeerImp
+JSS(affected);            // out: AcceptedLedgerTx
+JSS(age);                 // out: NetworkOPs, Peers
+JSS(alternatives);        // out: PathRequest, RipplePathFind
+JSS(amendment_blocked);   // out: NetworkOPs
+JSS(amendments);          // in: AccountObjects, out: NetworkOPs
+JSS(amount);              // out: AccountChannels
+JSS(api_version);         // in: many, out: Version
+JSS(api_version_low);     // out: Version
+JSS(applied);             // out: SubmitTransaction
+JSS(asks);                // out: Subscribe
+JSS(assets);              // out: GatewayBalances
+JSS(authorized);          // out: AccountLines
+JSS(auth_change);         // out: AccountInfo
+JSS(auth_change_queued);  // out: AccountInfo
+JSS(available);           // out: ValidatorList
+JSS(avg_bps_recv);        // out: Peers
+JSS(avg_bps_sent);        // out: Peers
+JSS(balance);             // out: AccountLines
+JSS(balances);            // out: GatewayBalances
+JSS(base);                // out: LogLevel
+JSS(base_fee);            // out: NetworkOPs
 JSS(base_fee_no_hooks);
 JSS(base_fee_xrp);           // out: NetworkOPs
 JSS(base_fee_native);        // out: NetworkOPs

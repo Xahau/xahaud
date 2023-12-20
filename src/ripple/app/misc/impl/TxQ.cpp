@@ -2039,11 +2039,12 @@ TxQ::doRPC(Application& app, std::optional<XRPAmount> hookFeeUnits) const
             return XRPAmount{1};
         return baseFee;
     }();
-    
+
     auto& drops = ret[jss::drops] = Json::Value();
 
     drops[jss::base_fee_no_hooks] = to_string(baseFee);
-    drops[jss::base_fee] = to_string(hookFeeUnits ? hookFeeUnits->drops() : baseFee);
+    drops[jss::base_fee] =
+        to_string(hookFeeUnits ? hookFeeUnits->drops() : baseFee);
     drops[jss::median_fee] = to_string(toDrops(metrics.medFeeLevel, baseFee));
     drops[jss::minimum_fee] = to_string(toDrops(
         metrics.minProcessingFeeLevel,
