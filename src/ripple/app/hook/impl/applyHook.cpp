@@ -338,7 +338,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
                 auto escrow = rv.read(kl);
 
-                if (!escrow)
+                if (!escrow || escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
                     return {};
 
                 // this should always be the same as owner, but defensively...
