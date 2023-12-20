@@ -623,10 +623,8 @@ struct URIToken_test : public beast::unit_test::suite
             auto const txResult = env.current()->rules().enabled(fixXahauV1)
                 ? ter(tesSUCCESS)
                 : ter(tecNO_LINE_INSUF_RESERVE);
-            
-            env(uritoken::buy(dave, hexid),
-                uritoken::amt(USD(1)),
-                txResult);
+
+            env(uritoken::buy(dave, hexid), uritoken::amt(USD(1)), txResult);
             env.close();
         }
 
