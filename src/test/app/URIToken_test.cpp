@@ -191,15 +191,15 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        // fixURITokenV1
+        // fixXahauV1
         {
-            for (bool const withFixURITokenV1 : {true, false})
+            for (bool const withFixXahauV1 : {true, false})
             {
                 auto const amend =
-                    withFixURITokenV1 ? features : features - fixURITokenV1;
+                    withFixXahauV1 ? features : features - fixXahauV1;
 
                 auto const txResult =
-                    withFixURITokenV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
+                    withFixXahauV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
 
                 Env env{*this, amend};
                 auto const alice = Account("alice");

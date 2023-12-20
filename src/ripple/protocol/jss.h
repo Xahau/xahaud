@@ -196,6 +196,7 @@ JSS(balance);                // out: AccountLines
 JSS(balances);               // out: GatewayBalances
 JSS(base);                   // out: LogLevel
 JSS(base_fee);               // out: NetworkOPs
+JSS(base_fee_no_hooks);
 JSS(base_fee_xrp);           // out: NetworkOPs
 JSS(base_fee_native);        // out: NetworkOPs
 JSS(bids);                   // out: Subscribe
