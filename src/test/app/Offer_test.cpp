@@ -5404,12 +5404,12 @@ public:
         FeatureBitset const rmSmallIncreasedQOffers{fixRmSmallIncreasedQOffers};
         FeatureBitset const immediateOfferKilled{featureImmediateOfferKilled};
 
-        // testAll(all - takerDryOffer - immediateOfferKilled);
-        // testAll(all - flowCross - takerDryOffer - immediateOfferKilled);
-        // testAll(all - flowCross - immediateOfferKilled);
-        // testAll(all - rmSmallIncreasedQOffers - immediateOfferKilled);
-        // testAll(all);
-        // testFalseAssert();
+        testAll(all - takerDryOffer - immediateOfferKilled);
+        testAll(all - flowCross - takerDryOffer - immediateOfferKilled);
+        testAll(all - flowCross - immediateOfferKilled);
+        testAll(all - rmSmallIncreasedQOffers - immediateOfferKilled);
+        testAll(all);
+        testFalseAssert();
         testOfferID(all);
     }
 };
