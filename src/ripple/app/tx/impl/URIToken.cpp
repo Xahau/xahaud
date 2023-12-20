@@ -503,51 +503,24 @@ URIToken::doApply()
                 else
                 {
                     // IOU sale
-                    STAmount availableFunds{accountFunds(
-                        sb, account_, purchaseAmount, fhZERO_IF_FROZEN, j)};
-
-                    // check for any possible bars to a buy transaction
-                    // between these accounts for this asset
-
-                    if (purchaseAmount.getIssuer() != account_)
-                    {
-                        TER result = trustTransferAllowed(
+                    if (TER result = trustTransferAllowed(
                             sb, {account_, *owner}, purchaseAmount.issue(), j);
+                        result != tesSUCCESS)
+                    {
                         JLOG(j.trace())
                             << "URIToken::doApply trustTransferAllowed result="
                             << result;
 
-                        if (!isTesSuccess(result))
-                            return result;
+                        return result;
                     }
 
-                    if (purchaseAmount > availableFunds)
+                    if (STAmount availableFunds{accountFunds(
+                            sb, account_, purchaseAmount, fhZERO_IF_FROZEN, j)};
+                        purchaseAmount > availableFunds)
                         return tecINSUFFICIENT_FUNDS;
-
-                    // check if seller has the trustline
-                    std::optional<Keylet> const tlSeller = keylet::line(
-                        *owner,
-                        purchaseAmount.getIssuer(),
-                        purchaseAmount.getCurrency());
-                    std::shared_ptr<SLE> const sleSellLine = sb.peek(*tlSeller);
-                    if (!sleSellLine)
-                    {
-                        // check if seller has sufficient balance to create tl
-                        if (std::uint32_t const ownerCount = {sleOwner->at(
-                                sfOwnerCount)};
-                            (*sleOwner)[sfBalance] <
-                            sb.fees().accountReserve(ownerCount + 1))
-                        {
-                            JLOG(j_.trace())
-                                << "Trust line does not exist. "
-                                   "Insufficent reserve to create line.";
-
-                            return tecNO_LINE_INSUF_RESERVE;
-                        }
-                    }
                 }
 
-                // execute the funds transfer
+                // execute the funds transfer, we'll check reserves last
                 if (TER result = accountSend(
                         sb, account_, *owner, purchaseAmount, j, false);
                     result != tesSUCCESS)
@@ -593,6 +566,34 @@ URIToken::doApply()
 
                 // tell the ledger where to find it
                 sleU->setFieldU64(sfOwnerNode, *newPage);
+
+                // check each side has sufficient balance remaining to cover the
+                // updated ownercounts
+                auto hasSufficientReserve =
+                    [&](std::shared_ptr<SLE> const& sle) -> bool {
+                    std::uint32_t const uOwnerCount =
+                        sle->getFieldU32(sfOwnerCount);
+                    return sle->getFieldAmount(sfBalance) >=
+                        sb.fees().accountReserve(uOwnerCount);
+                };
+
+                if (!hasSufficientReserve(sle))
+                {
+                    JLOG(j.trace()) << "URIToken: buyer " << account_
+                                    << " has insufficient reserve to buy";
+                    return tecINSUFFICIENT_RESERVE;
+                }
+
+                // This should only happen if the owner burned their reserves
+                // below the needed amount via another transactor. If this
+                // happens they should top up their account before selling!
+                if (!hasSufficientReserve(sleOwner))
+                {
+                    JLOG(j.warn())
+                        << "URIToken: seller " << *owner
+                        << " has insufficient reserve to allow purchase!";
+                    return tecINSUF_RESERVE_SELLER;
+                }
 
                 sb.update(sle);
                 sb.update(sleU);
@@ -738,10 +739,9 @@ URIToken::doApply()
                             true);
                     }
 
-                    initSellerBal = !sleDstLine
-                        ? purchaseAmount.zeroed()
-                        : sellerLow ? ((*sleDstLine)[sfBalance])
-                                    : -((*sleDstLine)[sfBalance]);
+                    initSellerBal = !sleDstLine ? purchaseAmount.zeroed()
+                        : sellerLow             ? ((*sleDstLine)[sfBalance])
+                                                : -((*sleDstLine)[sfBalance]);
 
                     finSellerBal = *initSellerBal + *dstAmt;
                 }
