@@ -462,7 +462,9 @@ EscrowFinish::doApply()
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
     std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
-    if (!view().rules().enabled(fixXahauV1))
+    bool const fixV1 = view().rules().enabled(fixXahauV1);
+
+    if (!fixV1)
     {
         if (escrowID && ctx_.tx[sfOfferSequence] != 0)
             return temMALFORMED;
@@ -478,6 +480,9 @@ EscrowFinish::doApply()
 
     auto const slep = ctx_.view().peek(k);
     if (!slep)
+        return tecNO_TARGET;
+
+    if (fixV1 && slep->getFieldU16(sfLedgerEntryType) != ltESCROW)
         return tecNO_TARGET;
 
     AccountID const account = (*slep)[sfAccount];
