@@ -95,12 +95,13 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
             auto const& params = tx.getFieldArray(sfHookParameters);
             for (auto const& param : params)
             {
-                paramBytes += (param.isFieldPresent(sfHookParameterName)
-                                ? param.getFieldVL(sfHookParameterName).size()
-                                : 0) +
+                paramBytes +=
+                    (param.isFieldPresent(sfHookParameterName)
+                         ? param.getFieldVL(sfHookParameterName).size()
+                         : 0) +
                     (param.isFieldPresent(sfHookParameterValue)
-                        ? param.getFieldVL(sfHookParameterValue).size()
-                        : 0);
+                         ? param.getFieldVL(sfHookParameterValue).size()
+                         : 0);
             }
             extraFee += XRPAmount{static_cast<XRPAmount>(paramBytes)};
         }
