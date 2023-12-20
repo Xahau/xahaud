@@ -431,6 +431,13 @@ EscrowFinish::preflight(PreflightContext const& ctx)
         }
     }
 
+    // sfOfferSequence was changed to optional, so ensure the behaviour is the same until amendment passes
+    if (!ctx.rules.enabled(fixXahauV1))
+    {
+        if (!ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+    }
+
     if (!ctx.tx.isFieldPresent(sfEscrowID) &&
         !ctx.tx.isFieldPresent(sfOfferSequence))
         return temMALFORMED;
@@ -708,6 +715,13 @@ EscrowCancel::preflight(PreflightContext const& ctx)
 
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
+    
+    // sfOfferSequence was changed to optional, so ensure the behaviour is the same until amendment passes
+    if (!ctx.rules.enabled(fixXahauV1))
+    {
+        if (!ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+    }
 
     if (!ctx.tx.isFieldPresent(sfEscrowID) &&
         !ctx.tx.isFieldPresent(sfOfferSequence))
