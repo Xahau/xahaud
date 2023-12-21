@@ -71,6 +71,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         return rv.read(keylet::nftoffer(*id));
     };
 
+    bool const fixV1 = rv.rules().enabled(fixXahauV1);
+
     switch (tt)
     {
         case ttIMPORT: {
@@ -97,19 +99,36 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             //  the burner is the issuer and not the owner of the token
 
             if (issuer == owner)
-            {
-                // pass, already a TSH
-            }
-            else if (*otxnAcc == owner)
+                break;
+            // pass, already a TSH
+
+            // new logic
+            if (fixV1)
             {
                 // the owner burns their token, and the issuer is a weak TSH
-                ADD_TSH(issuer, canRollback);
-            }
-            else
-            {
+                if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
+                    ADD_TSH(issuer, false);
                 // the issuer burns the owner's token, and the owner is a weak
                 // TSH
-                ADD_TSH(owner, canRollback);
+                else if (rv.exists(keylet::account(owner)))
+                    ADD_TSH(owner, false);
+
+                break;
+            }
+
+            // old logic
+            {
+                if (*otxnAcc == owner)
+                {
+                    // the owner burns their token, and the issuer is a weak TSH
+                    ADD_TSH(issuer, true);
+                }
+                else
+                {
+                    // the issuer burns the owner's token, and the owner is a
+                    // weak TSH
+                    ADD_TSH(owner, true);
+                }
             }
 
             break;
@@ -300,19 +319,59 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            if (!tx.isFieldPresent(sfOwner) ||
-                !tx.isFieldPresent(sfOfferSequence))
-                return {};
+            // new logic
+            if (fixV1)
+            {
+                if (!tx.isFieldPresent(sfOwner))
+                    return {};
 
-            auto escrow = rv.read(keylet::escrow(
-                tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+                AccountID const owner = tx.getAccountID(sfOwner);
 
-            if (!escrow)
-                return {};
+                bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
+                bool const hasID = tx.isFieldPresent(sfEscrowID);
+                if (!hasSeq && !hasID)
+                    return {};
 
-            ADD_TSH(escrow->getAccountID(sfAccount), true);
-            ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
-            break;
+                Keylet kl = hasSeq
+                    ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
+                    : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
+
+                auto escrow = rv.read(kl);
+
+                if (!escrow ||
+                    escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
+                    return {};
+
+                // this should always be the same as owner, but defensively...
+                AccountID const src = escrow->getAccountID(sfAccount);
+                AccountID const dst = escrow->getAccountID(sfDestination);
+
+                // the source account is a strong transacitonal stakeholder for
+                // fin and can
+                ADD_TSH(src, true);
+
+                // the dest acc is a strong tsh for fin and weak for can
+                if (src != dst)
+                    ADD_TSH(dst, tt == ttESCROW_FINISH);
+
+                break;
+            }
+            // old logic
+            {
+                if (!tx.isFieldPresent(sfOwner) ||
+                    !tx.isFieldPresent(sfOfferSequence))
+                    return {};
+
+                auto escrow = rv.read(keylet::escrow(
+                    tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+
+                if (!escrow)
+                    return {};
+
+                ADD_TSH(escrow->getAccountID(sfAccount), true);
+                ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
+                break;
+            }
         }
 
         case ttPAYCHAN_FUND:

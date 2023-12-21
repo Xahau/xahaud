@@ -111,6 +111,14 @@ CancelOffer::doApply()
             JLOG(j_.debug()) << "Trying to cancel offer :" << *offerID;
         else
             JLOG(j_.debug()) << "Trying to cancel offer #" << *offerSequence;
+
+        bool const fixV1 = view().rules().enabled(fixXahauV1);
+        if (fixV1 && sleOffer->getFieldU16(sfLedgerEntryType) != ltOFFER)
+        {
+            JLOG(j_.debug()) << "OfferCancel specified non-offer ledger object";
+            return tecINTERNAL;
+        }
+
         return offerDelete(view(), sleOffer, ctx_.app.journal("View"));
     }
 

@@ -5298,7 +5298,6 @@ public:
             // both offer id and offer sequence 0
             {
                 uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
-                std::uint32_t const offerSeqId{env.seq(alice)};
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
@@ -5404,12 +5403,12 @@ public:
         FeatureBitset const rmSmallIncreasedQOffers{fixRmSmallIncreasedQOffers};
         FeatureBitset const immediateOfferKilled{featureImmediateOfferKilled};
 
-        // testAll(all - takerDryOffer - immediateOfferKilled);
-        // testAll(all - flowCross - takerDryOffer - immediateOfferKilled);
-        // testAll(all - flowCross - immediateOfferKilled);
-        // testAll(all - rmSmallIncreasedQOffers - immediateOfferKilled);
-        // testAll(all);
-        // testFalseAssert();
+        testAll(all - takerDryOffer - immediateOfferKilled);
+        testAll(all - flowCross - takerDryOffer - immediateOfferKilled);
+        testAll(all - flowCross - immediateOfferKilled);
+        testAll(all - rmSmallIncreasedQOffers - immediateOfferKilled);
+        testAll(all);
+        testFalseAssert();
         testOfferID(all);
     }
 };
