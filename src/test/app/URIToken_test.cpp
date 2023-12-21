@@ -193,28 +193,23 @@ struct URIToken_test : public beast::unit_test::suite
 
         // fixXahauV1
         {
-            for (bool const withFixXahauV1 : {true, false})
-            {
-                auto const amend =
-                    withFixXahauV1 ? features : features - fixXahauV1;
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
 
-                auto const txResult =
-                    withFixXahauV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            std::string const hexid{strHex(tid)};
 
-                Env env{*this, amend};
-                auto const alice = Account("alice");
-                auto const bob = Account("bob");
-                env.fund(XRP(1000), alice, bob);
-                env.close();
-
-                std::string const uri(2, '?');
-                auto const tid = uritoken::tokenid(alice, uri);
-                std::string const hexid{strHex(tid)};
-
-                // temMALFORMED - cannot include sfDestination without sfAmount
-                env(uritoken::mint(alice, uri), uritoken::dest(bob), txResult);
-                env.close();
-            }
+            // temMALFORMED - cannot include sfDestination without sfAmount
+            bool const withFixXahauV1 =
+                env.current()->rules().enabled(fixXahauV1);
+            auto const txResult =
+                withFixXahauV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
+            env(uritoken::mint(alice, uri), uritoken::dest(bob), txResult);
+            env.close();
         }
 
         // setup env
