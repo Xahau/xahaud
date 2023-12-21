@@ -31,6 +31,11 @@ namespace test {
 struct SetHookTSH_test : public beast::unit_test::suite
 {
 private:
+
+    const uint64_t tshSTRONG = 0;
+    const uint64_t tshWEAK = 1;
+    const uint64_t tshNONE = 2;
+
     // helper
     void static overrideFlag(Json::Value& jv)
     {
@@ -152,12 +157,12 @@ private:
     void
     validateTSHStrongWeak(
         Json::Value meta,
-        int const& expected,
+        uint64_t const& expected,
         uint64_t const& lineno)
     {
         switch (expected)
         {
-            // STRONG
+            // tshSTRONG
             case 0: {
                 auto const executions = meta[sfHookExecutions.jsonName];
                 auto const execution = executions[0u][sfHookExecution.jsonName];
@@ -175,7 +180,7 @@ private:
                 }
                 break;
             }
-            // WEAK
+            // tshWEAK
             case 1: {
                 auto const executions = meta[sfHookExecutions.jsonName];
                 auto const execution = executions[0u][sfHookExecution.jsonName];
@@ -193,7 +198,7 @@ private:
                 }
                 break;
             }
-            // NONE
+            // tshNONE
             case 2: {
                 auto const executions = meta[sfHookExecutions.jsonName];
                 BEAST_EXPECT(executions.size() == 0);
@@ -261,8 +266,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -306,8 +310,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -363,8 +366,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -399,8 +401,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: dest
@@ -435,8 +436,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -471,8 +471,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -513,8 +512,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -546,8 +544,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -593,8 +590,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -631,8 +627,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -679,8 +674,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -713,8 +707,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -761,8 +754,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -795,8 +787,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -863,8 +854,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -908,8 +898,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: dest
@@ -953,8 +942,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -998,8 +986,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -1060,8 +1047,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -1099,9 +1085,8 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // cancel escrow
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             Json::Value tx;
-            if (!fixV1)
+            if (!env.current()->rules().enabled(fixXahauV1))
             {
                 tx = escrow::cancel(account, account, 0);
             }
@@ -1113,9 +1098,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected =
-                fixV1 ? testStrong ? 2 : 2 : testStrong ? 2 : 2;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: dest
@@ -1166,8 +1149,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -1220,7 +1202,8 @@ private:
 
             // verify tsh hook triggered
             auto const expected =
-                fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
+                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -1268,8 +1251,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -1306,8 +1288,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -1358,8 +1339,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -1400,8 +1380,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -1442,8 +1421,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -1484,8 +1462,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -1543,8 +1520,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -1594,7 +1570,8 @@ private:
 
             // verify tsh hook triggered
             auto const expected =
-                fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
+                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -1643,8 +1620,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -1694,7 +1670,8 @@ private:
 
             // verify tsh hook triggered
             auto const expected =
-                fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
+                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -1763,8 +1740,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -1816,8 +1792,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -1883,7 +1858,7 @@ private:
             params1[jss::transaction] = txId;
             auto const jrr1 = env.rpc("json", "tx", to_string(params1));
             auto const meta1 = jrr1[jss::result][jss::meta];
-            auto const expected = testStrong ? 2 : 1;
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             validateTSHStrongWeak(meta1, expected, __LINE__);
         }
     }
@@ -1943,8 +1918,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -1984,8 +1958,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2032,8 +2005,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2066,8 +2038,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2121,8 +2092,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2168,8 +2138,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2207,8 +2176,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
     }
 
@@ -2253,8 +2221,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2284,8 +2251,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2325,7 +2291,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 1;
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -2409,8 +2375,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2455,7 +2420,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 1;
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -2504,8 +2469,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
@@ -2553,8 +2517,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2598,8 +2561,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2634,8 +2596,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2684,8 +2645,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2725,7 +2685,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 1;
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -2771,8 +2731,7 @@ private:
             setTSHHook(env, account, testStrong);
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2815,8 +2774,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2846,8 +2804,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2893,8 +2850,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -2924,10 +2880,7 @@ private:
                 addWeakTSH(env, signer2);
 
             // set tsh hook
-            env(hook(signer2, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, signer2, testStrong);
 
             // signers list set
             env(signers(account, 2, {{signer1, 1}, {signer2, 1}}),
@@ -2988,8 +2941,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3033,8 +2985,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
@@ -3058,17 +3009,14 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // trust set
             env(trust(account, USD(1000)), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 1;
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -3088,8 +3036,8 @@ private:
     // |   I  |    true    |  B  |   N    |   N/A  |  N/A  |   N/A  |   N/A
     // |   B  |    true    |  O  |   N/A  |   N/A  |  S    |   N/A  |   N/A
     // |   B  |    true    |  B  |   N/A  |   N/A  |  S    |   N/A  |   N/A
-    // |   B  |    false   |  I  |   N/A  |   N/A  |  N    |   N/A  |   N/A
-    // |   B  |    true    |  I  |   N/A  |   N/A  |  N    |   N/A  |   N/A
+    // |   B  |    false   |  I  |   N/A  |   N/A  |  W    |   N/A  |   N/A
+    // |   B  |    true    |  I  |   N/A  |   N/A  |  S    |   N/A  |   N/A
 
     void
     testURITokenMintTSH(FeatureBitset features)
@@ -3124,10 +3072,7 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -3138,8 +3083,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: issuer
@@ -3167,10 +3111,7 @@ private:
                 addWeakTSH(env, buyer);
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -3181,13 +3122,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: issuer
@@ -3215,10 +3150,7 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -3230,8 +3162,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: issuer
@@ -3259,10 +3190,7 @@ private:
                 addWeakTSH(env, buyer);
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -3274,8 +3202,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
     }
 
@@ -3332,8 +3259,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
@@ -3383,7 +3309,8 @@ private:
             // verify tsh hook triggered
             bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             auto const expected =
-                fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
+                (fixV1 ? (testStrong ? tshNONE : tshNONE)
+                       : (testStrong ? tshSTRONG : tshSTRONG));
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3433,8 +3360,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
@@ -3476,10 +3402,7 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
@@ -3488,7 +3411,8 @@ private:
             // verify tsh hook triggered
             bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             auto const expected =
-                fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
+                (fixV1 ? (testStrong ? tshNONE : tshNONE)
+                       : (testStrong ? tshSTRONG : tshSTRONG));
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3540,7 +3464,8 @@ private:
             // verify tsh hook triggered
             bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             auto const expected =
-                fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
+                (fixV1 ? (testStrong ? tshNONE : tshNONE)
+                       : (testStrong ? tshSTRONG : tshSTRONG));
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3583,18 +3508,14 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(issuer, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3609,7 +3530,7 @@ private:
         // otxn: buyer
         // flag: not burnable
         // tsh issuer
-        // w/s: strong
+        // w/s: weak
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -3653,10 +3574,7 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // buy uritoken
             env(uritoken::buy(buyer, hexid),
@@ -3666,7 +3584,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3718,10 +3636,7 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // buy uritoken
             env(uritoken::buy(buyer, hexid),
@@ -3731,8 +3646,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: buyer
@@ -3791,8 +3705,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: buyer
@@ -3841,10 +3754,7 @@ private:
                 addWeakTSH(env, buyer);
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // buy uritoken
             env(uritoken::buy(buyer, hexid),
@@ -3854,8 +3764,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3920,8 +3829,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
@@ -3970,18 +3878,14 @@ private:
                 addWeakTSH(env, buyer);
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // cancel uritoken
             env(uritoken::cancel(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: owner
@@ -4031,18 +3935,14 @@ private:
                 addWeakTSH(env, buyer);
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // cancel uritoken
             env(uritoken::cancel(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: owner
@@ -4099,8 +3999,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -4162,8 +4061,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
@@ -4205,10 +4103,7 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4219,7 +4114,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 1;
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -4262,10 +4157,7 @@ private:
                 addWeakTSH(env, buyer);
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4276,8 +4168,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
@@ -4319,10 +4210,7 @@ private:
                 addWeakTSH(env, buyer);
 
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4333,8 +4221,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
@@ -4388,8 +4275,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
@@ -4432,10 +4318,7 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4446,8 +4329,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
-            testTSHStrongWeak(env, expected, __LINE__);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
