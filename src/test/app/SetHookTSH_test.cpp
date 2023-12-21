@@ -31,7 +31,6 @@ namespace test {
 struct SetHookTSH_test : public beast::unit_test::suite
 {
 private:
-
     const uint64_t tshSTRONG = 0;
     const uint64_t tshWEAK = 1;
     const uint64_t tshNONE = 2;
