@@ -1997,14 +1997,13 @@ struct URIToken_test : public beast::unit_test::suite
             {
                 BEAST_EXPECT(
                     env.balance(alice, USD.issue()) ==
-                    preAlice +
-                        multiplyRound(delta, xferRate, USD.issue(), true));
+                    preAlice + multiply(delta, xferRate));
             }
             else
             {
                 BEAST_EXPECT(
                     env.balance(alice, USD.issue()) ==
-                    preAlice + divideRound(delta, xferRate, USD.issue(), true));
+                    preAlice + divide(delta, xferRate));
             }
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
