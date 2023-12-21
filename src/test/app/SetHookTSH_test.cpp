@@ -127,14 +127,19 @@ private:
         0x2eU, 0x22U, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU,
         0x20U, 0x45U, 0x6eU, 0x64U, 0x2eU, 0x22U};
 
-    void addWeakTSH(jtx::Env& env, jtx::Account const& account)
+    void
+    addWeakTSH(jtx::Env& env, jtx::Account const& account)
     {
         using namespace test::jtx;
         env(fset(account, asfTshCollect));
         env.close();
     }
 
-    void setTSHHook(jtx::Env& env, jtx::Account const& account, bool const& testStrong)
+    void
+    setTSHHook(
+        jtx::Env& env,
+        jtx::Account const& account,
+        bool const& testStrong)
     {
         using namespace test::jtx;
         auto const tshFlag = testStrong ? overrideFlag : collectFlag;
@@ -144,7 +149,11 @@ private:
         env.close();
     }
 
-    void validateTSHStrongWeak(Json::Value meta, int const& expected, uint64_t const& lineno)
+    void
+    validateTSHStrongWeak(
+        Json::Value meta,
+        int const& expected,
+        uint64_t const& lineno)
     {
         switch (expected)
         {
@@ -153,7 +162,8 @@ private:
                 auto const executions = meta[sfHookExecutions.jsonName];
                 auto const execution = executions[0u][sfHookExecution.jsonName];
                 BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-                BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+                BEAST_EXPECT(
+                    execution[sfHookReturnString.jsonName] == "00000000");
                 if (execution[sfHookReturnString.jsonName] != "00000000")
                 {
                     std::cout << "testTSHStrongWeak Line: " << lineno << "\n";
@@ -170,7 +180,8 @@ private:
                 auto const executions = meta[sfHookExecutions.jsonName];
                 auto const execution = executions[0u][sfHookExecution.jsonName];
                 BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-                BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+                BEAST_EXPECT(
+                    execution[sfHookReturnString.jsonName] == "00000001");
                 if (execution[sfHookReturnString.jsonName] != "00000001")
                 {
                     std::cout << "testTSHStrongWeak Line: " << lineno << "\n";
@@ -189,10 +200,8 @@ private:
                 if (executions.size() != 0)
                 {
                     std::cout << "testTSHStrongWeak Line: " << lineno << "\n";
-                    std::cout
-                        << "testTSHStrongWeak Expected: " << expected
-                        << " Result: " << executions.size()
-                        << "\n";
+                    std::cout << "testTSHStrongWeak Expected: " << expected
+                              << " Result: " << executions.size() << "\n";
                     std::cout << "testTSHStrongWeak Meta: " << meta << "\n";
                 }
                 break;
@@ -203,7 +212,11 @@ private:
         }
     }
 
-    void testTSHStrongWeak(jtx::Env& env, int const& expected, uint64_t const& lineno)
+    void
+    testTSHStrongWeak(
+        jtx::Env& env,
+        int const& expected,
+        uint64_t const& lineno)
     {
         Json::Value params;
         params[jss::transaction] =
@@ -789,10 +802,10 @@ private:
 
     // Escrow
     // | otxn  | tsh | cancel | cancel(id) |  create  | finish | finish(id)
-    // |   A   |  A  |    S   |     S      |     S    |    S   |     S      
-    // |   A   |  D  |    N   |     N      |     S    |    S   |     S      
-    // |   D   |  D  |    S   |     S      |    N/A   |    S   |     S      
-    // |   D   |  A  |    S   |     S      |    N/A   |    S   |     S      
+    // |   A   |  A  |    S   |     S      |     S    |    S   |     S
+    // |   A   |  D  |    N   |     N      |     S    |    S   |     S
+    // |   D   |  D  |    S   |     S      |    N/A   |    S   |     S
+    // |   D   |  A  |    S   |     S      |    N/A   |    S   |     S
 
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
@@ -1100,7 +1113,8 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 2 : 2;
+            auto const expected =
+                fixV1 ? testStrong ? 2 : 2 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -1205,7 +1219,8 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
+            auto const expected =
+                fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -1458,7 +1473,7 @@ private:
             // set tsh collect
             if (!testStrong)
                 addWeakTSH(env, account);
-            
+
             // set tsh hook
             setTSHHook(env, account, testStrong);
 
@@ -1578,7 +1593,8 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
+            auto const expected =
+                fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -1677,7 +1693,8 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
+            auto const expected =
+                fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -3365,7 +3382,8 @@ private:
 
             // verify tsh hook triggered
             bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
+            auto const expected =
+                fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3469,7 +3487,8 @@ private:
 
             // verify tsh hook triggered
             bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
+            auto const expected =
+                fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3520,7 +3539,8 @@ private:
 
             // verify tsh hook triggered
             bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
+            auto const expected =
+                fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
