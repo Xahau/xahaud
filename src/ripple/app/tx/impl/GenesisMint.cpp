@@ -299,7 +299,6 @@ GenesisMint::doApply()
         auto const flags = dest[~sfGovernanceFlags];
         auto const marks = dest[~sfGovernanceMarks];
         auto const id = dest.getAccountID(sfDestination);
-        auto const k = keylet::account(id);
 
         bool const firstOccurance = mints.find(id) == mints.end();
 

@@ -5298,7 +5298,6 @@ public:
             // both offer id and offer sequence 0
             {
                 uint256 const offerId{getOfferIndex(alice, env.seq(alice))};
-                std::uint32_t const offerSeqId{env.seq(alice)};
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 

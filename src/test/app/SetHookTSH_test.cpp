@@ -2553,7 +2553,6 @@ private:
             // create paychannel
             auto const pk = account.pk();
             auto const settleDelay = 100s;
-            auto const chan = channel(account, dest, env.seq(account));
             env(paychan::create(account, dest, XRP(10), settleDelay, pk),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -2588,7 +2587,6 @@ private:
             // create paychannel
             auto const pk = account.pk();
             auto const settleDelay = 100s;
-            auto const chan = channel(account, dest, env.seq(account));
             env(paychan::create(account, dest, XRP(10), settleDelay, pk),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
