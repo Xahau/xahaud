@@ -2030,19 +2030,20 @@ TxQ::doRPC(Application& app, std::optional<XRPAmount> hookFeeUnits) const
     levels[jss::median_level] = to_string(metrics.medFeeLevel);
     levels[jss::open_ledger_level] = to_string(metrics.openLedgerFeeLevel);
 
-    auto const txFee = XRPAmount{hookFeeUnits->drops()};
-    auto const baseFee = view->fees().base;
+    auto const baseFee =
+        hookFeeUnits ? XRPAmount{hookFeeUnits->drops()} : view->fees().base;
     // If the base fee is 0 drops, but escalation has kicked in, treat the
     // base fee as if it is 1 drop, which makes the rest of the math
     // work.
-    auto const effectiveBaseFee = [&txFee, &metrics]() {
-        if (!txFee && metrics.openLedgerFeeLevel != metrics.referenceFeeLevel)
+    auto const effectiveBaseFee = [&baseFee, &metrics]() {
+        if (!baseFee && metrics.openLedgerFeeLevel != metrics.referenceFeeLevel)
             return XRPAmount{1};
-        return txFee;
+        return baseFee;
     }();
 
     auto& drops = ret[jss::drops] = Json::Value();
 
+    drops[jss::base_fee_no_hooks] = to_string(view->fees().base);
     drops[jss::base_fee] = to_string(baseFee);
     drops[jss::median_fee] = to_string(toDrops(metrics.medFeeLevel, baseFee));
     drops[jss::minimum_fee] = to_string(toDrops(

@@ -71,6 +71,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         return rv.read(keylet::nftoffer(*id));
     };
 
+    bool const fixV1 = rv.rules().enabled(fixXahauV1);
+
     switch (tt)
     {
         case ttIMPORT: {
@@ -97,19 +99,36 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             //  the burner is the issuer and not the owner of the token
 
             if (issuer == owner)
-            {
-                // pass, already a TSH
-            }
-            else if (*otxnAcc == owner)
+                break;
+            // pass, already a TSH
+
+            // new logic
+            if (fixV1)
             {
                 // the owner burns their token, and the issuer is a weak TSH
-                ADD_TSH(issuer, canRollback);
-            }
-            else
-            {
+                if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
+                    ADD_TSH(issuer, false);
                 // the issuer burns the owner's token, and the owner is a weak
                 // TSH
-                ADD_TSH(owner, canRollback);
+                else if (rv.exists(keylet::account(owner)))
+                    ADD_TSH(owner, false);
+
+                break;
+            }
+
+            // old logic
+            {
+                if (*otxnAcc == owner)
+                {
+                    // the owner burns their token, and the issuer is a weak TSH
+                    ADD_TSH(issuer, true);
+                }
+                else
+                {
+                    // the issuer burns the owner's token, and the owner is a
+                    // weak TSH
+                    ADD_TSH(owner, true);
+                }
             }
 
             break;
@@ -300,19 +319,59 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            if (!tx.isFieldPresent(sfOwner) ||
-                !tx.isFieldPresent(sfOfferSequence))
-                return {};
+            // new logic
+            if (fixV1)
+            {
+                if (!tx.isFieldPresent(sfOwner))
+                    return {};
 
-            auto escrow = rv.read(keylet::escrow(
-                tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+                AccountID const owner = tx.getAccountID(sfOwner);
 
-            if (!escrow)
-                return {};
+                bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
+                bool const hasID = tx.isFieldPresent(sfEscrowID);
+                if (!hasSeq && !hasID)
+                    return {};
 
-            ADD_TSH(escrow->getAccountID(sfAccount), true);
-            ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
-            break;
+                Keylet kl = hasSeq
+                    ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
+                    : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
+
+                auto escrow = rv.read(kl);
+
+                if (!escrow ||
+                    escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
+                    return {};
+
+                // this should always be the same as owner, but defensively...
+                AccountID const src = escrow->getAccountID(sfAccount);
+                AccountID const dst = escrow->getAccountID(sfDestination);
+
+                // the source account is a strong transacitonal stakeholder for
+                // fin and can
+                ADD_TSH(src, true);
+
+                // the dest acc is a strong tsh for fin and weak for can
+                if (src != dst)
+                    ADD_TSH(dst, tt == ttESCROW_FINISH);
+
+                break;
+            }
+            // old logic
+            {
+                if (!tx.isFieldPresent(sfOwner) ||
+                    !tx.isFieldPresent(sfOfferSequence))
+                    return {};
+
+                auto escrow = rv.read(keylet::escrow(
+                    tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+
+                if (!escrow)
+                    return {};
+
+                ADD_TSH(escrow->getAccountID(sfAccount), true);
+                ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
+                break;
+            }
         }
 
         case ttPAYCHAN_FUND:
@@ -1287,7 +1346,7 @@ lookup_state_cache(
     if (stateMap.find(acc) == stateMap.end())
         return std::nullopt;
 
-    auto& stateMapAcc = stateMap[acc].second;
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
     if (stateMapAcc.find(ns) == stateMapAcc.end())
         return std::nullopt;
 
@@ -1312,9 +1371,13 @@ set_state_cache(
     bool modified)
 {
     auto& stateMap = hookCtx.result.stateMap;
+    auto& view = hookCtx.applyCtx.view();
 
     if (modified && stateMap.modified_entry_count >= max_state_modifications)
         return TOO_MANY_STATE_MODIFICATIONS;
+
+    bool const createNamespace = view.rules().enabled(fixXahauV1) &&
+        !view.exists(keylet::hookStateDir(acc, ns));
 
     if (stateMap.find(acc) == stateMap.end())
     {
@@ -1322,8 +1385,8 @@ set_state_cache(
         // we will compute how many available reserve positions there are
         auto const& fees = hookCtx.applyCtx.view().fees();
 
-        auto const accSLE =
-            hookCtx.applyCtx.view().read(ripple::keylet::account(acc));
+        auto const accSLE = view.read(ripple::keylet::account(acc));
+
         if (!accSLE)
             return DOESNT_EXIST;
 
@@ -1342,15 +1405,32 @@ set_state_cache(
         if (availableForReserves < 1 && modified)
             return RESERVE_INSUFFICIENT;
 
+        int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
+            ? accSLE->getFieldV256(sfHookNamespaces).size()
+            : 0;
+
+        if (createNamespace)
+        {
+            // overflow should never ever happen but check anyway
+            if (namespaceCount + 1 < namespaceCount)
+                return INTERNAL_ERROR;
+
+            if (++namespaceCount > hook::maxNamespaces())
+                return TOO_MANY_NAMESPACES;
+        }
+
         stateMap.modified_entry_count++;
 
         stateMap[acc] = {
-            availableForReserves - 1, {{ns, {{key, {modified, data}}}}}};
+            availableForReserves - 1,
+            namespaceCount,
+            {{ns, {{key, {modified, data}}}}}};
         return 1;
     }
 
-    auto& stateMapAcc = stateMap[acc].second;
-    auto& availableForReserves = stateMap[acc].first;
+    auto& availableForReserves = std::get<0>(stateMap[acc]);
+    auto& namespaceCount = std::get<1>(stateMap[acc]);
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
     bool const canReserveNew = availableForReserves > 0;
 
     if (stateMapAcc.find(ns) == stateMapAcc.end())
@@ -1359,6 +1439,18 @@ set_state_cache(
         {
             if (!canReserveNew)
                 return RESERVE_INSUFFICIENT;
+
+            if (createNamespace)
+            {
+                // overflow should never ever happen but check anyway
+                if (namespaceCount + 1 < namespaceCount)
+                    return INTERNAL_ERROR;
+
+                if (namespaceCount + 1 > hook::maxNamespaces())
+                    return TOO_MANY_NAMESPACES;
+
+                namespaceCount++;
+            }
 
             availableForReserves--;
             stateMap.modified_entry_count++;
@@ -1488,6 +1580,13 @@ DEFINE_HOOK_FUNCTION(
     auto const key = make_state_key(
         std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
 
+    if (view.rules().enabled(fixXahauV1))
+    {
+        auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+        if (!sleAccount)
+            return tefINTERNAL;
+    }
+
     if (!key)
         return INTERNAL_ERROR;
 
@@ -1610,7 +1709,7 @@ hook::finalizeHookState(
     for (const auto& accEntry : stateMap)
     {
         const auto& acc = accEntry.first;
-        for (const auto& nsEntry : accEntry.second.second)
+        for (const auto& nsEntry : std::get<2>(accEntry.second))
         {
             const auto& ns = nsEntry.first;
             for (const auto& cacheEntry : nsEntry.second)
