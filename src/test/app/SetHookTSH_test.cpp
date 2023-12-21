@@ -788,11 +788,11 @@ private:
     }
 
     // Escrow
-    // | otxn  | tsh | cancel | cancel(id) | create | finish | finish(id)
-    // |   A   |  A  |    S   |     S      |    S   |    S   |     S      
-    // |   A   |  D  |    N   |     N      |    S   |    S   |     N      
-    // |   D   |  D  |    S   |     S      |    N   |    S   |     S      
-    // |   D   |  A  |    S   |     N      |    N   |    S   |     N      
+    // | otxn  | tsh | cancel | cancel(id) |  create  | finish | finish(id)
+    // |   A   |  A  |    S   |     S      |     S    |    S   |     S      
+    // |   A   |  D  |    N   |     N      |     S    |    S   |     S      
+    // |   D   |  D  |    S   |     S      |    N/A   |    S   |     S      
+    // |   D   |  A  |    S   |     S      |    N/A   |    S   |     S      
 
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
@@ -1086,8 +1086,9 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // cancel escrow
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
+            if (!fixV1)
             {
                 tx = escrow::cancel(account, account, 0);
             }
@@ -1099,7 +1100,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
+            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -1157,7 +1158,7 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: none
+        // w/s: strong
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -1190,8 +1191,9 @@ private:
             setTSHHook(env, account, testStrong);
 
             // cancel escrow
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
+            if (!fixV1)
             {
                 tx = escrow::cancel(dest, account, 0);
             }
@@ -1203,7 +1205,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
+            auto const expected = fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -1532,7 +1534,7 @@ private:
 
         // otxn: account
         // tsh dest
-        // w/s: none
+        // w/s: strong
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -1562,8 +1564,9 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // finish escrow
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
+            if (!fixV1)
             {
                 tx = escrow::finish(account, account, 0);
             }
@@ -1575,7 +1578,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
+            auto const expected = fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -1630,7 +1633,7 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: none
+        // w/s: strong
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -1660,8 +1663,9 @@ private:
             setTSHHook(env, account, testStrong);
 
             // finish escrow
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
+            if (!fixV1)
             {
                 tx = escrow::finish(dest, account, 0);
             }
@@ -1673,7 +1677,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 2 : 2;
+            auto const expected = fixV1 ? testStrong ? 0 : 0 : testStrong ? 2 : 2;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -3054,15 +3058,15 @@ private:
 
     // | otxn | tfBurnable | tsh |   mint |  burn  |  buy  |  sell  | cancel
     // |   O  |    false   |  O  |   N/A  |   S    |  N/A  |   S    |   S
-    // |   O  |    false   |  I  |   N/A  |   S    |  N/A  |   W    |   N/A
+    // |   O  |    false   |  I  |   N/A  |   N    |  N/A  |   W    |   N/A
     // |   O  |    false   |  B  |   N/A  |   N/A  |  N/A  |   N    |   N/A
     // |   O  |    true    |  B  |   N/A  |   N/A  |  N/A  |   N    |   N/A
     // |   O  |    true    |  O  |   N/A  |   S    |  N/A  |   S    |   S
-    // |   O  |    true    |  I  |   N/A  |   S    |  N/A  |   S    |   N/A
+    // |   O  |    true    |  I  |   N/A  |   N    |  N/A  |   S    |   N/A
     // |   I  |    false   |  O  |   N/A  |   N/A  |  N/A  |   N/A  |   N/A
     // |   I  |    false   |  I  |   S    |   N/A  |  N/A  |   N/A  |   N/A
     // |   I  |    false   |  B  |   N    |   N/A  |  N/A  |   N/A  |   N/A
-    // |   I  |    true    |  O  |   N/A  |   S    |  N/A  |   N/A  |   N/A
+    // |   I  |    true    |  O  |   N/A  |   N    |  N/A  |   N/A  |   N/A
     // |   I  |    true    |  I  |   S    |   S    |  N/A  |   N/A  |   N/A
     // |   I  |    true    |  B  |   N    |   N/A  |  N/A  |   N/A  |   N/A
     // |   B  |    true    |  O  |   N/A  |   N/A  |  S    |   N/A  |   N/A
@@ -3318,7 +3322,7 @@ private:
         // otxn: owner
         // flag: not burnable
         // tsh issuer
-        // w/s: strong
+        // w/s: none
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -3353,17 +3357,15 @@ private:
                 addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3420,7 +3422,7 @@ private:
         // otxn: owner
         // flag: burnable
         // tsh issuer
-        // w/s: strong
+        // w/s: none
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -3466,14 +3468,15 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: issuer
         // flag: burnable
         // tsh owner
-        // w/s: strong
+        // w/s: none
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -3516,7 +3519,8 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? 0 : 0;
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            auto const expected = fixV1 ? testStrong ? 2 : 2 : testStrong ? 0 : 0;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -4456,11 +4460,11 @@ private:
         testSignersListSetTSH(features);
         testTicketCreateTSH(features);
         testTrustSetTSH(features);
+        testURITokenMintTSH(features);
         testURITokenBurnTSH(features);
         testURITokenBuyTSH(features);
         testURITokenCancelSellOfferTSH(features);
         testURITokenCreateSellOfferTSH(features);
-        testURITokenMintTSH(features);
     }
 
 public:
@@ -4470,7 +4474,7 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testWithFeats(sa - fixXahauV1);
-        // testWithFeats(sa);
+        testWithFeats(sa);
     }
 };
 
