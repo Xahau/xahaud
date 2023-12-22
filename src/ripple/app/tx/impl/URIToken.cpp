@@ -183,6 +183,10 @@ URIToken::preclaim(PreclaimContext const& ctx)
     AccountID const acc = ctx.tx.getAccountID(sfAccount);
     uint16_t tt = ctx.tx.getFieldU16(sfTransactionType);
 
+    auto const sle = sb.read(keylet::account(account_));
+    if (!sle)
+        return tefINTERNAL;
+
     switch (tt)
     {
         case ttURITOKEN_MINT: {
