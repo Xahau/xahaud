@@ -710,7 +710,6 @@ Import::preflight(PreflightContext const& ctx)
     {
         auto const& data = (*xpop)[jss::validation][jss::data];
         std::set<std::string> used_key;
-
         for (const auto& key : data.getMemberNames())
         {
             auto nodepub = key;
@@ -818,7 +817,17 @@ Import::preflight(PreflightContext const& ctx)
                         << " validation count: " << validationCount;
 
     // check if the validation count is adequate
-    if (quorum >= validationCount)
+    auto hasInsufficientQuorum = [&ctx](int quorum, int validationCount) {
+        if (ctx.rules.enabled(fixXahauV1))
+        {
+            return quorum > validationCount;
+        }
+        else
+        {
+            return quorum >= validationCount;
+        }
+    };
+    if (hasInsufficientQuorum(quorum, validationCount))
     {
         JLOG(ctx.j.warn()) << "Import: xpop did not contain an 80% quorum for "
                               "the txn it purports to prove. "

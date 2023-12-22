@@ -4246,6 +4246,142 @@ struct XahauGenesis_test : public beast::unit_test::suite
     }
 
     void
+    testValidL1WithUNLReport(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test claim reward valid for L1 with unl report");
+
+        for (bool const withXahauV1 : {true, false})
+        {
+            FeatureBitset _features = features - featureXahauGenesis;
+            auto const amend = withXahauV1 ? _features : _features - fixXahauV1;
+            Env env{*this, envconfig(), amend};
+
+            double const rateDrops = 0.00333333333 * 1'000'000;
+            STAmount const feesXRP = XRP(1);
+
+            // setup governance
+            Account const alice = Account("alice");
+            Account const bob = Account("bob");
+            Account const carol = Account("carol");
+            Account const david = Account("david");
+            Account const edward = Account("edward");
+
+            env.fund(XRP(10000), alice, bob, carol, david, edward);
+            env.close();
+
+            std::vector<AccountID> initial_members_ids{
+                alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+            setupGov(env, initial_members_ids);
+
+            // update reward delay
+            {
+                // this will be the new reward delay
+                // 100
+                std::vector<uint8_t> vote_data{
+                    0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+                updateTopic(
+                    env, alice, bob, carol, david, edward, 'R', 'D', vote_data);
+            }
+
+            // setup unl report
+            std::vector<std::string> const _ivlKeys = {
+                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
+                "CDC1",
+            };
+            std::vector<PublicKey> ivlKeys;
+            for (auto const& strPk : _ivlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                ivlKeys.emplace_back(makeSlice(*pkHex));
+            }
+            std::vector<std::string> const _vlKeys = {
+                "0388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97"
+                "C05"
+                "2",
+                "02691AC5AE1C4C333AE5DF8A93BDC495F0EEBFC6DB0DA7EB6EF808F3AFC006"
+                "E3F"
+                "E",
+                "028949021029D5CC87E78BCF053AFEC0CAFD15108EC119EAAFEC466F5C0954"
+                "07B"
+                "F",
+                "027BAEF0CB02EA8B95F50DF4BC16C740B17B50C85F3757AA06A5DB6ADE0ED9"
+                "210"
+                "6",
+                "0318E0D644F3D2911D7B7E1B0B17684E7E625A6C36AECCE851BD16A4AD628B"
+                "213"
+                "6"};
+            std::vector<PublicKey> vlKeys;
+            for (auto const& strPk : _vlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                vlKeys.emplace_back(makeSlice(*pkHex));
+            }
+
+            // activate unl report
+            activateUNLReport(env, ivlKeys, vlKeys);
+
+            // validate unl report
+            BEAST_EXPECT(hasUNLReport(env) == true);
+
+            // opt in claim reward
+            env(claimReward(alice, env.master), fee(feesXRP), ter(tesSUCCESS));
+            env.close();
+
+            // close ledgers
+            validateTime(lastClose(env), 90);
+            for (int i = 0; i < 5; ++i)
+            {
+                env.close(10s);
+            }
+            validateTime(lastClose(env), 180);
+
+            // define pre close values
+            STAmount const preAlice = env.balance(alice);
+            STAmount const preBob = env.balance(bob);
+            STAmount const preCarol = env.balance(carol);
+            STAmount const preDavid = env.balance(david);
+            STAmount const preEdward = env.balance(edward);
+            NetClock::time_point const preTime = lastClose(env);
+            std::uint32_t const preLedger = env.current()->seq();
+            auto const [acct, acctSle] =
+                accountKeyAndSle(*env.current(), alice);
+
+            // claim reward
+            auto const txResult =
+                withXahauV1 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED);
+            env(claimReward(alice, env.master), fee(feesXRP), txResult);
+            env.close();
+
+            // trigger emitted txn
+            env.close();
+
+            // calculate rewards
+            STAmount const netReward =
+                rewardUserAmount(*acctSle, preLedger, rateDrops);
+            STAmount const l1Reward =
+                withXahauV1 ? rewardL1Amount(netReward, 20) : STAmount(0);
+
+            // validate govern rewards
+            BEAST_EXPECT(env.balance(bob) == preBob + l1Reward);
+            BEAST_EXPECT(env.balance(carol) == preCarol + l1Reward);
+            BEAST_EXPECT(env.balance(david) == preDavid + l1Reward);
+            BEAST_EXPECT(env.balance(edward) == preEdward + l1Reward);
+
+            // validate account fields
+            STAmount const postAlice = preAlice + netReward + l1Reward;
+            bool const boolResult = withXahauV1 ? true : false;
+            BEAST_EXPECT(
+                expectAccountFields(
+                    env, alice, preLedger, preLedger + 1, postAlice, preTime) ==
+                boolResult);
+        }
+    }
+
+    void
     testOptInOptOut(FeatureBitset features)
     {
         using namespace jtx;
@@ -4873,6 +5009,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testInvalidBeforeTime(features);
         testValidWithoutUNLReport(features);
         testValidWithUNLReport(features);
+        testValidL1WithUNLReport(features);
         testOptInOptOut(features);
         testValidLowBalance(features);
         testValidElapsed1(features);

@@ -1750,13 +1750,10 @@ public:
 
         env.fund(XRP(10000), "alice");
         env.close();
-        std::cout << to_string(env.closed()->info().hash) << "\n";
         env.fund(XRP(10000), "bob");
         env.close();
-        std::cout << to_string(env.closed()->info().hash) << "\n";
         env.fund(XRP(10000), "jim");
         env.close();
-        std::cout << to_string(env.closed()->info().hash) << "\n";
         env.fund(XRP(10000), "jill");
 
         {

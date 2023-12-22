@@ -40,6 +40,10 @@ offer(
 Json::Value
 offer_cancel(Account const& account, std::uint32_t offerSeq);
 
+/** Cancel an offer. */
+Json::Value
+offer_cancel(Account const& account);
+
 /** Sets the optional "OfferID" on a JTx. */
 class offer_id
 {
