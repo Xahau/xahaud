@@ -144,6 +144,8 @@ URIToken::preflight(PreflightContext const& ctx)
 TER
 URIToken::preclaim(PreclaimContext const& ctx)
 {
+    bool const fixV1 = ctx.view.enabled(fixXahauV1);
+
     std::shared_ptr<SLE const> sleU;
     uint32_t leFlags;
     std::optional<AccountID> issuer;
@@ -151,8 +153,9 @@ URIToken::preclaim(PreclaimContext const& ctx)
     std::optional<STAmount> saleAmount;
     std::optional<AccountID> dest;
     std::shared_ptr<SLE const> sleOwner;
+    std::shared_ptr <
 
-    if (ctx.tx.isFieldPresent(sfURITokenID))
+        if (ctx.tx.isFieldPresent(sfURITokenID))
     {
         sleU = ctx.view.read(
             Keylet{ltURI_TOKEN, ctx.tx.getFieldH256(sfURITokenID)});
@@ -230,10 +233,30 @@ URIToken::preclaim(PreclaimContext const& ctx)
 
             if (purchaseAmount.native() && saleAmount->native())
             {
-                // if it's an xrp sale/purchase then no trustline needed
-                if (purchaseAmount >
-                    (sleOwner->getFieldAmount(sfBalance) - ctx.tx[sfFee]))
-                    return tecINSUFFICIENT_FUNDS;
+                if (!ctx.view.enabled(fixXahauV1))
+                {
+                    if (purchaseAmount >
+                        (sleOwner->getFieldAmount(sfBalance) - ctx.tx[sfFee]))
+                        return tecINSUFFICIENT_FUNDS;
+                }
+                else
+                {
+                    STAmount const needed{sb.fees().accountReserve(
+                        sle->getFieldU32(sfOwnerCount) + 1)};
+
+                    STAmount const fee = ctx_.tx.getFieldAmount(sfFee).xrp();
+
+                    if (needed + fee < needed)
+                        return tecINTERNAL;
+
+                    needed += fee;
+
+                    if (needed + purchaseAmount < needed)
+                        return tecINTERNAL;
+
+                    if (needed > mPriorBalance)
+                        return tecINSUFFICIENT_FUNDS;
+                }
             }
 
             // execution to here means it's an IOU sale
@@ -412,17 +435,6 @@ URIToken::doApply()
         }
 
         case ttURITOKEN_BUY: {
-            if (account_ == *owner)
-            {
-                // this is a clear operation
-                sleU->makeFieldAbsent(sfAmount);
-                if (sleU->isFieldPresent(sfDestination))
-                    sleU->makeFieldAbsent(sfDestination);
-                sb.update(sleU);
-                sb.apply(ctx_.rawView());
-                return tesSUCCESS;
-            }
-
             STAmount const purchaseAmount = ctx_.tx.getFieldAmount(sfAmount);
 
             // check if the seller has listed it at all
@@ -446,8 +458,20 @@ URIToken::doApply()
                 // if it's an xrp sale/purchase then no trustline needed
                 if (purchaseAmount.native())
                 {
-                    if (purchaseAmount >
-                        ((*sleOwner)[sfBalance] - ctx_.tx[sfFee]))
+                    STAmount const needed{sb.fees().accountReserve(
+                        sle->getFieldU32(sfOwnerCount) + 1)};
+
+                    STAmount const fee = ctx_.tx.getFieldAmount(sfFee).xrp();
+
+                    if (needed + fee < needed)
+                        return tecINTERNAL;
+
+                    needed += fee;
+
+                    if (needed + purchaseAmount < needed)
+                        return tecINTERNAL;
+
+                    if (needed > mPriorBalance)
                         return tecINSUFFICIENT_FUNDS;
                 }
                 else
@@ -466,7 +490,7 @@ URIToken::doApply()
 
                     if (STAmount availableFunds{accountFunds(
                             sb, account_, purchaseAmount, fhZERO_IF_FROZEN, j)};
-                        purchaseAmount > availableFunds)
+                        purchaseAmount >= availableFunds)
                         return tecINSUFFICIENT_FUNDS;
                 }
 
