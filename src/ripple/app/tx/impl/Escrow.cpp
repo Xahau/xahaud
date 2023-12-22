@@ -441,7 +441,8 @@ EscrowFinish::preflight(PreflightContext const& ctx)
 
     if ((!ctx.tx.isFieldPresent(sfEscrowID) &&
          !ctx.tx.isFieldPresent(sfOfferSequence)) ||
-        ctx.tx.isFieldPresent(sfEscrowID) && ctx.tx.isFieldPresent(sfOfferSequence))
+        ctx.tx.isFieldPresent(sfEscrowID) &&
+            ctx.tx.isFieldPresent(sfOfferSequence))
         return temMALFORMED;
 
     return tesSUCCESS;
