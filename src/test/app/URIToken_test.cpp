@@ -1964,14 +1964,27 @@ struct URIToken_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
-        // Rate between 1.0 & 2.0
-        std::array<double, 5> testCases = {{1, 1.1, 1.0005, 1.25, 2}};
+        struct TestRateData
+        {
+            double rate;
+            STAmount delta;
+            std::string multiply;
+            std::string divide;
+        };
+        std::array<TestRateData, 6> testCases = {{
+            {1, USD(100), "1100", "1100"},
+            {1.1, USD(100), "1110", "1090.909090909091"},
+            {1.0005, USD(100), "1100.05", "1099.950024987506"},
+            {1.005, USD(100), "1100.4999999", "1099.502487661197"},
+            {1.25, USD(100), "1125", "1080"},
+            {2, USD(100), "1200", "1050"},
+        }};
 
         for (auto const& tc : testCases)
         {
             Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
-            env(rate(gw, tc));
+            env(rate(gw, tc.rate));
             env.close();
             env.trust(USD(100000), alice, bob);
             env.close();
@@ -1993,18 +2006,14 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
             auto xferRate = transferRate(*env.current(), gw);
+            auto const postAlice = env.balance(alice, USD.issue());
             if (!env.current()->rules().enabled(fixXahauV1))
             {
-                BEAST_EXPECT(
-                    env.balance(alice, USD.issue()) ==
-                    preAlice +
-                        multiplyRound(delta, xferRate, USD.issue(), true));
+                BEAST_EXPECT(to_string(postAlice.value()) == tc.multiply);
             }
             else
             {
-                BEAST_EXPECT(
-                    env.balance(alice, USD.issue()) ==
-                    preAlice + divideRound(delta, xferRate, USD.issue(), true));
+                BEAST_EXPECT(to_string(postAlice.value()) == tc.divide);
             }
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
