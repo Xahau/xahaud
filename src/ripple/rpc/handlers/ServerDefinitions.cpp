@@ -422,6 +422,7 @@ doServerDefinitions(RPC::JsonContext& context)
     uint32_t curLgrSeq = context.ledgerMaster.getValidatedLedger()->info().seq;
 
     // static values used for cache
+
     static thread_local uint32_t lastGenerated =
         0;  // last ledger seq it was generated
     static thread_local Json::Value lastFeatures{
@@ -429,7 +430,6 @@ doServerDefinitions(RPC::JsonContext& context)
     static thread_local uint256
         lastFeatureHash;  // the hash of the features JSON last time
                           // it was generated
-
     // if a flag ledger has passed since it was last generated, regenerate it,
     // update the cache above
     if (curLgrSeq > ((lastGenerated >> 8) + 1) << 8 || lastGenerated == 0)

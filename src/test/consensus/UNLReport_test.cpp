@@ -60,7 +60,7 @@ namespace test {
 //  * @param pass if the Tx should be applied successfully
 //  * @return true if meet the expectation of apply result
 //  */
-bool
+inline bool
 applyAndTestUNLRResult(
     jtx::Env& env,
     OpenView& view,
