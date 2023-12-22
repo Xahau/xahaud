@@ -57,10 +57,10 @@
 #include <test/jtx/quality.h>
 #include <test/jtx/rate.h>
 #include <test/jtx/regkey.h>
+#include <test/jtx/remit.h>
 #include <test/jtx/require.h>
 #include <test/jtx/requires.h>
 #include <test/jtx/reward.h>
-#include <test/jtx/remit.h>
 #include <test/jtx/sendmax.h>
 #include <test/jtx/seq.h>
 #include <test/jtx/sig.h>

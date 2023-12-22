@@ -85,7 +85,8 @@ private:
     std::vector<std::string> token_ids_;
 
 public:
-    explicit token_ids(std::vector<std::string> const& token_ids) : token_ids_(token_ids)
+    explicit token_ids(std::vector<std::string> const& token_ids)
+        : token_ids_(token_ids)
     {
     }
 

@@ -222,7 +222,8 @@ Remit::doApply()
         sleDstAcc->setFieldU32(sfSequence, seqno);
         sleDstAcc->setFieldU32(sfOwnerCount, 0);
 
-        if (sb.exists(keylet::fees()) && sb.rules().enabled(featureXahauGenesis))
+        if (sb.exists(keylet::fees()) &&
+            sb.rules().enabled(featureXahauGenesis))
         {
             auto sleFees = sb.peek(keylet::fees());
             uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount)

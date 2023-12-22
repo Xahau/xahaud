@@ -75,7 +75,8 @@ void
 uri::operator()(Env& env, JTx& jt) const
 {
     jt.jv[sfMintURIToken.jsonName] = Json::Value{};
-    jt.jv[sfMintURIToken.jsonName][sfURI.jsonName] = strHex(uri_);;
+    jt.jv[sfMintURIToken.jsonName][sfURI.jsonName] = strHex(uri_);
+    ;
 }
 
 }  // namespace remit
