@@ -31,6 +31,10 @@ namespace test {
 struct SetHookTSH_test : public beast::unit_test::suite
 {
 private:
+    const uint64_t tshSTRONG = 0;
+    const uint64_t tshWEAK = 1;
+    const uint64_t tshNONE = 2;
+
     // helper
     void static overrideFlag(Json::Value& jv)
     {
@@ -127,6 +131,105 @@ private:
         0x2eU, 0x22U, 0x00U, 0x22U, 0x74U, 0x73U, 0x68U, 0x2eU, 0x63U, 0x3aU,
         0x20U, 0x45U, 0x6eU, 0x64U, 0x2eU, 0x22U};
 
+    void
+    addWeakTSH(jtx::Env& env, jtx::Account const& account)
+    {
+        using namespace test::jtx;
+        env(fset(account, asfTshCollect));
+        env.close();
+    }
+
+    void
+    setTSHHook(
+        jtx::Env& env,
+        jtx::Account const& account,
+        bool const& testStrong)
+    {
+        using namespace test::jtx;
+        auto const tshFlag = testStrong ? overrideFlag : collectFlag;
+        env(hook(account, {{hso(TshHook, tshFlag)}}, 0),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+    }
+
+    void
+    validateTSHStrongWeak(
+        Json::Value meta,
+        uint64_t const& expected,
+        uint64_t const& lineno)
+    {
+        switch (expected)
+        {
+            // tshSTRONG
+            case 0: {
+                auto const executions = meta[sfHookExecutions.jsonName];
+                auto const execution = executions[0u][sfHookExecution.jsonName];
+                BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+                BEAST_EXPECT(
+                    execution[sfHookReturnString.jsonName] == "00000000");
+                if (execution[sfHookReturnString.jsonName] != "00000000")
+                {
+                    std::cout << "testTSHStrongWeak Line: " << lineno << "\n";
+                    std::cout
+                        << "testTSHStrongWeak Expected: " << expected
+                        << " Result: " << execution[sfHookReturnString.jsonName]
+                        << "\n";
+                    std::cout << "testTSHStrongWeak Meta: " << meta << "\n";
+                }
+                break;
+            }
+            // tshWEAK
+            case 1: {
+                auto const executions = meta[sfHookExecutions.jsonName];
+                auto const execution = executions[0u][sfHookExecution.jsonName];
+                BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
+                BEAST_EXPECT(
+                    execution[sfHookReturnString.jsonName] == "00000001");
+                if (execution[sfHookReturnString.jsonName] != "00000001")
+                {
+                    std::cout << "testTSHStrongWeak Line: " << lineno << "\n";
+                    std::cout
+                        << "testTSHStrongWeak Expected: " << expected
+                        << " Result: " << execution[sfHookReturnString.jsonName]
+                        << "\n";
+                    std::cout << "testTSHStrongWeak Meta: " << meta << "\n";
+                }
+                break;
+            }
+            // tshNONE
+            case 2: {
+                auto const executions = meta[sfHookExecutions.jsonName];
+                BEAST_EXPECT(executions.size() == 0);
+                if (executions.size() != 0)
+                {
+                    std::cout << "testTSHStrongWeak Line: " << lineno << "\n";
+                    std::cout << "testTSHStrongWeak Expected: " << expected
+                              << " Result: " << executions.size() << "\n";
+                    std::cout << "testTSHStrongWeak Meta: " << meta << "\n";
+                }
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    void
+    testTSHStrongWeak(
+        jtx::Env& env,
+        int const& expected,
+        uint64_t const& lineno)
+    {
+        Json::Value params;
+        params[jss::transaction] =
+            env.tx()->getJson(JsonOptions::none)[jss::hash];
+        auto const jrr = env.rpc("json", "tx", to_string(params));
+        auto const meta = jrr[jss::result][jss::meta];
+        validateTSHStrongWeak(meta, expected, lineno);
+    }
+
     // AccountSet
     // | otxn | tsh | set |
     // |   A  |  A  |  S  |
@@ -135,10 +238,12 @@ private:
     {
         using namespace test::jtx;
         using namespace std::literals;
+        testcase("account set TSH");
 
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -149,42 +254,37 @@ private:
             env.fund(XRP(1000), account);
             env.close();
 
-            // set tsh hook on bob
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
 
             // account set
-            env(fset(account, asfTshCollect), fee(XRP(1)), ter(tesSUCCESS));
+            env(fset(account, asfDefaultRipple), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
     // AccountDelete
-    // | otxn | tsh | delete |
-    // |   A  |  A  |    N   |
-    // |   A  |  B  |    S   |
+    // | otxn | tsh |  delete  |
+    // |   A  |  A  |   N/A    |
+    // |   A  |  B  |    S     |
+    // Account cannot delete with a hook installed
     void
     testAccountDeleteTSH(FeatureBitset features)
     {
         using namespace test::jtx;
         using namespace std::literals;
+        testcase("account delete TSH");
 
         // otxn: account
         // tsh bene
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -196,11 +296,12 @@ private:
             env.fund(XRP(1000), account, bene);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, bene);
+
             // set tsh hook
-            env(hook(bene, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, bene, testStrong);
 
             // AccountDelete
             incLgrSeqForAccDel(env, account);
@@ -208,26 +309,16 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
     // Check
-    // | otxn | tsh | cancel | create | cash |
-    // |   A  |  A  |   S    |   S    |  N   |
-    // |   A  |  D  |   N    |   S    |  N   |
-    // |   D  |  D  |   S    |   N    |  S   |
-    // |   D  |  A  |   S    |   N    |  S   |
+    // | otxn | tsh | cancel |  create  | cash  |
+    // |   A  |  A  |   S    |    S     |  N/A  |
+    // |   A  |  D  |   N    |    S     |  N/A  |
+    // |   D  |  D  |   S    |   N/A    |   S   |
+    // |   D  |  A  |   S    |   N/A    |   S   |
     static uint256
     getCheckIndex(AccountID const& account, std::uint32_t uSequence)
     {
@@ -245,6 +336,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -261,31 +353,25 @@ private:
             env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // cancel check
             env(check::cancel(account, checkId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh destination
         // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -297,38 +383,30 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
-            // set tsh collect
-            env(fset(dest, asfTshCollect));
-            env.close();
-
             // create check
             uint256 const checkId{getCheckIndex(account, env.seq(account))};
             env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // cancel check
             env(check::cancel(account, checkId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: dest
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -343,139 +421,36 @@ private:
             // create check
             uint256 const checkId{getCheckIndex(account, env.seq(account))};
             env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // cancel check
-            env(check::cancel(dest, checkId), fee(XRP(1)), ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: dest
-        // tsh account
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const account = Account("alice");
-            auto const dest = Account("bob");
-            env.fund(XRP(1000), account, dest);
-            env.close();
-
-            // create check
-            uint256 const checkId{getCheckIndex(account, env.seq(account))};
-            env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // cancel check
-            env(check::cancel(dest, checkId), fee(XRP(1)), ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-    }
-
-    void
-    testCheckCashTSH(FeatureBitset features)
-    {
-        testcase("check cash tsh");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        // otxn: dest
-        // tsh dest
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const account = Account("alice");
-            auto const dest = Account("bob");
-            env.fund(XRP(1000), account, dest);
-            env.close();
-
-            // create check
-            uint256 const checkId{getCheckIndex(account, env.seq(account))};
-            env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // cash check
-            env(check::cash(dest, checkId, XRP(100)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: dest
-        // tsh account
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const account = Account("alice");
-            auto const dest = Account("bob");
-            env.fund(XRP(1000), account, dest);
             env.close();
 
             // set tsh collect
-            env(fset(account, asfTshCollect));
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
+            // set tsh hook
+            setTSHHook(env, dest, testStrong);
+
+            // cancel check
+            env(check::cancel(dest, checkId), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: dest
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            env.fund(XRP(1000), account, dest);
             env.close();
 
             // create check
@@ -483,28 +458,19 @@ private:
             env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
             env.close();
 
-            // set tsh hook
-            env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
 
-            // cash check
-            env(check::cash(dest, checkId, XRP(100)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // cancel check
+            env(check::cancel(dest, checkId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -519,6 +485,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -530,11 +497,12 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // create check
             env(check::create(account, dest, XRP(100)),
@@ -543,20 +511,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh destination
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -568,11 +529,12 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // create check
             env(check::create(account, dest, XRP(100)),
@@ -581,15 +543,90 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+    }
+
+    void
+    testCheckCashTSH(FeatureBitset features)
+    {
+        testcase("check cash tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: dest
+        // tsh dest
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            env.fund(XRP(1000), account, dest);
+            env.close();
+
+            // create check
+            uint256 const checkId{getCheckIndex(account, env.seq(account))};
+            env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
+            // set tsh hook
+            setTSHHook(env, dest, testStrong);
+
+            // cash check
+            env(check::cash(dest, checkId, XRP(100)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: dest
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            env.fund(XRP(1000), account, dest);
+            env.close();
+
+            // create check
+            uint256 const checkId{getCheckIndex(account, env.seq(account))};
+            env(check::create(account, dest, XRP(100)), ter(tesSUCCESS));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // cash check
+            env(check::cash(dest, checkId, XRP(100)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -609,6 +646,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -620,11 +658,12 @@ private:
             env.fund(XRP(1000), account, issuer);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // claim reward
             env(reward::claim(account),
@@ -634,20 +673,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh issuer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -659,11 +691,12 @@ private:
             env.fund(XRP(1000), account, issuer);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // claim reward
             env(reward::claim(account),
@@ -673,15 +706,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -701,6 +726,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -715,31 +741,25 @@ private:
             // require authorization for deposits.
             env(fset(account, asfDepositAuth));
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // deposit preauth
             env(deposit::auth(account, authed), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh authorize
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -754,35 +774,28 @@ private:
             // require authorization for deposits.
             env(fset(account, asfDepositAuth));
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, authed);
+
             // set tsh hook
-            env(hook(authed, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, authed, testStrong);
 
             // deposit preauth
             env(deposit::auth(account, authed), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
     // Escrow
-    // | otxn  | tsh | cancel | create | finish |
-    // |   A   |  A  |    S   |    S   |    S   |
-    // |   A   |  D  |    W   |    S   |    W   |
-    // |   D   |  D  |    S   |    N   |    S   |
-    // |   D   |  A  |    S   |    N   |    S   |
+    // | otxn  | tsh | cancel | cancel(id) |  create  | finish | finish(id)
+    // |   A   |  A  |    S   |     S      |     S    |    S   |     S
+    // |   A   |  D  |    N   |     N      |     S    |    S   |     S
+    // |   D   |  D  |    S   |     S      |    N/A   |    S   |     S
+    // |   D   |  A  |    S   |     S      |    N/A   |    S   |     S
 
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
@@ -802,6 +815,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -825,11 +839,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // cancel escrow
             env(escrow::cancel(account, account, seq1),
@@ -838,20 +853,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
-        // w/s: weak
+        // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -861,10 +869,6 @@ private:
             auto const account = Account("alice");
             auto const dest = Account("bob");
             env.fund(XRP(1000), account, dest);
-            env.close();
-
-            // set tsh collect
-            env(fset(dest, asfTshCollect));
             env.close();
 
             // create escrow
@@ -879,11 +883,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // cancel escrow
             env(escrow::cancel(account, account, seq1),
@@ -892,18 +897,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: dest
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -927,11 +927,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // cancel escrow
             env(escrow::cancel(dest, account, seq1),
@@ -940,20 +941,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -963,10 +957,6 @@ private:
             auto const account = Account("alice");
             auto const dest = Account("bob");
             env.fund(XRP(1000), account, dest);
-            env.close();
-
-            // set tsh collect
-            env(fset(account, asfTshCollect));
             env.close();
 
             // create escrow
@@ -981,11 +971,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // cancel escrow
             env(escrow::cancel(dest, account, seq1),
@@ -994,15 +985,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -1018,6 +1001,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1041,34 +1025,34 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(account, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(account, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
-        // w/s: weak
+        // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1078,10 +1062,6 @@ private:
             auto const account = Account("alice");
             auto const dest = Account("bob");
             env.fund(XRP(1000), account, dest);
-            env.close();
-
-            // set tsh collect
-            env(fset(dest, asfTshCollect));
             env.close();
 
             // create escrow
@@ -1096,36 +1076,34 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(account, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(account, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
-            // auto const execution = executions[0u][sfHookExecution.jsonName];
-            // BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            // BEAST_EXPECT(execution[sfHookReturnString.jsonName] ==
-            // "00000001");
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: dest
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1149,34 +1127,34 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(dest, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::cancel(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
         // tsh account
-        // w/s: weak
+        // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1186,10 +1164,6 @@ private:
             auto const account = Account("alice");
             auto const dest = Account("bob");
             env.fund(XRP(1000), account, dest);
-            env.close();
-
-            // set tsh collect
-            env(fset(account, asfTshCollect));
             env.close();
 
             // create escrow
@@ -1204,27 +1178,32 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(dest, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            Json::Value tx;
+            if (!fixV1)
+            {
+                tx = escrow::cancel(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::cancel(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const expected =
+                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
@@ -1240,6 +1219,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1251,11 +1231,12 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // create escrow
             NetClock::time_point const finishTime = env.now() + 1s;
@@ -1269,20 +1250,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1294,11 +1268,12 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // create escrow
             NetClock::time_point const finishTime = env.now() + 1s;
@@ -1312,15 +1287,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -1336,6 +1303,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1356,11 +1324,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // finish escrow
             env(escrow::finish(account, account, seq1),
@@ -1369,20 +1338,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1394,10 +1356,6 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
-            // set tsh collect
-            // env(fset(dest, asfTshCollect));
-            // env.close();
-
             // create escrow
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
@@ -1407,11 +1365,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // finish escrow
             env(escrow::finish(account, account, seq1),
@@ -1420,20 +1379,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1454,11 +1406,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // finish escrow
             env(escrow::finish(dest, account, seq1),
@@ -1467,20 +1420,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1501,11 +1447,12 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // finish escrow
             env(escrow::finish(dest, account, seq1),
@@ -1514,15 +1461,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -1538,6 +1477,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1558,34 +1498,34 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // finish escrow
-            env(escrow::finish(account, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(account, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
-        // w/s: weak
+        // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1597,10 +1537,6 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
-            // set tsh collect
-            env(fset(dest, asfTshCollect));
-            env.close();
-
             // create escrow
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
@@ -1610,32 +1546,38 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // finish escrow
-            env(escrow::finish(account, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            Json::Value tx;
+            if (!fixV1)
+            {
+                tx = escrow::finish(account, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(account, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const expected =
+                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: dest
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1656,34 +1598,34 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // finish escrow
-            env(escrow::finish(dest, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            Json::Value tx;
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                tx = escrow::finish(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
         // tsh account
-        // w/s: weak
+        // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1695,10 +1637,6 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
-            // set tsh collect
-            env(fset(account, asfTshCollect));
-            env.close();
-
             // create escrow
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
@@ -1708,27 +1646,32 @@ private:
             env(createTx, ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // finish escrow
-            env(escrow::finish(dest, account, 0),
-                escrow::escrow_id(escrowId),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            Json::Value tx;
+            if (!fixV1)
+            {
+                tx = escrow::finish(dest, account, 0);
+            }
+            else
+            {
+                tx = escrow::finish(dest, account);
+            }
+            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            auto const expected =
+                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
@@ -1751,6 +1694,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1768,11 +1712,12 @@ private:
             env(noop(issuer), fee(XRP(10'000'000ULL)));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // set mint hook on master
             env(hook(issuer, {{hso(genesis::MintTestHook, overrideFlag)}}, 0),
@@ -1793,21 +1738,14 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
-            // get the emitted txn id
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution1 = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution1[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution1[sfHookReturnString.jsonName] == "00000000");
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh issuer
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1824,6 +1762,10 @@ private:
             // above 100B tripping invariant
             env(noop(issuer), fee(XRP(10'000'000ULL)));
             env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
 
             // set tsh hook && set mint hook on master
             env(hook(
@@ -1848,21 +1790,14 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
-            // get the emitted txn id
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution1 = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution1[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution1[sfHookReturnString.jsonName] == "00000000");
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh bene
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1881,14 +1816,11 @@ private:
             env.close();
 
             // set tsh collect
-            env(fset(bene, asfTshCollect));
-            env.close();
+            if (!testStrong)
+                addWeakTSH(env, bene);
 
             // set tsh hook
-            env(hook(bene, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, bene, testStrong);
 
             // set mint hook on master
             env(hook(issuer, {{hso(genesis::MintTestHook, overrideFlag)}}, 0),
@@ -1925,10 +1857,8 @@ private:
             params1[jss::transaction] = txId;
             auto const jrr1 = env.rpc("json", "tx", to_string(params1));
             auto const meta1 = jrr1[jss::result][jss::meta];
-            auto const executions1 = meta1[sfHookExecutions.jsonName];
-            auto const execution1 = executions1[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution1[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution1[sfHookReturnString.jsonName] == "00000001");
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            validateTSHStrongWeak(meta1, expected, __LINE__);
         }
     }
 
@@ -1953,6 +1883,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -1970,11 +1901,12 @@ private:
             env(noop(env.master), fee(XRP(10'000'000ULL)));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // import
             env(import::import(
@@ -1984,21 +1916,14 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
-            // get the emitted txn id
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution1 = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution1[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution1[sfHookReturnString.jsonName] == "00000000");
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh issuer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2016,11 +1941,12 @@ private:
             env(noop(env.master), fee(XRP(10'000'000ULL)));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // import
             env(import::import(
@@ -2030,23 +1956,15 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
-            // get the emitted txn id
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution1 = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution1[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution1[sfHookReturnString.jsonName] == "00000000");
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
     // Invoke
     // | otxn  | tsh | invoke |
     // |   A   |  A  |    S   |
-    // |   A   |  D  |    W   |
+    // |   A   |  D  |    S   |
 
     void
     testInvokeTSH(FeatureBitset features)
@@ -2059,6 +1977,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2070,11 +1989,12 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // ttINVOKE
             env(invoke::invoke(account),
@@ -2084,20 +2004,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2109,11 +2022,12 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // ttINVOKE
             env(invoke::invoke(account),
@@ -2123,22 +2037,14 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
     // Offer
-    // | otxn  | tsh | cancel | create |
-    // |   A   |  A  |    S   |    S   |
-    // |   A   |  C  |    N  |     N   |
+    // | otxn  | tsh |  cancel | create |
+    // |   A   |  A  |    S    |    S   |
+    // |   A   |  C  |   N/A   |    N   |
 
     void
     testOfferCancelTSH(FeatureBitset features)
@@ -2151,6 +2057,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2172,26 +2079,19 @@ private:
             env(offer(account, USD(1000), XRP(1000)), ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // cancel offer
             env(offer_cancel(account, offerSeq), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2206,6 +2106,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2222,11 +2123,12 @@ private:
             env(offer(gw, USD(1000), XRP(1000)));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // create offer
             env(offer(account, USD(1000), XRP(1000)),
@@ -2235,20 +2137,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh cross
-        // w/s: weak
+        // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2262,18 +2157,16 @@ private:
             env.fund(XRP(1000), account, cross, gw);
             env.close();
 
-            // set tsh collect
-            env(fset(cross, asfTshCollect));
-
             // gw create offer
             env(offer(gw, USD(1000), XRP(1000)));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, cross);
+
             // set tsh hook
-            env(hook(cross, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, cross, testStrong);
 
             // create offer
             env(offer(account, USD(1000), XRP(1000)),
@@ -2282,13 +2175,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
     }
 
@@ -2309,6 +2196,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2320,31 +2208,25 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // payment
             env(pay(account, dest, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2356,31 +2238,25 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // payment
             env(pay(account, dest, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh cross
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2403,37 +2279,28 @@ private:
             env.trust(USDB(10), dest);
 
             // set tsh collect
-            env(fset(cross, asfTshCollect));
+            if (!testStrong)
+                addWeakTSH(env, cross);
 
             // set tsh hook
-            env(hook(cross, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, cross, testStrong);
 
             // payment
             env(pay(account, dest, USDB(10)), paths(USDA), fee(XRP(1)));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
     // PaymentChannel
-    // | otxn  | tsh | claim | create | fund |
-    // |   A   |  A  |   S   |   S    |   S  |
-    // |   A   |  D  |   W   |   S    |   W  |
-    // |   D   |  D  |   S   |   N    |   N  |
-    // |   D   |  A  |   S   |   N    |   N  |
+    // | otxn  | tsh | claim |  create  |  fund  |
+    // |   A   |  A  |   S   |    S     |    S   |
+    // |   A   |  D  |   W   |    S     |    W   |
+    // |   D   |  D  |   S   |   N/A    |   N/A  |
+    // |   D   |  A  |   S   |   N/A    |   N/A  |
 
     static uint256
     channel(
@@ -2468,6 +2335,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2487,11 +2355,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             auto const delta = XRP(1);
             auto const reqBal = delta;
@@ -2499,25 +2368,19 @@ private:
 
             // claim paychannel
             env(paychan::claim(account, chan, reqBal, authAmt),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2529,9 +2392,6 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
-            // set tsh collect
-            env(fset(dest, asfTshCollect));
-
             // create paychannel
             auto const pk = account.pk();
             auto const settleDelay = 100s;
@@ -2540,11 +2400,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             auto const delta = XRP(1);
             auto const reqBal = delta;
@@ -2552,25 +2413,20 @@ private:
 
             // claim paychannel
             env(paychan::claim(account, chan, reqBal, authAmt),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: dest
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2590,11 +2446,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             auto const delta = XRP(1);
             auto const reqBal = delta;
@@ -2605,25 +2462,19 @@ private:
                 signClaimAuth(account.pk(), account.sk(), chan, authAmt);
             env(paychan::claim(
                     dest, chan, reqBal, authAmt, Slice(sig), account.pk()),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: dest
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2643,11 +2494,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             auto const delta = XRP(1);
             auto const reqBal = delta;
@@ -2658,20 +2510,13 @@ private:
                 signClaimAuth(account.pk(), account.sk(), chan, authAmt);
             env(paychan::claim(
                     dest, chan, reqBal, authAmt, Slice(sig), account.pk()),
+                txflags(tfClose),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2686,6 +2531,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2697,36 +2543,29 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // create paychannel
             auto const pk = account.pk();
             auto const settleDelay = 100s;
-            auto const chan = channel(account, dest, env.seq(account));
             env(paychan::create(account, dest, XRP(10), settleDelay, pk),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2738,31 +2577,23 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // create paychannel
             auto const pk = account.pk();
             auto const settleDelay = 100s;
-            auto const chan = channel(account, dest, env.seq(account));
             env(paychan::create(account, dest, XRP(10), settleDelay, pk),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2777,6 +2608,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2796,11 +2628,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // fund paychannel
             env(paychan::fund(account, chan, XRP(1)),
@@ -2809,20 +2642,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2834,9 +2660,6 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
-            // set tsh collect
-            env(fset(dest, asfTshCollect));
-
             // create paychannel
             auto const pk = account.pk();
             auto const settleDelay = 100s;
@@ -2845,11 +2668,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // fund paychannel
             env(paychan::fund(account, chan, XRP(1)),
@@ -2858,15 +2682,8 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
@@ -2884,6 +2701,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2894,6 +2712,10 @@ private:
             env.fund(XRP(1000), account);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
             auto hook1 = hso(TshHook, overrideFlag);
             hook1[jss::HookOn] =
@@ -2902,22 +2724,11 @@ private:
             env(hook(account, {{hook1}}, 0), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
-            // set hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -2936,6 +2747,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2947,31 +2759,25 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // set regular key
             env(regkey(account, dest), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh dest
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -2983,26 +2789,19 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
             // set tsh hook
-            env(hook(dest, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, dest, testStrong);
 
             // set regular key
             env(regkey(account, dest), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3021,6 +2820,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3033,11 +2833,12 @@ private:
             env.fund(XRP(1000), account, signer1, signer2);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // signers list set
             env(signers(account, 2, {{signer1, 1}, {signer2, 1}}),
@@ -3046,20 +2847,13 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh signer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3078,11 +2872,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, signer2);
+
             // set tsh hook
-            env(hook(signer2, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, signer2, testStrong);
 
             // signers list set
             env(signers(account, 2, {{signer1, 1}, {signer2, 1}}),
@@ -3120,6 +2915,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3130,26 +2926,19 @@ private:
             env.fund(XRP(1000), account);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // ticket create
             env(ticket::create(account, 2), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3168,6 +2957,7 @@ private:
         // otxn: account
         // tsh account
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3180,31 +2970,25 @@ private:
             env.fund(XRP(1000), account, issuer);
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
             // set tsh hook
-            env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, account, testStrong);
 
             // trust set
             env(trust(account, USD(1000)), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: account
         // tsh issuer
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3217,47 +3001,207 @@ private:
             env.fund(XRP(1000), account, issuer);
             env.close();
 
-            // set tsh collect on bob
-            env(fset(issuer, asfTshCollect));
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
 
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // trust set
             env(trust(account, USD(1000)), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
-    // | otxn | tfBurnable | tsh | mint | burn | buy | sell | cancel
-    // |   O  |    false   |  O  |   N  |   S  |  S  |   S  |   S
-    // |   O  |    false   |  I  |   N  |   W  |  W  |   W  |   N
-    // |   O  |    false   |  B  |   N  |   N  |  N  |   S  |   N
-    // |   O  |    true    |  B  |   N  |   N  |  N  |   S  |   N
-    // |   O  |    true    |  O  |   N  |   S  |  S  |   S  |   S
-    // |   O  |    true    |  I  |   N  |   W  |  S  |   S  |   N
-    // |   I  |    false   |  O  |   N  |   N  |  N  |   N  |   N
-    // |   I  |    false   |  I  |   S  |   N  |  N  |   N  |   N
-    // |   I  |    false   |  B  |   N  |   N  |  N  |   N  |   N
-    // |   I  |    true    |  O  |   N  |   W  |  N  |   N  |   N
-    // |   I  |    true    |  I  |   S  |   S  |  N  |   N  |   N
-    // |   I  |    true    |  B  |   N  |   N  |  N  |   N  |   N
-    // |   B  |    true    |  O  |   N  |   N  |  ?  |   N  |   N
-    // |   B  |    true    |  B  |   N  |   N  |  ?  |   N  |   N
+    // | otxn | tfBurnable | tsh |   mint |  burn  |  buy  |  sell  | cancel
+    // |   O  |    false   |  O  |   N/A  |   S    |  N/A  |   S    |   S
+    // |   O  |    false   |  I  |   N/A  |   N    |  N/A  |   W    |   N/A
+    // |   O  |    false   |  B  |   N/A  |   N/A  |  N/A  |   N    |   N/A
+    // |   O  |    true    |  B  |   N/A  |   N/A  |  N/A  |   N    |   N/A
+    // |   O  |    true    |  O  |   N/A  |   S    |  N/A  |   S    |   S
+    // |   O  |    true    |  I  |   N/A  |   N    |  N/A  |   S    |   N/A
+    // |   I  |    false   |  O  |   N/A  |   N/A  |  N/A  |   N/A  |   N/A
+    // |   I  |    false   |  I  |   S    |   N/A  |  N/A  |   N/A  |   N/A
+    // |   I  |    false   |  B  |   N    |   N/A  |  N/A  |   N/A  |   N/A
+    // |   I  |    true    |  O  |   N/A  |   N    |  N/A  |   N/A  |   N/A
+    // |   I  |    true    |  I  |   S    |   S    |  N/A  |   N/A  |   N/A
+    // |   I  |    true    |  B  |   N    |   N/A  |  N/A  |   N/A  |   N/A
+    // |   B  |    true    |  O  |   N/A  |   N/A  |  S    |   N/A  |   N/A
+    // |   B  |    true    |  B  |   N/A  |   N/A  |  S    |   N/A  |   N/A
+    // |   B  |    false   |  I  |   N/A  |   N/A  |  W    |   N/A  |   N/A
+    // |   B  |    true    |  I  |   N/A  |   N/A  |  S    |   N/A  |   N/A
+
+    void
+    testURITokenMintTSH(FeatureBitset features)
+    {
+        testcase("uritoken mint tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: issuer
+        // flag: not burnable
+        // tsh issuer
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: issuer
+        // flag: not burnable
+        // tsh buyer
+        // w/s: none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
+            // set tsh hook
+            setTSHHook(env, buyer, testStrong);
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+
+        // otxn: issuer
+        // flag: burnable
+        // tsh issuer
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: issuer
+        // flag: burnable
+        // tsh buyer
+        // w/s: none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
+            // set tsh hook
+            setTSHHook(env, buyer, testStrong);
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+    }
 
     void
     testURITokenBurnTSH(FeatureBitset features)
@@ -3271,6 +3215,7 @@ private:
         // flag: not burnable
         // tsh owner
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3299,32 +3244,26 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, owner, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
         // flag: not burnable
         // tsh issuer
-        // w/s: strong
+        // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3353,32 +3292,30 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            auto const expected =
+                (fixV1 ? (testStrong ? tshNONE : tshNONE)
+                       : (testStrong ? tshSTRONG : tshSTRONG));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: owner
         // flag: burnable
         // tsh owner
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3408,32 +3345,26 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, owner, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
         // flag: burnable
         // tsh issuer
-        // w/s: strong
+        // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3463,32 +3394,30 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            auto const expected =
+                (fixV1 ? (testStrong ? tshNONE : tshNONE)
+                       : (testStrong ? tshSTRONG : tshSTRONG));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: issuer
         // flag: burnable
         // tsh owner
-        // w/s: strong
+        // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3518,32 +3447,30 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, owner, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(issuer, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+            auto const expected =
+                (fixV1 ? (testStrong ? tshNONE : tshNONE)
+                       : (testStrong ? tshSTRONG : tshSTRONG));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: issuer
         // flag: burnable
         // tsh issuer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3573,26 +3500,19 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // ttURITOKEN_BURN
             env(uritoken::burn(issuer, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3604,215 +3524,11 @@ private:
         using namespace test::jtx;
         using namespace std::literals;
 
-        // otxn: owner
-        // flag: not burnable
-        // tsh owner
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: owner
-        // flag: not burnable
-        // tsh issuer
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: owner
-        // flag: burnable
-        // tsh owner
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                txflags(tfBurnable),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: owner
-        // flag: burnable
-        // tsh issuer
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const owner = Account("bob");
-            env.fund(XRP(1000), issuer, owner);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(owner),
-                uritoken::amt(XRP(1)),
-                txflags(tfBurnable),
-                ter(tesSUCCESS));
-            env.close();
-
-            // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // buy uritoken
-            env(uritoken::buy(owner, hexid),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
         // otxn: buyer
-        // tsh owner
-        // w/s: strong
+        // flag: not burnable
+        // tsh issuer
+        // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3850,11 +3566,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // buy uritoken
             env(uritoken::buy(buyer, hexid),
@@ -3864,20 +3581,134 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: buyer
+        // flag: burnable
+        // tsh issuer
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(owner),
+                uritoken::amt(XRP(1)),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(owner, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // sell uritoken
+            env(uritoken::sell(owner, hexid),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // buy uritoken
+            env(uritoken::buy(buyer, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: buyer
+        // tsh owner
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            std::string const hexid{strHex(tid)};
+
+            // mint uritoken
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(owner),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(owner, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // sell uritoken
+            env(uritoken::sell(owner, hexid),
+                uritoken::dest(buyer),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
+            // set tsh hook
+            setTSHHook(env, owner, testStrong);
+
+            // buy uritoken
+            env(uritoken::buy(buyer, hexid),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: buyer
         // tsh buyer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3915,11 +3746,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // buy uritoken
             env(uritoken::buy(buyer, hexid),
@@ -3929,15 +3761,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3953,6 +3777,7 @@ private:
         // flag: not burnable
         // tsh owner
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -3989,32 +3814,26 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, owner, testStrong);
 
             // cancel uritoken
             env(uritoken::cancel(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
         // flag: not burnable
         // tsh buyer
         // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4030,9 +3849,6 @@ private:
             std::string const uri(2, '?');
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
-
-            env(fset(buyer, asfTshCollect));
-            env.close();
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -4054,30 +3870,26 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // cancel uritoken
             env(uritoken::cancel(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: owner
         // flag: burnable
         // tsh buyer
         // w/s: none
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4093,9 +3905,6 @@ private:
             std::string const uri(2, '?');
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
-
-            env(fset(buyer, asfTshCollect));
-            env.close();
 
             // mint uritoken
             env(uritoken::mint(issuer, uri),
@@ -4118,30 +3927,26 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // cancel uritoken
             env(uritoken::cancel(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            testTSHStrongWeak(env, tshNONE, __LINE__);
         }
 
         // otxn: owner
         // flag: burnable
         // tsh owner
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4179,26 +3984,19 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, owner, testStrong);
 
             // cancel uritoken
             env(uritoken::cancel(owner, hexid), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -4214,6 +4012,7 @@ private:
         // flag: not burnable
         // tsh owner
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4243,11 +4042,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, owner, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4258,21 +4058,14 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
         // flag: not burnable
         // tsh issuer
         // w/s: weak
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4289,9 +4082,6 @@ private:
             auto const tid = uritoken::tokenid(issuer, uri);
             std::string const hexid{strHex(tid)};
 
-            env(fset(issuer, asfTshCollect));
-            env.close();
-
             // mint uritoken
             env(uritoken::mint(issuer, uri),
                 uritoken::dest(owner),
@@ -4305,11 +4095,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4320,21 +4111,15 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000001");
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: owner
         // flag: not burnable
         // tsh buyer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4364,11 +4149,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4379,21 +4165,14 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
         // flag: not burnable
         // tsh buyer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4423,11 +4202,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
             // set tsh hook
-            env(hook(buyer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, buyer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4438,21 +4218,14 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
         // flag: burnable
         // tsh owner
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4483,11 +4256,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
             // set tsh hook
-            env(hook(owner, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, owner, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4498,21 +4272,14 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
 
         // otxn: owner
         // flag: burnable
         // tsh issuer
         // w/s: strong
+        for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
@@ -4543,11 +4310,12 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
             // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
+            setTSHHook(env, issuer, testStrong);
 
             // sell uritoken
             env(uritoken::sell(owner, hexid),
@@ -4558,208 +4326,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-    }
-
-    void
-    testURITokenMintTSH(FeatureBitset features)
-    {
-        testcase("uritoken mint tsh");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        // otxn: issuer
-        // flag: not burnable
-        // tsh issuer
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const buyer = Account("carol");
-            env.fund(XRP(1000), issuer, buyer);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(buyer),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: issuer
-        // flag: not burnable
-        // tsh buyer
-        // w/s: none
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const buyer = Account("carol");
-            env.fund(XRP(1000), issuer, buyer);
-            env.close();
-
-            env(fset(buyer, asfTshCollect));
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(buyer),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
-        }
-
-        // otxn: issuer
-        // flag: burnable
-        // tsh issuer
-        // w/s: strong
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const buyer = Account("carol");
-            env.fund(XRP(1000), issuer, buyer);
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // set tsh hook
-            env(hook(issuer, {{hso(TshHook, overrideFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(buyer),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                txflags(tfBurnable),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            auto const execution = executions[0u][sfHookExecution.jsonName];
-            BEAST_EXPECT(execution[sfHookResult.jsonName] == 3);
-            BEAST_EXPECT(execution[sfHookReturnString.jsonName] == "00000000");
-        }
-
-        // otxn: issuer
-        // flag: burnable
-        // tsh buyer
-        // w/s: none
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const issuer = Account("alice");
-            auto const buyer = Account("carol");
-            env.fund(XRP(1000), issuer, buyer);
-            env.close();
-
-            env(fset(buyer, asfTshCollect));
-            env.close();
-
-            std::string const uri(2, '?');
-            auto const tid = uritoken::tokenid(issuer, uri);
-            std::string const hexid{strHex(tid)};
-
-            // set tsh hook
-            env(hook(buyer, {{hso(TshHook, collectFlag)}}, 0),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
-
-            // mint uritoken
-            env(uritoken::mint(issuer, uri),
-                uritoken::dest(buyer),
-                uritoken::amt(XRP(1)),
-                fee(XRP(1)),
-                txflags(tfBurnable),
-                ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            Json::Value params;
-            params[jss::transaction] =
-                env.tx()->getJson(JsonOptions::none)[jss::hash];
-            auto const jrr = env.rpc("json", "tx", to_string(params));
-            auto const meta = jrr[jss::result][jss::meta];
-            auto const executions = meta[sfHookExecutions.jsonName];
-            BEAST_EXPECT(executions.size() == 0);
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -4792,11 +4359,11 @@ private:
         testSignersListSetTSH(features);
         testTicketCreateTSH(features);
         testTrustSetTSH(features);
+        testURITokenMintTSH(features);
         testURITokenBurnTSH(features);
         testURITokenBuyTSH(features);
         testURITokenCancelSellOfferTSH(features);
         testURITokenCreateSellOfferTSH(features);
-        testURITokenMintTSH(features);
     }
 
 public:
@@ -4805,6 +4372,7 @@ public:
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
+        testWithFeats(sa - fixXahauV1);
         testWithFeats(sa);
     }
 };

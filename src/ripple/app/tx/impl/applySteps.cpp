@@ -377,7 +377,6 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return URIToken::calculateBaseFee(view, tx);
         default:
-            assert(false);
             return XRPAmount{0};
     }
 }

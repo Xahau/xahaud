@@ -407,7 +407,8 @@ accountSend(
     AccountID const& from,
     AccountID const& to,
     const STAmount& saAmount,
-    beast::Journal j);
+    beast::Journal j,
+    bool const senderPaysXferFees = true);
 
 [[nodiscard]] TER
 issueIOU(

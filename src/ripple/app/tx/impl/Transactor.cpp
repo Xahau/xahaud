@@ -350,6 +350,23 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     XRPAmount accumulator = baseFee;
 
+    if (view.rules().enabled(featureHooks) &&
+        view.rules().enabled(fixXahauV1) && tx.isFieldPresent(sfHookParameters))
+    {
+        uint64_t paramBytes = 0;
+        auto const& params = tx.getFieldArray(sfHookParameters);
+        for (auto const& param : params)
+        {
+            paramBytes += (param.isFieldPresent(sfHookParameterName)
+                               ? param.getFieldVL(sfHookParameterName).size()
+                               : 0) +
+                (param.isFieldPresent(sfHookParameterValue)
+                     ? param.getFieldVL(sfHookParameterValue).size()
+                     : 0);
+        }
+        accumulator += XRPAmount{static_cast<XRPAmount>(paramBytes)};
+    }
+
     // fee based on memos, 1 drop per byte
     if (tx.isFieldPresent(sfMemos))
     {
