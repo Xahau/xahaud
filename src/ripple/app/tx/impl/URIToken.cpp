@@ -254,6 +254,8 @@ URIToken::preclaim(PreclaimContext const& ctx)
                     if (needed + purchaseAmount < needed)
                         return tecINTERNAL;
 
+                    needed += purchaseAmount;
+
                     if (needed > sle->getFieldAmount(sfBalance))
                         return tecINSUFFICIENT_FUNDS;
                 }
