@@ -240,7 +240,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
                 if (purchaseAmount.native() && saleAmount->native())
                 {
                     // native transfer
-                    
+
                     STAmount needed{ctx.view.fees().accountReserve(
                         sle->getFieldU32(sfOwnerCount) + 1)};
 
@@ -267,16 +267,20 @@ URIToken::preclaim(PreclaimContext const& ctx)
                     // iou transfer
 
                     STAmount availableFunds{accountFunds(
-                        ctx.view, acc, purchaseAmount, fhZERO_IF_FROZEN, ctx.j)};
+                        ctx.view,
+                        acc,
+                        purchaseAmount,
+                        fhZERO_IF_FROZEN,
+                        ctx.j)};
 
                     if (purchaseAmount > availableFunds)
                         return tecINSUFFICIENT_FUNDS;
                 }
             }
             else
-            {     
+            {
                 // old logic
-                
+
                 if (purchaseAmount.native() && saleAmount->native())
                 {
                     // if it's an xrp sale/purchase then no trustline needed
@@ -288,12 +292,15 @@ URIToken::preclaim(PreclaimContext const& ctx)
                 {
                     // iou
                     STAmount availableFunds{accountFunds(
-                        ctx.view, acc, purchaseAmount, fhZERO_IF_FROZEN, ctx.j)};
+                        ctx.view,
+                        acc,
+                        purchaseAmount,
+                        fhZERO_IF_FROZEN,
+                        ctx.j)};
 
                     if (purchaseAmount > availableFunds)
                         return tecINSUFFICIENT_FUNDS;
                 }
-            
             }
             return tesSUCCESS;
         }

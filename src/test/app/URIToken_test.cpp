@@ -455,12 +455,8 @@ struct URIToken_test : public beast::unit_test::suite
 
         // setup env
         Env env{
-            *this,
-            envconfig(),
-            features,
-            nullptr,
-            beast::severities::kWarning
-            //beast::severities::kTrace
+            *this, envconfig(), features, nullptr, beast::severities::kWarning
+            // beast::severities::kTrace
         };
         auto const alice = Account("alice");
         auto const bob = Account("bob");

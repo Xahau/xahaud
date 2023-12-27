@@ -438,7 +438,8 @@ EscrowFinish::preflight(PreflightContext const& ctx)
         if (!ctx.tx.isFieldPresent(sfOfferSequence))
             return temMALFORMED;
 
-        if (ctx.tx.isFieldPresent(sfEscrowID) && ctx.tx.getFieldU32(sfOfferSequence) != 0)
+        if (ctx.tx.isFieldPresent(sfEscrowID) &&
+            ctx.tx.getFieldU32(sfOfferSequence) != 0)
             return temMALFORMED;
     }
     else
@@ -720,7 +721,8 @@ EscrowCancel::preflight(PreflightContext const& ctx)
         if (!ctx.tx.isFieldPresent(sfOfferSequence))
             return temMALFORMED;
 
-        if (ctx.tx.isFieldPresent(sfEscrowID) && ctx.tx.getFieldU32(sfOfferSequence) != 0)
+        if (ctx.tx.isFieldPresent(sfEscrowID) &&
+            ctx.tx.getFieldU32(sfOfferSequence) != 0)
             return temMALFORMED;
     }
     else
