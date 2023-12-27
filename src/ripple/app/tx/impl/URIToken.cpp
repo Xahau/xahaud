@@ -235,16 +235,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (purchaseAmount < saleAmount)
                 return tecINSUFFICIENT_PAYMENT;
 
-            if (purchaseAmount.native() && saleAmount->native())
+            if (fixV1)
             {
-                if (!fixV1)
+                if (purchaseAmount.native() && saleAmount->native())
                 {
-                    if (purchaseAmount >
-                        (sleOwner->getFieldAmount(sfBalance) - ctx.tx[sfFee]))
-                        return tecINSUFFICIENT_FUNDS;
-                }
-                else
-                {
+                    // native transfer
+                    
                     STAmount needed{ctx.view.fees().accountReserve(
                         sle->getFieldU32(sfOwnerCount) + 1)};
 
@@ -261,27 +257,44 @@ URIToken::preclaim(PreclaimContext const& ctx)
                     if (needed > sle->getFieldAmount(sfBalance))
                         return tecINSUFFICIENT_FUNDS;
                 }
-            }
-            else if (fixV1)
-            {
-                if (!purchaseAmount.native() && !saleAmount->native())
+                else if (purchaseAmount.native() || saleAmount->native())
                 {
-                    // pass IOU
+                    // should not be able to happen
+                    return tecINTERNAL;
                 }
                 else
-                    return tecINTERNAL;
+                {
+                    // iou transfer
+
+                    STAmount availableFunds{accountFunds(
+                        ctx.view, acc, purchaseAmount, fhZERO_IF_FROZEN, ctx.j)};
+
+                    if (purchaseAmount > availableFunds)
+                        return tecINSUFFICIENT_FUNDS;
+                }
             }
+            else
+            {     
+                // old logic
+                
+                if (purchaseAmount.native() && saleAmount->native())
+                {
+                    // if it's an xrp sale/purchase then no trustline needed
+                    if (purchaseAmount >
+                        (sleOwner->getFieldAmount(sfBalance) - ctx.tx[sfFee]))
+                        return tecINSUFFICIENT_FUNDS;
+                }
+                else
+                {
+                    // iou
+                    STAmount availableFunds{accountFunds(
+                        ctx.view, acc, purchaseAmount, fhZERO_IF_FROZEN, ctx.j)};
 
-            // execution to here means it's an IOU sale
-            // check if the buyer has the right trustline with an adequate
-            // balance
-
-            STAmount availableFunds{accountFunds(
-                ctx.view, acc, purchaseAmount, fhZERO_IF_FROZEN, ctx.j)};
-
-            if (purchaseAmount > availableFunds)
-                return tecINSUFFICIENT_FUNDS;
-
+                    if (purchaseAmount > availableFunds)
+                        return tecINSUFFICIENT_FUNDS;
+                }
+            
+            }
             return tesSUCCESS;
         }
 
@@ -484,6 +497,8 @@ URIToken::doApply()
                     if (needed + purchaseAmount < needed)
                         return tecINTERNAL;
 
+                    needed += purchaseAmount;
+
                     if (needed > mPriorBalance)
                         return tecINSUFFICIENT_FUNDS;
                 }
@@ -503,7 +518,7 @@ URIToken::doApply()
 
                     if (STAmount availableFunds{accountFunds(
                             sb, account_, purchaseAmount, fhZERO_IF_FROZEN, j)};
-                        purchaseAmount >= availableFunds)
+                        purchaseAmount > availableFunds)
                         return tecINSUFFICIENT_FUNDS;
                 }
 

@@ -454,7 +454,14 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         // setup env
-        Env env{*this, features};
+        Env env{
+            *this,
+            envconfig(),
+            features,
+            nullptr,
+            beast::severities::kWarning
+            //beast::severities::kTrace
+        };
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");

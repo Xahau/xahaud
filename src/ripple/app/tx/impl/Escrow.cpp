@@ -437,13 +437,18 @@ EscrowFinish::preflight(PreflightContext const& ctx)
     {
         if (!ctx.tx.isFieldPresent(sfOfferSequence))
             return temMALFORMED;
-    }
 
-    if ((!ctx.tx.isFieldPresent(sfEscrowID) &&
-         !ctx.tx.isFieldPresent(sfOfferSequence)) ||
-        ctx.tx.isFieldPresent(sfEscrowID) &&
-            ctx.tx.isFieldPresent(sfOfferSequence))
-        return temMALFORMED;
+        if (ctx.tx.isFieldPresent(sfEscrowID) && ctx.tx.getFieldU32(sfOfferSequence) != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if ((!ctx.tx.isFieldPresent(sfEscrowID) &&
+             !ctx.tx.isFieldPresent(sfOfferSequence)) ||
+            ctx.tx.isFieldPresent(sfEscrowID) &&
+                ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+    }
 
     return tesSUCCESS;
 }
@@ -473,17 +478,6 @@ EscrowFinish::doApply()
     std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
     bool const fixV1 = view().rules().enabled(fixXahauV1);
-
-    if (!fixV1)
-    {
-        if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-            return temMALFORMED;
-    }
-    else
-    {
-        if (escrowID && offerSequence)
-            return temMALFORMED;
-    }
 
     Keylet k = escrowID ? Keylet(ltESCROW, *escrowID)
                         : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
@@ -725,13 +719,18 @@ EscrowCancel::preflight(PreflightContext const& ctx)
     {
         if (!ctx.tx.isFieldPresent(sfOfferSequence))
             return temMALFORMED;
-    }
 
-    if ((!ctx.tx.isFieldPresent(sfEscrowID) &&
-         !ctx.tx.isFieldPresent(sfOfferSequence)) ||
-        ctx.tx.isFieldPresent(sfEscrowID) &&
-            ctx.tx.isFieldPresent(sfOfferSequence))
-        return temMALFORMED;
+        if (ctx.tx.isFieldPresent(sfEscrowID) && ctx.tx.getFieldU32(sfOfferSequence) != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if ((!ctx.tx.isFieldPresent(sfEscrowID) &&
+             !ctx.tx.isFieldPresent(sfOfferSequence)) ||
+            ctx.tx.isFieldPresent(sfEscrowID) &&
+                ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+    }
 
     return preflight2(ctx);
 }
@@ -748,16 +747,6 @@ EscrowCancel::doApply()
     std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
     bool const fixV1 = view().rules().enabled(fixXahauV1);
-    if (!fixV1)
-    {
-        if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-            return temMALFORMED;
-    }
-    else
-    {
-        if (escrowID && offerSequence)
-            return temMALFORMED;
-    }
 
     Keylet k = escrowID ? Keylet(ltESCROW, *escrowID)
                         : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
