@@ -420,8 +420,6 @@ Remit::doApply()
                 ? multiply(amount, transferRate(sb, issuerAccID))
                 : amount;
 
-            auto const dstAmt = amount;
-
             STAmount availableFunds{
                 accountFunds(sb, srcAccID, srcAmt, fhZERO_IF_FROZEN, j)};
 
@@ -437,14 +435,10 @@ Remit::doApply()
                 nativeRemit += objectReserve;
 
             // action the transfer
-            STAmount sentAmt;
             if (TER result =
-                    rippleSend(sb, srcAccID, dstAccID, dstAmt, sentAmt, j);
+                    accountSend(sb, srcAccID, dstAccID, amount, j, false);
                 result != tesSUCCESS)
                 return result;
-
-            if (sentAmt != srcAmt)
-                return tecINTERNAL;
         }
     }
 
@@ -475,6 +469,28 @@ Remit::doApply()
                 return tecINTERNAL;
             sleDstAcc->setFieldAmount(sfBalance, bal);
         }
+    }
+
+    auto hasSufficientReserve = [&](std::shared_ptr<SLE> const& sle) -> bool {
+        std::uint32_t const uOwnerCount = sle->getFieldU32(sfOwnerCount);
+        return sle->getFieldAmount(sfBalance) >=
+            sb.fees().accountReserve(uOwnerCount);
+    };
+
+    // sanity check reserves
+    if (!hasSufficientReserve(sleSrcAcc))
+    {
+        JLOG(j.warn()) << "Remit: sender " << srcAccID
+                       << " lacks reserves to cover send.";
+        return tecINSUFFICIENT_RESERVE;
+    }
+
+    // this isn't actually an error but we will print a warning
+    // this can occur if the destination was already below reserve level at the
+    // time assets were sent
+    if (!hasSufficientReserve(sleDstAcc))
+    {
+        JLOG(j.warn()) << "Remit: destination has insufficient reserves.";
     }
 
     // apply
