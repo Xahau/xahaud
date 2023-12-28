@@ -454,10 +454,7 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         // setup env
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kWarning
-            // beast::severities::kTrace
-        };
+        Env env{*this, envconfig(), features, nullptr};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -508,7 +505,7 @@ struct URIToken_test : public beast::unit_test::suite
             ter(temBAD_CURRENCY));
         env.close();
 
-        // tecINSUFFICIENT_PAYMENT - insuficient buy offer amount
+        // tecINSUFFICIENT_PAYMENT - insufficient buy offer amount
         env(uritoken::buy(bob, hexid),
             uritoken::amt(USD(9)),
             ter(tecINSUFFICIENT_PAYMENT));
@@ -518,10 +515,15 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(XRP(10000)));
         env.close();
 
-        // tecINSUFFICIENT_FUNDS - insuficient xrp - fees
+        // tecINSUFFICIENT_FUNDS - insufficient xrp - fees
+        // fixXahauV1 - fix checking wrong account for insufficient xrp
+        env(pay(env.master, alice, XRP(10000)));
+        auto const txResult = env.current()->rules().enabled(fixXahauV1)
+            ? ter(tecINSUFFICIENT_FUNDS)
+            : ter(tecINTERNAL);
         env(uritoken::buy(bob, hexid),
-            uritoken::amt(XRP(1000)),
-            ter(tecINSUFFICIENT_PAYMENT));
+            uritoken::amt(XRP(10000)),
+            txResult);
         env.close();
 
         // clear sell and reset new sell
@@ -529,10 +531,10 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(USD(10000)));
         env.close();
 
-        // tecINSUFFICIENT_FUNDS - insuficient amount
+        // tecINSUFFICIENT_FUNDS - insufficient amount
         env(uritoken::buy(bob, hexid),
-            uritoken::amt(USD(1000)),
-            ter(tecINSUFFICIENT_PAYMENT));
+            uritoken::amt(USD(10000)),
+            ter(tecINSUFFICIENT_FUNDS));
         env.close();
 
         //----------------------------------------------------------------------
@@ -571,15 +573,20 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(XRP(1000)));
         env.close();
 
-        // tecINSUFFICIENT_PAYMENT - insuficient xrp sent
+        // tecINSUFFICIENT_PAYMENT - insufficient xrp sent
         env(uritoken::buy(bob, hexid),
             uritoken::amt(XRP(900)),
             ter(tecINSUFFICIENT_PAYMENT));
         env.close();
-        // tecINSUFFICIENT_FUNDS - insuficient xrp - fees
+        
+        // tecINSUFFICIENT_FUNDS - insufficient xrp - fees
+        // fixXahauV1 - fix checking wrong account for insufficient xrp
+        auto const txResult1 = env.current()->rules().enabled(fixXahauV1)
+            ? ter(tecINSUFFICIENT_FUNDS)
+            : ter(tecINTERNAL);
         env(uritoken::buy(bob, hexid),
             uritoken::amt(XRP(1000)),
-            ter(tecINSUFFICIENT_FUNDS));
+            txResult1);
         env.close();
 
         // clear sell and set usd sell
@@ -587,18 +594,19 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(USD(1000)));
         env.close();
 
-        // tecINSUFFICIENT_PAYMENT - insuficient amount sent
+        // tecINSUFFICIENT_PAYMENT - insufficient amount sent
         env(uritoken::buy(bob, hexid),
             uritoken::amt(USD(900)),
             ter(tecINSUFFICIENT_PAYMENT));
         env.close();
 
-        // tecINSUFFICIENT_FUNDS - insuficient amount sent
+        // tecINSUFFICIENT_FUNDS - insufficient amount sent
         env(uritoken::buy(bob, hexid),
             uritoken::amt(USD(10000)),
             ter(tecINSUFFICIENT_FUNDS));
         env.close();
-        // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
+        
+        // tecNO_LINE_INSUF_RESERVE - insufficient xrp to create line
         {
             // fund echo 251 xrp (not enough for line reserve)
             env.fund(XRP(251), echo);
@@ -617,7 +625,7 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::sell(echo, hexid), uritoken::amt(USD(1)));
             env.close();
 
-            // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
+            // tecNO_LINE_INSUF_RESERVE - insufficient xrp to create line
             auto const txResult = env.current()->rules().enabled(fixXahauV1)
                 ? ter(tecINSUF_RESERVE_SELLER)
                 : ter(tecNO_LINE_INSUF_RESERVE);
@@ -1974,13 +1982,16 @@ struct URIToken_test : public beast::unit_test::suite
             std::string multiply;
             std::string divide;
         };
-        std::array<TestRateData, 6> testCases = {{
+        std::array<TestRateData, 9> testCases = {{
             {1, USD(100), "1100", "1100"},
             {1.1, USD(100), "1110", "1090.909090909091"},
             {1.0005, USD(100), "1100.05", "1099.950024987506"},
             {1.005, USD(100), "1100.4999999", "1099.502487661197"},
             {1.25, USD(100), "1125", "1080"},
             {2, USD(100), "1200", "1050"},
+            {1.25, USD(1), "1001.25", "1000.8"},
+            {1.25, USD(0.1), "1000.125", "1000.08"},
+            {1.25, USD(0.0001), "1000.000125", "1000.00008"},
         }};
 
         for (auto const& tc : testCases)
@@ -2001,7 +2012,7 @@ struct URIToken_test : public beast::unit_test::suite
             // setup mint
             std::string const uri(maxTokenURILength, '?');
             std::string const id{strHex(uritoken::tokenid(alice, uri))};
-            auto const delta = USD(100);
+            auto const delta = tc.delta;
             env(uritoken::mint(alice, uri));
             env(uritoken::sell(alice, id), uritoken::amt(delta));
             env.close();
