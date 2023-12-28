@@ -302,6 +302,13 @@ GenesisMint::doApply()
 
         bool const firstOccurance = mints.find(id) == mints.end();
 
+        if (dropsAdded + toCredit < dropsAdded)
+        {
+            JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit " << id
+                                      << " due to dropsAdded overflow";
+            return tecINTERNAL;
+        }
+
         dropsAdded += toCredit;
 
         // if flags / marks appear more than once we just take the first
