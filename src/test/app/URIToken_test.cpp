@@ -2016,7 +2016,6 @@ struct URIToken_test : public beast::unit_test::suite
 
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
-            auto xferRate = transferRate(*env.current(), gw);
             auto const postAlice = env.balance(alice, USD.issue());
             if (!env.current()->rules().enabled(fixXahauV1))
             {
@@ -2027,6 +2026,53 @@ struct URIToken_test : public beast::unit_test::suite
                 BEAST_EXPECT(to_string(postAlice.value()) == tc.divide);
             }
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
+        }
+        
+        // test dust amount
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.50));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto const preBob = env.balance(bob, USD.issue());
+
+            // setup mint
+            std::string const uri(maxTokenURILength, '?');
+            std::string const id{strHex(uritoken::tokenid(alice, uri))};
+            env(uritoken::mint(alice, uri));
+
+            auto sellTx = uritoken::sell(alice, id);
+            sellTx[jss::Amount][jss::issuer] = gw.human();
+            sellTx[jss::Amount][jss::currency] = "USD";
+            sellTx[jss::Amount][jss::value] = "1e-81";
+            env(sellTx);
+            env.close();
+            
+
+            auto buyTx = uritoken::buy(bob, id);
+            buyTx[jss::Amount][jss::issuer] = gw.human();
+            buyTx[jss::Amount][jss::currency] = "USD";
+            buyTx[jss::Amount][jss::value] = "1e-81";
+            env(buyTx);
+            env.close();
+            auto const postAlice = env.balance(alice, USD.issue());
+
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                BEAST_EXPECT(postAlice.value() == preAlice);
+            }
+            else
+            {
+                BEAST_EXPECT(postAlice.value() == preAlice);
+            }
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - USD(0));
         }
 
         // test rate change
