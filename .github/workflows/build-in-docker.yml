@@ -2,9 +2,9 @@ name: Build using Docker
 
 on:
   push:
-    branches: [ "dev", "candidate", "release" ]
+    branches: [ "dev", "candidate" ]
   pull_request:
-    branches: [ "dev", "candidate", "release" ]
+    branches: [ "dev", "candidate" ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
