@@ -362,6 +362,7 @@ struct URIToken_test : public beast::unit_test::suite
         // tecNO_PERMISSION - no permission
         env(uritoken::burn(carol, hexid), ter(tecNO_PERMISSION));
         env.close();
+
         // tefBAD_LEDGER - could not remove object
     }
 
@@ -521,9 +522,7 @@ struct URIToken_test : public beast::unit_test::suite
         auto const txResult = env.current()->rules().enabled(fixXahauV1)
             ? ter(tecINSUFFICIENT_FUNDS)
             : ter(tecINTERNAL);
-        env(uritoken::buy(bob, hexid),
-            uritoken::amt(XRP(10000)),
-            txResult);
+        env(uritoken::buy(bob, hexid), uritoken::amt(XRP(10000)), txResult);
         env.close();
 
         // clear sell and reset new sell
@@ -578,15 +577,13 @@ struct URIToken_test : public beast::unit_test::suite
             uritoken::amt(XRP(900)),
             ter(tecINSUFFICIENT_PAYMENT));
         env.close();
-        
+
         // tecINSUFFICIENT_FUNDS - insufficient xrp - fees
         // fixXahauV1 - fix checking wrong account for insufficient xrp
         auto const txResult1 = env.current()->rules().enabled(fixXahauV1)
             ? ter(tecINSUFFICIENT_FUNDS)
             : ter(tecINTERNAL);
-        env(uritoken::buy(bob, hexid),
-            uritoken::amt(XRP(1000)),
-            txResult1);
+        env(uritoken::buy(bob, hexid), uritoken::amt(XRP(1000)), txResult1);
         env.close();
 
         // clear sell and set usd sell
@@ -605,7 +602,7 @@ struct URIToken_test : public beast::unit_test::suite
             uritoken::amt(USD(10000)),
             ter(tecINSUFFICIENT_FUNDS));
         env.close();
-        
+
         // tecNO_LINE_INSUF_RESERVE - insufficient xrp to create line
         {
             // fund echo 251 xrp (not enough for line reserve)
