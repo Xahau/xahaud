@@ -2027,7 +2027,7 @@ struct URIToken_test : public beast::unit_test::suite
             }
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
-        
+
         // test dust amount
         {
             Env env{*this, features};
@@ -2054,7 +2054,6 @@ struct URIToken_test : public beast::unit_test::suite
             sellTx[jss::Amount][jss::value] = "1e-81";
             env(sellTx);
             env.close();
-            
 
             auto buyTx = uritoken::buy(bob, id);
             buyTx[jss::Amount][jss::issuer] = gw.human();
