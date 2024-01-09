@@ -170,6 +170,7 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+
     testPreflightInvalid(FeatureBitset features)
     {
         testcase("preflight invalid");
