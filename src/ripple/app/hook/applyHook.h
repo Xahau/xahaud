@@ -46,6 +46,7 @@ public:
 
 using namespace ripple;
 static const std::map<uint16_t, uint8_t> TSHAllowances = {
+    {ttREMIT, tshROLLBACK},
     {ttPAYMENT, tshROLLBACK},
     {ttESCROW_CREATE, tshROLLBACK},
     {ttESCROW_FINISH, tshROLLBACK},
