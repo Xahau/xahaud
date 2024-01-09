@@ -38,18 +38,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     uint16_t tt = tx.getFieldU16(sfTransactionType);
 
-    uint8_t tsh = tshNONE;
-    if (auto const& found = hook::TSHAllowances.find(tt);
-        found != hook::TSHAllowances.end())
-        tsh = found->second;
-    else
-        return {};
-
     std::map<AccountID, std::pair<int, bool>> tshEntries;
 
     int upto = 0;
-
-    bool canRollback = tsh & tshROLLBACK;
 
     auto const ADD_TSH = [&otxnAcc, &tshEntries, &upto](
                              const AccountID& acc_r, bool rb) {
@@ -61,6 +52,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 tshEntries.emplace(acc_r, std::make_pair(upto++, rb));
         }
     };
+
+    bool const tshSTRONG = true; // tshROLLBACK
+    bool const tshWEAK = false; // tshCOLLECT
 
     auto const getNFTOffer =
         [](std::optional<uint256> id,
@@ -77,7 +71,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
     {
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
-                ADD_TSH(tx.getAccountID(sfIssuer), canRollback);
+                ADD_TSH(tx.getAccountID(sfIssuer), tshSTRONG);
             break;
         }
 
@@ -107,11 +101,11 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             {
                 // the owner burns their token, and the issuer is a weak TSH
                 if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
-                    ADD_TSH(issuer, false);
+                    ADD_TSH(issuer, tshWEAK);
                 // the issuer burns the owner's token, and the owner is a weak
                 // TSH
                 else if (rv.exists(keylet::account(owner)))
-                    ADD_TSH(owner, false);
+                    ADD_TSH(owner, tshWEAK);
 
                 break;
             }
@@ -121,13 +115,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 if (*otxnAcc == owner)
                 {
                     // the owner burns their token, and the issuer is a weak TSH
-                    ADD_TSH(issuer, true);
+                    ADD_TSH(issuer, tshSTRONG);
                 }
                 else
                 {
                     // the issuer burns the owner's token, and the owner is a
                     // weak TSH
-                    ADD_TSH(owner, true);
+                    ADD_TSH(owner, tshSTRONG);
                 }
             }
 
@@ -148,13 +142,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (owner != tx.getAccountID(sfAccount))
             {
                 // current owner is a strong TSH
-                ADD_TSH(owner, canRollback);
+                ADD_TSH(owner, tshSTRONG);
             }
 
             // issuer is also a strong TSH if the burnable flag is set
             auto const issuer = ut->getAccountID(sfIssuer);
             if (issuer != owner)
-                ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
+                ADD_TSH(issuer, (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
 
             break;
         }
@@ -173,11 +167,11 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             // issuer is a strong TSH if the burnable flag is set
             if (issuer != owner)
-                ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
+                ADD_TSH(issuer, (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
 
             // destination is a strong tsh
             if (tx.isFieldPresent(sfDestination))
-                ADD_TSH(tx.getAccountID(sfDestination), canRollback);
+                ADD_TSH(tx.getAccountID(sfDestination), tshSTRONG);
 
             break;
         }
@@ -186,7 +180,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttNFTOKEN_MINT:
         case ttCLAIM_REWARD: {
             if (tx.isFieldPresent(sfIssuer))
-                ADD_TSH(tx.getAccountID(sfIssuer), canRollback);
+                ADD_TSH(tx.getAccountID(sfIssuer), tshSTRONG);
             break;
         };
 
@@ -209,7 +203,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             ADD_TSH(issuer, issuerCanRollback);
             if (hasOwner)
-                ADD_TSH(owner, canRollback);
+                ADD_TSH(owner, tshWEAK);
             break;
         }
 
@@ -228,16 +222,16 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             if (bo)
             {
-                ADD_TSH(bo->getAccountID(sfOwner), canRollback);
+                ADD_TSH(bo->getAccountID(sfOwner), tfStrongTSH);
                 if (bo->isFieldPresent(sfDestination))
-                    ADD_TSH(bo->getAccountID(sfDestination), canRollback);
+                    ADD_TSH(bo->getAccountID(sfDestination), tshWEAK);
             }
 
             if (so)
             {
-                ADD_TSH(so->getAccountID(sfOwner), canRollback);
+                ADD_TSH(so->getAccountID(sfOwner), tfStrongTSH);
                 if (so->isFieldPresent(sfDestination))
-                    ADD_TSH(so->getAccountID(sfDestination), canRollback);
+                    ADD_TSH(so->getAccountID(sfDestination), tshWEAK);
             }
 
             break;
@@ -253,16 +247,16 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 auto const offer = getNFTOffer(offerID, rv);
                 if (offer)
                 {
-                    ADD_TSH(offer->getAccountID(sfOwner), canRollback);
+                    ADD_TSH(offer->getAccountID(sfOwner), tfStrongTSH);
                     if (offer->isFieldPresent(sfDestination))
                         ADD_TSH(
-                            offer->getAccountID(sfDestination), canRollback);
+                            offer->getAccountID(sfDestination), tshWEAK);
 
                     // issuer can't stop people canceling their offers, but can
                     // get weak executions
                     uint256 nid = offer->getFieldH256(sfNFTokenID);
                     auto const issuer = nft::getIssuer(nid);
-                    ADD_TSH(issuer, false);
+                    ADD_TSH(issuer, tshWEAK);
                 }
             }
             break;
@@ -283,14 +277,14 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttREGULAR_KEY_SET: {
             if (!tx.isFieldPresent(sfRegularKey))
                 return {};
-            ADD_TSH(tx.getAccountID(sfRegularKey), canRollback);
+            ADD_TSH(tx.getAccountID(sfRegularKey), tshSTRONG);
             break;
         }
 
         case ttDEPOSIT_PREAUTH: {
             if (!tx.isFieldPresent(sfAuthorize))
                 return {};
-            ADD_TSH(tx.getAccountID(sfAuthorize), canRollback);
+            ADD_TSH(tx.getAccountID(sfAuthorize), tshSTRONG);
             break;
         }
 
@@ -302,7 +296,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttPAYCHAN_CREATE:
         case ttINVOKE: {
             if (destAcc)
-                ADD_TSH(*destAcc, canRollback);
+                ADD_TSH(*destAcc, tshSTRONG);
             break;
         }
 
@@ -313,7 +307,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             auto const& lim = tx.getFieldAmount(sfLimitAmount);
             AccountID const& issuer = lim.getIssuer();
 
-            ADD_TSH(issuer, canRollback);
+            ADD_TSH(issuer, tshWEAK);
             break;
         }
 
@@ -348,7 +342,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
                 // the source account is a strong transacitonal stakeholder for
                 // fin and can
-                ADD_TSH(src, true);
+                ADD_TSH(src, tshSTRONG);
 
                 // the dest acc is a strong tsh for fin and weak for can
                 if (src != dst)
@@ -368,8 +362,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 if (!escrow)
                     return {};
 
-                ADD_TSH(escrow->getAccountID(sfAccount), true);
-                ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
+                ADD_TSH(escrow->getAccountID(sfAccount), tshSTRONG);
+                ADD_TSH(escrow->getAccountID(sfDestination), tt == ttESCROW_FINISH);
                 break;
             }
         }
@@ -383,8 +377,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!chan)
                 return {};
 
-            ADD_TSH(chan->getAccountID(sfAccount), true);
-            ADD_TSH(chan->getAccountID(sfDestination), canRollback);
+            ADD_TSH(chan->getAccountID(sfAccount), tshSTRONG);
+            ADD_TSH(chan->getAccountID(sfDestination), tshWEAK);
             break;
         }
 
@@ -397,8 +391,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!check)
                 return {};
 
-            ADD_TSH(check->getAccountID(sfAccount), true);
-            ADD_TSH(check->getAccountID(sfDestination), canRollback);
+            ADD_TSH(check->getAccountID(sfAccount), tshSTRONG);
+            ADD_TSH(check->getAccountID(sfDestination), tshWEAK);
             break;
         }
 
@@ -408,7 +402,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             STArray const& signerEntries = tx.getFieldArray(sfSignerEntries);
             for (auto const& entryObj : signerEntries)
                 if (entryObj.isFieldPresent(sfAccount))
-                    ADD_TSH(entryObj.getAccountID(sfAccount), canRollback);
+                    ADD_TSH(entryObj.getAccountID(sfAccount), tshSTRONG);
             break;
         }
 
@@ -420,7 +414,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 {
                     if (mint.isFieldPresent(sfDestination))
                     {
-                        ADD_TSH(mint.getAccountID(sfDestination), canRollback);
+                        ADD_TSH(mint.getAccountID(sfDestination), tshWEAK);
                     }
                 }
             }
