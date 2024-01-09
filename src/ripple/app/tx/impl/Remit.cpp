@@ -72,7 +72,7 @@ Remit::preflight(PreflightContext const& ctx)
             STAmount const amount = sEntry.getFieldAmount(sfAmount);
             if (!isLegalNet(amount) || amount.signum() <= 0)
             {
-                JLOG(ctx.j.warn()) << "Malformed transaction: bad amount: "
+                JLOG(ctx.j.warn()) << "Malformed transaction: Bad amount: "
                                    << amount.getFullText();
                 return temBAD_AMOUNT;
             }
