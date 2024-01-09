@@ -170,6 +170,66 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testPreflightInvalid(FeatureBitset features)
+    {
+        testcase("preflight invalid");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        // setup env
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+
+        //----------------------------------------------------------------------
+        // preflight
+
+        // temINVALID_FLAG - Invalid flags set.
+        // temREDUNDANT - Remit to self.
+        // temMALFORMED - Expected AmountEntry.
+        // temBAD_AMOUNT - Bad amount
+        // temBAD_CURRENCY - Bad currency.
+        // temMALFORMED - Native Currency appears more than once
+        // temMALFORMED - Issued Currency appears more than once.
+        // temMALFORMED - URI was too short/long.
+        // temMALFORMED - Invalid UTF8 inside MintURIToken.
+        // temINVALID_FLAG - Invalid URI Mint Flag
+        // temMALFORMED - Duplicate URITokenID.
+    }
+
+    void
+    testDoApplyInvalid(FeatureBitset features)
+    {
+        testcase("doApply invalid");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        // setup env
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+
+        //----------------------------------------------------------------------
+        // doApply
+
+        // terNO_ACCOUNT
+        // tecNO_PERMISSION
+        // tecDST_TAG_NEEDED
+        // tecDUPLICATE
+        // tecDIR_FULL
+        // tecUNFUNDED_PAYMENT
+        // tecNO_ENTRY
+        // tecNO_PERMISSION
+        // tefBAD_LEDGER
+        // tecDIR_FULL
+        // tecUNFUNDED_PAYMENT
+        // tecINTERNAL
+        // tecUNFUNDED_PAYMENT
+        // tecINTERNAL
+        // tecINTERNAL
+        // tecINSUFFICIENT_RESERVE
+
+    }
+
+    void
     testDestExistsTLExists(FeatureBitset features)
     {
         testcase("dest exists and trustline exists");
