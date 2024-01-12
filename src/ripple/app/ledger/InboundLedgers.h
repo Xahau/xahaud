@@ -94,6 +94,9 @@ public:
 
     virtual void
     stop() = 0;
+
+    virtual std::size_t
+    cacheSize() = 0;
 };
 
 std::unique_ptr<InboundLedgers>
