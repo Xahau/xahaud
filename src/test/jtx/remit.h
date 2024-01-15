@@ -31,7 +31,10 @@ namespace jtx {
 namespace remit {
 
 Json::Value
-remit(jtx::Account const& account, jtx::Account const& dest);
+remit(
+    jtx::Account const& account,
+    jtx::Account const& dest,
+    std::optional<std::uint32_t> const& dstTag = std::nullopt);
 
 /** Sets the optional Amount on a JTx. */
 class amts
@@ -85,7 +88,8 @@ private:
     std::vector<std::string> token_ids_;
 
 public:
-    explicit token_ids(std::vector<std::string> const& token_ids) : token_ids_(token_ids)
+    explicit token_ids(std::vector<std::string> const& token_ids)
+        : token_ids_(token_ids)
     {
     }
 
@@ -98,9 +102,13 @@ class uri
 {
 private:
     std::string uri_;
+    std::optional<std::uint32_t> flags_;
 
 public:
-    explicit uri(std::string const& uri) : uri_(uri)
+    explicit uri(
+        std::string const& uri,
+        std::optional<std::uint32_t> const& flags = std::nullopt)
+        : uri_(uri), flags_(flags)
     {
     }
 

@@ -26,13 +26,18 @@ namespace jtx {
 namespace remit {
 
 Json::Value
-remit(jtx::Account const& account, jtx::Account const& dest)
+remit(
+    jtx::Account const& account,
+    jtx::Account const& dest,
+    std::optional<std::uint32_t> const& dstTag)
 {
     using namespace jtx;
     Json::Value jv;
     jv[jss::TransactionType] = jss::Remit;
     jv[jss::Account] = account.human();
     jv[jss::Destination] = dest.human();
+    if (dstTag)
+        jv[sfDestinationTag.jsonName] = *dstTag;
     return jv;
 }
 
@@ -76,7 +81,10 @@ uri::operator()(Env& env, JTx& jt) const
 {
     jt.jv[sfMintURIToken.jsonName] = Json::Value{};
     jt.jv[sfMintURIToken.jsonName][sfURI.jsonName] = strHex(uri_);
-    ;
+    if (flags_)
+    {
+        jt.jv[sfMintURIToken.jsonName][sfFlags.jsonName] = *flags_;
+    }
 }
 
 }  // namespace remit
