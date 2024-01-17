@@ -817,16 +817,17 @@ Import::preflight(PreflightContext const& ctx)
                         << " validation count: " << validationCount;
 
     // check if the validation count is adequate
-    auto hasInsufficientQuorum = [&ctx](int quorum, int validationCount) {
-        if (ctx.rules.enabled(fixXahauV1))
-        {
-            return quorum > validationCount;
-        }
-        else
-        {
-            return quorum >= validationCount;
-        }
-    };
+    auto hasInsufficientQuorum =
+        [&ctx](uint64_t quorum, uint64_t validationCount) {
+            if (ctx.rules.enabled(fixXahauV1))
+            {
+                return quorum > validationCount;
+            }
+            else
+            {
+                return quorum >= validationCount;
+            }
+        };
     if (hasInsufficientQuorum(quorum, validationCount))
     {
         JLOG(ctx.j.warn()) << "Import: xpop did not contain an 80% quorum for "
