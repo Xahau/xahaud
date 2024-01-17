@@ -60,8 +60,8 @@ class TxQ
 private:
     std::mutex debugTxInjectMutex;
     std::vector<STTx> debugTxInjectQueue;
-public:
 
+public:
     void
     debugTxInject(STTx const& txn);
 

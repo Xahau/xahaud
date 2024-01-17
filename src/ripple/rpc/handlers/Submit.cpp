@@ -40,7 +40,6 @@ getFailHard(RPC::JsonContext const& context)
         context.params["fail_hard"].asBool());
 }
 
-
 // {
 //    tx_blob: serialized tx
 // }
@@ -48,9 +47,11 @@ getFailHard(RPC::JsonContext const& context)
 Json::Value
 doInject(RPC::JsonContext& context)
 {
-    if (!context.params.isMember(jss::tx_blob))
-            return RPC::make_error(
-                rpcINVALID_PARAMS, "Need tx_blob");
+    if (context.role != Role::ADMIN)
+        return RPC::make_error(
+            rpcNOT_SUPPORTED, "Signing is not supported by this server.");
+    if (context.role != Role::ADMIN)
+        return rpcError(rpcNO_PERMISSION);
 
     Json::Value jvResult;
 
@@ -78,11 +79,10 @@ doInject(RPC::JsonContext& context)
 
     context.app.getTxQ().debugTxInject(*stpTrans);
 
-
     jvResult[jss::tx_json] = stpTrans->getJson(JsonOptions::none);
     jvResult[jss::in_queue] = true;
-   
-    return jvResult; 
+
+    return jvResult;
 }
 
 // {

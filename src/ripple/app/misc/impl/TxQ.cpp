@@ -100,7 +100,6 @@ TxQ::debugTxInject(STTx const& txn)
     debugTxInjectQueue.push_back(txn);
 }
 
-
 std::size_t
 TxQ::FeeMetrics::update(
     Application& app,
@@ -1454,26 +1453,23 @@ TxQ::accept(Application& app, OpenView& view)
 
     // try to inject any debug txns waiting in the debug queue
     {
-        std::unique_lock<std::mutex> trylock (TxQ::debugTxInjectMutex, std::try_to_lock);
-        if(trylock.owns_lock() && !debugTxInjectQueue.empty())
+        std::unique_lock<std::mutex> trylock(
+            TxQ::debugTxInjectMutex, std::try_to_lock);
+        if (trylock.owns_lock() && !debugTxInjectQueue.empty())
         {
             // pop everything
             for (STTx const& txn : debugTxInjectQueue)
             {
                 auto txnHash = txn.getTransactionID();
                 app.getHashRouter().setFlags(txnHash, SF_EMITTED | SF_PRIVATE2);
-                
+
                 auto const& emitted =
-                    const_cast<ripple::STTx&>(txn)
-                        .downcast<STObject>();
+                    const_cast<ripple::STTx&>(txn).downcast<STObject>();
 
                 auto s = std::make_shared<ripple::Serializer>();
                 emitted.add(*s);
 
-                view.rawTxInsert(
-                    txnHash,
-                    std::move(s),
-                    nullptr);
+                view.rawTxInsert(txnHash, std::move(s), nullptr);
                 ledgerChanged = true;
             }
 
