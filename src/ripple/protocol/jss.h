@@ -353,6 +353,7 @@ JSS(ident);                 // in: AccountCurrencies, AccountInfo,
                             //     OwnerInfo
 JSS(ignore_default);        // in: AccountLines
 JSS(inLedger);              // out: tx/Transaction
+JSS(in_queue);
 JSS(inbound);               // out: PeerImp
 JSS(index);                 // in: LedgerEntry, DownloadShard
                             // out: STLedgerEntry,
