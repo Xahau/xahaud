@@ -648,6 +648,45 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
+    
+    if (hook::isEmittedTxn(ctx.tx) &&
+        ctx.view.rules().enabled(featureHooks) &&
+        ctx.view.rules().enabled(fixXahauV2))
+    {
+        // check if the emitted txn exists on ledger and is in the emission directory
+        // if not that's a re-apply so discard
+        auto const kl = keylet::emittedTxn(ctx.tx.getTransactionID());
+        auto const sleE = ctx.view.read(kl);
+        if (!sleE)
+            return tefNONDIR_EMIT;
+
+        // lookup the page
+        uint64_t const page = sleE->getFieldU64(sfOwnerNode);
+        auto node = ctx.view.read(keylet::page(keylet::emittedDir(), page));
+
+        if (!node)
+        {
+            JLOG(ctx.j.warn())
+                << "applyTransaction: orphaned emitted txn detected. keylet="
+                << to_string(kl.key);
+        
+            // RH TODO: work out how to safely delete the object
+            return tefNONDIR_EMIT;
+        }
+
+        auto entries = node->getFieldV256(sfIndexes);
+        auto it = std::find(entries.begin(), entries.end(), kl.key);
+        if (entries.end() == it)
+        {
+            JLOG(ctx.j.warn())
+                << "applyTransaction: orphaned emitted txn detected (2). keylet="
+                << to_string(kl.key);
+        
+            // RH TODO: work out how to safely delete the object
+            return tefNONDIR_EMIT;
+        }
+    }
+
     return tesSUCCESS;
 }
 
