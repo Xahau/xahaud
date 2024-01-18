@@ -649,7 +649,7 @@ int64_t hook(uint32_t r)
                             i - 12;
                         previous_member[3] = tbl;
 
-                        uint8_t vote_key[32];
+                        uint8_t vote_key[32] = {};
                         uint8_t ts = 
                             previous_member[1] == 'H' ? 32 :      // hook topics are a 32 byte hook hash
                             previous_member[1] == 'S' ? 20 :      // account topics are a 20 byte account ID
@@ -657,7 +657,7 @@ int64_t hook(uint32_t r)
                         
                         uint8_t padding = 32 - ts;
 
-                        if (state(vote_key + padding, 32, SBUF(previous_member)) == 32)
+                        if (state(vote_key + padding, ts, SBUF(previous_member)) == ts)
                         {
                             uint8_t vote_count = 0;
 
