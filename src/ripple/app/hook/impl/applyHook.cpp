@@ -175,9 +175,11 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
                 return {};
 
-            auto const dest = ut->getAccountID(sfDestination);
-
-            ADD_TSH(dest, tshWEAK);
+            if (ut->isFieldPresent(sfDestination))
+            {
+                auto const dest = ut->getAccountID(sfDestination);
+                ADD_TSH(dest, tshWEAK);
+            }
             break;
         }
 
