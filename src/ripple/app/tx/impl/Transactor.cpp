@@ -1474,14 +1474,15 @@ Transactor::addWeakTSHFromSandbox(detail::ApplyViewBase const& pv)
 TER
 Transactor::doTSH(
     bool strong,  // only strong iff true, only weak iff false
+    std::vector<std::pair<AccountID, bool>> tsh,
     hook::HookStateMap& stateMap,
     std::vector<hook::HookResult>& results,
     std::shared_ptr<STObject const> const& provisionalMeta)
 {
     auto& view = ctx_.view();
 
-    std::vector<std::pair<AccountID, bool>> tsh =
-        hook::getTransactionalStakeHolders(ctx_.tx, view);
+    // std::vector<std::pair<AccountID, bool>> tsh =
+    //     hook::getTransactionalStakeHolders(ctx_.tx, view);
 
     // add the extra TSH marked out by the specific transactor (if applicable)
     if (!strong)
@@ -1735,6 +1736,8 @@ Transactor::operator()()
     // application to the ledger
     std::map<AccountID, std::set<uint256>> aawMap;
 
+    std::vector<std::pair<AccountID, bool>> tsh = hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
+
     // Pre-application (Strong TSH) Hooks are executed here
     // These TSH have the right to rollback.
     // Weak TSH and callback are executed post-application.
@@ -1763,7 +1766,7 @@ Transactor::operator()()
             // (who have the right to rollback the txn), any weak TSH will be
             // executed after doApply has been successful (callback as well)
 
-            result = doTSH(true, stateMap, hookResults, {});
+            result = doTSH(true, tsh, stateMap, hookResults, {});
         }
 
         // write state if all chains executed successfully
@@ -2006,7 +2009,7 @@ Transactor::operator()()
         hook::HookStateMap stateMap;
         std::vector<hook::HookResult> weakResults;
 
-        doTSH(false, stateMap, weakResults, proMeta);
+        doTSH(false, tsh, stateMap, weakResults, proMeta);
 
         // execute any hooks that nominated for 'again as weak'
         for (auto const& [accID, hookHashes] : aawMap)

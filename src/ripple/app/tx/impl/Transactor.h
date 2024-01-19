@@ -188,6 +188,7 @@ protected:
     TER
     doTSH(
         bool strong,  // only do strong TSH iff true, otheriwse only weak
+        std::vector<std::pair<AccountID, bool>> tsh,
         hook::HookStateMap& stateMap,
         std::vector<hook::HookResult>& result,
         std::shared_ptr<STObject const> const& provisionalMeta);
