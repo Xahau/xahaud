@@ -1981,11 +1981,7 @@ public:
         testcase("Test float_emit");
         using namespace jtx;
         Env env{
-            *this,
-            envconfig(),
-            features,
-            nullptr,
-            beast::severities::kWarning
+            *this, envconfig(), features, nullptr, beast::severities::kWarning
             //            beast::severities::kTrace
         };
 
@@ -2345,8 +2341,11 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
-            BEAST_EXPECT(hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true : false);
-            BEAST_EXPECT(hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
+            BEAST_EXPECT(
+                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
+                                                                       : false);
+            BEAST_EXPECT(
+                hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
             auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
             BEAST_REQUIRE(hookExecutions.size() == 1);
@@ -2391,7 +2390,8 @@ public:
             }
 
             BEAST_REQUIRE(emithash);
-            BEAST_EXPECT(emithash == hookEmissions[0u].getFieldH256(sfEmittedTxnID));
+            BEAST_EXPECT(
+                emithash == hookEmissions[0u].getFieldH256(sfEmittedTxnID));
         }
 
         {
@@ -5059,7 +5059,7 @@ public:
             BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
             BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
         }
-        
+
         BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
 
