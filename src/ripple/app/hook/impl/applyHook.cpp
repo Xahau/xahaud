@@ -1944,14 +1944,14 @@ hook::finalizeHookResult(
         // add informational flags in fix2
         if (fixV2)
         {
-            uint16_t flags = 0;
+            uint32_t flags = 0;
             if (hookResult.isStrong)
                 flags |= hefSTRONG;
             if (hookResult.isCallback)
                 flags |= hefCALLBACK;
             if (hookResult.executeAgainAsWeak)
                 flags |= hefDOAAW;
-            meta.setFieldU16(sfFlags, flags);
+            meta.setFieldU32(sfFlags, flags);
         }
         avi.addHookExecutionMetaData(std::move(meta));
     }
