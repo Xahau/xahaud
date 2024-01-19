@@ -53,8 +53,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
     };
 
-    bool const tshSTRONG = true; // tshROLLBACK
-    bool const tshWEAK = false; // tshCOLLECT
+    bool const tshSTRONG = true;  // tshROLLBACK
+    bool const tshWEAK = false;   // tshCOLLECT
 
     auto const getNFTOffer =
         [](std::optional<uint256> id,
@@ -66,12 +66,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
     };
 
     bool const fixV1 = rv.rules().enabled(fixXahauV1);
+    bool const fixV2 = rv.rules().enabled(fixXahauV2);
 
     switch (tt)
     {
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
-                ADD_TSH(tx.getAccountID(sfIssuer), tshSTRONG);
+                ADD_TSH(tx.getAccountID(sfIssuer), fixV2 ? tshWEAK : tshSTRONG);
             break;
         }
 
@@ -148,7 +149,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             // issuer is also a strong TSH if the burnable flag is set
             auto const issuer = ut->getAccountID(sfIssuer);
             if (issuer != owner)
-                ADD_TSH(issuer, (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
+                ADD_TSH(
+                    issuer,
+                    (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
 
             break;
         }
@@ -167,7 +170,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             // issuer is a strong TSH if the burnable flag is set
             if (issuer != owner)
-                ADD_TSH(issuer, (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
+                ADD_TSH(
+                    issuer,
+                    (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
 
             // destination is a strong tsh
             if (tx.isFieldPresent(sfDestination))
@@ -249,8 +254,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 {
                     ADD_TSH(offer->getAccountID(sfOwner), tfStrongTSH);
                     if (offer->isFieldPresent(sfDestination))
-                        ADD_TSH(
-                            offer->getAccountID(sfDestination), tshWEAK);
+                        ADD_TSH(offer->getAccountID(sfDestination), tshWEAK);
 
                     // issuer can't stop people canceling their offers, but can
                     // get weak executions
@@ -346,7 +350,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
                 // the dest acc is a strong tsh for fin and weak for can
                 if (src != dst)
-                    ADD_TSH(dst, tt == ttESCROW_FINISH);
+                    ADD_TSH(dst, tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
 
                 break;
             }
@@ -363,7 +367,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                     return {};
 
                 ADD_TSH(escrow->getAccountID(sfAccount), tshSTRONG);
-                ADD_TSH(escrow->getAccountID(sfDestination), tt == ttESCROW_FINISH);
+                ADD_TSH(
+                    escrow->getAccountID(sfDestination),
+                    tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
                 break;
             }
         }
