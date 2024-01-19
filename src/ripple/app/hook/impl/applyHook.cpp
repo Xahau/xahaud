@@ -1855,7 +1855,7 @@ hook::finalizeHookResult(
     uint16_t exec_index = avi.nextHookExecutionIndex();
     // apply emitted transactions to the ledger (by adding them to the emitted
     // directory) if we are allowed to
-    std::vector<uint256> emission_txnid;
+    std::map<uint256 /* txnid */, uint256 /* emit nonce */> emission_txnid;
 
     if (doEmit)
     {
@@ -1876,7 +1876,12 @@ hook::finalizeHookResult(
 
             if (!sleEmitted)
             {
-                emission_txnid.push_back(id);
+                auto const& emitDetails = const_cast<ripple::STTx&>(*ptr)
+                                              .getField(sfEmitDetails)
+                                              .downcast<STObject>();
+
+                emission_txnid.emplace(
+                    id, emitDetails.getFieldH256(sfEmitNonce));
                 sleEmitted = std::make_shared<SLE>(emittedId);
 
                 // RH TODO: add a new constructor to STObject to avoid this
@@ -1908,6 +1913,7 @@ hook::finalizeHookResult(
         }
     }
 
+    bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);
     // add a metadata entry for this hook execution result
     {
         STObject meta{sfHookExecution};
@@ -1934,6 +1940,19 @@ hook::finalizeHookResult(
         meta.setFieldU16(sfHookExecutionIndex, exec_index);
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);
+
+        // add informational flags in fix2
+        if (fixV2)
+        {
+            uint16_t flags = 0;
+            if (hookResult.isStrong)
+                flags |= hefSTRONG;
+            if (hookResult.isCallback)
+                flags |= hefCALLBACK;
+            if (hookResult.executeAgainAsWeak)
+                flags |= hefDOAAW;
+            meta.setFieldU16(sfFlags, flags);
+        }
         avi.addHookExecutionMetaData(std::move(meta));
     }
 
@@ -1941,12 +1960,14 @@ hook::finalizeHookResult(
     if (applyCtx.view().rules().enabled(featureHooksUpdate1) &&
         !emission_txnid.empty())
     {
-        for (auto const& etxnid : emission_txnid)
+        for (auto const& [etxnid, enonce] : emission_txnid)
         {
             STObject meta{sfHookEmission};
             meta.setFieldH256(sfHookHash, hookResult.hookHash);
             meta.setAccountID(sfHookAccount, hookResult.account);
             meta.setFieldH256(sfEmittedTxnID, etxnid);
+            if (fixV2)
+                meta.setFieldH256(sfEmitNonce, enonce);
             avi.addHookEmissionMetaData(std::move(meta));
         }
     }
