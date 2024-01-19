@@ -141,6 +141,7 @@ Handler const handlerArray[]{
     {"ripple_path_find", byRef(&doRipplePathFind), Role::USER, NO_CONDITION},
     {"sign", byRef(&doSign), Role::USER, NO_CONDITION},
     {"sign_for", byRef(&doSignFor), Role::USER, NO_CONDITION},
+    {"inject", byRef(&doInject), Role::USER, NEEDS_CURRENT_LEDGER},
     {"submit", byRef(&doSubmit), Role::USER, NEEDS_CURRENT_LEDGER},
     {"submit_multisigned",
      byRef(&doSubmitMultiSigned),
