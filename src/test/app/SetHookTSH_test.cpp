@@ -1960,7 +1960,11 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+            auto const expected =
+                (fixV2 ? (testStrong ? tshNONE : tshWEAK)
+                       : (testStrong ? tshSTRONG : tshSTRONG));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
@@ -3030,16 +3034,16 @@ private:
     // | otxn | tfBurnable | tsh |   mint |  burn  |  buy  |  sell  | cancel
     // |   O  |    false   |  O  |   N/A  |   S    |  N/A  |   S    |   S
     // |   O  |    false   |  I  |   N/A  |   N    |  N/A  |   W    |   N/A
-    // |   O  |    false   |  B  |   N/A  |   N/A  |  N/A  |   N    |   N/A
-    // |   O  |    true    |  B  |   N/A  |   N/A  |  N/A  |   N    |   N/A
+    // |   O  |    false   |  B  |   N/A  |   N/A  |  N/A  |   N    |   N
+    // |   O  |    true    |  B  |   N/A  |   N/A  |  N/A  |   N    |   N
     // |   O  |    true    |  O  |   N/A  |   S    |  N/A  |   S    |   S
     // |   O  |    true    |  I  |   N/A  |   N    |  N/A  |   S    |   N/A
     // |   I  |    false   |  O  |   N/A  |   N/A  |  N/A  |   N/A  |   N/A
     // |   I  |    false   |  I  |   S    |   N/A  |  N/A  |   N/A  |   N/A
-    // |   I  |    false   |  B  |   N    |   N/A  |  N/A  |   N/A  |   N/A
+    // |   I  |    false   |  B  |   S    |   N/A  |  N/A  |   N/A  |   N/A
     // |   I  |    true    |  O  |   N/A  |   N    |  N/A  |   N/A  |   N/A
     // |   I  |    true    |  I  |   S    |   S    |  N/A  |   N/A  |   N/A
-    // |   I  |    true    |  B  |   N    |   N/A  |  N/A  |   N/A  |   N/A
+    // |   I  |    true    |  B  |   S    |   N/A  |  N/A  |   N/A  |   N/A
     // |   B  |    true    |  O  |   N/A  |   N/A  |  S    |   N/A  |   N/A
     // |   B  |    true    |  B  |   N/A  |   N/A  |  S    |   N/A  |   N/A
     // |   B  |    false   |  I  |   N/A  |   N/A  |  W    |   N/A  |   N/A
@@ -3095,7 +3099,7 @@ private:
         // otxn: issuer
         // flag: not burnable
         // tsh buyer
-        // w/s: none
+        // w/s: strong
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -3128,7 +3132,11 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            testTSHStrongWeak(env, tshNONE, __LINE__);
+            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+            auto const expected =
+                (fixV2 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: issuer
@@ -3174,7 +3182,7 @@ private:
         // otxn: issuer
         // flag: burnable
         // tsh buyer
-        // w/s: none
+        // w/s: strong
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
@@ -3208,7 +3216,11 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            testTSHStrongWeak(env, tshNONE, __LINE__);
+            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+            auto const expected =
+                (fixV2 ? (testStrong ? tshSTRONG : tshSTRONG)
+                       : (testStrong ? tshNONE : tshNONE));
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
@@ -4601,6 +4613,7 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testTSH(sa - fixXahauV1);
+        testTSH(sa - fixXahauV2);
         testTSH(sa);
         testEmittedTxn(sa - fixXahauV2);
         testEmittedTxn(sa);
