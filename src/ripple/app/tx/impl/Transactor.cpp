@@ -648,13 +648,11 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
-    
-    if (hook::isEmittedTxn(ctx.tx) &&
-        ctx.view.rules().enabled(featureHooks) &&
+    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks) &&
         ctx.view.rules().enabled(fixXahauV2))
     {
-        // check if the emitted txn exists on ledger and is in the emission directory
-        // if not that's a re-apply so discard
+        // check if the emitted txn exists on ledger and is in the emission
+        // directory if not that's a re-apply so discard
         auto const kl = keylet::emittedTxn(ctx.tx.getTransactionID());
         auto const sleE = ctx.view.read(kl);
         if (!sleE)
@@ -669,7 +667,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
             JLOG(ctx.j.warn())
                 << "applyTransaction: orphaned emitted txn detected. keylet="
                 << to_string(kl.key);
-        
+
             // RH TODO: work out how to safely delete the object
             return tefNONDIR_EMIT;
         }
@@ -678,10 +676,10 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         auto it = std::find(entries.begin(), entries.end(), kl.key);
         if (entries.end() == it)
         {
-            JLOG(ctx.j.warn())
-                << "applyTransaction: orphaned emitted txn detected (2). keylet="
-                << to_string(kl.key);
-        
+            JLOG(ctx.j.warn()) << "applyTransaction: orphaned emitted txn "
+                                  "detected (2). keylet="
+                               << to_string(kl.key);
+
             // RH TODO: work out how to safely delete the object
             return tefNONDIR_EMIT;
         }
