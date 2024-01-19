@@ -156,6 +156,31 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             break;
         }
 
+        case ttURITOKEN_MINT: {
+            // destination is a strong tsh
+            if (fixV2 && tx.isFieldPresent(sfDestination))
+                ADD_TSH(tx.getAccountID(sfDestination), tshSTRONG);
+            break;
+        }
+
+        case ttURITOKEN_CANCEL_SELL_OFFER: {
+            if (!fixV2)
+                break;
+
+            Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
+            if (!rv.exists(id))
+                return {};
+
+            auto const ut = rv.read(id);
+            if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                return {};
+
+            auto const dest = ut->getAccountID(sfDestination);
+
+            ADD_TSH(dest, tshWEAK);
+            break;
+        }
+
         case ttURITOKEN_CREATE_SELL_OFFER: {
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
             if (!rv.exists(id))
@@ -267,8 +292,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         // self transactions
-        case ttURITOKEN_MINT:
-        case ttURITOKEN_CANCEL_SELL_OFFER:
         case ttACCOUNT_SET:
         case ttOFFER_CANCEL:
         case ttTICKET_CREATE:
