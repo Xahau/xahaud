@@ -2159,9 +2159,14 @@ private:
             auto const USD = gw["USD"];
             env.fund(XRP(1000), account, cross, gw);
             env.close();
+            env.trust(USD(100000), account);
+            env.trust(USD(100000), cross);
+            env.close();
+            env(pay(gw, cross, USD(10000)));
+            env.close();
 
             // gw create offer
-            env(offer(gw, USD(1000), XRP(1000)));
+            env(offer(cross, XRP(1000), USD(1000)));
             env.close();
 
             // set tsh collect
@@ -2178,7 +2183,8 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            testTSHStrongWeak(env, tshNONE, __LINE__);
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
         }
     }
 
