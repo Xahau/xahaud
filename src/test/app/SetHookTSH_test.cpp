@@ -4870,9 +4870,12 @@ private:
             tx[jss::HookParameters] = Json::Value{Json::arrayValue};
             tx[jss::HookParameters][0U] = Json::Value{};
             tx[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
-            tx[jss::HookParameters][0U][jss::HookParameter][jss::HookParameterName] = "414157";
-            tx[jss::HookParameters][0U][jss::HookParameter][jss::HookParameterValue] = "01"; 
-            env(tx, fee(XRP(2)), ter(tesSUCCESS)); env.close();
+            tx[jss::HookParameters][0U][jss::HookParameter]
+              [jss::HookParameterName] = "414157";
+            tx[jss::HookParameters][0U][jss::HookParameter]
+              [jss::HookParameterValue] = "01";
+            env(tx, fee(XRP(2)), ter(tesSUCCESS));
+            env.close();
 
             // verify tsh hook triggered
             Json::Value params;
