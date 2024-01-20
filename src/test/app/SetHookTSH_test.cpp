@@ -513,7 +513,6 @@ private:
     void
     validateTSHFlags(jtx::Env& env, Json::Value meta, uint32_t const& expected)
     {
-        std::cout << "RESULT: " << meta << "\n";
         auto const executions = meta[sfHookExecutions.jsonName];
         auto const execution = executions[0u][sfHookExecution.jsonName];
         bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
