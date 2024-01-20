@@ -37,7 +37,7 @@ namespace ripple {
 
 namespace test {
 
-class TxQ1_test : public beast::unit_test::suite
+class TxQPosNegFlows_test : public beast::unit_test::suite
 {
     void
     checkMetrics(
@@ -5059,7 +5059,7 @@ public:
     }
 
     void
-    run2()
+    runMetaInfo()
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments() - featureXahauGenesis};
@@ -5082,17 +5082,17 @@ public:
     }
 };
 
-class TxQ2_test : public TxQ1_test
+class TxQMetaInfo_test : public TxQPosNegFlows_test
 {
     void
     run() override
     {
-        run2();
+        runMetaInfo();
     }
 };
 
-BEAST_DEFINE_TESTSUITE_PRIO(TxQ1, app, ripple, 1);
-BEAST_DEFINE_TESTSUITE_PRIO(TxQ2, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(TxQPosNegFlows, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(TxQMetaInfo, app, ripple, 1);
 
 }  // namespace test
 }  // namespace ripple
