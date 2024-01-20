@@ -434,10 +434,10 @@ private:
     }
 
     void
-    setCallbackHook(jtx::Env& env, jtx::Account const& account)
+    setCallbackHook(jtx::Env& env, jtx::Account const& account, bool const& testStrong)
     {
         using namespace test::jtx;
-        auto const tshFlag = overrideFlag;
+        auto const tshFlag = testStrong ? overrideFlag : collectFlag;
         env(hook(account, {{hso(CallbackHook, tshFlag)}}, 0),
             fee(XRP(2)),
             ter(tesSUCCESS));
@@ -510,6 +510,7 @@ private:
     void
     validateTSHFlags(jtx::Env& env, Json::Value meta, uint32_t const& expected)
     {
+        std::cout << "RESULT: " << meta << "\n";
         auto const executions = meta[sfHookExecutions.jsonName];
         auto const execution = executions[0u][sfHookExecution.jsonName];
         bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
@@ -4674,7 +4675,7 @@ private:
         env.close();
 
         // set emit hook
-        setCallbackHook(env, account);
+        setCallbackHook(env, account, true);
 
         // ttINVOKE
         env(invoke::invoke(account), fee(XRP(2)), ter(tesSUCCESS));
@@ -4826,10 +4827,51 @@ private:
             env.close();
 
             // set tsh hook
-            setCallbackHook(env, account);
+            setCallbackHook(env, account, true);
 
             // invoke
             env(invoke::invoke(account), fee(XRP(2)), ter(tesSUCCESS));
+            env.close();
+
+            // get the emitted txn id
+            Json::Value params;
+            params[jss::transaction] =
+                env.tx()->getJson(JsonOptions::none)[jss::hash];
+            auto const jrr = env.rpc("json", "tx", to_string(params));
+            auto const meta = jrr[jss::result][jss::meta];
+            auto const emissions = meta[sfHookEmissions.jsonName];
+            auto const emission = emissions[0u][sfHookEmission.jsonName];
+            auto const txId = emission[sfEmittedTxnID.jsonName];
+            env.close();
+
+            // verify tsh hook triggered
+            Json::Value params1;
+            params1[jss::transaction] = txId;
+            auto const jrr1 = env.rpc("json", "tx", to_string(params1));
+            auto const meta1 = jrr1[jss::result][jss::meta];
+            validateTSHFlags(env, meta1, 2);
+        }
+
+        // weak callback
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const issuer = Account{"gw"};
+            auto const USD = issuer["USD"];
+            env.fund(XRP(1000), account, issuer);
+            env.close();
+
+            addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setCallbackHook(env, issuer, false);
+
+            // trust set
+            env(trust(account, USD(1000)), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // get the emitted txn id
