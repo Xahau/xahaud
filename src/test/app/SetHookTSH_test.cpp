@@ -434,7 +434,10 @@ private:
     }
 
     void
-    setCallbackHook(jtx::Env& env, jtx::Account const& account, bool const& testStrong)
+    setCallbackHook(
+        jtx::Env& env,
+        jtx::Account const& account,
+        bool const& testStrong)
     {
         using namespace test::jtx;
         auto const tshFlag = testStrong ? overrideFlag : collectFlag;

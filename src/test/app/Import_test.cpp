@@ -5034,8 +5034,8 @@ class Import_test : public beast::unit_test::suite
             std::string ns_str =
                 "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECA"
                 "FE";
-            Json::Value jv =
-                ripple::test::jtx::hook(issuer, {{hso(createCodeHex)}}, hsfOVERRIDE | hsfCOLLECT);
+            Json::Value jv = ripple::test::jtx::hook(
+                issuer, {{hso(createCodeHex)}}, hsfOVERRIDE | hsfCOLLECT);
             jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
             jv[jss::Hooks][0U][jss::Hook][jss::HookOn] =
                 "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFDFFFFFFFFFFFFFFFFFFBFFF"
@@ -5065,7 +5065,8 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins - XRP(1) + mintXAH);
 
             // resubmit import without issuer
-            auto const result2 = fixV2 ? ter(tefPAST_IMPORT_SEQ) : ter(tesSUCCESS);
+            auto const result2 =
+                fixV2 ? ter(tefPAST_IMPORT_SEQ) : ter(tesSUCCESS);
             env(import::import(
                     alice, import::loadXpop(ImportTCAccountSet::w_seed)),
                 fee(feeDrops * 10),
