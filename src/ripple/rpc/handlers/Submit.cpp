@@ -48,9 +48,6 @@ Json::Value
 doInject(RPC::JsonContext& context)
 {
     if (context.role != Role::ADMIN)
-        return RPC::make_error(
-            rpcNOT_SUPPORTED, "Signing is not supported by this server.");
-    if (context.role != Role::ADMIN)
         return rpcError(rpcNO_PERMISSION);
 
     Json::Value jvResult;
