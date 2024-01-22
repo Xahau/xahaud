@@ -20,6 +20,12 @@ enum HookSetFlags : uint8_t {
     hsfNSDELETE = 0b00000010U,  // delete namespace
     hsfCOLLECT = 0b00000100U,   // allow collect calls on this hook
 };
+
+enum HookEmissionFlags : uint16_t {
+    hefSTRONG = 0x1,
+    hefCALLBACK = 0x2,
+    hefDOAAW = 0x4,
+};
 }  // namespace ripple
 
 namespace hook {
