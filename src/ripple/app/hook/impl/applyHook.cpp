@@ -1857,7 +1857,8 @@ hook::finalizeHookResult(
     uint16_t exec_index = avi.nextHookExecutionIndex();
     // apply emitted transactions to the ledger (by adding them to the emitted
     // directory) if we are allowed to
-    std::map<uint256 /* txnid */, uint256 /* emit nonce */> emission_txnid;
+    std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
+        emission_txnid;
 
     if (doEmit)
     {
@@ -1882,7 +1883,7 @@ hook::finalizeHookResult(
                                               .getField(sfEmitDetails)
                                               .downcast<STObject>();
 
-                emission_txnid.emplace(
+                emission_txnid.emplace_back(
                     id, emitDetails.getFieldH256(sfEmitNonce));
                 sleEmitted = std::make_shared<SLE>(emittedId);
 
