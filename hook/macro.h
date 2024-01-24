@@ -9,6 +9,34 @@
 #ifndef HOOKMACROS_INCLUDED
 #define HOOKMACROS_INCLUDED 1
 
+#define DONEEMPTY()\
+    accept(0,0,__LINE__)
+
+#define DONEMSG(msg)\
+    accept(msg, sizeof(msg),__LINE__)
+
+#define DONE(x)\
+    accept(SVAR(x),(uint32_t)__LINE__);
+
+
+#define SVAR(x) &x, sizeof(x)
+
+#define ASSERT(x)\
+{\
+    if (!(x))\
+        rollback(0,0,__LINE__);\
+}
+
+#define NOPE(x)\
+{\
+    return rollback((x), sizeof(x), __LINE__);\
+}
+
+#define FLIP_ENDIAN(n) ((uint32_t) (((n & 0xFFU) << 24U) | \
+                                   ((n & 0xFF00U) << 8U) | \
+                                 ((n & 0xFF0000U) >> 8U) | \
+                                ((n & 0xFF000000U) >> 24U)))
+
 
 #ifdef NDEBUG
 #define DEBUG 0
@@ -137,6 +165,18 @@ int out_len = 0;\
         *(((uint64_t*)(buf1)) + 1) == *(((uint64_t*)(buf2)) + 1) &&\
         *(((uint64_t*)(buf1)) + 2) == *(((uint64_t*)(buf2)) + 2) &&\
         *(((uint64_t*)(buf1)) + 3) == *(((uint64_t*)(buf2)) + 3))
+
+#define BUFFER_EQUAL_64(buf1, buf2) \
+    ( \
+        (*((uint64_t*)(buf1) + 0) == *((uint64_t*)(buf2) + 0)) && \
+        (*((uint64_t*)(buf1) + 1) == *((uint64_t*)(buf2) + 1)) && \
+        (*((uint64_t*)(buf1) + 2) == *((uint64_t*)(buf2) + 2)) && \
+        (*((uint64_t*)(buf1) + 3) == *((uint64_t*)(buf2) + 3)) && \
+        (*((uint64_t*)(buf1) + 4) == *((uint64_t*)(buf2) + 4)) && \
+        (*((uint64_t*)(buf1) + 5) == *((uint64_t*)(buf2) + 5)) && \
+        (*((uint64_t*)(buf1) + 6) == *((uint64_t*)(buf2) + 6)) && \
+        (*((uint64_t*)(buf1) + 7) == *((uint64_t*)(buf2) + 7)) \
+    )
 
 
 // when using this macro buf1len may be dynamic but buf2len must be static
@@ -483,11 +523,16 @@ int out_len = 0;\
 #define _07_03_ENCODE_SIGNING_PUBKEY(buf_out, pkey )\
     ENCODE_SIGNING_PUBKEY(buf_out, pkey );
 
-#define ENCODE_SIGNING_PUBKEY_NULL_SIZE 2
+#define ENCODE_SIGNING_PUBKEY_NULL_SIZE 35
 #define ENCODE_SIGNING_PUBKEY_NULL(buf_out )\
     {\
-        *buf_out++ = 0x73U;\
-        *buf_out++ = 0x00U;\
+        buf_out[0] = 0x73U;\
+        buf_out[1] = 0x21U;\
+        *(uint64_t*)(buf_out+2) = 0;\
+        *(uint64_t*)(buf_out+10) = 0;\
+        *(uint64_t*)(buf_out+18) = 0;\
+        *(uint64_t*)(buf_out+25) = 0;\
+        buf_out += ENCODE_SIGNING_PUBKEY_NULL_SIZE;\
     }
 
 #define _07_03_ENCODE_SIGNING_PUBKEY_NULL(buf_out )\
@@ -516,8 +561,7 @@ int out_len = 0;\
             }\
             else\
             {\
-                *buf_out++ = 0x50U; /* HookHash */\
-                *buf_out++ = 0x1FU;\
+                *buf_out++ = 0x1FU; /* HookHash */\
                 uint64_t* d = (uint64_t*)buf_out;\
                 uint64_t* s = (uint64_t*)hook0;\
                 *d++ = *s++;\
