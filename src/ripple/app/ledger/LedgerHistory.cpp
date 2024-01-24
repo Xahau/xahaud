@@ -386,6 +386,17 @@ LedgerHistory::handleMismatch(
     JLOG(j_.error()) << "built\n" << getJson({*builtLedger, {}});
     JLOG(j_.error()) << "valid\n" << getJson({*validLedger, {}});
 
+    {
+        auto b = builtTx.begin();
+        auto v = validTx.begin();
+        while (b != builtTx.end() && v != validTx.end())
+        {
+            log_one(*builtLedger, (*b)->key(), "validInfo", j_);
+            log_one(*validLedger, (*v)->key(), "builtInfo", j_);
+            ++b;
+            ++v;
+        }
+    }
     // Log all differences between built and valid ledgers
     auto b = builtTx.begin();
     auto v = validTx.begin();
