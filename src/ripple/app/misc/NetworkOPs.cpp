@@ -2201,6 +2201,9 @@ NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
         jvObj[jss::signing_time] = *(*val)[~sfSigningTime];
         jvObj[jss::data] = strHex(val->getSerializer().slice());
 
+        if (auto const netid = app_.overlay().networkID())
+            jvObj[jss::network_id] = static_cast<Json::UInt>(*netid);
+
         if (auto version = (*val)[~sfServerVersion])
             jvObj[jss::server_version] = std::to_string(*version);
 
