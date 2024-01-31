@@ -33,7 +33,7 @@
 namespace beast::detail {
 
 inline void
-setCurrentThreadNameImpl(std::string_view name)
+setCurrentThreadNameImpl(std::string_view name) noexcept
 {
 #if DEBUG && BOOST_COMP_MSVC
     // This technique is documented by Microsoft and works for all versions
@@ -81,7 +81,7 @@ setCurrentThreadNameImpl(std::string_view name)
 namespace beast::detail {
 
 inline void
-setCurrentThreadNameImpl(std::string_view name)
+setCurrentThreadNameImpl(std::string_view name) noexcept
 {
     pthread_setname_np(name.data());
 }
@@ -95,7 +95,7 @@ setCurrentThreadNameImpl(std::string_view name)
 namespace beast::detail {
 
 inline void
-setCurrentThreadNameImpl(std::string_view name)
+setCurrentThreadNameImpl(std::string_view name) noexcept
 {
     pthread_setname_np(pthread_self(), name.data());
 }
@@ -116,7 +116,7 @@ getCurrentThreadName()
 }
 
 void
-setCurrentThreadName(std::string_view name)
+setCurrentThreadName(std::string_view name) noexcept
 {
     detail::threadName = name;
     detail::setCurrentThreadNameImpl(name);

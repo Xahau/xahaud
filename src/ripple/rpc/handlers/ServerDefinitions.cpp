@@ -370,33 +370,23 @@ private:
 
         ret[jss::native_currency_code] = systemCurrencyCode();
 
-        // generate hash
-        {
-            const std::string out = Json::FastWriter().write(ret);
-            defsHash =
-                ripple::sha512Half(ripple::Slice{out.data(), out.size()});
-        }
         return ret;
     }
 
-    std::optional<uint256> defsHash;
-    Json::Value defs;
+    Json::Value const defs;
+    uint256 const defsHash;
 
 public:
-    Definitions() : defs(generate()){};
+    Definitions()
+        : defs(generate())
+        , defsHash(ripple::sha512Half(Json::FastWriter().write(defs)))
+    {
+    }
 
     uint256 const&
     getHash() const
     {
-        if (!defsHash)
-        {
-            // should be unreachable
-            // if this does happen we don't want 0 xor 0 so use a random value
-            // here
-            return uint256(
-                "DF4220E93ADC6F5569063A01B4DC79F8DB9553B6A3222ADE23DEA0");
-        }
-        return *defsHash;
+        return defsHash;
     }
 
     Json::Value const&

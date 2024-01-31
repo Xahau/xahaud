@@ -33,7 +33,7 @@ namespace beast {
     Different OSes may place different length or content limits on this name.
 */
 void
-setCurrentThreadName(std::string_view newThreadName);
+setCurrentThreadName(std::string_view newThreadName) noexcept;
 
 /** Returns the name of the caller thread.
 
