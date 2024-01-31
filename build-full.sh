@@ -60,15 +60,22 @@ fi
 mkdir .nih_c;
 mkdir .nih_toolchain;
 cd .nih_toolchain &&
-yum install -y wget lz4 lz4-devel git llvm13-static.x86_64 llvm13-devel.x86_64 devtoolset-10-binutils zlib-static ncurses-static -y \
-  devtoolset-7-gcc-c++ \
-  devtoolset-9-gcc-c++ \
-  devtoolset-10-gcc-c++ \
+yum remove -y devtoolset-9-gcc-g++ \
+    devtoolset-9-binutils \
+    devtoolset-7-gcc-g++ \
+    devtoolset-7-binutils \
+    devtoolset-10-gcc-g++ \
+    devtoolset-10-binutils
+yum install -y wget lz4 lz4-devel git llvm13-static.x86_64 llvm13-devel.x86_64 zlib-static ncurses-static -y \
+  devtoolset-11-binutils \
+  devtoolset-11-gcc-c++ \
   snappy snappy-devel \
   zlib zlib-devel \
   lz4-devel \
   libasan &&
-export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-7/g"` &&
+export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-11/g"`
+# Override Holy's C++ stdlib
+export LDFLAGS=""
 echo "-- Install ZStd 1.1.3 --" &&
 yum install epel-release -y &&
 ZSTD_VERSION="1.1.3" &&
@@ -97,8 +104,6 @@ cd .. &&
 echo "-- Build LLD --" &&
 pwd &&
 ln /usr/bin/llvm-config-13 /usr/bin/llvm-config &&
-mv /opt/rh/devtoolset-9/root/usr/bin/ar /opt/rh/devtoolset-9/root/usr/bin/ar-9 &&
-ln /opt/rh/devtoolset-10/root/usr/bin/ar  /opt/rh/devtoolset-9/root/usr/bin/ar &&
 ( wget -nc -q https://github.com/llvm/llvm-project/releases/download/llvmorg-13.0.1/lld-13.0.1.src.tar.xz; echo "" ) &&
 ( wget -nc -q https://github.com/llvm/llvm-project/releases/download/llvmorg-13.0.1/libunwind-13.0.1.src.tar.xz; echo "" ) &&
 tar -xf lld-13.0.1.src.tar.xz &&
@@ -121,7 +126,6 @@ cd build &&
 export BOOST_ROOT="/usr/local/src/boost_1_75_0" &&
 export Boost_LIBRARY_DIRS="/usr/local/lib" &&
 export BOOST_INCLUDEDIR="/usr/local/src/boost_1_75_0" &&
-export PATH=`echo $PATH | sed -E "s/devtoolset-7/devtoolset-9/g"` &&
 cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DWASMEDGE_BUILD_SHARED_LIB=OFF \
@@ -134,7 +138,6 @@ cmake .. \
     -DWASMEDGE_LINK_TOOLS_STATIC=ON \
     -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ &&
 make -j$3 install &&
-export PATH=`echo $PATH | sed -E "s/devtoolset-9/devtoolset-10/g"` &&
 cp -r include/api/wasmedge /usr/include/ &&
 cd /io/ &&
 echo "-- Build Rippled --" &&
