@@ -72,6 +72,44 @@
 // URITokenMint: sfDigest
 // URITokenMint: sfFlags
 
+
+// Empty
+// 0. Dest Tag? or Dest Disallow Remit?
+// 1. Does Dest Exist
+// 1.1 Create w/ featureXahauGenesis
+// 1.2 Create w/out featureXahauGenesis
+
+// XAH
+// 1. Available Funds
+
+// Token
+// 1. Is Issuer Send/Recv
+// 2. Is Trust Allowed
+// 3. Transfer Rate
+// 4. Available Funds
+// 5. Dest Has Trustline
+
+// Finish All
+// 1. Has enough XAH
+// 2. Subtract From Sender
+// 3. Add to Dest
+// 4. Check Reserves
+
+
+// URITokenMint
+// 1. Check for duplicate
+// 2. Update Fields
+// 3. Add to Dest
+// 3. Add Deletion Blocker on Account
+
+// URITokenTransfer
+// 1. Erase Sell Offers
+// 2. Pay Reserve
+// 3. Remove from Seller Dir
+// 4. Add to Dest Dir
+// 5. Update Owner
+
+
 namespace ripple {
 namespace test {
 struct Remit_test : public beast::unit_test::suite
@@ -1918,58 +1956,47 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(lineBalance(env, t.src, t.src, USD) == USD(0));
         }
 
-        // std::array<TestAccountData, 4> gwDstTests = {{
-        //     // // // src > dst && src > issuer && dst has trustline
-        //     {Account("alice2"), Account{"gw0"}, true, true},
-        //     // // // src < dst && src < issuer && dst has trustline
-        //     {Account("carol0"), Account{"gw1"}, true, false},
-        //     // // // // dst > src && dst > issuer && dst has trustline
-        //     {Account("dan1"), Account{"gw0"}, true, true},
-        //     // // // // dst < src && dst < issuer && dst has trustline
-        //     {Account("bob0"), Account{"gw1"}, true, false},
-        // }};
+        std::array<TestAccountData, 4> gwDstTests = {{
+            // // // src > dst && src > issuer && dst has trustline
+            {Account("alice2"), Account{"gw0"}, true, true},
+            // // // src < dst && src < issuer && dst has trustline
+            {Account("carol0"), Account{"gw1"}, true, false},
+            // // // // dst > src && dst > issuer && dst has trustline
+            {Account("dan1"), Account{"gw0"}, true, true},
+            // // // // dst < src && dst < issuer && dst has trustline
+            {Account("bob0"), Account{"gw1"}, true, false},
+        }};
 
-        // for (auto const& t : gwDstTests)
-        // {
-        //     Env env{*this, features};
-        //     auto const USD = t.dst["USD"];
-        //     env.fund(XRP(5000), t.src, t.dst);
-        //     env.close();
+        for (auto const& t : gwDstTests)
+        {
+            Env env{*this, features};
+            auto const USD = t.dst["USD"];
+            env.fund(XRP(5000), t.src, t.dst);
+            env.close();
 
-        //     env.trust(USD(100000), t.src);
-        //     env.close();
+            env.trust(USD(100000), t.src);
+            env.close();
 
-        //     env(pay(t.dst, t.src, USD(10000)));
-        //     env.close();
+            env(pay(t.dst, t.src, USD(10000)));
+            env.close();
 
-        //     // src can create paychan to dst/issuer
-        //     auto const pk = t.src.pk();
-        //     auto const settleDelay = 100s;
-        //     auto const chan = channel(t.src, t.dst, env.seq(t.src));
-        //     env(paychan::create(t.src, t.dst, USD(1000), settleDelay, pk));
-        //     env.close();
+            auto const preSrc = lineBalance(env, t.src, t.dst, USD);
 
-        //     // dst/gw can claim paychan
-        //     auto const preSrc = lineBalance(env, t.src, t.dst, USD);
-        //     auto chanBal = channelBalance(*env.current(), chan);
-        //     auto chanAmt = channelAmount(*env.current(), chan);
-        //     auto const delta = USD(500);
-        //     auto const reqBal = chanBal + delta;
-        //     auto const authAmt = reqBal + USD(100);
-        //     auto const sig =
-        //         signClaimIOUAuth(t.src.pk(), t.src.sk(), chan, authAmt);
-        //     env(paychan::claim(
-        //         t.dst, chan, reqBal, authAmt, Slice(sig), t.src.pk()));
-        //     env.close();
-        //     auto const preAmount = 10000;
-        //     BEAST_EXPECT(
-        //         preSrc == (t.negative ? -USD(preAmount) : USD(preAmount)));
-        //     auto const postAmount = 9500;
-        //     BEAST_EXPECT(
-        //         lineBalance(env, t.src, t.dst, USD) ==
-        //         (t.negative ? -USD(postAmount) : USD(postAmount)));
-        //     BEAST_EXPECT(lineBalance(env, t.dst, t.dst, USD) == USD(0));
-        // }
+            // issuer can remit to issuer
+            env(remit::remit(t.src, t.dst),
+                remit::amts({ USD(100) }),
+                ter(tesSUCCESS));
+            env.close();
+
+            auto const preAmount = 10000;
+            BEAST_EXPECT(
+                preSrc == (t.negative ? -USD(preAmount) : USD(preAmount)));
+            auto const postAmount = 9900;
+            BEAST_EXPECT(
+                lineBalance(env, t.src, t.dst, USD) ==
+                (t.negative ? -USD(postAmount) : USD(postAmount)));
+            BEAST_EXPECT(lineBalance(env, t.dst, t.dst, USD) == USD(0));
+        }
     }
 
     void
@@ -2101,6 +2128,250 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    validateNoRipple(
+        jtx::Env& env,
+        jtx::Account const& acct,
+        jtx::Account const& peer,
+        bool const& result)
+    {
+        Json::Value params;
+        params[jss::account] = acct.human();
+        params[jss::peer] = peer.human();
+
+        auto lines = env.rpc("json", "account_lines", to_string(params));
+        std::cout << "RESULT: " << lines << "\n";
+        auto const& line = lines[jss::result][jss::lines][0u];
+        BEAST_EXPECT(line[jss::no_ripple_peer].asBool() == result);
+    }
+
+    void
+    testRippling(FeatureBitset features)
+    {
+        testcase("rippling");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // // rippling enabled
+        // {
+        //     Env env{*this, features};
+        //     auto const alice = Account("alice");
+        //     auto const bob = Account("bob");
+        //     auto const carol = Account("carol");
+        //     auto const USDA = alice["USD"];
+        //     auto const USDB = bob["USD"];
+        //     auto const USDC = carol["USD"];
+        //     env.fund(XRP(10000), alice, bob, carol);
+        //     env.close();
+
+        //     // alice trusts USD bob & carol
+        //     env(trust(alice, USDB(100)));
+        //     env(trust(alice, USDC(100)));
+        //     // bob trusts USD alice & carol
+        //     env(trust(bob, USDA(100)));
+        //     env(trust(bob, USDC(100)));
+        //     // carol trusts USD alice & bob
+        //     env(trust(carol, USDA(100)));
+        //     env(trust(carol, USDB(100)));
+        //     env.close();
+        //     // alice pays bob USDA
+        //     env(pay(alice, bob, USDA(10)));
+        //     // carol pays alice USDC
+        //     env(pay(carol, alice, USDC(10)));
+        //     env.close();
+
+        //     /*
+        //     aliceUSDABal: 0/USD(alice)
+        //     aliceUSDBBal: -10/USD(bob)
+        //     aliceUSDCBal: 10/USD(carol)
+        //     bobUSDABal: 10/USD(alice)
+        //     bobUSDBBal: 0/USD(bob)
+        //     bobUSDCBal: 0/USD(carol)
+        //     carolUSDABal: -10/USD(alice)
+        //     carolUSDBBal: 0/USD(bob)
+        //     carolUSDCBal: 0/USD(carol)
+        //     */
+
+        //     testDebug("PRE", env, { alice, bob, carol }, { USDA, USDB, USDC });
+        //     BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+        //     BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
+        //     BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
+        //     BEAST_EXPECT(env.balance(bob, USDA) == USDA(10));
+        //     BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+        //     BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+        //     BEAST_EXPECT(env.balance(carol, USDA) == USDA(-10));
+        //     BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+        //     BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+
+        //     validateNoRipple(env, alice, bob, false);
+        //     validateNoRipple(env, alice, carol, false);
+        //     validateNoRipple(env, bob, alice, false);
+        //     validateNoRipple(env, bob, carol, false);
+        //     validateNoRipple(env, carol, alice, false);
+        //     validateNoRipple(env, carol, bob, false);
+
+        //     // alice cannot create to carol with USDB
+        //     env(remit::remit(alice, carol),
+        //         remit::amts({USDB(10)}),
+        //         ter(tecUNFUNDED_PAYMENT));
+        //     env.close();
+
+        //     // negative direction destination
+        //     // bob can remit to carol with USDA
+        //     env(remit::remit(bob, carol),
+        //         remit::amts({USDA(10)}),
+        //         ter(tesSUCCESS));
+        //     env.close();
+
+        //     testDebug("POST", env, { alice, bob, carol }, { USDA, USDB, USDC });
+        //     BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+        //     BEAST_EXPECT(env.balance(alice, USDB) == USDB(0));
+        //     BEAST_EXPECT(env.balance(alice, USDC) == USDC(0));
+        //     BEAST_EXPECT(env.balance(bob, USDA) == USDA(0));
+        //     BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+        //     BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+        //     BEAST_EXPECT(env.balance(carol, USDA) == USDA(0));
+        //     BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+        //     BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+        // }
+
+        // rippling not enabled
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const USDA = alice["USD"];
+            auto const USDB = bob["USD"];
+            auto const USDC = carol["USD"];
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            // alice trusts USD bob & carol
+            env(trust(alice, USDB(100), bob, tfSetNoRipple));
+            env(trust(alice, USDC(100), carol, tfSetNoRipple));
+            // bob trusts USD alice & carol
+            env(trust(bob, USDA(100), alice, tfSetNoRipple));
+            env(trust(bob, USDC(100), carol, tfSetNoRipple));
+            // carol trusts USD alice & bob
+            env(trust(carol, USDA(100), alice, tfSetNoRipple));
+            env(trust(carol, USDB(100), bob, tfSetNoRipple));
+            env.close();
+            // alice pays bob USDA
+            env(pay(alice, bob, USDA(10)));
+            // carol pays alice USDC
+            env(pay(carol, alice, USDC(10)));
+            env.close();
+        
+
+            testDebug("PRE", env, { alice, bob, carol }, { USDA, USDB, USDC });
+            // BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+            // BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
+            // BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
+            // BEAST_EXPECT(env.balance(bob, USDA) == USDA(10));
+            // BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+            // BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+            // BEAST_EXPECT(env.balance(carol, USDA) == USDA(-10));
+            // BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+            // BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+
+            validateNoRipple(env, alice, bob, true);
+            validateNoRipple(env, alice, carol, true);
+            validateNoRipple(env, bob, alice, true);
+            validateNoRipple(env, bob, carol, true);
+            validateNoRipple(env, carol, alice, true);
+            validateNoRipple(env, carol, bob, true);
+
+            // alice cannot create to carol with USDB
+            env(remit::remit(alice, carol),
+                remit::amts({USDB(10)}),
+                ter(tecPATH_DRY));
+            env.close();
+
+            // negative direction destination
+            // bob can remit to carol with USDA
+            env(remit::remit(bob, carol),
+                remit::amts({USDA(10)}),
+                ter(tecPATH_DRY));
+            env.close();
+
+            testDebug("POST", env, { alice, bob, carol }, { USDA, USDB, USDC });
+            // BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+            // BEAST_EXPECT(env.balance(alice, USDB) == USDB(0));
+            // BEAST_EXPECT(env.balance(alice, USDC) == USDC(0));
+            // BEAST_EXPECT(env.balance(bob, USDA) == USDA(0));
+            // BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+            // BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+            // BEAST_EXPECT(env.balance(carol, USDA) == USDA(0));
+            // BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+            // BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+        }
+
+        // // rippling
+        // {
+        //     Env env{*this, features};
+        //     auto const alice = Account("alice");
+        //     auto const bob = Account("bob");
+        //     auto const carol = Account("carol");
+        //     auto const gw = Account("gw");
+        //     auto const USD = gw["USD"];
+        //     env.fund(XRP(10000), gw, alice, bob, carol);
+        //     env.close();
+
+        //     env.trust(USD(100), alice, bob, carol);
+        //     env.close();
+        //     // alice pays bob USD
+        //     env(pay(gw, alice, USD(10)));
+        //     env(pay(gw, bob, USD(10)));
+        //     env.close();
+        
+
+        //     testDebug("PRE", env, { alice, bob, carol }, { USD });
+
+        //     validateNoRipple(env, alice, gw, false);
+        //     validateNoRipple(env, gw, alice, false);
+
+        //     // negative direction destination
+        //     // bob can remit to carol with USDA
+        //     env(remit::remit(bob, alice),
+        //         remit::amts({USD(10)}),
+        //         ter(tesSUCCESS));
+        //     env.close();
+
+        //     env(remit::remit(bob, alice),
+        //         remit::amts({USD(10)}),
+        //         ter(tecUNFUNDED_PAYMENT));
+        //     env.close();
+
+        //     testDebug("POST", env, { alice, bob, carol }, { USD });
+        // }
+    }
+
+    void
+    testURITokenMintTransferSame(FeatureBitset features)
+    {
+        testcase("uritoken mint transfer same");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+
+        Env env{*this, features};
+        env.fund(XRP(1000), alice, bob);
+        env.close();
+
+        std::string const uri(maxTokenURILength, '?');
+        auto const tid = uritoken::tokenid(alice, uri);
+
+        env(remit::remit(alice, bob),
+            remit::uri(uri),
+            remit::token_ids({strHex(tid)}),
+            ter(tecNO_PERMISSION));
+        env.close();
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         // testEnabled(features);
@@ -2115,6 +2386,8 @@ struct Remit_test : public beast::unit_test::suite
         testGateway(features);
         // testRequireAuth(features);
         // testTLFreeze(features);
+        // testRippling(features);
+        // testURITokenMintTransferSame(features);
     }
 
 public:

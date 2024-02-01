@@ -311,7 +311,7 @@ Remit::doApply()
             {
                 JLOG(j.warn()) << "Remit: one or more uritokens did not exist "
                                   "on the source account.";
-                return tecUNFUNDED_PAYMENT;
+                return tecNO_ENTRY;
             }
 
             // is it a uritoken?
@@ -319,7 +319,7 @@ Remit::doApply()
             {
                 JLOG(j.warn()) << "Remit: one or more supplied URITokenIDs was "
                                   "not actually a uritoken.";
-                return tecNO_ENTRY;
+                return tecINTERNAL;
             }
 
             // is it our uritoken?
@@ -428,8 +428,8 @@ Remit::doApply()
 
             // if the target trustline doesn't exist we need to create it and
             // pay its reserve
-            if (!sb.exists(keylet::line(
-                    issuerAccID == dstAccID ? srcAccID : dstAccID,
+            if (issuerAccID != dstAccID && !sb.exists(keylet::line(
+                    dstAccID,
                     issuerAccID,
                     amount.getCurrency())))
                 nativeRemit += objectReserve;
