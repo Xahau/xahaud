@@ -69,10 +69,10 @@ inform::operator()(Env& env, JTx& jt) const
 void
 token_ids::operator()(Env& env, JTx& jt) const
 {
+    jt.jv[sfURITokenIDs.jsonName] = Json::arrayValue;
     for (std::size_t i = 0; i < token_ids_.size(); ++i)
     {
-        jt.jv[sfURITokenIDs.jsonName] = Json::arrayValue;
-        jt.jv[sfURITokenIDs.jsonName][i] = token_ids_[i];
+        jt.jv[sfURITokenIDs.jsonName].append(token_ids_[i]);
     }
 }
 
@@ -84,6 +84,10 @@ uri::operator()(Env& env, JTx& jt) const
     if (flags_)
     {
         jt.jv[sfMintURIToken.jsonName][sfFlags.jsonName] = *flags_;
+    }
+    if (digest_)
+    {
+        jt.jv[sfMintURIToken.jsonName][sfDigest.fieldName] = *digest_;
     }
 }
 

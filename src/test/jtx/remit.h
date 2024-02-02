@@ -103,12 +103,14 @@ class uri
 private:
     std::string uri_;
     std::optional<std::uint32_t> flags_;
+    std::optional<std::string> digest_;
 
 public:
     explicit uri(
         std::string const& uri,
-        std::optional<std::uint32_t> const& flags = std::nullopt)
-        : uri_(uri), flags_(flags)
+        std::optional<std::uint32_t> const& flags = std::nullopt,
+        std::optional<std::string> const& digest = std::nullopt)
+        : uri_(uri), flags_(flags), digest_(digest)
     {
     }
 

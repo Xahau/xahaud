@@ -28,87 +28,6 @@
 
 #include <chrono>
 
-// Destination Exists - Trust Line Exists
-// otxn | dest | exists | native | token | tl exists | uris xfr | uri mint |
-//  A   |  B   |   Y    |    N   |   N   |     N     |     N    |    N     |
-//  A   |  B   |   Y    |    Y   |   N   |     N     |     N    |    N     |
-//  A   |  B   |   Y    |    N   |   Y   |     Y     |     N    |    N     |
-//  A   |  B   |   Y    |    Y   |   Y   |     Y     |     N    |    N     |
-//  A   |  B   |   Y    |    N   |   N   |     N     |     Y    |    N     |
-//  A   |  B   |   Y    |    N   |   N   |     N     |     N    |    Y     |
-//  A   |  B   |   Y    |    Y   |   N   |     N     |     Y    |    N     |
-//  A   |  B   |   Y    |    Y   |   Y   |     Y     |     Y    |    N     |
-//  A   |  B   |   Y    |    Y   |   N   |     N     |     Y    |    Y     |
-//  A   |  B   |   Y    |    Y   |   Y   |     Y     |     Y    |    Y     |
-
-// Destination Exists - Trust Line DNE
-// otxn | dest | exists | native | token | tl exists |
-//  A   |  B   |   Y    |    N   |   Y   |     N     |
-//  A   |  B   |   Y    |    Y   |   Y   |     N     |
-
-// Destination Does Not Exist - Trust Line Exists
-// otxn | dest | exists | native | token | tl exists | uris xfr | uri mint |
-//  A   |  B   |   N    |    N   |   N   |     N     |     N    |    N     |
-//  A   |  B   |   N    |    Y   |   N   |     N     |     N    |    N     |
-//  A   |  B   |   N    |    N   |   Y   |     Y     |     N    |    N     |
-//  A   |  B   |   N    |    Y   |   Y   |     Y     |     N    |    N     |
-//  A   |  B   |   N    |    N   |   N   |     N     |     Y    |    N     |
-//  A   |  B   |   N    |    N   |   N   |     N     |     N    |    Y     |
-//  A   |  B   |   N    |    Y   |   N   |     N     |     Y    |    N     |
-//  A   |  B   |   N    |    Y   |   Y   |     Y     |     Y    |    N     |
-//  A   |  B   |   N    |    Y   |   N   |     N     |     Y    |    Y     |
-//  A   |  B   |   N    |    Y   |   Y   |     Y     |     Y    |    Y     |
-
-// Destination DNE - Trust Line DNE
-// otxn | dest | exists | native | token | tl exists |
-//  A   |  B   |   Y    |    N   |   Y   |     N     |
-//  A   |  B   |   Y    |    Y   |   Y   |     N     |
-
-
-// Round Robin Test - A -> B -> C
-// - Multiple in one Ledger Test
-// - Forward and Backward remits
-// Compute a uri token id inline with the send (a token that is being minted)
-// URITokenMint: sfDigest
-// URITokenMint: sfFlags
-
-
-// Empty
-// 0. Dest Tag? or Dest Disallow Remit?
-// 1. Does Dest Exist
-// 1.1 Create w/ featureXahauGenesis
-// 1.2 Create w/out featureXahauGenesis
-
-// XAH
-// 1. Available Funds
-
-// Token
-// 1. Is Issuer Send/Recv
-// 2. Is Trust Allowed
-// 3. Transfer Rate
-// 4. Available Funds
-// 5. Dest Has Trustline
-
-// Finish All
-// 1. Has enough XAH
-// 2. Subtract From Sender
-// 3. Add to Dest
-// 4. Check Reserves
-
-
-// URITokenMint
-// 1. Check for duplicate
-// 2. Update Fields
-// 3. Add to Dest
-// 3. Add Deletion Blocker on Account
-
-// URITokenTransfer
-// 1. Erase Sell Offers
-// 2. Pay Reserve
-// 3. Remove from Seller Dir
-// 4. Add to Dest Dir
-// 5. Update Owner
-
 
 namespace ripple {
 namespace test {
@@ -187,11 +106,31 @@ struct Remit_test : public beast::unit_test::suite
         return STAmount(iou, 0);
     }
 
+    static bool
+    validateSequence(
+        jtx::Env const& env,
+        jtx::Account const& account,
+        std::uint32_t const& sequence)
+    {
+        auto const sle = env.le(keylet::account(account));
+        if (sle && sle->isFieldPresent(sfSequence))
+            return (*sle)[sfSequence] == sequence;
+        return false;
+    }
+
+    static std::pair<uint256, std::shared_ptr<SLE const>>
+    uriTokenKeyAndSle(
+        ReadView const& view,
+        jtx::Account const& account,
+        std::string const& uri)
+    {
+        auto const k = keylet::uritoken(account, Blob(uri.begin(), uri.end()));
+        return {k.key, view.read(k)};
+    }
+
     void
     testEnabled(FeatureBitset features)
     {
-        // 0D8BF22FF7570D58598D1EF19EBB6E142AD46E59A223FD3816262FBB69345BEA
-
         testcase("enabled");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
@@ -331,10 +270,8 @@ struct Remit_test : public beast::unit_test::suite
         {
             std::string const uri1(maxTokenURILength, '?');
             auto const tid1 = uritoken::tokenid(alice, uri1);
-            std::string const uri2(maxTokenURILength - 1, '?');
-            auto const tid2 = uritoken::tokenid(alice, uri2);
             env(remit::remit(alice, bob),
-                remit::token_ids({strHex(tid1), strHex(tid2)}),
+                remit::token_ids({strHex(tid1), strHex(tid1)}),
                 ter(temMALFORMED));
             env.close();
         }
@@ -565,7 +502,7 @@ struct Remit_test : public beast::unit_test::suite
         env.close();
 
         // set flag on bob only
-        env(fset(bob, asfDisallowIncomingPayChan));
+        env(fset(bob, asfDisallowIncomingRemit));
         env.close();
 
         // remit from alice to bob is disallowed
@@ -576,7 +513,7 @@ struct Remit_test : public beast::unit_test::suite
         }
 
         // set flag on alice also
-        env(fset(alice, asfDisallowIncomingPayChan));
+        env(fset(alice, asfDisallowIncomingRemit));
         env.close();
 
         // remit from bob to alice is now disallowed
@@ -587,7 +524,7 @@ struct Remit_test : public beast::unit_test::suite
         }
 
         // remove flag from bob
-        env(fclear(bob, asfDisallowIncomingPayChan));
+        env(fclear(bob, asfDisallowIncomingRemit));
         env.close();
 
         // now remit between alice and bob allowed
@@ -605,7 +542,7 @@ struct Remit_test : public beast::unit_test::suite
         }
 
         // remove flag from alice
-        env(fclear(alice, asfDisallowIncomingPayChan));
+        env(fclear(alice, asfDisallowIncomingRemit));
         env.close();
 
         // now a remit from carol to alice is allowed
@@ -1176,7 +1113,7 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
-    testDestExistsTLDNE(FeatureBitset features)
+    testDestExistsTLNotExist(FeatureBitset features)
     {
         testcase("dest exists and trustline does not exist");
         using namespace jtx;
@@ -1277,7 +1214,7 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
-    testDestDNETLDNE(FeatureBitset features)
+    testDestNotExistTLNotExist(FeatureBitset features)
     {
         testcase("dest does not exist and trustline does not exist");
         using namespace jtx;
@@ -1302,6 +1239,9 @@ struct Remit_test : public beast::unit_test::suite
 
             env(remit::remit(alice, bob), ter(tesSUCCESS));
             env.close();
+
+            bool const withXahau = env.current()->rules().enabled(featureXahauGenesis);
+            BEAST_EXPECT(validateSequence(env, bob, withXahau ? 10 : env.closed()->info().seq));
 
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
@@ -1725,13 +1665,10 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(tokenOwner(*env.current(), tid1) == bob.id());
             BEAST_EXPECT(tokenIsser(*env.current(), tid1) == alice.id());
 
-            std::cout << "alice owner: " << ownerDirCount(*env.current(), alice) << "\n";
-            std::cout << "bob owner: " << ownerDirCount(*env.current(), bob) << "\n";
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
 
             // verify xah
-            testDebug("POST", env, { alice, bob }, {});
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
             BEAST_EXPECT(
@@ -2139,7 +2076,6 @@ struct Remit_test : public beast::unit_test::suite
         params[jss::peer] = peer.human();
 
         auto lines = env.rpc("json", "account_lines", to_string(params));
-        std::cout << "RESULT: " << lines << "\n";
         auto const& line = lines[jss::result][jss::lines][0u];
         BEAST_EXPECT(line[jss::no_ripple_peer].asBool() == result);
     }
@@ -2151,88 +2087,74 @@ struct Remit_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // // rippling enabled
-        // {
-        //     Env env{*this, features};
-        //     auto const alice = Account("alice");
-        //     auto const bob = Account("bob");
-        //     auto const carol = Account("carol");
-        //     auto const USDA = alice["USD"];
-        //     auto const USDB = bob["USD"];
-        //     auto const USDC = carol["USD"];
-        //     env.fund(XRP(10000), alice, bob, carol);
-        //     env.close();
+        // rippling enabled
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const USDA = alice["USD"];
+            auto const USDB = bob["USD"];
+            auto const USDC = carol["USD"];
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
 
-        //     // alice trusts USD bob & carol
-        //     env(trust(alice, USDB(100)));
-        //     env(trust(alice, USDC(100)));
-        //     // bob trusts USD alice & carol
-        //     env(trust(bob, USDA(100)));
-        //     env(trust(bob, USDC(100)));
-        //     // carol trusts USD alice & bob
-        //     env(trust(carol, USDA(100)));
-        //     env(trust(carol, USDB(100)));
-        //     env.close();
-        //     // alice pays bob USDA
-        //     env(pay(alice, bob, USDA(10)));
-        //     // carol pays alice USDC
-        //     env(pay(carol, alice, USDC(10)));
-        //     env.close();
+            // alice trusts USD bob & carol
+            env(trust(alice, USDB(100)));
+            env(trust(alice, USDC(100)));
+            // bob trusts USD alice & carol
+            env(trust(bob, USDA(100)));
+            env(trust(bob, USDC(100)));
+            // carol trusts USD alice & bob
+            env(trust(carol, USDA(100)));
+            env(trust(carol, USDB(100)));
+            env.close();
+            // alice pays bob USDA
+            env(pay(alice, bob, USDA(10)));
+            // carol pays alice USDC
+            env(pay(carol, alice, USDC(10)));
+            env.close();
 
-        //     /*
-        //     aliceUSDABal: 0/USD(alice)
-        //     aliceUSDBBal: -10/USD(bob)
-        //     aliceUSDCBal: 10/USD(carol)
-        //     bobUSDABal: 10/USD(alice)
-        //     bobUSDBBal: 0/USD(bob)
-        //     bobUSDCBal: 0/USD(carol)
-        //     carolUSDABal: -10/USD(alice)
-        //     carolUSDBBal: 0/USD(bob)
-        //     carolUSDCBal: 0/USD(carol)
-        //     */
+            BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+            BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
+            BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
+            BEAST_EXPECT(env.balance(bob, USDA) == USDA(10));
+            BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+            BEAST_EXPECT(env.balance(carol, USDA) == USDA(-10));
+            BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
 
-        //     testDebug("PRE", env, { alice, bob, carol }, { USDA, USDB, USDC });
-        //     BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
-        //     BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
-        //     BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
-        //     BEAST_EXPECT(env.balance(bob, USDA) == USDA(10));
-        //     BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
-        //     BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
-        //     BEAST_EXPECT(env.balance(carol, USDA) == USDA(-10));
-        //     BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
-        //     BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+            validateNoRipple(env, alice, bob, false);
+            validateNoRipple(env, alice, carol, false);
+            validateNoRipple(env, bob, alice, false);
+            validateNoRipple(env, bob, carol, false);
+            validateNoRipple(env, carol, alice, false);
+            validateNoRipple(env, carol, bob, false);
 
-        //     validateNoRipple(env, alice, bob, false);
-        //     validateNoRipple(env, alice, carol, false);
-        //     validateNoRipple(env, bob, alice, false);
-        //     validateNoRipple(env, bob, carol, false);
-        //     validateNoRipple(env, carol, alice, false);
-        //     validateNoRipple(env, carol, bob, false);
+            // alice cannot create to carol with USDB
+            env(remit::remit(alice, carol),
+                remit::amts({USDB(10)}),
+                ter(tecUNFUNDED_PAYMENT));
+            env.close();
 
-        //     // alice cannot create to carol with USDB
-        //     env(remit::remit(alice, carol),
-        //         remit::amts({USDB(10)}),
-        //         ter(tecUNFUNDED_PAYMENT));
-        //     env.close();
+            // negative direction destination
+            // bob can remit to carol with USDA
+            env(remit::remit(bob, carol),
+                remit::amts({USDA(10)}),
+                ter(tesSUCCESS));
+            env.close();
 
-        //     // negative direction destination
-        //     // bob can remit to carol with USDA
-        //     env(remit::remit(bob, carol),
-        //         remit::amts({USDA(10)}),
-        //         ter(tesSUCCESS));
-        //     env.close();
-
-        //     testDebug("POST", env, { alice, bob, carol }, { USDA, USDB, USDC });
-        //     BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
-        //     BEAST_EXPECT(env.balance(alice, USDB) == USDB(0));
-        //     BEAST_EXPECT(env.balance(alice, USDC) == USDC(0));
-        //     BEAST_EXPECT(env.balance(bob, USDA) == USDA(0));
-        //     BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
-        //     BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
-        //     BEAST_EXPECT(env.balance(carol, USDA) == USDA(0));
-        //     BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
-        //     BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
-        // }
+            BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+            BEAST_EXPECT(env.balance(alice, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(alice, USDC) == USDC(0));
+            BEAST_EXPECT(env.balance(bob, USDA) == USDA(0));
+            BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+            BEAST_EXPECT(env.balance(carol, USDA) == USDA(0));
+            BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+        }
 
         // rippling not enabled
         {
@@ -2262,17 +2184,15 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(carol, alice, USDC(10)));
             env.close();
         
-
-            testDebug("PRE", env, { alice, bob, carol }, { USDA, USDB, USDC });
-            // BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
-            // BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
-            // BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
-            // BEAST_EXPECT(env.balance(bob, USDA) == USDA(10));
-            // BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
-            // BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
-            // BEAST_EXPECT(env.balance(carol, USDA) == USDA(-10));
-            // BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
-            // BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+            BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+            BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
+            BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
+            BEAST_EXPECT(env.balance(bob, USDA) == USDA(10));
+            BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+            BEAST_EXPECT(env.balance(carol, USDA) == USDA(-10));
+            BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
 
             validateNoRipple(env, alice, bob, true);
             validateNoRipple(env, alice, carol, true);
@@ -2288,68 +2208,28 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             // negative direction destination
-            // bob can remit to carol with USDA
+            // bob can not remit to carol with USDA
             env(remit::remit(bob, carol),
                 remit::amts({USDA(10)}),
                 ter(tecPATH_DRY));
             env.close();
 
-            testDebug("POST", env, { alice, bob, carol }, { USDA, USDB, USDC });
-            // BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
-            // BEAST_EXPECT(env.balance(alice, USDB) == USDB(0));
-            // BEAST_EXPECT(env.balance(alice, USDC) == USDC(0));
-            // BEAST_EXPECT(env.balance(bob, USDA) == USDA(0));
-            // BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
-            // BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
-            // BEAST_EXPECT(env.balance(carol, USDA) == USDA(0));
-            // BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
-            // BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
+            BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
+            BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
+            BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
+            BEAST_EXPECT(env.balance(bob, USDA) == USDA(10));
+            BEAST_EXPECT(env.balance(bob, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(bob, USDC) == USDC(0));
+            BEAST_EXPECT(env.balance(carol, USDA) == USDA(-10));
+            BEAST_EXPECT(env.balance(carol, USDB) == USDB(0));
+            BEAST_EXPECT(env.balance(carol, USDC) == USDC(0));
         }
-
-        // // rippling
-        // {
-        //     Env env{*this, features};
-        //     auto const alice = Account("alice");
-        //     auto const bob = Account("bob");
-        //     auto const carol = Account("carol");
-        //     auto const gw = Account("gw");
-        //     auto const USD = gw["USD"];
-        //     env.fund(XRP(10000), gw, alice, bob, carol);
-        //     env.close();
-
-        //     env.trust(USD(100), alice, bob, carol);
-        //     env.close();
-        //     // alice pays bob USD
-        //     env(pay(gw, alice, USD(10)));
-        //     env(pay(gw, bob, USD(10)));
-        //     env.close();
-        
-
-        //     testDebug("PRE", env, { alice, bob, carol }, { USD });
-
-        //     validateNoRipple(env, alice, gw, false);
-        //     validateNoRipple(env, gw, alice, false);
-
-        //     // negative direction destination
-        //     // bob can remit to carol with USDA
-        //     env(remit::remit(bob, alice),
-        //         remit::amts({USD(10)}),
-        //         ter(tesSUCCESS));
-        //     env.close();
-
-        //     env(remit::remit(bob, alice),
-        //         remit::amts({USD(10)}),
-        //         ter(tecUNFUNDED_PAYMENT));
-        //     env.close();
-
-        //     testDebug("POST", env, { alice, bob, carol }, { USD });
-        // }
     }
 
     void
-    testURITokenMintTransferSame(FeatureBitset features)
+    testURIToken(FeatureBitset features)
     {
-        testcase("uritoken mint transfer same");
+        testcase("uritoken");
         using namespace test::jtx;
         using namespace std::literals;
 
@@ -2361,33 +2241,186 @@ struct Remit_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob);
         env.close();
 
-        std::string const uri(maxTokenURILength, '?');
-        auto const tid = uritoken::tokenid(alice, uri);
+        // cannot mint and transfer same token
+        {
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
 
-        env(remit::remit(alice, bob),
-            remit::uri(uri),
-            remit::token_ids({strHex(tid)}),
-            ter(tecNO_PERMISSION));
-        env.close();
+            env(remit::remit(alice, bob),
+                remit::uri(uri),
+                remit::token_ids({strHex(tid)}),
+                ter(tecNO_PERMISSION));
+            env.close();
+        }
+
+        // mint and xfer in same ledger
+        {
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+
+            // mint uritoken
+            env(uritoken::mint(alice, uri), ter(tesSUCCESS));
+
+            // remit
+            env(remit::remit(alice, bob),
+                remit::token_ids({strHex(tid)}),
+                ter(tesSUCCESS));
+            env.close();
+
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(tokenOwner(*env.current(), tid) == bob.id());
+
+            // clean up test
+            env(uritoken::burn(bob, strHex(tid)));
+            env.close();
+        }
+
+        // confirm offer (amount/dest) is removed on xfer
+        {
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+
+            // mint uritoken
+            env(uritoken::mint(alice, uri), ter(tesSUCCESS));
+
+            // sell offer
+            env(uritoken::sell(alice, strHex(tid)),
+                uritoken::amt(XRP(1)),
+                uritoken::dest(bob),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify amount and destination
+            auto const [urikey1, uriSle1] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uriSle1->getAccountID(sfDestination) == bob.id());
+            BEAST_EXPECT((*uriSle1)[sfAmount] == XRP(1));
+
+            // xfer the uritoken
+            env(remit::remit(alice, bob),
+                remit::token_ids({strHex(tid)}),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify amount and destination was removed
+            auto const [urikey2, uriSle2] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(uriSle2->isFieldPresent(sfDestination) == false);
+            BEAST_EXPECT(uriSle2->isFieldPresent(sfAmount) == false);
+
+            // clean up test
+            env(uritoken::burn(bob, strHex(tid)));
+            env.close();
+        }
+
+        // test digest
+        {
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+
+            std::string const digestval =
+            "C16E7263F07AA41261DCC955660AF4646ADBA414E37B6F5A5BA50F75153F5CCC";
+
+            // mint the uritoken w/ digest
+            env(remit::remit(alice, bob),
+                remit::uri(uri, 0, digestval),
+                ter(tesSUCCESS));
+            env.close();
+
+            auto const [urikey, uriSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(to_string(uriSle->getFieldH256(sfDigest)) == digestval);
+
+            // clean up test
+            env(uritoken::burn(bob, strHex(tid)));
+            env.close();
+        }
+
+        // test xfer multiple
+        {
+            std::string const uri1(maxTokenURILength, '?');
+            auto const tid1 = uritoken::tokenid(alice, uri1);
+            env(uritoken::mint(alice, uri1), ter(tesSUCCESS));
+            env.close();
+
+            std::string const uri2(maxTokenURILength - 1, '?');
+            auto const tid2 = uritoken::tokenid(alice, uri2);
+            env(uritoken::mint(alice, uri2), ter(tesSUCCESS));
+            env.close();
+
+            // xfer multiple tokens
+            env(remit::remit(alice, bob),
+                remit::token_ids({strHex(tid1), strHex(tid2)}),
+                ter(tesSUCCESS));
+            env.close();
+
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid1));
+            BEAST_EXPECT(tokenOwner(*env.current(), tid1) == bob.id());
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid2));
+            BEAST_EXPECT(tokenOwner(*env.current(), tid2) == bob.id());
+
+            // clean up test
+            env(uritoken::burn(bob, strHex(tid1)));
+            env(uritoken::burn(bob, strHex(tid2)));
+            env.close();
+        }
+
+        // test sell/xfer in same ledger
+        {
+            std::string const uri1(maxTokenURILength, '?');
+            auto const tid1 = uritoken::tokenid(alice, uri1);
+            
+            // mint uritoken
+            env(uritoken::mint(alice, uri1), ter(tesSUCCESS));
+            env.close();
+
+            // sell uritoken
+            env(uritoken::sell(alice, strHex(tid1)),
+                uritoken::amt(XRP(1)),
+                uritoken::dest(bob),
+                ter(tesSUCCESS));
+
+            // buy uritoken
+            env(uritoken::buy(bob, strHex(tid1)),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // xfer uritoken
+            env(remit::remit(alice, bob),
+                remit::token_ids({strHex(tid1)}),
+                ter(tecNO_PERMISSION));
+            env.close();
+
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid1));
+            BEAST_EXPECT(tokenOwner(*env.current(), tid1) == bob.id());
+
+            // clean up test
+            env(uritoken::burn(bob, strHex(tid1)));
+            env.close();
+        }
     }
 
     void
     testWithFeats(FeatureBitset features)
     {
-        // testEnabled(features);
-        // testPreflightInvalid(features);
-        // testDoApplyInvalid(features);
-        // testDisallowXRP(features);
-        // testDstTag(features);
-        // testDisallowIncoming(features);
-        // testDestExistsTLExists(features);
-        // testDestExistsTLDNE(features);
-        // testDestDNETLDNE(features);
+        testEnabled(features);
+        testPreflightInvalid(features);
+        testDoApplyInvalid(features);
+        testDisallowXRP(features);
+        testDstTag(features);
+        testDisallowIncoming(features);
+        testDestExistsTLExists(features);
+        testDestExistsTLNotExist(features);
+        testDestNotExistTLNotExist(features);
         testGateway(features);
-        // testRequireAuth(features);
-        // testTLFreeze(features);
-        // testRippling(features);
-        // testURITokenMintTransferSame(features);
+        testRequireAuth(features);
+        testTLFreeze(features);
+        testRippling(features);
+        testURIToken(features);
     }
 
 public:
@@ -2396,6 +2429,7 @@ public:
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
+        testWithFeats(sa - featureXahauGenesis);
         testWithFeats(sa);
     }
 };
