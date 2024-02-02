@@ -93,6 +93,13 @@ increase(FeeLevel64 level, std::uint32_t increasePercent)
 
 //////////////////////////////////////////////////////////////////////////
 
+void
+TxQ::debugTxInject(STTx const& txn)
+{
+    const std::lock_guard<std::mutex> _(debugTxInjectMutex);
+    debugTxInjectQueue.push_back(txn);
+}
+
 std::size_t
 TxQ::FeeMetrics::update(
     Application& app,
@@ -1443,6 +1450,32 @@ TxQ::accept(Application& app, OpenView& view)
     std::lock_guard lock(mutex_);
 
     auto const metricsSnapshot = feeMetrics_.getSnapshot();
+
+    // try to inject any debug txns waiting in the debug queue
+    {
+        std::unique_lock<std::mutex> trylock(
+            TxQ::debugTxInjectMutex, std::try_to_lock);
+        if (trylock.owns_lock() && !debugTxInjectQueue.empty())
+        {
+            // pop everything
+            for (STTx const& txn : debugTxInjectQueue)
+            {
+                auto txnHash = txn.getTransactionID();
+                app.getHashRouter().setFlags(txnHash, SF_EMITTED | SF_PRIVATE2);
+
+                auto const& emitted =
+                    const_cast<ripple::STTx&>(txn).downcast<STObject>();
+
+                auto s = std::make_shared<ripple::Serializer>();
+                emitted.add(*s);
+
+                view.rawTxInsert(txnHash, std::move(s), nullptr);
+                ledgerChanged = true;
+            }
+
+            debugTxInjectQueue.clear();
+        }
+    }
 
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
