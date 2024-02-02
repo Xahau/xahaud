@@ -354,6 +354,7 @@ extern uint256 const featureImport;
 extern uint256 const featureXahauGenesis;
 extern uint256 const featureHooksUpdate1;
 extern uint256 const fixXahauV1;
+extern uint256 const fixXahauV2;
 extern uint256 const featureRemit;
 
 }  // namespace ripple
