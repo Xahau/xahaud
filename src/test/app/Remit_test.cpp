@@ -28,7 +28,6 @@
 
 #include <chrono>
 
-
 namespace ripple {
 namespace test {
 struct Remit_test : public beast::unit_test::suite
@@ -303,7 +302,7 @@ struct Remit_test : public beast::unit_test::suite
 
         // tecNO_PERMISSION - lsfDisallowIncomingRemit
         // see testDisallowIncoming
-        
+
         // tecDST_TAG_NEEDED
         // see testDstTag
 
@@ -315,9 +314,7 @@ struct Remit_test : public beast::unit_test::suite
 
             std::string const uri(maxTokenURILength, '?');
             env(uritoken::mint(alice, uri), ter(tesSUCCESS));
-            env(remit::remit(alice, bob),
-                remit::uri(uri),
-                ter(tecDUPLICATE));
+            env(remit::remit(alice, bob), remit::uri(uri), ter(tecDUPLICATE));
             env.close();
         }
 
@@ -380,7 +377,7 @@ struct Remit_test : public beast::unit_test::suite
                 ter(tecUNFUNDED_PAYMENT));
             env.close();
         }
-    
+
         // tecINTERNAL - negative XRP
         // DA: impossible test
 
@@ -433,9 +430,8 @@ struct Remit_test : public beast::unit_test::suite
             env(fset(bob, asfDisallowXRP));
 
             env(remit::remit(alice, bob),
-                remit::amts({ XRP(1) }),
+                remit::amts({XRP(1)}),
                 ter(tesSUCCESS));
-
         }
         {
             // Make a remit where dst disallows XRP.  Ignore that flag,
@@ -444,7 +440,7 @@ struct Remit_test : public beast::unit_test::suite
             env.fund(XRP(10000), alice, bob);
             env(fset(bob, asfDisallowXRP));
             env(remit::remit(alice, bob),
-                remit::amts({ XRP(1) }),
+                remit::amts({XRP(1)}),
                 ter(tesSUCCESS));
         }
     }
@@ -464,12 +460,12 @@ struct Remit_test : public beast::unit_test::suite
         env(fset(bob, asfRequireDest));
         {
             env(remit::remit(alice, bob),
-                remit::amts({ XRP(1) }),
+                remit::amts({XRP(1)}),
                 ter(tecDST_TAG_NEEDED));
         }
         {
             env(remit::remit(alice, bob, 1),
-                remit::amts({ XRP(1) }),
+                remit::amts({XRP(1)}),
                 ter(tesSUCCESS));
         }
     }
@@ -1240,8 +1236,10 @@ struct Remit_test : public beast::unit_test::suite
             env(remit::remit(alice, bob), ter(tesSUCCESS));
             env.close();
 
-            bool const withXahau = env.current()->rules().enabled(featureXahauGenesis);
-            BEAST_EXPECT(validateSequence(env, bob, withXahau ? 10 : env.closed()->info().seq));
+            bool const withXahau =
+                env.current()->rules().enabled(featureXahauGenesis);
+            BEAST_EXPECT(validateSequence(
+                env, bob, withXahau ? 10 : env.closed()->info().seq));
 
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
@@ -1271,7 +1269,8 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
-            BEAST_EXPECT(postAlice == preAlice - XRP(1) - feeDrops - accountReserve);
+            BEAST_EXPECT(
+                postAlice == preAlice - XRP(1) - feeDrops - accountReserve);
             BEAST_EXPECT(postBob == preBob + XRP(1) + accountReserve);
         }
 
@@ -1314,7 +1313,8 @@ struct Remit_test : public beast::unit_test::suite
             auto const postBob = env.balance(bob);
             auto const postBobUSD = env.balance(bob, USD.issue());
 
-            BEAST_EXPECT(postAlice == preAlice - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                postAlice == preAlice - feeDrops - accountReserve - increment);
             BEAST_EXPECT(postBob == preBob + accountReserve + increment);
             BEAST_EXPECT(postAliceUSD == preAliceUSD - USD(1));
             BEAST_EXPECT(postBobUSD == preBobUSD + USD(1));
@@ -1358,8 +1358,11 @@ struct Remit_test : public beast::unit_test::suite
             auto const postAliceUSD = env.balance(alice, USD.issue());
             auto const postBob = env.balance(bob);
             auto const postBobUSD = env.balance(bob, USD.issue());
-            BEAST_EXPECT(postAlice == preAlice - XRP(1) - feeDrops - accountReserve - increment);
-            BEAST_EXPECT(postBob == preBob + XRP(1) + accountReserve + increment);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice - XRP(1) - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                postBob == preBob + XRP(1) + accountReserve + increment);
             BEAST_EXPECT(postAliceUSD == preAliceUSD - USD(1));
             BEAST_EXPECT(postBobUSD == preBobUSD + USD(1));
         }
@@ -1400,7 +1403,8 @@ struct Remit_test : public beast::unit_test::suite
             // validate
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
-            BEAST_EXPECT(postAlice == preAlice - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                postAlice == preAlice - feeDrops - accountReserve - increment);
             BEAST_EXPECT(postBob == preBob + accountReserve + increment);
 
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
@@ -1439,9 +1443,10 @@ struct Remit_test : public beast::unit_test::suite
 
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
-            BEAST_EXPECT(postAlice == preAlice - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                postAlice == preAlice - feeDrops - accountReserve - increment);
             BEAST_EXPECT(postBob == preBob + accountReserve + increment);
-            
+
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
@@ -1493,8 +1498,11 @@ struct Remit_test : public beast::unit_test::suite
             // verify xah
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
-            BEAST_EXPECT(postAlice == preAlice - XRP(1) - feeDrops - accountReserve - increment);
-            BEAST_EXPECT(postBob == preBob + XRP(1) + accountReserve + increment);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice - XRP(1) - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                postBob == preBob + XRP(1) + accountReserve + increment);
 
             // clean up test
             env(uritoken::burn(bob, strHex(tid)));
@@ -1551,7 +1559,9 @@ struct Remit_test : public beast::unit_test::suite
             auto const postAliceUSD = env.balance(alice, USD.issue());
             auto const postBob = env.balance(bob);
             auto const postBobUSD = env.balance(bob, USD.issue());
-            BEAST_EXPECT(postAlice == preAlice - feeDrops - (increment * 2) - accountReserve);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice - feeDrops - (increment * 2) - accountReserve);
             BEAST_EXPECT(postBob == preBob + (increment * 2) + accountReserve);
             BEAST_EXPECT(postAliceUSD == preAliceUSD - USD(1));
             BEAST_EXPECT(postBobUSD == preBobUSD + USD(1));
@@ -1612,8 +1622,11 @@ struct Remit_test : public beast::unit_test::suite
             auto const postBob = env.balance(bob);
             auto const postBobUSD = env.balance(bob, USD.issue());
             BEAST_EXPECT(
-                postAlice == preAlice - XRP(1) - feeDrops - (increment * 2) - accountReserve);
-            BEAST_EXPECT(postBob == preBob + XRP(1) + (increment * 2) + accountReserve);
+                postAlice ==
+                preAlice - XRP(1) - feeDrops - (increment * 2) -
+                    accountReserve);
+            BEAST_EXPECT(
+                postBob == preBob + XRP(1) + (increment * 2) + accountReserve);
             BEAST_EXPECT(postAliceUSD == preAliceUSD - USD(1));
             BEAST_EXPECT(postBobUSD == preBobUSD + USD(1));
 
@@ -1672,8 +1685,11 @@ struct Remit_test : public beast::unit_test::suite
             auto const postAlice = env.balance(alice);
             auto const postBob = env.balance(bob);
             BEAST_EXPECT(
-                postAlice == preAlice - XRP(1) - feeDrops - (increment * 2) - accountReserve);
-            BEAST_EXPECT(postBob == preBob + XRP(1) + (increment * 2) + accountReserve);
+                postAlice ==
+                preAlice - XRP(1) - feeDrops - (increment * 2) -
+                    accountReserve);
+            BEAST_EXPECT(
+                postBob == preBob + XRP(1) + (increment * 2) + accountReserve);
 
             // clean up test
             env(uritoken::burn(bob, strHex(tid1)));
@@ -1732,7 +1748,6 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(tokenOwner(*env.current(), tid1) == bob.id());
             BEAST_EXPECT(tokenIsser(*env.current(), tid1) == alice.id());
 
-
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 3);
 
@@ -1741,7 +1756,9 @@ struct Remit_test : public beast::unit_test::suite
             auto const postAliceUSD = env.balance(alice, USD.issue());
             auto const postBob = env.balance(bob);
             auto const postBobUSD = env.balance(bob, USD.issue());
-            BEAST_EXPECT(postAlice == preAlice - feeDrops - (increment * 3) - accountReserve);
+            BEAST_EXPECT(
+                postAlice ==
+                preAlice - feeDrops - (increment * 3) - accountReserve);
             BEAST_EXPECT(postBob == preBob + (increment * 3) + accountReserve);
             BEAST_EXPECT(postAliceUSD == preAliceUSD - USD(1));
             BEAST_EXPECT(postBobUSD == preBobUSD + USD(1));
@@ -1813,8 +1830,11 @@ struct Remit_test : public beast::unit_test::suite
             auto const postBob = env.balance(bob);
             auto const postBobUSD = env.balance(bob, USD.issue());
             BEAST_EXPECT(
-                postAlice == preAlice - XRP(1) - feeDrops - (increment * 3) - accountReserve);
-            BEAST_EXPECT(postBob == preBob + XRP(1) + (increment * 3) + accountReserve);
+                postAlice ==
+                preAlice - XRP(1) - feeDrops - (increment * 3) -
+                    accountReserve);
+            BEAST_EXPECT(
+                postBob == preBob + XRP(1) + (increment * 3) + accountReserve);
             BEAST_EXPECT(postAliceUSD == preAliceUSD - USD(1));
             BEAST_EXPECT(postBobUSD == preBobUSD + USD(1));
 
@@ -1881,12 +1901,13 @@ struct Remit_test : public beast::unit_test::suite
 
             // issuer can remit
             env(remit::remit(t.src, t.dst),
-                remit::amts({ USD(100) }),
+                remit::amts({USD(100)}),
                 ter(tesSUCCESS));
             env.close();
 
             auto const postAmount = t.hasTrustline ? 10100 : 100;
-            BEAST_EXPECT(preDst == (t.negative ? -USD(preAmount) : USD(preAmount)));
+            BEAST_EXPECT(
+                preDst == (t.negative ? -USD(preAmount) : USD(preAmount)));
             BEAST_EXPECT(
                 lineBalance(env, t.dst, t.src, USD) ==
                 (t.negative ? -USD(postAmount) : USD(postAmount)));
@@ -1921,7 +1942,7 @@ struct Remit_test : public beast::unit_test::suite
 
             // issuer can remit to issuer
             env(remit::remit(t.src, t.dst),
-                remit::amts({ USD(100) }),
+                remit::amts({USD(100)}),
                 ter(tesSUCCESS));
             env.close();
 
@@ -2011,7 +2032,7 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
             env.close();
-            
+
             env(fset(gw, asfGlobalFreeze));
             env.close();
 
@@ -2019,10 +2040,10 @@ struct Remit_test : public beast::unit_test::suite
                 remit::amts({XRP(1), USD(1)}),
                 ter(tecFROZEN));
             env.close();
-            
+
             env(fclear(gw, asfGlobalFreeze));
             env.close();
-            
+
             env(remit::remit(alice, bob),
                 remit::amts({XRP(1), USD(1)}),
                 ter(tesSUCCESS));
@@ -2183,7 +2204,7 @@ struct Remit_test : public beast::unit_test::suite
             // carol pays alice USDC
             env(pay(carol, alice, USDC(10)));
             env.close();
-        
+
             BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
             BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
             BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
@@ -2293,7 +2314,8 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             // verify amount and destination
-            auto const [urikey1, uriSle1] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            auto const [urikey1, uriSle1] =
+                uriTokenKeyAndSle(*env.current(), alice, uri);
             BEAST_EXPECT(uriSle1->getAccountID(sfDestination) == bob.id());
             BEAST_EXPECT((*uriSle1)[sfAmount] == XRP(1));
 
@@ -2304,7 +2326,8 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             // verify amount and destination was removed
-            auto const [urikey2, uriSle2] = uriTokenKeyAndSle(*env.current(), alice, uri);
+            auto const [urikey2, uriSle2] =
+                uriTokenKeyAndSle(*env.current(), alice, uri);
             BEAST_EXPECT(uriSle2->isFieldPresent(sfDestination) == false);
             BEAST_EXPECT(uriSle2->isFieldPresent(sfAmount) == false);
 
@@ -2319,7 +2342,8 @@ struct Remit_test : public beast::unit_test::suite
             auto const tid = uritoken::tokenid(alice, uri);
 
             std::string const digestval =
-            "C16E7263F07AA41261DCC955660AF4646ADBA414E37B6F5A5BA50F75153F5CCC";
+                "C16E7263F07AA41261DCC955660AF4646ADBA414E37B6F5A5BA50F75153F5C"
+                "CC";
 
             // mint the uritoken w/ digest
             env(remit::remit(alice, bob),
@@ -2327,8 +2351,10 @@ struct Remit_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
 
-            auto const [urikey, uriSle] = uriTokenKeyAndSle(*env.current(), alice, uri);
-            BEAST_EXPECT(to_string(uriSle->getFieldH256(sfDigest)) == digestval);
+            auto const [urikey, uriSle] =
+                uriTokenKeyAndSle(*env.current(), alice, uri);
+            BEAST_EXPECT(
+                to_string(uriSle->getFieldH256(sfDigest)) == digestval);
 
             // clean up test
             env(uritoken::burn(bob, strHex(tid)));
@@ -2370,7 +2396,7 @@ struct Remit_test : public beast::unit_test::suite
         {
             std::string const uri1(maxTokenURILength, '?');
             auto const tid1 = uritoken::tokenid(alice, uri1);
-            
+
             // mint uritoken
             env(uritoken::mint(alice, uri1), ter(tesSUCCESS));
             env.close();
