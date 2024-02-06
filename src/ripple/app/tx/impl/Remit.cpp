@@ -53,6 +53,13 @@ Remit::preflight(PreflightContext const& ctx)
         return temREDUNDANT;
     }
 
+    if (ctx.tx.getFieldVL(sfBlob).size() > (128 * 1024))
+    {
+        JLOG(ctx.j.warn()) << "Blob was more than 128kib "
+                           << ctx.tx.getTransactionID();
+        return temMALFORMED;
+    }
+
     // sanity check amounts
     if (ctx.tx.isFieldPresent(sfAmounts))
     {

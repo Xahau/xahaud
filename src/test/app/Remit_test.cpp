@@ -190,6 +190,13 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
         }
 
+        // temMALFORMED - blob was more than 128kib
+        {
+            ripple::Blob blob;
+            blob.resize(129 * 1024);
+            env(remit::remit(alice, bob), remit::blob(strHex(blob)), ter(temMALFORMED));
+        }
+
         // temMALFORMED - Expected AmountEntry.
         {
             auto tx = remit::remit(alice, bob);
@@ -410,6 +417,107 @@ struct Remit_test : public beast::unit_test::suite
                 remit::uri(uri),
                 ter(tecINSUFFICIENT_RESERVE));
             env.close();
+        }
+    }
+
+    void
+    testTransferRate(FeatureBitset features)
+    {
+        testcase("transfer rate");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        struct TestRateData
+        {
+            double rate;
+            STAmount delta;
+            std::string multiply;
+            std::string divide;
+        };
+        std::array<TestRateData, 6> testCases = {{
+            {1, USD(100), "1100", "1100"},
+            {1.1, USD(100), "1110", "1090.909090909091"},
+            {1.0005, USD(100), "1100.05", "1099.950024987506"},
+            {1.005, USD(100), "1100.4999999", "1099.502487661197"},
+            {1.25, USD(100), "1125", "1080"},
+            {2, USD(100), "1200", "1050"},
+        }};
+
+        for (auto const& tc : testCases)
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, tc.rate));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto const preBob = env.balance(bob, USD.issue());
+
+            auto const delta = USD(100);
+            env(remit::remit(alice, bob), remit::amts({ delta }));
+            env.close();
+            auto xferRate = transferRate(*env.current(), gw);
+            auto const postBob = env.balance(bob, USD.issue());
+            BEAST_EXPECT(to_string(postBob.value()) == tc.divide);
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
+        }
+
+        // test rate change
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            // setup
+            auto const delta = USD(100);
+            auto preAlice = env.balance(alice, USD.issue());
+
+            // issuer changes rate lower
+            env(rate(gw, 1.00));
+            env.close();
+
+            // remit at higher rate
+            env(remit::remit(alice, bob), remit::amts({ delta }));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10100));
+        }
+
+        // test issuer doesnt pay own rate
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env.close();
+
+            auto const delta = USD(100);
+            auto const preAlice = env.balance(alice, USD.issue());
+    
+            // alice sells
+            env(remit::remit(gw, alice), remit::amts({ delta }));
+            env.close();
+
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
         }
     }
 
@@ -1887,14 +1995,16 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             if (t.hasTrustline)
+            {
                 env.trust(USD(100000), t.dst);
-
-            env.close();
+                env.close();
+            }
 
             if (t.hasTrustline)
+            {
                 env(pay(t.src, t.dst, USD(10000)));
-
-            env.close();
+                env.close();
+            }
 
             auto const preAmount = t.hasTrustline ? 10000 : 0;
             auto const preDst = lineBalance(env, t.dst, t.src, USD);
@@ -1914,15 +2024,23 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(lineBalance(env, t.src, t.src, USD) == USD(0));
         }
 
-        std::array<TestAccountData, 4> gwDstTests = {{
+        std::array<TestAccountData, 8> gwDstTests = {{
             // // // src > dst && src > issuer && dst has trustline
             {Account("alice2"), Account{"gw0"}, true, true},
+            // // // src > dst && src > issuer && dst has trustline
+            {Account("alice2"), Account{"gw0"}, false, true},
             // // // src < dst && src < issuer && dst has trustline
             {Account("carol0"), Account{"gw1"}, true, false},
+            // // // src < dst && src < issuer && dst has trustline
+            {Account("carol0"), Account{"gw1"}, false, false},
             // // // // dst > src && dst > issuer && dst has trustline
             {Account("dan1"), Account{"gw0"}, true, true},
+            // // // // dst > src && dst > issuer && dst has trustline
+            {Account("dan1"), Account{"gw0"}, false, true},
             // // // // dst < src && dst < issuer && dst has trustline
             {Account("bob0"), Account{"gw1"}, true, false},
+            // // // // dst < src && dst < issuer && dst has trustline
+            {Account("bob0"), Account{"gw1"}, false, false},
         }};
 
         for (auto const& t : gwDstTests)
@@ -1932,28 +2050,43 @@ struct Remit_test : public beast::unit_test::suite
             env.fund(XRP(5000), t.src, t.dst);
             env.close();
 
-            env.trust(USD(100000), t.src);
-            env.close();
+            if (t.hasTrustline)
+            {
+                env.trust(USD(100000), t.src);
+                env.close();
+            }
 
-            env(pay(t.dst, t.src, USD(10000)));
-            env.close();
+            if (t.hasTrustline)
+            {
+                env(pay(t.dst, t.src, USD(10000)));
+                env.close();
+            }
 
             auto const preSrc = lineBalance(env, t.src, t.dst, USD);
 
             // issuer can remit to issuer
             env(remit::remit(t.src, t.dst),
                 remit::amts({USD(100)}),
-                ter(tesSUCCESS));
+                t.hasTrustline ? ter(tesSUCCESS) : ter(tecUNFUNDED_PAYMENT));
             env.close();
 
-            auto const preAmount = 10000;
-            BEAST_EXPECT(
-                preSrc == (t.negative ? -USD(preAmount) : USD(preAmount)));
-            auto const postAmount = 9900;
-            BEAST_EXPECT(
-                lineBalance(env, t.src, t.dst, USD) ==
-                (t.negative ? -USD(postAmount) : USD(postAmount)));
-            BEAST_EXPECT(lineBalance(env, t.dst, t.dst, USD) == USD(0));
+            if (t.hasTrustline)
+            {
+                auto const preAmount = 10000;
+                BEAST_EXPECT(
+                    preSrc == (t.negative ? -USD(preAmount) : USD(preAmount)));
+                auto const postAmount = 9900;
+                BEAST_EXPECT(
+                    lineBalance(env, t.src, t.dst, USD) ==
+                    (t.negative ? -USD(postAmount) : USD(postAmount)));
+                BEAST_EXPECT(lineBalance(env, t.dst, t.dst, USD) == USD(0));
+            } 
+            else
+            {
+                BEAST_EXPECT(preSrc == USD(0));
+                BEAST_EXPECT(lineBalance(env, t.src, t.dst, USD) == USD(0));
+                BEAST_EXPECT(lineBalance(env, t.dst, t.dst, USD) == USD(0));
+            }
         }
     }
 
@@ -2431,11 +2564,59 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testOptionals(FeatureBitset features)
+    {
+        testcase("optionals");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+
+        Env env{*this, features};
+        auto const feeDrops = env.current()->fees().base;
+
+        env.fund(XRP(1000), alice, bob, carol);
+        env.close();
+        
+
+        // inform
+        {
+            env(remit::remit(alice, bob),
+                remit::inform(carol),
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // blob
+        {
+            ripple::Blob blob;
+            blob.resize(128 * 1024);
+            XRPAmount const extraFee = XRPAmount{static_cast<XRPAmount>(blob.size())};
+            env(remit::remit(alice, bob),
+                remit::blob(strHex(blob)),
+                fee(feeDrops + extraFee),
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // invoice
+        {
+            env(remit::remit(alice, bob),
+                invoice_id(uint256{4}),
+                ter(tesSUCCESS));
+            env.close();
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
         testPreflightInvalid(features);
         testDoApplyInvalid(features);
+        testTransferRate(features);
         testDisallowXRP(features);
         testDstTag(features);
         testDisallowIncoming(features);
@@ -2447,6 +2628,7 @@ struct Remit_test : public beast::unit_test::suite
         testTLFreeze(features);
         testRippling(features);
         testURIToken(features);
+        testOptionals(features);
     }
 
 public:
