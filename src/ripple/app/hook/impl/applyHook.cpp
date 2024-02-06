@@ -70,6 +70,17 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     switch (tt)
     {
+
+        case ttREMIT: {
+            if (destAcc)
+                ADD_TSH(*destAcc, tshSTRONG);
+
+            if (tx.isFieldPresent(sfInform))
+                ADD_TSH(tx.getAccountID(sfInform), tshWEAK);
+
+            break;
+        }
+
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
                 ADD_TSH(tx.getAccountID(sfIssuer), fixV2 ? tshWEAK : tshSTRONG);
@@ -318,7 +329,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         // simple two party transactions
-        case ttREMIT:
         case ttPAYMENT:
         case ttESCROW_CREATE:
         case ttCHECK_CREATE:
