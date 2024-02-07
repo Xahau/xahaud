@@ -516,7 +516,6 @@ Remit::doApply()
     sb.update(sleSrcAcc);
     sb.update(sleDstAcc);
     sb.apply(ctx_.rawView());
-    addWeakTSHFromSandbox(sb);
 
     return tesSUCCESS;
 }

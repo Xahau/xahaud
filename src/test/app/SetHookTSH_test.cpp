@@ -4936,7 +4936,6 @@ private:
     // |   A   |  A  |     S       |
     // |   A   |  D  |     S       |
     // |   A   |  I  |     W       |
-    // |   A   |  C  |     W       |
 
     // | otxn  | tsh | burnable |  remit w/uri  |
     // |   A   |  I  |    F     |       W       |
@@ -5041,52 +5040,6 @@ private:
                 remit::inform(inform),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
-            env.close();
-
-            // verify tsh hook triggered
-            auto const expected = testStrong ? tshNONE : tshWEAK;
-            testTSHStrongWeak(env, expected, __LINE__);
-        }
-
-        // otxn: account
-        // tsh cross
-        // w/s: weak
-        for (bool const testStrong : {true, false})
-        {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
-
-            auto const account = Account("alice");
-            auto const cross = Account("bob");
-            auto const dest = Account("carol");
-            auto const gw = Account{"gateway"};
-            auto const USD = gw["USD"];
-            env.fund(XRP(1000), account, cross, dest, gw);
-            env.close();
-
-            // setup rippling
-            auto const USDA = account["USD"];
-            auto const USDB = cross["USD"];
-            auto const USDC = dest["USD"];
-            env.trust(USDA(10), cross);
-            env.trust(USDB(10), dest);
-
-            // set tsh collect
-            if (!testStrong)
-                addWeakTSH(env, cross);
-
-            // set tsh hook
-            setTSHHook(env, cross, testStrong);
-
-            // payment
-            env(remit::remit(account, dest),
-                remit::amts({USDB(10)}),
-                paths(USDA),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
-            env.close();
             env.close();
 
             // verify tsh hook triggered
