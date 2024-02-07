@@ -194,12 +194,14 @@ struct Remit_test : public beast::unit_test::suite
         {
             ripple::Blob blob;
             blob.resize(129 * 1024);
-            env(remit::remit(alice, bob), remit::blob(strHex(blob)), ter(temMALFORMED));
+            env(remit::remit(alice, bob),
+                remit::blob(strHex(blob)),
+                ter(temMALFORMED));
         }
 
         // temMALFORMED - AmountEntrys Exceeds Limit
         {
-            std::vector<STAmount> amts_; // Remove the const qualifier
+            std::vector<STAmount> amts_;  // Remove the const qualifier
             for (size_t i = 0; i < 33; i++)
             {
                 auto const USD = gw["USD"];
@@ -495,7 +497,7 @@ struct Remit_test : public beast::unit_test::suite
             auto const preBob = env.balance(bob, USD.issue());
 
             auto const delta = USD(100);
-            env(remit::remit(alice, bob), remit::amts({ delta }));
+            env(remit::remit(alice, bob), remit::amts({delta}));
             env.close();
             auto xferRate = transferRate(*env.current(), gw);
             auto const postBob = env.balance(bob, USD.issue());
@@ -524,7 +526,7 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             // remit at higher rate
-            env(remit::remit(alice, bob), remit::amts({ delta }));
+            env(remit::remit(alice, bob), remit::amts({delta}));
             env.close();
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
             BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10100));
@@ -543,9 +545,9 @@ struct Remit_test : public beast::unit_test::suite
 
             auto const delta = USD(100);
             auto const preAlice = env.balance(alice, USD.issue());
-    
+
             // alice sells
-            env(remit::remit(gw, alice), remit::amts({ delta }));
+            env(remit::remit(gw, alice), remit::amts({delta}));
             env.close();
 
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
@@ -2111,7 +2113,7 @@ struct Remit_test : public beast::unit_test::suite
                     lineBalance(env, t.src, t.dst, USD) ==
                     (t.negative ? -USD(postAmount) : USD(postAmount)));
                 BEAST_EXPECT(lineBalance(env, t.dst, t.dst, USD) == USD(0));
-            } 
+            }
             else
             {
                 BEAST_EXPECT(preSrc == USD(0));
@@ -2610,7 +2612,6 @@ struct Remit_test : public beast::unit_test::suite
 
         env.fund(XRP(1000), alice, bob, carol);
         env.close();
-        
 
         // inform
         {
@@ -2624,7 +2625,8 @@ struct Remit_test : public beast::unit_test::suite
         {
             ripple::Blob blob;
             blob.resize(128 * 1024);
-            XRPAmount const extraFee = XRPAmount{static_cast<XRPAmount>(blob.size())};
+            XRPAmount const extraFee =
+                XRPAmount{static_cast<XRPAmount>(blob.size())};
             env(remit::remit(alice, bob),
                 remit::blob(strHex(blob)),
                 fee(feeDrops + extraFee),

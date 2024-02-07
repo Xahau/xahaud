@@ -70,7 +70,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     switch (tt)
     {
-
         case ttREMIT: {
             if (destAcc)
                 ADD_TSH(*destAcc, tshSTRONG);
@@ -88,13 +87,17 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                         continue;
 
                     auto const ut = rv.read(id);
-                    if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                    if (!ut ||
+                        ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
                         continue;
 
                     auto const owner = ut->getAccountID(sfOwner);
                     auto const issuer = ut->getAccountID(sfIssuer);
                     if (issuer != owner)
-                        ADD_TSH(issuer, (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
+                        ADD_TSH(
+                            issuer,
+                            (ut->getFlags() & lsfBurnable) ? tshSTRONG
+                                                           : tshWEAK);
                 }
             }
             break;
