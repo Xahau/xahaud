@@ -197,6 +197,21 @@ struct Remit_test : public beast::unit_test::suite
             env(remit::remit(alice, bob), remit::blob(strHex(blob)), ter(temMALFORMED));
         }
 
+        // temMALFORMED - AmountEntrys Exceeds Limit
+        {
+            std::vector<STAmount> amts_; // Remove the const qualifier
+            for (size_t i = 0; i < 33; i++)
+            {
+                auto const USD = gw["USD"];
+                amts_.emplace_back(USD(1));
+            }
+
+            env(remit::remit(alice, bob),
+                remit::amts(amts_),
+                ter(temMALFORMED));
+            env.close();
+        }
+
         // temMALFORMED - Expected AmountEntry.
         {
             auto tx = remit::remit(alice, bob);
@@ -269,6 +284,22 @@ struct Remit_test : public beast::unit_test::suite
             env(remit::remit(alice, bob),
                 remit::uri(uri, tfAllowXRP),
                 ter(temINVALID_FLAG));
+            env.close();
+        }
+
+        // temMALFORMED - URITokenIDs Exceeds Limit
+        {
+            std::vector<std::string> token_ids;
+            for (size_t i = 0; i < 33; i++)
+            {
+                std::string const uri(i, '?');
+                auto const tid = uritoken::tokenid(alice, uri);
+                token_ids.emplace_back(strHex(tid));
+            }
+
+            env(remit::remit(alice, bob),
+                remit::token_ids(token_ids),
+                ter(temMALFORMED));
             env.close();
         }
 

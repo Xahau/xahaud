@@ -63,6 +63,12 @@ Remit::preflight(PreflightContext const& ctx)
     // sanity check amounts
     if (ctx.tx.isFieldPresent(sfAmounts))
     {
+        if (ctx.tx.getFieldArray(sfAmounts).size() > 32)
+        {
+            JLOG(ctx.j.warn()) << "Malformed: AmountEntrys Exceed Limit `32`.";
+            return temMALFORMED;
+        }
+
         std::map<Currency, std::set<AccountID>> already;
         bool nativeAlready = false;
 
@@ -153,9 +159,16 @@ Remit::preflight(PreflightContext const& ctx)
         }
     }
 
-    // check uritokenids for duplicates
+    // sanity check uritokenids
     if (ctx.tx.isFieldPresent(sfURITokenIDs))
     {
+        if (ctx.tx.getFieldV256(sfURITokenIDs).size() > 32)
+        {
+            JLOG(ctx.j.warn())
+                << "Malformed transaction: URITokenIDs Exceed Limit `32`.";
+            return temMALFORMED;
+        }
+
         STVector256 ids = ctx.tx.getFieldV256(sfURITokenIDs);
         std::sort(ids.begin(), ids.end());
         if (std::adjacent_find(ids.begin(), ids.end()) != ids.end())
