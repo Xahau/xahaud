@@ -14,7 +14,7 @@ jobs:
   builder:
     runs-on: [self-hosted, vanity]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         clean: false
     - name: Check for suspicious patterns
