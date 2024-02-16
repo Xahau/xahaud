@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2015 Ripple Labs Inc.
+    Copyright (c) 2012, 2013 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,30 +17,21 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/basics/mulDiv.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <limits>
-#include <utility>
+#include <ripple/protocol/Option.h>
 
 namespace ripple {
 
-std::pair<bool, std::uint64_t>
-mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
+std::string
+to_string(Option const& option)
 {
-    using namespace boost::multiprecision;
+    return to_string(option.issue) + "/" + to_string(option.strike) + "/" + to_string(option.expiration);
+}
 
-    boost::multiprecision::uint128_t result;
-    result = multiply(result, value, mul);
-
-    result /= div;
-
-    auto constexpr limit = std::numeric_limits<std::uint64_t>::max();
-
-    if (result > limit)
-        return {false, limit};
-
-    return {true, static_cast<std::uint64_t>(result)};
+std::ostream&
+operator<<(std::ostream& os, Option const& x)
+{
+    os << to_string(x);
+    return os;
 }
 
 }  // namespace ripple

@@ -51,6 +51,10 @@ JSS(Amendments);     // ledger type.
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
 JSS(Blob);
+JSS(BrokerCreate);       // transaction type.
+JSS(BrokerDeposit);      // transaction type.
+JSS(BrokerState);        // ledger type.
+JSS(BrokerWithdraw);     // transaction type.
 JSS(Check);              // ledger type.
 JSS(CheckCancel);        // transaction type.
 JSS(CheckCash);          // transaction type.
@@ -111,8 +115,13 @@ JSS(Offer);                    // ledger type.
 JSS(OfferCancel);              // transaction type.
 JSS(OfferCreate);              // transaction type.
 JSS(OfferSequence);            // field.
+JSS(Option);                   // ledger type.
+JSS(OptionCreate);             // transaction type.
+JSS(OptionExecute);            // transaction type.
+JSS(OptionList);               // transaction type.
+JSS(OptionOffer);              // ledger type.
 JSS(Paths);                    // in/out: TransactionSign
-JSS(PayChannel);               // ledger type.
+JSS(PayChannel);               // ledger type.E
 JSS(Payment);                  // transaction type.
 JSS(PaymentChannelClaim);      // transaction type.
 JSS(PaymentChannelCreate);     // transaction type.

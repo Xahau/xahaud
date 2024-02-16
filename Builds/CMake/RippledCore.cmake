@@ -80,6 +80,7 @@ target_sources (xrpl_core PRIVATE
   #]===============================]
   src/ripple/protocol/impl/AccountID.cpp
   src/ripple/protocol/impl/Book.cpp
+  src/ripple/protocol/impl/BrokerCore.cpp
   src/ripple/protocol/impl/BuildInfo.cpp
   src/ripple/protocol/impl/ErrorCodes.cpp
   src/ripple/protocol/impl/Feature.cpp
@@ -88,6 +89,7 @@ target_sources (xrpl_core PRIVATE
   src/ripple/protocol/impl/Issue.cpp
   src/ripple/protocol/impl/Keylet.cpp
   src/ripple/protocol/impl/LedgerFormats.cpp
+  src/ripple/protocol/impl/Option.cpp
   src/ripple/protocol/impl/PublicKey.cpp
   src/ripple/protocol/impl/Quality.cpp
   src/ripple/protocol/impl/Rate2.cpp
@@ -208,6 +210,7 @@ install (
     src/ripple/protocol/AccountID.h
     src/ripple/protocol/AmountConversions.h
     src/ripple/protocol/Book.h
+    src/ripple/protocol/BrokerCore.h
     src/ripple/protocol/BuildInfo.h
     src/ripple/protocol/ErrorCodes.h
     src/ripple/protocol/Feature.h
@@ -219,6 +222,7 @@ install (
     src/ripple/protocol/Keylet.h
     src/ripple/protocol/KnownFormats.h
     src/ripple/protocol/LedgerFormats.h
+    src/ripple/protocol/Option.h
     src/ripple/protocol/Protocol.h
     src/ripple/protocol/PublicKey.h
     src/ripple/protocol/Quality.h
@@ -429,6 +433,9 @@ target_sources (rippled PRIVATE
   src/ripple/app/rdb/impl/Wallet.cpp
   src/ripple/app/tx/impl/ApplyContext.cpp
   src/ripple/app/tx/impl/BookTip.cpp
+  src/ripple/app/tx/impl/BrokerCreate.cpp
+  src/ripple/app/tx/impl/BrokerDeposit.cpp
+  src/ripple/app/tx/impl/BrokerWithdraw.cpp
   src/ripple/app/tx/impl/CancelCheck.cpp
   src/ripple/app/tx/impl/CancelOffer.cpp
   src/ripple/app/tx/impl/CashCheck.cpp
@@ -446,6 +453,9 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/NFTokenCreateOffer.cpp
   src/ripple/app/tx/impl/NFTokenMint.cpp
   src/ripple/app/tx/impl/OfferStream.cpp
+  src/ripple/app/tx/impl/OptionCreate.cpp
+  src/ripple/app/tx/impl/OptionExecute.cpp
+  src/ripple/app/tx/impl/OptionList.cpp
   src/ripple/app/tx/impl/PayChan.cpp
   src/ripple/app/tx/impl/Payment.cpp
   src/ripple/app/tx/impl/SetAccount.cpp
@@ -732,6 +742,7 @@ if (tests)
     src/test/app/NFTokenBurn_test.cpp
     src/test/app/NFTokenDir_test.cpp
     src/test/app/OfferStream_test.cpp
+    src/test/app/Option_test.cpp
     src/test/app/Offer_test.cpp
     src/test/app/OversizeMeta_test.cpp
     src/test/app/Path_test.cpp

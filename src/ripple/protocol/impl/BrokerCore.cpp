@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2015 Ripple Labs Inc.
+    Copyright (c) 2023 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,30 +17,24 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/basics/mulDiv.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <limits>
-#include <utility>
+#include <ripple/protocol/BrokerCore.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/STAmount.h>
+#include <ripple/protocol/STObject.h>
+#include <ripple/protocol/digest.h>
 
 namespace ripple {
 
-std::pair<bool, std::uint64_t>
-mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
+AccountID
+brokerAccountID(
+    std::uint16_t prefix,
+    uint256 const& parentHash,
+    uint256 const& brokerID)
 {
-    using namespace boost::multiprecision;
-
-    boost::multiprecision::uint128_t result;
-    result = multiply(result, value, mul);
-
-    result /= div;
-
-    auto constexpr limit = std::numeric_limits<std::uint64_t>::max();
-
-    if (result > limit)
-        return {false, limit};
-
-    return {true, static_cast<std::uint64_t>(result)};
+    ripesha_hasher rsh;
+    auto const hash = sha512Half(prefix, parentHash, brokerID);
+    rsh(hash.data(), hash.size());
+    return AccountID{static_cast<ripesha_hasher::result_type>(rsh)};
 }
 
 }  // namespace ripple

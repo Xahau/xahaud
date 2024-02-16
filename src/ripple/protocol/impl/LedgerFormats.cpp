@@ -84,6 +84,8 @@ LedgerFormats::LedgerFormats()
             {sfIndexNext,            soeOPTIONAL},
             {sfIndexPrevious,        soeOPTIONAL},
             {sfNFTokenID,            soeOPTIONAL},
+            {sfBaseFee,              soeOPTIONAL},
+            {sfExpiration,           soeOPTIONAL},
         },
         commonFields);
 
@@ -358,6 +360,44 @@ LedgerFormats::LedgerFormats()
             {sfDigest,               soeOPTIONAL},
             {sfAmount,               soeOPTIONAL},
             {sfDestination,          soeOPTIONAL},
+            {sfPreviousTxnID,        soeREQUIRED},
+            {sfPreviousTxnLgrSeq,    soeREQUIRED}
+        },
+        commonFields);
+
+    add(jss::BrokerState,
+        ltBROKER_STATE,
+        {
+            {sfOwnerNode,            soeREQUIRED},   
+            {sfAmount,               soeREQUIRED},
+            {sfLockedBalance,        soeOPTIONAL},
+        },
+        commonFields);
+    
+    add(jss::Option,
+        ltOPTION,
+        {
+            {sfAmount,               soeREQUIRED},
+            {sfExpiration,           soeREQUIRED},
+            {sfPreviousTxnID,        soeREQUIRED},
+            {sfPreviousTxnLgrSeq,    soeREQUIRED}
+        },
+        commonFields);
+
+    add(jss::OptionOffer,
+        ltOPTION_OFFER,
+        {
+            {sfOwner,                soeREQUIRED},
+            {sfOwnerNode,            soeREQUIRED},
+            {sfOfferID,              soeREQUIRED}, // OptionID
+            {sfAmount,               soeREQUIRED}, // Locked Amount
+            {sfTakerPays,            soeREQUIRED}, // Premium
+            {sfQualityIn,            soeREQUIRED}, // Quantity
+            {sfQualityOut,           soeREQUIRED}, // To Seal
+            {sfBookDirectory,        soeREQUIRED},
+            {sfBookNode,             soeREQUIRED},
+            {sfInvoiceID,            soeOPTIONAL}, // MatchID
+            {sfCheckID,              soeOPTIONAL}, // SwapID
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED}
         },

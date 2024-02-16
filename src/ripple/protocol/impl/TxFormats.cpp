@@ -456,6 +456,63 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::BrokerCreate,
+        ttBROKER_CREATE,
+        {
+            {sfDestination, soeREQUIRED},
+            {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::BrokerDeposit,
+        ttBROKER_DEPOSIT,
+        {
+            {sfDestination, soeREQUIRED},
+            {sfAmounts, soeOPTIONAL},
+            {sfInvoiceID, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::BrokerWithdraw,
+        ttBROKER_WITHDRAW,
+        {
+            {sfDestination, soeREQUIRED},
+            {sfAmounts, soeOPTIONAL},
+            {sfInvoiceID, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::OptionList,
+        ttOPTION_LIST,
+        {
+            {sfAmount, soeREQUIRED},
+            {sfExpiration, soeREQUIRED},
+            {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::OptionCreate,
+        ttOPTION_CREATE,
+        {
+            {sfOfferID, soeREQUIRED}, // Option ID
+            {sfAmount, soeREQUIRED}, // Premium
+            {sfQualityIn, soeREQUIRED}, // Quantity
+            {sfInvoiceID, soeOPTIONAL}, // Swap ID
+            {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::OptionExecute,
+        ttOPTION_EXECUTE,
+        {
+            {sfOfferID, soeREQUIRED},
+            {sfInvoiceID, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
 }
 
 TxFormats const&
