@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2014 Ripple Labs Inc.
+    Copyright (c) 2024 XRPL-Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,38 +17,38 @@
 */
 //==============================================================================
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/NetworkOPs.h>
-#include <ripple/app/reporting/P2pProxy.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/rpc/Context.h>
-#include <ripple/rpc/Role.h>
+#ifndef RIPPLE_TX_OPTIONLIST_H_INCLUDED
+#define RIPPLE_TX_OPTIONLIST_H_INCLUDED
+
+#include <ripple/app/tx/impl/Transactor.h>
+#include <ripple/basics/Log.h>
+#include <ripple/core/Config.h>
+#include <ripple/protocol/Indexes.h>
 
 namespace ripple {
 
-Json::Value
-doServerInfo(RPC::JsonContext& context)
+class OptionList : public Transactor
 {
-    Json::Value ret(Json::objectValue);
+public:
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    ret[jss::info] = context.netOps.getServerInfo(
-        true,
-        context.role == Role::ADMIN,
-        context.params.isMember(jss::counters) &&
-            context.params[jss::counters].asBool());
-
-    if (context.app.config().reporting())
+    explicit OptionList(ApplyContext& ctx) : Transactor(ctx)
     {
-        Json::Value const proxied = forwardToP2p(context);
-        auto const lf = proxied[jss::result][jss::info][jss::load_factor];
-        auto const vq = proxied[jss::result][jss::info][jss::validation_quorum];
-        ret[jss::info][jss::validation_quorum] = vq.isNull() ? 1 : vq;
-        ret[jss::info][jss::load_factor] = lf.isNull() ? 1 : lf;
     }
 
-    ret[jss::native_currency_code] = systemCurrencyCode();
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
 
-    return ret;
-}
+    static TxConsequences
+    makeTxConsequences(PreflightContext const& ctx);
+
+    static NotTEC
+    preflight(PreflightContext const& ctx);
+
+    TER
+    doApply() override;
+};
 
 }  // namespace ripple
+
+#endif

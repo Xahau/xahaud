@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2014 Ripple Labs Inc.
+    Copyright (c) 2023 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,38 +17,24 @@
 */
 //==============================================================================
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/NetworkOPs.h>
-#include <ripple/app/reporting/P2pProxy.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/rpc/Context.h>
-#include <ripple/rpc/Role.h>
+#include <ripple/protocol/BrokerCore.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/STAmount.h>
+#include <ripple/protocol/STObject.h>
+#include <ripple/protocol/digest.h>
 
 namespace ripple {
 
-Json::Value
-doServerInfo(RPC::JsonContext& context)
+AccountID
+brokerAccountID(
+    std::uint16_t prefix,
+    uint256 const& parentHash,
+    uint256 const& brokerID)
 {
-    Json::Value ret(Json::objectValue);
-
-    ret[jss::info] = context.netOps.getServerInfo(
-        true,
-        context.role == Role::ADMIN,
-        context.params.isMember(jss::counters) &&
-            context.params[jss::counters].asBool());
-
-    if (context.app.config().reporting())
-    {
-        Json::Value const proxied = forwardToP2p(context);
-        auto const lf = proxied[jss::result][jss::info][jss::load_factor];
-        auto const vq = proxied[jss::result][jss::info][jss::validation_quorum];
-        ret[jss::info][jss::validation_quorum] = vq.isNull() ? 1 : vq;
-        ret[jss::info][jss::load_factor] = lf.isNull() ? 1 : lf;
-    }
-
-    ret[jss::native_currency_code] = systemCurrencyCode();
-
-    return ret;
+    ripesha_hasher rsh;
+    auto const hash = sha512Half(prefix, parentHash, brokerID);
+    rsh(hash.data(), hash.size());
+    return AccountID{static_cast<ripesha_hasher::result_type>(rsh)};
 }
 
 }  // namespace ripple

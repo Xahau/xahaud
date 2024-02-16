@@ -171,8 +171,7 @@ STValidation::STValidation(
 {
     if (checkSignature && !isValid())
     {
-        JLOG(debugLog().error()) << "Invalid signature in validation: "
-                                 << getJson(JsonOptions::none);
+        JLOG(debugLog().error()) << "Invalid signature in validation";
         Throw<std::runtime_error>("Invalid signature in validation");
     }
 

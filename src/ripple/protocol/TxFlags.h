@@ -168,6 +168,13 @@ constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
 // ClaimReward flags:
 constexpr std::uint32_t const tfOptOut                   = 0x00000001;
 
+// OptionCreate flags:
+constexpr std::uint32_t tfType                             = 0x00010000;
+constexpr std::uint32_t tfAction                           = 0x00020000;
+constexpr std::uint32_t tfPosition                         = 0x00040000;
+constexpr std::uint32_t tfOptionCreateMask =
+    ~(tfUniversal | tfType | tfAction | tfPosition);
+
 // clang-format on
 
 }  // namespace ripple
