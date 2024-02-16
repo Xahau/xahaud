@@ -111,8 +111,13 @@ JSS(Offer);                    // ledger type.
 JSS(OfferCancel);              // transaction type.
 JSS(OfferCreate);              // transaction type.
 JSS(OfferSequence);            // field.
+JSS(Option);                   // ledger type.
+JSS(OptionCreate);             // transaction type.
+JSS(OptionExecute);            // transaction type.
+JSS(OptionList);               // transaction type.
+JSS(OptionOffer);              // ledger type.
 JSS(Paths);                    // in/out: TransactionSign
-JSS(PayChannel);               // ledger type.
+JSS(PayChannel);               // ledger type.E
 JSS(Payment);                  // transaction type.
 JSS(PaymentChannelClaim);      // transaction type.
 JSS(PaymentChannelCreate);     // transaction type.

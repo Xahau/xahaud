@@ -190,6 +190,21 @@ enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };
 
+// OptionCreate flags:
+enum OptionCreateFlags : uint32_t {
+    tfType = 0x00010000,
+    tfAction = 0x00020000,
+    tfPosition = 0x00040000,
+};
+constexpr std::uint32_t tfOptionCreateMask =
+    ~(tfUniversal | tfType | tfAction | tfPosition);
+
+// OptionExpire flags:
+enum OptionExpireFlags : uint32_t {
+    tfOptionExpire = 0x00010000,
+};
+constexpr std::uint32_t tfOptionExpireMask = ~(tfUniversal | tfOptionExpire);
+
 // clang-format on
 
 }  // namespace ripple

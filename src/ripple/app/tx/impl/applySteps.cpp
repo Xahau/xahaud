@@ -23,6 +23,7 @@
 #include <ripple/app/tx/impl/CancelOffer.h>
 #include <ripple/app/tx/impl/CashCheck.h>
 #include <ripple/app/tx/impl/Change.h>
+#include <ripple/app/tx/impl/ClaimReward.h>
 #include <ripple/app/tx/impl/CreateCheck.h>
 #include <ripple/app/tx/impl/CreateOffer.h>
 #include <ripple/app/tx/impl/CreateTicket.h>
@@ -37,8 +38,12 @@
 #include <ripple/app/tx/impl/NFTokenCancelOffer.h>
 #include <ripple/app/tx/impl/NFTokenCreateOffer.h>
 #include <ripple/app/tx/impl/NFTokenMint.h>
+#include <ripple/app/tx/impl/OptionCreate.h>
+#include <ripple/app/tx/impl/OptionExecute.h>
+#include <ripple/app/tx/impl/OptionList.h>
 #include <ripple/app/tx/impl/PayChan.h>
 #include <ripple/app/tx/impl/Payment.h>
+#include <ripple/app/tx/impl/Remit.h>
 #include <ripple/app/tx/impl/SetAccount.h>
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/SetRegularKey.h>
@@ -122,6 +127,12 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<EscrowFinish>(ctx);
         case ttESCROW_CANCEL:
             return invoke_preflight_helper<EscrowCancel>(ctx);
+        case ttOPTION_CREATE:
+            return invoke_preflight_helper<OptionCreate>(ctx);
+        case ttOPTION_EXECUTE:
+            return invoke_preflight_helper<OptionExecute>(ctx);
+        case ttOPTION_LIST:
+            return invoke_preflight_helper<OptionList>(ctx);
         case ttPAYCHAN_CLAIM:
             return invoke_preflight_helper<PayChanClaim>(ctx);
         case ttPAYCHAN_CREATE:
@@ -243,6 +254,12 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<EscrowFinish>(ctx);
         case ttESCROW_CANCEL:
             return invoke_preclaim<EscrowCancel>(ctx);
+        case ttOPTION_CREATE:
+            return invoke_preclaim<OptionCreate>(ctx);
+        case ttOPTION_EXECUTE:
+            return invoke_preclaim<OptionExecute>(ctx);
+        case ttOPTION_LIST:
+            return invoke_preclaim<OptionList>(ctx);
         case ttPAYCHAN_CLAIM:
             return invoke_preclaim<PayChanClaim>(ctx);
         case ttPAYCHAN_CREATE:
@@ -326,6 +343,12 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return EscrowFinish::calculateBaseFee(view, tx);
         case ttESCROW_CANCEL:
             return EscrowCancel::calculateBaseFee(view, tx);
+        case ttOPTION_CREATE:
+            return OptionCreate::calculateBaseFee(view, tx);
+        case ttOPTION_EXECUTE:
+            return OptionExecute::calculateBaseFee(view, tx);
+        case ttOPTION_LIST:
+            return OptionList::calculateBaseFee(view, tx);
         case ttPAYCHAN_CLAIM:
             return PayChanClaim::calculateBaseFee(view, tx);
         case ttPAYCHAN_CREATE:
@@ -467,6 +490,18 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttESCROW_CANCEL: {
             EscrowCancel p(ctx);
+            return p();
+        }
+        case ttOPTION_CREATE: {
+            OptionCreate p(ctx);
+            return p();
+        }
+        case ttOPTION_EXECUTE: {
+            OptionExecute p(ctx);
+            return p();
+        }
+        case ttOPTION_LIST: {
+            OptionList p(ctx);
             return p();
         }
         case ttPAYCHAN_CLAIM: {

@@ -297,6 +297,27 @@ import_vlseq(PublicKey const& key) noexcept;
 Keylet
 uritoken(AccountID const& issuer, Blob const& uri);
 
+Keylet
+broker()  noexcept;;
+
+Keylet
+brokerStateDir(AccountID const& id, AccountID const& account)  noexcept;
+
+Keylet
+brokerState(AccountID const& id, AccountID const& issuer, uint256 const& ns) noexcept;
+
+Keylet
+option(AccountID const& issuer, std::uint32_t expiration)  noexcept;
+
+Keylet
+optionBook(AccountID const& issuer, Currency const& currency, std::uint64_t strike, std::uint32_t expiration) noexcept;
+
+Keylet
+optionOffer(AccountID const& id, std::uint32_t seq)  noexcept;
+
+Keylet
+optionQuality(Keylet const& k, std::uint64_t q) noexcept;
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:
@@ -310,6 +331,18 @@ getQualityNext(uint256 const& uBase);
 // VFALCO This name could be better
 std::uint64_t
 getQuality(uint256 const& uBase);
+
+uint256
+getOptionBookBase(AccountID const& issuer, Currency const& currency, std::uint64_t strike, std::uint32_t expiration);
+
+uint256
+getOptionQualityNext(uint256 const& uBase);
+
+// VFALCO This name could be better
+std::uint64_t
+getOptionQuality(uint256 const& uBase);
+
+/** The initial directory page for a specific quality */
 
 uint256
 getTicketIndex(AccountID const& account, std::uint32_t uSequence);

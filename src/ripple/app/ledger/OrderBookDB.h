@@ -23,6 +23,7 @@
 #include <ripple/app/ledger/AcceptedLedgerTx.h>
 #include <ripple/app/ledger/BookListeners.h>
 #include <ripple/app/main/Application.h>
+#include <ripple/protocol/Option.h>
 #include <mutex>
 
 namespace ripple {
@@ -40,6 +41,9 @@ public:
     void
     addOrderBook(Book const&);
 
+    void
+    addOptionOrderBook(Option const&);
+
     /** @return a list of all orderbooks that want this issuerID and currencyID.
      */
     std::vector<Book>
@@ -55,6 +59,7 @@ public:
 
     BookListeners::pointer
     getBookListeners(Book const&);
+    
     BookListeners::pointer
     makeBookListeners(Book const&);
 
@@ -70,6 +75,9 @@ private:
 
     // Maps order books by "issue in" to "issue out":
     hardened_hash_map<Issue, hardened_hash_set<Issue>> allBooks_;
+
+    // does an order book to XRP exist
+    hash_set<Issue> optionBooks_;
 
     // does an order book to XRP exist
     hash_set<Issue> xrpBooks_;

@@ -254,6 +254,18 @@ enum LedgerEntryType : std::uint16_t
       \sa keylet::emitted
      */
     ltEMITTED_TXN = 'E',
+
+    /** A ledger object
+
+      \sa keylet::broker_state
+     */
+    ltOPTION = 'X',
+
+    /** A ledger object
+
+      \sa keylet::broker_state
+     */
+    ltOPTION_OFFER = 'y',
 };
 // clang-format off
 
@@ -315,6 +327,12 @@ enum LedgerSpecificFlags {
 
     // ltURI_TOKEN
     lsfBurnable = 0x00000001,  // True, issuer can burn the token
+
+    // ltOPTION_OFFER
+    lsfType = 0x00010000,
+    lsfAction = 0x00020000,
+    lsfPosition = 0x00040000,
+    lsfCovered = 0x00080000,
 };
 
 //------------------------------------------------------------------------------
