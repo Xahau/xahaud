@@ -546,14 +546,16 @@ public:
         }
 
         static constexpr std::
-            array<std::pair<std::string_view, std::uint32_t>, 4>
+            array<std::pair<std::string_view, std::uint32_t>, 5>
                 disallowIncomingFlags{
                     {{"disallowIncomingCheck", asfDisallowIncomingCheck},
                      {"disallowIncomingNFTokenOffer",
                       asfDisallowIncomingNFTokenOffer},
                      {"disallowIncomingPayChan", asfDisallowIncomingPayChan},
                      {"disallowIncomingTrustline",
-                      asfDisallowIncomingTrustline}}};
+                      asfDisallowIncomingTrustline},
+                     {"allowIncomingRemit",
+                      asfAllowIncomingRemit}}};
 
         if (features[featureDisallowIncoming])
         {
