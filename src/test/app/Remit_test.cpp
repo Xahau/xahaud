@@ -146,6 +146,9 @@ struct Remit_test : public beast::unit_test::suite
 
             env.fund(XRP(1000), alice, bob);
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             auto const txResult =
                 withRemit ? ter(tesSUCCESS) : ter(temDISABLED);
 
@@ -171,6 +174,9 @@ struct Remit_test : public beast::unit_test::suite
 
         Env env{*this, features};
         env.fund(XRP(1000), alice, bob, gw);
+        env.close();
+
+        env(fset(bob, asfAllowIncomingRemit));
         env.close();
 
         //----------------------------------------------------------------------
@@ -340,8 +346,8 @@ struct Remit_test : public beast::unit_test::suite
         //     env.close();
         // }
 
-        // tecNO_PERMISSION - lsfDisallowIncomingRemit
-        // see testDisallowIncoming
+        // tecNO_PERMISSION - lsfAllowIncomingRemit
+        // see testAllowIncoming
 
         // tecDST_TAG_NEEDED
         // see testDstTag
@@ -350,6 +356,9 @@ struct Remit_test : public beast::unit_test::suite
         {
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             std::string const uri(maxTokenURILength, '?');
@@ -367,6 +376,9 @@ struct Remit_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, bob);
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             std::string const uri(maxTokenURILength, '?');
             auto const tid = uritoken::tokenid(alice, uri);
             env(remit::remit(alice, bob),
@@ -382,6 +394,9 @@ struct Remit_test : public beast::unit_test::suite
         {
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             std::string const uri(maxTokenURILength, '?');
@@ -412,6 +427,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(1000)));
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             env(remit::remit(alice, bob),
                 remit::amts({USD(1001)}),
                 ter(tecUNFUNDED_PAYMENT));
@@ -425,6 +443,9 @@ struct Remit_test : public beast::unit_test::suite
         {
             Env env{*this, features};
             env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             env(remit::remit(alice, bob),
@@ -445,112 +466,14 @@ struct Remit_test : public beast::unit_test::suite
             env.fund(XRP(250), alice, bob);
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             std::string const uri(maxTokenURILength, '?');
             env(remit::remit(alice, bob),
                 remit::uri(uri),
                 ter(tecINSUFFICIENT_RESERVE));
             env.close();
-        }
-    }
-
-    void
-    testTransferRate(FeatureBitset features)
-    {
-        testcase("transfer rate");
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-        auto const gw = Account{"gateway"};
-        auto const USD = gw["USD"];
-
-        struct TestRateData
-        {
-            double rate;
-            STAmount delta;
-            std::string multiply;
-            std::string divide;
-        };
-        std::array<TestRateData, 6> testCases = {{
-            {1, USD(100), "1100", "1100"},
-            {1.1, USD(100), "1110", "1090.909090909091"},
-            {1.0005, USD(100), "1100.05", "1099.950024987506"},
-            {1.005, USD(100), "1100.4999999", "1099.502487661197"},
-            {1.25, USD(100), "1125", "1080"},
-            {2, USD(100), "1200", "1050"},
-        }};
-
-        for (auto const& tc : testCases)
-        {
-            Env env{*this, features};
-            env.fund(XRP(10000), alice, bob, gw);
-            env(rate(gw, tc.rate));
-            env.close();
-            env.trust(USD(100000), alice, bob);
-            env.close();
-            env(pay(gw, alice, USD(1000)));
-            env(pay(gw, bob, USD(1000)));
-            env.close();
-
-            auto const preAlice = env.balance(alice, USD.issue());
-            auto const preBob = env.balance(bob, USD.issue());
-
-            auto const delta = USD(100);
-            env(remit::remit(alice, bob), remit::amts({delta}));
-            env.close();
-            auto xferRate = transferRate(*env.current(), gw);
-            auto const postBob = env.balance(bob, USD.issue());
-            BEAST_EXPECT(to_string(postBob.value()) == tc.divide);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
-        }
-
-        // test rate change
-        {
-            Env env{*this, features};
-            env.fund(XRP(10000), alice, bob, gw);
-            env(rate(gw, 1.25));
-            env.close();
-            env.trust(USD(100000), alice, bob);
-            env.close();
-            env(pay(gw, alice, USD(10000)));
-            env(pay(gw, bob, USD(10000)));
-            env.close();
-
-            // setup
-            auto const delta = USD(100);
-            auto preAlice = env.balance(alice, USD.issue());
-
-            // issuer changes rate lower
-            env(rate(gw, 1.00));
-            env.close();
-
-            // remit at higher rate
-            env(remit::remit(alice, bob), remit::amts({delta}));
-            env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
-            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10100));
-        }
-
-        // test issuer doesnt pay own rate
-        {
-            Env env{*this, features};
-            env.fund(XRP(10000), alice, gw);
-            env(rate(gw, 1.25));
-            env.close();
-            env.trust(USD(100000), alice);
-            env.close();
-            env(pay(gw, alice, USD(10000)));
-            env.close();
-
-            auto const delta = USD(100);
-            auto const preAlice = env.balance(alice, USD.issue());
-
-            // alice sells
-            env(remit::remit(gw, alice), remit::amts({delta}));
-            env.close();
-
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
         }
     }
 
@@ -569,6 +492,8 @@ struct Remit_test : public beast::unit_test::suite
             Env env(*this, features - featureDepositAuth);
             env.fund(XRP(10000), alice, bob);
             env(fset(bob, asfDisallowXRP));
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
 
             env(remit::remit(alice, bob),
                 remit::amts({XRP(1)}),
@@ -580,6 +505,8 @@ struct Remit_test : public beast::unit_test::suite
             Env env{*this, features};
             env.fund(XRP(10000), alice, bob);
             env(fset(bob, asfDisallowXRP));
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
             env(remit::remit(alice, bob),
                 remit::amts({XRP(1)}),
                 ter(tesSUCCESS));
@@ -599,6 +526,8 @@ struct Remit_test : public beast::unit_test::suite
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
         env(fset(bob, asfRequireDest));
+        env(fset(bob, asfAllowIncomingRemit));
+        env.close();
         {
             env(remit::remit(alice, bob),
                 remit::amts({XRP(1)}),
@@ -612,9 +541,9 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
-    testDisallowIncoming(FeatureBitset features)
+    testAllowIncoming(FeatureBitset features)
     {
-        testcase("disallow incoming");
+        testcase("allow incoming");
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
@@ -622,11 +551,11 @@ struct Remit_test : public beast::unit_test::suite
             Env env{*this, features - featureRemit};
             Account const alice{"alice"};
             env.fund(XRP(10000), alice);
-            env(fset(alice, asfDisallowIncomingRemit));
+            env(fset(alice, asfAllowIncomingRemit));
             env.close();
             auto const sle = env.le(alice);
             uint32_t flags = sle->getFlags();
-            BEAST_EXPECT(!(flags & lsfDisallowIncomingRemit));
+            BEAST_EXPECT(!(flags & lsfAllowIncomingRemit));
         }
 
         // setup env
@@ -639,54 +568,54 @@ struct Remit_test : public beast::unit_test::suite
         env.close();
 
         // set flag on bob only
-        env(fset(bob, asfDisallowIncomingRemit));
+        env(fset(bob, asfAllowIncomingRemit));
         env.close();
 
-        // remit from alice to bob is disallowed
+        // remit from alice to bob is allowed
         {
             env(remit::remit(alice, bob),
                 remit::amts({XRP(1)}),
-                ter(tecNO_PERMISSION));
+                ter(tesSUCCESS));
         }
 
         // set flag on alice also
-        env(fset(alice, asfDisallowIncomingRemit));
+        env(fset(alice, asfAllowIncomingRemit));
         env.close();
 
-        // remit from bob to alice is now disallowed
+        // remit from bob to alice is allowed
         {
             env(remit::remit(bob, alice),
                 remit::amts({XRP(1)}),
-                ter(tecNO_PERMISSION));
+                ter(tesSUCCESS));
         }
 
         // remove flag from bob
-        env(fclear(bob, asfDisallowIncomingRemit));
+        env(fclear(bob, asfAllowIncomingRemit));
         env.close();
 
-        // now remit between alice and bob allowed
+        // now remit between alice and bob not allowed
         {
             env(remit::remit(alice, bob),
-                remit::amts({XRP(1)}),
-                ter(tesSUCCESS));
-        }
-
-        // a remit from carol to alice isn't allowed
-        {
-            env(remit::remit(carol, alice),
                 remit::amts({XRP(1)}),
                 ter(tecNO_PERMISSION));
         }
 
-        // remove flag from alice
-        env(fclear(alice, asfDisallowIncomingRemit));
-        env.close();
-
-        // now a remit from carol to alice is allowed
+        // a remit from carol to alice is allowed
         {
             env(remit::remit(carol, alice),
                 remit::amts({XRP(1)}),
                 ter(tesSUCCESS));
+        }
+
+        // remove flag from alice
+        env(fclear(alice, asfAllowIncomingRemit));
+        env.close();
+
+        // now a remit from carol to alice is not allowed
+        {
+            env(remit::remit(carol, alice),
+                remit::amts({XRP(1)}),
+                ter(tecNO_PERMISSION));
         }
     }
 
@@ -709,6 +638,9 @@ struct Remit_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, bob);
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             env(remit::remit(alice, bob), ter(tesSUCCESS));
             env.close();
             // auto const preAlice = env.balance(alice, USD.issue());
@@ -724,6 +656,9 @@ struct Remit_test : public beast::unit_test::suite
             auto const bob = Account("bob");
 
             env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             auto const preAlice = env.balance(alice);
@@ -755,6 +690,9 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // setup
@@ -799,6 +737,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(10000)));
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             // setup
             auto const preAlice = env.balance(alice);
             auto const preAliceUSD = env.balance(alice, USD.issue());
@@ -832,6 +773,9 @@ struct Remit_test : public beast::unit_test::suite
             auto const bob = Account("bob");
 
             env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // mint uri token
@@ -870,6 +814,9 @@ struct Remit_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, bob);
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             std::string const uri(maxTokenURILength, '?');
             auto const tid = uritoken::tokenid(alice, uri);
             env(remit::remit(alice, bob), remit::uri(uri), ter(tesSUCCESS));
@@ -896,6 +843,9 @@ struct Remit_test : public beast::unit_test::suite
             auto const bob = Account("bob");
 
             env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // mint uri token
@@ -950,6 +900,9 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // mint uri token
@@ -1011,6 +964,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(10000)));
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             // mint uri token
             std::string const uri(maxTokenURILength, '?');
             auto const tid = uritoken::tokenid(alice, uri);
@@ -1062,6 +1018,9 @@ struct Remit_test : public beast::unit_test::suite
             auto const bob = Account("bob");
 
             env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // mint uri token
@@ -1126,6 +1085,9 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // mint uri token
@@ -1195,6 +1157,9 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // mint uri token
@@ -1275,6 +1240,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, alice, USD(10000)));
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             // setup
             auto const preAlice = env.balance(alice);
             auto const preAliceUSD = env.balance(alice, USD.issue());
@@ -1282,7 +1250,7 @@ struct Remit_test : public beast::unit_test::suite
             auto const preBobUSD = env.balance(bob, USD.issue());
             BEAST_EXPECT(preAlice == XRP(1000));
             BEAST_EXPECT(preAliceUSD == USD(10000));
-            BEAST_EXPECT(preBob == XRP(1000));
+            BEAST_EXPECT(preBob == XRP(1000) - feeDrops);
             BEAST_EXPECT(preBobUSD == USD(0));
 
             // remit
@@ -1321,6 +1289,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, alice, USD(10000)));
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             // setup
             auto const preAlice = env.balance(alice);
             auto const preAliceUSD = env.balance(alice, USD.issue());
@@ -1328,7 +1299,7 @@ struct Remit_test : public beast::unit_test::suite
             auto const preBobUSD = env.balance(bob, USD.issue());
             BEAST_EXPECT(preAlice == XRP(1000));
             BEAST_EXPECT(preAliceUSD == USD(10000));
-            BEAST_EXPECT(preBob == XRP(1000));
+            BEAST_EXPECT(preBob == XRP(1000) - feeDrops);
             BEAST_EXPECT(preBobUSD == USD(0));
 
             // remit
@@ -2027,6 +1998,9 @@ struct Remit_test : public beast::unit_test::suite
             env.fund(XRP(5000), t.dst, t.src);
             env.close();
 
+            env(fset(t.dst, asfAllowIncomingRemit));
+            env.close();
+
             if (t.hasTrustline)
             {
                 env.trust(USD(100000), t.dst);
@@ -2095,6 +2069,9 @@ struct Remit_test : public beast::unit_test::suite
                 env.close();
             }
 
+            env(fset(t.dst, asfAllowIncomingRemit));
+            env.close();
+
             auto const preSrc = lineBalance(env, t.src, t.dst, USD);
 
             // issuer can remit to issuer
@@ -2124,6 +2101,116 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testTransferRate(FeatureBitset features)
+    {
+        testcase("transfer rate");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        struct TestRateData
+        {
+            double rate;
+            STAmount delta;
+            std::string multiply;
+            std::string divide;
+        };
+        std::array<TestRateData, 6> testCases = {{
+            {1, USD(100), "1100", "1100"},
+            {1.1, USD(100), "1110", "1090.909090909091"},
+            {1.0005, USD(100), "1100.05", "1099.950024987506"},
+            {1.005, USD(100), "1100.4999999", "1099.502487661197"},
+            {1.25, USD(100), "1125", "1080"},
+            {2, USD(100), "1200", "1050"},
+        }};
+
+        for (auto const& tc : testCases)
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, tc.rate));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto const preBob = env.balance(bob, USD.issue());
+
+            auto const delta = USD(100);
+            env(remit::remit(alice, bob), remit::amts({delta}));
+            env.close();
+            auto xferRate = transferRate(*env.current(), gw);
+            auto const postBob = env.balance(bob, USD.issue());
+            BEAST_EXPECT(to_string(postBob.value()) == tc.divide);
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
+        }
+
+        // test rate change
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
+            // setup
+            auto const delta = USD(100);
+            auto preAlice = env.balance(alice, USD.issue());
+
+            // issuer changes rate lower
+            env(rate(gw, 1.00));
+            env.close();
+
+            // remit at higher rate
+            env(remit::remit(alice, bob), remit::amts({delta}));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10100));
+        }
+
+        // test issuer doesnt pay own rate
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, gw);
+            env(rate(gw, 1.25));
+            env.close();
+            env.trust(USD(100000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env.close();
+
+            env(fset(alice, asfAllowIncomingRemit));
+            env.close();
+
+            auto const delta = USD(100);
+            auto const preAlice = env.balance(alice, USD.issue());
+
+            // alice sells
+            env(remit::remit(gw, alice), remit::amts({delta}));
+            env.close();
+
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
+        }
+    }
+
+    void
     testRequireAuth(FeatureBitset features)
     {
         testcase("Require Auth");
@@ -2149,6 +2236,9 @@ struct Remit_test : public beast::unit_test::suite
             env(trust(alice, USD(10000)));
             env.close();
             env(pay(gw, alice, USD(1000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // alice cannot remit because bob's trustline is not authorized
@@ -2199,6 +2289,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(10000)));
             env.close();
 
+            env(fset(bob, asfAllowIncomingRemit));
+            env.close();
+
             env(fset(gw, asfGlobalFreeze));
             env.close();
 
@@ -2227,6 +2320,9 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
             env(pay(gw, alice, USD(10000)));
             env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            env(fset(bob, asfAllowIncomingRemit));
             env.close();
 
             // set freeze on alice trustline
@@ -2302,6 +2398,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(carol, alice, USDC(10)));
             env.close();
 
+            env(fset(carol, asfAllowIncomingRemit));
+            env.close();
+
             BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
             BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
             BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
@@ -2371,6 +2470,9 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(carol, alice, USDC(10)));
             env.close();
 
+            env(fset(carol, asfAllowIncomingRemit));
+            env.close();
+
             BEAST_EXPECT(env.balance(alice, USDA) == USDA(0));
             BEAST_EXPECT(env.balance(alice, USDB) == USDB(-10));
             BEAST_EXPECT(env.balance(alice, USDC) == USDC(10));
@@ -2426,6 +2528,9 @@ struct Remit_test : public beast::unit_test::suite
 
         Env env{*this, features};
         env.fund(XRP(1000), alice, bob);
+        env.close();
+
+        env(fset(bob, asfAllowIncomingRemit));
         env.close();
 
         // cannot mint and transfer same token
@@ -2613,6 +2718,9 @@ struct Remit_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob, carol);
         env.close();
 
+        env(fset(bob, asfAllowIncomingRemit));
+        env.close();
+
         // inform
         {
             env(remit::remit(alice, bob),
@@ -2649,14 +2757,14 @@ struct Remit_test : public beast::unit_test::suite
         testEnabled(features);
         testPreflightInvalid(features);
         testDoApplyInvalid(features);
-        testTransferRate(features);
         testDisallowXRP(features);
         testDstTag(features);
-        testDisallowIncoming(features);
+        testAllowIncoming(features);
         testDestExistsTLExists(features);
         testDestExistsTLNotExist(features);
         testDestNotExistTLNotExist(features);
         testGateway(features);
+        testTransferRate(features);
         testRequireAuth(features);
         testTLFreeze(features);
         testRippling(features);

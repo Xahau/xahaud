@@ -580,10 +580,10 @@ SetAccount::doApply()
 
         if (ctx_.view().rules().enabled(featureRemit))
         {
-            if (uSetFlag == asfDisallowIncomingRemit)
-                uFlagsOut |= lsfDisallowIncomingRemit;
-            else if (uClearFlag == asfDisallowIncomingRemit)
-                uFlagsOut &= ~lsfDisallowIncomingRemit;
+            if (uSetFlag == asfAllowIncomingRemit)
+                uFlagsOut |= lsfAllowIncomingRemit;
+            else if (uClearFlag == asfAllowIncomingRemit)
+                uFlagsOut &= ~lsfAllowIncomingRemit;
         }
     }
 
