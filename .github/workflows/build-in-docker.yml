@@ -15,8 +15,8 @@ jobs:
     runs-on: [self-hosted, vanity]
     steps:
     - uses: actions/checkout@v3
-#      with:
-#        clean: false
+      with:
+        clean: false
     - name: Check for suspicious patterns
       run: /bin/bash suspicious_patterns.sh
     - name: Build using Docker
