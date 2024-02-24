@@ -677,7 +677,8 @@ struct Remit_test : public beast::unit_test::suite
             // validate
             BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops);
             BEAST_EXPECT(env.balance(bob) == preBob);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
         }
 
@@ -715,7 +716,8 @@ struct Remit_test : public beast::unit_test::suite
             // validate
             BEAST_EXPECT(env.balance(alice) == preAlice - XRP(1) - feeDrops);
             BEAST_EXPECT(env.balance(bob) == preBob + XRP(1));
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
         }
 
@@ -754,7 +756,8 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
             BEAST_EXPECT(tokenOwner(*env.current(), tid) == bob.id());
 
-            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops - feeReserve);
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice - feeDrops - feeReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + feeReserve);
 
             // clean up test
@@ -780,17 +783,18 @@ struct Remit_test : public beast::unit_test::suite
 
             std::string const uri(maxTokenURILength, '?');
             auto const tid = uritoken::tokenid(alice, uri);
-            
+
             env(remit::remit(alice, bob), remit::uri(uri), ter(tesSUCCESS));
             env.close();
-            
+
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
             BEAST_EXPECT(tokenOwner(*env.current(), tid) == bob.id());
             BEAST_EXPECT(tokenIsser(*env.current(), tid) == alice.id());
 
-            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops - feeReserve);
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice - feeDrops - feeReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + feeReserve);
 
             // clean up test
@@ -835,7 +839,8 @@ struct Remit_test : public beast::unit_test::suite
 
             // verify xah
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - XRP(1) - feeDrops - feeReserve);
+                env.balance(alice) ==
+                preAlice - XRP(1) - feeDrops - feeReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + XRP(1) + feeReserve);
 
             // clean up test
@@ -888,9 +893,11 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(tokenOwner(*env.current(), tid) == bob.id());
 
             // verify usd
-            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops - feeReserve);
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice - feeDrops - feeReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + feeReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -944,9 +951,11 @@ struct Remit_test : public beast::unit_test::suite
 
             // verify xah & usd
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - XRP(1) - feeDrops - feeReserve);
+                env.balance(alice) ==
+                preAlice - XRP(1) - feeDrops - feeReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + XRP(1) + feeReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -1000,8 +1009,10 @@ struct Remit_test : public beast::unit_test::suite
 
             // verify xah
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - XRP(1) - feeDrops - (feeReserve * 2));
-            BEAST_EXPECT(env.balance(bob) == preBob + XRP(1) + (feeReserve * 2));
+                env.balance(alice) ==
+                preAlice - XRP(1) - feeDrops - (feeReserve * 2));
+            BEAST_EXPECT(
+                env.balance(bob) == preBob + XRP(1) + (feeReserve * 2));
 
             // clean up test
             env(uritoken::burn(bob, strHex(tid1)));
@@ -1063,9 +1074,11 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 3);
 
             // verify usd
-            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops - (feeReserve * 2));
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice - feeDrops - (feeReserve * 2));
             BEAST_EXPECT(env.balance(bob) == preBob + (feeReserve * 2));
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -1130,9 +1143,12 @@ struct Remit_test : public beast::unit_test::suite
 
             // verify xah & usd
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - XRP(1) - feeDrops - (feeReserve * 2));
-            BEAST_EXPECT(env.balance(bob) == preBob + XRP(1) + (feeReserve * 2));
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+                env.balance(alice) ==
+                preAlice - XRP(1) - feeDrops - (feeReserve * 2));
+            BEAST_EXPECT(
+                env.balance(bob) == preBob + XRP(1) + (feeReserve * 2));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -1185,9 +1201,11 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             // validate
-            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops - feeReserve);
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice - feeDrops - feeReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + feeReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
         }
 
@@ -1228,9 +1246,11 @@ struct Remit_test : public beast::unit_test::suite
 
             // validate
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - XRP(1) - feeDrops - feeReserve);
+                env.balance(alice) ==
+                preAlice - XRP(1) - feeDrops - feeReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + XRP(1) + feeReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
         }
     }
@@ -1267,7 +1287,8 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(validateSequence(
                 env, bob, withXahau ? 10 : env.closed()->info().seq));
 
-            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops - accountReserve);
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice - feeDrops - accountReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + accountReserve);
         }
 
@@ -1293,7 +1314,8 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - XRP(1) - feeDrops - accountReserve);
+                env.balance(alice) ==
+                preAlice - XRP(1) - feeDrops - accountReserve);
             BEAST_EXPECT(env.balance(bob) == preBob + XRP(1) + accountReserve);
         }
 
@@ -1332,9 +1354,12 @@ struct Remit_test : public beast::unit_test::suite
 
             // validate
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - feeDrops - accountReserve - increment);
-            BEAST_EXPECT(env.balance(bob) == preBob + accountReserve + increment);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+                env.balance(alice) ==
+                preAlice - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                env.balance(bob) == preBob + accountReserve + increment);
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
         }
 
@@ -1376,8 +1401,10 @@ struct Remit_test : public beast::unit_test::suite
                 env.balance(alice) ==
                 preAlice - XRP(1) - feeDrops - accountReserve - increment);
             BEAST_EXPECT(
-                env.balance(bob) == preBob + XRP(1) + accountReserve + increment);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+                env.balance(bob) ==
+                preBob + XRP(1) + accountReserve + increment);
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
         }
 
@@ -1416,8 +1443,10 @@ struct Remit_test : public beast::unit_test::suite
 
             // validate
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - feeDrops - accountReserve - increment);
-            BEAST_EXPECT(env.balance(bob) == preBob + accountReserve + increment);
+                env.balance(alice) ==
+                preAlice - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                env.balance(bob) == preBob + accountReserve + increment);
 
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
@@ -1454,8 +1483,10 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
 
             BEAST_EXPECT(
-                env.balance(alice) == preAlice - feeDrops - accountReserve - increment);
-            BEAST_EXPECT(env.balance(bob) == preBob + accountReserve + increment);
+                env.balance(alice) ==
+                preAlice - feeDrops - accountReserve - increment);
+            BEAST_EXPECT(
+                env.balance(bob) == preBob + accountReserve + increment);
 
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
@@ -1510,7 +1541,8 @@ struct Remit_test : public beast::unit_test::suite
                 env.balance(alice) ==
                 preAlice - XRP(1) - feeDrops - accountReserve - increment);
             BEAST_EXPECT(
-                env.balance(bob) == preBob + XRP(1) + accountReserve + increment);
+                env.balance(bob) ==
+                preBob + XRP(1) + accountReserve + increment);
 
             // clean up test
             env(uritoken::burn(bob, strHex(tid)));
@@ -1566,8 +1598,10 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 env.balance(alice) ==
                 preAlice - feeDrops - (increment * 2) - accountReserve);
-            BEAST_EXPECT(env.balance(bob) == preBob + (increment * 2) + accountReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(bob) == preBob + (increment * 2) + accountReserve);
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -1626,8 +1660,10 @@ struct Remit_test : public beast::unit_test::suite
                 preAlice - XRP(1) - feeDrops - (increment * 2) -
                     accountReserve);
             BEAST_EXPECT(
-                env.balance(bob) == preBob + XRP(1) + (increment * 2) + accountReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+                env.balance(bob) ==
+                preBob + XRP(1) + (increment * 2) + accountReserve);
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -1687,7 +1723,8 @@ struct Remit_test : public beast::unit_test::suite
                 preAlice - XRP(1) - feeDrops - (increment * 2) -
                     accountReserve);
             BEAST_EXPECT(
-                env.balance(bob) == preBob + XRP(1) + (increment * 2) + accountReserve);
+                env.balance(bob) ==
+                preBob + XRP(1) + (increment * 2) + accountReserve);
 
             // clean up test
             env(uritoken::burn(bob, strHex(tid1)));
@@ -1753,8 +1790,10 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 env.balance(alice) ==
                 preAlice - feeDrops - (increment * 3) - accountReserve);
-            BEAST_EXPECT(env.balance(bob) == preBob + (increment * 3) + accountReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(
+                env.balance(bob) == preBob + (increment * 3) + accountReserve);
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -1824,8 +1863,10 @@ struct Remit_test : public beast::unit_test::suite
                 preAlice - XRP(1) - feeDrops - (increment * 3) -
                     accountReserve);
             BEAST_EXPECT(
-                env.balance(bob) == preBob + XRP(1) + (increment * 3) + accountReserve);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+                env.balance(bob) ==
+                preBob + XRP(1) + (increment * 3) + accountReserve);
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
 
             // clean up test
@@ -2172,9 +2213,10 @@ struct Remit_test : public beast::unit_test::suite
 
             BEAST_EXPECT(env.balance(alice) == preAliceXrp - (2 * feeDrops));
             BEAST_EXPECT(env.balance(bob) == preBobXrp - (2 * feeDrops));
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(100));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(100));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(100));
-    
+
             // bob removes preauthorization of alice.
             env(deposit::unauth(bob, alice));
             env.close();
@@ -2197,7 +2239,8 @@ struct Remit_test : public beast::unit_test::suite
 
             BEAST_EXPECT(env.balance(alice) == preAliceXrp - (4 * feeDrops));
             BEAST_EXPECT(env.balance(bob) == preBobXrp - (4 * feeDrops));
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(200));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(200));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(200));
         }
     }
