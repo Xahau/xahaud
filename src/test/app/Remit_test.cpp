@@ -2123,6 +2123,86 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testDepositAuth(FeatureBitset features)
+    {
+        testcase("deposit authorization");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        {
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            auto const preBobXrp = env.balance(bob);
+            auto const preBobUSD = env.balance(bob, USD.issue());
+            auto const preAliceXrp = env.balance(alice);
+            auto const preAliceUSD = env.balance(alice, USD.issue());
+
+            env(fset(bob, asfDepositAuth));
+            env.close();
+
+            // Since alice is not preauthorized, remit fails.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(100)}),
+                ter(tecNO_PERMISSION));
+            env.close();
+
+            // Bob preauthorizes alice for deposit, remit success.
+            env(deposit::auth(bob, alice));
+            env.close();
+
+            env(remit::remit(alice, bob),
+                remit::amts({USD(100)}),
+                ter(tesSUCCESS));
+            env.close();
+
+            BEAST_EXPECT(env.balance(alice) == preAliceXrp - (2 * feeDrops));
+            BEAST_EXPECT(env.balance(bob) == preBobXrp - (2 * feeDrops));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(100));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(100));
+    
+            // bob removes preauthorization of alice.
+            env(deposit::unauth(bob, alice));
+            env.close();
+
+            // alice remits and fails since she is no longer preauthorized.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(100)}),
+                ter(tecNO_PERMISSION));
+            env.close();
+
+            // bob clears lsfDepositAuth.
+            env(fclear(bob, asfDepositAuth));
+            env.close();
+
+            // alice remits successfully.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(100)}),
+                ter(tesSUCCESS));
+            env.close();
+
+            BEAST_EXPECT(env.balance(alice) == preAliceXrp - (4 * feeDrops));
+            BEAST_EXPECT(env.balance(bob) == preBobXrp - (4 * feeDrops));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD - USD(200));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(200));
+        }
+    }
+
+    void
     testTLFreeze(FeatureBitset features)
     {
         testcase("trustline freeze");
@@ -2608,6 +2688,7 @@ struct Remit_test : public beast::unit_test::suite
         testGateway(features);
         testTransferRate(features);
         testRequireAuth(features);
+        testDepositAuth(features);
         testTLFreeze(features);
         testRippling(features);
         testURIToken(features);

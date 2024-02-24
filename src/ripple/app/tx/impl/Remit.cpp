@@ -214,6 +214,14 @@ Remit::doApply()
         (flags & lsfDisallowIncomingRemit))
         return tecNO_PERMISSION;
 
+    // Check if the destination account requires deposit authorization.
+    bool const depositAuth{view().rules().enabled(featureDepositAuth)};
+    if (depositAuth && sleDstAcc && (sleDstAcc->getFlags() & lsfDepositAuth))
+    {
+        if (!view().exists(keylet::depositPreauth(dstAccID, srcAccID)))
+            return tecNO_PERMISSION;
+    }
+
     // the destination may require a dest tag
     if ((flags & lsfRequireDestTag) &&
         !ctx_.tx.isFieldPresent(sfDestinationTag))
