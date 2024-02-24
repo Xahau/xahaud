@@ -554,7 +554,7 @@ public:
                      {"disallowIncomingPayChan", asfDisallowIncomingPayChan},
                      {"disallowIncomingTrustline",
                       asfDisallowIncomingTrustline},
-                     {"allowIncomingRemit", asfDisallowIncomingRemit}}};
+                     {"disallowIncomingRemit", asfDisallowIncomingRemit}}};
 
         if (features[featureDisallowIncoming])
         {

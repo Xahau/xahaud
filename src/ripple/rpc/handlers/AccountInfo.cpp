@@ -98,7 +98,7 @@ doAccountInfo(RPC::JsonContext& context)
                  {"disallowIncomingCheck", lsfDisallowIncomingCheck},
                  {"disallowIncomingPayChan", lsfDisallowIncomingPayChan},
                  {"disallowIncomingTrustline", lsfDisallowIncomingTrustline},
-                 {"allowIncomingRemit", lsfDisallowIncomingRemit}}};
+                 {"disallowIncomingRemit", lsfDisallowIncomingRemit}}};
 
     auto const sleAccepted = ledger->read(keylet::account(accountID));
     if (sleAccepted)
