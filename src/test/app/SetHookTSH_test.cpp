@@ -4967,9 +4967,6 @@ private:
             env.fund(XRP(1000), account, dest);
             env.close();
 
-            env(fset(dest, asfAllowIncomingRemit));
-            env.close();
-
             // set tsh collect
             if (!testStrong)
                 addWeakTSH(env, account);
@@ -4998,9 +4995,6 @@ private:
             auto const account = Account("alice");
             auto const dest = Account{"bob"};
             env.fund(XRP(1000), account, dest);
-            env.close();
-
-            env(fset(dest, asfAllowIncomingRemit));
             env.close();
 
             // set tsh collect
@@ -5032,9 +5026,6 @@ private:
             auto const dest = Account("bob");
             auto const inform = Account("carol");
             env.fund(XRP(1000), account, dest, inform);
-            env.close();
-
-            env(fset(dest, asfAllowIncomingRemit));
             env.close();
 
             // set tsh collect
@@ -5075,9 +5066,6 @@ private:
             auto const dest = Account("bob");
             auto const issuer = Account("carol");
             env.fund(XRP(1000), account, dest, issuer);
-            env.close();
-
-            env(fset(dest, asfAllowIncomingRemit));
             env.close();
 
             // mint uritoken
@@ -5134,9 +5122,6 @@ private:
             auto const dest = Account("bob");
             auto const issuer = Account("carol");
             env.fund(XRP(1000), account, dest, issuer);
-            env.close();
-
-            env(fset(dest, asfAllowIncomingRemit));
             env.close();
 
             // mint uritoken

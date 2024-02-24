@@ -207,11 +207,11 @@ Remit::doApply()
 
     AccountID const dstAccID{ctx_.tx[sfDestination]};
     auto sleDstAcc = sb.peek(keylet::account(dstAccID));
-    auto const flags = !sleDstAcc ? 0x80000000 : sleDstAcc->getFlags();
+    auto const flags = !sleDstAcc ? 0 : sleDstAcc->getFlags();
 
     // Check if the destination has disallowed incoming
     if (sb.rules().enabled(featureDisallowIncoming) &&
-        !(flags & lsfAllowIncomingRemit))
+        (flags & lsfDisallowIncomingRemit))
         return tecNO_PERMISSION;
 
     // the destination may require a dest tag
