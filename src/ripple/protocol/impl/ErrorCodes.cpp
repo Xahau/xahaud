@@ -112,7 +112,8 @@ constexpr static ErrorInfo unorderedErrorInfos[]{
     {rpcTXN_NOT_FOUND,          "txnNotFound",          "Transaction not found.", 404},
     {rpcNAMESPACE_NOT_FOUND,    "namespaceNotFound",    "Namespace not found.", 404},
     {rpcUNKNOWN_COMMAND,        "unknownCmd",           "Unknown method.", 405},
-    {rpcLEDGER_MISSING,         "ledgerMissing",        "One or more ledgers in the specified range is missing", 406}};
+    {rpcLEDGER_MISSING,         "ledgerMissing",        "One or more ledgers in the specified range is missing", 406},
+    {rpcORACLE_MALFORMED,       "oracleMalformed",      "Oracle request is malformed.", 400}};
 // clang-format on
 
 // Sort and validate unorderedErrorInfos at compile time.  Should be

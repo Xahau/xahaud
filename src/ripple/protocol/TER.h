@@ -139,6 +139,9 @@ enum TEMcodes : TERUnderlyingType {
 
     temHOOK_DATA_TOO_LARGE,
     temEMPTY_DID,
+
+    temARRAY_EMPTY,
+    temARRAY_TOO_LARGE,
 };
 
 //------------------------------------------------------------------------------
@@ -348,6 +351,10 @@ enum TECcodes : TERUnderlyingType {
     tecINCOMPLETE = 190,
     // 191: tecXCHAIN_BAD_PUBLIC_KEY_ACCOUNT_PAIR
     tecEMPTY_DID = 192,
+    tecINVALID_UPDATE_TIME = 193,
+    tecTOKEN_PAIR_NOT_FOUND = 194,
+    tecARRAY_EMPTY = 195,
+    tecARRAY_TOO_LARGE = 196,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 
