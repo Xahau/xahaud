@@ -297,6 +297,10 @@ import_vlseq(PublicKey const& key) noexcept;
 Keylet
 uritoken(AccountID const& issuer, Blob const& uri);
 
+Keylet
+cadastre(uint256 const& universe, uint16_t locx, uint16_t locy);
+
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:

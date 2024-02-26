@@ -72,6 +72,7 @@ enum class LedgerNameSpace : std::uint16_t {
     URI_TOKEN = 'U',
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
+    CADASTRE = 'K',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -441,6 +442,15 @@ uritoken(AccountID const& issuer, Blob const& uri)
         ltURI_TOKEN,
         indexHash(
             LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+}
+
+Keylet
+cadastre(uint256 const& universe, uint16_t locx, uint16_t locy)
+{
+    return {
+        ltCADASTRE,
+        indexHash(
+            LedgerNameSpace::CADASTRE, universe, locx, locy)};
 }
 
 }  // namespace keylet

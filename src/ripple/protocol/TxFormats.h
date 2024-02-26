@@ -146,6 +146,15 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
+    /* This transaction mints, burns or updates cadastral tiles. */
+    ttCADASTRE_MINT                 = 0x005D,    // HookOn = 93
+    ttCADASTRE_BURN                 = 0x015D,
+    ttCADASTRE_CREATE_SELL_OFFER    = 0x025D,
+    ttCADASTRE_CANCEL_SELL_OFFER    = 0x035D,
+    ttCADASTRE_BUY                  = 0x045D,
+    ttCADASTRE_SET                  = 0x055D,
+
+
     /** This transaction can only be used by the genesis account, which is controlled exclusively by
      * rewards/governance hooks, to print new XRP to be delivered directly to an array of destinations,
      * according to reward schedule */

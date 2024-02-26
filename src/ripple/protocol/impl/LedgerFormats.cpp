@@ -363,6 +363,22 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::Cadastre,
+        ltCADASTRE,
+        {
+            {sfOwner,                soeREQUIRED},
+            {sfOwnerNode,            soeREQUIRED},
+            {sfAssociation,          soeOPTIONAL},
+            {sfAssociationNode,      soeOPTIONAL},
+            {sfLocationX,            soeREQUIRED},
+            {sfLocationY,            soeREQUIRED},
+            {sfUniverse,             soeREQUIRED},
+            {sfDisplayURI,           soeOPTIONAL},
+            {sfBroadcastURI,         soeOPTIONAL},
+            {sfCadastreCount,        soeOPTIONAL},  // for 0x8000,0x8000 tile only
+        },
+        commonFields);
+
     // clang-format on
 }
 

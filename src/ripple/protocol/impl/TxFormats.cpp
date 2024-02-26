@@ -441,6 +441,71 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::CadastreMint,
+        ttCADASTRE_MINT,
+        {
+            {sfDestination, soeOPTIONAL},
+            {sfAmount, soeOPTIONAL},
+            {sfAssociation, soeOPTIONAL},
+            {sfBroadcastURI, soeOPTIONAL},
+            {sfDisplayURI, soeOPTIONAL},
+            {sfLocationX, soeREQUIRED},
+            {sfLocationY, soeREQUIRED},
+            {sfUniverse, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::CadastreBurn,
+        ttCADASTRE_BURN,
+        {
+            {sfLocationX, soeREQUIRED},
+            {sfLocationY, soeREQUIRED},
+            {sfUniverse, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::CadastreCreateSellOffer,
+        ttCADASTRE_CREATE_SELL_OFFER,
+        {
+            {sfDestination, soeOPTIONAL},
+            {sfAmount, soeREQUIRED},
+            {sfLocationX, soeREQUIRED},
+            {sfLocationY, soeREQUIRED},
+            {sfUniverse, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::CadastreCancelSellOffer,
+        ttCADASTRE_CANCEL_SELL_OFFER,
+        {
+            {sfLocationX, soeREQUIRED},
+            {sfLocationY, soeREQUIRED},
+            {sfUniverse, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::CadastreBuy,
+        ttCADASTRE_BUY,
+        {
+            {sfAmount, soeREQUIRED},
+            {sfLocationX, soeREQUIRED},
+            {sfLocationY, soeREQUIRED},
+            {sfUniverse, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::CadastreSet,
+        ttCADASTRE_SET,
+        {
+            {sfAssociation, soeOPTIONAL},
+            {sfBroadcastURI, soeOPTIONAL},
+            {sfDisplayURI, soeOPTIONAL},
+            {sfLocationX, soeREQUIRED},
+            {sfLocationY, soeREQUIRED},
+            {sfUniverse, soeREQUIRED},
+        },
+        commonFields);
 }
 
 TxFormats const&

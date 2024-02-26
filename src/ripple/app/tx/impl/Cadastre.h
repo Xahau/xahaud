@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2014 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,37 +17,41 @@
 */
 //==============================================================================
 
-#include <test/jtx/Env.h>
-#include <ripple/protocol/jss.h>
-#include <test/jtx/acctdelete.h>
+#ifndef RIPPLE_TX_CADASTRE_H_INCLUDED
+#define RIPPLE_TX_CADASTRE_H_INCLUDED
+
+#include <ripple/app/ledger/Ledger.h>
+#include <ripple/app/tx/impl/Transactor.h>
+#include <ripple/basics/Log.h>
+#include <ripple/protocol/Indexes.h>
 
 namespace ripple {
-namespace test {
-namespace jtx {
 
-// Delete account.  If successful transfer remaining XRP to dest.
-Json::Value
-acctdelete(jtx::Account const& account, jtx::Account const& dest)
+class Cadastre : public Transactor
 {
-    Json::Value jv;
-    jv[sfAccount.jsonName] = account.human();
-    jv[sfDestination.jsonName] = dest.human();
-    jv[sfTransactionType.jsonName] = jss::AccountDelete;
-    return jv;
-}
+public:
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
 
-void
-incLgrSeqForAccDel(jtx::Env& env, jtx::Account const& acc, std::uint32_t margin)
-{
-    int const delta = [&]() -> int {
-        if (env.seq(acc) + 255 > env.current()->seq())
-            return env.seq(acc) - env.current()->seq() + 255 - margin;
-        return 0;
-    }();
-    for (int i = 0; i < delta; ++i)
-        env.close();
-}
+    explicit Cadastre(ApplyContext& ctx) : Transactor(ctx)
+    {
+    }
 
-}  // namespace jtx
-}  // namespace test
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
+
+    static TxConsequences
+    makeTxConsequences(PreflightContext const& ctx);
+
+    static NotTEC
+    preflight(PreflightContext const& ctx);
+
+    static TER
+    preclaim(PreclaimContext const& ctx);
+
+    TER
+    doApply() override;
+};
+
 }  // namespace ripple
+
+#endif
