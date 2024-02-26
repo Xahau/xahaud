@@ -197,6 +197,12 @@ enum TxType : std::uint16_t
     /** This transaction type deletes a DID */
     ttDID_DELETE = 59,
 
+    /** This transaction type creates an Oracle instance */
+    ttORACLE_SET = 60,
+
+    /** This transaction type deletes an Oracle instance */
+    ttORACLE_DELETE = 61,
+
     /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
     ttREMARKS_SET = 94,
 
