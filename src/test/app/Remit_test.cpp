@@ -2064,23 +2064,26 @@ struct Remit_test : public beast::unit_test::suite
             STAmount delta;
             std::string multiply;
             std::string divide;
+            TER code;
         };
-        std::array<TestRateData, 8> testCases = {{
-            {0, USD(100), "1100", "1100"},
-            {-1, USD(100), "1100", "1100"},
-            {1, USD(100), "1100", "1100"},
-            {1.1, USD(100), "1110", "1090.909090909091"},
-            {1.0005, USD(100), "1100.05", "1099.950024987506"},
-            {1.005, USD(100), "1100.4999999", "1099.502487661197"},
-            {1.25, USD(100), "1125", "1080"},
-            {2, USD(100), "1200", "1050"},
+        std::array<TestRateData, 10> testCases = {{
+            {0.0, USD(100), "1100", "1100", tesSUCCESS},
+            {-1.0, USD(100), "1100", "1100", temBAD_TRANSFER_RATE},
+            {0.9, USD(100), "1100", "1100", temBAD_TRANSFER_RATE},
+            {1.0, USD(100), "1100", "1100", tesSUCCESS},
+            {1.1, USD(100), "1110", "1090.909090909091", tesSUCCESS},
+            {1.0005, USD(100), "1100.05", "1099.950024987506", tesSUCCESS},
+            {1.005, USD(100), "1100.4999999", "1099.502487661197", tesSUCCESS},
+            {1.25, USD(100), "1125", "1080", tesSUCCESS},
+            {2.0, USD(100), "1200", "1050", tesSUCCESS},
+            {2.1, USD(100), "1100", "1100", temBAD_TRANSFER_RATE},
         }};
 
         for (auto const& tc : testCases)
         {
             Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
-            env(rate(gw, tc.rate));
+            env(rate(gw, tc.rate), ter(tc.code));
             env.close();
             env.trust(USD(100000), alice, bob);
             env.close();
