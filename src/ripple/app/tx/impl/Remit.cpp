@@ -53,7 +53,8 @@ Remit::preflight(PreflightContext const& ctx)
         return temREDUNDANT;
     }
 
-    if (ctx.tx.getFieldVL(sfBlob).size() > (128 * 1024))
+    if (ctx.tx.isFieldPresent(sfBlob) &&
+        ctx.tx.getFieldVL(sfBlob).size() > (128 * 1024))
     {
         JLOG(ctx.j.warn()) << "Blob was more than 128kib "
                            << ctx.tx.getTransactionID();
@@ -65,7 +66,7 @@ Remit::preflight(PreflightContext const& ctx)
     {
         if (ctx.tx.getFieldArray(sfAmounts).size() > 32)
         {
-            JLOG(ctx.j.warn()) << "Malformed: AmountEntrys Exceed Limit `32`.";
+            JLOG(ctx.j.warn()) << "Malformed: AmountEntry count exceeds `32`.";
             return temMALFORMED;
         }
 
@@ -135,8 +136,23 @@ Remit::preflight(PreflightContext const& ctx)
         STObject const& mint = const_cast<ripple::STTx&>(ctx.tx)
                                    .getField(sfMintURIToken)
                                    .downcast<STObject>();
-        // RH TODO: iterate mint fields detect any that shouldnt be there
 
+        for (auto const& mintElement : mint)
+        {
+            auto const& name = mintElement.getFName();
+            if (name != sfURI && name != sfFlags && name != sfDigest)
+            {
+                JLOG(ctx.j.trace()) << "Malformed transaction: sfMintURIToken "
+                                       "contains invalid field.";
+                return temMALFORMED;
+            }
+        }
+        if (!mint.isFieldPresent(sfURI))
+        {
+            JLOG(ctx.j.warn())
+                << "Malformed transaction: URI was not provided.";
+            return temMALFORMED;
+        }
         Blob const uri = mint.getFieldVL(sfURI);
         if (uri.size() < 1 || uri.size() > 256)
         {
@@ -145,7 +161,7 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!URIToken::validateUTF8(mint.getFieldVL(sfURI)))
+        if (!URIToken::validateUTF8(uri))
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";
@@ -162,14 +178,13 @@ Remit::preflight(PreflightContext const& ctx)
     // sanity check uritokenids
     if (ctx.tx.isFieldPresent(sfURITokenIDs))
     {
-        if (ctx.tx.getFieldV256(sfURITokenIDs).size() > 32)
+        STVector256 ids = ctx.tx.getFieldV256(sfURITokenIDs);
+        if (ids.size() < 1 || ids.size() > 32)
         {
-            JLOG(ctx.j.warn())
-                << "Malformed transaction: URITokenIDs Exceed Limit `32`.";
+            JLOG(ctx.j.warn()) << "Malformed transaction: URITokenIDs Invalid.";
             return temMALFORMED;
         }
 
-        STVector256 ids = ctx.tx.getFieldV256(sfURITokenIDs);
         std::sort(ids.begin(), ids.end());
         if (std::adjacent_find(ids.begin(), ids.end()) != ids.end())
         {
@@ -185,10 +200,10 @@ Remit::preflight(PreflightContext const& ctx)
 TER
 Remit::doApply()
 {
-    if (!view().rules().enabled(featureRemit))
-        return temDISABLED;
-
     Sandbox sb(&ctx_.view());
+
+    if (!sb.rules().enabled(featureRemit))
+        return temDISABLED;
 
     beast::Journal const& j = ctx_.journal;
 
@@ -215,10 +230,10 @@ Remit::doApply()
         return tecNO_PERMISSION;
 
     // Check if the destination account requires deposit authorization.
-    bool const depositAuth{view().rules().enabled(featureDepositAuth)};
+    bool const depositAuth{sb.rules().enabled(featureDepositAuth)};
     if (depositAuth && sleDstAcc && (sleDstAcc->getFlags() & lsfDepositAuth))
     {
-        if (!view().exists(keylet::depositPreauth(dstAccID, srcAccID)))
+        if (!sb.exists(keylet::depositPreauth(dstAccID, srcAccID)))
             return tecNO_PERMISSION;
     }
 
@@ -305,7 +320,7 @@ Remit::doApply()
             sfFlags,
             mint.isFieldPresent(sfFlags) ? mint.getFieldU32(sfFlags) : 0);
 
-        auto const page = view().dirInsert(
+        auto const page = sb.dirInsert(
             keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));
 
         JLOG(j_.trace()) << "Adding URIToken to owner directory "

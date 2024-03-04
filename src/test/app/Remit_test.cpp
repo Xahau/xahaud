@@ -264,6 +264,30 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
         }
 
+        // temMALFORMED - URI field was not provided.
+        // DA: Template/Submit Failure
+        // {
+        //     auto tx = remit::remit(alice, bob);
+        //     tx[sfMintURIToken.jsonName] = Json::Value{};
+        //     tx[sfMintURIToken.jsonName][sfFlags.fieldName] = 1;
+        //     env(tx, ter(temMALFORMED));
+        //     env.close();
+        // }
+
+        // temMALFORMED - Field found in disallowed location.
+        // DA: Template/Submit Failure
+        // {
+        //     std::string const uri(0, '?');
+        //     auto tx = remit::remit(alice, bob);
+        //     tx[sfMintURIToken.jsonName] = Json::Value{};
+        //     std::string const digestval =
+        //     "C16E7263F07AA41261DCC955660AF4646ADBA414E37B6F5A5BA50F75153F5CCC";
+        //     tx[sfMintURIToken.jsonName][sfURI.fieldName] = strHex(uri);
+        //     tx[sfMintURIToken.jsonName][sfHookOn.fieldName] = digestval;
+        //     env(tx, ter(temMALFORMED));
+        //     env.close();
+        // }
+
         // temMALFORMED - URI was too short/long. (short)
         {
             std::string const uri(0, '?');
@@ -286,6 +310,15 @@ struct Remit_test : public beast::unit_test::suite
             env(remit::remit(alice, bob),
                 remit::uri(uri, tfAllowXRP),
                 ter(temINVALID_FLAG));
+            env.close();
+        }
+
+        // temMALFORMED - URITokenIDs < 1
+        {
+            std::vector<std::string> token_ids;
+            env(remit::remit(alice, bob),
+                remit::token_ids(token_ids),
+                ter(temMALFORMED));
             env.close();
         }
 
@@ -2032,7 +2065,9 @@ struct Remit_test : public beast::unit_test::suite
             std::string multiply;
             std::string divide;
         };
-        std::array<TestRateData, 6> testCases = {{
+        std::array<TestRateData, 8> testCases = {{
+            {0, USD(100), "1100", "1100"},
+            {-1, USD(100), "1100", "1100"},
             {1, USD(100), "1100", "1100"},
             {1.1, USD(100), "1110", "1090.909090909091"},
             {1.0005, USD(100), "1100.05", "1099.950024987506"},
@@ -2085,7 +2120,7 @@ struct Remit_test : public beast::unit_test::suite
             env(rate(gw, 1.00));
             env.close();
 
-            // remit at higher rate
+            // remit
             env(remit::remit(alice, bob), remit::amts({delta}));
             env.close();
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
@@ -2106,7 +2141,7 @@ struct Remit_test : public beast::unit_test::suite
             auto const delta = USD(100);
             auto const preAlice = env.balance(alice, USD.issue());
 
-            // alice sells
+            // remit
             env(remit::remit(gw, alice), remit::amts({delta}));
             env.close();
 
