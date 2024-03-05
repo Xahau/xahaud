@@ -512,7 +512,8 @@ doServerDefinitions(RPC::JsonContext& context)
         if (auto const valLedger = context.ledgerMaster.getValidatedLedger())
             majorities = getMajorityAmendments(*valLedger);
         auto& table = context.app.getAmendmentTable();
-        auto features = table.getJson();
+        bool const isAdmin = true;
+        auto features = table.getJson(isAdmin);
         for (auto const& [h, t] : majorities)
             features[to_string(h)][jss::majority] =
                 t.time_since_epoch().count();

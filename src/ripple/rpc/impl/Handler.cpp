@@ -106,6 +106,9 @@ Handler const handlerArray[]{
      Role::USER,
      NO_CONDITION},
     {"download_shard", byRef(&doDownloadShard), Role::ADMIN, NO_CONDITION},
+    {"feature", byRef(&doFeature), Role::USER, NO_CONDITION},
+    {"fee", byRef(&doFee), Role::USER, NEEDS_CURRENT_LEDGER},
+    {"fetch_info", byRef(&doFetchInfo), Role::ADMIN, NO_CONDITION},
 #ifdef RIPPLED_REPORTING
     {"gateway_balances", byRef(&doGatewayBalances), Role::ADMIN, NO_CONDITION},
 #else
@@ -116,9 +119,6 @@ Handler const handlerArray[]{
      byRef(&doGetAggregatePrice),
      Role::USER,
      NO_CONDITION},
-    {"feature", byRef(&doFeature), Role::ADMIN, NO_CONDITION},
-    {"fee", byRef(&doFee), Role::USER, NEEDS_CURRENT_LEDGER},
-    {"fetch_info", byRef(&doFetchInfo), Role::ADMIN, NO_CONDITION},
     {"inject", byRef(&doInject), Role::ADMIN, NEEDS_CURRENT_LEDGER},
     {"ledger_accept",
      byRef(&doLedgerAccept),
