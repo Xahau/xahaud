@@ -455,7 +455,8 @@ Import::preflight(PreflightContext const& ctx)
 
     auto const sig =
         strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
-    if (!sig || !ripple::verify(signingKey, makeSlice(data), makeSlice(*sig)))
+    if (!sig || !signingKey ||
+        !ripple::verify(*signingKey, makeSlice(data), makeSlice(*sig)))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob not signed correctly "
                            << tx.getTransactionID();
@@ -664,7 +665,7 @@ Import::preflight(PreflightContext const& ctx)
         auto const m =
             deserializeManifest(base64_decode(val[jss::manifest].asString()));
 
-        if (!m)
+        if (!m || !m->signingKey)
         {
             JLOG(ctx.j.warn())
                 << "Import: unl blob contained an invalid manifest, skipping "
@@ -689,10 +690,10 @@ Import::preflight(PreflightContext const& ctx)
         }
 
         std::string const nodepub =
-            toBase58(TokenType::NodePublic, m->signingKey);
+            toBase58(TokenType::NodePublic, *m->signingKey);
         std::string const nodemaster =
             toBase58(TokenType::NodePublic, m->masterKey);
-        validators[nodepub] = strHex(m->signingKey);
+        validators[nodepub] = strHex(*m->signingKey);
         validatorsMaster[nodemaster] = nodepub;
     }
 
