@@ -95,7 +95,7 @@ NegativeUNLVote::doVoting(
             auto n =
                 choose(prevLedger->info().hash, candidates.toDisableCandidates);
             assert(nidToKeyMap.count(n));
-            addTx(seq, nidToKeyMap[n], ToDisable, initialSet);
+            addTx(seq, nidToKeyMap.at(n), ToDisable, initialSet);
         }
 
         if (!candidates.toReEnableCandidates.empty())
@@ -103,7 +103,7 @@ NegativeUNLVote::doVoting(
             auto n = choose(
                 prevLedger->info().hash, candidates.toReEnableCandidates);
             assert(nidToKeyMap.count(n));
-            addTx(seq, nidToKeyMap[n], ToReEnable, initialSet);
+            addTx(seq, nidToKeyMap.at(n), ToReEnable, initialSet);
         }
 
         // do reporting when enabled
