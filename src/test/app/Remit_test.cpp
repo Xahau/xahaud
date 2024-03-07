@@ -386,7 +386,6 @@ struct Remit_test : public beast::unit_test::suite
             env.memoize(carol);
             auto tx = remit::remit(alice, bob);
             tx[sfInform.jsonName] = carol.human();
-            tx[jss::Sequence] = 0;
             env(tx, alice, ter(tecNO_TARGET));
             env.close();
         }
