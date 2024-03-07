@@ -229,6 +229,14 @@ Remit::doApply()
     if (!sleSrcAcc)
         return terNO_ACCOUNT;
 
+    if (ctx_.tx.isFieldPresent(sfInform))
+    {
+        auto const informAcc = tx.getAccountID(sfInform);
+        auto sleInformAcc = sb.peek(keylet::account(informAcc));
+        if (!sleInformAcc)
+            return tecNO_TARGET;
+    }
+
     XRPAmount const accountReserve{sb.fees().accountReserve(0)};
     XRPAmount const objectReserve{sb.fees().accountReserve(1) - accountReserve};
 
