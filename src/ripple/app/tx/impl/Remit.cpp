@@ -28,7 +28,25 @@ namespace ripple {
 TxConsequences
 Remit::makeTxConsequences(PreflightContext const& ctx)
 {
-    return TxConsequences{ctx.tx, TxConsequences::normal};
+    XRPAmount native = 
+    ([&ctx]() -> XRPAmount
+    {
+        if (!ctx.tx.isFieldPresent(sfAmounts))
+            return beast::zero;
+
+        STArray const& sEntries(ctx.tx.getFieldArray(sfAmounts));
+        for (STObject const& sEntry : sEntries)
+        {
+            if (!sEntry.isFieldPresent(sfAmount))
+                continue;
+
+            STAmount const amount = sEntry.getFieldAmount(sfAmount);
+            if (isXRP(amount))
+                return amount.xrp();
+        }
+        return beast::zero;
+    })();
+    return TxConsequences{ctx.tx, native};
 }
 
 NotTEC
@@ -231,7 +249,7 @@ Remit::doApply()
 
     // Check if the destination account requires deposit authorization.
     bool const depositAuth{sb.rules().enabled(featureDepositAuth)};
-    if (depositAuth && sleDstAcc && (sleDstAcc->getFlags() & lsfDepositAuth))
+    if (depositAuth && sleDstAcc && (flags & lsfDepositAuth))
     {
         if (!sb.exists(keylet::depositPreauth(dstAccID, srcAccID)))
             return tecNO_PERMISSION;
@@ -551,8 +569,6 @@ Remit::calculateBaseFee(ReadView const& view, STTx const& tx)
     if (tx.isFieldPresent(sfBlob))
         extraFee +=
             XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
-
-    // RH TODO: add fees
 
     return Transactor::calculateBaseFee(view, tx) + extraFee;
 }
