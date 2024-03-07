@@ -28,9 +28,7 @@ namespace ripple {
 TxConsequences
 Remit::makeTxConsequences(PreflightContext const& ctx)
 {
-    XRPAmount native = 
-    ([&ctx]() -> XRPAmount
-    {
+    XRPAmount native = ([&ctx]() -> XRPAmount {
         if (!ctx.tx.isFieldPresent(sfAmounts))
             return beast::zero;
 
