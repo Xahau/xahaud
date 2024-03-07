@@ -75,7 +75,11 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 ADD_TSH(*destAcc, tshSTRONG);
 
             if (tx.isFieldPresent(sfInform))
-                ADD_TSH(tx.getAccountID(sfInform), tshWEAK);
+            {
+                auto const inform = tx.getAccountID(sfInform);
+                if (*otxnAcc != inform && *destAcc != inform)
+                    ADD_TSH(inform, tshWEAK);
+            }
 
             if (tx.isFieldPresent(sfURITokenIDs))
             {
@@ -93,11 +97,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
                     auto const owner = ut->getAccountID(sfOwner);
                     auto const issuer = ut->getAccountID(sfIssuer);
-                    if (issuer != owner)
+                    if (issuer != owner && issuer != *destAcc)
+                    {
                         ADD_TSH(
                             issuer,
                             (ut->getFlags() & lsfBurnable) ? tshSTRONG
                                                            : tshWEAK);
+                    }
                 }
             }
             break;
