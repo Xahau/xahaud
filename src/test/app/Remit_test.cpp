@@ -366,18 +366,36 @@ struct Remit_test : public beast::unit_test::suite
         // doApply
 
         // terNO_ACCOUNT - account doesnt exist
-        // {
-        //     auto const carol = Account("carol");
-        //     env.memoize(carol);
-        //     env(remit::remit(carol, bob), ter(terNO_ACCOUNT));
-        //     env.close();
-        // }
+        {
+            auto const carol = Account("carol");
+            Env env{*this, features};
+            env.memoize(carol);
+            auto tx = remit::remit(carol, bob);
+            tx[jss::Sequence] = 0;
+            env(tx, carol, ter(terNO_ACCOUNT));
+            env.close();
+        }
+
+        // tecNO_TARGET - inform acct doesnt exist
+        {
+            auto const carol = Account("carol");
+            Env env{*this, features};
+            env.fund(XRP(1000), alice, bob);
+            env.close();
+
+            env.memoize(carol);
+            auto tx = remit::remit(alice, bob);
+            tx[sfInform.jsonName] = carol.human();
+            tx[jss::Sequence] = 0;
+            env(tx, alice, ter(tecNO_TARGET));
+            env.close();
+        }
 
         // tecNO_PERMISSION - lsfDisallowIncomingRemit
-        // see testAllowIncoming
+        // DA: see testAllowIncoming
 
         // tecDST_TAG_NEEDED
-        // see testDstTag
+        // DA: see testDstTag
 
         // tecDUPLICATE
         {
