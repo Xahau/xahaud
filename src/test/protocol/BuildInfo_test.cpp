@@ -98,7 +98,7 @@ public:
         auto vCurrent = BuildInfo::getEncodedVersion();
         BEAST_EXPECT(!BuildInfo::isNewerVersion(vCurrent));
 
-        auto vMax = BuildInfo::encodeSoftwareVersion("9999.12.30");
+        auto vMax = BuildInfo::encodeSoftwareVersion("2100.12.30");
         BEAST_EXPECT(BuildInfo::isNewerVersion(vMax));
 
         auto vRelease1 = BuildInfo::encodeSoftwareVersion("2023.1.1-release+1");
