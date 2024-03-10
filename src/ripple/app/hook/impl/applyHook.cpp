@@ -295,14 +295,14 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             {
                 ADD_TSH(bo->getAccountID(sfOwner), tshSTRONG);
                 if (bo->isFieldPresent(sfDestination))
-                    ADD_TSH(bo->getAccountID(sfDestination), tshWEAK);
+                    ADD_TSH(bo->getAccountID(sfDestination), tshSTRONG);
             }
 
             if (so)
             {
                 ADD_TSH(so->getAccountID(sfOwner), tshSTRONG);
                 if (so->isFieldPresent(sfDestination))
-                    ADD_TSH(so->getAccountID(sfDestination), tshWEAK);
+                    ADD_TSH(so->getAccountID(sfDestination), tshSTRONG);
             }
 
             break;
@@ -318,7 +318,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 auto const offer = getNFTOffer(offerID, rv);
                 if (offer)
                 {
-                    ADD_TSH(offer->getAccountID(sfOwner), tshSTRONG);
+                    ADD_TSH(offer->getAccountID(sfOwner), tshWEAK);
                     if (offer->isFieldPresent(sfDestination))
                         ADD_TSH(offer->getAccountID(sfDestination), tshWEAK);
 
