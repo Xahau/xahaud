@@ -2057,7 +2057,7 @@ struct Remit_test : public beast::unit_test::suite
 
             auto const preSrc = lineBalance(env, t.src, t.dst, USD);
 
-            // issuer can remit to issuer
+            // src can remit to issuer
             env(remit::remit(t.src, t.dst),
                 remit::amts({USD(100)}),
                 t.hasTrustline ? ter(tesSUCCESS) : ter(tecUNFUNDED_PAYMENT));
