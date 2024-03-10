@@ -2158,7 +2158,8 @@ struct Remit_test : public beast::unit_test::suite
             // remit
             env(remit::remit(alice, bob), remit::amts({delta}));
             env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta - USD(25));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAlice - delta - USD(25));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob + delta);
 
             // issuer changes rate lower
