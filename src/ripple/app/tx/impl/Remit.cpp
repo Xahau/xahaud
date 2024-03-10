@@ -69,6 +69,16 @@ Remit::preflight(PreflightContext const& ctx)
         return temREDUNDANT;
     }
 
+    if (ctx.tx.isFieldPresent(sfInform))
+    {
+        AccountID const infID = ctx.tx.getAccountID(sfInform);
+        if (infID == dstID || srcID == infID)
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction: sfInform is same as source or destination.";
+            return temMALFORMED;
+        }
+    }
+
     if (ctx.tx.isFieldPresent(sfBlob) &&
         ctx.tx.getFieldVL(sfBlob).size() > (128 * 1024))
     {
