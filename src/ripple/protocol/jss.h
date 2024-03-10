@@ -117,6 +117,7 @@ JSS(Payment);                  // transaction type.
 JSS(PaymentChannelClaim);      // transaction type.
 JSS(PaymentChannelCreate);     // transaction type.
 JSS(PaymentChannelFund);       // transaction type.
+JSS(Remit);                    // transaction type.
 JSS(RippleState);              // ledger type.
 JSS(SLE_hit_rate);             // out: GetCounts.
 JSS(SetFee);                   // transaction type.
@@ -353,11 +354,12 @@ JSS(ident);                 // in: AccountCurrencies, AccountInfo,
                             //     OwnerInfo
 JSS(ignore_default);        // in: AccountLines
 JSS(inLedger);              // out: tx/Transaction
-JSS(inbound);               // out: PeerImp
-JSS(index);                 // in: LedgerEntry, DownloadShard
-                            // out: STLedgerEntry,
-                            //      LedgerEntry, TxHistory, LedgerData
-JSS(info);                  // out: ServerInfo, ConsensusInfo, FetchInfo
+JSS(in_queue);
+JSS(inbound);  // out: PeerImp
+JSS(index);    // in: LedgerEntry, DownloadShard
+               // out: STLedgerEntry,
+               //      LedgerEntry, TxHistory, LedgerData
+JSS(info);     // out: ServerInfo, ConsensusInfo, FetchInfo
 JSS(initial_sync_duration_us);
 JSS(internal_command);     // in: Internal
 JSS(invalid_API_version);  // out: Many, when a request has an invalid

@@ -72,13 +72,15 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookInstructionCount, soeREQUIRED},
          {sfHookExecutionIndex, soeREQUIRED},
          {sfHookStateChangeCount, soeREQUIRED},
-         {sfHookEmitCount, soeREQUIRED}});
+         {sfHookEmitCount, soeREQUIRED},
+         {sfFlags, soeOPTIONAL}});
 
     add(sfHookEmission.jsonName.c_str(),
         sfHookEmission.getCode(),
         {{sfHookHash, soeREQUIRED},
          {sfHookAccount, soeREQUIRED},
-         {sfEmittedTxnID, soeREQUIRED}});
+         {sfEmittedTxnID, soeREQUIRED},
+         {sfEmitNonce, soeOPTIONAL}});
 
     add(sfHookDefinition.jsonName.c_str(),
         sfHookDefinition.getCode(),
@@ -140,6 +142,20 @@ InnerObjectFormats::InnerObjectFormats()
         {
             {sfPublicKey, soeREQUIRED},
             {sfAccount, soeOPTIONAL},
+        });
+
+    add(sfAmountEntry.jsonName.c_str(),
+        sfAmountEntry.getCode(),
+        {
+            {sfAmount, soeREQUIRED},
+        });
+
+    add(sfMintURIToken.jsonName.c_str(),
+        sfMintURIToken.getCode(),
+        {
+            {sfURI, soeREQUIRED},
+            {sfDigest, soeOPTIONAL},
+            {sfFlags, soeOPTIONAL},
         });
 }
 

@@ -45,43 +45,6 @@ public:
 };
 
 using namespace ripple;
-static const std::map<uint16_t, uint8_t> TSHAllowances = {
-    {ttPAYMENT, tshROLLBACK},
-    {ttESCROW_CREATE, tshROLLBACK},
-    {ttESCROW_FINISH, tshROLLBACK},
-    {ttACCOUNT_SET, tshNONE},
-    {ttESCROW_CANCEL, tshCOLLECT},
-    {ttREGULAR_KEY_SET, tshROLLBACK},
-    {ttOFFER_CREATE, tshCOLLECT},
-    {ttOFFER_CANCEL, tshNONE},
-    {ttTICKET_CREATE, tshNONE},
-    {ttSIGNER_LIST_SET, tshROLLBACK},
-    {ttPAYCHAN_CREATE, tshROLLBACK},
-    {ttPAYCHAN_FUND, tshCOLLECT},
-    {ttPAYCHAN_CLAIM, tshCOLLECT},
-    {ttCHECK_CREATE, tshROLLBACK},
-    {ttCHECK_CASH, tshROLLBACK},
-    {ttCHECK_CANCEL, tshCOLLECT},
-    {ttDEPOSIT_PREAUTH, tshROLLBACK},
-    {ttTRUST_SET, tshCOLLECT},
-    {ttACCOUNT_DELETE, tshROLLBACK},
-    {ttHOOK_SET, tshNONE},
-    {ttNFTOKEN_MINT, tshROLLBACK},
-    {ttNFTOKEN_BURN, tshCOLLECT},
-    {ttNFTOKEN_CREATE_OFFER, tshROLLBACK},
-    {ttNFTOKEN_CANCEL_OFFER, tshCOLLECT},
-    {ttNFTOKEN_ACCEPT_OFFER, tshROLLBACK},
-    {ttCLAIM_REWARD, tshROLLBACK},
-    {ttINVOKE, tshROLLBACK},
-    {ttURITOKEN_MINT, tshNONE},
-    {ttURITOKEN_BURN, tshROLLBACK},
-    {ttURITOKEN_BUY, tshROLLBACK},
-    {ttURITOKEN_CREATE_SELL_OFFER, tshROLLBACK},
-    {ttURITOKEN_CANCEL_SELL_OFFER, tshNONE},
-    {ttIMPORT, tshROLLBACK},
-    {ttGENESIS_MINT, tshCOLLECT},
-};
-
 std::vector<std::pair<AccountID, bool>>
 getTransactionalStakeHolders(STTx const& tx, ReadView const& rv);
 }  // namespace hook
