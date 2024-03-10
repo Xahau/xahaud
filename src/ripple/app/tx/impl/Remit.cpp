@@ -524,8 +524,7 @@ Remit::doApply()
 
             // if the target trustline doesn't exist we need to create it and
             // pay its reserve
-            if (issuerAccID != dstAccID &&
-                !sb.exists(
+            if (!sb.exists(
                     keylet::line(dstAccID, issuerAccID, amount.getCurrency())))
                 nativeRemit += objectReserve;
 
