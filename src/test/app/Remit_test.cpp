@@ -2099,21 +2099,20 @@ struct Remit_test : public beast::unit_test::suite
         {
             double rate;
             STAmount delta;
-            std::string multiply;
-            std::string divide;
+            std::string result;
             TER code;
         };
         std::array<TestRateData, 10> testCases = {{
-            {0.0, USD(100), "1100", "1100", tesSUCCESS},
-            {-1.0, USD(100), "1100", "1100", temBAD_TRANSFER_RATE},
-            {0.9, USD(100), "1100", "1100", temBAD_TRANSFER_RATE},
-            {1.0, USD(100), "1100", "1100", tesSUCCESS},
-            {1.1, USD(100), "1110", "1090.909090909091", tesSUCCESS},
-            {1.0005, USD(100), "1100.05", "1099.950024987506", tesSUCCESS},
-            {1.005, USD(100), "1100.4999999", "1099.502487661197", tesSUCCESS},
-            {1.25, USD(100), "1125", "1080", tesSUCCESS},
-            {2.0, USD(100), "1200", "1050", tesSUCCESS},
-            {2.1, USD(100), "1100", "1100", temBAD_TRANSFER_RATE},
+            {0.0, USD(100), "900", tesSUCCESS},
+            {-1.0, USD(100), "900", temBAD_TRANSFER_RATE},
+            {0.9, USD(100), "900", temBAD_TRANSFER_RATE},
+            {1.0, USD(100), "900", tesSUCCESS},
+            {1.1, USD(100), "890", tesSUCCESS},
+            {1.0005, USD(100), "899.95", tesSUCCESS},
+            {1.005, USD(100), "899.5000001", tesSUCCESS},
+            {1.25, USD(100), "875", tesSUCCESS},
+            {2.0, USD(100), "800", tesSUCCESS},
+            {2.1, USD(100), "900", temBAD_TRANSFER_RATE},
         }};
 
         for (auto const& tc : testCases)
@@ -2128,16 +2127,15 @@ struct Remit_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(1000)));
             env.close();
 
-            auto const preAlice = env.balance(alice, USD.issue());
             auto const preBob = env.balance(bob, USD.issue());
 
             auto const delta = USD(100);
             env(remit::remit(alice, bob), remit::amts({delta}));
             env.close();
             auto xferRate = transferRate(*env.current(), gw);
-            auto const postBob = env.balance(bob, USD.issue());
-            BEAST_EXPECT(to_string(postBob.value()) == tc.divide);
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
+            auto const postAlice = env.balance(alice, USD.issue());
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob + delta);
+            BEAST_EXPECT(to_string(postAlice.value()) == tc.result);
         }
 
         // test rate change
@@ -2155,16 +2153,26 @@ struct Remit_test : public beast::unit_test::suite
             // setup
             auto const delta = USD(100);
             auto preAlice = env.balance(alice, USD.issue());
+            auto preBob = env.balance(bob, USD.issue());
+
+            // remit
+            env(remit::remit(alice, bob), remit::amts({delta}));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta - USD(25));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob + delta);
 
             // issuer changes rate lower
             env(rate(gw, 1.00));
             env.close();
 
+            preAlice = env.balance(alice, USD.issue());
+            preBob = env.balance(bob, USD.issue());
+
             // remit
             env(remit::remit(alice, bob), remit::amts({delta}));
             env.close();
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice - delta);
-            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10100));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob + delta);
         }
 
         // test issuer doesnt pay own rate
