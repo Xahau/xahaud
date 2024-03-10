@@ -297,6 +297,9 @@ Remit::doApply()
     if (createDst)
     {
         // sender will pay the reserve
+        if (nativeRemit + accountReserve < nativeRemit)
+            return tecINTERNAL;
+
         nativeRemit += accountReserve;
 
         // Create the account.
@@ -331,6 +334,9 @@ Remit::doApply()
     // if theres a minted uritoken the sender pays for that
     if (ctx_.tx.isFieldPresent(sfMintURIToken))
     {
+        if (nativeRemit + objectReserve < nativeRemit)
+            return tecINTERNAL;
+
         nativeRemit += objectReserve;
         STObject const& mint = const_cast<ripple::STTx&>(ctx_.tx)
                                    .getField(sfMintURIToken)
@@ -426,6 +432,9 @@ Remit::doApply()
                 sleU->makeFieldAbsent(sfDestination);
 
             // pay the reserve
+            if (nativeRemit + objectReserve < nativeRemit)
+                return tecINTERNAL;
+
             nativeRemit += objectReserve;
 
             // remove from sender dir
@@ -479,6 +488,11 @@ Remit::doApply()
                 // since we have to pay for all the created objects including
                 // possibly the account itself this is paid right at the end,
                 // and only if there is balance enough to cover.
+
+                // check for overflow
+                if (nativeRemit + amount.xrp() < nativeRemit)
+                    return tecINTERNAL;
+
                 nativeRemit += amount.xrp();
                 continue;
             }
@@ -526,7 +540,12 @@ Remit::doApply()
             // pay its reserve
             if (!sb.exists(
                     keylet::line(dstAccID, issuerAccID, amount.getCurrency())))
+            {
+                if (nativeRemit + objectReserve < nativeRemit)
+                    return tecINTERNAL;
+
                 nativeRemit += objectReserve;
+            }
 
             // action the transfer
             if (TER result =
