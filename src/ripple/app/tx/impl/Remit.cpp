@@ -74,7 +74,8 @@ Remit::preflight(PreflightContext const& ctx)
         AccountID const infID = ctx.tx.getAccountID(sfInform);
         if (infID == dstID || srcID == infID)
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction: sfInform is same as source or destination.";
+            JLOG(ctx.j.warn()) << "Malformed transaction: sfInform is same as "
+                                  "source or destination.";
             return temMALFORMED;
         }
     }
@@ -244,8 +245,7 @@ Remit::doApply()
         auto const informAcc = ctx_.tx.getAccountID(sfInform);
         if (!sb.exists(keylet::account(informAcc)))
         {
-            JLOG(j.warn())
-                << "Remit: sfInform account does not exist.";
+            JLOG(j.warn()) << "Remit: sfInform account does not exist.";
             return tecNO_TARGET;
         }
     }
@@ -254,8 +254,7 @@ Remit::doApply()
     XRPAmount const objectReserve{sb.fees().accountReserve(1) - accountReserve};
 
     // sanity check
-    if (accountReserve < beast::zero ||
-        objectReserve < beast::zero ||
+    if (accountReserve < beast::zero || objectReserve < beast::zero ||
         objectReserve > sb.fees().accountReserve(1))
     {
         JLOG(j.warn())
@@ -509,7 +508,7 @@ Remit::doApply()
                 issuerAccID != srcAccID && issuerAccID != dstAccID
                 ? multiply(amount, transferRate(sb, issuerAccID))
                 : amount;
-           
+
             // sanity check this calculation
             if (srcAmt < amount || srcAmt > amount + amount)
             {
@@ -519,7 +518,6 @@ Remit::doApply()
 
             STAmount availableFunds{
                 accountFunds(sb, srcAccID, srcAmt, fhZERO_IF_FROZEN, j)};
-
 
             if (availableFunds < srcAmt)
                 return tecUNFUNDED_PAYMENT;
@@ -533,7 +531,7 @@ Remit::doApply()
 
             // action the transfer
             if (TER result =
-                    accountSend(sb, srcAccID, dstAccID, amount, j, false);
+                    accountSend(sb, srcAccID, dstAccID, amount, j, true);
                 result != tesSUCCESS)
                 return result;
         }

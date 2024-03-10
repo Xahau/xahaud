@@ -254,7 +254,7 @@ struct Remit_test : public beast::unit_test::suite
                 remit::amts({XRP(1), XRP(1)}),
                 ter(temMALFORMED));
             env.close();
-            
+
             // not adjacent
             env(remit::remit(alice, bob),
                 remit::amts({XRP(1), USD(1), XRP(1)}),
@@ -268,7 +268,7 @@ struct Remit_test : public beast::unit_test::suite
                 remit::amts({USD(1), USD(1)}),
                 ter(temMALFORMED));
             env.close();
-            
+
             // not adjacent
             env(remit::remit(alice, bob),
                 remit::amts({USD(1), XRP(1), USD(1)}),
@@ -358,8 +358,8 @@ struct Remit_test : public beast::unit_test::suite
                 remit::token_ids({strHex(tid1), strHex(tid1)}),
                 ter(temMALFORMED));
             env.close();
-           
-            // not adj 
+
+            // not adj
             std::string const uri2(maxTokenURILength, 'a');
             auto const tid2 = uritoken::tokenid(alice, uri2);
             env(remit::remit(alice, bob),
