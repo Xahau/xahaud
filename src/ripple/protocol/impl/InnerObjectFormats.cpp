@@ -143,6 +143,20 @@ InnerObjectFormats::InnerObjectFormats()
             {sfPublicKey, soeREQUIRED},
             {sfAccount, soeOPTIONAL},
         });
+
+    add(sfAmountEntry.jsonName.c_str(),
+        sfAmountEntry.getCode(),
+        {
+            {sfAmount, soeREQUIRED},
+        });
+
+    add(sfMintURIToken.jsonName.c_str(),
+        sfMintURIToken.getCode(),
+        {
+            {sfURI, soeREQUIRED},
+            {sfDigest, soeOPTIONAL},
+            {sfFlags, soeOPTIONAL},
+        });
 }
 
 InnerObjectFormats const&

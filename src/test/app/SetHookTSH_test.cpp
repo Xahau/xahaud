@@ -4931,6 +4931,237 @@ private:
         }
     }
 
+    // Remit
+    // | otxn  | tsh | remit w/amt |
+    // |   A   |  A  |     S       |
+    // |   A   |  D  |     S       |
+    // |   A   |  I  |     W       |
+
+    // | otxn  | tsh | burnable |  remit w/uri  |
+    // |   A   |  I  |    F     |       W       |
+    // |   A   |  I  |    T     |       S       |
+
+    void
+    testRemitTSH(FeatureBitset features)
+    {
+        testcase("remit tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+        /*
+            sfAmounts
+        */
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account{"bob"};
+            env.fund(XRP(1000), account, dest);
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // payment
+            env(remit::remit(account, dest), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh dest
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account{"bob"};
+            env.fund(XRP(1000), account, dest);
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, dest);
+
+            // set tsh hook
+            setTSHHook(env, dest, testStrong);
+
+            // payment
+            env(remit::remit(account, dest), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh inform
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            auto const inform = Account("carol");
+            env.fund(XRP(1000), account, dest, inform);
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, inform);
+
+            // set tsh hook
+            setTSHHook(env, inform, testStrong);
+
+            // payment
+            env(remit::remit(account, dest),
+                remit::inform(inform),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        /*
+            sfURITokenIDs
+        */
+
+        // otxn: account
+        // tsh issuer
+        // burnable: true
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            auto const issuer = Account("carol");
+            env.fund(XRP(1000), account, dest, issuer);
+            env.close();
+
+            // mint uritoken
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            env(uritoken::mint(issuer, uri),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+
+            // sell uritoken
+            env(uritoken::sell(issuer, strHex(tid)),
+                uritoken::amt(XRP(1)),
+                uritoken::dest(account),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(account, strHex(tid)),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // payment
+            env(remit::remit(account, dest),
+                remit::token_ids({strHex(tid)}),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshSTRONG : tshSTRONG;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: account
+        // tsh issuer
+        // burnable: false
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const dest = Account("bob");
+            auto const issuer = Account("carol");
+            env.fund(XRP(1000), account, dest, issuer);
+            env.close();
+
+            // mint uritoken
+            std::string const uri(maxTokenURILength, '?');
+            auto const tid = uritoken::tokenid(issuer, uri);
+            env(uritoken::mint(issuer, uri), ter(tesSUCCESS));
+
+            // sell uritoken
+            env(uritoken::sell(issuer, strHex(tid)),
+                uritoken::amt(XRP(1)),
+                uritoken::dest(account),
+                ter(tesSUCCESS));
+            env.close();
+
+            // buy uritoken
+            env(uritoken::buy(account, strHex(tid)),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // payment
+            env(remit::remit(account, dest),
+                remit::token_ids({strHex(tid)}),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+    }
+
     void
     testTSH(FeatureBitset features)
     {
@@ -4965,6 +5196,7 @@ private:
         testURITokenBuyTSH(features);
         testURITokenCancelSellOfferTSH(features);
         testURITokenCreateSellOfferTSH(features);
+        testRemitTSH(features);
     }
 
     void

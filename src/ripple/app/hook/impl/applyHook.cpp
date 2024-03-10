@@ -70,6 +70,45 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     switch (tt)
     {
+        case ttREMIT: {
+            if (destAcc)
+                ADD_TSH(*destAcc, tshSTRONG);
+
+            if (tx.isFieldPresent(sfInform))
+            {
+                auto const inform = tx.getAccountID(sfInform);
+                if (*otxnAcc != inform && *destAcc != inform)
+                    ADD_TSH(inform, tshWEAK);
+            }
+
+            if (tx.isFieldPresent(sfURITokenIDs))
+            {
+                STVector256 tokenIds = tx.getFieldV256(sfURITokenIDs);
+                for (uint256 const klRaw : tokenIds)
+                {
+                    Keylet const id{ltURI_TOKEN, klRaw};
+                    if (!rv.exists(id))
+                        continue;
+
+                    auto const ut = rv.read(id);
+                    if (!ut ||
+                        ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                        continue;
+
+                    auto const owner = ut->getAccountID(sfOwner);
+                    auto const issuer = ut->getAccountID(sfIssuer);
+                    if (issuer != owner && issuer != *destAcc)
+                    {
+                        ADD_TSH(
+                            issuer,
+                            (ut->getFlags() & lsfBurnable) ? tshSTRONG
+                                                           : tshWEAK);
+                    }
+                }
+            }
+            break;
+        }
+
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
                 ADD_TSH(tx.getAccountID(sfIssuer), fixV2 ? tshWEAK : tshSTRONG);
