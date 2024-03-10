@@ -242,13 +242,26 @@ Remit::doApply()
     if (ctx_.tx.isFieldPresent(sfInform))
     {
         auto const informAcc = ctx_.tx.getAccountID(sfInform);
-        auto sleInformAcc = sb.peek(keylet::account(informAcc));
-        if (!sleInformAcc)
+        if (!sb.exists(keylet::account(informAcc)))
+        {
+            JLOG(j.warn())
+                << "Remit: sfInform account does not exist.";
             return tecNO_TARGET;
+        }
     }
 
     XRPAmount const accountReserve{sb.fees().accountReserve(0)};
     XRPAmount const objectReserve{sb.fees().accountReserve(1) - accountReserve};
+
+    // sanity check
+    if (accountReserve < beast::zero ||
+        objectReserve < beast::zero ||
+        objectReserve > sb.fees().accountReserve(1))
+    {
+        JLOG(j.warn())
+            << "Remit: account or object reserve calculation not sane.";
+        return tecINTERNAL;
+    }
 
     // amount of native tokens we will transfer to cover reserves for the
     // tls/acc/uritokens created, and native tokens listed in amounts
@@ -396,7 +409,7 @@ Remit::doApply()
             {
                 JLOG(j.warn()) << "Remit: one or more supplied URITokenIDs was "
                                   "not actually a uritoken.";
-                return tecINTERNAL;
+                return tecNO_ENTRY;
             }
 
             // is it our uritoken?
@@ -496,9 +509,17 @@ Remit::doApply()
                 issuerAccID != srcAccID && issuerAccID != dstAccID
                 ? multiply(amount, transferRate(sb, issuerAccID))
                 : amount;
+           
+            // sanity check this calculation
+            if (srcAmt < amount || srcAmt > amount + amount)
+            {
+                JLOG(j.warn()) << "Remit: srcAmt calculation not sane.";
+                return tecINTERNAL;
+            }
 
             STAmount availableFunds{
                 accountFunds(sb, srcAccID, srcAmt, fhZERO_IF_FROZEN, j)};
+
 
             if (availableFunds < srcAmt)
                 return tecUNFUNDED_PAYMENT;

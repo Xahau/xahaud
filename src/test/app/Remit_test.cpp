@@ -254,12 +254,24 @@ struct Remit_test : public beast::unit_test::suite
                 remit::amts({XRP(1), XRP(1)}),
                 ter(temMALFORMED));
             env.close();
+            
+            // not adjacent
+            env(remit::remit(alice, bob),
+                remit::amts({XRP(1), USD(1), XRP(1)}),
+                ter(temMALFORMED));
+            env.close();
         }
 
         // temMALFORMED - Issued Currency appears more than once.
         {
             env(remit::remit(alice, bob),
                 remit::amts({USD(1), USD(1)}),
+                ter(temMALFORMED));
+            env.close();
+            
+            // not adjacent
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1), XRP(1), USD(1)}),
                 ter(temMALFORMED));
             env.close();
         }
@@ -344,6 +356,14 @@ struct Remit_test : public beast::unit_test::suite
             auto const tid1 = uritoken::tokenid(alice, uri1);
             env(remit::remit(alice, bob),
                 remit::token_ids({strHex(tid1), strHex(tid1)}),
+                ter(temMALFORMED));
+            env.close();
+           
+            // not adj 
+            std::string const uri2(maxTokenURILength, 'a');
+            auto const tid2 = uritoken::tokenid(alice, uri2);
+            env(remit::remit(alice, bob),
+                remit::token_ids({strHex(tid1), strHex(tid2), strHex(tid1)}),
                 ter(temMALFORMED));
             env.close();
         }
