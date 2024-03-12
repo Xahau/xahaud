@@ -131,6 +131,38 @@ TxMeta::getAffectedAccounts() const
 
     // This code should match the behavior of the JS method:
     // Meta#getAffectedAccounts
+
+    // Add HookExecution HookAccount/s to stream
+    for (auto const& ex : *mHookExecutions)
+    {
+        const STObject* inner = dynamic_cast<const STObject*>(&ex);
+        for (auto const& field : *inner)
+        {
+            if (auto sa = dynamic_cast<STAccount const*>(&field))
+            {
+                assert(!sa->isDefault());
+                if (!sa->isDefault())
+                    list.insert(sa->value());
+            }
+        }
+    }
+
+    // Add HookEmission HookAccount/s to stream
+    for (auto const& em : *mHookEmissions)
+    {
+        const STObject* inner = dynamic_cast<const STObject*>(&em);
+        for (auto const& field : *inner)
+        {
+            if (auto sa = dynamic_cast<STAccount const*>(&field))
+            {
+                assert(!sa->isDefault());
+                if (!sa->isDefault())
+                    list.insert(sa->value());
+            }
+        }
+    }
+
+    // Add AffectedNodes Account/s to stream
     for (auto const& it : mNodes)
     {
         int index = it.getFieldIndex(
