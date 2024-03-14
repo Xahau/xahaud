@@ -161,6 +161,7 @@ JSS(account_data);           // out: AccountInfo
 JSS(account_flags);          // out: AccountInfo
 JSS(account_hash);           // out: LedgerToJson
 JSS(account_id);             // out: WalletPropose
+JSS(account_namespace);      // out: AccountNamespace
 JSS(account_nfts);           // out: AccountNFTs
 JSS(account_objects);        // out: AccountObjects
 JSS(account_root);           // in: LedgerEntry
