@@ -24,9 +24,9 @@
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>
-#include <ripple/net/RPCErr.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/LedgerFormats.h>
+#include <ripple/protocol/RPCErr.h>
 #include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/Context.h>
