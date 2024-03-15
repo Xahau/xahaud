@@ -687,6 +687,8 @@ public:
         using namespace jtx;
         Env env{*this, features};
 
+        bool const fixNS = env.current()->rules().enabled(fixNSDelete);
+
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
 
@@ -797,7 +799,7 @@ public:
 
             // ensure the state object is gone
             BEAST_EXPECT(!env.le(stateKeylet));
-            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 1);
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == fixNS ? 1 : 2);
         }
     }
 
@@ -11733,6 +11735,7 @@ public:
         testWithFeatures(sa);
         testWithFeatures(sa - fixXahauV2);
         testWithFeatures(sa - fixXahauV1 - fixXahauV2);
+        testWithFeatures(sa - fixXahauV1 - fixXahauV2 - fixNSDelete);
     }
 
 private:
