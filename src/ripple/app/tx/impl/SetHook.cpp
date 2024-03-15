@@ -927,6 +927,7 @@ SetHook::destroyNamespace(
     else
         sleAccount->setFieldU32(sfHookStateCount, stateCount);
 
+    adjustOwnerCount(view, sleAccount, stateCount - oldStateCount, ctx.j);
     view.update(sleAccount);
 
     return tesSUCCESS;

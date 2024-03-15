@@ -26,8 +26,6 @@
 #include <test/jtx/hook.h>
 #include <unordered_map>
 
-// RH TODO: test collect calls / weak tsh
-
 namespace ripple {
 
 namespace test {
@@ -770,6 +768,7 @@ public:
             BEAST_EXPECT(
                 data[0] == 'v' && data[1] == 'a' && data[2] == 'l' &&
                 data[3] == 'u' && data[4] == 'e' && data[5] == '\0');
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 2);
         }
 
         // delete the namespace
@@ -798,6 +797,7 @@ public:
 
             // ensure the state object is gone
             BEAST_EXPECT(!env.le(stateKeylet));
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 1);
         }
     }
 
