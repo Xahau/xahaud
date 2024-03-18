@@ -154,7 +154,9 @@ SetSignerList::preCompute()
 // is valid until the featureMultiSignReserve amendment passes.  Once it
 // passes then just 1 OwnerCount is associated with a SignerList.
 int
-SetSignerList::signerCountBasedOwnerCountDelta(std::size_t entryCount, Rules const& rules)
+SetSignerList::signerCountBasedOwnerCountDelta(
+    std::size_t entryCount,
+    Rules const& rules)
 {
     // We always compute the full change in OwnerCount, taking into account:
     //  o The fact that we're adding/removing a SignerList and
