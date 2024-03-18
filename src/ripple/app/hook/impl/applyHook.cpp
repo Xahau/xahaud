@@ -11,6 +11,7 @@
 #include <ripple/basics/Slice.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/TxFlags.h>
+#include <ripple/protocol/st.h>
 #include <ripple/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <any>
