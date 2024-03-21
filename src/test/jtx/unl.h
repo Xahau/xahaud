@@ -78,6 +78,17 @@ countTx(std::shared_ptr<SHAMap> const& txSet);
 STTx
 createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey);
 
+/**
+ * Create ttUNL_REPORT Tx
+ *
+ * @param seq current ledger seq
+ * @param importKey the public key of the import network
+ * @param txKey the public key of the validator
+ * @return the ttUNL_REPORT Tx
+ */
+STTx
+createUNLReportTx(LedgerIndex seq, PublicKey const& importKey, PublicKey const& valKey);
+
 }  // namespace unl
 
 }  // namespace test

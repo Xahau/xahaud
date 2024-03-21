@@ -327,7 +327,7 @@ public:
     run() override
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{supported_amendments()};
         testSequential(all, true);
         testSequential(all, false);
         testBadInput(all);

@@ -17,8 +17,11 @@
 */
 //==============================================================================
 
+#include <ripple/app/misc/HashRouter.h>
 #include <ripple/basics/StringUtilities.h>
+#include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
+#include <test/app/Import_json.h>
 #include <test/jtx.h>
 
 namespace ripple {
@@ -308,11 +311,14 @@ public:
         // Put a bunch of different LedgerEntryTypes into a ledger
         using namespace test::jtx;
         using namespace std::chrono;
-        Env env{*this, envconfig(validator, "")};
 
+        std::vector<std::string> const keys = {"ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+        Env env{*this, network::makeNetworkVLConfig(21337, keys)};
+
+        Account const alice{"alice"};
         Account const gw{"gateway"};
         auto const USD = gw["USD"];
-        env.fund(XRP(100000), gw);
+        env.fund(XRP(100000), gw, alice);
 
         auto makeRequest = [&env](Json::StaticString const& type) {
             Json::Value jvParams;
@@ -335,6 +341,10 @@ public:
               jss::ticket,
               jss::escrow,
               jss::payment_channel,
+              jss::hook,
+              jss::hook_definition,
+              jss::hook_state,
+              jss::uri_token,
               jss::deposit_preauth})
         {
             auto const jrr = makeRequest(type);
@@ -398,6 +408,12 @@ public:
             env(pay(Account{"bob2"}, Account{"bob3"}, XRP(1)), fee(XRP(1)));
             env.close();
         }
+    
+        {
+            std::string const uri(maxTokenURILength, '?');
+            env(uritoken::mint(Account{"bob2"}, uri));
+            env.close();
+        }
 
         {
             Json::Value jv;
@@ -414,6 +430,63 @@ public:
             env(jv);
         }
 
+        {
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+            env.close();
+            env(import::import(
+                    alice, import::loadXpop(test::ImportTCAccountSet::w_seed)),
+                fee(10 * 10),
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // ADD UNL REPORT
+            std::vector<std::string> const _ivlKeys = {
+                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
+                "CDC1",
+                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
+                "CDC2",
+            };
+
+            std::vector<PublicKey> ivlKeys;
+            for (auto const& strPk : _ivlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                ivlKeys.emplace_back(makeSlice(*pkHex));
+            }
+
+            std::vector<std::string> const _vlKeys = {
+                "ED8E43A943A174190BA2FAE91F44AC6E2D1D8202EFDCC2EA3DBB39814576D6"
+                "90F7",
+                "ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E"
+                "738B"};
+
+            std::vector<PublicKey> vlKeys;
+            for (auto const& strPk : _vlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                vlKeys.emplace_back(makeSlice(*pkHex));
+            }
+
+            // insert a ttUNL_REPORT pseudo into the open ledger
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) -> bool {
+                    STTx tx = test::unl::createUNLReportTx(
+                        env.current()->seq() + 1, ivlKeys[0], vlKeys[0]);
+                    uint256 txID = tx.getTransactionID();
+                    auto s = std::make_shared<ripple::Serializer>();
+                    tx.add(*s);
+                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    view.rawTxInsert(txID, std::move(s), nullptr);
+                    return true;
+                });
+
+            // close the ledger
+            env.close();
+        }
+
         env(check::create("bob6", "bob7", XRP(100)));
 
         // bob9 DepositPreauths bob4 and bob8.
@@ -425,16 +498,24 @@ public:
 
         {  // jvParams[jss::type] = "account";
             auto const jrr = makeRequest(jss::account);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 12));
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 13));
             for (auto const& j : jrr[jss::state])
                 BEAST_EXPECT(j["LedgerEntryType"] == jss::AccountRoot);
         }
 
         {  // jvParams[jss::type] = "amendments";
             auto const jrr = makeRequest(jss::amendments);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 0));
             for (auto const& j : jrr[jss::state])
                 BEAST_EXPECT(j["LedgerEntryType"] == jss::Amendments);
+        }
+
+        {  // jvParams[jss::type] = "unl_report";
+            auto const jrr = makeRequest(jss::unl_report);
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            
+            for (auto const& j : jrr[jss::state])
+                BEAST_EXPECT(j["LedgerEntryType"] == jss::UNLReport);
         }
 
         {  // jvParams[jss::type] = "check";
@@ -463,6 +544,13 @@ public:
             BEAST_EXPECT(checkArraySize(jrr[jss::state], 2));
             for (auto const& j : jrr[jss::state])
                 BEAST_EXPECT(j["LedgerEntryType"] == jss::LedgerHashes);
+        }
+
+        {  // jvParams[jss::type] = "import_vlseq";
+            auto const jrr = makeRequest(jss::import_vlseq);
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            for (auto const& j : jrr[jss::state])
+                BEAST_EXPECT(j["LedgerEntryType"] == jss::ImportVLSequence);
         }
 
         {  // jvParams[jss::type] = "offer";
@@ -519,6 +607,13 @@ public:
             BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
             for (auto const& j : jrr[jss::state])
                 BEAST_EXPECT(j["LedgerEntryType"] == jss::HookState);
+        }
+
+        {  // jvParams[jss::type] = "uri_token";
+            auto const jrr = makeRequest(jss::uri_token);
+            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            for (auto const& j : jrr[jss::state])
+                BEAST_EXPECT(j["LedgerEntryType"] == jss::URIToken);
         }
 
         {  // jvParams[jss::type] = "payment_channel";

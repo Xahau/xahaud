@@ -1694,8 +1694,7 @@ public:
 
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
-        uint256 const uritokenIndex{
-            keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
+        uint256 const uritokenIndex{keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
         {
             // Request the uritoken using its index.
             Json::Value jvParams;
@@ -1706,6 +1705,39 @@ public:
             BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
             BEAST_EXPECT(jrr[jss::node][sfURI.jsonName] == strHex(uri));
             BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == lsfBurnable);
+        }
+        {
+            // Request the uritoken using its account and uri.
+            Json::Value jvParams;
+            jvParams[jss::uri_token] = Json::objectValue;
+            jvParams[jss::uri_token][jss::account] = alice.human();
+            jvParams[jss::uri_token][jss::uri] = uri;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfURI.jsonName] == strHex(uri));
+            BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == lsfBurnable);
+        }
+        {
+            // Malformed ticket object.  Missing account member.
+            Json::Value jvParams;
+            jvParams[jss::uri_token] = Json::objectValue;
+            jvParams[jss::uri_token][jss::uri] = uri;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed ticket object.  Missing seq member.
+            Json::Value jvParams;
+            jvParams[jss::uri_token] = Json::objectValue;
+            jvParams[jss::uri_token][jss::account] = env.master.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
         }
         {
             // Request an index that is not a uritoken.

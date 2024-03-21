@@ -24,6 +24,7 @@
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/Context.h>
 #include <ripple/rpc/GRPCHandlers.h>
@@ -231,6 +232,21 @@ doLedgerEntry(RPC::JsonContext& context)
             uNodeIndex = keylet::emittedTxn(uNodeIndex).key;
         }
     }
+    else if (context.params.isMember(jss::import_vlseq))
+    {
+        expectedType = ltIMPORT_VLSEQ;
+        if (!context.params[jss::public_key].isString())
+        {
+            uNodeIndex = beast::zero;
+            jvResult[jss::error] = "malformedRequest";
+        }
+        else
+        {
+            auto const pkHex = strUnHex(context.params[jss::public_key].asString());
+            auto const pk = PublicKey(makeSlice(*pkHex));
+            uNodeIndex = keylet::import_vlseq(pk).key;
+        }
+    }
     else if (context.params.isMember(jss::offer))
     {
         expectedType = ltOFFER;
@@ -277,10 +293,30 @@ doLedgerEntry(RPC::JsonContext& context)
     {
         expectedType = ltURI_TOKEN;
 
-        if (!uNodeIndex.parseHex(context.params[jss::uri_token].asString()))
+        if (!context.params[jss::uri_token].isObject())
         {
-            uNodeIndex = beast::zero;
+            if (!uNodeIndex.parseHex(context.params[jss::uri_token].asString()))
+            {
+                uNodeIndex = beast::zero;
+                jvResult[jss::error] = "malformedRequest";
+            }
+        }
+        else if (
+            !context.params[jss::uri_token].isMember(jss::account) ||
+            !context.params[jss::uri_token].isMember(jss::uri))
+        {
             jvResult[jss::error] = "malformedRequest";
+        }
+        else
+        {
+            auto const id = parseBase58<AccountID>(
+                context.params[jss::uri_token][jss::account].asString());
+            auto const strUri = context.params[jss::uri_token][jss::uri].asString();
+            Blob raw = Blob(strUri.begin(), strUri.end());
+            if (!id)
+                jvResult[jss::error] = "malformedAddress";
+            else
+                uNodeIndex = keylet::uritoken(*id, raw).key;
         }
     }
     else if (context.params.isMember(jss::ripple_state))
