@@ -1694,7 +1694,8 @@ public:
 
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
-        uint256 const uritokenIndex{keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
+        uint256 const uritokenIndex{
+            keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
         {
             // Request the uritoken using its index.
             Json::Value jvParams;

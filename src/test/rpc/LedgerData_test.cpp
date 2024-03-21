@@ -312,7 +312,9 @@ public:
         using namespace test::jtx;
         using namespace std::chrono;
 
-        std::vector<std::string> const keys = {"ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"};
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
+            "1"};
         Env env{*this, network::makeNetworkVLConfig(21337, keys)};
 
         Account const alice{"alice"};
@@ -408,7 +410,7 @@ public:
             env(pay(Account{"bob2"}, Account{"bob3"}, XRP(1)), fee(XRP(1)));
             env.close();
         }
-    
+
         {
             std::string const uri(maxTokenURILength, '?');
             env(uritoken::mint(Account{"bob2"}, uri));
@@ -513,7 +515,7 @@ public:
         {  // jvParams[jss::type] = "unl_report";
             auto const jrr = makeRequest(jss::unl_report);
             BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            
+
             for (auto const& j : jrr[jss::state])
                 BEAST_EXPECT(j["LedgerEntryType"] == jss::UNLReport);
         }

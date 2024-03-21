@@ -242,7 +242,8 @@ doLedgerEntry(RPC::JsonContext& context)
         }
         else
         {
-            auto const pkHex = strUnHex(context.params[jss::public_key].asString());
+            auto const pkHex =
+                strUnHex(context.params[jss::public_key].asString());
             auto const pk = PublicKey(makeSlice(*pkHex));
             uNodeIndex = keylet::import_vlseq(pk).key;
         }
@@ -311,7 +312,8 @@ doLedgerEntry(RPC::JsonContext& context)
         {
             auto const id = parseBase58<AccountID>(
                 context.params[jss::uri_token][jss::account].asString());
-            auto const strUri = context.params[jss::uri_token][jss::uri].asString();
+            auto const strUri =
+                context.params[jss::uri_token][jss::uri].asString();
             Blob raw = Blob(strUri.begin(), strUri.end());
             if (!id)
                 jvResult[jss::error] = "malformedAddress";

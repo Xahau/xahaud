@@ -87,7 +87,10 @@ createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey);
  * @return the ttUNL_REPORT Tx
  */
 STTx
-createUNLReportTx(LedgerIndex seq, PublicKey const& importKey, PublicKey const& valKey);
+createUNLReportTx(
+    LedgerIndex seq,
+    PublicKey const& importKey,
+    PublicKey const& valKey);
 
 }  // namespace unl
 
