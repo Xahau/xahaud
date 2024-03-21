@@ -305,6 +305,28 @@ public:
         }
     }
 
+    STTx
+    createUNLReportTx(
+        LedgerIndex seq,
+        PublicKey const& importKey,
+        PublicKey const& valKey)
+    {
+        auto fill = [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfActiveValidator);
+                inner->setFieldVL(sfPublicKey, valKey);
+                return inner;
+            })());
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfImportVLKey);
+                inner->setFieldVL(sfPublicKey, importKey);
+                return inner;
+            })());
+        };
+        return STTx(ttUNL_REPORT, fill);
+    }
+
     void
     testLedgerType()
     {
@@ -475,7 +497,7 @@ public:
             // insert a ttUNL_REPORT pseudo into the open ledger
             env.app().openLedger().modify(
                 [&](OpenView& view, beast::Journal j) -> bool {
-                    STTx tx = test::unl::createUNLReportTx(
+                    STTx tx = createUNLReportTx(
                         env.current()->seq() + 1, ivlKeys[0], vlKeys[0]);
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
