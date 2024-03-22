@@ -603,7 +603,7 @@ PathRequest::findPaths(
                 ps,             // --> Path set.
                 app_.logs());
 
-            if (rc.result() != tesSUCCESS)
+            if (!isTesSuccess(rc.result()))
             {
                 JLOG(m_journal.warn())
                     << iIdentifier << " Failed with covering path "
@@ -617,7 +617,7 @@ PathRequest::findPaths(
             }
         }
 
-        if (rc.result() == tesSUCCESS)
+        if (isTesSuccess(rc.result()))
         {
             Json::Value jvEntry(Json::objectValue);
             rc.actualAmountIn.setIssuer(sourceAccount);

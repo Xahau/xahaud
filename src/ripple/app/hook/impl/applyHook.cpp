@@ -1798,7 +1798,7 @@ hook::finalizeHookState(
 
                     TER result = setHookState(applyCtx, acc, ns, key, slice);
 
-                    if (result != tesSUCCESS)
+                    if (!isTesSuccess(result))
                     {
                         JLOG(j.warn())
                             << "HookError[TX:" << txnID
@@ -3527,7 +3527,7 @@ DEFINE_HOOK_FUNCTION(
         ripple::ApplyFlags::tapPREFLIGHT_EMIT,
         j);
 
-    if (preflightResult.ter != tesSUCCESS)
+    if (!isTesSuccess(preflightResult.ter))
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: Transaction preflight failure: "

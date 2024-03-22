@@ -49,7 +49,7 @@ Import::makeTxConsequences(PreflightContext const& ctx)
             return beast::zero;
 
         auto const result = meta->getFieldU8(sfTransactionResult);
-        if (result != tesSUCCESS &&
+        if (!isTesSuccess(result) &&
             !(result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY))
             return beast::zero;
 
@@ -220,7 +220,7 @@ Import::preflight(PreflightContext const& ctx)
     {
         uint8_t innerResult = meta->getFieldU8(sfTransactionResult);
 
-        if (innerResult == tesSUCCESS)
+        if (isTesSuccess(innerResult))
         {
             // pass
         }
@@ -972,7 +972,7 @@ Import::doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
 
         TER result =
             SetSignerList::removeFromLedger(ctx_.app, sb, id, ctx_.journal);
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
         {
             JLOG(ctx_.journal.warn())
                 << "Import: successful destroy SignerListSet";
@@ -1057,7 +1057,7 @@ Import::doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
         signers,
         sle->getFieldAmount(sfBalance).xrp());
 
-    if (result == tesSUCCESS)
+    if (isTesSuccess(result))
     {
         JLOG(ctx_.journal.warn()) << "Import: successful set SignerListSet";
         sb.apply(ctx_.rawView());
@@ -1303,7 +1303,7 @@ Import::doApply()
     // Handle any key imports, but only if a tes code
     // these functions update the sle on their own
     //
-    if (meta->getFieldU8(sfTransactionResult) == tesSUCCESS)
+    if (isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
         auto const tt = stpTrans->getTxnType();
         if (tt == ttSIGNER_LIST_SET)

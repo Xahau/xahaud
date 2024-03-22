@@ -794,21 +794,12 @@ SetHook::destroyNamespace(
         return tefBAD_LEDGER;
     }
 
-    bool sleAccChanged = false;
-
-    if (!sleAccount->isFieldPresent(sfHookNamespaces))
-    {
-        // NSDELETE is an opportunistic deleter, following "delete if exists"
-        // logic this way the flag can't block the SetHook transaction just
-        // because, for example, the namespace was deleted in the previous
-        // transaction but the hsFlags have not changed. Thus this is not an
-        // error. Allow fall through to below in case, for some reason, the
-        // namespace directory *does* exist but does not appear in the vector.
-    }
-    else
-    {
-        sleAccChanged = hook::removeHookNamespaceEntry(*sleAccount, ns);
-    }
+    // NSDELETE is an opportunistic deleter, following "delete if exists"
+    // logic this way the flag can't block the SetHook transaction just
+    // because, for example, the namespace was deleted in the previous
+    // transaction but the hsFlags have not changed. Thus this is not an
+    // error. Allow fall through to below in case, for some reason, the
+    // namespace directory *does* exist but does not appear in the vector.
 
     Keylet dirKeylet = keylet::hookStateDir(account, ns);
 
@@ -818,21 +809,16 @@ SetHook::destroyNamespace(
 
     auto sleDir = view.peek(dirKeylet);
 
-    if (!sleDir)
-    {
-        // directory doesn't exist, this is a success condition
-        if (sleAccChanged)
-            view.update(sleAccount);
-        return tesSUCCESS;
-    }
+    bool const dirExists = !!sleDir;
+    bool const dirEmpty = dirExists && dirIsEmpty(view, dirKeylet);
 
-    if (dirIsEmpty(view, dirKeylet))
+    if (!dirExists || dirEmpty)
     {
-        // directory exists but is empty, so remove the root page
-        if (sleAccChanged)
+        // directory doesn't exist or is empty, this is a success condition
+        if (hook::removeHookNamespaceEntry(*sleAccount, ns))
             view.update(sleAccount);
-
-        view.erase(sleDir);
+        if (dirExists)
+            view.erase(sleDir);
         return tesSUCCESS;
     }
 
@@ -845,13 +831,20 @@ SetHook::destroyNamespace(
         return tefINTERNAL;
     }
 
-    uint32_t stateCount = sleAccount->getFieldU32(sfHookStateCount);
-    uint32_t oldStateCount = stateCount;
+    bool const fixEnabled = ctx.rules.enabled(fixNSDelete);
+    bool partialDelete = false;
+    uint32_t oldStateCount = sleAccount->getFieldU32(sfHookStateCount);
 
     std::vector<uint256> toDelete;
     toDelete.reserve(sleDir->getFieldV256(sfIndexes).size());
     do
     {
+        if (fixEnabled && toDelete.size() >= hook::maxNamespaceDelete())
+        {
+            partialDelete = true;
+            break;
+        }
+
         // Make sure any directory node types that we find are the kind
         // we can delete.
         Keylet const itemKeylet{ltCHILD, dirEntry};
@@ -910,9 +903,9 @@ SetHook::destroyNamespace(
             return tefBAD_LEDGER;
         }
         view.erase(sleItem);
-        stateCount--;
     }
 
+    uint32_t stateCount = oldStateCount - toDelete.size();
     if (stateCount > oldStateCount)
     {
         JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT << ")["
@@ -928,11 +921,13 @@ SetHook::destroyNamespace(
         sleAccount->setFieldU32(sfHookStateCount, stateCount);
 
     if (ctx.rules.enabled(fixNSDelete))
-        adjustOwnerCount(view, sleAccount, stateCount - oldStateCount, ctx.j);
+        adjustOwnerCount(view, sleAccount, -toDelete.size(), ctx.j);
+
+    if (!partialDelete && sleAccount->isFieldPresent(sfHookNamespaces))
+        hook::removeHookNamespaceEntry(*sleAccount, ns);
 
     view.update(sleAccount);
-
-    return tesSUCCESS;
+    return partialDelete ? tesPARTIAL : tesSUCCESS;
 }
 
 // returns true if the reference counted ledger entry should be marked for
@@ -1456,7 +1451,7 @@ SetHook::setHook()
                     TER result = updateHookParameters(
                         ctx, hookSetObj->get(), oldDefSLE, oldParams, newHook);
 
-                    if (result != tesSUCCESS)
+                    if (!isTesSuccess(result))
                         return result;
                 }
 
@@ -1699,7 +1694,7 @@ SetHook::setHook()
                     STArray{sfHookParameters},
                     newHook);
 
-                if (result != tesSUCCESS)
+                if (!isTesSuccess(result))
                     return result;
 
                 // if grants are provided set them
@@ -1806,8 +1801,11 @@ SetHook::setHook()
 
         // clean up any Namespace directories marked for deletion and any zero
         // reference Hook Definitions
+        TER nsDeleteResult;
         for (auto const& ns : namespacesToDestroy)
-            destroyNamespace(ctx, view(), account_, ns);
+            if (nsDeleteResult = destroyNamespace(ctx, view(), account_, ns);
+                !isTesSuccess(nsDeleteResult))
+                break;
 
         // do any pending removals
         for (auto const& p : keyletsToDestroy)
