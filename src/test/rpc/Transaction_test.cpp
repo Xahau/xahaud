@@ -876,7 +876,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        test::jtx::forAllApiVersions(
+        forAllApiVersions(
             std::bind_front(&Transaction_test::testBinaryRequest, this));
 
         FeatureBitset const all{supported_amendments()};
@@ -890,7 +890,7 @@ public:
         testRangeCTIDRequest(features);
         testCTIDValidation(features);
         testCTIDRPC(features);
-        test::jtx::forAllApiVersions(
+        forAllApiVersions(
             std::bind_front(&Transaction_test::testRequest, this, features));
     }
 };
