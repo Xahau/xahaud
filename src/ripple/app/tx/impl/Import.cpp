@@ -1225,7 +1225,13 @@ Import::doApply()
         create ? STAmount(bonusAmount) : STAmount(mSourceBalance);
 
     uint64_t creditDrops = burn.xrp().drops();
-    if (elapsed < 2'000'000)
+
+    if (view().rules().enabled(featureZeroB2M))
+    {
+        // B2M xrp is disabled by amendment
+        creditDrops = 0;
+    }
+    else if (elapsed < 2'000'000)
     {
         // first 2MM ledgers
         // the ratio is 1:1
