@@ -40,6 +40,10 @@ class Xrpl(ConanFile):
         'wasmedge/0.11.2',
     ]
 
+    tool_requires = [
+        'protobuf/3.21.9',
+    ]
+
     default_options = {
         'assertions': False,
         'coverage': False,
