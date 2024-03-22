@@ -24,7 +24,7 @@ else()
   set(INSTALL_SECP256K1 true)
 
   add_library (secp256k1 STATIC
-    src/secp256k1/src/secp256k1.c)
+    external/secp256k1/src/secp256k1.c)
   target_compile_definitions (secp256k1
     PRIVATE
       USE_NUM_NONE
@@ -34,9 +34,9 @@ else()
       USE_SCALAR_INV_BUILTIN)
   target_include_directories (secp256k1
     PUBLIC
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external>
       $<INSTALL_INTERFACE:include>
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/secp256k1)
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/secp256k1)
   target_compile_options (secp256k1
     PRIVATE
       $<$<BOOL:${MSVC}>:-wd4319>
@@ -51,7 +51,7 @@ else()
 #]===========================]
   install (
     FILES
-      src/secp256k1/include/secp256k1.h
+      external/secp256k1/include/secp256k1.h
   DESTINATION include/secp256k1/include)
 
   add_library (NIH::secp256k1 ALIAS secp256k1)
