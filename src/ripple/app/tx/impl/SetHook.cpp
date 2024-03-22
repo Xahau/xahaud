@@ -1788,6 +1788,7 @@ SetHook::setHook()
         if (mSourceBalance < requiredDrops)
             return tecINSUFFICIENT_RESERVE;
     }
+    TER nsDeleteResult = tesSUCCESS;
     {
         // execution to here means we will enact changes to the ledger:
 
@@ -1801,7 +1802,6 @@ SetHook::setHook()
 
         // clean up any Namespace directories marked for deletion and any zero
         // reference Hook Definitions
-        TER nsDeleteResult;
         for (auto const& ns : namespacesToDestroy)
             if (nsDeleteResult = destroyNamespace(ctx, view(), account_, ns);
                 !isTesSuccess(nsDeleteResult))
@@ -1896,7 +1896,7 @@ SetHook::setHook()
         view().update(accountSLE);
     }
 
-    return tesSUCCESS;
+    return nsDeleteResult;
 }
 
 }  // namespace ripple
