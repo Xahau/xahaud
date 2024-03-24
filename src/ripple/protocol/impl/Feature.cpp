@@ -462,6 +462,8 @@ REGISTER_FEATURE(HooksUpdate1,                  Supported::yes, VoteBehavior::De
 REGISTER_FIX    (fixXahauV1,                    Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixXahauV2,                    Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(Remit,                         Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(ZeroB2M,                       Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixNSDelete,                   Supported::yes, VoteBehavior::DefaultNo);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

@@ -802,7 +802,7 @@ EscrowCancel::doApply()
             // dry run before we make any changes to ledger
             if (TER const result = trustAdjustLockedBalance(
                     ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun);
-                result != tesSUCCESS)
+                !isTesSuccess(result))
                 return result;
         }
     }

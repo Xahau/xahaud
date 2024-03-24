@@ -191,6 +191,7 @@ transResults()
         MAKE_ERROR(terNO_HOOK,                "No hook with that hash exists on the ledger."),
 
         MAKE_ERROR(tesSUCCESS,                "The transaction was applied. Only final in a validated ledger."),
+        MAKE_ERROR(tesPARTIAL,                "The transaction was applied but should be submitted again until returning tesSUCCESS."),
     };
     // clang-format on
 

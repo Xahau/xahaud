@@ -755,7 +755,7 @@ TxQ::apply(
     // etc. before doing potentially expensive queue
     // replace and multi-transaction operations.
     auto const pfresult = preflight(app, view.rules(), *tx, flags, j);
-    if (pfresult.ter != tesSUCCESS)
+    if (!isTesSuccess(pfresult.ter))
         return {pfresult.ter, false};
 
     // If the account is not currently in the ledger, don't queue its tx.
