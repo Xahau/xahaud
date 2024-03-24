@@ -141,6 +141,8 @@ doCrawlShards(RPC::JsonContext&);
 Json::Value
 doStop(RPC::JsonContext&);
 Json::Value
+doInject(RPC::JsonContext&);
+Json::Value
 doSubmit(RPC::JsonContext&);
 Json::Value
 doSubmitMultiSigned(RPC::JsonContext&);

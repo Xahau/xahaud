@@ -42,7 +42,7 @@ finishFlow(
     FlowResult&& f)
 {
     path::RippleCalc::Output result;
-    if (f.ter == tesSUCCESS)
+    if (isTesSuccess(f.ter))
         f.sandbox->apply(sb);
     else
         result.removableOffers = std::move(f.removableOffers);
@@ -100,7 +100,7 @@ flow(
         offerCrossing,
         j);
 
-    if (toStrandsTer != tesSUCCESS)
+    if (!isTesSuccess(toStrandsTer))
     {
         path::RippleCalc::Output result;
         result.setResult(toStrandsTer);

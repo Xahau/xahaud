@@ -285,6 +285,8 @@ enum LedgerSpecificFlags {
         0x20000000,               // True, reject new trustlines (only if no issued assets)
     lsfURITokenIssuer =
         0x40000000,               // True, has minted tokens in the past
+    lsfDisallowIncomingRemit =    // True, no remits allowed to this account
+        0x80000000,
 
     // ltOFFER
     lsfPassive = 0x00010000,

@@ -431,6 +431,26 @@ EscrowFinish::preflight(PreflightContext const& ctx)
         }
     }
 
+    // sfOfferSequence was changed to optional, so ensure the behaviour is the
+    // same until amendment passes
+    if (!ctx.rules.enabled(fixXahauV1))
+    {
+        if (!ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+
+        if (ctx.tx.isFieldPresent(sfEscrowID) &&
+            ctx.tx.getFieldU32(sfOfferSequence) != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if ((!ctx.tx.isFieldPresent(sfEscrowID) &&
+             !ctx.tx.isFieldPresent(sfOfferSequence)) ||
+            ctx.tx.isFieldPresent(sfEscrowID) &&
+                ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+    }
+
     return tesSUCCESS;
 }
 
@@ -456,17 +476,19 @@ EscrowFinish::doApply()
         return temDISABLED;
 
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
+    std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
-    if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-        return temMALFORMED;
+    bool const fixV1 = view().rules().enabled(fixXahauV1);
 
-    Keylet k = escrowID
-        ? Keylet(ltESCROW, *escrowID)
-        : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
+    Keylet k = escrowID ? Keylet(ltESCROW, *escrowID)
+                        : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
 
     auto const slep = ctx_.view().peek(k);
     if (!slep)
         return tecNO_TARGET;
+
+    if (fixV1 && slep->getFieldU16(sfLedgerEntryType) != ltESCROW)
+        return tecINTERNAL;
 
     AccountID const account = (*slep)[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
@@ -692,6 +714,26 @@ EscrowCancel::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
+    // sfOfferSequence was changed to optional, so ensure the behaviour is the
+    // same until amendment passes
+    if (!ctx.rules.enabled(fixXahauV1))
+    {
+        if (!ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+
+        if (ctx.tx.isFieldPresent(sfEscrowID) &&
+            ctx.tx.getFieldU32(sfOfferSequence) != 0)
+            return temMALFORMED;
+    }
+    else
+    {
+        if ((!ctx.tx.isFieldPresent(sfEscrowID) &&
+             !ctx.tx.isFieldPresent(sfOfferSequence)) ||
+            ctx.tx.isFieldPresent(sfEscrowID) &&
+                ctx.tx.isFieldPresent(sfOfferSequence))
+            return temMALFORMED;
+    }
+
     return preflight2(ctx);
 }
 
@@ -704,17 +746,19 @@ EscrowCancel::doApply()
         return temDISABLED;
 
     std::optional<uint256> escrowID = ctx_.tx[~sfEscrowID];
+    std::optional<std::uint32_t> offerSequence = ctx_.tx[~sfOfferSequence];
 
-    if (escrowID && ctx_.tx[sfOfferSequence] != 0)
-        return temMALFORMED;
+    bool const fixV1 = view().rules().enabled(fixXahauV1);
 
-    Keylet k = escrowID
-        ? Keylet(ltESCROW, *escrowID)
-        : keylet::escrow(ctx_.tx[sfOwner], ctx_.tx[sfOfferSequence]);
+    Keylet k = escrowID ? Keylet(ltESCROW, *escrowID)
+                        : keylet::escrow(ctx_.tx[sfOwner], *offerSequence);
 
     auto const slep = ctx_.view().peek(k);
     if (!slep)
         return tecNO_TARGET;
+
+    if (fixV1 && slep->getFieldU16(sfLedgerEntryType) != ltESCROW)
+        return tecINTERNAL;
 
     if (ctx_.view().rules().enabled(fix1571))
     {
@@ -758,7 +802,7 @@ EscrowCancel::doApply()
             // dry run before we make any changes to ledger
             if (TER const result = trustAdjustLockedBalance(
                     ctx_.view(), sleLine, -amount, -1, ctx_.journal, DryRun);
-                result != tesSUCCESS)
+                !isTesSuccess(result))
                 return result;
         }
     }

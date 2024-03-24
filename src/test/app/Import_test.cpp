@@ -1682,6 +1682,36 @@ class Import_test : public beast::unit_test::suite
                 ter(temDISABLED));
         }
 
+        // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
+        // it purports to prove.
+        for (bool const withXahauV1 : {true, false})
+        {
+            auto const amend = withXahauV1 ? features : features - fixXahauV1;
+            test::jtx::Env env{
+                *this, network::makeNetworkVLConfig(21337, keys), amend};
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
+            Json::Value valData = tmpXpop[jss::validation][jss::data];
+            valData["n9MNStvsHZxrCYnShytCfKMCXBcq8wJjR6fLTS7L2Q8qoFVNioQ8"] =
+                "";
+            valData["n9MTTavZe6EPqqyQ27pJbNWpfHw8ZNspVgznrwx5HWm7cdTjKQie"] =
+                "";
+            if (withXahauV1)
+            {
+                valData
+                    ["n94J5LCRu9bBWrJiwRWujvuVECVPWbXFcQ2VN38qLD378F5pDSDM"] =
+                        "";
+            }
+            tmpXpop[jss::validation][jss::data] = valData;
+            auto const txResult =
+                withXahauV1 ? ter(temMALFORMED) : ter(temMALFORMED);
+            env(import::import(alice, tmpXpop), txResult);
+        }
+
         test::jtx::Env env{*this, network::makeNetworkVLConfig(21337, keys)};
 
         auto const feeDrops = env.current()->fees().base;
@@ -2573,19 +2603,6 @@ class Import_test : public beast::unit_test::suite
         // parsed
         // DA: Catch All
 
-        // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
-        // it purports to prove.
-        {
-            Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
-            Json::Value valData;
-            valData["n94at1vSdHSBEun25yT4ZfgqD1tVQNsx1nqRZG3T6ygbuvwgcMZN"] =
-                "";
-            valData["n9KXYzdZD8YpsNiChtMjP6yhvQAhkkh5XeSTbvYyV1waF8wkNnBT"] =
-                "";
-            tmpXpop[jss::validation][jss::data] = valData;
-            env(import::import(alice, tmpXpop), ter(temMALFORMED));
-        }
-
         // temMALFORMED - Import: xpop inner txn did not contain a sequence
         // number or fee No Sequence
         {
@@ -2983,7 +3000,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = XRP(1000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 1000) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3094,7 +3113,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = XRP(1000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 1000) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3161,7 +3182,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = drops(48) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 48) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3225,7 +3248,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = XRP(1000) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 1000) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3282,7 +3307,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = XRP(1000) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 1000) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3346,7 +3373,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = drops(48) - ((3 * feeDrops) * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn =
+                drops(zeroBurn ? 0 : 48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3416,7 +3446,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(10) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 10) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3483,7 +3515,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + reward amount
-            auto const totalBurn = drops(12) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 12) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3543,7 +3577,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - initial value
-            auto const totalBurn = drops(12) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 12) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3605,7 +3641,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + reward amount
-            auto const totalBurn = drops(48) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 48) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3667,7 +3705,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - feeDrops
-            auto const totalBurn = drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3737,7 +3777,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3808,7 +3850,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3880,7 +3924,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(48) - ((3 * feeDrops) * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn =
+                drops(zeroBurn ? 0 : 48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -3954,7 +4001,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4023,7 +4072,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4096,7 +4147,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops - fee drops
-            auto const totalBurn = drops(48) - ((3 * feeDrops) * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn =
+                drops(zeroBurn ? 0 : 48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4286,7 +4340,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = (burn drops + burn fee drops) - reward
-            auto const totalBurn = XRP(2) + drops(12) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn =
+                XRP(zeroBurn ? 0 : 2) + drops(zeroBurn ? 0 : 12) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4368,7 +4425,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(12) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn =
+                XRP(zeroBurn ? 0 : 2) + drops(zeroBurn ? 0 : 12) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4526,7 +4586,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 2) +
+                drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4617,7 +4680,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 2) +
+                drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4696,7 +4762,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(12) - (feeDrops * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 2) +
+                drops(zeroBurn ? 0 : 12) - (feeDrops * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4776,7 +4845,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(2) + drops(48) - ((3 * feeDrops) * 10);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = XRP(zeroBurn ? 0 : 2) +
+                drops(zeroBurn ? 0 : 48) - ((3 * feeDrops) * 10);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -4979,6 +5051,7 @@ class Import_test : public beast::unit_test::suite
                 *this, network::makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
+            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
 
             // confirm total coins header
             auto const initCoins = env.current()->info().drops;
@@ -4998,6 +5071,10 @@ class Import_test : public beast::unit_test::suite
             env.fund(XRP(10000), alice, issuer);
             env.close();
 
+            // fixXahauV2 - tshWEAK
+            env(fset(issuer, asfTshCollect));
+            env.close();
+
             std::string const createCodeHex =
                 "0061736D01000000011C0460057F7F7F7F7F017E60037F7F7E017E60027F7F"
                 "017F60017F017E02250303656E76057472616365000003656E7608726F6C6C"
@@ -5012,8 +5089,8 @@ class Import_test : public beast::unit_test::suite
             std::string ns_str =
                 "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECA"
                 "FE";
-            Json::Value jv =
-                ripple::test::jtx::hook(issuer, {{hso(createCodeHex)}}, 0);
+            Json::Value jv = ripple::test::jtx::hook(
+                issuer, {{hso(createCodeHex)}}, hsfOVERRIDE | hsfCOLLECT);
             jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
             jv[jss::Hooks][0U][jss::Hook][jss::HookOn] =
                 "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFDFFFFFFFFFFFFFFFFFFBFFF"
@@ -5024,32 +5101,40 @@ class Import_test : public beast::unit_test::suite
             auto const preAlice = env.balance(alice);
             auto const preCoins = env.current()->info().drops;
 
+            auto const result = fixV2 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED);
             env(import::import(
                     alice, import::loadXpop(ImportTCAccountSet::w_seed)),
                 import::issuer(issuer),
                 fee(1'000'000),
-                ter(tecHOOK_REJECTED));
+                result);
             env.close();
 
-            // confirm fee was burned but no mint
+            // fixXahauV2
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const mintXAH = fixV2 ? XRP(zeroBurn ? 0 : 1000) : XRP(0);
+            // confirm fee was burned mint / no mint
             auto const postAlice = env.balance(alice);
-            BEAST_EXPECT(postAlice == preAlice - XRP(1));
+            BEAST_EXPECT(postAlice == preAlice - XRP(1) + mintXAH);
 
             // confirm total coins header
             auto const postCoins = env.current()->info().drops;
-            BEAST_EXPECT(postCoins == preCoins - XRP(1));
+            BEAST_EXPECT(postCoins == preCoins - XRP(1) + mintXAH);
 
-            // resubmit import without issuer - no trigger hook
+            // resubmit import without issuer
+            auto const result2 =
+                fixV2 ? ter(tefPAST_IMPORT_SEQ) : ter(tesSUCCESS);
             env(import::import(
                     alice, import::loadXpop(ImportTCAccountSet::w_seed)),
                 fee(feeDrops * 10),
-                ter(tesSUCCESS));
+                result2);
             env.close();
 
-            // total burn = (burn drops + burn fee drops) - fee drops
-            auto const totalBurn = XRP(1000) - (feeDrops * 10);
+            // total burn
+            auto const totalBurn =
+                fixV2 ? XRP(0) : XRP(zeroBurn ? 0 : 1000) - (feeDrops * 10);
 
-            // confirm fee was minted
+            // confirm fee was minted / not minted
             auto const postAlice2 = env.balance(alice);
             BEAST_EXPECT(postAlice2 == postAlice + totalBurn);
 
@@ -5291,7 +5376,9 @@ class Import_test : public beast::unit_test::suite
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
-            STAmount burnFee = XRP(1000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            STAmount burnFee = XRP(zeroBurn ? 0 : 1000) + XRP(2);
             auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
@@ -5329,7 +5416,9 @@ class Import_test : public beast::unit_test::suite
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
-            STAmount burnFee = XRP(1000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            STAmount burnFee = XRP(zeroBurn ? 0 : 1000) + XRP(2);
             auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
@@ -5360,7 +5449,9 @@ class Import_test : public beast::unit_test::suite
             auto const preAlice = env.balance(alice);
             BEAST_EXPECT(preAlice == XRP(0));
 
-            STAmount burnFee = XRP(1000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            STAmount burnFee = XRP(zeroBurn ? 0 : 1000) + XRP(2);
             auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
@@ -5420,7 +5511,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + reward amount
-            auto const totalBurn = drops(10) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 10) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5477,7 +5570,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + reward amount
-            auto const totalBurn = drops(10) + XRP(20);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn = drops(zeroBurn ? 0 : 10) + XRP(20);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5531,7 +5626,10 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + reward amount
-            auto const totalBurn = drops(99'999'939'799'000'000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const totalBurn =
+                drops(zeroBurn ? 0 : 99'999'939'799'000'000) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5588,7 +5686,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + Init Reward
-            auto const creditDrops = XRP(1'000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const creditDrops = XRP(zeroBurn ? 0 : 1'000) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5631,7 +5731,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + Init Reward
-            auto const creditDrops = XRP(1'000) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const creditDrops = XRP(zeroBurn ? 0 : 1'000) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5675,7 +5777,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + Init Reward
-            auto const creditDrops = drops(999999964) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const creditDrops = drops(zeroBurn ? 0 : 999999964) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5717,7 +5821,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + Init Reward
-            auto const creditDrops = drops(892857142) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const creditDrops = drops(zeroBurn ? 0 : 892857142) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5759,7 +5865,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + Init Reward
-            auto const creditDrops = drops(357142857) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const creditDrops = drops(zeroBurn ? 0 : 357142857) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5801,7 +5909,9 @@ class Import_test : public beast::unit_test::suite
             env.close();
 
             // total burn = burn drops + Init Reward
-            auto const creditDrops = drops(35) + XRP(2);
+            bool const zeroBurn =
+                env.current()->rules().enabled(featureZeroB2M);
+            auto const creditDrops = drops(zeroBurn ? 0 : 35) + XRP(2);
 
             // confirm fee was minted
             auto const postAlice = env.balance(alice);
@@ -5904,6 +6014,8 @@ public:
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
+        testWithFeats(all - fixXahauV2);
+        testWithFeats(all - featureZeroB2M);
         testWithFeats(all);
     }
 

@@ -88,7 +88,7 @@ TxFormats::TxFormats()
     add(jss::OfferCancel,
         ttOFFER_CANCEL,
         {
-            {sfOfferSequence, soeREQUIRED},
+            {sfOfferSequence, soeOPTIONAL},
             {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfTicketSequence, soeOPTIONAL},
         },
@@ -116,6 +116,21 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    add(jss::Remit,
+        ttREMIT,
+        {
+            {sfDestination, soeREQUIRED},
+            {sfAmounts, soeOPTIONAL},
+            {sfURITokenIDs, soeOPTIONAL},
+            {sfMintURIToken, soeOPTIONAL},
+            {sfInvoiceID, soeOPTIONAL},
+            {sfDestinationTag, soeOPTIONAL},
+            {sfTicketSequence, soeOPTIONAL},
+            {sfBlob, soeOPTIONAL},
+            {sfInform, soeOPTIONAL},
+        },
+        commonFields);
+
     add(jss::EscrowCreate,
         ttESCROW_CREATE,
         {
@@ -133,7 +148,7 @@ TxFormats::TxFormats()
         ttESCROW_FINISH,
         {
             {sfOwner, soeREQUIRED},
-            {sfOfferSequence, soeREQUIRED},
+            {sfOfferSequence, soeOPTIONAL},
             {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfFulfillment, soeOPTIONAL},
             {sfCondition, soeOPTIONAL},
@@ -145,7 +160,7 @@ TxFormats::TxFormats()
         ttESCROW_CANCEL,
         {
             {sfOwner, soeREQUIRED},
-            {sfOfferSequence, soeREQUIRED},
+            {sfOfferSequence, soeOPTIONAL},
             {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
             {sfTicketSequence, soeOPTIONAL},
         },

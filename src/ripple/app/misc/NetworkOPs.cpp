@@ -1431,7 +1431,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 app_.getHashRouter().setFlags(e.transaction->getID(), SF_BAD);
 
 #ifdef DEBUG
-            if (e.result != tesSUCCESS)
+            if (!isTesSuccess(e.result))
             {
                 std::string token, human;
 
@@ -1445,7 +1445,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 
             bool addLocal = e.local;
 
-            if (e.result == tesSUCCESS)
+            if (isTesSuccess(e.result))
             {
                 JLOG(m_journal.debug())
                     << "Transaction is now included in open ledger";
@@ -3215,7 +3215,7 @@ NetworkOPsImp::pubValidatedTransaction(
         }
     }
 
-    if (transaction.getResult() == tesSUCCESS)
+    if (isTesSuccess(transaction.getResult()))
         app_.getOrderBookDB().processTxn(ledger, transaction, jvObj);
 
     pubAccountTransaction(ledger, transaction);

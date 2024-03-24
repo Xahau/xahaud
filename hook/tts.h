@@ -31,6 +31,7 @@
 #define ttURITOKEN_BUY 47
 #define ttURITOKEN_CREATE_SELL_OFFER 48
 #define ttURITOKEN_CANCEL_SELL_OFFER 49
+#define ttREMIT 95
 #define ttGENESIS_MINT 96
 #define ttIMPORT 97
 #define ttCLAIM_REWARD 98

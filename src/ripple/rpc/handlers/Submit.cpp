@@ -20,6 +20,7 @@
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/Transaction.h>
+#include <ripple/app/misc/TxQ.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/ErrorCodes.h>
@@ -37,6 +38,48 @@ getFailHard(RPC::JsonContext const& context)
     return NetworkOPs::doFailHard(
         context.params.isMember("fail_hard") &&
         context.params["fail_hard"].asBool());
+}
+
+// {
+//    tx_blob: serialized tx
+// }
+// Only for debug use!!!!
+Json::Value
+doInject(RPC::JsonContext& context)
+{
+    if (context.role != Role::ADMIN)
+        return rpcError(rpcNO_PERMISSION);
+
+    Json::Value jvResult;
+
+    auto ret = strUnHex(context.params[jss::tx_blob].asString());
+
+    if (!ret || !ret->size())
+        return rpcError(rpcINVALID_PARAMS);
+
+    SerialIter sitTrans(makeSlice(*ret));
+
+    std::shared_ptr<STTx const> stpTrans;
+
+    try
+    {
+        stpTrans = std::make_shared<STTx const>(std::ref(sitTrans));
+    }
+    catch (std::exception& e)
+    {
+        jvResult[jss::error] = "invalidTransaction";
+        jvResult[jss::error_exception] = e.what();
+        jvResult[jss::in_queue] = false;
+
+        return jvResult;
+    }
+
+    context.app.getTxQ().debugTxInject(*stpTrans);
+
+    jvResult[jss::tx_json] = stpTrans->getJson(JsonOptions::none);
+    jvResult[jss::in_queue] = true;
+
+    return jvResult;
 }
 
 // {
