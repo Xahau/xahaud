@@ -116,7 +116,7 @@ SignerEntries::determineOperation(
 //     Rules const& rules)
 // {
 
-//     if (ter != tesSUCCESS)
+//     if (!isTesSuccess(ter))
 //         return ter;
 
 //     if (op == unknown)
@@ -137,7 +137,7 @@ SignerEntries::determineOperation(
 //             account,
 //             j,
 //             rules);
-//         if (ter != tesSUCCESS)
+//         if (!isTesSuccess(ter))
 //         {
 //             return ter;
 //         }

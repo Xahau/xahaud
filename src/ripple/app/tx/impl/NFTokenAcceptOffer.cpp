@@ -292,7 +292,7 @@ NFTokenAcceptOffer::pay(
     // several payouts in this tx, just confirm that the end state is OK.
     if (!view().rules().enabled(fixNonFungibleTokensV1_2))
         return result;
-    if (result != tesSUCCESS)
+    if (!isTesSuccess(result))
         return result;
     if (accountFunds(view(), from, amount, fhZERO_IF_FROZEN, j_).signum() < 0)
         return tecINSUFFICIENT_FUNDS;
