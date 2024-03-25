@@ -587,7 +587,12 @@ isAddable(STAmount const& amt1, STAmount const& amt2)
 // the low-level routine stAmountCanonicalize on an amendment switch. Only
 // transactions need to use this switchover. Outside of a transaction it's safe
 // to unconditionally use the new behavior.
-extern LocalValue<bool> stAmountCanonicalizeSwitchover;
+
+bool
+getSTAmountCanonicalizeSwitchover();
+
+void
+setSTAmountCanonicalizeSwitchover(bool v);
 
 /** RAII class to set and restore the STAmount canonicalize switchover.
  */
@@ -595,14 +600,14 @@ extern LocalValue<bool> stAmountCanonicalizeSwitchover;
 class STAmountSO
 {
 public:
-    explicit STAmountSO(bool v) : saved_(*stAmountCanonicalizeSwitchover)
+    explicit STAmountSO(bool v) : saved_(getSTAmountCanonicalizeSwitchover())
     {
-        *stAmountCanonicalizeSwitchover = v;
+        setSTAmountCanonicalizeSwitchover(v);
     }
 
     ~STAmountSO()
     {
-        *stAmountCanonicalizeSwitchover = saved_;
+        setSTAmountCanonicalizeSwitchover(saved_);
     }
 
 private:

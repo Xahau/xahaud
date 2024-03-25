@@ -1644,7 +1644,7 @@ Consensus<Adaptor>::createDisputes(TxSet_t const& o)
             (inThisSet && result_->txns.find(txId) && !o.find(txId)) ||
             (!inThisSet && !result_->txns.find(txId) && o.find(txId)));
 
-        Tx_t tx = inThisSet ? *result_->txns.find(txId) : *o.find(txId);
+        Tx_t tx = inThisSet ? result_->txns.find(txId) : o.find(txId);
         auto txID = tx.id();
 
         if (result_->disputes.find(txID) != result_->disputes.end())
