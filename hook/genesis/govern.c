@@ -637,43 +637,55 @@ int64_t hook(uint32_t r)
             {
                 previous_member[0] = 'V';
 
-                for (int i = 1; GUARD(32), i < 32; ++i)
+                for (int tbl = 1; GUARD(2), tbl <= 2; ++tbl)
                 {
-                    previous_member[1] = i < 2 ? 'R' : i < 12 ? 'H' : 'S';
-                    previous_member[2] = 
-                        i == 0 ? 'R' :
-                        i == 1 ? 'D' :
-                        i < 12 ? i - 2 :
-                        i - 12;
-
-                    uint8_t vote_key[32];
-                    if (state(SBUF(vote_key), SBUF(previous_member)) == 32)
+                    for (int i = 0; GUARD(66), i < 32; ++i)
                     {
-                        uint8_t vote_count = 0;
+                        previous_member[1] = i < 2 ? 'R' : i < 12 ? 'H' : 'S';
+                        previous_member[2] = 
+                            i == 0 ? 'R' :
+                            i == 1 ? 'D' :
+                            i < 12 ? i - 2 :
+                            i - 12;
+                        previous_member[3] = tbl;
 
-                        // find and decrement the vote counter
-                        vote_key[0] = 'C';
-                        vote_key[1] = previous_member[1];
-                        vote_key[2] = previous_member[2];
-                        if (state(&vote_count, 1, SBUF(vote_key)) == 1)
+                        uint8_t vote_key[32] = {};
+                        uint8_t ts = 
+                            previous_member[1] == 'H' ? 32 :      // hook topics are a 32 byte hook hash
+                            previous_member[1] == 'S' ? 20 :      // account topics are a 20 byte account ID
+                            8;                        // reward topics are an 8 byte le xfl
+                        
+                        uint8_t padding = 32 - ts;
+
+                        if (state(vote_key + padding, ts, SBUF(previous_member)) == ts)
                         {
-                            // if we're down to 1 vote then delete state
-                            if (vote_count <= 1)
-                            {
-                                ASSERT(state_set(0,0, SBUF(vote_key)) == 0);
-                                trace_num(SBUF("Decrement vote count deleted"), vote_count);
-                            }
-                            else    // otherwise decrement
-                            {
-                                vote_count--;
-                                ASSERT(state_set(&vote_count, 1, SBUF(vote_key)) == 1);
-                                trace_num(SBUF("Decrement vote count to"), vote_count);
-                            }
-                        }
+                            uint8_t vote_count = 0;
 
-                        // delete the vote entry
-                        ASSERT(state_set(0,0, SBUF(previous_member)) == 0);
-                        trace(SBUF("Vote entry deleted"), vote_key, 32, 1);
+                            // find and decrement the vote counter
+                            vote_key[0] = 'C';
+                            vote_key[1] = previous_member[1];
+                            vote_key[2] = previous_member[2];
+                            vote_key[3] = tbl;
+                            if (state(&vote_count, 1, SBUF(vote_key)) == 1)
+                            {
+                                // if we're down to 1 vote then delete state
+                                if (vote_count <= 1)
+                                {
+                                    ASSERT(state_set(0,0, SBUF(vote_key)) == 0);
+                                    trace_num(SBUF("Decrement vote count deleted"), vote_count);
+                                }
+                                else    // otherwise decrement
+                                {
+                                    vote_count--;
+                                    ASSERT(state_set(&vote_count, 1, SBUF(vote_key)) == 1);
+                                    trace_num(SBUF("Decrement vote count to"), vote_count);
+                                }
+                            }
+
+                            // delete the vote entry
+                            ASSERT(state_set(0,0, SBUF(previous_member)) == 0);
+                            trace(SBUF("Vote entry deleted"), vote_key, 32, 1);
+                        }
                     }
                 }
 
