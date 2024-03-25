@@ -298,13 +298,14 @@ TER
 SetRemarks::doApply()
 {
     auto j = ctx_.journal;
+    Sandbox sb(&ctx_.view());
 
-    auto const sle = view().peek(keylet::account(account_));
+    auto const sle = sb.peek(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
 
     auto const objID = ctx_.tx[sfObjectID];
-    auto const sleO = view().read(keylet::unchecked(objID));
+    auto sleO = sb.peek(keylet::unchecked(objID));
     if (!sleO)
         return tecNO_TARGET;
 
@@ -366,7 +367,7 @@ SetRemarks::doApply()
 
     std::sort(keys.begin(), keys.end());
     
-    STArray newRemarks {sfRemarks, keys.size()};
+    STArray newRemarks {sfRemarks, static_cast<int>(keys.size())};
     for (auto const& k : keys)
     {
         STObject remark{sfRemark};
@@ -387,13 +388,13 @@ SetRemarks::doApply()
     else
         sleO->setFieldArray(sfRemarks, std::move(newRemarks));
 
-    view().update(sleO);
+    sb.update(sleO);
 
     return tesSUCCESS;
 }
 
 XRPAmount
-calculateBaseFee(ReadView const& view, STTx const& tx)
+SetRemarks::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     // RH TODO: transaction fee needs to charge for remarks, in particular because they are not ownercounted.
     auto fee = Transactor::calculateBaseFee(view, tx);
