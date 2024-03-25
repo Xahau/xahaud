@@ -17,17 +17,21 @@
 */
 //==============================================================================
 
+#include <ripple/basics/contract.h>
 #include <ripple/basics/mulDiv.h>
 #include <boost/multiprecision/cpp_int.hpp>
-#include <optional>
+#include <limits>
+#include <utility>
+
 namespace ripple {
 
 std::pair<bool, std::uint64_t>
 mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
 {
-    using uint128_t = boost::multiprecision::uint128_t;
+    using namespace boost::multiprecision;
 
-    uint128_t result = multiply(result, value, mul);
+    uint128_t result;
+    result = multiply(result, value, mul);
 
     result /= div;
 
