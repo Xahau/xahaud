@@ -197,22 +197,22 @@ invoke_preclaim(PreclaimContext const& ctx)
     {
         TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         result = T::checkPriorTxAndLastLedger(ctx);
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         result = T::checkSign(ctx);
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
     }
 
@@ -633,7 +633,7 @@ preclaim(
     try
     {
 #endif
-        if (ctx->preflightResult != tesSUCCESS)
+        if (!isTesSuccess(ctx->preflightResult))
             return {*ctx, ctx->preflightResult};
         return {*ctx, invoke_preclaim(*ctx)};
 #ifndef DEBUG

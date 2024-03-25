@@ -66,6 +66,13 @@ maxNamespaces(void)
     return 256;
 }
 
+// maximum number of entires in a namespace to delete with ns delete
+inline uint32_t
+maxNamespaceDelete(void)
+{
+    return 256;
+}
+
 enum TSHFlags : uint8_t {
     tshNONE = 0b000,
     tshROLLBACK = 0b001,

@@ -257,7 +257,7 @@ NFTokenMint::doApply()
 
     if (TER const ret =
             nft::insertToken(ctx_.view(), account_, std::move(newToken));
-        ret != tesSUCCESS)
+        !isTesSuccess(ret))
         return ret;
 
     // Only check the reserve if the owner count actually changed.  This

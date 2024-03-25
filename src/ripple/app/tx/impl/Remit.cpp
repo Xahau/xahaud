@@ -514,7 +514,7 @@ Remit::doApply()
                          std::vector<AccountID>{srcAccID, dstAccID},
                          amount.issue(),
                          j);
-                     canXfer != tesSUCCESS)
+                     !isTesSuccess(canXfer))
                 return canXfer;
 
             // compute the amount the source will need to send
@@ -553,7 +553,7 @@ Remit::doApply()
             // action the transfer
             if (TER result =
                     accountSend(sb, srcAccID, dstAccID, amount, j, true);
-                result != tesSUCCESS)
+                !isTesSuccess(result))
                 return result;
         }
     }

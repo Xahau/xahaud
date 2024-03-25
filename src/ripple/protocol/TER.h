@@ -240,7 +240,8 @@ enum TEScodes : TERUnderlyingType {
     // Implications:
     // - Applied
     // - Forwarded
-    tesSUCCESS = 0
+    tesSUCCESS = 0,
+    tesPARTIAL = 1,
 };
 
 //------------------------------------------------------------------------------
@@ -436,7 +437,7 @@ public:
     // Conversion to bool.
     explicit operator bool() const
     {
-        return code_ != tesSUCCESS;
+        return code_ < tesSUCCESS || code_ >= tecCLAIM;
     }
 
     // Conversion to Json::Value allows assignment to Json::Objects
@@ -641,10 +642,17 @@ isTerRetry(TER x)
     return ((x) >= terRETRY && (x) < tesSUCCESS);
 }
 
+template <typename T>
+inline bool
+isTesSuccess(T x)
+{
+    return ((x) >= tesSUCCESS) && (x) < tecCLAIM;
+}
+
 inline bool
 isTesSuccess(TER x)
 {
-    return ((x) == tesSUCCESS);
+    return ((x) >= tesSUCCESS) && (x) < tecCLAIM;
 }
 
 inline bool

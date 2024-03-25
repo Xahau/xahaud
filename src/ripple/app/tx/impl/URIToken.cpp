@@ -516,7 +516,7 @@ URIToken::doApply()
                     // IOU sale
                     if (TER result = trustTransferAllowed(
                             sb, {account_, *owner}, purchaseAmount.issue(), j);
-                        result != tesSUCCESS)
+                        !isTesSuccess(result))
                     {
                         JLOG(j.trace())
                             << "URIToken::doApply trustTransferAllowed result="
@@ -534,7 +534,7 @@ URIToken::doApply()
                 // execute the funds transfer, we'll check reserves last
                 if (TER result = accountSend(
                         sb, account_, *owner, purchaseAmount, j, false);
-                    result != tesSUCCESS)
+                    !isTesSuccess(result))
                     return result;
 
                 // add token to new owner dir
