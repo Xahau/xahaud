@@ -2132,7 +2132,6 @@ struct Remit_test : public beast::unit_test::suite
             auto const delta = USD(100);
             env(remit::remit(alice, bob), remit::amts({delta}));
             env.close();
-            auto xferRate = transferRate(*env.current(), gw);
             auto const postAlice = env.balance(alice, USD.issue());
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob + delta);
             BEAST_EXPECT(to_string(postAlice.value()) == tc.result);

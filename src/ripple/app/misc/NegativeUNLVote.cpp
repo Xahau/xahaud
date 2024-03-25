@@ -19,6 +19,7 @@
 
 #include <ripple/app/consensus/RCLValidations.h>
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/app/main/Application.h>
 #include <ripple/app/misc/NegativeUNLVote.h>
 
 namespace ripple {

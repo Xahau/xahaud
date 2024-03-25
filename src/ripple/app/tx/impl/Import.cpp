@@ -30,6 +30,7 @@
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/STTx.h>
+#include <ripple/protocol/st.h>
 #include <algorithm>
 #include <charconv>
 #include <iostream>

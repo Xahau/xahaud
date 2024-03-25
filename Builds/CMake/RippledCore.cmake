@@ -433,13 +433,17 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/CancelOffer.cpp
   src/ripple/app/tx/impl/CashCheck.cpp
   src/ripple/app/tx/impl/Change.cpp
+  src/ripple/app/tx/impl/ClaimReward.cpp
   src/ripple/app/tx/impl/CreateCheck.cpp
   src/ripple/app/tx/impl/CreateOffer.cpp
   src/ripple/app/tx/impl/CreateTicket.cpp
   src/ripple/app/tx/impl/DeleteAccount.cpp
   src/ripple/app/tx/impl/DepositPreauth.cpp
   src/ripple/app/tx/impl/Escrow.cpp
+  src/ripple/app/tx/impl/GenesisMint.cpp
+  src/ripple/app/tx/impl/Import.cpp
   src/ripple/app/tx/impl/InvariantCheck.cpp
+  src/ripple/app/tx/impl/Invoke.cpp
   src/ripple/app/tx/impl/NFTokenAcceptOffer.cpp
   src/ripple/app/tx/impl/NFTokenBurn.cpp
   src/ripple/app/tx/impl/NFTokenCancelOffer.cpp
@@ -448,14 +452,10 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/OfferStream.cpp
   src/ripple/app/tx/impl/PayChan.cpp
   src/ripple/app/tx/impl/Payment.cpp
-  src/ripple/app/tx/impl/SetAccount.cpp
-  src/ripple/app/tx/impl/SetRegularKey.cpp
-  src/ripple/app/tx/impl/SetHook.cpp
-  src/ripple/app/tx/impl/ClaimReward.cpp
-  src/ripple/app/tx/impl/GenesisMint.cpp
-  src/ripple/app/tx/impl/Import.cpp
-  src/ripple/app/tx/impl/Invoke.cpp
   src/ripple/app/tx/impl/Remit.cpp
+  src/ripple/app/tx/impl/SetAccount.cpp
+  src/ripple/app/tx/impl/SetHook.cpp
+  src/ripple/app/tx/impl/SetRegularKey.cpp
   src/ripple/app/tx/impl/SetSignerList.cpp
   src/ripple/app/tx/impl/SetTrust.cpp
   src/ripple/app/tx/impl/SignerEntries.cpp
