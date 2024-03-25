@@ -59,9 +59,18 @@ SetRemarks::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-
     for (auto const& remark : remarks)
     {
+        if (remark.getFName() != sfRemark)
+        {
+            JLOG(j.warn()) << "Remarks: contained non-sfRemark field.";
+            return temMALFORMED;
+        }
+
+        // will be checked by template system, extra check for security
+        if (!remark.isFieldPresent(sfRemarkName))
+            return temMALFORMED;
+
         Blob const& name = remark.getFieldVL(sfRemarkName);
         if (already_seen.find(name) != already_seen.end())
         {
@@ -204,14 +213,14 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
     if (!sleO)
         return tecNO_TARGET;
 
-    std::optional<Account> issuer = getRemarksIssuer(sleO);
+    std::optional<AccountID> issuer = getRemarksIssuer(sleO);
    
     if (!issuer || *issuer != id)
         return tecNO_PERMISSION;
 
     // sanity check the remarks merge between txn and obj
     
-    auto const& remarksTxn = tx.getFieldArray(sfRemarks);
+    auto const& remarksTxn = ctx.tx.getFieldArray(sfRemarks);
     
     std::map<Blob, std::pair<Blob, bool>> keys;
     if (sleO->isFieldPresent(sfRemarks))
@@ -220,9 +229,10 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
         // map the remark name to its value and whether it's immutable
         for (auto const& remark : remarksObj)
-            keys.emplace_back(remark.getFieldVL(sfRemarkName),
-                    {remark.getFieldVL(sfRemarkValue),
-                    remark.isFieldPresent(sfFlags) && remark.getFieldU32(sfFlags) & tfImmutable});
+            keys.emplace(
+                std::make_pair(remark.getFieldVL(sfRemarkName),
+                    std::make_pair(remark.getFieldVL(sfRemarkValue),
+                        remark.isFieldPresent(sfFlags) && remark.getFieldU32(sfFlags) & tfImmutable)));
     }
 
     int64_t count = keys.size();
@@ -258,7 +268,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
         if (immutable)
         {
-            JLOG(j.warn())
+            JLOG(ctx.j.warn())
                 << "Remarks: attempt to mutate an immutable remark.";
             return tecIMMUTABLE;
         }
@@ -267,7 +277,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
         {
             if (--count < 0)
             {
-                JLOG(j.warn())
+                JLOG(ctx.j.warn())
                     << "Remarks: insane remarks accounting.";
                 return tecCLAIM;
             }
@@ -276,7 +286,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
     if (count > 32)
     {
-        JLOG(j.warn())
+        JLOG(ctx.j.warn())
             << "Remarks: an object may have at most 32 remarks.";
         return tecTOO_MANY_REMARKS;
     }
@@ -287,6 +297,8 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 TER
 SetRemarks::doApply()
 {
+    auto j = ctx_.journal;
+
     auto const sle = view().peek(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
@@ -296,9 +308,9 @@ SetRemarks::doApply()
     if (!sleO)
         return tecNO_TARGET;
 
-    std::optional<Account> issuer = getRemarksIssuer(sleO);
+    std::optional<AccountID> issuer = getRemarksIssuer(sleO);
    
-    if (!issuer || *issuer != id)
+    if (!issuer || *issuer != account_)
         return tecNO_PERMISSION;
 
     auto const& remarksTxn = ctx_.tx.getFieldArray(sfRemarks);
@@ -338,7 +350,7 @@ SetRemarks::doApply()
 
         if (remarksMap.find(name) == remarksMap.end())
         {
-            remarksMap[name] = {name, {*val, setImmutable}};
+            remarksMap[name] = std::make_pair(*val, setImmutable);
             continue;
         }
 
@@ -364,22 +376,30 @@ SetRemarks::doApply()
         if (remarksMap[k].second & tfImmutable)
             remark.setFieldU32(sfFlags, lsfImmutable);
 
-        newRemarks.push_back(std::map(remark));
+        newRemarks.push_back(std::move(remark));
     }
 
     if (newRemarks.size() > 32)
         return tecINTERNAL;
 
     if (newRemarks.empty() && sleO->isFieldPresent(sfRemarks))
-        sleO.makeFieldAbsent(sfRemarks);
+        sleO->makeFieldAbsent(sfRemarks);
     else
-        sleO.setFieldArray(sfRemarks, std::move(newRemarks));
+        sleO->setFieldArray(sfRemarks, std::move(newRemarks));
 
-    view.update(sleO);
+    view().update(sleO);
 
     return tesSUCCESS;
 }
 
-// RH TODO: transaction fee needs to charge for remarks, in particular because they are not ownercounted.
+XRPAmount
+calculateBaseFee(ReadView const& view, STTx const& tx)
+{
+    // RH TODO: transaction fee needs to charge for remarks, in particular because they are not ownercounted.
+    auto fee = Transactor::calculateBaseFee(view, tx);
+    return fee;
+}
+
+
 
 }  // namespace ripple

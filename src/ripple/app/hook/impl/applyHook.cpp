@@ -17,6 +17,10 @@
 #include <utility>
 #include <vector>
 #include <wasmedge/wasmedge.h>
+#include <ripple/protocol/STAccount.h>
+#include <ripple/app/tx/impl/details/NFTokenUtils.h>
+#include <ripple/protocol/TxFlags.h>
+
 
 using namespace ripple;
 

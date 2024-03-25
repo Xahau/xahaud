@@ -168,7 +168,7 @@ invoke_preflight(PreflightContext const& ctx)
         case ttREMIT:
             return invoke_preflight_helper<Remit>(ctx);
         case ttREMARKS_SET:
-            return invoke_preflight_helper<Remarks>(ctx);
+            return invoke_preflight_helper<SetRemarks>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -291,7 +291,7 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttREMIT:
             return invoke_preclaim<Remit>(ctx);
         case ttREMARKS_SET:
-            return invoke_preclaim<Remarks>(ctx);
+            return invoke_preclaim<SetRemarks>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -376,7 +376,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttREMIT:
             return Remit::calculateBaseFee(view, tx);
         case ttREMARKS_SET:
-            return Remarks::calculateBaseFee(view, tx);
+            return SetRemarks::calculateBaseFee(view, tx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -561,7 +561,7 @@ invoke_apply(ApplyContext& ctx)
             return p();
         }
         case ttREMARKS_SET: {
-            Remarks p(ctx);
+            SetRemarks p(ctx);
             return p();
         }
         case ttURITOKEN_MINT:
