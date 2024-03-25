@@ -156,7 +156,8 @@ NegativeUNLVote::addReportingTx(
             JLOG(j_.debug())
                 << "R-UNL: ledger seq=" << seq
                 << ", add a ttUNL_REPORT (active_val) Tx with txID: " << txID
-                << ", size=" << s.size();
+                << ", size=" << s.size() << ", "
+                << repUnlTx.getJson(JsonOptions::none);
         }
     }
 }
@@ -210,7 +211,8 @@ NegativeUNLVote::addImportVLTx(
             JLOG(j_.debug())
                 << "R-UNL: ledger seq=" << seq
                 << ", add a ttUNL_REPORT (import_vl) Tx with txID: " << txID
-                << ", size=" << s.size();
+                << ", size=" << s.size() << ", "
+                << repUnlTx.getJson(JsonOptions::none);
         }
     }
 }
