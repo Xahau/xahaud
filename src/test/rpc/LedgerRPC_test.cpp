@@ -1756,7 +1756,7 @@ public:
     {
         testcase("ledger_entry Request ImportVLSeq");
         using namespace test::jtx;
-        
+
         std::vector<std::string> const keys = {
             "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
             "1"};
