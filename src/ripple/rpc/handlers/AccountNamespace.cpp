@@ -42,7 +42,6 @@ namespace ripple {
       namespace_id: <namespace hex>
       ledger_hash: <string> // optional
       ledger_index: <string | unsigned integer> // optional
-      type: <string> // optional, defaults to all account objects types
       limit: <integer> // optional
       marker: <opaque> // optional, resume previous query
     }

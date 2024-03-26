@@ -1708,9 +1708,129 @@ public:
             BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == lsfBurnable);
         }
         {
+            // Request the uritoken using its account and uri.
+            Json::Value jvParams;
+            jvParams[jss::uri_token] = Json::objectValue;
+            jvParams[jss::uri_token][jss::account] = alice.human();
+            jvParams[jss::uri_token][jss::uri] = uri;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfURI.jsonName] == strHex(uri));
+            BEAST_EXPECT(jrr[jss::node][sfFlags.jsonName] == lsfBurnable);
+        }
+        {
+            // Malformed uritoken object.  Missing account member.
+            Json::Value jvParams;
+            jvParams[jss::uri_token] = Json::objectValue;
+            jvParams[jss::uri_token][jss::uri] = uri;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed uritoken object.  Missing seq member.
+            Json::Value jvParams;
+            jvParams[jss::uri_token] = Json::objectValue;
+            jvParams[jss::uri_token][jss::account] = env.master.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
             // Request an index that is not a uritoken.
             Json::Value jvParams;
             jvParams[jss::uri_token] = ledgerHash;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
+        }
+    }
+
+    void
+    testLedgerEntryImportVLSeq()
+    {
+        testcase("ledger_entry Request ImportVLSeq");
+        using namespace test::jtx;
+
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
+            "1"};
+        Env env{*this, network::makeNetworkVLConfig(21337, keys)};
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const master = Account("masterpassphrase");
+        env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        env.close();
+        env(import::import(
+                alice, import::loadXpop(test::ImportTCAccountSet::w_seed)),
+            fee(10 * 10),
+            ter(tesSUCCESS));
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        auto const pk = PublicKey(makeSlice(*strUnHex(keys[0u])));
+        uint256 const importvlIndex{keylet::import_vlseq(pk).key};
+        {
+            // Request the import vl using its index.
+            Json::Value jvParams;
+            jvParams[jss::import_vlseq] = to_string(importvlIndex);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfPublicKey.jsonName] == keys[0u]);
+        }
+        {
+            // Request the import vl using its public key.
+            Json::Value jvParams;
+            jvParams[jss::import_vlseq] = Json::objectValue;
+            jvParams[jss::import_vlseq][jss::public_key] = keys[0u];
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfPublicKey.jsonName] == keys[0u]);
+        }
+        {
+            // Malformed import vl object.  Missing public key.
+            Json::Value jvParams;
+            jvParams[jss::import_vlseq] = Json::objectValue;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed import vl object.  Bad public key.
+            Json::Value jvParams;
+            jvParams[jss::import_vlseq] = Json::objectValue;
+            jvParams[jss::import_vlseq][jss::public_key] = 1;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed import vl object.  Bad public key.
+            Json::Value jvParams;
+            jvParams[jss::import_vlseq] = Json::objectValue;
+            jvParams[jss::import_vlseq][jss::public_key] = "DEADBEEF";
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Request an index that is not a uritoken.
+            Json::Value jvParams;
+            jvParams[jss::import_vlseq] = ledgerHash;
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
@@ -2242,6 +2362,7 @@ public:
         testLedgerEntryRippleState();
         testLedgerEntryTicket();
         testLedgerEntryURIToken();
+        testLedgerEntryImportVLSeq();
         testLedgerEntryUnknownOption();
         testLookupLedger();
         testNoQueue();

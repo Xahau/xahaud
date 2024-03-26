@@ -34,19 +34,19 @@ namespace test {
 static char const* bobs_account_objects[] = {
     R"json({
   "Account" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
-  "BookDirectory" : "50AD0A9E54D2B381288D535EB724E4275FFBF41580D28A925D038D7EA4C68000",
+  "BookDirectory" : "B025997A323F5C3E03DDF1334471F5984ABDE31C59D463525D038D7EA4C68000",
   "BookNode" : "0",
   "Flags" : 65536,
   "LedgerEntryType" : "Offer",
   "OwnerNode" : "0",
-  "Sequence" : 6,
+  "Sequence" : 4,
   "TakerGets" : {
     "currency" : "USD",
-    "issuer" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
+    "issuer" : "r32rQHyesiTtdWFU7UJVtff4nCR5SHCbJW",
     "value" : "1"
   },
   "TakerPays" : "100000000",
-  "index" : "29665262716C19830E26AEEC0916E476FC7D8EF195FF3B4F06829E64F82A3B3E"
+  "index" : "A984D036A0E562433A8377CA57D1A1E056E58C0D04818F8DFD3A1AA3F217DD82"
 })json",
     R"json({
     "Balance" : {
@@ -94,19 +94,19 @@ static char const* bobs_account_objects[] = {
 })json",
     R"json({
     "Account" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
-    "BookDirectory" : "B025997A323F5C3E03DDF1334471F5984ABDE31C59D463525D038D7EA4C68000",
+    "BookDirectory" : "50AD0A9E54D2B381288D535EB724E4275FFBF41580D28A925D038D7EA4C68000",
     "BookNode" : "0",
     "Flags" : 65536,
     "LedgerEntryType" : "Offer",
     "OwnerNode" : "0",
-    "Sequence" : 7,
+    "Sequence" : 3,
     "TakerGets" : {
         "currency" : "USD",
-        "issuer" : "r32rQHyesiTtdWFU7UJVtff4nCR5SHCbJW",
+        "issuer" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
         "value" : "1"
     },
     "TakerPays" : "100000000",
-    "index" : "F03ABE26CB8C5F4AFB31A86590BD25C64C5756FCE5CE9704C27AFE291A4A29A1"
+    "index" : "E11029302EE744401427793A4F37BCB18F698D55C96851BEC5ABBD6242CF03D7"
 })json"};
 
 class AccountObjects_test : public beast::unit_test::suite
@@ -328,9 +328,7 @@ public:
 
                 aobj.removeMember("PreviousTxnID");
                 aobj.removeMember("PreviousTxnLgrSeq");
-
                 BEAST_EXPECT(aobj == bobj[i]);
-
                 params[jss::marker] = resp[jss::result][jss::marker];
             }
         }
@@ -734,7 +732,7 @@ public:
             auto const& ticket = resp[jss::result][jss::account_objects][0u];
             BEAST_EXPECT(ticket[sfAccount.jsonName] == gw.human());
             BEAST_EXPECT(ticket[sfLedgerEntryType.jsonName] == jss::Ticket);
-            BEAST_EXPECT(ticket[sfTicketSequence.jsonName].asUInt() == 13);
+            BEAST_EXPECT(ticket[sfTicketSequence.jsonName].asUInt() == 10);
         }
         {
             // Create a uri token.
@@ -856,7 +854,7 @@ public:
     run() override
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{supported_amendments()};
         testErrors(all);
         testUnsteppedThenStepped(all);
         testUnsteppedThenSteppedWithNFTs(all);

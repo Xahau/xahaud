@@ -108,6 +108,7 @@ constexpr static ErrorInfo unorderedErrorInfos[]{
     {rpcSTREAM_MALFORMED,       "malformedStream",      "Stream malformed.", 400},
     {rpcTOO_BUSY,               "tooBusy",              "The server is too busy to help you now.", 503},
     {rpcTXN_NOT_FOUND,          "txnNotFound",          "Transaction not found.", 404},
+    {rpcNAMESPACE_NOT_FOUND,    "namespaceNotFound",    "Namespace not found.", 404},
     {rpcUNKNOWN_COMMAND,        "unknownCmd",           "Unknown method.", 405}};
 // clang-format on
 

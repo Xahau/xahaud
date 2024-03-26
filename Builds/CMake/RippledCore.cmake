@@ -983,6 +983,7 @@ if (tests)
     src/test/rpc/AccountLinesRPC_test.cpp
     src/test/rpc/AccountObjects_test.cpp
     src/test/rpc/AccountOffers_test.cpp
+    src/test/rpc/AccountNamespace_test.cpp
     src/test/rpc/AccountSet_test.cpp
     src/test/rpc/AccountTx_test.cpp
     src/test/rpc/AmendmentBlocked_test.cpp

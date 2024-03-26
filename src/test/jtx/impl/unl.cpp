@@ -90,6 +90,28 @@ createTx(bool disabling, LedgerIndex seq, PublicKey const& txKey)
     return STTx(ttUNL_MODIFY, fill);
 }
 
+STTx
+createUNLReportTx(
+    LedgerIndex seq,
+    PublicKey const& importKey,
+    PublicKey const& valKey)
+{
+    auto fill = [&](auto& obj) {
+        obj.setFieldU32(sfLedgerSequence, seq);
+        obj.set(([&]() {
+            auto inner = std::make_unique<STObject>(sfActiveValidator);
+            inner->setFieldVL(sfPublicKey, valKey);
+            return inner;
+        })());
+        obj.set(([&]() {
+            auto inner = std::make_unique<STObject>(sfImportVLKey);
+            inner->setFieldVL(sfPublicKey, importKey);
+            return inner;
+        })());
+    };
+    return STTx(ttUNL_REPORT, fill);
+}
+
 }  // namespace unl
 }  // namespace test
 }  // namespace ripple
