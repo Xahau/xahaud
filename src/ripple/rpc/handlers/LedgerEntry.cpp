@@ -235,17 +235,36 @@ doLedgerEntry(RPC::JsonContext& context)
     else if (context.params.isMember(jss::import_vlseq))
     {
         expectedType = ltIMPORT_VLSEQ;
-        if (!context.params[jss::public_key].isString())
+        if (!context.params[jss::import_vlseq].isObject())
         {
-            uNodeIndex = beast::zero;
+            if (!uNodeIndex.parseHex(
+                    context.params[jss::import_vlseq].asString()))
+            {
+                uNodeIndex = beast::zero;
+                jvResult[jss::error] = "malformedRequest";
+            }
+        }
+        else if (
+            !context.params[jss::import_vlseq].isMember(jss::public_key) ||
+            !context.params[jss::import_vlseq][jss::public_key].isString())
+        {
             jvResult[jss::error] = "malformedRequest";
         }
         else
         {
-            auto const pkHex =
-                strUnHex(context.params[jss::public_key].asString());
-            auto const pk = PublicKey(makeSlice(*pkHex));
-            uNodeIndex = keylet::import_vlseq(pk).key;
+            auto const pkHex = strUnHex(
+                context.params[jss::import_vlseq][jss::public_key].asString());
+            auto const pkSlice = makeSlice(*pkHex);
+            if (!publicKeyType(pkSlice))
+            {
+                uNodeIndex = beast::zero;
+                jvResult[jss::error] = "malformedRequest";
+            }
+            else
+            {
+                auto const pk = PublicKey(pkSlice);
+                uNodeIndex = keylet::import_vlseq(pk).key;
+            }
         }
     }
     else if (context.params.isMember(jss::offer))
