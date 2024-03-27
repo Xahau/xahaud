@@ -36,26 +36,14 @@ SetRemarks::makeTxConsequences(PreflightContext const& ctx)
 }
 
 NotTEC
-SetRemarks::preflight(PreflightContext const& ctx)
+SetRemarks::validateRemarks(STArray const& remarks, Journal& j)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    auto& tx = ctx.tx;
-    auto& j = ctx.j;
-
-    if (tx.isFieldPresent(sfFlags) && tx.getFieldU32(sfFlags) != 0)
-    {
-        JLOG(j.warn()) << "Remarks: sfFlags != 0 (there are no valid flags for ttREMARKS_SET.)";
-        return temMALFORMED;
-    }
-
     std::set<Blob> already_seen;
 
-    auto const& remarks = tx.getFieldArray(sfRemarks);
     if (remarks.empty() || remarks.size() > 32)
     {
-        JLOG(j.warn()) << "Remakrs: Cannot set more than 32 remarks (or fewer than 1) in a txn.";
+        JLOG(j.warn()) << "Remakrs: Cannot set more than 32 remarks (or fewer "
+                          "than 1) in a txn.";
         return temMALFORMED;
     }
 
@@ -79,13 +67,15 @@ SetRemarks::preflight(PreflightContext const& ctx)
         }
         if (name.size() == 0 || name.size() > 256)
         {
-            JLOG(j.warn()) << "Remarks: RemarkName cannot be empty or larger than 256 chars.";
+            JLOG(j.warn()) << "Remarks: RemarkName cannot be empty or larger "
+                              "than 256 chars.";
             return temMALFORMED;
         }
 
         already_seen.emplace(name);
 
-        uint32_t flags = remark.isFieldPresent(sfFlags) ? remark.getFieldU32(sfFlags) : 0;
+        uint32_t flags =
+            remark.isFieldPresent(sfFlags) ? remark.getFieldU32(sfFlags) : 0;
         if (flags != 0 && flags != tfImmutable)
         {
             JLOG(j.warn()) << "Remarks: Flags must be either tfImmutable or 0";
@@ -96,7 +86,8 @@ SetRemarks::preflight(PreflightContext const& ctx)
         {
             if (flags & tfImmutable)
             {
-                JLOG(j.warn()) << "Remarks: A remark deletion cannot be marked immutable.";
+                JLOG(j.warn())
+                    << "Remarks: A remark deletion cannot be marked immutable.";
                 return temMALFORMED;
             }
             continue;
@@ -105,17 +96,43 @@ SetRemarks::preflight(PreflightContext const& ctx)
         Blob const& val = remark.getFieldVL(sfRemarkValue);
         if (val.size() == 0 || val.size() > 256)
         {
-            JLOG(j.warn()) << "Remarks: RemarkValue cannot be empty or larger than 256 chars.";
+            JLOG(j.warn()) << "Remarks: RemarkValue cannot be empty or larger "
+                              "than 256 chars.";
             return temMALFORMED;
         }
     }
+
+    return tesSUCCESS;
+}
+
+NotTEC
+SetRemarks::preflight(PreflightContext const& ctx)
+{
+    if (!ctx.rules.enabled(featureRemarks))
+        return temDISABLED;
+
+    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
+        return ret;
+
+    auto& tx = ctx.tx;
+    auto& j = ctx.j;
+
+    if (tx.isFieldPresent(sfFlags) && tx.getFieldU32(sfFlags) != 0)
+    {
+        JLOG(j.warn()) << "Remarks: sfFlags != 0 (there are no valid flags for "
+                          "ttREMARKS_SET.)";
+        return temMALFORMED;
+    }
+
+    auto const& remarks = tx.getFieldArray(sfRemarks);
+    if (NotTEC result = validateRemarks(remarks, ctx.j); !isTesSuccess(result))
+        return result;
 
     return preflight2(ctx);
 }
 
 template <typename T>
-inline
-std::optional<AccountID>
+inline std::optional<AccountID>
 getRemarksIssuer(T const& sleO)
 {
     std::optional<AccountID> issuer;
@@ -123,48 +140,43 @@ getRemarksIssuer(T const& sleO)
     // check if it's an allowable object type
     uint16_t lt = sleO->getFieldU16(sfLedgerEntryType);
 
-    switch(lt)
-    { 
+    switch (lt)
+    {
         case ltACCOUNT_ROOT:
         case ltOFFER:
         case ltESCROW:
         case ltTICKET:
         case ltPAYCHAN:
         case ltCHECK:
-        case ltDEPOSIT_PREAUTH:
-        {
+        case ltDEPOSIT_PREAUTH: {
             issuer = sleO->getAccountID(sfAccount);
             break;
         }
-        
-        case ltNFTOKEN_OFFER:
-        {
+
+        case ltNFTOKEN_OFFER: {
             issuer = sleO->getAccountID(sfOwner);
             break;
         }
 
-        case ltURI_TOKEN:
-        {
+        case ltURI_TOKEN: {
             issuer = sleO->getAccountID(sfIssuer);
             break;
         }
 
-
-        case ltRIPPLE_STATE:
-        {
+        case ltRIPPLE_STATE: {
             // remarks can only be attached to a trustline by the issuer
             AccountID lowAcc = sleO->getFieldAmount(sfLowLimit).getIssuer();
             AccountID highAcc = sleO->getFieldAmount(sfHighLimit).getIssuer();
 
             STAmount bal = sleO->getFieldAmount(sfBalance);
-            
+
             if (bal < beast::zero)
             {
                 // low account is issuer
                 issuer = lowAcc;
                 break;
             }
-            
+
             if (bal > beast::zero)
             {
                 // high acccount is issuer
@@ -172,7 +184,8 @@ getRemarksIssuer(T const& sleO)
                 break;
             }
 
-            // if the balance is zero we'll look for the side in default state and assume this is the issuer
+            // if the balance is zero we'll look for the side in default state
+            // and assume this is the issuer
             uint32_t flags = sleO->getFieldU32(sfFlags);
             bool const highReserve = (flags & lsfHighReserve);
             bool const lowReserve = (flags & lsfLowReserve);
@@ -184,8 +197,8 @@ getRemarksIssuer(T const& sleO)
             }
             else if (highReserve && lowReserve)
             {
-                // in this edge case we don't know who is the issuer, because there isn't a clear issuer.
-                // do nothing, fallthru.
+                // in this edge case we don't know who is the issuer, because
+                // there isn't a clear issuer. do nothing, fallthru.
             }
             else
             {
@@ -198,10 +211,12 @@ getRemarksIssuer(T const& sleO)
     return issuer;
 }
 
-
 TER
 SetRemarks::preclaim(PreclaimContext const& ctx)
 {
+    if (!ctx.view.rules().enabled(featureRemarks))
+        return temDISABLED;
+
     auto const id = ctx.tx[sfAccount];
 
     auto const sle = ctx.view.read(keylet::account(id));
@@ -214,14 +229,13 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
         return tecNO_TARGET;
 
     std::optional<AccountID> issuer = getRemarksIssuer(sleO);
-   
+
     if (!issuer || *issuer != id)
         return tecNO_PERMISSION;
 
     // sanity check the remarks merge between txn and obj
-    
     auto const& remarksTxn = ctx.tx.getFieldArray(sfRemarks);
-    
+
     std::map<Blob, std::pair<Blob, bool>> keys;
     if (sleO->isFieldPresent(sfRemarks))
     {
@@ -229,21 +243,23 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
         // map the remark name to its value and whether it's immutable
         for (auto const& remark : remarksObj)
-            keys.emplace(
-                std::make_pair(remark.getFieldVL(sfRemarkName),
-                    std::make_pair(remark.getFieldVL(sfRemarkValue),
-                        remark.isFieldPresent(sfFlags) && remark.getFieldU32(sfFlags) & tfImmutable)));
+            keys.emplace(std::make_pair(
+                remark.getFieldVL(sfRemarkName),
+                std::make_pair(
+                    remark.getFieldVL(sfRemarkValue),
+                    remark.isFieldPresent(sfFlags) &&
+                        remark.getFieldU32(sfFlags) & tfImmutable)));
     }
 
     int64_t count = keys.size();
 
-    for (auto const& remark: remarksTxn)
+    for (auto const& remark : remarksTxn)
     {
         std::optional<Blob> valTxn;
         if (remark.isFieldPresent(sfRemarkValue))
             valTxn = remark.getFieldVL(sfRemarkValue);
         bool const isDeletion = !valTxn;
-        
+
         Blob name = remark.getFieldVL(sfRemarkName);
         if (keys.find(name) == keys.end())
         {
@@ -259,10 +275,10 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
             continue;
         }
 
-
         auto const& [valObj, immutable] = keys[name];
 
-        // even if it's immutable, if we don't mutate it that's a noop so just pass it
+        // even if it's immutable, if we don't mutate it that's a noop so just
+        // pass it
         if (valTxn && *valTxn == valObj)
             continue;
 
@@ -277,8 +293,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
         {
             if (--count < 0)
             {
-                JLOG(ctx.j.warn())
-                    << "Remarks: insane remarks accounting.";
+                JLOG(ctx.j.warn()) << "Remarks: insane remarks accounting.";
                 return tecCLAIM;
             }
         }
@@ -286,8 +301,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
     if (count > 32)
     {
-        JLOG(ctx.j.warn())
-            << "Remarks: an object may have at most 32 remarks.";
+        JLOG(ctx.j.warn()) << "Remarks: an object may have at most 32 remarks.";
         return tecTOO_MANY_REMARKS;
     }
 
@@ -310,7 +324,7 @@ SetRemarks::doApply()
         return tecNO_TARGET;
 
     std::optional<AccountID> issuer = getRemarksIssuer(sleO);
-   
+
     if (!issuer || *issuer != account_)
         return tecNO_PERMISSION;
 
@@ -321,17 +335,19 @@ SetRemarks::doApply()
     if (sleO->isFieldPresent(sfRemarks))
     {
         auto const& remarksObj = sleO->getFieldArray(sfRemarks);
-        for (auto const& remark: remarksObj)
+        for (auto const& remark : remarksObj)
         {
-            uint32_t flags = remark.isFieldPresent(sfFlags) ? remark.getFieldU32(sfFlags) : 0;
+            uint32_t flags = remark.isFieldPresent(sfFlags)
+                ? remark.getFieldU32(sfFlags)
+                : 0;
             bool const immutable = (flags & tfImmutable) != 0;
-            remarksMap[remark.getFieldVL(sfRemarkName)] =
-            {remark.getFieldVL(sfRemarkValue), 
+            remarksMap[remark.getFieldVL(sfRemarkName)] = {
+                remark.getFieldVL(sfRemarkValue),
                 remark.isFieldPresent(sfFlags) && immutable};
         }
     }
 
-    for (auto const& remark: remarksTxn)
+    for (auto const& remark : remarksTxn)
     {
         std::optional<Blob> val;
         if (remark.isFieldPresent(sfRemarkValue))
@@ -339,7 +355,8 @@ SetRemarks::doApply()
         Blob name = remark.getFieldVL(sfRemarkName);
 
         bool const isDeletion = !val;
-        uint32_t flags = remark.isFieldPresent(sfFlags) ? remark.getFieldU32(sfFlags) : 0;
+        uint32_t flags =
+            remark.isFieldPresent(sfFlags) ? remark.getFieldU32(sfFlags) : 0;
         bool const setImmutable = (flags & tfImmutable) != 0;
 
         if (isDeletion)
@@ -359,15 +376,15 @@ SetRemarks::doApply()
         if (!remarksMap[name].second)
             remarksMap[name].second = setImmutable;
     }
-    
-    //canonically order
+
+    // canonically order
     std::vector<Blob> keys;
     for (auto const& [k, _] : remarksMap)
         keys.push_back(k);
 
     std::sort(keys.begin(), keys.end());
-    
-    STArray newRemarks {sfRemarks, static_cast<int>(keys.size())};
+
+    STArray newRemarks{sfRemarks, static_cast<int>(keys.size())};
     for (auto const& k : keys)
     {
         STObject remark{sfRemark};
@@ -396,11 +413,10 @@ SetRemarks::doApply()
 XRPAmount
 SetRemarks::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    // RH TODO: transaction fee needs to charge for remarks, in particular because they are not ownercounted.
+    // RH TODO: transaction fee needs to charge for remarks, in particular
+    // because they are not ownercounted.
     auto fee = Transactor::calculateBaseFee(view, tx);
     return fee;
 }
-
-
 
 }  // namespace ripple

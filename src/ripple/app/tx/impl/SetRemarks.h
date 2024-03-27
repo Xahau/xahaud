@@ -50,6 +50,9 @@ public:
 
     TER
     doApply() override;
+
+    static NotTEC
+    validateRemarks(STArray const& remarks, Journal& j)
 };
 
 }  // namespace ripple
