@@ -39,9 +39,11 @@
 #include <ripple/app/tx/impl/NFTokenMint.h>
 #include <ripple/app/tx/impl/PayChan.h>
 #include <ripple/app/tx/impl/Payment.h>
+#include <ripple/app/tx/impl/Remit.h>
 #include <ripple/app/tx/impl/SetAccount.h>
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/SetRegularKey.h>
+#include <ripple/app/tx/impl/SetRemarks.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/SetTrust.h>
 #include <ripple/app/tx/impl/URIToken.h>
@@ -166,6 +168,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<Invoke>(ctx);
         case ttREMIT:
             return invoke_preflight_helper<Remit>(ctx);
+        case ttREMARKS_SET:
+            return invoke_preflight_helper<SetRemarks>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -287,6 +291,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<Invoke>(ctx);
         case ttREMIT:
             return invoke_preclaim<Remit>(ctx);
+        case ttREMARKS_SET:
+            return invoke_preclaim<SetRemarks>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -370,6 +376,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return Invoke::calculateBaseFee(view, tx);
         case ttREMIT:
             return Remit::calculateBaseFee(view, tx);
+        case ttREMARKS_SET:
+            return SetRemarks::calculateBaseFee(view, tx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -551,6 +559,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttREMIT: {
             Remit p(ctx);
+            return p();
+        }
+        case ttREMARKS_SET: {
+            SetRemarks p(ctx);
             return p();
         }
         case ttURITOKEN_MINT:

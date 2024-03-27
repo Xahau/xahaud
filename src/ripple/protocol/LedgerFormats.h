@@ -315,6 +315,9 @@ enum LedgerSpecificFlags {
 
     // ltURI_TOKEN
     lsfBurnable = 0x00000001,  // True, issuer can burn the token
+
+    // remarks
+    lsfImmutable = 1,
 };
 
 //------------------------------------------------------------------------------

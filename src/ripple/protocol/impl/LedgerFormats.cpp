@@ -31,6 +31,7 @@ LedgerFormats::LedgerFormats()
         {sfLedgerIndex,              soeOPTIONAL},
         {sfLedgerEntryType,          soeREQUIRED},
         {sfFlags,                    soeREQUIRED},
+        {sfRemarks,                  soeOPTIONAL},
     };
 
     add(jss::AccountRoot,
