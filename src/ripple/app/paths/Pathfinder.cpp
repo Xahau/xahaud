@@ -372,7 +372,7 @@ Pathfinder::getPathLiquidity(
             app_.logs(),
             &rcInput);
         // If we can't get even the minimum liquidity requested, we're done.
-        if (rc.result() != tesSUCCESS)
+        if (!isTesSuccess(rc.result()))
             return rc.result();
 
         qualityOut = getRate(rc.actualAmountOut, rc.actualAmountIn);
@@ -393,7 +393,7 @@ Pathfinder::getPathLiquidity(
                 &rcInput);
 
             // If we found further liquidity, add it into the result.
-            if (rc.result() == tesSUCCESS)
+            if (isTesSuccess(rc.result()))
                 amountOut += rc.actualAmountOut;
         }
 
@@ -431,7 +431,7 @@ Pathfinder::computePathRanks(
             app_.logs(),
             &rcInput);
 
-        if (rc.result() == tesSUCCESS)
+        if (isTesSuccess(rc.result()))
         {
             JLOG(j_.debug())
                 << "Default path contributes: " << rc.actualAmountIn;
@@ -520,7 +520,7 @@ Pathfinder::rankPaths(
             uint64_t uQuality;
             auto const resultCode = getPathLiquidity(
                 currentPath, saMinDstAmount, liquidity, uQuality);
-            if (resultCode != tesSUCCESS)
+            if (!isTesSuccess(resultCode))
             {
                 JLOG(j_.debug())
                     << "findPaths: dropping : " << transToken(resultCode)

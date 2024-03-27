@@ -691,11 +691,11 @@ Taker::fill(BasicTaker::Flow const& flow, Offer& offer)
     {
         assert(!isXRP(flow.order.in));
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result =
                 redeemIOU(account(), flow.issuers.in, flow.issuers.in.issue());
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result =
                 issueIOU(offer.owner(), flow.order.in, flow.order.in.issue());
     }
@@ -703,7 +703,7 @@ Taker::fill(BasicTaker::Flow const& flow, Offer& offer)
     {
         assert(isXRP(flow.order.in));
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result = transferXRP(account(), offer.owner(), flow.order.in);
     }
 
@@ -712,11 +712,11 @@ Taker::fill(BasicTaker::Flow const& flow, Offer& offer)
     {
         assert(!isXRP(flow.order.out));
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result = redeemIOU(
                 offer.owner(), flow.issuers.out, flow.issuers.out.issue());
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result =
                 issueIOU(account(), flow.order.out, flow.order.out.issue());
     }
@@ -724,11 +724,11 @@ Taker::fill(BasicTaker::Flow const& flow, Offer& offer)
     {
         assert(isXRP(flow.order.out));
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result = transferXRP(offer.owner(), account(), flow.order.out);
     }
 
-    if (result == tesSUCCESS)
+    if (isTesSuccess(result))
         direct_crossings_++;
 
     return result;
@@ -751,32 +751,32 @@ Taker::fill(
     // Taker to leg1: IOU
     if (leg1.owner() != account())
     {
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result = redeemIOU(
                 account(), flow1.issuers.in, flow1.issuers.in.issue());
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result =
                 issueIOU(leg1.owner(), flow1.order.in, flow1.order.in.issue());
     }
 
     // leg1 to leg2: bridging over XRP
-    if (result == tesSUCCESS)
+    if (isTesSuccess(result))
         result = transferXRP(leg1.owner(), leg2.owner(), flow1.order.out);
 
     // leg2 to Taker: IOU
     if (leg2.owner() != account())
     {
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result = redeemIOU(
                 leg2.owner(), flow2.issuers.out, flow2.issuers.out.issue());
 
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
             result =
                 issueIOU(account(), flow2.order.out, flow2.order.out.issue());
     }
 
-    if (result == tesSUCCESS)
+    if (isTesSuccess(result))
     {
         bridge_crossings_++;
         xrp_flow_ += flow1.order.out;

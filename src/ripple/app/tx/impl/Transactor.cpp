@@ -794,11 +794,11 @@ Transactor::apply()
         mSourceBalance = mPriorBalance;
 
         TER result = consumeSeqProxy(sle);
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         result = payFee();
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         if (sle->isFieldPresent(sfAccountTxnID))
@@ -1614,7 +1614,7 @@ Transactor::doTSH(
         TER tshResult = executeHookChain(
             tshHook, stateMap, results, tshAccountID, strong, provisionalMeta);
 
-        if (canRollback && (tshResult != tesSUCCESS))
+        if (canRollback && (!isTesSuccess(tshResult)))
             return tshResult;
     }
 
@@ -1765,7 +1765,7 @@ Transactor::operator()()
     // Pre-application (Strong TSH) Hooks are executed here
     // These TSH have the right to rollback.
     // Weak TSH and callback are executed post-application.
-    if (hooksEnabled && result == tesSUCCESS)
+    if (hooksEnabled && isTesSuccess(result))
     {
         // this state map will be shared across all hooks in this execution
         // chain and any associated chains which are executed during this
@@ -1816,7 +1816,7 @@ Transactor::operator()()
     }
 
     // fall through allows normal apply
-    if (result == tesSUCCESS)
+    if (isTesSuccess(result))
         result = apply();
 
     // No transaction can return temUNKNOWN from apply,

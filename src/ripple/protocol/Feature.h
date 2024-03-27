@@ -74,7 +74,8 @@ namespace detail {
 // Feature.cpp. Because it's only used to reserve storage, and determine how
 // large to make the FeatureBitset, it MAY be larger. It MUST NOT be less than
 // the actual number of amendments. A LogicError on startup will verify this.
-static constexpr std::size_t numFeatures = 69;
+
+static constexpr std::size_t numFeatures = 71;
 
 /** Amendments that this server supports and the default voting behavior.
    Whether they are enabled depends on the Rules defined in the validated
@@ -357,6 +358,8 @@ extern uint256 const fixXahauV1;
 extern uint256 const fixXahauV2;
 extern uint256 const featureRemit;
 extern uint256 const featureTouch;
+extern uint256 const featureZeroB2M;
+extern uint256 const fixNSDelete;
 
 }  // namespace ripple
 

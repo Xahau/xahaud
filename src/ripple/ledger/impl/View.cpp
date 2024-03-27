@@ -1170,7 +1170,8 @@ rippleSend(
         // Direct send: redeeming IOUs and/or sending own IOUs.
         auto const ter =
             rippleCredit(view, uSenderID, uReceiverID, saAmount, false, j);
-        if (view.rules().enabled(featureDeletableAccounts) && ter != tesSUCCESS)
+        if (view.rules().enabled(featureDeletableAccounts) &&
+            !isTesSuccess(ter))
             return ter;
         saActual = saAmount;
         return tesSUCCESS;
@@ -1202,7 +1203,7 @@ rippleSend(
     TER terResult =
         rippleCredit(view, issuer, uReceiverID, destReceives, true, j);
 
-    if (tesSUCCESS == terResult)
+    if (isTesSuccess(terResult))
         terResult = rippleCredit(view, uSenderID, issuer, senderPays, true, j);
 
     return terResult;
@@ -1292,7 +1293,7 @@ accountSend(
         }
     }
 
-    if (tesSUCCESS == terResult && receiver)
+    if (isTesSuccess(terResult) && receiver)
     {
         // Increment XRP balance.
         auto const rcvBal = receiver->getFieldAmount(sfBalance);
