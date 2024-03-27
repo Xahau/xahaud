@@ -52,7 +52,7 @@ public:
     doApply() override;
 
     static NotTEC
-    validateRemarks(STArray const& remarks, Journal& j)
+    validateRemarks(STArray const& remarks, beast::Journal const& j);
 };
 
 }  // namespace ripple

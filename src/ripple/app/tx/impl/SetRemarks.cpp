@@ -36,7 +36,7 @@ SetRemarks::makeTxConsequences(PreflightContext const& ctx)
 }
 
 NotTEC
-SetRemarks::validateRemarks(STArray const& remarks, Journal& j)
+SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
 {
     std::set<Blob> already_seen;
 
@@ -125,7 +125,7 @@ SetRemarks::preflight(PreflightContext const& ctx)
     }
 
     auto const& remarks = tx.getFieldArray(sfRemarks);
-    if (NotTEC result = validateRemarks(remarks, ctx.j); !isTesSuccess(result))
+    if (NotTEC result = validateRemarks(remarks, j); !isTesSuccess(result))
         return result;
 
     return preflight2(ctx);
