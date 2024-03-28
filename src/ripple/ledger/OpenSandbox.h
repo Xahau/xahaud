@@ -17,52 +17,49 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/ledger/ApplyViewImpl.h>
-#include <cassert>
+#ifndef RIPPLE_LEDGER_OPENSANDBOX_H_INCLUDED
+#define RIPPLE_LEDGER_OPENSANDBOX_H_INCLUDED
+
+#include <ripple/ledger/RawView.h>
+#include <ripple/ledger/OpenView.h>
 
 namespace ripple {
 
-ApplyViewImpl::ApplyViewImpl(ReadView const* base, ApplyFlags flags)
-    : ApplyViewBase(base, flags)
-{
-}
+/** Discardable, editable view to a ledger.
 
-void
-ApplyViewImpl::apply(OpenView& to, STTx const& tx, TER ter, beast::Journal j)
-{
-    std::cout << "ApplyViewImpl::apply" << "\n";
-    items_.apply(to, tx, ter, deliver_, batchExecution_, hookExecution_, hookEmission_, j);
-}
+    The sandbox inherits the flags of the base.
 
-TxMeta
-ApplyViewImpl::generateProvisionalMeta(
-    OpenView const& to,
-    STTx const& tx,
-    beast::Journal j)
+    @note Presented as ApplyView to clients.
+*/
+class OpenSandbox : public detail::OpenView
 {
-    auto [meta, _] = items_.generateTxMeta(
-        to, tx, deliver_, batchExecution_, hookExecution_, hookEmission_, j);
+public:
+    OpenSandbox() = delete;
+    OpenSandbox(OpenSandbox const&) = delete;
+    OpenSandbox&
+    operator=(OpenSandbox&&) = delete;
+    OpenSandbox&
+    operator=(OpenSandbox const&) = delete;
 
-    return meta;
-}
+    OpenSandbox(OpenSandbox&&) = default;
 
-std::size_t
-ApplyViewImpl::size()
-{
-    return items_.size();
-}
+    OpenSandbox(ReadView const* base) : OpenView(ReadView const* base, std::shared_ptr<void const> hold = nullptr);
+    {
+    }
 
-void
-ApplyViewImpl::visit(
-    OpenView& to,
-    std::function<void(
-        uint256 const& key,
-        bool isDelete,
-        std::shared_ptr<SLE const> const& before,
-        std::shared_ptr<SLE const> const& after)> const& func)
-{
-    items_.visit(to, func);
-}
+    OpenSandbox(OpenView const* open) : OpenSandbox(open.base_, nullptr)
+    {
+    }
+
+    void
+    apply(RawView& to)
+    {
+        items_.apply(to);
+        for (auto const& item : txs_)
+            to.rawTxInsert(item.first, item.second.txn, item.second.meta);
+    }
+};
 
 }  // namespace ripple
+
+#endif

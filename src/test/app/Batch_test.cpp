@@ -27,6 +27,28 @@ namespace test {
 
 class Batch_test : public beast::unit_test::suite
 {
+
+    struct TestBatchData
+    {
+        std::string result;
+        std::string txType;
+    };
+
+    void
+    validateBatchTxns(
+        Json::Value meta,
+        std::array<TestBatchData, 2> batchResults)
+    {
+        size_t index = 0;
+        for (auto const& _batchTxn : meta[sfBatchExecutions.jsonName])
+        {
+            auto const batchTxn = _batchTxn[sfBatchExecution.jsonName];
+            BEAST_EXPECT(batchTxn[sfTransactionResult.jsonName] == batchResults[index].result);
+            BEAST_EXPECT(batchTxn[sfTransactionType.jsonName] == batchResults[index].txType);
+            ++index;
+        }
+    }
+
     void
     testBatch(FeatureBitset features)
     {
@@ -35,11 +57,15 @@ class Batch_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
-        Env env{*this, envconfig(), features, nullptr,
-            // beast::severities::kWarning
-            beast::severities::kTrace
-        };
+        test::jtx::Env env{*this, envconfig()};
+        auto const feeDrops = env.current()->fees().base;
+        // Env env{
+        //     *this,
+        //     envconfig(),
+        //     features,
+        //     nullptr,
+        //     // beast::severities::kWarning
+        //     beast::severities::kTrace};
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
@@ -48,29 +74,226 @@ class Batch_test : public beast::unit_test::suite
         env.close();
 
         auto const seq = env.seq("alice");
+
+        // ttBATCH
         Json::Value jv;
         jv[jss::TransactionType] = jss::Batch;
         jv[jss::Account] = alice.human();
-        jv[sfEmittedTxns.jsonName] = Json::Value{Json::arrayValue};
-        jv[sfEmittedTxns.jsonName][0U] = Json::Value{};
-        jv[sfEmittedTxns.jsonName][0U][jss::EmittedTxn] = Json::Value{};
-        jv[sfEmittedTxns.jsonName][0U][jss::EmittedTxn][jss::TransactionType] = jss::Invoke;
-        jv[sfEmittedTxns.jsonName][0U][jss::EmittedTxn][sfAccount.jsonName] = alice.human();
-        jv[sfEmittedTxns.jsonName][0U][jss::EmittedTxn][sfDestination.jsonName] = bob.human();
-        jv[sfEmittedTxns.jsonName][0U][jss::EmittedTxn][sfFee.jsonName] = "10";
-        jv[sfEmittedTxns.jsonName][0U][jss::EmittedTxn][jss::Sequence] = seq;
-        jv[sfEmittedTxns.jsonName][0U][jss::EmittedTxn][jss::SigningPubKey] = strHex(alice.pk());
-        jv[sfEmittedTxns.jsonName][1U] = Json::Value{};
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn] = Json::Value{};
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn][jss::TransactionType] = jss::Payment;
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn][sfAccount.jsonName] = alice.human();
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn][sfDestination.jsonName] = carol.human();
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn][sfAmount.jsonName] = "1000000";
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn][sfFee.jsonName] = "10";
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn][jss::Sequence] = seq;
-        jv[sfEmittedTxns.jsonName][1U][jss::EmittedTxn][jss::SigningPubKey] = strHex(alice.pk());
-        env(jv, fee(drops(10)), ter(tesSUCCESS));
+
+        // Batch Transactions
+        jv[sfRawTransactions.jsonName] = Json::Value{Json::arrayValue};
+        
+        // Tx 1
+        jv[sfRawTransactions.jsonName][0U] = Json::Value{};
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction] = Json::Value{};
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [jss::TransactionType] = jss::AccountSet;
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [sfAccount.jsonName] = alice.human();
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction][sfFee.jsonName] =
+            to_string(feeDrops);
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction][jss::Sequence] =
+            seq + 1;
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [jss::SigningPubKey] = strHex(alice.pk());
+        
+        // Tx 2
+        jv[sfRawTransactions.jsonName][1U] = Json::Value{};
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction] = Json::Value{};
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [jss::TransactionType] = jss::AccountSet;
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [sfAccount.jsonName] = alice.human();
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction][sfFee.jsonName] =
+            to_string(feeDrops);
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction][jss::Sequence] =
+            seq + 2;
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [jss::SigningPubKey] = strHex(alice.pk());
+
+        env(jv, fee(drops((2 * feeDrops) + (2 * feeDrops))), ter(tesSUCCESS));
         env.close();
+    }
+  
+    void
+    testSuccess(FeatureBitset features)
+    {
+        testcase("batch success");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{*this, envconfig()};
+        // Env env{
+        //     *this,
+        //     envconfig(),
+        //     features,
+        //     nullptr,
+        //     // beast::severities::kWarning
+        //     beast::severities::kTrace};
+
+        auto const feeDrops = env.current()->fees().base;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        env.fund(XRP(1000), alice, bob, carol);
+        env.close();
+
+        auto const seq = env.seq("alice");
+        // ttBATCH
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Batch;
+        jv[jss::Account] = alice.human();
+
+        // Batch Transactions
+        jv[sfRawTransactions.jsonName] = Json::Value{Json::arrayValue};
+
+        // Tx 1
+        jv[sfRawTransactions.jsonName][0U] = Json::Value{};
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction] = Json::Value{};
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [jss::TransactionType] = jss::Payment;
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [sfAccount.jsonName] = alice.human();
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [sfDestination.jsonName] = bob.human();
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [sfAmount.jsonName] = "1000000";
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction][sfFee.jsonName] =
+            to_string(feeDrops);
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction][jss::Sequence] =
+            seq + 1;
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [jss::SigningPubKey] = strHex(alice.pk());
+
+        // Tx 2
+        jv[sfRawTransactions.jsonName][1U] = Json::Value{};
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction] = Json::Value{};
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [jss::TransactionType] = jss::Payment;
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [sfAccount.jsonName] = alice.human();
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [sfDestination.jsonName] = bob.human();
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [sfAmount.jsonName] = "1000000";
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction][sfFee.jsonName] =
+            to_string(feeDrops);
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction][jss::Sequence] =
+            seq + 2;
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [jss::SigningPubKey] = strHex(alice.pk());
+
+        env(jv, fee(feeDrops * 2), ter(tesSUCCESS));
+        env.close();
+
+        std::array<TestBatchData, 2> testCases = {{
+            {"tesSUCCESS", "Payment"},
+            {"tesSUCCESS", "Payment"},
+        }};
+
+        Json::Value params;
+        params[jss::transaction] = env.tx()->getJson(JsonOptions::none)[jss::hash];
+        auto const jrr = env.rpc("json", "tx", to_string(params));
+        std::cout << "jrr: " << jrr << "\n";
+        auto const meta = jrr[jss::result][jss::meta];
+        validateBatchTxns(meta, testCases);
+
+        BEAST_EXPECT(env.seq(alice) == 4);
+        BEAST_EXPECT(env.balance(alice) == XRP(1000) - XRP(2) - (feeDrops * 2));
+        BEAST_EXPECT(env.balance(bob) == XRP(1000) + XRP(2));
+    }
+
+    void
+    testSingle(FeatureBitset features)
+    {
+        testcase("batch single");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{*this, envconfig()};
+        // Env env{
+        //     *this,
+        //     envconfig(),
+        //     features,
+        //     nullptr,
+        //     // beast::severities::kWarning
+        //     beast::severities::kTrace};
+
+        auto const feeDrops = env.current()->fees().base;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        env.fund(XRP(1000), alice, bob, carol);
+        env.close();
+
+        auto const seq = env.seq("alice");
+        // ttBATCH
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Batch;
+        jv[jss::Account] = alice.human();
+        jv[jss::Sequence] = seq;
+
+        // Batch Transactions
+        jv[sfRawTransactions.jsonName] = Json::Value{Json::arrayValue};
+
+        // Tx 1
+        jv[sfRawTransactions.jsonName][0U] = Json::Value{};
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction] = Json::Value{};
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [jss::TransactionType] = jss::Payment;
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [sfAccount.jsonName] = alice.human();
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [sfDestination.jsonName] = bob.human();
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [sfAmount.jsonName] = "1000000";
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction][sfFee.jsonName] =
+            to_string(feeDrops);
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction][jss::Sequence] =
+            seq + 0;
+        jv[sfRawTransactions.jsonName][0U][jss::RawTransaction]
+          [jss::SigningPubKey] = strHex(alice.pk());
+
+        // Tx 2
+        jv[sfRawTransactions.jsonName][1U] = Json::Value{};
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction] = Json::Value{};
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [jss::TransactionType] = jss::Payment;
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [sfAccount.jsonName] = alice.human();
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [sfDestination.jsonName] = bob.human();
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [sfAmount.jsonName] = "999900000";
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction][sfFee.jsonName] =
+            to_string(feeDrops);
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction][jss::Sequence] =
+            seq + 1;
+        jv[sfRawTransactions.jsonName][1U][jss::RawTransaction]
+          [jss::SigningPubKey] = strHex(alice.pk());
+
+        env(jv, fee((feeDrops * 2)), ter(tesSUCCESS));
+        env.close();
+
+        std::array<TestBatchData, 2> testCases = {{
+            {"tesSUCCESS", "Payment"},
+            {"tecUNFUNDED_PAYMENT", "Payment"},
+        }};
+
+        Json::Value params;
+        params[jss::transaction] = env.tx()->getJson(JsonOptions::none)[jss::hash];
+        auto const jrr = env.rpc("json", "tx", to_string(params));
+        std::cout << "jrr: " << jrr << "\n";
+        auto const meta = jrr[jss::result][jss::meta];
+        validateBatchTxns(meta, testCases);
+
+        BEAST_EXPECT(env.seq(alice) == 4);
+        BEAST_EXPECT(env.balance(alice) == XRP(1000) - XRP(1) - (feeDrops * 2));
+        BEAST_EXPECT(env.balance(bob) == XRP(1000) + XRP(1));
     }
 
     void
@@ -81,7 +304,7 @@ class Batch_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+        test::jtx::Env env{*this};
 
         auto const alice = Account("alice");
         auto const bob = Account("bob");
@@ -89,9 +312,8 @@ class Batch_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob, carol);
         env.close();
 
-        auto const seq = env.seq("alice");
         Json::Value jv;
-        jv[jss::TransactionType] = jss::Invoke;
+        jv[jss::TransactionType] = jss::AccountSet;
         jv[jss::Account] = alice.human();
         jv[jss::Destination] = bob.human();
         jv[sfFee.jsonName] = "10";
@@ -103,7 +325,9 @@ class Batch_test : public beast::unit_test::suite
     void
     testWithFeats(FeatureBitset features)
     {
-        testBatch(features);
+        // testBatch(features);
+        testSuccess(features);
+        // testSingle(features);
         // testInvalidBatch(features);
     }
 

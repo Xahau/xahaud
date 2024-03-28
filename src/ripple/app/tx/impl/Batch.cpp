@@ -216,10 +216,13 @@ invoke_preclaim(PreclaimContext const& ctx)
 
             if (id != beast::zero)
             {
-                TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
+                // TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
 
-                if (result != tesSUCCESS)
-                    return result;
+                // if (result != tesSUCCESS)
+                //     return result;
+
+                // Ignore Sequence Validation on ttBATCH txns
+                TER result = tesSUCCESS;
 
                 result = T::checkPriorTxAndLastLedger(ctx);
 
@@ -286,7 +289,7 @@ Batch::preflight(PreflightContext const& ctx)
 
     auto& tx = ctx.tx;
 
-    auto const& txns = tx.getFieldArray(sfEmittedTxns);
+    auto const& txns = tx.getFieldArray(sfRawTransactions);
     if (txns.empty())
     {
         JLOG(ctx.j.warn()) << "Batch: txns array empty.";
@@ -317,7 +320,7 @@ Batch::preflight(PreflightContext const& ctx)
             ctx.app,
             stx,
             ctx.rules,
-            ripple::ApplyFlags::tapPREFLIGHT_BATCH,
+            tapPREFLIGHT_BATCH,
             ctx.j);
         auto const response = invoke_preflight(pfctx);
         preflightResponses.push_back(response.first);
@@ -331,12 +334,19 @@ std::vector<TER> preclaimResponses;
 TER
 Batch::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureHooks))
+    if (!ctx.view.rules().enabled(featureBatch))
         return temDISABLED;
 
-    auto const& txns = ctx.tx.getFieldArray(sfEmittedTxns);
+    auto const& txns = ctx.tx.getFieldArray(sfRawTransactions);
     for (std::size_t i = 0; i < txns.size(); ++i)
     {
+        // Cannot continue on failed txns
+        if (preflightResponses[i] != tesSUCCESS)
+        {
+            JLOG(ctx.j.warn()) << "Batch: Failed Preflight Response: " << preflightResponses[i];
+            continue;
+        }
+
         auto const& txn = txns[i];
         if (!txn.isFieldPresent(sfTransactionType))
         {
@@ -355,13 +365,27 @@ Batch::preclaim(PreclaimContext const& ctx)
         preclaimResponses.push_back(response);
     }
 
+    // Handle Atomicity
+    // for (const auto& response : preclaimResponses)
+    // {
+    //     if (response != tesSUCCESS)
+    //     {
+    //         return response;
+    //     }
+    // }
+
     return tesSUCCESS;
 }
+
 
 TER
 Batch::doApply()
 {
-    auto const& txns = ctx_.tx.getFieldArray(sfEmittedTxns);
+    std::cout << "Batch::doApply()" << "\n";
+    Sandbox sb(&ctx_.view());
+    // Sandbox sb(ctx_.base_.base_, view().flags());
+
+    auto const& txns = ctx_.tx.getFieldArray(sfRawTransactions);
     for (std::size_t i = 0; i < txns.size(); ++i)
     {
         auto const& txn = txns[i];
@@ -377,15 +401,24 @@ Batch::doApply()
         auto const stx =
             STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
 
+        // OpenView(&ctx_.view())
         ApplyContext actx(
             ctx_.app,
             ctx_.base_,
             stx,
             preclaimResponses[i],
-            XRPAmount(1),
+            ctx_.view().fees().base,
             view().flags(),
             ctx_.journal);
         auto const result = invoke_apply(actx);
+        // if (result.first == tesSUCCESS)
+        // {
+        //     ctx_.base_.apply(tesSUCCESS);
+        // }
+        // else
+        // {
+        //     actx.discard();
+        // }
 
         ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
 
@@ -396,6 +429,15 @@ Batch::doApply()
         avi.addBatchExecutionMetaData(std::move(meta));
     }
 
+    auto const sle = ctx_.base_.read(keylet::account(account_));
+    if (!sle)
+        return tefINTERNAL;
+
+    std::cout << "ACCOUNT SEQ: " << sle->getFieldU32(sfSequence) << "\n";
+    std::cout << "ACCOUNT BALANCE: " << mSourceBalance << "\n";
+    std::cout << "ACCOUNT BALANCE=: " << sle->getFieldAmount(sfBalance) << "\n";
+    mSourceBalance = sle->getFieldAmount(sfBalance);
+
     return tesSUCCESS;
 }
 
@@ -403,18 +445,20 @@ XRPAmount
 Batch::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     XRPAmount extraFee{0};
-    // if (tx.isFieldPresent(sfEmittedTxns))
-    // {
-    //     XRPAmount txFees{0};
-    //     auto const& txns = tx.getFieldArray(sfEmittedTxns);
-    //     for (auto const& txn : txns)
-    //     {
-    //         txFees += txn.isFieldPresent(sfFee) ? txn.getFieldAmount(sfFee) :
-    //         XRPAmount{0};
-    //     }
-    //     extraFee += txFees;
-    // }
-    return Transactor::calculateBaseFee(view, tx) + extraFee;
+    if (tx.isFieldPresent(sfRawTransactions))
+    {
+        XRPAmount txFees{0};
+        auto const& txns = tx.getFieldArray(sfRawTransactions);
+        for (auto const& txn : txns)
+        {
+            auto const tt = txn.getFieldU16(sfTransactionType);
+            auto const txtype = safe_cast<TxType>(tt);
+            auto const stx = STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
+            txFees += Transactor::calculateBaseFee(view, tx);
+        }
+        extraFee += txFees;
+    }
+    return extraFee;
 }
 
 }  // namespace ripple

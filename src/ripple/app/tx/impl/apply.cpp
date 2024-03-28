@@ -73,7 +73,7 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
-    if (rules.enabled(featureBatch) && applyFlags == tapPREFLIGHT_BATCH)
+    if (rules.enabled(featureBatch) && applyFlags & tapPREFLIGHT_BATCH)
     {
         // batched transactions do not contain signatures
         if (tx.isFieldPresent(sfTxnSignature))
@@ -83,6 +83,7 @@ checkValidity(
         if (!passesLocalChecks(tx, reason))
             return {Validity::SigGoodOnly, reason};
 
+        router.setFlags(id, SF_SIGGOOD);
         return {Validity::Valid, ""};
     }
 

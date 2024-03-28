@@ -590,6 +590,8 @@ extern SField const sfHookGrant;
 extern SField const sfActiveValidator;
 extern SField const sfImportVLKey;
 extern SField const sfHookEmission;
+extern SField const sfBatchExecution;
+extern SField const sfRawTransaction;
 
 // array of objects (common)
 // ARRAY/1 is reserved for end of array
@@ -619,7 +621,7 @@ extern SField const sfActiveValidators;
 extern SField const sfImportVLKeys;
 extern SField const sfHookEmissions;
 extern SField const sfBatchExecutions;
-extern SField const sfBatchExecution;
+extern SField const sfRawTransactions;
 
 //------------------------------------------------------------------------------
 

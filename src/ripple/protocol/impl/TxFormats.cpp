@@ -445,7 +445,7 @@ TxFormats::TxFormats()
     add(jss::Batch,
         ttBATCH,
         {
-            {sfEmittedTxns, soeOPTIONAL},
+            {sfRawTransactions, soeOPTIONAL},
         },
         commonFields);
 }

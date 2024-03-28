@@ -51,7 +51,8 @@ JSS(Amendments);     // ledger type.
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
 JSS(Batch);          // transaction type.
-JSS(Blob);
+JSS(RawTransaction);   // in: Batch
+JSS(Blob);               // field.
 JSS(Check);              // ledger type.
 JSS(CheckCancel);        // transaction type.
 JSS(CheckCash);          // transaction type.

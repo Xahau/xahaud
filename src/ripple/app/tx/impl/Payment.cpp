@@ -300,6 +300,7 @@ Payment::preclaim(PreclaimContext const& ctx)
 TER
 Payment::doApply()
 {
+    std::cout << "Payment::doApply()" << "\n";
     auto const deliverMin = ctx_.tx[~sfDeliverMin];
 
     // Ripple if source or destination is non-native or if there are paths.

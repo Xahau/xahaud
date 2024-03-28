@@ -56,6 +56,10 @@ ApplyContext::discard()
 void
 ApplyContext::apply(TER ter)
 {
+    std::cout << "ApplyContext::apply" << "\n";
+    std::cout << "tx: " << tx.getTransactionID() << "\n";
+    // if (flags_ == tapPREFLIGHT_BATCH)
+    //     return;
     view_->apply(base_, tx, ter, journal);
 }
 

@@ -554,6 +554,7 @@ LedgerMaster::applyHeldTransactions()
         bool any = false;
         for (auto const& it : mHeldTransactions)
         {
+            // std::cout << "applyHeldTransactions: TXQu" << "\n";
             ApplyFlags flags = tapNONE;
             auto const result =
                 app_.getTxQ().apply(app_, view, it.second, flags, j);
