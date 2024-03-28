@@ -38,18 +38,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     uint16_t tt = tx.getFieldU16(sfTransactionType);
 
-    uint8_t tsh = tshNONE;
-    if (auto const& found = hook::TSHAllowances.find(tt);
-        found != hook::TSHAllowances.end())
-        tsh = found->second;
-    else
-        return {};
-
     std::map<AccountID, std::pair<int, bool>> tshEntries;
 
     int upto = 0;
-
-    bool canRollback = tsh & tshROLLBACK;
 
     auto const ADD_TSH = [&otxnAcc, &tshEntries, &upto](
                              const AccountID& acc_r, bool rb) {
@@ -62,6 +53,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
     };
 
+    bool const tshSTRONG = true;  // tshROLLBACK
+    bool const tshWEAK = false;   // tshCOLLECT
+
     auto const getNFTOffer =
         [](std::optional<uint256> id,
            ReadView const& rv) -> std::shared_ptr<const SLE> {
@@ -71,11 +65,53 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         return rv.read(keylet::nftoffer(*id));
     };
 
+    bool const fixV1 = rv.rules().enabled(fixXahauV1);
+    bool const fixV2 = rv.rules().enabled(fixXahauV2);
+
     switch (tt)
     {
+        case ttREMIT: {
+            if (destAcc)
+                ADD_TSH(*destAcc, tshSTRONG);
+
+            if (tx.isFieldPresent(sfInform))
+            {
+                auto const inform = tx.getAccountID(sfInform);
+                if (*otxnAcc != inform && *destAcc != inform)
+                    ADD_TSH(inform, tshWEAK);
+            }
+
+            if (tx.isFieldPresent(sfURITokenIDs))
+            {
+                STVector256 tokenIds = tx.getFieldV256(sfURITokenIDs);
+                for (uint256 const klRaw : tokenIds)
+                {
+                    Keylet const id{ltURI_TOKEN, klRaw};
+                    if (!rv.exists(id))
+                        continue;
+
+                    auto const ut = rv.read(id);
+                    if (!ut ||
+                        ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                        continue;
+
+                    auto const owner = ut->getAccountID(sfOwner);
+                    auto const issuer = ut->getAccountID(sfIssuer);
+                    if (issuer != owner && issuer != *destAcc)
+                    {
+                        ADD_TSH(
+                            issuer,
+                            (ut->getFlags() & lsfBurnable) ? tshSTRONG
+                                                           : tshWEAK);
+                    }
+                }
+            }
+            break;
+        }
+
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
-                ADD_TSH(tx.getAccountID(sfIssuer), canRollback);
+                ADD_TSH(tx.getAccountID(sfIssuer), fixV2 ? tshWEAK : tshSTRONG);
             break;
         }
 
@@ -97,19 +133,36 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             //  the burner is the issuer and not the owner of the token
 
             if (issuer == owner)
-            {
-                // pass, already a TSH
-            }
-            else if (*otxnAcc == owner)
+                break;
+            // pass, already a TSH
+
+            // new logic
+            if (fixV1)
             {
                 // the owner burns their token, and the issuer is a weak TSH
-                ADD_TSH(issuer, canRollback);
-            }
-            else
-            {
+                if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
+                    ADD_TSH(issuer, tshWEAK);
                 // the issuer burns the owner's token, and the owner is a weak
                 // TSH
-                ADD_TSH(owner, canRollback);
+                else if (rv.exists(keylet::account(owner)))
+                    ADD_TSH(owner, tshWEAK);
+
+                break;
+            }
+
+            // old logic
+            {
+                if (*otxnAcc == owner)
+                {
+                    // the owner burns their token, and the issuer is a weak TSH
+                    ADD_TSH(issuer, tshSTRONG);
+                }
+                else
+                {
+                    // the issuer burns the owner's token, and the owner is a
+                    // weak TSH
+                    ADD_TSH(owner, tshSTRONG);
+                }
             }
 
             break;
@@ -129,14 +182,43 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (owner != tx.getAccountID(sfAccount))
             {
                 // current owner is a strong TSH
-                ADD_TSH(owner, canRollback);
+                ADD_TSH(owner, tshSTRONG);
             }
 
             // issuer is also a strong TSH if the burnable flag is set
             auto const issuer = ut->getAccountID(sfIssuer);
             if (issuer != owner)
-                ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
+                ADD_TSH(
+                    issuer,
+                    (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
 
+            break;
+        }
+
+        case ttURITOKEN_MINT: {
+            // destination is a strong tsh
+            if (fixV2 && tx.isFieldPresent(sfDestination))
+                ADD_TSH(tx.getAccountID(sfDestination), tshSTRONG);
+            break;
+        }
+
+        case ttURITOKEN_CANCEL_SELL_OFFER: {
+            if (!fixV2)
+                break;
+
+            Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
+            if (!rv.exists(id))
+                return {};
+
+            auto const ut = rv.read(id);
+            if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                return {};
+
+            if (ut->isFieldPresent(sfDestination))
+            {
+                auto const dest = ut->getAccountID(sfDestination);
+                ADD_TSH(dest, tshWEAK);
+            }
             break;
         }
 
@@ -154,11 +236,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             // issuer is a strong TSH if the burnable flag is set
             if (issuer != owner)
-                ADD_TSH(issuer, ut->getFlags() & lsfBurnable);
+                ADD_TSH(
+                    issuer,
+                    (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
 
             // destination is a strong tsh
             if (tx.isFieldPresent(sfDestination))
-                ADD_TSH(tx.getAccountID(sfDestination), canRollback);
+                ADD_TSH(tx.getAccountID(sfDestination), tshSTRONG);
 
             break;
         }
@@ -167,7 +251,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttNFTOKEN_MINT:
         case ttCLAIM_REWARD: {
             if (tx.isFieldPresent(sfIssuer))
-                ADD_TSH(tx.getAccountID(sfIssuer), canRollback);
+                ADD_TSH(tx.getAccountID(sfIssuer), tshSTRONG);
             break;
         };
 
@@ -190,7 +274,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             ADD_TSH(issuer, issuerCanRollback);
             if (hasOwner)
-                ADD_TSH(owner, canRollback);
+                ADD_TSH(owner, tshWEAK);
             break;
         }
 
@@ -209,16 +293,16 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             if (bo)
             {
-                ADD_TSH(bo->getAccountID(sfOwner), canRollback);
+                ADD_TSH(bo->getAccountID(sfOwner), tshSTRONG);
                 if (bo->isFieldPresent(sfDestination))
-                    ADD_TSH(bo->getAccountID(sfDestination), canRollback);
+                    ADD_TSH(bo->getAccountID(sfDestination), tshSTRONG);
             }
 
             if (so)
             {
-                ADD_TSH(so->getAccountID(sfOwner), canRollback);
+                ADD_TSH(so->getAccountID(sfOwner), tshSTRONG);
                 if (so->isFieldPresent(sfDestination))
-                    ADD_TSH(so->getAccountID(sfDestination), canRollback);
+                    ADD_TSH(so->getAccountID(sfDestination), tshSTRONG);
             }
 
             break;
@@ -234,24 +318,21 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 auto const offer = getNFTOffer(offerID, rv);
                 if (offer)
                 {
-                    ADD_TSH(offer->getAccountID(sfOwner), canRollback);
+                    ADD_TSH(offer->getAccountID(sfOwner), tshWEAK);
                     if (offer->isFieldPresent(sfDestination))
-                        ADD_TSH(
-                            offer->getAccountID(sfDestination), canRollback);
+                        ADD_TSH(offer->getAccountID(sfDestination), tshWEAK);
 
                     // issuer can't stop people canceling their offers, but can
                     // get weak executions
                     uint256 nid = offer->getFieldH256(sfNFTokenID);
                     auto const issuer = nft::getIssuer(nid);
-                    ADD_TSH(issuer, false);
+                    ADD_TSH(issuer, tshWEAK);
                 }
             }
             break;
         }
 
         // self transactions
-        case ttURITOKEN_MINT:
-        case ttURITOKEN_CANCEL_SELL_OFFER:
         case ttACCOUNT_SET:
         case ttOFFER_CANCEL:
         case ttTICKET_CREATE:
@@ -264,14 +345,14 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttREGULAR_KEY_SET: {
             if (!tx.isFieldPresent(sfRegularKey))
                 return {};
-            ADD_TSH(tx.getAccountID(sfRegularKey), canRollback);
+            ADD_TSH(tx.getAccountID(sfRegularKey), tshSTRONG);
             break;
         }
 
         case ttDEPOSIT_PREAUTH: {
             if (!tx.isFieldPresent(sfAuthorize))
                 return {};
-            ADD_TSH(tx.getAccountID(sfAuthorize), canRollback);
+            ADD_TSH(tx.getAccountID(sfAuthorize), tshSTRONG);
             break;
         }
 
@@ -283,7 +364,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttPAYCHAN_CREATE:
         case ttINVOKE: {
             if (destAcc)
-                ADD_TSH(*destAcc, canRollback);
+                ADD_TSH(*destAcc, tshSTRONG);
             break;
         }
 
@@ -294,25 +375,67 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             auto const& lim = tx.getFieldAmount(sfLimitAmount);
             AccountID const& issuer = lim.getIssuer();
 
-            ADD_TSH(issuer, canRollback);
+            ADD_TSH(issuer, tshWEAK);
             break;
         }
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            if (!tx.isFieldPresent(sfOwner) ||
-                !tx.isFieldPresent(sfOfferSequence))
-                return {};
+            // new logic
+            if (fixV1)
+            {
+                if (!tx.isFieldPresent(sfOwner))
+                    return {};
 
-            auto escrow = rv.read(keylet::escrow(
-                tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+                AccountID const owner = tx.getAccountID(sfOwner);
 
-            if (!escrow)
-                return {};
+                bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
+                bool const hasID = tx.isFieldPresent(sfEscrowID);
+                if (!hasSeq && !hasID)
+                    return {};
 
-            ADD_TSH(escrow->getAccountID(sfAccount), true);
-            ADD_TSH(escrow->getAccountID(sfDestination), canRollback);
-            break;
+                Keylet kl = hasSeq
+                    ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
+                    : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
+
+                auto escrow = rv.read(kl);
+
+                if (!escrow ||
+                    escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
+                    return {};
+
+                // this should always be the same as owner, but defensively...
+                AccountID const src = escrow->getAccountID(sfAccount);
+                AccountID const dst = escrow->getAccountID(sfDestination);
+
+                // the source account is a strong transacitonal stakeholder for
+                // fin and can
+                ADD_TSH(src, tshSTRONG);
+
+                // the dest acc is a strong tsh for fin and weak for can
+                if (src != dst)
+                    ADD_TSH(dst, tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
+
+                break;
+            }
+            // old logic
+            {
+                if (!tx.isFieldPresent(sfOwner) ||
+                    !tx.isFieldPresent(sfOfferSequence))
+                    return {};
+
+                auto escrow = rv.read(keylet::escrow(
+                    tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
+
+                if (!escrow)
+                    return {};
+
+                ADD_TSH(escrow->getAccountID(sfAccount), tshSTRONG);
+                ADD_TSH(
+                    escrow->getAccountID(sfDestination),
+                    tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
+                break;
+            }
         }
 
         case ttPAYCHAN_FUND:
@@ -324,8 +447,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!chan)
                 return {};
 
-            ADD_TSH(chan->getAccountID(sfAccount), true);
-            ADD_TSH(chan->getAccountID(sfDestination), canRollback);
+            ADD_TSH(chan->getAccountID(sfAccount), tshSTRONG);
+            ADD_TSH(chan->getAccountID(sfDestination), tshWEAK);
             break;
         }
 
@@ -338,8 +461,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!check)
                 return {};
 
-            ADD_TSH(check->getAccountID(sfAccount), true);
-            ADD_TSH(check->getAccountID(sfDestination), canRollback);
+            ADD_TSH(check->getAccountID(sfAccount), tshSTRONG);
+            ADD_TSH(check->getAccountID(sfDestination), tshWEAK);
             break;
         }
 
@@ -349,7 +472,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             STArray const& signerEntries = tx.getFieldArray(sfSignerEntries);
             for (auto const& entryObj : signerEntries)
                 if (entryObj.isFieldPresent(sfAccount))
-                    ADD_TSH(entryObj.getAccountID(sfAccount), canRollback);
+                    ADD_TSH(entryObj.getAccountID(sfAccount), tshSTRONG);
             break;
         }
 
@@ -361,7 +484,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 {
                     if (mint.isFieldPresent(sfDestination))
                     {
-                        ADD_TSH(mint.getAccountID(sfDestination), canRollback);
+                        ADD_TSH(mint.getAccountID(sfDestination), tshWEAK);
                     }
                 }
             }
@@ -1287,7 +1410,7 @@ lookup_state_cache(
     if (stateMap.find(acc) == stateMap.end())
         return std::nullopt;
 
-    auto& stateMapAcc = stateMap[acc].second;
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
     if (stateMapAcc.find(ns) == stateMapAcc.end())
         return std::nullopt;
 
@@ -1312,9 +1435,13 @@ set_state_cache(
     bool modified)
 {
     auto& stateMap = hookCtx.result.stateMap;
+    auto& view = hookCtx.applyCtx.view();
 
     if (modified && stateMap.modified_entry_count >= max_state_modifications)
         return TOO_MANY_STATE_MODIFICATIONS;
+
+    bool const createNamespace = view.rules().enabled(fixXahauV1) &&
+        !view.exists(keylet::hookStateDir(acc, ns));
 
     if (stateMap.find(acc) == stateMap.end())
     {
@@ -1322,8 +1449,8 @@ set_state_cache(
         // we will compute how many available reserve positions there are
         auto const& fees = hookCtx.applyCtx.view().fees();
 
-        auto const accSLE =
-            hookCtx.applyCtx.view().read(ripple::keylet::account(acc));
+        auto const accSLE = view.read(ripple::keylet::account(acc));
+
         if (!accSLE)
             return DOESNT_EXIST;
 
@@ -1342,15 +1469,32 @@ set_state_cache(
         if (availableForReserves < 1 && modified)
             return RESERVE_INSUFFICIENT;
 
+        int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
+            ? accSLE->getFieldV256(sfHookNamespaces).size()
+            : 0;
+
+        if (createNamespace)
+        {
+            // overflow should never ever happen but check anyway
+            if (namespaceCount + 1 < namespaceCount)
+                return INTERNAL_ERROR;
+
+            if (++namespaceCount > hook::maxNamespaces())
+                return TOO_MANY_NAMESPACES;
+        }
+
         stateMap.modified_entry_count++;
 
         stateMap[acc] = {
-            availableForReserves - 1, {{ns, {{key, {modified, data}}}}}};
+            availableForReserves - 1,
+            namespaceCount,
+            {{ns, {{key, {modified, data}}}}}};
         return 1;
     }
 
-    auto& stateMapAcc = stateMap[acc].second;
-    auto& availableForReserves = stateMap[acc].first;
+    auto& availableForReserves = std::get<0>(stateMap[acc]);
+    auto& namespaceCount = std::get<1>(stateMap[acc]);
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
     bool const canReserveNew = availableForReserves > 0;
 
     if (stateMapAcc.find(ns) == stateMapAcc.end())
@@ -1359,6 +1503,18 @@ set_state_cache(
         {
             if (!canReserveNew)
                 return RESERVE_INSUFFICIENT;
+
+            if (createNamespace)
+            {
+                // overflow should never ever happen but check anyway
+                if (namespaceCount + 1 < namespaceCount)
+                    return INTERNAL_ERROR;
+
+                if (namespaceCount + 1 > hook::maxNamespaces())
+                    return TOO_MANY_NAMESPACES;
+
+                namespaceCount++;
+            }
 
             availableForReserves--;
             stateMap.modified_entry_count++;
@@ -1488,6 +1644,13 @@ DEFINE_HOOK_FUNCTION(
     auto const key = make_state_key(
         std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
 
+    if (view.rules().enabled(fixXahauV1))
+    {
+        auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+        if (!sleAccount)
+            return tefINTERNAL;
+    }
+
     if (!key)
         return INTERNAL_ERROR;
 
@@ -1610,7 +1773,7 @@ hook::finalizeHookState(
     for (const auto& accEntry : stateMap)
     {
         const auto& acc = accEntry.first;
-        for (const auto& nsEntry : accEntry.second.second)
+        for (const auto& nsEntry : std::get<2>(accEntry.second))
         {
             const auto& ns = nsEntry.first;
             for (const auto& cacheEntry : nsEntry.second)
@@ -1635,7 +1798,7 @@ hook::finalizeHookState(
 
                     TER result = setHookState(applyCtx, acc, ns, key, slice);
 
-                    if (result != tesSUCCESS)
+                    if (!isTesSuccess(result))
                     {
                         JLOG(j.warn())
                             << "HookError[TX:" << txnID
@@ -1733,7 +1896,8 @@ hook::finalizeHookResult(
     uint16_t exec_index = avi.nextHookExecutionIndex();
     // apply emitted transactions to the ledger (by adding them to the emitted
     // directory) if we are allowed to
-    std::vector<uint256> emission_txnid;
+    std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
+        emission_txnid;
 
     if (doEmit)
     {
@@ -1754,7 +1918,12 @@ hook::finalizeHookResult(
 
             if (!sleEmitted)
             {
-                emission_txnid.push_back(id);
+                auto const& emitDetails = const_cast<ripple::STTx&>(*ptr)
+                                              .getField(sfEmitDetails)
+                                              .downcast<STObject>();
+
+                emission_txnid.emplace_back(
+                    id, emitDetails.getFieldH256(sfEmitNonce));
                 sleEmitted = std::make_shared<SLE>(emittedId);
 
                 // RH TODO: add a new constructor to STObject to avoid this
@@ -1786,6 +1955,7 @@ hook::finalizeHookResult(
         }
     }
 
+    bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);
     // add a metadata entry for this hook execution result
     {
         STObject meta{sfHookExecution};
@@ -1812,6 +1982,19 @@ hook::finalizeHookResult(
         meta.setFieldU16(sfHookExecutionIndex, exec_index);
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);
+
+        // add informational flags in fix2
+        if (fixV2)
+        {
+            uint32_t flags = 0;
+            if (hookResult.isStrong)
+                flags |= hefSTRONG;
+            if (hookResult.isCallback)
+                flags |= hefCALLBACK;
+            if (hookResult.executeAgainAsWeak)
+                flags |= hefDOAAW;
+            meta.setFieldU32(sfFlags, flags);
+        }
         avi.addHookExecutionMetaData(std::move(meta));
     }
 
@@ -1819,12 +2002,14 @@ hook::finalizeHookResult(
     if (applyCtx.view().rules().enabled(featureHooksUpdate1) &&
         !emission_txnid.empty())
     {
-        for (auto const& etxnid : emission_txnid)
+        for (auto const& [etxnid, enonce] : emission_txnid)
         {
             STObject meta{sfHookEmission};
             meta.setFieldH256(sfHookHash, hookResult.hookHash);
             meta.setAccountID(sfHookAccount, hookResult.account);
             meta.setFieldH256(sfEmittedTxnID, etxnid);
+            if (fixV2)
+                meta.setFieldH256(sfEmitNonce, enonce);
             avi.addHookEmissionMetaData(std::move(meta));
         }
     }
@@ -3342,7 +3527,7 @@ DEFINE_HOOK_FUNCTION(
         ripple::ApplyFlags::tapPREFLIGHT_EMIT,
         j);
 
-    if (preflightResult.ter != tesSUCCESS)
+    if (!isTesSuccess(preflightResult.ter))
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: Transaction preflight failure: "

@@ -27,6 +27,7 @@
 #include <ripple/ledger/OpenView.h>
 #include <ripple/ledger/RawView.h>
 #include <ripple/ledger/ReadView.h>
+#include <ripple/ledger/Sandbox.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Protocol.h>
 #include <ripple/protocol/Rate.h>
@@ -394,7 +395,8 @@ accountSend(
     AccountID const& from,
     AccountID const& to,
     const STAmount& saAmount,
-    beast::Journal j);
+    beast::Journal j,
+    bool const senderPaysXferFees = true);
 
 [[nodiscard]] TER
 issueIOU(
@@ -627,7 +629,7 @@ trustTransferAllowed(
 {
     static_assert(
         std::is_same<V, ReadView const>::value ||
-        std::is_same<V, ApplyView>::value);
+        std::is_same<V, ApplyView>::value || std::is_same<V, Sandbox>::value);
 
     typedef typename std::conditional<
         std::is_same<V, ApplyView>::value,

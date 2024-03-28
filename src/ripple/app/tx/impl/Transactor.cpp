@@ -350,6 +350,23 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     XRPAmount accumulator = baseFee;
 
+    if (view.rules().enabled(featureHooks) &&
+        view.rules().enabled(fixXahauV1) && tx.isFieldPresent(sfHookParameters))
+    {
+        uint64_t paramBytes = 0;
+        auto const& params = tx.getFieldArray(sfHookParameters);
+        for (auto const& param : params)
+        {
+            paramBytes += (param.isFieldPresent(sfHookParameterName)
+                               ? param.getFieldVL(sfHookParameterName).size()
+                               : 0) +
+                (param.isFieldPresent(sfHookParameterValue)
+                     ? param.getFieldVL(sfHookParameterValue).size()
+                     : 0);
+        }
+        accumulator += XRPAmount{static_cast<XRPAmount>(paramBytes)};
+    }
+
     // fee based on memos, 1 drop per byte
     if (tx.isFieldPresent(sfMemos))
     {
@@ -662,6 +679,43 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
+    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks) &&
+        ctx.view.rules().enabled(fixXahauV2))
+    {
+        // check if the emitted txn exists on ledger and is in the emission
+        // directory if not that's a re-apply so discard
+        auto const kl = keylet::emittedTxn(ctx.tx.getTransactionID());
+        auto const sleE = ctx.view.read(kl);
+        if (!sleE)
+            return tefNONDIR_EMIT;
+
+        // lookup the page
+        uint64_t const page = sleE->getFieldU64(sfOwnerNode);
+        auto node = ctx.view.read(keylet::page(keylet::emittedDir(), page));
+
+        if (!node)
+        {
+            JLOG(ctx.j.warn())
+                << "applyTransaction: orphaned emitted txn detected. keylet="
+                << to_string(kl.key);
+
+            // RH TODO: work out how to safely delete the object
+            return tefNONDIR_EMIT;
+        }
+
+        auto entries = node->getFieldV256(sfIndexes);
+        auto it = std::find(entries.begin(), entries.end(), kl.key);
+        if (entries.end() == it)
+        {
+            JLOG(ctx.j.warn()) << "applyTransaction: orphaned emitted txn "
+                                  "detected (2). keylet="
+                               << to_string(kl.key);
+
+            // RH TODO: work out how to safely delete the object
+            return tefNONDIR_EMIT;
+        }
+    }
+
     return tesSUCCESS;
 }
 
@@ -781,18 +835,12 @@ Transactor::apply()
         mSourceBalance = mPriorBalance;
 
         TER result = consumeSeqProxy(sle);
-        if (result != tesSUCCESS)
-        {
-            std::cout << "result: " << result << "\n";
+        if (!isTesSuccess(result))
             return result;
-        }
 
         result = payFee();
-        if (result != tesSUCCESS)
-        {
-            std::cout << "result: " << result << "\n";
+        if (!isTesSuccess(result))
             return result;
-        }
 
         if (sle->isFieldPresent(sfAccountTxnID))
             sle->setFieldH256(sfAccountTxnID, ctx_.tx.getTransactionID());
@@ -1582,7 +1630,7 @@ Transactor::doTSH(
         TER tshResult = executeHookChain(
             tshHook, stateMap, results, tshAccountID, strong, provisionalMeta);
 
-        if (canRollback && (tshResult != tesSUCCESS))
+        if (canRollback && (!isTesSuccess(tshResult)))
             return tshResult;
     }
 
@@ -1733,7 +1781,7 @@ Transactor::operator()()
     // Pre-application (Strong TSH) Hooks are executed here
     // These TSH have the right to rollback.
     // Weak TSH and callback are executed post-application.
-    if (hooksEnabled && result == tesSUCCESS)
+    if (hooksEnabled && isTesSuccess(result))
     {
         // this state map will be shared across all hooks in this execution
         // chain and any associated chains which are executed during this
@@ -1784,7 +1832,7 @@ Transactor::operator()()
     }
 
     // fall through allows normal apply
-    if (result == tesSUCCESS)
+    if (isTesSuccess(result))
         result = apply();
 
     // No transaction can return temUNKNOWN from apply,

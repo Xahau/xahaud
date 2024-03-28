@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ESCROW_H_INCLUDED
-#define RIPPLE_TEST_JTX_ESCROW_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_REMIT_H_INCLUDED
+#define RIPPLE_TEST_JTX_REMIT_H_INCLUDED
 
-#include <ripple/basics/chrono.h>
+#include <ripple/protocol/STAmount.h>
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
 
@@ -28,41 +28,22 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-/** Escrow operations. */
-namespace escrow {
+namespace remit {
 
 Json::Value
-create(
+remit(
     jtx::Account const& account,
-    jtx::Account const& to,
-    STAmount const& amount);
+    jtx::Account const& dest,
+    std::optional<std::uint32_t> const& dstTag = std::nullopt);
 
-Json::Value
-finish(
-    jtx::Account const& account,
-    jtx::Account const& from,
-    std::uint32_t seq);
-
-Json::Value
-finish(jtx::Account const& account, jtx::Account const& from);
-
-Json::Value
-cancel(
-    jtx::Account const& account,
-    jtx::Account const& from,
-    std::uint32_t seq);
-
-Json::Value
-cancel(jtx::Account const& account, jtx::Account const& from);
-
-/** Set the "FinishAfter" time tag on a JTx */
-class finish_time
+/** Sets the optional Amount on a JTx. */
+class amts
 {
 private:
-    NetClock::time_point value_;
+    std::vector<STAmount> amts_;
 
 public:
-    explicit finish_time(NetClock::time_point const& value) : value_(value)
+    explicit amts(std::vector<STAmount> const& amts) : amts_(amts)
     {
     }
 
@@ -70,14 +51,14 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
-/** Set the "CancelAfter" time tag on a JTx */
-class cancel_time
+/** Set the optional "Blob" on a JTx */
+class blob
 {
 private:
-    NetClock::time_point value_;
+    std::string blob_;
 
 public:
-    explicit cancel_time(NetClock::time_point const& value) : value_(value)
+    explicit blob(std::string const& blob) : blob_(blob)
     {
     }
 
@@ -85,18 +66,14 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
-class condition
+/** Sets the optional "Inform" on a JTx. */
+class inform
 {
 private:
-    std::string value_;
+    jtx::Account inform_;
 
 public:
-    explicit condition(Slice cond) : value_(strHex(cond))
-    {
-    }
-
-    template <size_t N>
-    explicit condition(std::array<std::uint8_t, N> c) : condition(makeSlice(c))
+    explicit inform(jtx::Account const& inform) : inform_(inform)
     {
     }
 
@@ -104,19 +81,15 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
-class fulfillment
+/** Sets the optional "URITokenIDs" on a JTx. */
+class token_ids
 {
 private:
-    std::string value_;
+    std::vector<std::string> token_ids_;
 
 public:
-    explicit fulfillment(Slice condition) : value_(strHex(condition))
-    {
-    }
-
-    template <size_t N>
-    explicit fulfillment(std::array<std::uint8_t, N> f)
-        : fulfillment(makeSlice(f))
+    explicit token_ids(std::vector<std::string> const& token_ids)
+        : token_ids_(token_ids)
     {
     }
 
@@ -124,14 +97,20 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
-/** Sets the optional "EscrowID" on a JTx. */
-class escrow_id
+/** Set the optional "sfMintURIToken" on a JTx */
+class uri
 {
 private:
-    uint256 value_;
+    std::string uri_;
+    std::optional<std::uint32_t> flags_;
+    std::optional<std::string> digest_;
 
 public:
-    explicit escrow_id(uint256 const& escrow_id) : value_(escrow_id)
+    explicit uri(
+        std::string const& uri,
+        std::optional<std::uint32_t> const& flags = std::nullopt,
+        std::optional<std::string> const& digest = std::nullopt)
+        : uri_(uri), flags_(flags), digest_(digest)
     {
     }
 
@@ -139,11 +118,11 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
-}  // namespace escrow
+}  // namespace remit
 
 }  // namespace jtx
 
 }  // namespace test
 }  // namespace ripple
 
-#endif  // RIPPLE_TEST_JTX_ESCROW_H_INCLUDED
+#endif  // RIPPLE_TEST_JTX_REMIT_H_INCLUDED

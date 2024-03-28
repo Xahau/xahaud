@@ -51,6 +51,15 @@ offer_cancel(Account const& account, std::uint32_t offerSeq)
     return jv;
 }
 
+Json::Value
+offer_cancel(Account const& account)
+{
+    Json::Value jv;
+    jv[jss::Account] = account.human();
+    jv[jss::TransactionType] = jss::OfferCancel;
+    return jv;
+}
+
 void
 offer_id::operator()(Env& env, JTx& jt) const
 {

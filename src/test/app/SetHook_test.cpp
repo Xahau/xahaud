@@ -26,8 +26,6 @@
 #include <test/jtx/hook.h>
 #include <unordered_map>
 
-// RH TODO: test collect calls / weak tsh
-
 namespace ripple {
 
 namespace test {
@@ -90,28 +88,83 @@ public:
 #define HSFEE fee(100'000'000)
 #define M(m) memo(m, "", "")
     void
-    testHooksDisabled()
+    testHooksOwnerDir(FeatureBitset features)
+    {
+        testcase("Test owner directory");
+
+        using namespace jtx;
+
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), alice, gw);
+        env.close();
+        env.trust(USD(100000), alice);
+        env.close();
+        env(pay(gw, alice, USD(10000)));
+
+        for (int i = 1; i < 34; ++i)
+        {
+            std::string const uri(i, '?');
+            env(uritoken::mint(alice, uri));
+        }
+        env.close();
+
+        env(ripple::test::jtx::hook(
+                alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+            HSFEE,
+            ter(tesSUCCESS));
+        env.close();
+
+        env(ripple::test::jtx::hook(
+                alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+            HSFEE,
+            ter(tesSUCCESS));
+        env.close();
+
+        // delete hook
+        Json::Value jv;
+        jv[jss::Account] = alice.human();
+        jv[jss::TransactionType] = jss::SetHook;
+        jv[jss::Flags] = 0;
+        jv[jss::Hooks] = Json::Value{Json::arrayValue};
+        Json::Value iv;
+        iv[jss::Flags] = 1;
+        iv[jss::CreateCode] = "";
+        jv[jss::Hooks][0U][jss::Hook] = iv;
+
+        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+        auto const txResult = fixV1 ? ter(tesSUCCESS) : ter(tefBAD_LEDGER);
+        env(jv, HSFEE, txResult);
+        env.close();
+    }
+
+    void
+    testHooksDisabled(FeatureBitset features)
     {
         testcase("Check for disabled amendment");
         using namespace jtx;
-        Env env{*this, supported_amendments() - featureHooks};
+        Env env{*this, features - featureHooks};
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
 
         // RH TODO: does it matter that passing malformed txn here gives back
         // temMALFORMED (and not disabled)?
-        env(ripple::test::jtx::hook(alice, {{hso(accept_wasm)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hso(accept_wasm, overrideFlag)}}, 0),
             M("Hooks Disabled"),
             HSFEE,
             ter(temDISABLED));
     }
 
     void
-    testTxStructure()
+    testTxStructure(FeatureBitset features)
     {
         testcase("Checks malformed transactions");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -168,11 +221,11 @@ public:
     }
 
     void
-    testGrants()
+    testGrants(FeatureBitset features)
     {
         testcase("Checks malformed grants on install operation");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -226,11 +279,11 @@ public:
     }
 
     void
-    testParams()
+    testParams(FeatureBitset features)
     {
         testcase("Checks malformed params on install operation");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -348,11 +401,11 @@ public:
     }
 
     void
-    testInstall()
+    testInstall(FeatureBitset features)
     {
         testcase("Checks malformed install operation");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -441,11 +494,11 @@ public:
     }
 
     void
-    testDelete()
+    testDelete(FeatureBitset features)
     {
         testcase("Checks malformed delete operation");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -628,11 +681,13 @@ public:
     }
 
     void
-    testNSDelete()
+    testNSDelete(FeatureBitset features)
     {
         testcase("Checks malformed nsdelete operation");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
+
+        bool const fixNS = env.current()->rules().enabled(fixNSDelete);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -715,6 +770,8 @@ public:
             BEAST_EXPECT(
                 data[0] == 'v' && data[1] == 'a' && data[2] == 'l' &&
                 data[3] == 'u' && data[4] == 'e' && data[5] == '\0');
+
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 2);
         }
 
         // delete the namespace
@@ -743,15 +800,140 @@ public:
 
             // ensure the state object is gone
             BEAST_EXPECT(!env.le(stateKeylet));
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == fixNS ? 1 : 2);
         }
     }
 
     void
-    testCreate()
+    testNSDeletePartial(FeatureBitset features)
+    {
+        testcase("Checks partial nsdelete operation");
+        using namespace jtx;
+
+        static const std::vector<uint8_t> hook = {
+            0x00U, 0x61U, 0x73U, 0x6dU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
+            0x21U, 0x05U, 0x60U, 0x02U, 0x7fU, 0x7fU, 0x01U, 0x7fU, 0x60U,
+            0x02U, 0x7fU, 0x7fU, 0x01U, 0x7eU, 0x60U, 0x03U, 0x7fU, 0x7fU,
+            0x7eU, 0x01U, 0x7eU, 0x60U, 0x04U, 0x7fU, 0x7fU, 0x7fU, 0x7fU,
+            0x01U, 0x7eU, 0x60U, 0x01U, 0x7fU, 0x01U, 0x7eU, 0x02U, 0x55U,
+            0x06U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x02U, 0x5fU, 0x67U, 0x00U,
+            0x00U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x0cU, 0x68U, 0x6fU, 0x6fU,
+            0x6bU, 0x5fU, 0x61U, 0x63U, 0x63U, 0x6fU, 0x75U, 0x6eU, 0x74U,
+            0x00U, 0x01U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x08U, 0x72U, 0x6fU,
+            0x6cU, 0x6cU, 0x62U, 0x61U, 0x63U, 0x6bU, 0x00U, 0x02U, 0x03U,
+            0x65U, 0x6eU, 0x76U, 0x05U, 0x73U, 0x74U, 0x61U, 0x74U, 0x65U,
+            0x00U, 0x03U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x09U, 0x73U, 0x74U,
+            0x61U, 0x74U, 0x65U, 0x5fU, 0x73U, 0x65U, 0x74U, 0x00U, 0x03U,
+            0x03U, 0x65U, 0x6eU, 0x76U, 0x06U, 0x61U, 0x63U, 0x63U, 0x65U,
+            0x70U, 0x74U, 0x00U, 0x02U, 0x03U, 0x02U, 0x01U, 0x04U, 0x05U,
+            0x03U, 0x01U, 0x00U, 0x02U, 0x06U, 0x2bU, 0x07U, 0x7fU, 0x01U,
+            0x41U, 0x80U, 0x88U, 0x04U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U,
+            0x08U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0bU, 0x7fU,
+            0x00U, 0x41U, 0x80U, 0x08U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U,
+            0x88U, 0x04U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x00U, 0x0bU, 0x7fU,
+            0x00U, 0x41U, 0x01U, 0x0bU, 0x07U, 0x08U, 0x01U, 0x04U, 0x68U,
+            0x6fU, 0x6fU, 0x6bU, 0x00U, 0x06U, 0x0aU, 0x94U, 0x81U, 0x00U,
+            0x01U, 0x90U, 0x81U, 0x00U, 0x02U, 0x02U, 0x7fU, 0x01U, 0x7eU,
+            0x23U, 0x00U, 0x41U, 0xd0U, 0x00U, 0x6bU, 0x22U, 0x01U, 0x24U,
+            0x00U, 0x20U, 0x01U, 0x20U, 0x00U, 0x36U, 0x02U, 0x4cU, 0x41U,
+            0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1aU, 0x20U, 0x01U, 0x41U,
+            0x30U, 0x6aU, 0x41U, 0x14U, 0x10U, 0x01U, 0x42U, 0x14U, 0x52U,
+            0x04U, 0x40U, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x0cU, 0x10U,
+            0x02U, 0x1aU, 0x0bU, 0x20U, 0x01U, 0x41U, 0x28U, 0x6aU, 0x22U,
+            0x00U, 0x41U, 0x08U, 0x20U, 0x01U, 0x41U, 0x30U, 0x6aU, 0x22U,
+            0x02U, 0x41U, 0x14U, 0x10U, 0x03U, 0x1aU, 0x20U, 0x01U, 0x20U,
+            0x01U, 0x29U, 0x03U, 0x28U, 0x42U, 0x01U, 0x7cU, 0x37U, 0x03U,
+            0x28U, 0x20U, 0x01U, 0x41U, 0xabU, 0x01U, 0x3aU, 0x00U, 0x09U,
+            0x20U, 0x01U, 0x20U, 0x01U, 0x29U, 0x03U, 0x28U, 0x3cU, 0x00U,
+            0x0aU, 0x20U, 0x00U, 0x41U, 0x08U, 0x20U, 0x02U, 0x41U, 0x14U,
+            0x10U, 0x04U, 0x1aU, 0x20U, 0x00U, 0x41U, 0x08U, 0x20U, 0x01U,
+            0x41U, 0x20U, 0x10U, 0x04U, 0x1aU, 0x41U, 0x00U, 0x41U, 0x00U,
+            0x42U, 0x00U, 0x10U, 0x05U, 0x20U, 0x01U, 0x41U, 0xd0U, 0x00U,
+            0x6aU, 0x24U, 0x00U, 0x0bU};
+
+        Env env{*this, features};
+        bool const fixNS = env.current()->rules().enabled(fixNSDelete);
+
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000000), alice);
+        env.fund(XRP(10000000), bob);
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set state_set_max"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        for (uint32_t i = 0; i < 256; ++i)
+        {
+            env(pay(bob, alice, XRP(1)), M("test state_set_max"), fee(XRP(1)));
+            env.close();
+        }
+
+        BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 258);
+
+        // delete the namespace pass 1
+        {
+            Json::Value jv;
+            jv[jss::Account] = alice.human();
+            jv[jss::TransactionType] = jss::SetHook;
+            jv[jss::Flags] = 0;
+            jv[jss::Hooks] = Json::Value{Json::arrayValue};
+            Json::Value iv;
+            iv[jss::Flags] = hsfNSDELETE;
+            iv[jss::HookNamespace] = to_string(uint256{beast::zero});
+            jv[jss::Hooks][0U][jss::Hook] = iv;
+            env(jv, HSFEE, ter(fixNS ? tesPARTIAL : tesSUCCESS));
+            env.close();
+
+            // ensure the directory is still there
+            auto const dirKeylet = keylet::hookStateDir(
+                Account("alice").id(), uint256{beast::zero});
+            if (fixNS)
+            {
+                BEAST_EXPECT(env.le(dirKeylet));
+                BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 2);
+            }
+            else
+            {
+                BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 258);
+                BEAST_EXPECT(!env.le(dirKeylet));
+            }
+        }
+
+        // delete the namespace pass 2
+        if (fixNS)
+        {
+            Json::Value jv;
+            jv[jss::Account] = alice.human();
+            jv[jss::TransactionType] = jss::SetHook;
+            jv[jss::Flags] = 0;
+            jv[jss::Hooks] = Json::Value{Json::arrayValue};
+            Json::Value iv;
+            iv[jss::Flags] = hsfNSDELETE;
+            iv[jss::HookNamespace] = to_string(uint256{beast::zero});
+            jv[jss::Hooks][0U][jss::Hook] = iv;
+            env(jv, HSFEE, ter(tesSUCCESS));
+            env.close();
+
+            // ensure the directory is gone
+            auto const dirKeylet = keylet::hookStateDir(
+                Account("alice").id(), uint256{beast::zero});
+            BEAST_EXPECT(!env.le(dirKeylet));
+
+            // ensure the owner count is 1
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 1);
+        }
+    }
+
+    void
+    testCreate(FeatureBitset features)
     {
         testcase("Checks malformed create operation");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         env.fund(XRP(10000), bob);
@@ -989,11 +1171,11 @@ public:
     }
 
     void
-    testUpdate()
+    testUpdate(FeatureBitset features)
     {
         testcase("Checks malformed update operation");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -1559,12 +1741,12 @@ public:
     }
 
     void
-    testWithTickets()
+    testWithTickets(FeatureBitset features)
     {
         testcase("with tickets");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -1644,11 +1826,11 @@ public:
     }
 
     void
-    testWasm()
+    testWasm(FeatureBitset features)
     {
         testcase("Checks malformed hook binaries");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -1665,11 +1847,11 @@ public:
     }
 
     void
-    test_accept()
+    test_accept(FeatureBitset features)
     {
         testcase("Test accept() hookapi");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -1686,11 +1868,11 @@ public:
     }
 
     void
-    test_rollback()
+    test_rollback(FeatureBitset features)
     {
         testcase("Test rollback() hookapi");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -1710,11 +1892,11 @@ public:
     }
 
     void
-    testGuards()
+    testGuards(FeatureBitset features)
     {
         testcase("Test guards");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -1921,16 +2103,12 @@ public:
     }
 
     void
-    test_emit()
+    test_emit(FeatureBitset features)
     {
         testcase("Test float_emit");
         using namespace jtx;
         Env env{
-            *this,
-            envconfig(),
-            supported_amendments(),
-            nullptr,
-            beast::severities::kWarning
+            *this, envconfig(), features, nullptr, beast::severities::kWarning
             //            beast::severities::kTrace
         };
 
@@ -2279,6 +2457,8 @@ public:
 
         env(invoke, M("test emit"), fee(XRP(1)));
 
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+
         std::optional<uint256> emithash;
         {
             auto meta = env.meta();  // meta can close
@@ -2286,6 +2466,13 @@ public:
             // ensure hook execution occured
             BEAST_REQUIRE(meta);
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
+            BEAST_EXPECT(
+                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
+                                                                       : false);
+            BEAST_EXPECT(
+                hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
             auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
             BEAST_REQUIRE(hookExecutions.size() == 1);
@@ -2330,6 +2517,8 @@ public:
             }
 
             BEAST_REQUIRE(emithash);
+            BEAST_EXPECT(
+                emithash == hookEmissions[0u].getFieldH256(sfEmittedTxnID));
         }
 
         {
@@ -2376,6 +2565,8 @@ public:
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             env.close();
             burden_expected *= 2U;
@@ -2399,6 +2590,8 @@ public:
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
                     283);  // emission failure on first emit
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             BEAST_EXPECT(txcount == 256);
         }
@@ -2415,13 +2608,13 @@ public:
     }
 
     void
-    test_etxn_details()
+    test_etxn_details(FeatureBitset features)
     {
         // mainly tested in test_emit
         testcase("Test etxn_details");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -2473,13 +2666,13 @@ public:
     }
 
     void
-    test_etxn_fee_base()
+    test_etxn_fee_base(FeatureBitset features)
     {
         // mainly tested in test_emit
         testcase("Test etxn_fee_base");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -2530,13 +2723,13 @@ public:
     }
 
     void
-    test_etxn_nonce()
+    test_etxn_nonce(FeatureBitset features)
     {
         // mainly tested in test_emit
         testcase("Test etxn_nonce");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -2594,13 +2787,13 @@ public:
     }
 
     void
-    test_etxn_reserve()
+    test_etxn_reserve(FeatureBitset features)
     {
         // mainly tested in test_emit
         testcase("Test etxn_reserve");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -2644,12 +2837,12 @@ public:
     }
 
     void
-    test_fee_base()
+    test_fee_base(FeatureBitset features)
     {
         testcase("Test fee_base");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -2685,11 +2878,11 @@ public:
     }
 
     void
-    test_float_compare()
+    test_float_compare(FeatureBitset features)
     {
         testcase("Test float_compare");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -2818,11 +3011,11 @@ public:
     }
 
     void
-    test_float_divide()
+    test_float_divide(FeatureBitset features)
     {
         testcase("Test float_divide");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3017,11 +3210,11 @@ public:
     }
 
     void
-    test_float_int()
+    test_float_int(FeatureBitset features)
     {
         testcase("Test float_int");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3146,11 +3339,11 @@ public:
     }
 
     void
-    test_float_invert()
+    test_float_invert(FeatureBitset features)
     {
         testcase("Test float_invert");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3234,11 +3427,11 @@ public:
     }
 
     void
-    test_float_log()
+    test_float_log(FeatureBitset features)
     {
         testcase("Test float_log");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3317,11 +3510,11 @@ public:
     }
 
     void
-    test_float_mantissa()
+    test_float_mantissa(FeatureBitset features)
     {
         testcase("Test float_mantissa");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3446,11 +3639,11 @@ public:
     }
 
     void
-    test_float_mulratio()
+    test_float_mulratio(FeatureBitset features)
     {
         testcase("Test float_mulratio");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3601,11 +3794,11 @@ public:
     }
 
     void
-    test_float_multiply()
+    test_float_multiply(FeatureBitset features)
     {
         testcase("Test float_multiply");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3900,11 +4093,11 @@ public:
     }
 
     void
-    test_float_negate()
+    test_float_negate(FeatureBitset features)
     {
         testcase("Test float_negate");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3971,11 +4164,11 @@ public:
     }
 
     void
-    test_float_one()
+    test_float_one(FeatureBitset features)
     {
         testcase("Test float_one");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4012,11 +4205,11 @@ public:
     }
 
     void
-    test_float_root()
+    test_float_root(FeatureBitset features)
     {
         testcase("Test float_root");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4090,11 +4283,11 @@ public:
     }
 
     void
-    test_float_set()
+    test_float_set(FeatureBitset features)
     {
         testcase("Test float_set");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4163,11 +4356,11 @@ public:
     }
 
     void
-    test_float_sign()
+    test_float_sign(FeatureBitset features)
     {
         testcase("Test float_sign");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4276,11 +4469,11 @@ public:
     }
 
     void
-    test_float_sto()
+    test_float_sto(FeatureBitset features)
     {
         testcase("Test float_sto");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4481,11 +4674,11 @@ public:
     }
 
     void
-    test_float_sto_set()
+    test_float_sto_set(FeatureBitset features)
     {
         testcase("Test float_sto_set");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4623,11 +4816,11 @@ public:
     }
 
     void
-    test_float_sum()
+    test_float_sum(FeatureBitset features)
     {
         testcase("Test float_sum");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4803,13 +4996,13 @@ public:
     }
 
     void
-    test_hook_account()
+    test_hook_account(FeatureBitset features)
     {
         testcase("Test hook_account");
         using namespace jtx;
 
         auto const test = [&](Account alice) -> void {
-            Env env{*this, supported_amendments()};
+            Env env{*this, features};
 
             auto const bob = Account{"bob"};
             env.fund(XRP(10000), alice);
@@ -4926,11 +5119,11 @@ public:
     }
 
     void
-    test_hook_again()
+    test_hook_again(FeatureBitset features)
     {
         testcase("Test hook_again");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -4987,6 +5180,13 @@ public:
         BEAST_REQUIRE(hookExecutions.size() == 2);
 
         // get the data in the return code of the execution
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+        if (fixV2)
+        {
+            BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
+            BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
+        }
+
         BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
 
@@ -4995,13 +5195,13 @@ public:
     }
 
     void
-    test_hook_hash()
+    test_hook_hash(FeatureBitset features)
     {
         testcase("Test hook_hash");
         using namespace jtx;
 
         auto const test = [&](Account alice) -> void {
-            Env env{*this, supported_amendments()};
+            Env env{*this, features};
 
             auto const bob = Account{"bob"};
             env.fund(XRP(10000), alice);
@@ -5156,11 +5356,11 @@ public:
     }
 
     void
-    test_hook_param()
+    test_hook_param(FeatureBitset features)
     {
         testcase("Test hook_param");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -5283,11 +5483,11 @@ public:
     }
 
     void
-    test_hook_param_set()
+    test_hook_param_set(FeatureBitset features)
     {
         testcase("Test hook_param_set");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -5492,11 +5692,11 @@ public:
     }
 
     void
-    test_hook_pos()
+    test_hook_pos(FeatureBitset features)
     {
         testcase("Test hook_pos");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -5546,11 +5746,11 @@ public:
     }
 
     void
-    test_hook_skip()
+    test_hook_skip(FeatureBitset features)
     {
         testcase("Test hook_skip");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -5668,11 +5868,11 @@ public:
     }
 
     void
-    test_ledger_keylet()
+    test_ledger_keylet(FeatureBitset features)
     {
         testcase("Test ledger_keylet");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -5769,12 +5969,12 @@ public:
     }
 
     void
-    test_ledger_last_hash()
+    test_ledger_last_hash(FeatureBitset features)
     {
         testcase("Test ledger_last_hash");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -5844,11 +6044,11 @@ public:
     }
 
     void
-    test_ledger_last_time()
+    test_ledger_last_time(FeatureBitset features)
     {
         testcase("Test ledger_last_time");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -5911,12 +6111,12 @@ public:
     }
 
     void
-    test_ledger_nonce()
+    test_ledger_nonce(FeatureBitset features)
     {
         testcase("Test ledger_nonce");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6010,11 +6210,11 @@ public:
     }
 
     void
-    test_ledger_seq()
+    test_ledger_seq(FeatureBitset features)
     {
         testcase("Test ledger_seq");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6069,11 +6269,11 @@ public:
     }
 
     void
-    test_meta_slot()
+    test_meta_slot(FeatureBitset features)
     {
         testcase("Test meta_slot");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6156,11 +6356,11 @@ public:
     }
 
     void
-    test_otxn_field()
+    test_otxn_field(FeatureBitset features)
     {
         testcase("Test otxn_field");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6226,11 +6426,11 @@ public:
     }
 
     void
-    test_otxn_id()
+    test_otxn_id(FeatureBitset features)
     {
         testcase("Test otxn_id");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6309,11 +6509,11 @@ public:
     }
 
     void
-    test_otxn_slot()
+    test_otxn_slot(FeatureBitset features)
     {
         testcase("Test otxn_slot");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6391,11 +6591,11 @@ public:
     }
 
     void
-    test_otxn_type()
+    test_otxn_type(FeatureBitset features)
     {
         testcase("Test otxn_type");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6462,11 +6662,11 @@ public:
     }
 
     void
-    test_otxn_param()
+    test_otxn_param(FeatureBitset features)
     {
         testcase("Test otxn_param");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6585,11 +6785,11 @@ public:
     }
 
     void
-    test_slot()
+    test_slot(FeatureBitset features)
     {
         testcase("Test slot");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6698,11 +6898,11 @@ public:
     }
 
     void
-    test_slot_clear()
+    test_slot_clear(FeatureBitset features)
     {
         testcase("Test slot_clear");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6756,11 +6956,11 @@ public:
     }
 
     void
-    test_slot_count()
+    test_slot_count(FeatureBitset features)
     {
         testcase("Test slot_count");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6821,11 +7021,11 @@ public:
     }
 
     void
-    test_slot_float()
+    test_slot_float(FeatureBitset features)
     {
         testcase("Test slot_float");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -6896,11 +7096,11 @@ public:
     }
 
     void
-    test_slot_set()
+    test_slot_set(FeatureBitset features)
     {
         testcase("Test slot_set");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -7006,11 +7206,11 @@ public:
     }
 
     void
-    test_slot_size()
+    test_slot_size(FeatureBitset features)
     {
         testcase("Test slot_size");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -7085,12 +7285,12 @@ public:
     }
 
     void
-    test_slot_subarray()
+    test_slot_subarray(FeatureBitset features)
     {
         testcase("Test slot_subarray");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -7225,12 +7425,12 @@ public:
     }
 
     void
-    test_slot_subfield()
+    test_slot_subfield(FeatureBitset features)
     {
         testcase("Test slot_subfield");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -7326,12 +7526,12 @@ public:
     }
 
     void
-    test_slot_type()
+    test_slot_type(FeatureBitset features)
     {
         testcase("Test slot_type");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -7465,12 +7665,12 @@ public:
     }
 
     void
-    test_state()
+    test_state(FeatureBitset features)
     {
         testcase("Test state");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -7606,12 +7806,12 @@ public:
     }
 
     void
-    test_state_foreign()
+    test_state_foreign(FeatureBitset features)
     {
         testcase("Test state_foreign");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -7765,16 +7965,124 @@ public:
     }
 
     void
-    test_state_foreign_set()
+    test_state_foreign_set_max(FeatureBitset features)
+    {
+        testcase("Test state_foreign_set max");
+        using namespace jtx;
+
+        static const std::vector<uint8_t> ns_maxHook = {
+            0x00U, 0x61U, 0x73U, 0x6dU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
+            0x36U, 0x07U, 0x60U, 0x02U, 0x7fU, 0x7fU, 0x01U, 0x7fU, 0x60U,
+            0x02U, 0x7fU, 0x7fU, 0x01U, 0x7eU, 0x60U, 0x03U, 0x7fU, 0x7fU,
+            0x7eU, 0x01U, 0x7eU, 0x60U, 0x04U, 0x7fU, 0x7fU, 0x7fU, 0x7fU,
+            0x01U, 0x7eU, 0x60U, 0x05U, 0x7fU, 0x7fU, 0x7fU, 0x7fU, 0x7fU,
+            0x01U, 0x7eU, 0x60U, 0x08U, 0x7fU, 0x7fU, 0x7fU, 0x7fU, 0x7fU,
+            0x7fU, 0x7fU, 0x7fU, 0x01U, 0x7eU, 0x60U, 0x01U, 0x7fU, 0x01U,
+            0x7eU, 0x02U, 0x79U, 0x08U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x02U,
+            0x5fU, 0x67U, 0x00U, 0x00U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x0cU,
+            0x68U, 0x6fU, 0x6fU, 0x6bU, 0x5fU, 0x61U, 0x63U, 0x63U, 0x6fU,
+            0x75U, 0x6eU, 0x74U, 0x00U, 0x01U, 0x03U, 0x65U, 0x6eU, 0x76U,
+            0x08U, 0x72U, 0x6fU, 0x6cU, 0x6cU, 0x62U, 0x61U, 0x63U, 0x6bU,
+            0x00U, 0x02U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x05U, 0x73U, 0x74U,
+            0x61U, 0x74U, 0x65U, 0x00U, 0x03U, 0x03U, 0x65U, 0x6eU, 0x76U,
+            0x05U, 0x74U, 0x72U, 0x61U, 0x63U, 0x65U, 0x00U, 0x04U, 0x03U,
+            0x65U, 0x6eU, 0x76U, 0x11U, 0x73U, 0x74U, 0x61U, 0x74U, 0x65U,
+            0x5fU, 0x66U, 0x6fU, 0x72U, 0x65U, 0x69U, 0x67U, 0x6eU, 0x5fU,
+            0x73U, 0x65U, 0x74U, 0x00U, 0x05U, 0x03U, 0x65U, 0x6eU, 0x76U,
+            0x09U, 0x73U, 0x74U, 0x61U, 0x74U, 0x65U, 0x5fU, 0x73U, 0x65U,
+            0x74U, 0x00U, 0x03U, 0x03U, 0x65U, 0x6eU, 0x76U, 0x06U, 0x61U,
+            0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x02U, 0x03U, 0x02U,
+            0x01U, 0x06U, 0x05U, 0x03U, 0x01U, 0x00U, 0x02U, 0x06U, 0x2bU,
+            0x07U, 0x7fU, 0x01U, 0x41U, 0xc0U, 0x88U, 0x04U, 0x0bU, 0x7fU,
+            0x00U, 0x41U, 0x80U, 0x08U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0xb2U,
+            0x08U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0bU, 0x7fU,
+            0x00U, 0x41U, 0xc0U, 0x88U, 0x04U, 0x0bU, 0x7fU, 0x00U, 0x41U,
+            0x00U, 0x0bU, 0x7fU, 0x00U, 0x41U, 0x01U, 0x0bU, 0x07U, 0x08U,
+            0x01U, 0x04U, 0x68U, 0x6fU, 0x6fU, 0x6bU, 0x00U, 0x08U, 0x0aU,
+            0xd4U, 0x81U, 0x00U, 0x01U, 0xd0U, 0x81U, 0x00U, 0x02U, 0x02U,
+            0x7fU, 0x01U, 0x7eU, 0x23U, 0x00U, 0x41U, 0xe0U, 0x00U, 0x6bU,
+            0x22U, 0x01U, 0x24U, 0x00U, 0x20U, 0x01U, 0x20U, 0x00U, 0x36U,
+            0x02U, 0x5cU, 0x41U, 0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1aU,
+            0x20U, 0x01U, 0x41U, 0x40U, 0x6bU, 0x41U, 0x14U, 0x10U, 0x01U,
+            0x42U, 0x14U, 0x52U, 0x04U, 0x40U, 0x41U, 0x00U, 0x41U, 0x00U,
+            0x42U, 0x0cU, 0x10U, 0x02U, 0x1aU, 0x0bU, 0x20U, 0x01U, 0x41U,
+            0x38U, 0x6aU, 0x41U, 0x08U, 0x20U, 0x01U, 0x41U, 0x40U, 0x6bU,
+            0x22U, 0x00U, 0x41U, 0x14U, 0x10U, 0x03U, 0x1aU, 0x20U, 0x01U,
+            0x20U, 0x01U, 0x29U, 0x03U, 0x38U, 0x42U, 0x01U, 0x7cU, 0x37U,
+            0x03U, 0x38U, 0x20U, 0x01U, 0x41U, 0xabU, 0x01U, 0x3aU, 0x00U,
+            0x19U, 0x20U, 0x01U, 0x20U, 0x01U, 0x29U, 0x03U, 0x38U, 0x3cU,
+            0x00U, 0x1aU, 0x41U, 0x80U, 0x08U, 0x41U, 0x02U, 0x20U, 0x01U,
+            0x41U, 0x10U, 0x6aU, 0x22U, 0x02U, 0x41U, 0x20U, 0x41U, 0x01U,
+            0x10U, 0x04U, 0x1aU, 0x20U, 0x01U, 0x41U, 0xa9U, 0x08U, 0x41U,
+            0x09U, 0x41U, 0xa4U, 0x08U, 0x41U, 0x05U, 0x20U, 0x02U, 0x41U,
+            0x20U, 0x20U, 0x00U, 0x41U, 0x14U, 0x10U, 0x05U, 0x37U, 0x03U,
+            0x08U, 0x20U, 0x01U, 0x29U, 0x03U, 0x08U, 0x42U, 0x00U, 0x53U,
+            0x04U, 0x40U, 0x41U, 0x83U, 0x08U, 0x41U, 0x21U, 0x20U, 0x01U,
+            0x29U, 0x03U, 0x08U, 0x10U, 0x02U, 0x1aU, 0x0bU, 0x20U, 0x01U,
+            0x41U, 0x38U, 0x6aU, 0x41U, 0x08U, 0x20U, 0x01U, 0x41U, 0x40U,
+            0x6bU, 0x41U, 0x14U, 0x10U, 0x06U, 0x1aU, 0x41U, 0x00U, 0x41U,
+            0x00U, 0x20U, 0x01U, 0x29U, 0x03U, 0x08U, 0x10U, 0x07U, 0x20U,
+            0x01U, 0x41U, 0xe0U, 0x00U, 0x6aU, 0x24U, 0x00U, 0x0bU, 0x0bU,
+            0x38U, 0x01U, 0x00U, 0x41U, 0x80U, 0x08U, 0x0bU, 0x31U, 0x6eU,
+            0x73U, 0x00U, 0x6eU, 0x73U, 0x5fU, 0x6dU, 0x61U, 0x78U, 0x2eU,
+            0x63U, 0x3aU, 0x20U, 0x4dU, 0x61U, 0x78U, 0x20U, 0x4eU, 0x61U,
+            0x6dU, 0x65U, 0x73U, 0x70U, 0x61U, 0x63U, 0x65U, 0x73U, 0x20U,
+            0x52U, 0x65U, 0x61U, 0x63U, 0x68U, 0x65U, 0x64U, 0x00U, 0x6bU,
+            0x65U, 0x79U, 0x32U, 0x00U, 0x63U, 0x6fU, 0x6eU, 0x74U, 0x65U,
+            0x6eU, 0x74U, 0x32U};
+
+        Env env{*this, features};
+
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000000), alice);
+        env.fund(XRP(10000000), bob);
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hso(ns_maxHook, overrideFlag)}}, 0),
+            M("set state_foreign_set_max"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        for (uint32_t i = 0; i < 255; ++i)
+        {
+            env(pay(bob, alice, XRP(1)),
+                M("test state_foreign_set_max"),
+                fee(XRP(1)));
+        }
+
+        // fixXahauV1
+        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+        auto const txResult = fixV1 ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS);
+        env(pay(bob, alice, XRP(1)),
+            M("test state_foreign_set_max"),
+            fee(XRP(1)),
+            ter(txResult));
+        env.close();
+
+        // verify hook result
+        // TOO_MANY_NAMESPACES / -45
+        std::string const hookResult = fixV1 ? "800000000000002d" : "9";
+
+        Json::Value params;
+        params[jss::transaction] =
+            env.tx()->getJson(JsonOptions::none)[jss::hash];
+        auto const jrr = env.rpc("json", "tx", to_string(params));
+        auto const meta = jrr[jss::result][jss::meta];
+        auto const executions = meta[sfHookExecutions.jsonName];
+        auto const execution = executions[0u][sfHookExecution.jsonName];
+        BEAST_EXPECT(execution[sfHookReturnCode.jsonName] == hookResult);
+    }
+
+    void
+    test_state_foreign_set(FeatureBitset features)
     {
         testcase("Test state_foreign_set");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
-        //        Env env{*this, envconfig(), supported_amendments(), nullptr,
-        //            beast::severities::kWarning
-        //            beast::severities::kTrace
-        //        };
+        Env env{*this, features};
 
         auto const david = Account("david");  // grantee generic
         auto const cho = Account{"cho"};      // invoker
@@ -8234,12 +8542,12 @@ public:
     }
 
     void
-    test_state_set()
+    test_state_set(FeatureBitset features)
     {
         testcase("Test state_set");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -8944,12 +9252,12 @@ public:
     }
 
     void
-    test_sto_emplace()
+    test_sto_emplace(FeatureBitset features)
     {
         testcase("Test sto_emplace");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9138,12 +9446,12 @@ public:
     }
 
     void
-    test_sto_erase()
+    test_sto_erase(FeatureBitset features)
     {
         testcase("Test sto_erase");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9275,12 +9583,12 @@ public:
     }
 
     void
-    test_sto_subarray()
+    test_sto_subarray(FeatureBitset features)
     {
         testcase("Test sto_subarray");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9349,12 +9657,12 @@ public:
     }
 
     void
-    test_sto_subfield()
+    test_sto_subfield(FeatureBitset features)
     {
         testcase("Test sto_subfield");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9433,12 +9741,12 @@ public:
     }
 
     void
-    test_sto_validate()
+    test_sto_validate(FeatureBitset features)
     {
         testcase("Test sto_validate");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9516,12 +9824,12 @@ public:
     }
 
     void
-    test_trace()
+    test_trace(FeatureBitset features)
     {
         testcase("Test trace");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -9566,12 +9874,12 @@ public:
     }
 
     void
-    test_trace_float()
+    test_trace_float(FeatureBitset features)
     {
         testcase("Test trace_float");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -9610,12 +9918,12 @@ public:
     }
 
     void
-    test_trace_num()
+    test_trace_num(FeatureBitset features)
     {
         testcase("Test trace_num");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -9654,10 +9962,10 @@ public:
     }
 
     void
-    test_util_accid()
+    test_util_accid(FeatureBitset features)
     {
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -9922,12 +10230,12 @@ public:
     }
 
     void
-    test_util_keylet()
+    test_util_keylet(FeatureBitset features)
     {
         testcase("Test util_keylet");
         using namespace jtx;
 
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -10495,11 +10803,11 @@ public:
     }
 
     void
-    test_util_raddr()
+    test_util_raddr(FeatureBitset features)
     {
         testcase("Test util_raddr");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -10948,11 +11256,11 @@ public:
     }
 
     void
-    test_util_sha512h()
+    test_util_sha512h(FeatureBitset features)
     {
         testcase("Test util_sha512h");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -11321,11 +11629,11 @@ public:
     }
 
     void
-    test_util_verify()
+    test_util_verify(FeatureBitset features)
     {
         testcase("Test util_verify");
         using namespace jtx;
-        Env env{*this, supported_amendments()};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -11435,111 +11743,125 @@ public:
     }
 
     void
+    testWithFeatures(FeatureBitset features)
+    {
+        testHooksOwnerDir(features);
+        testHooksDisabled(features);
+        testTxStructure(features);
+        testInferHookSetOperation();
+        testParams(features);
+        testGrants(features);
+
+        testDelete(features);
+        testInstall(features);
+        testCreate(features);
+        testWithTickets(features);
+
+        testUpdate(features);
+
+        testNSDelete(features);
+        testNSDeletePartial(features);
+
+        testWasm(features);
+        test_accept(features);
+        test_rollback(features);
+
+        testGuards(features);
+
+        test_emit(features);  //
+        // test_etxn_burden(features);       // tested above
+        // test_etxn_generation(features);   // tested above
+        // test_otxn_burden(features);       // tested above
+        // test_otxn_generation(features);   // tested above
+        test_etxn_details(features);   //
+        test_etxn_fee_base(features);  //
+        test_etxn_nonce(features);     //
+        test_etxn_reserve(features);   //
+        test_fee_base(features);       //
+
+        test_otxn_field(features);  //
+
+        test_ledger_keylet(features);  //
+
+        test_float_compare(features);   //
+        test_float_divide(features);    //
+        test_float_int(features);       //
+        test_float_invert(features);    //
+        test_float_log(features);       //
+        test_float_mantissa(features);  //
+        test_float_mulratio(features);  //
+        test_float_multiply(features);  //
+        test_float_negate(features);    //
+        test_float_one(features);       //
+        test_float_root(features);      //
+        test_float_set(features);       //
+        test_float_sign(features);      //
+        test_float_sto(features);       //
+        test_float_sto_set(features);   //
+        test_float_sum(features);       //
+
+        test_hook_account(features);    //
+        test_hook_again(features);      //
+        test_hook_hash(features);       //
+        test_hook_param(features);      //
+        test_hook_param_set(features);  //
+        test_hook_pos(features);        //
+        test_hook_skip(features);       //
+
+        test_ledger_last_hash(features);  //
+        test_ledger_last_time(features);  //
+        test_ledger_nonce(features);      //
+        test_ledger_seq(features);        //
+
+        test_meta_slot(features);  //
+
+        test_otxn_id(features);     //
+        test_otxn_slot(features);   //
+        test_otxn_type(features);   //
+        test_otxn_param(features);  //
+
+        test_slot(features);           //
+        test_slot_clear(features);     //
+        test_slot_count(features);     //
+        test_slot_float(features);     //
+        test_slot_set(features);       //
+        test_slot_size(features);      //
+        test_slot_subarray(features);  //
+        test_slot_subfield(features);  //
+        test_slot_type(features);      //
+
+        test_state(features);                  //
+        test_state_foreign(features);          //
+        test_state_foreign_set(features);      //
+        test_state_foreign_set_max(features);  //
+        test_state_set(features);              //
+
+        test_sto_emplace(features);   //
+        test_sto_erase(features);     //
+        test_sto_subarray(features);  //
+        test_sto_subfield(features);  //
+        test_sto_validate(features);  //
+
+        test_trace(features);        //
+        test_trace_float(features);  //
+        test_trace_num(features);    //
+
+        test_util_accid(features);    //
+        test_util_keylet(features);   //
+        test_util_raddr(features);    //
+        test_util_sha512h(features);  //
+        test_util_verify(features);   //
+    }
+
+    void
     run() override
     {
-        testHooksDisabled();
-        testTxStructure();
-        testInferHookSetOperation();
-        testParams();
-        testGrants();
-
-        testDelete();
-        testInstall();
-        testCreate();
-        testWithTickets();
-
-        testUpdate();
-
-        testNSDelete();
-
-        testWasm();
-        test_accept();
-        test_rollback();
-
-        testGuards();
-
-        test_emit();  //
-        // test_etxn_burden();       // tested above
-        // test_etxn_generation();   // tested above
-        // test_otxn_burden();       // tested above
-        // test_otxn_generation();   // tested above
-        test_etxn_details();   //
-        test_etxn_fee_base();  //
-        test_etxn_nonce();     //
-        test_etxn_reserve();   //
-        test_fee_base();       //
-
-        test_otxn_field();  //
-
-        test_ledger_keylet();  //
-
-        test_float_compare();   //
-        test_float_divide();    //
-        test_float_int();       //
-        test_float_invert();    //
-        test_float_log();       //
-        test_float_mantissa();  //
-        test_float_mulratio();  //
-        test_float_multiply();  //
-        test_float_negate();    //
-        test_float_one();       //
-        test_float_root();      //
-        test_float_set();       //
-        test_float_sign();      //
-        test_float_sto();       //
-        test_float_sto_set();   //
-        test_float_sum();       //
-
-        test_hook_account();    //
-        test_hook_again();      //
-        test_hook_hash();       //
-        test_hook_param();      //
-        test_hook_param_set();  //
-        test_hook_pos();        //
-        test_hook_skip();       //
-
-        test_ledger_last_hash();  //
-        test_ledger_last_time();  //
-        test_ledger_nonce();      //
-        test_ledger_seq();        //
-
-        test_meta_slot();  //
-
-        test_otxn_id();     //
-        test_otxn_slot();   //
-        test_otxn_type();   //
-        test_otxn_param();  //
-
-        test_slot();           //
-        test_slot_clear();     //
-        test_slot_count();     //
-        test_slot_float();     //
-        test_slot_set();       //
-        test_slot_size();      //
-        test_slot_subarray();  //
-        test_slot_subfield();  //
-        test_slot_type();      //
-
-        test_state();              //
-        test_state_foreign();      //
-        test_state_foreign_set();  //
-        test_state_set();          //
-
-        test_sto_emplace();   //
-        test_sto_erase();     //
-        test_sto_subarray();  //
-        test_sto_subfield();  //
-        test_sto_validate();  //
-
-        test_trace();        //
-        test_trace_float();  //
-        test_trace_num();    //
-
-        test_util_accid();    //
-        test_util_keylet();   //
-        test_util_raddr();    //
-        test_util_sha512h();  //
-        test_util_verify();   //
+        using namespace test::jtx;
+        auto const sa = supported_amendments();
+        testWithFeatures(sa);
+        testWithFeatures(sa - fixXahauV2);
+        testWithFeatures(sa - fixXahauV1 - fixXahauV2);
+        testWithFeatures(sa - fixXahauV1 - fixXahauV2 - fixNSDelete);
     }
 
 private:

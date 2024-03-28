@@ -191,30 +191,25 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        // fixURITokenV1
+        // fixXahauV1
         {
-            for (bool const withFixURITokenV1 : {true, false})
-            {
-                auto const amend =
-                    withFixURITokenV1 ? features : features - fixURITokenV1;
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
 
-                auto const txResult =
-                    withFixURITokenV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
+            std::string const uri(2, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            std::string const hexid{strHex(tid)};
 
-                Env env{*this, amend};
-                auto const alice = Account("alice");
-                auto const bob = Account("bob");
-                env.fund(XRP(1000), alice, bob);
-                env.close();
-
-                std::string const uri(2, '?');
-                auto const tid = uritoken::tokenid(alice, uri);
-                std::string const hexid{strHex(tid)};
-
-                // temMALFORMED - cannot include sfDestination without sfAmount
-                env(uritoken::mint(alice, uri), uritoken::dest(bob), txResult);
-                env.close();
-            }
+            // temMALFORMED - cannot include sfDestination without sfAmount
+            bool const withFixXahauV1 =
+                env.current()->rules().enabled(fixXahauV1);
+            auto const txResult =
+                withFixXahauV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
+            env(uritoken::mint(alice, uri), uritoken::dest(bob), txResult);
+            env.close();
         }
 
         // setup env
@@ -367,6 +362,7 @@ struct URIToken_test : public beast::unit_test::suite
         // tecNO_PERMISSION - no permission
         env(uritoken::burn(carol, hexid), ter(tecNO_PERMISSION));
         env.close();
+
         // tefBAD_LEDGER - could not remove object
     }
 
@@ -459,7 +455,7 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         // setup env
-        Env env{*this, features};
+        Env env{*this, envconfig(), features, nullptr};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const carol = Account("carol");
@@ -510,7 +506,7 @@ struct URIToken_test : public beast::unit_test::suite
             ter(temBAD_CURRENCY));
         env.close();
 
-        // tecINSUFFICIENT_PAYMENT - insuficient buy offer amount
+        // tecINSUFFICIENT_PAYMENT - insufficient buy offer amount
         env(uritoken::buy(bob, hexid),
             uritoken::amt(USD(9)),
             ter(tecINSUFFICIENT_PAYMENT));
@@ -520,10 +516,13 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(XRP(10000)));
         env.close();
 
-        // tecINSUFFICIENT_FUNDS - insuficient xrp - fees
-        env(uritoken::buy(bob, hexid),
-            uritoken::amt(XRP(1000)),
-            ter(tecINSUFFICIENT_PAYMENT));
+        // tecINSUFFICIENT_FUNDS - insufficient xrp - fees
+        // fixXahauV1 - fix checking wrong account for insufficient xrp
+        env(pay(env.master, alice, XRP(10000)));
+        auto const txResult = env.current()->rules().enabled(fixXahauV1)
+            ? ter(tecINSUFFICIENT_FUNDS)
+            : ter(tecINTERNAL);
+        env(uritoken::buy(bob, hexid), uritoken::amt(XRP(10000)), txResult);
         env.close();
 
         // clear sell and reset new sell
@@ -531,10 +530,10 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(USD(10000)));
         env.close();
 
-        // tecINSUFFICIENT_FUNDS - insuficient amount
+        // tecINSUFFICIENT_FUNDS - insufficient amount
         env(uritoken::buy(bob, hexid),
-            uritoken::amt(USD(1000)),
-            ter(tecINSUFFICIENT_PAYMENT));
+            uritoken::amt(USD(10000)),
+            ter(tecINSUFFICIENT_FUNDS));
         env.close();
 
         //----------------------------------------------------------------------
@@ -573,15 +572,18 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(XRP(1000)));
         env.close();
 
-        // tecINSUFFICIENT_PAYMENT - insuficient xrp sent
+        // tecINSUFFICIENT_PAYMENT - insufficient xrp sent
         env(uritoken::buy(bob, hexid),
             uritoken::amt(XRP(900)),
             ter(tecINSUFFICIENT_PAYMENT));
         env.close();
-        // tecINSUFFICIENT_FUNDS - insuficient xrp - fees
-        env(uritoken::buy(bob, hexid),
-            uritoken::amt(XRP(1000)),
-            ter(tecINSUFFICIENT_FUNDS));
+
+        // tecINSUFFICIENT_FUNDS - insufficient xrp - fees
+        // fixXahauV1 - fix checking wrong account for insufficient xrp
+        auto const txResult1 = env.current()->rules().enabled(fixXahauV1)
+            ? ter(tecINSUFFICIENT_FUNDS)
+            : ter(tecINTERNAL);
+        env(uritoken::buy(bob, hexid), uritoken::amt(XRP(1000)), txResult1);
         env.close();
 
         // clear sell and set usd sell
@@ -589,20 +591,21 @@ struct URIToken_test : public beast::unit_test::suite
         env(uritoken::sell(alice, hexid), uritoken::amt(USD(1000)));
         env.close();
 
-        // tecINSUFFICIENT_PAYMENT - insuficient amount sent
+        // tecINSUFFICIENT_PAYMENT - insufficient amount sent
         env(uritoken::buy(bob, hexid),
             uritoken::amt(USD(900)),
             ter(tecINSUFFICIENT_PAYMENT));
         env.close();
 
-        // tecINSUFFICIENT_FUNDS - insuficient amount sent
+        // tecINSUFFICIENT_FUNDS - insufficient amount sent
         env(uritoken::buy(bob, hexid),
             uritoken::amt(USD(10000)),
             ter(tecINSUFFICIENT_FUNDS));
         env.close();
-        // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
+
+        // tecNO_LINE_INSUF_RESERVE - insufficient xrp to create line
         {
-            // fund dave 251 xrp (not enough for line reserve)
+            // fund echo 251 xrp (not enough for line reserve)
             env.fund(XRP(251), echo);
             env.fund(XRP(301), dave);
             env.close();
@@ -619,10 +622,13 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::sell(echo, hexid), uritoken::amt(USD(1)));
             env.close();
 
-            // tecNO_LINE_INSUF_RESERVE - insuficient xrp to create line
-            env(uritoken::buy(dave, hexid),
-                uritoken::amt(USD(1)),
-                ter(tecNO_LINE_INSUF_RESERVE));
+            // tecNO_LINE_INSUF_RESERVE - insufficient xrp to create line
+            auto const txResult = env.current()->rules().enabled(fixXahauV1)
+                ? ter(tecINSUF_RESERVE_SELLER)
+                : ter(tecNO_LINE_INSUF_RESERVE);
+
+            env(noop(echo), fee(XRP(50)), ter(tesSUCCESS));
+            env(uritoken::buy(dave, hexid), uritoken::amt(USD(1)), txResult);
             env.close();
         }
 
@@ -711,12 +717,14 @@ struct URIToken_test : public beast::unit_test::suite
                 json(sfDigest.fieldName, digestval));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
             BEAST_EXPECT(
                 to_string(tokenDigest(*env.current(), tid)) == digestval);
             // cleanup
             env(uritoken::burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
         }
         // has digest - has uri - burnable flag
         {
@@ -726,12 +734,14 @@ struct URIToken_test : public beast::unit_test::suite
                 json(sfDigest.fieldName, digestval));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
             BEAST_EXPECT(
                 to_string(tokenDigest(*env.current(), tid)) == digestval);
             // cleanup
             env(uritoken::burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
         }
         // has uri - no flags
         {
@@ -739,10 +749,12 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
             // cleanup
             env(uritoken::burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
         }
         // has uri - burnable flag
         {
@@ -750,10 +762,12 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri), txflags(tfBurnable));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
             // cleanup
             env(uritoken::burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
         }
 
         // 0 amount and destination
@@ -766,14 +780,23 @@ struct URIToken_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             // buy
             env(uritoken::buy(bob, hexid), uritoken::amt(XRP(0)));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // cleanup
             env(uritoken::burn(bob, hexid));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
         }
 
         // has amount and destination
@@ -786,14 +809,23 @@ struct URIToken_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             // buy
             env(uritoken::buy(bob, hexid), uritoken::amt(XRP(10)));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // cleanup
             env(uritoken::burn(bob, hexid));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
         }
 
         // has amount and no destination
@@ -805,14 +837,23 @@ struct URIToken_test : public beast::unit_test::suite
                 ter(tesSUCCESS));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             // buy
             env(uritoken::buy(bob, hexid), uritoken::amt(XRP(10)));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // cleanup
             env(uritoken::burn(bob, hexid));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
         }
     }
 
@@ -840,16 +881,30 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri), txflags(tfBurnable));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(XRP(1)));
             env.close();
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             // bob buys
             env(uritoken::buy(bob, hexid), uritoken::amt(XRP(1)));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice burns
             env(uritoken::burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
         }
         // issuer cannot burn
         {
@@ -857,21 +912,33 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(XRP(1)));
             env.close();
             // bob buys
             env(uritoken::buy(bob, hexid), uritoken::amt(XRP(1)));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice tries to burn
             env(uritoken::burn(alice, hexid), ter(tecNO_PERMISSION));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // burn for test reset
             env(uritoken::burn(bob, hexid));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
         }
         // owner can burn
         {
@@ -879,18 +946,30 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(XRP(1)));
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
             env.close();
             // bob buys
             env(uritoken::buy(bob, hexid), uritoken::amt(XRP(1)));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // bob burns
             env(uritoken::burn(bob, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
         }
     }
 
@@ -930,6 +1009,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             BEAST_EXPECT(env.balance(alice) == preAlice - (1 * feeDrops));
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(delta));
@@ -939,7 +1021,10 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::buy(bob, hexid), uritoken::amt(delta));
             env.close();
 
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
             BEAST_EXPECT(
                 env.balance(alice) == preAlice + delta - (2 * feeDrops));
             BEAST_EXPECT(env.balance(bob) == preBob - delta - feeDrops);
@@ -950,6 +1035,8 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
         // bob can buy with USD
         {
@@ -962,6 +1049,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             BEAST_EXPECT(env.balance(alice) == preAliceXrp - (1 * feeDrops));
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(delta));
@@ -971,7 +1061,10 @@ struct URIToken_test : public beast::unit_test::suite
             // bob buys
             env(uritoken::buy(bob, hexid), uritoken::amt(delta));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
             BEAST_EXPECT(env.balance(alice) == preAliceXrp - (2 * feeDrops));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
@@ -983,6 +1076,8 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
     }
 
@@ -1024,6 +1119,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(delta));
             env.close();
@@ -1041,7 +1139,10 @@ struct URIToken_test : public beast::unit_test::suite
             // bob buys at higher price
             env(uritoken::buy(bob, hexid), uritoken::amt(XRP(11)));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
             BEAST_EXPECT(
                 env.balance(alice) == preAlice + XRP(11) - (4 * feeDrops));
             BEAST_EXPECT(env.balance(bob) == preBob - XRP(11) - (2 * feeDrops));
@@ -1052,6 +1153,8 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
         // alice can sell with XRP and dest
         {
@@ -1062,6 +1165,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice sells
             env(uritoken::sell(alice, hexid),
                 uritoken::amt(delta),
@@ -1076,7 +1182,10 @@ struct URIToken_test : public beast::unit_test::suite
             // bob buys
             env(uritoken::buy(bob, hexid), uritoken::amt(delta));
             env.close();
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
             BEAST_EXPECT(
                 env.balance(alice) == preAlice + delta - (2 * feeDrops));
             BEAST_EXPECT(env.balance(bob) == preBob - delta - (1 * feeDrops));
@@ -1087,6 +1196,8 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
 
         // alice can sell with USD
@@ -1100,6 +1211,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(delta));
             env.close();
@@ -1118,7 +1232,10 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::buy(bob, hexid), uritoken::amt(USD(11)));
             env.close();
 
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + USD(11));
             BEAST_EXPECT(env.balance(alice) == preAliceXrp - (4 * feeDrops));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - USD(11));
@@ -1130,6 +1247,8 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
         // alice can sell with USD and dest
         {
@@ -1142,6 +1261,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice sells
             env(uritoken::sell(alice, hexid),
                 uritoken::amt(delta),
@@ -1157,7 +1279,10 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::buy(bob, hexid), uritoken::amt(delta));
             env.close();
 
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 2);
             BEAST_EXPECT(env.balance(alice, USD.issue()) == preAlice + delta);
             BEAST_EXPECT(env.balance(alice) == preAliceXrp - (2 * feeDrops));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
@@ -1169,6 +1294,8 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
     }
 
@@ -1209,6 +1336,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(delta));
             env.close();
@@ -1228,6 +1358,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
         // alice can clear / reset USD amount
         {
@@ -1236,6 +1369,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
             // alice sells
             env(uritoken::sell(alice, hexid), uritoken::amt(delta));
             env.close();
@@ -1255,6 +1391,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::burn(alice, hexid));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
         }
     }
 
@@ -1294,8 +1433,8 @@ struct URIToken_test : public beast::unit_test::suite
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
-            // // alice sets the sell offer
-            // // bob sets the buy offer
+            // alice sets the sell offer
+            // bob sets the buy offer
             env(uritoken::buy(bob, hexid), uritoken::amt(USD(10)));
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
@@ -1321,8 +1460,8 @@ struct URIToken_test : public beast::unit_test::suite
             BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 2);
             BEAST_EXPECT(!inOwnerDir(*env.current(), bob, tid));
             BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
-            // // alice sets the sell offer
-            // // bob sets the buy offer
+            // alice sets the sell offer
+            // bob sets the buy offer
             env(uritoken::buy(bob, hexid), uritoken::amt(USD(10)));
             env.close();
             BEAST_EXPECT(!inOwnerDir(*env.current(), alice, tid));
@@ -1833,11 +1972,30 @@ struct URIToken_test : public beast::unit_test::suite
         auto const gw = Account{"gateway"};
         auto const USD = gw["USD"];
 
-        // test transfer rate
+        struct TestRateData
+        {
+            double rate;
+            STAmount delta;
+            std::string multiply;
+            std::string divide;
+        };
+        std::array<TestRateData, 9> testCases = {{
+            {1, USD(100), "1100", "1100"},
+            {1.1, USD(100), "1110", "1090.909090909091"},
+            {1.0005, USD(100), "1100.05", "1099.950024987506"},
+            {1.005, USD(100), "1100.4999999", "1099.502487661197"},
+            {1.25, USD(100), "1125", "1080"},
+            {2, USD(100), "1200", "1050"},
+            {1.25, USD(1), "1001.25", "1000.8"},
+            {1.25, USD(0.1), "1000.125", "1000.08"},
+            {1.25, USD(0.0001), "1000.000125", "1000.00008"},
+        }};
+
+        for (auto const& tc : testCases)
         {
             Env env{*this, features};
             env.fund(XRP(10000), alice, bob, gw);
-            env(rate(gw, 1.25));
+            env(rate(gw, tc.rate));
             env.close();
             env.trust(USD(100000), alice, bob);
             env.close();
@@ -1845,21 +2003,77 @@ struct URIToken_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(1000)));
             env.close();
 
+            auto const preAlice = env.balance(alice, USD.issue());
             auto const preBob = env.balance(bob, USD.issue());
 
             // setup mint
             std::string const uri(maxTokenURILength, '?');
             std::string const id{strHex(uritoken::tokenid(alice, uri))};
-            auto const delta = USD(100);
+            auto const delta = tc.delta;
             env(uritoken::mint(alice, uri));
             env(uritoken::sell(alice, id), uritoken::amt(delta));
             env.close();
 
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(1125));
+            auto const postAlice = env.balance(alice, USD.issue());
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                BEAST_EXPECT(to_string(postAlice.value()) == tc.multiply);
+            }
+            else
+            {
+                BEAST_EXPECT(to_string(postAlice.value()) == tc.divide);
+            }
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
+
+        // test dust amount
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env(rate(gw, 1.50));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice, USD.issue());
+            auto const preBob = env.balance(bob, USD.issue());
+
+            // setup mint
+            std::string const uri(maxTokenURILength, '?');
+            std::string const id{strHex(uritoken::tokenid(alice, uri))};
+            env(uritoken::mint(alice, uri));
+
+            auto sellTx = uritoken::sell(alice, id);
+            sellTx[jss::Amount][jss::issuer] = gw.human();
+            sellTx[jss::Amount][jss::currency] = "USD";
+            sellTx[jss::Amount][jss::value] = "1e-81";
+            env(sellTx);
+            env.close();
+
+            auto buyTx = uritoken::buy(bob, id);
+            buyTx[jss::Amount][jss::issuer] = gw.human();
+            buyTx[jss::Amount][jss::currency] = "USD";
+            buyTx[jss::Amount][jss::value] = "1e-81";
+            env(buyTx);
+            env.close();
+            auto const postAlice = env.balance(alice, USD.issue());
+
+            if (!env.current()->rules().enabled(fixXahauV1))
+            {
+                BEAST_EXPECT(postAlice.value() == preAlice);
+            }
+            else
+            {
+                BEAST_EXPECT(postAlice.value() == preAlice);
+            }
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - USD(0));
+        }
+
         // test rate change
         {
             Env env{*this, features};
@@ -1882,29 +2096,16 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::sell(alice, id), uritoken::amt(delta));
             env.close();
 
-            // bob buys at higher rate and burns
-            env(uritoken::buy(bob, id), uritoken::amt(delta));
-            env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10125));
-            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
-            env(uritoken::burn(bob, id));
-
             // issuer changes rate lower
             env(rate(gw, 1.00));
             env.close();
 
-            preBob = env.balance(bob, USD.issue());
-
-            // alice mints and sells
-            env(uritoken::mint(alice, uri));
-            env(uritoken::sell(alice, id), uritoken::amt(delta));
-            env.close();
-
-            // bob buys at lower rate
+            // bob buys at higher rate and burns
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
-            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10225));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(10100));
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
+            env(uritoken::burn(bob, id));
         }
         // test issuer doesnt pay own rate
         {
@@ -2377,6 +2578,7 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testWithFeats(sa);
+        testWithFeats(sa - fixXahauV1);
     }
 };
 

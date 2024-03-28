@@ -12,10 +12,13 @@ if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   BUILD_CORES=8
 fi
 
+CONTAINER_NAME=xahaud_cached_builder_$(echo "$GITHUB_ACTOR" | awk '{print tolower($0)}')
+
 echo "-- BUILD CORES:       $BUILD_CORES"
 echo "-- GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
 echo "-- GITHUB_SHA:        $GITHUB_SHA"
 echo "-- GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
+echo "-- CONTAINER_NAME:    $CONTAINER_NAME"
 
 which docker 2> /dev/null 2> /dev/null
 if [ "$?" -eq "1" ]
@@ -31,13 +34,13 @@ then
   exit 1
 fi
 
-STATIC_CONTAINER=$(docker ps -a | grep xahaud_cached_builder |wc -l)
+STATIC_CONTAINER=$(docker ps -a | grep $CONTAINER_NAME |wc -l)
 
 if [[ "$STATIC_CONTAINER" -gt "0" && "$GITHUB_REPOSITORY" != "" ]]; then
   echo "Static container, execute in static container to have max. cache"
-  docker start xahaud_cached_builder
-  docker exec -i xahaud_cached_builder /hbb_exe/activate-exec bash -x /io/build-core.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$BUILD_CORES" "$GITHUB_RUN_NUMBER"
-  docker stop xahaud_cached_builder
+  docker start $CONTAINER_NAME
+  docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -x /io/build-core.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$BUILD_CORES" "$GITHUB_RUN_NUMBER"
+  docker stop $CONTAINER_NAME
 else
   echo "No static container, build on temp container"
   rm -rf release-build;
@@ -50,10 +53,10 @@ else
   else
     # GH Action, runner
     echo "GH Action, runner, clean & re-create create persistent container"
-    docker rm -f xahaud_cached_builder
-    docker run -di --user 0:$(id -g) --name xahaud_cached_builder -v /data/builds:/data/builds -v `pwd`:/io --network host ghcr.io/foobarwidget/holy-build-box-x64 /hbb_exe/activate-exec bash
-    docker exec -i xahaud_cached_builder /hbb_exe/activate-exec bash -x /io/build-full.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$BUILD_CORES" "$GITHUB_RUN_NUMBER"
-    docker stop xahaud_cached_builder
+    docker rm -f $CONTAINER_NAME
+    docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v `pwd`:/io --network host ghcr.io/foobarwidget/holy-build-box-x64 /hbb_exe/activate-exec bash
+    docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -x /io/build-full.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$BUILD_CORES" "$GITHUB_RUN_NUMBER"
+    docker stop $CONTAINER_NAME
   fi
 fi
 

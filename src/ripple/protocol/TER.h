@@ -183,6 +183,7 @@ enum TEFcodes : TERUnderlyingType {
     tefNFTOKEN_IS_NOT_TRANSFERABLE,
     tefPAST_IMPORT_SEQ,
     tefPAST_IMPORT_VL_SEQ,
+    tefNONDIR_EMIT,
 };
 
 //------------------------------------------------------------------------------
@@ -239,7 +240,8 @@ enum TEScodes : TERUnderlyingType {
     // Implications:
     // - Applied
     // - Forwarded
-    tesSUCCESS = 0
+    tesSUCCESS = 0,
+    tesPARTIAL = 1,
 };
 
 //------------------------------------------------------------------------------
@@ -337,6 +339,7 @@ enum TECcodes : TERUnderlyingType {
     tecXCHAIN_PAYMENT_FAILED = 184,               // RESERVED - XCHAIN
     tecXCHAIN_SELF_COMMIT = 185,                  // RESERVED - XCHAIN
     tecXCHAIN_BAD_PUBLIC_KEY_ACCOUNT_PAIR = 186,  // RESERVED - XCHAIN
+    tecINSUF_RESERVE_SELLER = 187,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 
@@ -434,7 +437,7 @@ public:
     // Conversion to bool.
     explicit operator bool() const
     {
-        return code_ != tesSUCCESS;
+        return code_ < tesSUCCESS || code_ >= tecCLAIM;
     }
 
     // Conversion to Json::Value allows assignment to Json::Objects
@@ -639,10 +642,17 @@ isTerRetry(TER x)
     return ((x) >= terRETRY && (x) < tesSUCCESS);
 }
 
+template <typename T>
+inline bool
+isTesSuccess(T x)
+{
+    return ((x) >= tesSUCCESS) && (x) < tecCLAIM;
+}
+
 inline bool
 isTesSuccess(TER x)
 {
-    return ((x) == tesSUCCESS);
+    return ((x) >= tesSUCCESS) && (x) < tecCLAIM;
 }
 
 inline bool

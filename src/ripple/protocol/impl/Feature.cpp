@@ -459,9 +459,12 @@ REGISTER_FEATURE(URIToken,                      Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(Import,                        Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(XahauGenesis,                  Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(HooksUpdate1,                  Supported::yes, VoteBehavior::DefaultYes);
-REGISTER_FIX    (fixURITokenV1,                 Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixXahauV1,                    Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixXahauV2,                    Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(Remit,                         Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(ZeroB2M,                       Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixNSDelete,                   Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(Batch,                         Supported::yes, VoteBehavior::DefaultNo);
-
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

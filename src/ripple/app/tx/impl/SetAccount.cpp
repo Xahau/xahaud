@@ -577,6 +577,14 @@ SetAccount::doApply()
             uFlagsOut |= lsfDisallowIncomingTrustline;
         else if (uClearFlag == asfDisallowIncomingTrustline)
             uFlagsOut &= ~lsfDisallowIncomingTrustline;
+
+        if (ctx_.view().rules().enabled(featureRemit))
+        {
+            if (uSetFlag == asfDisallowIncomingRemit)
+                uFlagsOut |= lsfDisallowIncomingRemit;
+            else if (uClearFlag == asfDisallowIncomingRemit)
+                uFlagsOut &= ~lsfDisallowIncomingRemit;
+        }
     }
 
     if (uFlagsIn != uFlagsOut)

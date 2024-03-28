@@ -11,7 +11,6 @@
  */
 
 #define LPAREN (
-#define LPAREN (
 #define RPAREN )
 #define COMMA ,
 #define EXPAND(...) __VA_ARGS__

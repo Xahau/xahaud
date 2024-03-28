@@ -155,7 +155,7 @@ XRPNotCreated::finalize(
         return true;
 
     if (view.rules().enabled(featureImport) && tt == ttIMPORT &&
-        res == tesSUCCESS)
+        isTesSuccess(res))
     {
         // different rules for ttIMPORT
         auto const [inner, meta] = Import::getInnerTxn(tx, j);
@@ -164,7 +164,7 @@ XRPNotCreated::finalize(
 
         auto const result = meta->getFieldU8(sfTransactionResult);
 
-        XRPAmount maxDropsAdded = result == tesSUCCESS ||
+        XRPAmount maxDropsAdded = isTesSuccess(result) ||
                 (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY)
             ? inner->getFieldAmount(sfFee).xrp()  // burned in PoB
             : beast::zero;  // if the txn didnt burn a fee we add nothing
@@ -203,7 +203,7 @@ XRPNotCreated::finalize(
     }
 
     if (view.rules().enabled(featureXahauGenesis) && tt == ttGENESIS_MINT &&
-        res == tesSUCCESS)
+        isTesSuccess(res))
     {
         // different rules for ttGENESIS_MINT
         auto const& dests = tx.getFieldArray(sfGenesisMints);
@@ -460,7 +460,7 @@ AccountRootsNotDeleted::finalize(
     ReadView const&,
     beast::Journal const& j)
 {
-    if (tx.getTxnType() == ttACCOUNT_DELETE && result == tesSUCCESS)
+    if (tx.getTxnType() == ttACCOUNT_DELETE && isTesSuccess(result))
     {
         if (accountsDeleted_ == 1)
             return true;
@@ -624,8 +624,9 @@ ValidNewAccountRoot::finalize(
         return false;
     }
 
-    if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT) &&
-        result == tesSUCCESS)
+    if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT ||
+         tt == ttREMIT) &&
+        isTesSuccess(result))
     {
         std::uint32_t const startingSeq{
             view.rules().enabled(featureXahauGenesis)
@@ -817,7 +818,7 @@ NFTokenCountTracking::finalize(
 
     if (tx.getTxnType() == ttNFTOKEN_MINT)
     {
-        if (result == tesSUCCESS && beforeMintedTotal >= afterMintedTotal)
+        if (isTesSuccess(result) && beforeMintedTotal >= afterMintedTotal)
         {
             JLOG(j.fatal())
                 << "Invariant failed: successful minting didn't increase "
@@ -825,7 +826,7 @@ NFTokenCountTracking::finalize(
             return false;
         }
 
-        if (result != tesSUCCESS && beforeMintedTotal != afterMintedTotal)
+        if (!isTesSuccess(result) && beforeMintedTotal != afterMintedTotal)
         {
             JLOG(j.fatal()) << "Invariant failed: failed minting changed the "
                                "number of minted tokens.";
@@ -843,7 +844,7 @@ NFTokenCountTracking::finalize(
 
     if (tx.getTxnType() == ttNFTOKEN_BURN)
     {
-        if (result == tesSUCCESS)
+        if (isTesSuccess(result))
         {
             if (beforeBurnedTotal >= afterBurnedTotal)
             {
@@ -854,7 +855,7 @@ NFTokenCountTracking::finalize(
             }
         }
 
-        if (result != tesSUCCESS && beforeBurnedTotal != afterBurnedTotal)
+        if (!isTesSuccess(result) && beforeBurnedTotal != afterBurnedTotal)
         {
             JLOG(j.fatal()) << "Invariant failed: failed burning changed the "
                                "number of burned tokens.";

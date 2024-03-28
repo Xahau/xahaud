@@ -20,6 +20,12 @@ enum HookSetFlags : uint8_t {
     hsfNSDELETE = 0b00000010U,  // delete namespace
     hsfCOLLECT = 0b00000100U,   // allow collect calls on this hook
 };
+
+enum HookEmissionFlags : uint16_t {
+    hefSTRONG = 0x1,
+    hefCALLBACK = 0x2,
+    hefDOAAW = 0x4,
+};
 }  // namespace ripple
 
 namespace hook {
@@ -52,6 +58,19 @@ inline uint32_t
 maxHookChainLength(void)
 {
     return 10;
+}
+
+inline uint32_t
+maxNamespaces(void)
+{
+    return 256;
+}
+
+// maximum number of entires in a namespace to delete with ns delete
+inline uint32_t
+maxNamespaceDelete(void)
+{
+    return 256;
 }
 
 enum TSHFlags : uint8_t {
@@ -313,6 +332,7 @@ enum hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 5000 modified state
                                          // entires in the combined hook chains
+    TOO_MANY_NAMESPACES = -45
 };
 
 enum ExitType : uint8_t {

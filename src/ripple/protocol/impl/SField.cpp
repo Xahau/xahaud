@@ -305,6 +305,7 @@ CONSTRUCT_TYPED_SFIELD(sfEmitCallback,          "EmitCallback",         ACCOUNT,
 
 // account (uncommon)
 CONSTRUCT_TYPED_SFIELD(sfHookAccount,           "HookAccount",          ACCOUNT,   16);
+CONSTRUCT_TYPED_SFIELD(sfInform,                "Inform",               ACCOUNT,   99);
 
 // vector of 256-bit
 CONSTRUCT_TYPED_SFIELD(sfIndexes,               "Indexes",              VECTOR256,  1, SField::sMD_Never);
@@ -312,6 +313,7 @@ CONSTRUCT_TYPED_SFIELD(sfHashes,                "Hashes",               VECTOR25
 CONSTRUCT_TYPED_SFIELD(sfAmendments,            "Amendments",           VECTOR256,  3);
 CONSTRUCT_TYPED_SFIELD(sfNFTokenOffers,         "NFTokenOffers",        VECTOR256,  4);
 CONSTRUCT_TYPED_SFIELD(sfHookNamespaces,        "HookNamespaces",       VECTOR256,  5);
+CONSTRUCT_TYPED_SFIELD(sfURITokenIDs,           "URITokenIDs",          VECTOR256, 99);
 
 // path set
 CONSTRUCT_UNTYPED_SFIELD(sfPaths,               "Paths",                PATHSET,    1);
@@ -348,6 +350,8 @@ CONSTRUCT_UNTYPED_SFIELD(sfGenesisMint,         "GenesisMint",          OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidator,     "ActiveValidator",      OBJECT,    95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKey,         "ImportVLKey",          OBJECT,    94);
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmission,        "HookEmission",         OBJECT,    93);
+CONSTRUCT_UNTYPED_SFIELD(sfMintURIToken,        "MintURIToken",         OBJECT,    92); 
+CONSTRUCT_UNTYPED_SFIELD(sfAmountEntry,         "AmountEntry",          OBJECT,    91);
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array
@@ -375,6 +379,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfGenesisMints,        "GenesisMints",         ARRAY,  
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidators,    "ActiveValidators",     ARRAY,     95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKeys,        "ImportVLKeys",         ARRAY,     94);
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmissions,       "HookEmissions",        ARRAY,     93);
+CONSTRUCT_UNTYPED_SFIELD(sfAmounts,             "Amounts",              ARRAY,     92);
 
 // clang-format on
 

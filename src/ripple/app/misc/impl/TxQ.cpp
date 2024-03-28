@@ -93,6 +93,13 @@ increase(FeeLevel64 level, std::uint32_t increasePercent)
 
 //////////////////////////////////////////////////////////////////////////
 
+void
+TxQ::debugTxInject(STTx const& txn)
+{
+    const std::lock_guard<std::mutex> _(debugTxInjectMutex);
+    debugTxInjectQueue.push_back(txn);
+}
+
 std::size_t
 TxQ::FeeMetrics::update(
     Application& app,
@@ -748,7 +755,7 @@ TxQ::apply(
     // etc. before doing potentially expensive queue
     // replace and multi-transaction operations.
     auto const pfresult = preflight(app, view.rules(), *tx, flags, j);
-    if (pfresult.ter != tesSUCCESS)
+    if (!isTesSuccess(pfresult.ter))
         return {pfresult.ter, false};
 
     // If the account is not currently in the ledger, don't queue its tx.
@@ -1448,6 +1455,32 @@ TxQ::accept(Application& app, OpenView& view)
 
     auto const metricsSnapshot = feeMetrics_.getSnapshot();
 
+    // try to inject any debug txns waiting in the debug queue
+    {
+        std::unique_lock<std::mutex> trylock(
+            TxQ::debugTxInjectMutex, std::try_to_lock);
+        if (trylock.owns_lock() && !debugTxInjectQueue.empty())
+        {
+            // pop everything
+            for (STTx const& txn : debugTxInjectQueue)
+            {
+                auto txnHash = txn.getTransactionID();
+                app.getHashRouter().setFlags(txnHash, SF_EMITTED | SF_PRIVATE2);
+
+                auto const& emitted =
+                    const_cast<ripple::STTx&>(txn).downcast<STObject>();
+
+                auto s = std::make_shared<ripple::Serializer>();
+                emitted.add(*s);
+
+                view.rawTxInsert(txnHash, std::move(s), nullptr);
+                ledgerChanged = true;
+            }
+
+            debugTxInjectQueue.clear();
+        }
+    }
+
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
         do
@@ -2044,7 +2077,7 @@ TxQ::doRPC(Application& app, std::optional<XRPAmount> hookFeeUnits) const
     levels[jss::open_ledger_level] = to_string(metrics.openLedgerFeeLevel);
 
     auto const baseFee =
-        view->fees().base + (hookFeeUnits ? hookFeeUnits->drops() : 0);
+        hookFeeUnits ? XRPAmount{hookFeeUnits->drops()} : view->fees().base;
     // If the base fee is 0 drops, but escalation has kicked in, treat the
     // base fee as if it is 1 drop, which makes the rest of the math
     // work.
@@ -2056,6 +2089,7 @@ TxQ::doRPC(Application& app, std::optional<XRPAmount> hookFeeUnits) const
 
     auto& drops = ret[jss::drops] = Json::Value();
 
+    drops[jss::base_fee_no_hooks] = to_string(view->fees().base);
     drops[jss::base_fee] = to_string(baseFee);
     drops[jss::median_fee] = to_string(toDrops(metrics.medFeeLevel, baseFee));
     drops[jss::minimum_fee] = to_string(toDrops(

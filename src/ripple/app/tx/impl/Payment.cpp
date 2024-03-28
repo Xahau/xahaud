@@ -431,7 +431,7 @@ Payment::doApply()
 
         // TODO: is this right?  If the amount is the correct amount, was
         // the delivered amount previously set?
-        if (rc.result() == tesSUCCESS && rc.actualAmountOut != saDstAmount)
+        if (isTesSuccess(rc.result()) && rc.actualAmountOut != saDstAmount)
         {
             if (deliverMin && rc.actualAmountOut < *deliverMin)
                 rc.setResult(tecPATH_PARTIAL);

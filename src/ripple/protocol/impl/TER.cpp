@@ -91,6 +91,7 @@ transResults()
         MAKE_ERROR(tecHOOK_REJECTED,                 "Rejected by hook on sending or receiving account."),
         MAKE_ERROR(tecREQUIRES_FLAG,                 "The transaction or part-thereof requires a flag that wasn't set."),
         MAKE_ERROR(tecPRECISION_LOSS,                "The amounts used by the transaction cannot interact."),
+        MAKE_ERROR(tecINSUF_RESERVE_SELLER,          "The seller of an object has insufficient reserves, and thus cannot complete the sale."),
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),
         MAKE_ERROR(tefBAD_AUTH,                    "Transaction's public key is not authorized."),
@@ -114,6 +115,7 @@ transResults()
         MAKE_ERROR(tefTOO_BIG,                     "Transaction affects too many items."),
         MAKE_ERROR(tefNO_TICKET,                   "Ticket is not in ledger."),
         MAKE_ERROR(tefNFTOKEN_IS_NOT_TRANSFERABLE, "The specified NFToken is not transferable."),
+        MAKE_ERROR(tefNONDIR_EMIT,                 "An emitted txn was injected into the ledger without a corresponding directory entry."),
 
         MAKE_ERROR(telLOCAL_ERROR,            "Local failure."),
         MAKE_ERROR(telBAD_DOMAIN,             "Domain too long."),
@@ -190,6 +192,7 @@ transResults()
         MAKE_ERROR(terNO_HOOK,                "No hook with that hash exists on the ledger."),
 
         MAKE_ERROR(tesSUCCESS,                "The transaction was applied. Only final in a validated ledger."),
+        MAKE_ERROR(tesPARTIAL,                "The transaction was applied but should be submitted again until returning tesSUCCESS."),
     };
     // clang-format on
 

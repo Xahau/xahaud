@@ -88,7 +88,7 @@ public:
                     flag == asfDisallowIncomingPayChan ||
                     flag == asfDisallowIncomingNFTokenOffer ||
                     flag == asfDisallowIncomingTrustline ||
-                    flag == asfTshCollect)
+                    flag == asfTshCollect || flag == asfDisallowIncomingRemit)
                 {
                     // These flags are part of the DisallowIncoming amendment
                     // and are tested elsewhere

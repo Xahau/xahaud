@@ -212,7 +212,7 @@ CreateOffer::preclaim(PreclaimContext const& ctx)
             id,
             ctx.j,
             Issue(uPaysCurrency, uPaysIssuerID));
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
     }
 
@@ -495,7 +495,7 @@ CreateOffer::bridged_cross(
             }
         }
 
-        if (cross_result != tesSUCCESS)
+        if (!isTesSuccess(cross_result))
         {
             cross_result = tecFAILED_PROCESSING;
             break;
@@ -585,7 +585,7 @@ CreateOffer::direct_cross(
             have_offer = step_account(offers, taker);
         }
 
-        if (cross_result != tesSUCCESS)
+        if (!isTesSuccess(cross_result))
         {
             cross_result = tecFAILED_PROCESSING;
             break;
@@ -989,7 +989,7 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
     bool const bOpenLedger = sb.open();
     bool crossed = false;
 
-    if (result == tesSUCCESS)
+    if (isTesSuccess(result))
     {
         // If a tick size applies, round the offer to the tick size
         auto const& uPaysIssuerID = saTakerPays.getIssuer();
@@ -1059,7 +1059,7 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
 
         // We expect the implementation of cross to succeed
         // or give a tec.
-        assert(result == tesSUCCESS || isTecClaim(result));
+        assert(isTesSuccess(result) || isTecClaim(result));
 
         if (auto stream = j_.trace())
         {
@@ -1071,7 +1071,7 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
         if (result == tecFAILED_PROCESSING && bOpenLedger)
             result = telFAILED_PROCESSING;
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
         {
             JLOG(j_.debug()) << "final result: " << transToken(result);
             return {result, true};
@@ -1108,7 +1108,7 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
 
     assert(saTakerPays > zero && saTakerGets > zero);
 
-    if (result != tesSUCCESS)
+    if (!isTesSuccess(result))
     {
         JLOG(j_.debug()) << "final result: " << transToken(result);
         return {result, true};
@@ -1161,7 +1161,7 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
             if (!crossed)
                 result = tecINSUF_RESERVE_OFFER;
 
-            if (result != tesSUCCESS)
+            if (!isTesSuccess(result))
             {
                 JLOG(j_.debug()) << "final result: " << transToken(result);
             }

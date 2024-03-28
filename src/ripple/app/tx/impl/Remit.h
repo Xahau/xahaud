@@ -17,50 +17,38 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_OFFER_H_INCLUDED
-#define RIPPLE_TEST_JTX_OFFER_H_INCLUDED
+#ifndef RIPPLE_TX_SIMPLE_PAYMENT_H_INCLUDED
+#define RIPPLE_TX_SIMPLE_PAYMENT_H_INCLUDED
 
-#include <ripple/json/json_value.h>
-#include <ripple/protocol/STAmount.h>
-#include <test/jtx/Account.h>
+#include <ripple/app/tx/impl/Transactor.h>
+#include <ripple/basics/Log.h>
+#include <ripple/core/Config.h>
+#include <ripple/protocol/Indexes.h>
 
 namespace ripple {
-namespace test {
-namespace jtx {
 
-/** Create an offer. */
-Json::Value
-offer(
-    Account const& account,
-    STAmount const& takerPays,
-    STAmount const& takerGets,
-    std::uint32_t flags = 0);
-
-/** Cancel an offer. */
-Json::Value
-offer_cancel(Account const& account, std::uint32_t offerSeq);
-
-/** Cancel an offer. */
-Json::Value
-offer_cancel(Account const& account);
-
-/** Sets the optional "OfferID" on a JTx. */
-class offer_id
+class Remit : public Transactor
 {
-private:
-    uint256 value_;
-
 public:
-    explicit offer_id(uint256 const& offer_id) : value_(offer_id)
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
+
+    explicit Remit(ApplyContext& ctx) : Transactor(ctx)
     {
     }
 
-    void
-    operator()(Env&, JTx& jtx) const;
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
+
+    static TxConsequences
+    makeTxConsequences(PreflightContext const& ctx);
+
+    static NotTEC
+    preflight(PreflightContext const& ctx);
+
+    TER
+    doApply() override;
 };
 
-}  // namespace jtx
-}  // namespace test
 }  // namespace ripple
 
 #endif
