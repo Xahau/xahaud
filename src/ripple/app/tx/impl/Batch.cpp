@@ -436,7 +436,6 @@ Batch::doApply()
     std::cout << "ACCOUNT SEQ: " << sle->getFieldU32(sfSequence) << "\n";
     std::cout << "ACCOUNT BALANCE: " << mSourceBalance << "\n";
     std::cout << "ACCOUNT BALANCE=: " << sle->getFieldAmount(sfBalance) << "\n";
-    mSourceBalance = sle->getFieldAmount(sfBalance);
 
     return tesSUCCESS;
 }
