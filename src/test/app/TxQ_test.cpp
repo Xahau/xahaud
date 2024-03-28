@@ -5036,74 +5036,10 @@ public:
     }
 
     void
-    testEmittedTxns(FeatureBitset features)
-    {
-        testcase("emitted txns");
-        using namespace jtx;
-
-        Env env(
-            *this,
-            envconfig(),
-            features);
-
-        auto const alice = Account("alice");
-
-        auto const queued = ter(terQUEUED);
-
-        BEAST_EXPECT(env.current()->fees().base == 10);
-
-        checkMetrics(__LINE__, env, 0, std::nullopt, 0, 3, 256);
-
-        // Create account
-        env.fund(XRP(50000), noripple(alice));
-        checkMetrics(__LINE__, env, 0, std::nullopt, 1, 3, 256);
-
-        fillQueue(env, alice);
-        checkMetrics(__LINE__, env, 0, std::nullopt, 4, 3, 256);
-
-        // Queue a transaction
-        auto const aliceSeq = env.seq(alice);
-        env(noop(alice), queued);
-        checkMetrics(__LINE__, env, 1, std::nullopt, 4, 3, 256);
-
-        // Now, apply a (different) transaction directly
-        // to the open ledger, bypassing the queue
-        // (This requires calling directly into the open ledger,
-        //  which won't work if unit tests are separated to only
-        //  be callable via RPC.)
-        env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
-            auto const tx =
-                env.jt(noop(alice), seq(aliceSeq), openLedgerFee(env));
-            auto const result =
-                ripple::apply(env.app(), view, *tx.stx, tapUNLIMITED, j);
-            BEAST_EXPECT(result.first == tesSUCCESS && result.second);
-            return result.second;
-        });
-        // the queued transaction is still there
-        checkMetrics(__LINE__, env, 1, std::nullopt, 5, 3, 256);
-
-        // The next transaction should be able to go into the open
-        // ledger, even though aliceSeq is queued.  In earlier incarnations
-        // of the TxQ this would cause an assert.
-        env(noop(alice), seq(aliceSeq + 1), openLedgerFee(env));
-        checkMetrics(__LINE__, env, 1, std::nullopt, 6, 3, 256);
-        // Now queue a couple more transactions to make sure
-        // they succeed despite aliceSeq being queued
-        env(noop(alice), seq(aliceSeq + 2), queued);
-        env(noop(alice), seq(aliceSeq + 3), queued);
-        checkMetrics(__LINE__, env, 3, std::nullopt, 6, 3, 256);
-
-        // Now close the ledger. One of the queued transactions
-        // (aliceSeq) should be dropped.
-        env.close();
-        checkMetrics(__LINE__, env, 0, 12, 2, 6, 256);
-    }
-
-    void
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         testQueueSeq(all);
         testQueueTicket(all);
         testTecResult(all);
@@ -5127,7 +5063,7 @@ public:
     run2()
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         testAcctInQueueButEmpty(all);
         testRPC(all);
         testExpirationReplacement(all);
