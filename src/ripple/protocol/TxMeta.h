@@ -117,6 +117,12 @@ public:
     }
 
     STArray const&
+    getBatchExecutions() const
+    {
+        return *mBatchExecutions;
+    }
+
+    STArray const&
     getHookExecutions() const
     {
         return *mHookExecutions;
@@ -129,6 +135,12 @@ public:
     }
 
     void
+    setBatchExecutions(STArray const& batchExecutions)
+    {
+        mBatchExecutions = batchExecutions;
+    }
+
+    void
     setHookExecutions(STArray const& hookExecutions)
     {
         mHookExecutions = hookExecutions;
@@ -138,6 +150,12 @@ public:
     setHookEmissions(STArray const& hookEmissions)
     {
         mHookEmissions = hookEmissions;
+    }
+
+    bool
+    hasBatchExecutions() const
+    {
+        return static_cast<bool>(mBatchExecutions);
     }
 
     bool
@@ -172,6 +190,7 @@ private:
     int mResult;
 
     std::optional<STAmount> mDelivered;
+    std::optional<STArray> mBatchExecutions;
     std::optional<STArray> mHookExecutions;
     std::optional<STArray> mHookEmissions;
 

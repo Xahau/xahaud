@@ -428,6 +428,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/rdb/impl/Vacuum.cpp
   src/ripple/app/rdb/impl/Wallet.cpp
   src/ripple/app/tx/impl/ApplyContext.cpp
+  src/ripple/app/tx/impl/Batch.cpp
   src/ripple/app/tx/impl/BookTip.cpp
   src/ripple/app/tx/impl/CancelCheck.cpp
   src/ripple/app/tx/impl/CancelOffer.cpp
@@ -704,6 +705,7 @@ if (tests)
     src/test/app/AccountDelete_test.cpp
     src/test/app/AccountTxPaging_test.cpp
     src/test/app/AmendmentTable_test.cpp
+    src/test/app/Batch_test.cpp
     src/test/app/BaseFee_test.cpp
     src/test/app/Check_test.cpp
     src/test/app/ClaimReward_test.cpp

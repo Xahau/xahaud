@@ -19,6 +19,7 @@
 
 #include <ripple/app/tx/applySteps.h>
 #include <ripple/app/tx/impl/ApplyContext.h>
+#include <ripple/app/tx/impl/Batch.h>
 #include <ripple/app/tx/impl/CancelCheck.h>
 #include <ripple/app/tx/impl/CancelOffer.h>
 #include <ripple/app/tx/impl/CashCheck.h>
@@ -104,6 +105,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<DeleteAccount>(ctx);
         case ttACCOUNT_SET:
             return invoke_preflight_helper<SetAccount>(ctx);
+        case ttBATCH:
+            return invoke_preflight_helper<Batch>(ctx);
         case ttCHECK_CANCEL:
             return invoke_preflight_helper<CancelCheck>(ctx);
         case ttCHECK_CASH:
@@ -225,6 +228,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<DeleteAccount>(ctx);
         case ttACCOUNT_SET:
             return invoke_preclaim<SetAccount>(ctx);
+        case ttBATCH:
+            return invoke_preclaim<Batch>(ctx);
         case ttCHECK_CANCEL:
             return invoke_preclaim<CancelCheck>(ctx);
         case ttCHECK_CASH:
@@ -308,6 +313,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return DeleteAccount::calculateBaseFee(view, tx);
         case ttACCOUNT_SET:
             return SetAccount::calculateBaseFee(view, tx);
+        case ttBATCH:
+            return Batch::calculateBaseFee(view, tx);
         case ttCHECK_CANCEL:
             return CancelCheck::calculateBaseFee(view, tx);
         case ttCHECK_CASH:
@@ -431,6 +438,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttACCOUNT_SET: {
             SetAccount p(ctx);
+            return p();
+        }
+        case ttBATCH: {
+            Batch p(ctx);
             return p();
         }
         case ttCHECK_CANCEL: {

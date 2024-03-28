@@ -865,6 +865,9 @@ TxQ::apply(
 
     // If the transaction is intending to replace a transaction in the queue
     // identify the one that might be replaced.
+    // std::cout << "accountIsInQueue: " << accountIsInQueue << "\n";
+    // std::cout << "txSeqProx: " << txSeqProx << "\n";
+    // std::cout << "tx: " << tx->getJson(JsonOptions::none) << "\n";
     auto replacedTxIter = [accountIsInQueue, &accountIter, txSeqProx]()
         -> std::optional<TxQAccount::TxMap::iterator> {
         if (accountIsInQueue)
@@ -886,6 +889,7 @@ TxQ::apply(
 
     // Is there a blocker already in the account's queue?  If so, don't
     // allow additional transactions in the queue.
+    // std::cout << "acctTxCount: " << acctTxCount << "\n";
     if (acctTxCount > 0)
     {
         // Allow tx to replace a blocker.  Otherwise, if there's a
@@ -1882,8 +1886,14 @@ TxQ::tryDirectApply(
 
         // Can only directly apply if the transaction sequence matches the
         // account sequence or if the transaction uses a ticket.
+        // std::cout << "txSeqProx->isSeq(): " << txSeqProx->isSeq() << "\n";
+        // std::cout << "txSeqProx: " << *txSeqProx << "\n";
+        // std::cout << "acctSeqProx: " << acctSeqProx << "\n";
         if (txSeqProx->isSeq() && *txSeqProx != acctSeqProx)
+        {
+            // std::cout << "txSeqProx->isSeq() && *txSeqProx != acctSeqProx" << "\n";
             return {};
+        }
     }
 
     FeeLevel64 const requiredFeeLevel =
@@ -1896,6 +1906,9 @@ TxQ::tryDirectApply(
     // If the transaction's fee is high enough we may be able to put the
     // transaction straight into the ledger.
     FeeLevel64 const feeLevelPaid = getFeeLevelPaid(view, *tx);
+
+    // std::cout << "requiredFeeLevel: " << requiredFeeLevel << "\n";
+    // std::cout << "feeLevelPaid: " << feeLevelPaid << "\n";
 
     if (feeLevelPaid >= requiredFeeLevel)
     {

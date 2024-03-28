@@ -440,7 +440,38 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
         return temBAD_FEE;
 
     // Only check fee is sufficient when the ledger is open.
-    if (ctx.view.open())
+    if (ctx.view.open() && ctx.tx.getTxnType() == ttBATCH)
+    {
+        XRPAmount feeDue = XRPAmount{0};
+        auto const& txns = ctx.tx.getFieldArray(sfRawTransactions);
+        for (std::size_t i = 0; i < txns.size(); ++i)
+        {
+            auto const& txn = txns[i];
+            if (!txn.isFieldPresent(sfFee))
+            {
+                JLOG(ctx.j.warn())
+                    << "Batch: sfFee missing in array entry.";
+                return telINSUF_FEE_P;
+            }
+            auto const _fee = txn.getFieldAmount(sfFee);
+            feeDue += _fee.xrp();
+
+            // auto const tt = txn.getFieldU16(sfTransactionType);
+            // auto const txtype = safe_cast<TxType>(tt);
+            // auto const stx = STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
+            // auto const _fee = Transactor::calculateBaseFee(ctx.view, stx);
+            // feeDue += _fee;
+        }
+
+        if (feePaid < feeDue)
+        {
+            JLOG(ctx.j.trace())
+                << "Insufficient fee paid: " << to_string(feePaid) << "/"
+                << to_string(feeDue);
+            return telINSUF_FEE_P;
+        }
+    }
+    if (ctx.view.open() && ctx.tx.getTxnType() != ttBATCH)
     {
         auto const feeDue =
             minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
@@ -776,6 +807,12 @@ Transactor::apply()
 {
     preCompute();
 
+    auto const tt = ctx_.tx.getTxnType();
+    std::cout << "tt: " << tt << "\n";
+    std::cout << "id: " << ctx_.tx.getTransactionID() << "\n";
+    // if (tt == ttBATCH)
+    //     return doApply();
+
     // If the transactor requires a valid account and the transaction doesn't
     // list one, preflight will have already a flagged a failure.
     auto const sle = view().peek(keylet::account(account_));
@@ -790,7 +827,11 @@ Transactor::apply()
 
     if (sle)
     {
+        // std::cout << "mSourceBalance: " << mSourceBalance << "\n";
+        // std::cout << "mPriorBalance: " << mPriorBalance << "\n";
+        // std::cout << "mSourceBalance=: " << (mSourceBalance - mPriorBalance) << "\n";
         mPriorBalance = STAmount{(*sle)[sfBalance]}.xrp();
+        std::cout << "mPriorBalance: " << mPriorBalance << "\n";
         mSourceBalance = mPriorBalance;
 
         TER result = consumeSeqProxy(sle);
@@ -806,6 +847,8 @@ Transactor::apply()
 
         view().update(sle);
     }
+
+    std::cout << "Transactor::apply" << "\n";
 
     return doApply();
 }

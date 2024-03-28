@@ -456,6 +456,13 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::Batch,
+        ttBATCH,
+        {
+            {sfRawTransactions, soeOPTIONAL},
+        },
+        commonFields);
 }
 
 TxFormats const&

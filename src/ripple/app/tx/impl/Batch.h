@@ -17,52 +17,41 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/ledger/ApplyViewImpl.h>
-#include <cassert>
+#ifndef RIPPLE_TX_BATCH_H_INCLUDED
+#define RIPPLE_TX_BATCH_H_INCLUDED
+
+#include <ripple/app/tx/impl/Transactor.h>
+#include <ripple/basics/Log.h>
+#include <ripple/core/Config.h>
+#include <ripple/protocol/Indexes.h>
 
 namespace ripple {
 
-ApplyViewImpl::ApplyViewImpl(ReadView const* base, ApplyFlags flags)
-    : ApplyViewBase(base, flags)
+class Batch : public Transactor
 {
-}
+public:
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-void
-ApplyViewImpl::apply(OpenView& to, STTx const& tx, TER ter, beast::Journal j)
-{
-    std::cout << "ApplyViewImpl::apply" << "\n";
-    items_.apply(to, tx, ter, deliver_, batchExecution_, hookExecution_, hookEmission_, j);
-}
+    explicit Batch(ApplyContext& ctx) : Transactor(ctx)
+    {
+    }
 
-TxMeta
-ApplyViewImpl::generateProvisionalMeta(
-    OpenView const& to,
-    STTx const& tx,
-    beast::Journal j)
-{
-    auto [meta, _] = items_.generateTxMeta(
-        to, tx, deliver_, batchExecution_, hookExecution_, hookEmission_, j);
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
 
-    return meta;
-}
+    static TxConsequences
+    makeTxConsequences(PreflightContext const& ctx);
 
-std::size_t
-ApplyViewImpl::size()
-{
-    return items_.size();
-}
+    static NotTEC
+    preflight(PreflightContext const& ctx);
 
-void
-ApplyViewImpl::visit(
-    OpenView& to,
-    std::function<void(
-        uint256 const& key,
-        bool isDelete,
-        std::shared_ptr<SLE const> const& before,
-        std::shared_ptr<SLE const> const& after)> const& func)
-{
-    items_.visit(to, func);
-}
+    static TER
+    preclaim(PreclaimContext const& ctx);
+
+    TER
+    doApply() override;
+};
 
 }  // namespace ripple
+
+#endif

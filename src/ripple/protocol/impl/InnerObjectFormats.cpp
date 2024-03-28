@@ -62,6 +62,12 @@ InnerObjectFormats::InnerObjectFormats()
             {sfFirstLedgerSequence, soeREQUIRED},
         });
 
+    add(sfBatchExecution.jsonName.c_str(),
+        sfBatchExecution.getCode(),
+        {{sfTransactionType, soeREQUIRED},
+         {sfTransactionResult, soeREQUIRED},
+         {sfTransactionHash, soeREQUIRED}});
+
     add(sfHookExecution.jsonName.c_str(),
         sfHookExecution.getCode(),
         {{sfHookResult, soeREQUIRED},

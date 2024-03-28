@@ -82,6 +82,15 @@ public:
      * Takes ownership / use std::move
      */
     void
+    addBatchExecutionMetaData(STObject&& batchExecution)
+    {
+        batchExecution_.push_back(std::move(batchExecution));
+    }
+
+    /* Set hook metadata for a hook execution
+     * Takes ownership / use std::move
+     */
+    void
     addHookExecutionMetaData(STObject&& hookExecution)
     {
         hookExecution_.push_back(std::move(hookExecution));
@@ -141,6 +150,7 @@ public:
 
 private:
     std::optional<STAmount> deliver_;
+    std::vector<STObject> batchExecution_;
     std::vector<STObject> hookExecution_;
     std::vector<STObject> hookEmission_;
 };
