@@ -66,7 +66,7 @@ InnerObjectFormats::InnerObjectFormats()
         sfBatchExecution.getCode(),
         {{sfTransactionType, soeREQUIRED},
          {sfTransactionResult, soeREQUIRED},
-         {sfTransactionHash, soeREQUIRED}});
+         {sfTransactionHash, soeOPTIONAL}});
 
     add(sfHookExecution.jsonName.c_str(),
         sfHookExecution.getCode(),

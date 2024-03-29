@@ -292,13 +292,13 @@ Batch::preflight(PreflightContext const& ctx)
     auto const& txns = tx.getFieldArray(sfRawTransactions);
     if (txns.empty())
     {
-        JLOG(ctx.j.warn()) << "Batch: txns array empty.";
+        JLOG(ctx.j.error()) << "Batch: txns array empty.";
         return temMALFORMED;
     }
 
-    if (txns.size() > 400)
+    if (txns.size() > 12)
     {
-        JLOG(ctx.j.warn()) << "Batch: txns array exceeds 400 entries.";
+        JLOG(ctx.j.error()) << "Batch: txns array exceeds 12 entries.";
         return temMALFORMED;
     }
 
@@ -306,7 +306,7 @@ Batch::preflight(PreflightContext const& ctx)
     {
         if (!txn.isFieldPresent(sfTransactionType))
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.error())
                 << "Batch: TransactionType missing in array entry.";
             return temMALFORMED;
         }
@@ -343,14 +343,15 @@ Batch::preclaim(PreclaimContext const& ctx)
         // Cannot continue on failed txns
         if (preflightResponses[i] != tesSUCCESS)
         {
-            JLOG(ctx.j.warn()) << "Batch: Failed Preflight Response: " << preflightResponses[i];
+            JLOG(ctx.j.error()) << "Batch: Failed Preflight Response: " << preflightResponses[i];
+            preclaimResponses.push_back(TER(preflightResponses[i]));
             continue;
         }
 
         auto const& txn = txns[i];
         if (!txn.isFieldPresent(sfTransactionType))
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.error())
                 << "Batch: TransactionType missing in array entry.";
             return temMALFORMED;
         }
@@ -388,19 +389,22 @@ Batch::doApply()
     auto const& txns = ctx_.tx.getFieldArray(sfRawTransactions);
     for (std::size_t i = 0; i < txns.size(); ++i)
     {
+        std::cout << "START" << "\n";
+        ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
+        STObject meta{sfBatchExecution};
+
         auto const& txn = txns[i];
         if (!txn.isFieldPresent(sfTransactionType))
         {
-            JLOG(ctx_.journal.warn())
+            JLOG(ctx_.journal.error())
                 << "Batch: TransactionType missing in array entry.";
             return temMALFORMED;
         }
 
         auto const tt = txn.getFieldU16(sfTransactionType);
         auto const txtype = safe_cast<TxType>(tt);
-        auto const stx =
-            STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
-
+        auto const stx = STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
+        
         // OpenView(&ctx_.view())
         ApplyContext actx(
             ctx_.app,
@@ -410,32 +414,34 @@ Batch::doApply()
             ctx_.view().fees().base,
             view().flags(),
             ctx_.journal);
+       
         auto const result = invoke_apply(actx);
-        // if (result.first == tesSUCCESS)
-        // {
-        //     ctx_.base_.apply(tesSUCCESS);
-        // }
-        // else
-        // {
-        //     actx.discard();
-        // }
-
-        ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
-
-        STObject meta{sfBatchExecution};
         meta.setFieldU8(sfTransactionResult, TERtoInt(result.first));
         meta.setFieldU16(sfTransactionType, tt);
-        meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
+        if (result.first == tesSUCCESS)
+            meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
+        
         avi.addBatchExecutionMetaData(std::move(meta));
+        if (result.first != tesSUCCESS)
+        {
+            actx.discard();
+        }
     }
 
     auto const sle = ctx_.base_.read(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
 
-    std::cout << "ACCOUNT SEQ: " << sle->getFieldU32(sfSequence) << "\n";
+    auto const sleSrcAcc = sb.peek(keylet::account(account_));
+    if (!sleSrcAcc)
+        return tefINTERNAL;
+
+    std::cout << "ACCOUNT SEQ: " << sleSrcAcc->getFieldU32(sfSequence) << "\n";
     std::cout << "ACCOUNT BALANCE: " << mSourceBalance << "\n";
     std::cout << "ACCOUNT BALANCE=: " << sle->getFieldAmount(sfBalance) << "\n";
+    sleSrcAcc->setFieldAmount(sfBalance, sle->getFieldAmount(sfBalance));
+    sb.update(sleSrcAcc);
+    sb.apply(ctx_.rawView());
 
     return tesSUCCESS;
 }
