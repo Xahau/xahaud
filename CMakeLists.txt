@@ -12,13 +12,13 @@ endif()
 
 # Fix "unrecognized escape" issues when passing CMAKE_MODULE_PATH on Windows.
 file(TO_CMAKE_PATH "${CMAKE_MODULE_PATH}" CMAKE_MODULE_PATH)
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Builds/CMake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 if(POLICY CMP0144)
   cmake_policy(SET CMP0144 NEW)
 endif()
 
-project (rippled)
+project (xrpl)
 set(Boost_NO_BOOST_CMAKE ON)
 
 # make GIT_COMMIT_HASH define available to all sources
@@ -94,7 +94,6 @@ if (NOT USE_CONAN)
   include(deps/Libarchive)
   include(deps/Sqlite)
   include(deps/Soci)
-  include(deps/Snappy)
   include(deps/Rocksdb)
   include(deps/Nudb)
   include(deps/date)
@@ -121,7 +120,6 @@ else()
   find_package(LibArchive REQUIRED)
   find_package(SOCI REQUIRED)
   find_package(SQLite3 REQUIRED)
-  find_package(Snappy REQUIRED)
   find_package(wasmedge REQUIRED)
   option(rocksdb "Enable RocksDB" ON)
   if(rocksdb)
@@ -168,14 +166,12 @@ if(coverage)
   include(RippledCov)
 endif()
 
-###
-
+set(PROJECT_EXPORT_SET RippleExports)
 include(RippledCore)
 if (NOT USE_CONAN)
   include(deps/Protobuf)
   include(deps/gRPC)
 endif()
 include(RippledInstall)
-include(RippledMultiConfig)
 include(RippledDocs)
 include(RippledValidatorKeys)
