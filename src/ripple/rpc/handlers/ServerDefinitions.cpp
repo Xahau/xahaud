@@ -26,6 +26,7 @@
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/LedgerFormats.h>
 #include <ripple/protocol/SField.h>
+#include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/impl/TransactionSign.h>
@@ -366,6 +367,162 @@ private:
             std::string type_name = translate_tt(translate(name.data() + 2));
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
+        }
+
+        struct FlagData
+        {
+            std::string name;
+            std::uint32_t value;
+        };
+
+        ret[jss::TRANSACTION_FLAGS] = Json::objectValue;
+        // Universal flags:
+        std::array<FlagData, 1> universalFlags{{
+            {"tfFullyCanonicalSig", tfFullyCanonicalSig},
+        }};
+        for (auto const& entry : universalFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["Universal"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // AccountSet flags:
+        std::array<FlagData, 6> accountSetFlags{
+            {{"tfRequireDestTag", tfRequireDestTag},
+             {"tfOptionalDestTag", tfOptionalDestTag},
+             {"tfRequireAuth", tfRequireAuth},
+             {"tfOptionalAuth", tfOptionalAuth},
+             {"tfDisallowXRP", tfDisallowXRP},
+             {"tfAllowXRP", tfAllowXRP}}};
+        for (auto const& entry : accountSetFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["AccountSet"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // Account Flags
+        std::array<FlagData, 15> accountFlags{{
+            {"asfRequireDest", asfRequireDest},
+            {"asfRequireAuth", asfRequireAuth},
+            {"asfDisallowXRP", asfDisallowXRP},
+            {"asfDisableMaster", asfDisableMaster},
+            {"asfAccountTxnID", asfAccountTxnID},
+            {"asfNoFreeze", asfNoFreeze},
+            {"asfGlobalFreeze", asfGlobalFreeze},
+            {"asfDefaultRipple", asfDefaultRipple},
+            {"asfDepositAuth", asfDepositAuth},
+            {"asfAuthorizedNFTokenMinter", asfAuthorizedNFTokenMinter},
+            {"asfTshCollect", asfTshCollect},
+            {"asfDisallowIncomingNFTokenOffer",
+             asfDisallowIncomingNFTokenOffer},
+            {"asfDisallowIncomingCheck", asfDisallowIncomingCheck},
+            {"asfDisallowIncomingPayChan", asfDisallowIncomingPayChan},
+            {"asfDisallowIncomingRemit", asfDisallowIncomingRemit},
+        }};
+        for (auto const& entry : accountFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["Account"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // OfferCreate flags:
+        std::array<FlagData, 4> offerCreateFlags{
+            {{"tfPassive", tfPassive},
+             {"tfImmediateOrCancel", tfImmediateOrCancel},
+             {"tfFillOrKill", tfFillOrKill},
+             {"tfSell", tfSell}}};
+        for (auto const& entry : offerCreateFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["OfferCreate"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // // Payment flags:
+        std::array<FlagData, 3> paymentFlags{
+            {{"tfNoRippleDirect", tfNoRippleDirect},
+             {"tfPartialPayment", tfPartialPayment},
+             {"tfLimitQuality", tfLimitQuality}}};
+        for (auto const& entry : paymentFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["Payment"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // TrustSet flags:
+        std::array<FlagData, 5> trustSetFlags{
+            {{"tfSetfAuth", tfSetfAuth},
+             {"tfSetNoRipple", tfSetNoRipple},
+             {"tfClearNoRipple", tfClearNoRipple},
+             {"tfSetFreeze", tfSetFreeze},
+             {"tfClearFreeze", tfClearFreeze}}};
+        for (auto const& entry : trustSetFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["TrustSet"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // EnableAmendment flags:
+        std::array<FlagData, 3> enableAmendmentFlags{
+            {{"tfGotMajority", tfGotMajority},
+             {"tfLostMajority", tfLostMajority},
+             {"tfTestSuite", tfTestSuite}}};
+        for (auto const& entry : enableAmendmentFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["EnableAmendment"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // PaymentChannelClaim flags:
+        std::array<FlagData, 2> payChanClaimFlags{{
+            {"tfRenew", tfRenew},
+            {"tfClose", tfClose},
+        }};
+        for (auto const& entry : payChanClaimFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["PaymentChannelClaim"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // NFTokenMint flags:
+        std::array<FlagData, 5> nftokenMintFlags{{
+            {"tfBurnable", tfBurnable},
+            {"tfOnlyXRP", tfOnlyXRP},
+            {"tfTrustLine", tfTrustLine},
+            {"tfTransferable", tfTransferable},
+            {"tfStrongTSH", tfStrongTSH},
+        }};
+        for (auto const& entry : nftokenMintFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["NFTokenMint"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // NFTokenCreateOffer flags:
+        std::array<FlagData, 1> nftokenOfferFlags{{
+            {"tfSellNFToken", tfSellNFToken},
+        }};
+        for (auto const& entry : nftokenOfferFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["NFTokenCreateOffer"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // URITokenMint flags:
+        std::array<FlagData, 1> uriTokenMintFlags{{{"tfBurnable", tfBurnable}}};
+        for (auto const& entry : uriTokenMintFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["URITokenMint"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // ClaimReward flags:
+        std::array<FlagData, 1> claimRewardFlags{{
+            {"tfOptOut", tfOptOut},
+        }};
+        for (auto const& entry : claimRewardFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["ClaimReward"][entry.name] =
+                static_cast<uint32_t>(entry.value);
         }
 
         ret[jss::native_currency_code] = systemCurrencyCode();
