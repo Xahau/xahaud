@@ -162,7 +162,7 @@ InnerObjectFormats::InnerObjectFormats()
         sfRemark.getCode(),
         {
             {sfRemarkName, soeREQUIRED},
-            {sfRemarkValue, soeREQUIRED},
+            {sfRemarkValue, soeOPTIONAL},
             {sfFlags, soeOPTIONAL},
         });
 }
