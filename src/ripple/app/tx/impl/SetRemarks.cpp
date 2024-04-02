@@ -42,7 +42,7 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
 
     if (remarks.empty() || remarks.size() > 32)
     {
-        JLOG(j.warn()) << "Remakrs: Cannot set more than 32 remarks (or fewer "
+        JLOG(j.warn()) << "SetRemarks: Cannot set more than 32 remarks (or fewer "
                           "than 1) in a txn.";
         return temMALFORMED;
     }
@@ -51,7 +51,7 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
     {
         if (remark.getFName() != sfRemark)
         {
-            JLOG(j.warn()) << "Remarks: contained non-sfRemark field.";
+            JLOG(j.warn()) << "SetRemarks: contained non-sfRemark field.";
             return temMALFORMED;
         }
 
@@ -62,12 +62,12 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
         Blob const& name = remark.getFieldVL(sfRemarkName);
         if (already_seen.find(name) != already_seen.end())
         {
-            JLOG(j.warn()) << "Remarks: duplicate RemarkName entry.";
+            JLOG(j.warn()) << "SetRemarks: duplicate RemarkName entry.";
             return temMALFORMED;
         }
         if (name.size() == 0 || name.size() > 256)
         {
-            JLOG(j.warn()) << "Remarks: RemarkName cannot be empty or larger "
+            JLOG(j.warn()) << "SetRemarks: RemarkName cannot be empty or larger "
                               "than 256 chars.";
             return temMALFORMED;
         }
@@ -78,7 +78,7 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
             remark.isFieldPresent(sfFlags) ? remark.getFieldU32(sfFlags) : 0;
         if (flags != 0 && flags != tfImmutable)
         {
-            JLOG(j.warn()) << "Remarks: Flags must be either tfImmutable or 0";
+            JLOG(j.warn()) << "SetRemarks: Flags must be either tfImmutable or 0";
             return temMALFORMED;
         }
 
@@ -87,7 +87,7 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
             if (flags & tfImmutable)
             {
                 JLOG(j.warn())
-                    << "Remarks: A remark deletion cannot be marked immutable.";
+                    << "SetRemarks: A remark deletion cannot be marked immutable.";
                 return temMALFORMED;
             }
             continue;
@@ -96,7 +96,7 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
         Blob const& val = remark.getFieldVL(sfRemarkValue);
         if (val.size() == 0 || val.size() > 256)
         {
-            JLOG(j.warn()) << "Remarks: RemarkValue cannot be empty or larger "
+            JLOG(j.warn()) << "SetRemarks: RemarkValue cannot be empty or larger "
                               "than 256 chars.";
             return temMALFORMED;
         }
@@ -119,8 +119,7 @@ SetRemarks::preflight(PreflightContext const& ctx)
 
     if (tx.isFieldPresent(sfFlags) && tx.getFieldU32(sfFlags) != 0)
     {
-        JLOG(j.warn()) << "Remarks: sfFlags != 0 (there are no valid flags for "
-                          "ttREMARKS_SET.)";
+        JLOG(j.warn()) << "SetRemarks: Invalid flags set.";
         return temMALFORMED;
     }
 
@@ -285,7 +284,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
         if (immutable)
         {
             JLOG(ctx.j.warn())
-                << "Remarks: attempt to mutate an immutable remark.";
+                << "SetRemarks: attempt to mutate an immutable remark.";
             return tecIMMUTABLE;
         }
 
@@ -293,7 +292,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
         {
             if (--count < 0)
             {
-                JLOG(ctx.j.warn()) << "Remarks: insane remarks accounting.";
+                JLOG(ctx.j.warn()) << "SetRemarks: insane remarks accounting.";
                 return tecCLAIM;
             }
         }
@@ -301,7 +300,7 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
     if (count > 32)
     {
-        JLOG(ctx.j.warn()) << "Remarks: an object may have at most 32 remarks.";
+        JLOG(ctx.j.warn()) << "SetRemarks: an object may have at most 32 remarks.";
         return tecTOO_MANY_REMARKS;
     }
 
