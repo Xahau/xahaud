@@ -55,14 +55,14 @@ namespace ripple {
 // wrapped lines
 // clang-format off
 // Universal Transaction flags:
-enum UniversalFlags {
+enum UniversalFlags : uint32_t {
     tfFullyCanonicalSig = 0x80000000,
 };
 constexpr std::uint32_t tfUniversal                        = tfFullyCanonicalSig;
 constexpr std::uint32_t tfUniversalMask                    = ~tfUniversal;
 
 // AccountSet flags:
-enum AccountSetTxFlags {
+enum AccountSetTxFlags : uint32_t {
     tfRequireDestTag = 0x00010000,
     tfOptionalDestTag = 0x00020000,
     tfRequireAuth = 0x00040000,
@@ -75,7 +75,7 @@ constexpr std::uint32_t tfAccountSetMask =
       tfOptionalAuth | tfDisallowXRP | tfAllowXRP);
 
 // AccountSet SetFlag/ClearFlag values
-enum AccountSetFlags {
+enum AccountSetFlags : uint32_t {
     asfRequireDest = 1,
     asfRequireAuth = 2,
     asfDisallowXRP = 3,
@@ -95,7 +95,7 @@ enum AccountSetFlags {
 };
 
 // OfferCreate flags:
-enum OfferCreateFlags {
+enum OfferCreateFlags : uint32_t {
     tfPassive = 0x00010000,
     tfImmediateOrCancel = 0x00020000,
     tfFillOrKill = 0x00040000,
@@ -105,7 +105,7 @@ constexpr std::uint32_t tfOfferCreateMask =
     ~(tfUniversal | tfPassive | tfImmediateOrCancel | tfFillOrKill | tfSell);
 
 // Payment flags:
-enum PaymentFlags {
+enum PaymentFlags : uint32_t {
     tfNoRippleDirect = 0x00010000,
     tfPartialPayment = 0x00020000,
     tfLimitQuality = 0x00040000,
@@ -114,7 +114,7 @@ constexpr std::uint32_t tfPaymentMask =
     ~(tfUniversal | tfPartialPayment | tfLimitQuality | tfNoRippleDirect);
 
 // TrustSet flags:
-enum TrustSetFlags {
+enum TrustSetFlags : uint32_t {
     tfSetfAuth = 0x00010000,
     tfSetNoRipple = 0x00020000,
     tfClearNoRipple = 0x00040000,
@@ -133,14 +133,14 @@ enum EnableAmendmentFlags : std::uint32_t {
 };
 
 // PaymentChannelClaim flags:
-enum PaymentChannelClaimFlags {
+enum PaymentChannelClaimFlags : uint32_t {
     tfRenew = 0x00010000,
     tfClose = 0x00020000,
 };
 constexpr std::uint32_t tfPayChanClaimMask = ~(tfUniversal | tfRenew | tfClose);
 
 // NFTokenMint flags:
-enum NFTokenMintFlags {
+enum NFTokenMintFlags : uint32_t {
     tfBurnable = 0x00000001,
     tfOnlyXRP = 0x00000002,
     tfTrustLine = 0x00000004,
@@ -169,7 +169,7 @@ constexpr std::uint32_t const tfNFTokenMintMask =
     ~(tfUniversal | tfBurnable | tfOnlyXRP | tfTransferable | tfStrongTSH);
 
 // NFTokenCreateOffer flags:
-enum NFTokenCreateOfferFlags {
+enum NFTokenCreateOfferFlags : uint32_t {
     tfSellNFToken = 0x00000001,
 };
 constexpr std::uint32_t const tfNFTokenCreateOfferMask =
@@ -186,7 +186,7 @@ constexpr std::uint32_t const tfURITokenMintMask = ~(tfUniversal | tfBurnable);
 constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
 
 // ClaimReward flags:
-enum ClaimRewardFlags {
+enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };
 

@@ -52,12 +52,11 @@
         static constexpr int max = 127;         \
     };
 
-#define MAGIC_ENUM_32(x)                                   \
+#define MAGIC_ENUM_FLAG(x)                                   \
     template <>                                            \
     struct magic_enum::customize::enum_range<x>            \
     {                                                      \
-        static constexpr std::uint32_t min = 0x00000001;   \
-        static constexpr std::uint32_t max = 0x80000000;   \
+        static constexpr bool is_flags = true;   \
     };
 
 MAGIC_ENUM(ripple::SerializedTypeID);
@@ -69,17 +68,17 @@ MAGIC_ENUM(ripple::TERcodes);
 MAGIC_ENUM(ripple::TEScodes);
 MAGIC_ENUM(ripple::TECcodes);
 MAGIC_ENUM_16(ripple::TxType);
-MAGIC_ENUM_32(ripple::UniversalFlags);
-MAGIC_ENUM_32(ripple::AccountSetTxFlags);
-MAGIC_ENUM_32(ripple::AccountSetFlags);
-MAGIC_ENUM_32(ripple::OfferCreateFlags);
-MAGIC_ENUM_32(ripple::PaymentFlags);
-MAGIC_ENUM_32(ripple::TrustSetFlags);
-MAGIC_ENUM_32(ripple::EnableAmendmentFlags);
-MAGIC_ENUM_32(ripple::PaymentChannelClaimFlags);
-MAGIC_ENUM_32(ripple::NFTokenMintFlags);
-MAGIC_ENUM_32(ripple::NFTokenCreateOfferFlags);
-MAGIC_ENUM_32(ripple::ClaimRewardFlags);
+MAGIC_ENUM_FLAG(ripple::UniversalFlags);
+MAGIC_ENUM_FLAG(ripple::AccountSetTxFlags);
+MAGIC_ENUM_FLAG(ripple::AccountSetFlags);
+MAGIC_ENUM_FLAG(ripple::OfferCreateFlags);
+MAGIC_ENUM_FLAG(ripple::PaymentFlags);
+MAGIC_ENUM_FLAG(ripple::TrustSetFlags);
+MAGIC_ENUM_FLAG(ripple::EnableAmendmentFlags);
+MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
+MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
+MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
+MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
 
 namespace ripple {
 
