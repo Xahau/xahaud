@@ -57,14 +57,16 @@ public:
         {
             Env env(*this);
             auto const result = env.rpc("server_definitions");
+            std::cout << "RESULT: " << result << "\n";
             BEAST_EXPECT(!result[jss::result].isMember(jss::error));
             BEAST_EXPECT(result[jss::result].isMember(jss::FIELDS));
-            BEAST_EXPECT(result[jss::result].isMember(jss::ACCOUNT__FLAGS));
             BEAST_EXPECT(result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));
             BEAST_EXPECT(
                 result[jss::result].isMember(jss::TRANSACTION_RESULTS));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_FLAGS));
+            BEAST_EXPECT(
+                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICIES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
@@ -88,7 +90,6 @@ public:
                 env.rpc("json", "server_definitions", to_string(params));
             BEAST_EXPECT(!result[jss::result].isMember(jss::error));
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
-            BEAST_EXPECT(!result[jss::result].isMember(jss::ACCOUNT__FLAGS));
             BEAST_EXPECT(!result[jss::result].isMember(jss::FIELDS));
             BEAST_EXPECT(
                 !result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));
@@ -96,6 +97,8 @@ public:
                 !result[jss::result].isMember(jss::TRANSACTION_RESULTS));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TRANSACTION_TYPES));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TRANSACTION_FLAGS));
+            BEAST_EXPECT(
+                !result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICIES));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
@@ -112,13 +115,14 @@ public:
                 env.rpc("json", "server_definitions", to_string(params));
             BEAST_EXPECT(!result[jss::result].isMember(jss::error));
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
-            BEAST_EXPECT(result[jss::result].isMember(jss::ACCOUNT__FLAGS));
             BEAST_EXPECT(result[jss::result].isMember(jss::FIELDS));
             BEAST_EXPECT(result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));
             BEAST_EXPECT(
                 result[jss::result].isMember(jss::TRANSACTION_RESULTS));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_FLAGS));
+            BEAST_EXPECT(
+                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICIES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }

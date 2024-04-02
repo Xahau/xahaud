@@ -85,16 +85,27 @@ namespace ripple {
 class Definitions
 {
 private:
-    Json::Value
-    generate()
-    {
-        // RH TODO: probably a better way to do this?
 #define STR(x)                      \
     ([&] {                          \
         std::ostringstream ss;      \
         return ss << (x), ss.str(); \
     }())
 
+    template <typename EnumType>
+    void
+    addFlagsToJson(Json::Value& json, std::string const& key)
+    {
+        for (auto const& entry : magic_enum::enum_entries<EnumType>())
+        {
+            const auto name = entry.second;
+            json[jss::TRANSACTION_FLAGS][key][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+    }
+
+    Json::Value
+    generate()
+    {
         Json::Value ret{Json::objectValue};
         ret[jss::TYPES] = Json::objectValue;
 
@@ -398,84 +409,18 @@ private:
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
         }
 
+        // Transaction Flags:
         ret[jss::TRANSACTION_FLAGS] = Json::objectValue;
-
-        // Universal Transaction flags:
-        for (auto const& entry : magic_enum::enum_entries<UniversalFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["Universal"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // AccountSet flags:
-        for (auto const& entry : magic_enum::enum_entries<AccountSetFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["AccountSet"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // OfferCreate flags:
-        for (auto const& entry : magic_enum::enum_entries<OfferCreateFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["OfferCreate"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // Payment flags:
-        for (auto const& entry : magic_enum::enum_entries<PaymentFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["Payment"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // TrustSet flags:
-        for (auto const& entry : magic_enum::enum_entries<TrustSetFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["TrustSet"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // EnableAmendment flags:
-        for (auto const& entry :
-             magic_enum::enum_entries<EnableAmendmentFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["EnableAmendment"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // PaymentChannelClaim flags:
-        for (auto const& entry :
-             magic_enum::enum_entries<PaymentChannelClaimFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["PaymentChannelClaim"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // NFTokenMint flags:
-        for (auto const& entry : magic_enum::enum_entries<NFTokenMintFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["NFTokenMint"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // NFTokenCreateOffer flags:
-        for (auto const& entry :
-             magic_enum::enum_entries<NFTokenCreateOfferFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["NFTokenCreateOffer"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // URITokenMint flags:
+        addFlagsToJson<UniversalFlags>(ret, "Universal");
+        addFlagsToJson<AccountSetFlags>(ret, "AccountSet");
+        addFlagsToJson<OfferCreateFlags>(ret, "OfferCreate");
+        addFlagsToJson<PaymentFlags>(ret, "Payment");
+        addFlagsToJson<TrustSetFlags>(ret, "TrustSet");
+        addFlagsToJson<EnableAmendmentFlags>(ret, "EnableAmendment");
+        addFlagsToJson<PaymentChannelClaimFlags>(ret, "PaymentChannelClaim");
+        addFlagsToJson<NFTokenMintFlags>(ret, "NFTokenMint");
+        addFlagsToJson<NFTokenCreateOfferFlags>(ret, "NFTokenCreateOffer");
+        addFlagsToJson<ClaimRewardFlags>(ret, "ClaimReward");
         struct FlagData
         {
             std::string name;
@@ -488,20 +433,12 @@ private:
                 static_cast<uint32_t>(entry.value);
         }
 
-        // ClaimReward flags:
-        for (auto const& entry : magic_enum::enum_entries<ClaimRewardFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["ClaimReward"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // Account Flags:
-        ret[jss::ACCOUNT_FLAGS] = Json::objectValue;
+        // Transaction Indicies Flags:
+        ret[jss::TRANSACTION_FLAGS_INDICIES] = Json::objectValue;
         for (auto const& entry : magic_enum::enum_entries<AccountFlags>())
         {
             const auto name = entry.second;
-            ret[jss::ACCOUNT_FLAGS][STR(name)] =
+            ret[jss::TRANSACTION_FLAGS_INDICIES]["AccountSet"][STR(name)] =
                 static_cast<uint32_t>(entry.first);
         }
 
