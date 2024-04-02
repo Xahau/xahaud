@@ -893,6 +893,7 @@ if (tests)
     src/test/jtx/impl/rate.cpp
     src/test/jtx/impl/regkey.cpp
     src/test/jtx/impl/reward.cpp
+    src/test/jtx/impl/remarks.cpp
     src/test/jtx/impl/remit.cpp
     src/test/jtx/impl/sendmax.cpp
     src/test/jtx/impl/seq.cpp
