@@ -52,11 +52,11 @@
         static constexpr int max = 127;         \
     };
 
-#define MAGIC_ENUM_FLAG(x)                                   \
-    template <>                                            \
-    struct magic_enum::customize::enum_range<x>            \
-    {                                                      \
-        static constexpr bool is_flags = true;   \
+#define MAGIC_ENUM_FLAG(x)                      \
+    template <>                                 \
+    struct magic_enum::customize::enum_range<x> \
+    {                                           \
+        static constexpr bool is_flags = true;  \
     };
 
 MAGIC_ENUM(ripple::SerializedTypeID);
@@ -69,7 +69,6 @@ MAGIC_ENUM(ripple::TEScodes);
 MAGIC_ENUM(ripple::TECcodes);
 MAGIC_ENUM_16(ripple::TxType);
 MAGIC_ENUM_FLAG(ripple::UniversalFlags);
-MAGIC_ENUM_FLAG(ripple::AccountSetTxFlags);
 MAGIC_ENUM_FLAG(ripple::AccountSetFlags);
 MAGIC_ENUM_FLAG(ripple::OfferCreateFlags);
 MAGIC_ENUM_FLAG(ripple::PaymentFlags);
@@ -79,6 +78,7 @@ MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
 MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
+MAGIC_ENUM_16(ripple::AccountFlags);
 
 namespace ripple {
 
@@ -408,19 +408,11 @@ private:
                 static_cast<uint32_t>(entry.first);
         }
 
-        // AccountSetTx flags:
-        for (auto const& entry : magic_enum::enum_entries<AccountSetTxFlags>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["AccountSet"][STR(name)] =
-                static_cast<uint32_t>(entry.first);
-        }
-
-        // AccountSet Flags:
+        // AccountSet flags:
         for (auto const& entry : magic_enum::enum_entries<AccountSetFlags>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS]["AccountFlags"][STR(name)] =
+            ret[jss::TRANSACTION_FLAGS]["AccountSet"][STR(name)] =
                 static_cast<uint32_t>(entry.first);
         }
 
@@ -449,7 +441,8 @@ private:
         }
 
         // EnableAmendment flags:
-        for (auto const& entry : magic_enum::enum_entries<EnableAmendmentFlags>())
+        for (auto const& entry :
+             magic_enum::enum_entries<EnableAmendmentFlags>())
         {
             const auto name = entry.second;
             ret[jss::TRANSACTION_FLAGS]["EnableAmendment"][STR(name)] =
@@ -457,7 +450,8 @@ private:
         }
 
         // PaymentChannelClaim flags:
-        for (auto const& entry : magic_enum::enum_entries<PaymentChannelClaimFlags>())
+        for (auto const& entry :
+             magic_enum::enum_entries<PaymentChannelClaimFlags>())
         {
             const auto name = entry.second;
             ret[jss::TRANSACTION_FLAGS]["PaymentChannelClaim"][STR(name)] =
@@ -473,7 +467,8 @@ private:
         }
 
         // NFTokenCreateOffer flags:
-        for (auto const& entry : magic_enum::enum_entries<NFTokenCreateOfferFlags>())
+        for (auto const& entry :
+             magic_enum::enum_entries<NFTokenCreateOfferFlags>())
         {
             const auto name = entry.second;
             ret[jss::TRANSACTION_FLAGS]["NFTokenCreateOffer"][STR(name)] =
@@ -489,7 +484,8 @@ private:
         std::array<FlagData, 1> uriTokenMintFlags{{{"tfBurnable", tfBurnable}}};
         for (auto const& entry : uriTokenMintFlags)
         {
-            ret[jss::TRANSACTION_FLAGS]["URITokenMint"][entry.name] = static_cast<uint32_t>(entry.value);
+            ret[jss::TRANSACTION_FLAGS]["URITokenMint"][entry.name] =
+                static_cast<uint32_t>(entry.value);
         }
 
         // ClaimReward flags:
@@ -497,6 +493,15 @@ private:
         {
             const auto name = entry.second;
             ret[jss::TRANSACTION_FLAGS]["ClaimReward"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // Account Flags:
+        ret[jss::ACCOUNT_FLAGS] = Json::objectValue;
+        for (auto const& entry : magic_enum::enum_entries<AccountFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::ACCOUNT_FLAGS][STR(name)] =
                 static_cast<uint32_t>(entry.first);
         }
 

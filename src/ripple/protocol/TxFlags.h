@@ -62,7 +62,7 @@ constexpr std::uint32_t tfUniversal                        = tfFullyCanonicalSig
 constexpr std::uint32_t tfUniversalMask                    = ~tfUniversal;
 
 // AccountSet flags:
-enum AccountSetTxFlags : uint32_t {
+enum AccountSetFlags : uint32_t {
     tfRequireDestTag = 0x00010000,
     tfOptionalDestTag = 0x00020000,
     tfRequireAuth = 0x00040000,
@@ -75,7 +75,7 @@ constexpr std::uint32_t tfAccountSetMask =
       tfOptionalAuth | tfDisallowXRP | tfAllowXRP);
 
 // AccountSet SetFlag/ClearFlag values
-enum AccountSetFlags : uint32_t {
+enum AccountFlags : uint32_t {
     asfRequireDest = 1,
     asfRequireAuth = 2,
     asfDisallowXRP = 3,

@@ -159,6 +159,7 @@ JSS(accountState);           // out: LedgerToJson
 JSS(accountTreeHash);        // out: ledger/Ledger.cpp
 JSS(account_data);           // out: AccountInfo
 JSS(account_flags);          // out: AccountInfo
+JSS(ACCOUNT_FLAGS);          // out: RPC server_definitions
 JSS(account_hash);           // out: LedgerToJson
 JSS(account_id);             // out: WalletPropose
 JSS(account_nfts);           // out: AccountNFTs
