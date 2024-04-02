@@ -50,8 +50,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", "DEADBEEF", 0},
             };
-            auto const txResult = withRemarks ? ter(tesSUCCESS) : ter(temDISABLED);
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), txResult);
+            auto const txResult =
+                withRemarks ? ter(tesSUCCESS) : ter(temDISABLED);
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                txResult);
             env.close();
         }
     }
@@ -82,25 +84,33 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), txflags(tfClose), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                txflags(tfClose),
+                ter(temMALFORMED));
             env.close();
         }
-        // temMALFORMED: SetRemarks: Cannot set more than 32 remarks (or fewer than 1) in a txn.
+        // temMALFORMED: SetRemarks: Cannot set more than 32 remarks (or fewer
+        // than 1) in a txn.
         {
             std::vector<remarks::remark> marks;
-            for (int i = 0; i < 0; ++i) {
+            for (int i = 0; i < 0; ++i)
+            {
                 marks.push_back({"CAFE", "DEADBEEF", 0});
             }
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
-        // temMALFORMED: SetRemarks: Cannot set more than 32 remarks (or fewer than 1) in a txn.
+        // temMALFORMED: SetRemarks: Cannot set more than 32 remarks (or fewer
+        // than 1) in a txn.
         {
             std::vector<remarks::remark> marks;
-            for (int i = 0; i < 33; ++i) {
+            for (int i = 0; i < 33; ++i)
+            {
                 marks.push_back({"CAFE", "DEADBEEF", 0});
             }
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
         // temMALFORMED: SetRemarks: contained non-sfRemark field.
@@ -116,7 +126,8 @@ struct SetRemarks_test : public beast::unit_test::suite
             for (std::size_t i = 0; i < 1; ++i)
             {
                 ja[i][sfGenesisMint.jsonName] = Json::Value{};
-                ja[i][sfGenesisMint.jsonName][jss::Amount] = STAmount(1).getJson(JsonOptions::none);
+                ja[i][sfGenesisMint.jsonName][jss::Amount] =
+                    STAmount(1).getJson(JsonOptions::none);
                 ja[i][sfGenesisMint.jsonName][jss::Destination] = bob.human();
             }
             jv[sfRemarks.jsonName] = ja;
@@ -129,24 +140,29 @@ struct SetRemarks_test : public beast::unit_test::suite
                 {"CAFE", "DEADBEEF", 0},
                 {"CAFE", "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
-        // temMALFORMED: SetRemarks: RemarkName cannot be empty or larger than 256 chars.
+        // temMALFORMED: SetRemarks: RemarkName cannot be empty or larger than
+        // 256 chars.
         {
             std::vector<remarks::remark> marks = {
                 {"", "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
-        // temMALFORMED: SetRemarks: RemarkName cannot be empty or larger than 256 chars.
+        // temMALFORMED: SetRemarks: RemarkName cannot be empty or larger than
+        // 256 chars.
         {
             std::string const name((256 * 2) + 1, 'A');
             std::vector<remarks::remark> marks = {
                 {name, "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
         // temMALFORMED: SetRemarks: Flags must be either tfImmutable or 0
@@ -154,32 +170,39 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", "DEADBEEF", 2},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
-        // temMALFORMED: SetRemarks: A remark deletion cannot be marked immutable.
+        // temMALFORMED: SetRemarks: A remark deletion cannot be marked
+        // immutable.
         {
             std::vector<remarks::remark> marks = {
                 {"CAFE", std::nullopt, 1},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
-        // temMALFORMED: SetRemarks: RemarkValue cannot be empty or larger than 256 chars.
+        // temMALFORMED: SetRemarks: RemarkValue cannot be empty or larger than
+        // 256 chars.
         {
             std::vector<remarks::remark> marks = {
                 {"CAFE", "", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
-        // temMALFORMED: SetRemarks: RemarkValue cannot be empty or larger than 256 chars.
+        // temMALFORMED: SetRemarks: RemarkValue cannot be empty or larger than
+        // 256 chars.
         {
             std::string const value((256 * 2) + 1, 'A');
             std::vector<remarks::remark> marks = {
                 {"CAFE", value, 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(temMALFORMED));
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+                ter(temMALFORMED));
             env.close();
         }
     }
@@ -196,9 +219,8 @@ struct SetRemarks_test : public beast::unit_test::suite
 
         // Env env{*this, features};
 
-        Env env{*this, envconfig(), features, nullptr,
-            beast::severities::kWarning
-        };
+        Env env{
+            *this, envconfig(), features, nullptr, beast::severities::kWarning};
 
         env.fund(XRP(1000), alice, bob);
         env.close();
@@ -226,7 +248,8 @@ struct SetRemarks_test : public beast::unit_test::suite
         // tecNO_PERMISSION: issuer != _account
         // tecIMMUTABLE: SetRemarks: attempt to mutate an immutable remark.
         // tecCLAIM: SetRemarks: insane remarks accounting.
-        // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32 remarks.
+        // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
+        // remarks.
     }
 
     void
@@ -241,9 +264,8 @@ struct SetRemarks_test : public beast::unit_test::suite
 
         // Env env{*this, features};
 
-        Env env{*this, envconfig(), features, nullptr,
-            beast::severities::kWarning
-        };
+        Env env{
+            *this, envconfig(), features, nullptr, beast::severities::kWarning};
 
         env.fund(XRP(1000), alice, bob);
         env.close();

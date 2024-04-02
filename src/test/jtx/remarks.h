@@ -38,11 +38,11 @@ struct remark
         std::string name_,
         std::optional<std::string> value_ = std::nullopt,
         std::optional<std::uint32_t> flags_ = std::nullopt)
-        : name(name_), value(value_), flags(flags_) 
+        : name(name_), value(value_), flags(flags_)
     {
         if (value_)
             value = *value_;
-        
+
         if (flags_)
             flags = *flags_;
     }

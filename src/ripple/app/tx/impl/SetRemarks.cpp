@@ -42,8 +42,8 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
 
     if (remarks.empty() || remarks.size() > 32)
     {
-        JLOG(j.warn()) << "SetRemarks: Cannot set more than 32 remarks (or fewer "
-                          "than 1) in a txn.";
+        JLOG(j.warn()) << "SetRemarks: Cannot set more than 32 remarks (or "
+                          "fewer than 1) in a txn.";
         return temMALFORMED;
     }
 
@@ -67,8 +67,8 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
         }
         if (name.size() == 0 || name.size() > 256)
         {
-            JLOG(j.warn()) << "SetRemarks: RemarkName cannot be empty or larger "
-                              "than 256 chars.";
+            JLOG(j.warn()) << "SetRemarks: RemarkName cannot be empty or "
+                              "larger than 256 chars.";
             return temMALFORMED;
         }
 
@@ -78,7 +78,8 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
             remark.isFieldPresent(sfFlags) ? remark.getFieldU32(sfFlags) : 0;
         if (flags != 0 && flags != tfImmutable)
         {
-            JLOG(j.warn()) << "SetRemarks: Flags must be either tfImmutable or 0";
+            JLOG(j.warn())
+                << "SetRemarks: Flags must be either tfImmutable or 0";
             return temMALFORMED;
         }
 
@@ -86,8 +87,8 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
         {
             if (flags & tfImmutable)
             {
-                JLOG(j.warn())
-                    << "SetRemarks: A remark deletion cannot be marked immutable.";
+                JLOG(j.warn()) << "SetRemarks: A remark deletion cannot be "
+                                  "marked immutable.";
                 return temMALFORMED;
             }
             continue;
@@ -96,8 +97,8 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
         Blob const& val = remark.getFieldVL(sfRemarkValue);
         if (val.size() == 0 || val.size() > 256)
         {
-            JLOG(j.warn()) << "SetRemarks: RemarkValue cannot be empty or larger "
-                              "than 256 chars.";
+            JLOG(j.warn()) << "SetRemarks: RemarkValue cannot be empty or "
+                              "larger than 256 chars.";
             return temMALFORMED;
         }
     }
@@ -300,7 +301,8 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
     if (count > 32)
     {
-        JLOG(ctx.j.warn()) << "SetRemarks: an object may have at most 32 remarks.";
+        JLOG(ctx.j.warn())
+            << "SetRemarks: an object may have at most 32 remarks.";
         return tecTOO_MANY_REMARKS;
     }
 
