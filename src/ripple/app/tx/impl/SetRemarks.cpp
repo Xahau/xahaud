@@ -414,8 +414,35 @@ SetRemarks::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     // RH TODO: transaction fee needs to charge for remarks, in particular
     // because they are not ownercounted.
+    XRPAmount remarkFee{0};
+    if (tx.isFieldPresent(sfRemarks))
+    {
+        int64_t remarkBytes = 0;
+        auto const& remarks = tx.getFieldArray(sfRemarks);
+        for (auto const& remark : remarks)
+        {
+            int64_t entryBytes = 0;
+            if (remark.isFieldPresent(sfRemarkName))
+            {
+                entryBytes += remark.getFieldVL(sfRemarkName).size();
+            }
+            if (remark.isFieldPresent(sfRemarkValue))
+            {
+                entryBytes += remark.getFieldVL(sfRemarkValue).size();
+            }
+
+            // overflow
+            if (remarkBytes + entryBytes < remarkBytes)
+                return INITIAL_XRP;
+
+            remarkBytes += entryBytes;
+        }
+
+        // one drop per byte
+        remarkFee = XRPAmount{remarkBytes};
+    }
     auto fee = Transactor::calculateBaseFee(view, tx);
-    return fee;
+    return fee + remarkFee;
 }
 
 }  // namespace ripple
