@@ -17,6 +17,8 @@
 */
 //==============================================================================
 
+#define MAGIC_ENUM_NO_CHECK_REFLECTED_ENUM
+
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
@@ -42,6 +44,22 @@
         static constexpr int max = 20000;       \
     };
 
+#define MAGIC_ENUM_16(x)                        \
+    template <>                                 \
+    struct magic_enum::customize::enum_range<x> \
+    {                                           \
+        static constexpr int min = -128;        \
+        static constexpr int max = 127;         \
+    };
+
+#define MAGIC_ENUM_32(x)                                   \
+    template <>                                            \
+    struct magic_enum::customize::enum_range<x>            \
+    {                                                      \
+        static constexpr std::uint32_t min = 0x00000001;   \
+        static constexpr std::uint32_t max = 0x80000000;   \
+    };
+
 MAGIC_ENUM(ripple::SerializedTypeID);
 MAGIC_ENUM(ripple::LedgerEntryType);
 MAGIC_ENUM(ripple::TELcodes);
@@ -50,6 +68,18 @@ MAGIC_ENUM(ripple::TEFcodes);
 MAGIC_ENUM(ripple::TERcodes);
 MAGIC_ENUM(ripple::TEScodes);
 MAGIC_ENUM(ripple::TECcodes);
+MAGIC_ENUM_16(ripple::TxType);
+MAGIC_ENUM_32(ripple::UniversalFlags);
+MAGIC_ENUM_32(ripple::AccountSetTxFlags);
+MAGIC_ENUM_32(ripple::AccountSetFlags);
+MAGIC_ENUM_32(ripple::OfferCreateFlags);
+MAGIC_ENUM_32(ripple::PaymentFlags);
+MAGIC_ENUM_32(ripple::TrustSetFlags);
+MAGIC_ENUM_32(ripple::EnableAmendmentFlags);
+MAGIC_ENUM_32(ripple::PaymentChannelClaimFlags);
+MAGIC_ENUM_32(ripple::NFTokenMintFlags);
+MAGIC_ENUM_32(ripple::NFTokenCreateOfferFlags);
+MAGIC_ENUM_32(ripple::ClaimRewardFlags);
 
 namespace ripple {
 
@@ -369,160 +399,106 @@ private:
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
         }
 
+        ret[jss::TRANSACTION_FLAGS] = Json::objectValue;
+
+        // Universal Transaction flags:
+        for (auto const& entry : magic_enum::enum_entries<UniversalFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["Universal"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // AccountSetTx flags:
+        for (auto const& entry : magic_enum::enum_entries<AccountSetTxFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["AccountSet"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // AccountSet Flags:
+        for (auto const& entry : magic_enum::enum_entries<AccountSetFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["AccountFlags"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // OfferCreate flags:
+        for (auto const& entry : magic_enum::enum_entries<OfferCreateFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["OfferCreate"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // Payment flags:
+        for (auto const& entry : magic_enum::enum_entries<PaymentFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["Payment"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // TrustSet flags:
+        for (auto const& entry : magic_enum::enum_entries<TrustSetFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["TrustSet"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // EnableAmendment flags:
+        for (auto const& entry : magic_enum::enum_entries<EnableAmendmentFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["EnableAmendment"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // PaymentChannelClaim flags:
+        for (auto const& entry : magic_enum::enum_entries<PaymentChannelClaimFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["PaymentChannelClaim"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // NFTokenMint flags:
+        for (auto const& entry : magic_enum::enum_entries<NFTokenMintFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["NFTokenMint"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // NFTokenCreateOffer flags:
+        for (auto const& entry : magic_enum::enum_entries<NFTokenCreateOfferFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["NFTokenCreateOffer"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+
+        // URITokenMint flags:
         struct FlagData
         {
             std::string name;
             std::uint32_t value;
         };
-
-        ret[jss::TRANSACTION_FLAGS] = Json::objectValue;
-        // Universal flags:
-        std::array<FlagData, 1> universalFlags{{
-            {"tfFullyCanonicalSig", tfFullyCanonicalSig},
-        }};
-        for (auto const& entry : universalFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["Universal"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // AccountSet flags:
-        std::array<FlagData, 6> accountSetFlags{
-            {{"tfRequireDestTag", tfRequireDestTag},
-             {"tfOptionalDestTag", tfOptionalDestTag},
-             {"tfRequireAuth", tfRequireAuth},
-             {"tfOptionalAuth", tfOptionalAuth},
-             {"tfDisallowXRP", tfDisallowXRP},
-             {"tfAllowXRP", tfAllowXRP}}};
-        for (auto const& entry : accountSetFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["AccountSet"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // Account Flags
-        std::array<FlagData, 15> accountFlags{{
-            {"asfRequireDest", asfRequireDest},
-            {"asfRequireAuth", asfRequireAuth},
-            {"asfDisallowXRP", asfDisallowXRP},
-            {"asfDisableMaster", asfDisableMaster},
-            {"asfAccountTxnID", asfAccountTxnID},
-            {"asfNoFreeze", asfNoFreeze},
-            {"asfGlobalFreeze", asfGlobalFreeze},
-            {"asfDefaultRipple", asfDefaultRipple},
-            {"asfDepositAuth", asfDepositAuth},
-            {"asfAuthorizedNFTokenMinter", asfAuthorizedNFTokenMinter},
-            {"asfTshCollect", asfTshCollect},
-            {"asfDisallowIncomingNFTokenOffer",
-             asfDisallowIncomingNFTokenOffer},
-            {"asfDisallowIncomingCheck", asfDisallowIncomingCheck},
-            {"asfDisallowIncomingPayChan", asfDisallowIncomingPayChan},
-            {"asfDisallowIncomingRemit", asfDisallowIncomingRemit},
-        }};
-        for (auto const& entry : accountFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["Account"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // OfferCreate flags:
-        std::array<FlagData, 4> offerCreateFlags{
-            {{"tfPassive", tfPassive},
-             {"tfImmediateOrCancel", tfImmediateOrCancel},
-             {"tfFillOrKill", tfFillOrKill},
-             {"tfSell", tfSell}}};
-        for (auto const& entry : offerCreateFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["OfferCreate"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // // Payment flags:
-        std::array<FlagData, 3> paymentFlags{
-            {{"tfNoRippleDirect", tfNoRippleDirect},
-             {"tfPartialPayment", tfPartialPayment},
-             {"tfLimitQuality", tfLimitQuality}}};
-        for (auto const& entry : paymentFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["Payment"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // TrustSet flags:
-        std::array<FlagData, 5> trustSetFlags{
-            {{"tfSetfAuth", tfSetfAuth},
-             {"tfSetNoRipple", tfSetNoRipple},
-             {"tfClearNoRipple", tfClearNoRipple},
-             {"tfSetFreeze", tfSetFreeze},
-             {"tfClearFreeze", tfClearFreeze}}};
-        for (auto const& entry : trustSetFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["TrustSet"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // EnableAmendment flags:
-        std::array<FlagData, 3> enableAmendmentFlags{
-            {{"tfGotMajority", tfGotMajority},
-             {"tfLostMajority", tfLostMajority},
-             {"tfTestSuite", tfTestSuite}}};
-        for (auto const& entry : enableAmendmentFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["EnableAmendment"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // PaymentChannelClaim flags:
-        std::array<FlagData, 2> payChanClaimFlags{{
-            {"tfRenew", tfRenew},
-            {"tfClose", tfClose},
-        }};
-        for (auto const& entry : payChanClaimFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["PaymentChannelClaim"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // NFTokenMint flags:
-        std::array<FlagData, 5> nftokenMintFlags{{
-            {"tfBurnable", tfBurnable},
-            {"tfOnlyXRP", tfOnlyXRP},
-            {"tfTrustLine", tfTrustLine},
-            {"tfTransferable", tfTransferable},
-            {"tfStrongTSH", tfStrongTSH},
-        }};
-        for (auto const& entry : nftokenMintFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["NFTokenMint"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // NFTokenCreateOffer flags:
-        std::array<FlagData, 1> nftokenOfferFlags{{
-            {"tfSellNFToken", tfSellNFToken},
-        }};
-        for (auto const& entry : nftokenOfferFlags)
-        {
-            ret[jss::TRANSACTION_FLAGS]["NFTokenCreateOffer"][entry.name] =
-                static_cast<uint32_t>(entry.value);
-        }
-
-        // URITokenMint flags:
         std::array<FlagData, 1> uriTokenMintFlags{{{"tfBurnable", tfBurnable}}};
         for (auto const& entry : uriTokenMintFlags)
         {
-            ret[jss::TRANSACTION_FLAGS]["URITokenMint"][entry.name] =
-                static_cast<uint32_t>(entry.value);
+            ret[jss::TRANSACTION_FLAGS]["URITokenMint"][entry.name] = static_cast<uint32_t>(entry.value);
         }
 
         // ClaimReward flags:
-        std::array<FlagData, 1> claimRewardFlags{{
-            {"tfOptOut", tfOptOut},
-        }};
-        for (auto const& entry : claimRewardFlags)
+        for (auto const& entry : magic_enum::enum_entries<ClaimRewardFlags>())
         {
-            ret[jss::TRANSACTION_FLAGS]["ClaimReward"][entry.name] =
-                static_cast<uint32_t>(entry.value);
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS]["ClaimReward"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
         }
 
         ret[jss::native_currency_code] = systemCurrencyCode();
