@@ -315,14 +315,14 @@ SetRemarks::doApply()
     auto j = ctx_.journal;
     Sandbox sb(&ctx_.view());
 
-    auto const sle = sb.peek(keylet::account(account_));
+    auto const sle = sb.read(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return terNO_ACCOUNT;
 
     auto const objID = ctx_.tx[sfObjectID];
     auto sleO = sb.peek(keylet::unchecked(objID));
     if (!sleO)
-        return tecNO_TARGET;
+        return terNO_ACCOUNT;
 
     std::optional<AccountID> issuer = getRemarksIssuer(sleO);
 
@@ -399,7 +399,7 @@ SetRemarks::doApply()
     }
 
     if (newRemarks.size() > 32)
-        return tecINTERNAL;
+        return tecTOO_MANY_REMARKS;
 
     if (newRemarks.empty() && sleO->isFieldPresent(sfRemarks))
         sleO->makeFieldAbsent(sfRemarks);
@@ -407,6 +407,7 @@ SetRemarks::doApply()
         sleO->setFieldArray(sfRemarks, std::move(newRemarks));
 
     sb.update(sleO);
+    sb.apply(ctx_.rawView());
 
     return tesSUCCESS;
 }
