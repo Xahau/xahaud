@@ -23,11 +23,55 @@
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <sstream>
 
 namespace ripple {
 namespace test {
 struct SetRemarks_test : public beast::unit_test::suite
 {
+
+    // debugRemarks(env, keylet::account(alice).key);
+    void
+    debugRemarks(jtx::Env& env, uint256 const& id)
+    {
+        Json::Value params;
+        params[jss::index] = strHex(id);
+        auto const info = env.rpc("json", "ledger_entry", to_string(params));
+        std::cout << "Remarks: " << info[jss::result][jss::node][sfRemarks.jsonName] << "\n";
+    }
+
+    void
+    validateRemarks(
+        ReadView const& view,
+        uint256 const& id,
+        std::vector<jtx::remarks::remark> const& marks)
+    {
+        using namespace jtx;
+        auto const slep = view.read(keylet::unchecked(id));
+        if (slep->isFieldPresent(sfRemarks))
+        {
+            auto const& remarksObj = slep->getFieldArray(sfRemarks);
+            for (int i = 0; i < marks.size(); ++i)
+            {
+                remarks::remark const expectedMark = marks[i];
+                STObject const remark = remarksObj[i];
+                
+                Blob name = remark.getFieldVL(sfRemarkName);
+                // BEAST_EXPECT(expectedMark.name == name);
+                
+                uint32_t flags = remark.isFieldPresent(sfFlags)
+                    ? remark.getFieldU32(sfFlags)
+                    : 0;
+                BEAST_EXPECT(expectedMark.flags == flags);
+
+                std::optional<Blob> val;
+                if (remark.isFieldPresent(sfRemarkValue))
+                    val = remark.getFieldVL(sfRemarkValue);
+                    // BEAST_EXPECT(expectedMark.value == val);
+            }
+        }
+    }
+
     void
     testEnabled(FeatureBitset features)
     {
@@ -214,24 +258,139 @@ struct SetRemarks_test : public beast::unit_test::suite
         using namespace jtx;
 
         // setup env
+        Env env{*this, features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
-
-        // Env env{*this, features};
-
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kWarning};
-
+        auto const carol = Account("carol");
+        env.memoize(carol);
         env.fund(XRP(1000), alice, bob);
         env.close();
+
+        std::vector<remarks::remark> marks = {
+            {"CAFE", "DEADBEEF", 0},
+        };
 
         //----------------------------------------------------------------------
         // preclaim
 
         // temDISABLED
+        // DA: testEnabled()
+
+        // terNO_ACCOUNT - account doesnt exist
+        {
+            auto const carol = Account("carol");
+            env.memoize(carol);
+            auto tx = remarks::setRemarks(carol, keylet::account(carol).key, marks);
+            tx[jss::Sequence] = 0;
+            env(tx, carol, ter(terNO_ACCOUNT));
+            env.close();
+        }
+
+        // tecNO_TARGET - object doesnt exist
+        {
+            env(remarks::setRemarks(alice, keylet::account(carol).key, marks), ter(tecNO_TARGET));
+            env.close();
+        }
+
+        // tecNO_PERMISSION: !issuer
+        {
+            env(deposit::auth(bob, alice));
+            env(remarks::setRemarks(alice, keylet::depositPreauth(bob, alice).key, marks), ter(tecNO_PERMISSION));
+            env.close();
+        }
+        // tecNO_PERMISSION: issuer != _account
+        {
+            env(remarks::setRemarks(alice, keylet::account(bob).key, marks), ter(tecNO_PERMISSION));
+            env.close();
+        }
+        // tecIMMUTABLE: SetRemarks: attempt to mutate an immutable remark.
+        {
+            // alice creates immutable remark
+            std::vector<remarks::remark> immutableMarks = {
+                {"CAFF", "DEAD", tfImmutable},
+            };
+            env(remarks::setRemarks(alice, keylet::account(alice).key, immutableMarks), ter(tesSUCCESS));
+            env.close();
+
+            // alice cannot update immutable remark
+            std::vector<remarks::remark> badMarks = {
+                {"CAFF", "DEADBEEF", 0},
+            };
+            env(remarks::setRemarks(alice, keylet::account(alice).key, badMarks), ter(tecIMMUTABLE));
+            env.close();
+        }
+        // tecCLAIM: SetRemarks: insane remarks accounting.
+        {
+
+        }
+        // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
+        // remarks.
+        {
+            std::vector<remarks::remark> _marks;
+            unsigned int hexValue = 0xEFAC;
+            for (int i = 0; i < 31; ++i)
+            {
+                std::stringstream ss;
+                ss << std::hex << std::uppercase << hexValue;
+                _marks.push_back({ss.str(), "DEADBEEF", 0});
+                hexValue++;
+            }
+            env(remarks::setRemarks(alice, keylet::account(alice).key, _marks), ter(tesSUCCESS));
+            env.close();
+            env(remarks::setRemarks(alice, keylet::account(alice).key, marks), ter(tecTOO_MANY_REMARKS));
+            env.close();
+        }
+    }
+
+    void
+    testDoApplyInvalid(FeatureBitset features)
+    {
+        testcase("doApply invalid");
+        using namespace jtx;
+
+        //----------------------------------------------------------------------
+        // doApply
+
         // terNO_ACCOUNT
         // tecNO_TARGET
+        {
+            // setup env
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(1000), alice, bob);
+            env.close();
+
+        }
+        // tecNO_PERMISSION
+        // tecTOO_MANY_REMARKS
+    }
+
+    void
+    testLedgerObjects(FeatureBitset features)
+    {
+        testcase("ledger objects");
+        using namespace jtx;
+
+        // setup env
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        env.fund(XRP(1000), alice, bob);
+        env.close();
+
+        std::vector<remarks::remark> marks = {
+            {"CAFE", "DEADBEEF", 0},
+        };
+
         // getRemarksIssuer: ltACCOUNT_ROOT
+        {
+            auto const id = keylet::account(alice).key;
+            env(remarks::setRemarks(alice, id, marks));
+            env.close();
+            debugRemarks(env, id);
+            validateRemarks(*env.current(), id, marks);
+        }
         // getRemarksIssuer: ltOFFER
         // getRemarksIssuer: ltESCROW
         // getRemarksIssuer: ltTICKET
@@ -244,51 +403,17 @@ struct SetRemarks_test : public beast::unit_test::suite
         // getRemarksIssuer: ltRIPPLE_STATE: bal > 0
         // getRemarksIssuer: ltRIPPLE_STATE: !high & !low
         // getRemarksIssuer: ltRIPPLE_STATE: high & low
-        // tecNO_PERMISSION: !issuer
-        // tecNO_PERMISSION: issuer != _account
-        // tecIMMUTABLE: SetRemarks: attempt to mutate an immutable remark.
-        // tecCLAIM: SetRemarks: insane remarks accounting.
-        // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
-        // remarks.
-    }
-
-    void
-    testDoApplyInvalid(FeatureBitset features)
-    {
-        testcase("doApply invalid");
-        using namespace jtx;
-
-        // setup env
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-
-        // Env env{*this, features};
-
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kWarning};
-
-        env.fund(XRP(1000), alice, bob);
-        env.close();
-
-        //----------------------------------------------------------------------
-        // doApply
-
-        // tefINTERNAL
-        // tecNO_TARGET
-        // tecNO_PERMISSION
-        // tecINTERNAL
     }
 
     void
     testWithFeats(FeatureBitset features)
     {
-        testEnabled(features);
-        testPreflightInvalid(features);
+        // testEnabled(features);
+        // testPreflightInvalid(features);
         // testPreclaimInvalid(features);
         // testDoApplyInvalid(features);
-        // testCreate(features);
         // testDelete(features);
-        // testUpdateIssuer(features);
+        testLedgerObjects(features);
     }
 
 public:
