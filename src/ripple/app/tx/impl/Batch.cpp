@@ -378,18 +378,23 @@ Batch::preclaim(PreclaimContext const& ctx)
     return tesSUCCESS;
 }
 
+std::vector<TER> doApplyResponses;
 
 TER
 Batch::doApply()
 {
-    std::cout << "Batch::doApply()" << "\n";
+    // std::cout << "Batch::doApply()" << "\n";
     Sandbox sb(&ctx_.view());
     // Sandbox sb(ctx_.base_.base_, view().flags());
+
+    uint32_t flags = ctx_.tx.getFlags();
+    if (flags & tfBatchMask)
+            return temINVALID_FLAG;
 
     auto const& txns = ctx_.tx.getFieldArray(sfRawTransactions);
     for (std::size_t i = 0; i < txns.size(); ++i)
     {
-        std::cout << "START" << "\n";
+        // std::cout << "START" << "\n";
         ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
         STObject meta{sfBatchExecution};
 
@@ -404,8 +409,9 @@ Batch::doApply()
         auto const tt = txn.getFieldU16(sfTransactionType);
         auto const txtype = safe_cast<TxType>(tt);
         auto const stx = STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
-        
+
         // OpenView(&ctx_.view())
+        JLOG(ctx_.journal.error()) << "Batch: SUBMITTING: " << preclaimResponses[i];
         ApplyContext actx(
             ctx_.app,
             ctx_.base_,
@@ -414,7 +420,6 @@ Batch::doApply()
             ctx_.view().fees().base,
             view().flags(),
             ctx_.journal);
-       
         auto const result = invoke_apply(actx);
         meta.setFieldU8(sfTransactionResult, TERtoInt(result.first));
         meta.setFieldU16(sfTransactionType, tt);
@@ -422,10 +427,17 @@ Batch::doApply()
             meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
         
         avi.addBatchExecutionMetaData(std::move(meta));
+        
         if (result.first != tesSUCCESS)
         {
             actx.discard();
+
+            if (flags & tfBatchFirst)
+            {
+                return tecFAILED_PROCESSING;
+            }
         }
+        doApplyResponses.push_back(result.first);
     }
 
     auto const sle = ctx_.base_.read(keylet::account(account_));
@@ -436,13 +448,25 @@ Batch::doApply()
     if (!sleSrcAcc)
         return tefINTERNAL;
 
-    std::cout << "ACCOUNT SEQ: " << sleSrcAcc->getFieldU32(sfSequence) << "\n";
-    std::cout << "ACCOUNT BALANCE: " << mSourceBalance << "\n";
-    std::cout << "ACCOUNT BALANCE=: " << sle->getFieldAmount(sfBalance) << "\n";
+    // std::cout << "ACCOUNT SEQ: " << sleSrcAcc->getFieldU32(sfSequence) << "\n";
+    // std::cout << "ACCOUNT BALANCE: " << mSourceBalance << "\n";
+    // std::cout << "ACCOUNT BALANCE=: " << sle->getFieldAmount(sfBalance) << "\n";
     sleSrcAcc->setFieldAmount(sfBalance, sle->getFieldAmount(sfBalance));
     sb.update(sleSrcAcc);
-    sb.apply(ctx_.rawView());
 
+    for (auto applyResp : doApplyResponses)
+    {
+        if (applyResp != tesSUCCESS)
+        {
+            if (flags & tfBatchAtomic)
+            {
+                ctx_.discard();
+                return tecFAILED_PROCESSING;
+            }
+        }
+    }
+
+    sb.apply(ctx_.rawView());
     return tesSUCCESS;
 }
 

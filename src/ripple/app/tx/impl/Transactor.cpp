@@ -808,8 +808,8 @@ Transactor::apply()
     preCompute();
 
     auto const tt = ctx_.tx.getTxnType();
-    std::cout << "tt: " << tt << "\n";
-    std::cout << "id: " << ctx_.tx.getTransactionID() << "\n";
+    // std::cout << "tt: " << tt << "\n";
+    // std::cout << "id: " << ctx_.tx.getTransactionID() << "\n";
     // if (tt == ttBATCH)
     //     return doApply();
 
@@ -831,7 +831,7 @@ Transactor::apply()
         // std::cout << "mPriorBalance: " << mPriorBalance << "\n";
         // std::cout << "mSourceBalance=: " << (mSourceBalance - mPriorBalance) << "\n";
         mPriorBalance = STAmount{(*sle)[sfBalance]}.xrp();
-        std::cout << "mPriorBalance: " << mPriorBalance << "\n";
+        // std::cout << "mPriorBalance: " << mPriorBalance << "\n";
         mSourceBalance = mPriorBalance;
 
         TER result = consumeSeqProxy(sle);
@@ -848,7 +848,7 @@ Transactor::apply()
         view().update(sle);
     }
 
-    std::cout << "Transactor::apply" << "\n";
+    // std::cout << "Transactor::apply" << "\n";
 
     return doApply();
 }

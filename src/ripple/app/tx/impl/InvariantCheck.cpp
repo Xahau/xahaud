@@ -259,7 +259,7 @@ XRPNotCreated::finalize(
         // std::cout << "fee.drops: " << feeAdded << "\n";
         // std::cout << "dropsAdded: " << dropsAdded.drops() << "\n";
         // std::cout << "drops: " << drops << "\n";
-        std::cout << "drops=: " << drops_ << "\n";
+        // std::cout << "drops=: " << drops_ << "\n";
 
         // catch any overflow or funny business
         // if (drops > dropsAdded.drops())

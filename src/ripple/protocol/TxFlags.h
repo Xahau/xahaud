@@ -168,6 +168,14 @@ constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
 // ClaimReward flags:
 constexpr std::uint32_t const tfOptOut                   = 0x00000001;
 
+enum BatchFlags : std::uint32_t {
+    tfBatchAtomic = 0x00000001,
+    tfBatchFirst = 0x00000002,
+};
+
+constexpr std::uint32_t const tfBatchMask =
+    ~(tfUniversal | tfBatchAtomic | tfBatchFirst);
+
 // clang-format on
 
 }  // namespace ripple
