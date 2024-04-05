@@ -145,6 +145,7 @@ target_link_libraries (xrpl_core
     OpenSSL::Crypto
     Ripple::boost
     NIH::WasmEdge
+    NIH::quickjs
     Ripple::syslibs
     NIH::secp256k1
     NIH::ed25519-donna

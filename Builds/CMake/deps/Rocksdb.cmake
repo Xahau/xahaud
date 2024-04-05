@@ -80,6 +80,7 @@ if (local_rocksdb)
       -DCMAKE_DEBUG_POSTFIX=_d
       $<$<NOT:$<BOOL:${is_multiconfig}>>:-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}>
       -DBUILD_SHARED_LIBS=OFF
+      -DROCKSDB_BUILD_SHARED=OFF
       -DCMAKE_POSITION_INDEPENDENT_CODE=ON
       -DWITH_JEMALLOC=$<IF:$<BOOL:${jemalloc}>,ON,OFF>
       -DWITH_SNAPPY=ON
