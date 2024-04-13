@@ -105,16 +105,19 @@ public:
     void
     setHookMetaData(
         std::vector<STObject>&& executions,
-        std::vector<STObject>&& emissions)
+        std::vector<STObject>&& emissions,
+        std::vector<STObject>&& batch)
     {
         hookExecution_ = std::move(executions);
         hookEmission_ = std::move(emissions);
+        batchExecution_ = std::move(batch);
     }
 
     void
     copyHookMetaData(
         std::vector<STObject>& execution /* in */,
-        std::vector<STObject>& emission /* in */)
+        std::vector<STObject>& emission /* in */,
+        std::vector<STObject>& batch /* in */)
     {
         std::copy(
             hookExecution_.begin(),
@@ -124,6 +127,10 @@ public:
             hookEmission_.begin(),
             hookEmission_.end(),
             std::back_inserter(emission));
+        std::copy(
+            batchExecution_.begin(),
+            batchExecution_.end(),
+            std::back_inserter(batch));
     }
 
     uint16_t

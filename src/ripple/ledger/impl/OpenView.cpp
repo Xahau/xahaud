@@ -130,6 +130,8 @@ void
 OpenView::apply(TxsRawView& to) const
 {
     // std::cout << "OpenView::apply" << "\n";
+    // std::cout << "OpenView::apply: " << items_.size() << "\n";
+    std::cout << "OpenView::apply: " << txs_.size() << "\n";
     items_.apply(to);
     for (auto const& item : txs_)
     {

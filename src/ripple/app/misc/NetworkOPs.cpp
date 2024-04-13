@@ -1397,7 +1397,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     if (e.failType == FailHard::yes)
                         flags |= tapFAIL_HARD;
 
-                    // std::cout << "NetworkOPsImp::apply: TXQu" << "\n";
+                    std::cout << "NetworkOPsImp::apply: getTxQ" << "\n";
                     auto const result = app_.getTxQ().apply(
                         app_, view, e.transaction->getSTransaction(), flags, j);
                     e.result = result.first;

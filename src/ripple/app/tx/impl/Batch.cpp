@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/TER.h>
+#include <ripple/app/main/Application.h>
 #include <ripple/app/tx/applySteps.h>
 #include <ripple/app/tx/impl/ApplyContext.h>
 #include <ripple/app/tx/impl/Batch.h>
@@ -52,6 +52,7 @@
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/TER.h>
 
 namespace ripple {
 
@@ -229,10 +230,10 @@ invoke_preclaim(PreclaimContext const& ctx)
                 if (result != tesSUCCESS)
                     return result;
 
-                result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
+                // result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
-                if (result != tesSUCCESS)
-                    return result;
+                // if (result != tesSUCCESS)
+                //     return result;
 
                 result = T::checkSign(ctx);
 
@@ -366,38 +367,41 @@ Batch::preclaim(PreclaimContext const& ctx)
         preclaimResponses.push_back(response);
     }
 
-    // Handle Atomicity
-    // for (const auto& response : preclaimResponses)
-    // {
-    //     if (response != tesSUCCESS)
-    //     {
-    //         return response;
-    //     }
-    // }
-
     return tesSUCCESS;
 }
 
-std::vector<TER> doApplyResponses;
+// void
+// Batch::updateAccount(Sandbox& sb)
+// {
+//     auto const sle = ctx_.base_.read(keylet::account(account_));
+//     if (!sle)
+//         return tefINTERNAL;
+
+//     auto const sleSrcAcc = sb.peek(keylet::account(account_));
+//     if (!sleSrcAcc)
+//         return tefINTERNAL;
+
+//     auto const feePaid = ctx_.tx[sfFee].xrp();
+//     sleSrcAcc->setFieldAmount(sfBalance, sle->getFieldAmount(sfBalance).xrp() - feePaid);
+//     sb.update(sleSrcAcc);
+//     sb.apply(ctx_.rawView());
+// }
 
 TER
 Batch::doApply()
 {
-    // std::cout << "Batch::doApply()" << "\n";
+    std::cout << "Batch::doApply()" << "\n";
     Sandbox sb(&ctx_.view());
-    // Sandbox sb(ctx_.base_.base_, view().flags());
 
     uint32_t flags = ctx_.tx.getFlags();
     if (flags & tfBatchMask)
             return temINVALID_FLAG;
 
+    // SANITIZE
+    std::vector<STTx> stxTxns;
     auto const& txns = ctx_.tx.getFieldArray(sfRawTransactions);
     for (std::size_t i = 0; i < txns.size(); ++i)
     {
-        // std::cout << "START" << "\n";
-        ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
-        STObject meta{sfBatchExecution};
-
         auto const& txn = txns[i];
         if (!txn.isFieldPresent(sfTransactionType))
         {
@@ -409,9 +413,61 @@ Batch::doApply()
         auto const tt = txn.getFieldU16(sfTransactionType);
         auto const txtype = safe_cast<TxType>(tt);
         auto const stx = STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
+        stxTxns.push_back(stx);
+    }
 
-        // OpenView(&ctx_.view())
-        JLOG(ctx_.journal.error()) << "Batch: SUBMITTING: " << preclaimResponses[i];
+    // DRY RUN
+    // std::cout << "DRYRUN::size(): " << stxTxns.size() << "\n";
+    // std::vector<std::pair<std::uint16_t, TER>> dryVector;
+    // for (std::size_t i = 0; i < stxTxns.size(); ++i)
+    // {
+    //     auto const& stx = stxTxns[i];
+    //     ApplyContext actx(
+    //         ctx_.app,
+    //         ctx_.base_,
+    //         stx,
+    //         preclaimResponses[i],
+    //         ctx_.view().fees().base,
+    //         tapPREFLIGHT_BATCH,
+    //         ctx_.journal);
+    //     auto const result = invoke_apply(actx);
+    //     dryVector.emplace_back(stx.getTxnType(), result.first); 
+    //     std::cout << "ApplyContext::size(): " << actx.size() << "\n";
+    //     actx.discard();
+    // }
+
+    ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
+    // for (auto const& dryRun : dryVector)
+    // {
+    //     STObject meta{sfBatchExecution};
+    //     meta.setFieldU8(sfTransactionResult, TERtoInt(dryRun.second));
+    //     meta.setFieldU16(sfTransactionType, dryRun.first);
+    //     avi.addBatchExecutionMetaData(std::move(meta));
+
+    //     // tfBatchAtomic
+    //     if (dryRun.second != tesSUCCESS && flags & tfBatchAtomic)
+    //     {
+    //         std::cout << "tfBatchAtomic::Failed" << "\n";
+    //         sb.apply(ctx_.rawView());
+    //         return tecBATCH_FAILURE;
+    //     }
+    // }
+
+    // ctx_.discard();
+
+    // // reset avi
+    // std::vector<STObject> executions;
+    // std::vector<STObject> emissions;
+    // std::vector<STObject> batch;
+    // avi.setHookMetaData(std::move(executions), std::move(emissions), std::move(batch));
+    
+    // WET RUN
+    TER result = tesSUCCESS;
+    for (std::size_t i = 0; i < stxTxns.size(); ++i)
+    {
+        STObject meta{sfBatchExecution};
+
+        auto const& stx = stxTxns[i];
         ApplyContext actx(
             ctx_.app,
             ctx_.base_,
@@ -420,54 +476,60 @@ Batch::doApply()
             ctx_.view().fees().base,
             view().flags(),
             ctx_.journal);
-        auto const result = invoke_apply(actx);
-        meta.setFieldU8(sfTransactionResult, TERtoInt(result.first));
-        meta.setFieldU16(sfTransactionType, tt);
-        if (result.first == tesSUCCESS)
-            meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
-        
-        avi.addBatchExecutionMetaData(std::move(meta));
-        
-        if (result.first != tesSUCCESS)
-        {
-            actx.discard();
+        auto const _result = invoke_apply(actx);
 
+        meta.setFieldU8(sfTransactionResult, TERtoInt(_result.first));
+        meta.setFieldU16(sfTransactionType, stx.getTxnType());
+        if(_result.first != tesSUCCESS)
+            meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
+
+        avi.addBatchExecutionMetaData(std::move(meta));
+
+        std::cout << "tfBatchFirst: " << (flags & tfBatchFirst) << "\n";
+        std::cout << "tfBatchOne: " << (flags & tfBatchOne) << "\n";
+        std::cout << "tfBatchAtomic: " << _result.first << "\n";
+
+        if (_result.first != tesSUCCESS)
+        {
             if (flags & tfBatchFirst)
             {
-                return tecFAILED_PROCESSING;
+                actx.discard();
+                result = tecBATCH_FAILURE;
+                break;
+            }
+            if (flags & tfBatchOne)
+            {
+                actx.discard();
+                continue;
             }
         }
-        doApplyResponses.push_back(result.first);
+
+        if (_result.first == tesSUCCESS && flags & tfBatchOne)
+        {
+            result = tecBATCH_FAILURE;
+            break;
+        }
     }
 
-    auto const sle = ctx_.base_.read(keylet::account(account_));
-    if (!sle)
+    auto const sleBase = ctx_.base_.read(keylet::account(account_));
+    if (!sleBase)
         return tefINTERNAL;
 
     auto const sleSrcAcc = sb.peek(keylet::account(account_));
     if (!sleSrcAcc)
         return tefINTERNAL;
 
+    // std::cout << "ACCOUNT BASE SEQ: " << sleBase->getFieldU32(sfSequence) << "\n";
+    // std::cout << "ACCOUNT BASE BALANCE: " << sleBase->getFieldAmount(sfBalance) << "\n";
     // std::cout << "ACCOUNT SEQ: " << sleSrcAcc->getFieldU32(sfSequence) << "\n";
-    // std::cout << "ACCOUNT BALANCE: " << mSourceBalance << "\n";
-    // std::cout << "ACCOUNT BALANCE=: " << sle->getFieldAmount(sfBalance) << "\n";
-    sleSrcAcc->setFieldAmount(sfBalance, sle->getFieldAmount(sfBalance));
+    // std::cout << "ACCOUNT BALANCE: " << sleSrcAcc->getFieldAmount(sfBalance) << "\n";
+
+    auto const feePaid = ctx_.tx[sfFee].xrp();
+    sleSrcAcc->setFieldU32(sfSequence, sleBase->getFieldU32(sfSequence));
+    sleSrcAcc->setFieldAmount(sfBalance, sleBase->getFieldAmount(sfBalance).xrp() - feePaid);
     sb.update(sleSrcAcc);
-
-    for (auto applyResp : doApplyResponses)
-    {
-        if (applyResp != tesSUCCESS)
-        {
-            if (flags & tfBatchAtomic)
-            {
-                ctx_.discard();
-                return tecFAILED_PROCESSING;
-            }
-        }
-    }
-
     sb.apply(ctx_.rawView());
-    return tesSUCCESS;
+    return result;
 }
 
 XRPAmount

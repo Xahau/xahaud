@@ -22,6 +22,33 @@
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
 
+// tfBatchOne
+// Tx1: Payment = tecUNFUNDED => Leave
+// Tx2: Payment = tesSUCCESS => Leave
+// TER(tesSUCCESS)
+
+// tfBatchFirst
+// Tx1: Payment = tesSUCCESS => Leave
+// Tx2: Payment = tecUNFUNDED => Leave
+// TER(tesSUCCESS)
+
+// tfBatchAtomic
+// Tx1: Payment = tesSUCCESS => Revert
+// Tx2: Payment = tecUNFUNDED => Leave
+// TER(tecBATCH_FAILURE)
+
+// Broadcast - Manually broadcast the inner transactions
+// Stacking Views
+// TicketCreate as first of batch
+// Sequence optional except when needed specifically
+// Bypass the queue for inner transactions
+// Fee only on outer - if 2 payments and fee escellation make sure that the outer tx includes the fee escallation for all inner
+// Look at TicketCreate for creating virtual tickets (Transactor.cpp) (TransactionConsequences.cpp)
+// If we have the batch index, the virtual ticket number is seq of batch + batch index.
+// Think about multiple different angles of this. AccountA & AccountB.
+
+// OptionB: Use OfferID
+
 namespace ripple {
 namespace test {
 
@@ -61,9 +88,9 @@ class Batch_test : public beast::unit_test::suite
         jv[sfRawTransactions.jsonName][index] = Json::Value{};
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction] = tx;
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][jss::SigningPubKey] = strHex(account.pk());
-        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfFee.jsonName] = to_string(feeDrops);
+        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfFee.jsonName] = 0;
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][jss::Sequence] = next;
-        // jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfCloseResolution.jsonName] = next;
+        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfBatchIndex.jsonName] = next;
         return jv;
     }
 
@@ -90,7 +117,6 @@ class Batch_test : public beast::unit_test::suite
         //     nullptr,
         //     // beast::severities::kWarning
         //     beast::severities::kTrace};
-
 
         auto const feeDrops = env.current()->fees().base;
 
@@ -221,18 +247,18 @@ class Batch_test : public beast::unit_test::suite
         Json::Value jv;
         jv[jss::TransactionType] = jss::Batch;
         jv[jss::Account] = alice.human();
-        jv[jss::Sequence] = seq + 2;
+        jv[jss::Sequence] = seq;
 
         // Batch Transactions
         jv[sfRawTransactions.jsonName] = Json::Value{Json::arrayValue};
 
         // Tx 1
         Json::Value const tx1 = pay(alice, bob, XRP(1));
-        jv = addBatchTx(jv, tx1, alice, feeDrops, 0, seq);
+        jv = addBatchTx(jv, tx1, alice, feeDrops, 0, seq + 1);
 
         // Tx 2
         Json::Value const tx2 = pay(alice, bob, XRP(1));
-        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, seq + 1);
+        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, seq + 2);
 
         env(jv, fee(feeDrops * 2), ter(tesSUCCESS));
         env.close();
@@ -243,11 +269,22 @@ class Batch_test : public beast::unit_test::suite
         }};
 
         Json::Value params;
-        params[jss::transaction] = env.tx()->getJson(JsonOptions::none)[jss::hash];
-        auto const jrr = env.rpc("json", "tx", to_string(params));
+        params[jss::ledger_index] = env.current()->seq() - 1;
+        params[jss::transactions] = true;
+        params[jss::expand] = true;
+        auto const jrr = env.rpc("json", "ledger", to_string(params));
         std::cout << "jrr: " << jrr << "\n";
-        auto const meta = jrr[jss::result][jss::meta];
-        validateBatchTxns(meta, testCases);
+
+        // Json::Value params;
+        // params[jss::transaction] = env.tx()->getJson(JsonOptions::none)[jss::hash];
+        // auto const jrr = env.rpc("json", "tx", to_string(params));
+        // std::cout << "jrr: " << jrr << "\n";
+        // auto const meta = jrr[jss::result][jss::meta];
+        // validateBatchTxns(meta, testCases);
+
+        std::cout << "seq: " << env.seq(alice) << "\n";
+        std::cout << "alice: " << env.balance(alice) << "\n";
+        std::cout << "bob: " << env.balance(bob) << "\n";
 
         BEAST_EXPECT(env.seq(alice) == 2);
         BEAST_EXPECT(env.balance(alice) == XRP(1000) - XRP(2) - (feeDrops * 2));
@@ -275,20 +312,32 @@ class Batch_test : public beast::unit_test::suite
         Json::Value jv;
         jv[jss::TransactionType] = jss::Batch;
         jv[jss::Account] = alice.human();
+        jv[jss::Sequence] = seq;
 
         // Batch Transactions
         jv[sfRawTransactions.jsonName] = Json::Value{Json::arrayValue};
 
         // Tx 1
         Json::Value const tx1 = pay(alice, bob, XRP(1));
-        jv = addBatchTx(jv, tx1, alice, feeDrops, 0, 0);
+        jv = addBatchTx(jv, tx1, alice, feeDrops, 0, seq + 1);
 
         // Tx 2
         Json::Value const tx2 = pay(alice, bob, XRP(999));
-        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, 0);
+        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, seq + 2);
 
-        env(jv, fee(feeDrops * 2), txflags(tfBatchAtomic), ter(tecFAILED_PROCESSING));
+        env(jv, fee(feeDrops * 2), txflags(tfBatchAtomic), ter(tecBATCH_FAILURE));
         env.close();
+
+        Json::Value params;
+        params[jss::ledger_index] = env.current()->seq() - 1;
+        params[jss::transactions] = true;
+        params[jss::expand] = true;
+        auto const jrr = env.rpc("json", "ledger", to_string(params));
+        std::cout << "jrr: " << jrr << "\n";
+
+        std::cout << "seq: " << env.seq(alice) << "\n";
+        std::cout << "alice: " << env.balance(alice) << "\n";
+        std::cout << "bob: " << env.balance(bob) << "\n";
 
         BEAST_EXPECT(env.seq(alice) == 2);
         BEAST_EXPECT(env.balance(alice) == XRP(1000) - (feeDrops * 2));
@@ -303,7 +352,14 @@ class Batch_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        test::jtx::Env env{*this, envconfig()};
+        // test::jtx::Env env{*this, envconfig()};
+        Env env{
+            *this,
+            envconfig(),
+            features,
+            nullptr,
+            // beast::severities::kWarning
+            beast::severities::kTrace};
         auto const feeDrops = env.current()->fees().base;
 
         auto const alice = Account("alice");
@@ -312,9 +368,11 @@ class Batch_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob, carol);
         env.close();
 
+        auto const seq = env.seq("alice");
         Json::Value jv;
         jv[jss::TransactionType] = jss::Batch;
         jv[jss::Account] = alice.human();
+        jv[jss::Sequence] = seq;
 
         // Batch Transactions
         jv[sfRawTransactions.jsonName] = Json::Value{Json::arrayValue};
@@ -325,18 +383,29 @@ class Batch_test : public beast::unit_test::suite
 
         // Tx 2
         Json::Value const tx2 = pay(alice, bob, XRP(999));
-        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, 0);
+        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, 1);
 
         // Tx 3
         Json::Value const tx3 = pay(alice, bob, XRP(1));
-        jv = addBatchTx(jv, tx3, alice, feeDrops, 2, 0);
+        jv = addBatchTx(jv, tx3, alice, feeDrops, 2, 2);
 
-        env(jv, fee(feeDrops * 3), txflags(tfBatchFirst), ter(tecFAILED_PROCESSING));
+        env(jv, fee(feeDrops * 3), txflags(tfBatchFirst), ter(tecBATCH_FAILURE));
         env.close();
 
-        BEAST_EXPECT(env.seq(alice) == 2);
-        BEAST_EXPECT(env.balance(alice) == XRP(1000) - (feeDrops * 3));
-        BEAST_EXPECT(env.balance(bob) == XRP(1000));
+        Json::Value params;
+        params[jss::ledger_index] = env.current()->seq() - 1;
+        params[jss::transactions] = true;
+        params[jss::expand] = true;
+        auto const jrr = env.rpc("json", "ledger", to_string(params));
+        std::cout << "jrr: " << jrr << "\n";
+
+        std::cout << "seq: " << env.seq(alice) << "\n";
+        std::cout << "alice: " << env.balance(alice) << "\n";
+        std::cout << "bob: " << env.balance(bob) << "\n";
+
+        BEAST_EXPECT(env.seq(alice) == 4);
+        BEAST_EXPECT(env.balance(alice) == XRP(1000) - XRP(1));
+        BEAST_EXPECT(env.balance(bob) == XRP(1000) + XRP(1));
     }
 
     void

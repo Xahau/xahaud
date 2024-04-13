@@ -157,6 +157,7 @@ CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32, 
 
 CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 
+CONSTRUCT_TYPED_SFIELD(sfBatchIndex,            "BatchIndex",           UINT32,    95);
 CONSTRUCT_TYPED_SFIELD(sfXahauActivationLgrSeq, "XahauActivationLgrSeq",UINT32,    96);
 CONSTRUCT_TYPED_SFIELD(sfImportSequence,        "ImportSequence",       UINT32,    97);
 CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);

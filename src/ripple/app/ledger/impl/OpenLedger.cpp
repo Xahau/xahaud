@@ -121,7 +121,7 @@ OpenLedger::accept(
     // Apply local tx
     for (auto const& item : locals)
     {
-        // std::cout << "OpenLedger::accept: TXQu" << "\n";
+        JLOG(j_.trace()) << "OpenLedger::accept: getTxQ" << "\n";
         app.getTxQ().apply(app, *next, item.second, flags, j_);
     }
 
@@ -133,6 +133,10 @@ OpenLedger::accept(
 
         // skip emitted txns
         if (tx->isFieldPresent(sfEmitDetails))
+            continue;
+        
+        // skip emitted txns
+        if (tx->isFieldPresent(sfBatchIndex))
             continue;
 
         if (auto const toSkip = app.getHashRouter().shouldRelay(txId))

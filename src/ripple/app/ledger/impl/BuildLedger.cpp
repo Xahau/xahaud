@@ -59,6 +59,7 @@ buildLedgerImpl(
         OpenView accum(&*built);
         assert(!accum.open());
         applyTxs(accum, built);
+        std::cout << "BuildLedger::buildLedgerImpl: " << "\n";
         accum.apply(*built);
     }
 

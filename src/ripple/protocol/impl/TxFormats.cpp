@@ -45,6 +45,7 @@ TxFormats::TxFormats()
         {sfHookParameters, soeOPTIONAL},
         {sfOperationLimit, soeOPTIONAL},
         {sfCloseResolution, soeOPTIONAL},
+        {sfBatchIndex, soeOPTIONAL},
     };
 
     add(jss::AccountSet,

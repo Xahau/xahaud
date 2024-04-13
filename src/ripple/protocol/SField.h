@@ -410,6 +410,7 @@ extern SF_UINT32 const sfRewardLgrLast;
 extern SF_UINT32 const sfFirstNFTokenSequence;
 extern SF_UINT32 const sfImportSequence;
 extern SF_UINT32 const sfXahauActivationLgrSeq;
+extern SF_UINT32 const sfBatchIndex;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;
