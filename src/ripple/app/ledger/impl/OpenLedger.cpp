@@ -135,7 +135,7 @@ OpenLedger::accept(
         if (tx->isFieldPresent(sfEmitDetails))
             continue;
         
-        // skip emitted txns
+        // skip batch txns
         if (tx->isFieldPresent(sfBatchIndex))
             continue;
 

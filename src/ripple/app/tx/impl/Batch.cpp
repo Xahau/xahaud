@@ -480,7 +480,7 @@ Batch::doApply()
 
         meta.setFieldU8(sfTransactionResult, TERtoInt(_result.first));
         meta.setFieldU16(sfTransactionType, stx.getTxnType());
-        if(_result.first != tesSUCCESS)
+        if(_result.first == tesSUCCESS)
             meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
 
         avi.addBatchExecutionMetaData(std::move(meta));
@@ -525,7 +525,7 @@ Batch::doApply()
     // std::cout << "ACCOUNT BALANCE: " << sleSrcAcc->getFieldAmount(sfBalance) << "\n";
 
     auto const feePaid = ctx_.tx[sfFee].xrp();
-    sleSrcAcc->setFieldU32(sfSequence, sleBase->getFieldU32(sfSequence));
+    // sleSrcAcc->setFieldU32(sfSequence, ctx_.tx.getFieldU32(sfSequence) + 1);
     sleSrcAcc->setFieldAmount(sfBalance, sleBase->getFieldAmount(sfBalance).xrp() - feePaid);
     sb.update(sleSrcAcc);
     sb.apply(ctx_.rawView());

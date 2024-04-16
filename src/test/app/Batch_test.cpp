@@ -89,7 +89,7 @@ class Batch_test : public beast::unit_test::suite
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction] = tx;
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][jss::SigningPubKey] = strHex(account.pk());
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfFee.jsonName] = 0;
-        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][jss::Sequence] = next;
+        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][jss::Sequence] = 0;
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfBatchIndex.jsonName] = next;
         return jv;
     }

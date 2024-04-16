@@ -896,6 +896,12 @@ hook::isEmittedTxn(ripple::STTx const& tx)
     return tx.isFieldPresent(ripple::sfEmitDetails);
 }
 
+bool
+hook::isBatchTxn(ripple::STTx const& tx)
+{
+    return tx.isFieldPresent(ripple::sfBatchIndex);
+}
+
 int64_t
 hook::computeExecutionFee(uint64_t instructionCount)
 {

@@ -123,6 +123,12 @@ public:
         return tx.isFieldPresent(sfEmitDetails);
     }
 
+    bool
+    isBatchTxn()
+    {
+        return tx.isFieldPresent(sfBatchIndex);
+    }
+
     ApplyFlags const&
     flags()
     {

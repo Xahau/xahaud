@@ -734,6 +734,10 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
     // do not update sequence of sfAccountTxnID for emitted tx
     if (ctx_.isEmittedTxn())
         return tesSUCCESS;
+    
+    // do not update sequence of sfAccountTxnID for emitted tx
+    if (ctx_.isBatchTxn())
+        return tesSUCCESS;
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
     if (seqProx.isSeq())

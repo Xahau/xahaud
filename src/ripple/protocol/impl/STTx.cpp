@@ -186,11 +186,18 @@ STTx::getSeqProxy() const
 {
     std::uint32_t const seq{getFieldU32(sfSequence)};
     if (seq != 0)
+    {
+        // if (getTxnType() == ttBATCH)
+        // {
+        //     auto const& txns = ctx_.tx.getFieldArray(sfRawTransactions);
+        //     return SeqProxy::sequence(seq + txns.size());
+        // }
         return SeqProxy::sequence(seq);
+    }
 
-    // std::uint32_t const batchIndex{getFieldU32(sfBatchIndex)};
-    // if (batchIndex != 0)
-    //     return SeqProxy::sequence(batchIndex);
+    std::uint32_t const batchIndex{getFieldU32(sfBatchIndex)};
+    if (batchIndex != 0)
+        return SeqProxy::sequence(batchIndex);
 
     std::optional<std::uint32_t> const ticketSeq{operator[](~sfTicketSequence)};
     if (!ticketSeq)
