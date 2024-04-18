@@ -349,8 +349,8 @@ public:
                     == "2000-01-01T00:00:10Z" &&
                     jv[jss::validated] == true &&  //
                     jv[jss::ledger_hash] ==
-                    "6E25C92F6F3CB01DC53E61A1F34DEFE16E7E1B70BFE8FDA5A48265D708"
-                    "7F3F12" &&  //
+                    "8730420CE799AD878693358C0C927A72407E4D032E951C854399890312"
+                    "116400" &&  //
                     !jv[jss::inLedger] &&
                     jv[jss::ledger_index] == 3 &&           //
                     jv[jss::tx_json][jss::TransactionType]  //

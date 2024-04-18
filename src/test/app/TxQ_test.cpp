@@ -2889,6 +2889,12 @@ public:
     {
         // This test focuses on which gaps in queued transactions are
         // allowed to be filled even when the account's queue is full.
+
+        // NOTE: This test is fragile and dependent on ordering of
+        // transactions, which is affected by the closed/validated
+        // ledger hash. This test may need to be edited if changes
+        // are made that impact the ledger hash.
+        // TODO: future-proof this test.
         using namespace jtx;
         testcase("full queue gap handling");
 
@@ -3030,12 +3036,12 @@ public:
         // may not reduce to 8.
         env.close();
         checkMetrics(__LINE__, env, 9, 50, 6, 5, 256);
-        BEAST_EXPECT(env.seq(alice) == aliceSeq + 17);
+        BEAST_EXPECT(env.seq(alice) == aliceSeq + 13);
 
-        // Close ledger 7.  That should remove 7 more of alice's transactions.
+        // Close ledger 7.  That should remove 4 more of alice's transactions.
         env.close();
         checkMetrics(__LINE__, env, 2, 60, 7, 6, 256);
-        BEAST_EXPECT(env.seq(alice) == aliceSeq + 19);
+        BEAST_EXPECT(env.seq(alice) == aliceSeq + 20);
 
         // Close one last ledger to see all of alice's transactions moved
         // into the ledger, including the tickets
