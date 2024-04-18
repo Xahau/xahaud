@@ -66,7 +66,7 @@ public:
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_FLAGS));
             BEAST_EXPECT(
-                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICIES));
+                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
@@ -98,7 +98,7 @@ public:
             BEAST_EXPECT(!result[jss::result].isMember(jss::TRANSACTION_TYPES));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TRANSACTION_FLAGS));
             BEAST_EXPECT(
-                !result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICIES));
+                !result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
@@ -122,7 +122,7 @@ public:
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_FLAGS));
             BEAST_EXPECT(
-                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICIES));
+                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }

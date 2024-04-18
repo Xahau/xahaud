@@ -697,23 +697,23 @@ JSS(TRANSACTION_RESULTS);   // out: RPC server_definitions
 JSS(TRANSACTION_TYPES);     // out: RPC server_definitions
 JSS(TYPES);                 // out: RPC server_definitions
 JSS(TRANSACTION_FLAGS);     // out: RPC server_definitions
-JSS(TRANSACTION_FLAGS_INDICIES);  // out: RPC server_definitions
-JSS(type_hex);                    // out: STPathSet
-JSS(unl);                         // out: UnlList
-JSS(unlimited);                   // out: Connection.h
-JSS(unl_report);                  // in: LedgerEntry
-JSS(uptime);                      // out: GetCounts
-JSS(uri);                         // out: ValidatorSites
-JSS(uri_token);                   // in: LedgerEntry
-JSS(url);                         // in/out: Subscribe, Unsubscribe
-JSS(url_password);                // in: Subscribe
-JSS(url_username);                // in: Subscribe
-JSS(urlgravatar);                 //
-JSS(username);                    // in: Subscribe
-JSS(validated);                   // out: NetworkOPs, RPCHelpers, AccountTx*
-                                  //      Tx
-JSS(validator_list_expires);      // out: NetworkOps, ValidatorList
-JSS(validator_list);              // out: NetworkOps, ValidatorList
+JSS(TRANSACTION_FLAGS_INDICES);  // out: RPC server_definitions
+JSS(type_hex);                   // out: STPathSet
+JSS(unl);                        // out: UnlList
+JSS(unlimited);                  // out: Connection.h
+JSS(unl_report);                 // in: LedgerEntry
+JSS(uptime);                     // out: GetCounts
+JSS(uri);                        // out: ValidatorSites
+JSS(uri_token);                  // in: LedgerEntry
+JSS(url);                        // in/out: Subscribe, Unsubscribe
+JSS(url_password);               // in: Subscribe
+JSS(url_username);               // in: Subscribe
+JSS(urlgravatar);                //
+JSS(username);                   // in: Subscribe
+JSS(validated);                  // out: NetworkOPs, RPCHelpers, AccountTx*
+                                 //      Tx
+JSS(validator_list_expires);     // out: NetworkOps, ValidatorList
+JSS(validator_list);             // out: NetworkOps, ValidatorList
 JSS(validators);
 JSS(validated_hash);          // out: NetworkOPs
 JSS(validated_ledger);        // out: NetworkOPs
