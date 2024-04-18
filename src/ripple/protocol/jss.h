@@ -161,6 +161,7 @@ JSS(account_data);           // out: AccountInfo
 JSS(account_flags);          // out: AccountInfo
 JSS(account_hash);           // out: LedgerToJson
 JSS(account_id);             // out: WalletPropose
+JSS(account_namespace);      // out: AccountNamespace
 JSS(account_nfts);           // out: AccountNFTs
 JSS(account_objects);        // out: AccountObjects
 JSS(account_root);           // in: LedgerEntry
@@ -353,6 +354,7 @@ JSS(id);                    // websocket.
 JSS(ident);                 // in: AccountCurrencies, AccountInfo,
                             //     OwnerInfo
 JSS(ignore_default);        // in: AccountLines
+JSS(import_vlseq);          // in: LedgerEntry
 JSS(inLedger);              // out: tx/Transaction
 JSS(in_queue);
 JSS(inbound);  // out: PeerImp
@@ -699,6 +701,7 @@ JSS(TRANSACTION_FLAGS_INDICIES);  // out: RPC server_definitions
 JSS(type_hex);                    // out: STPathSet
 JSS(unl);                         // out: UnlList
 JSS(unlimited);                   // out: Connection.h
+JSS(unl_report);                  // in: LedgerEntry
 JSS(uptime);                      // out: GetCounts
 JSS(uri);                         // out: ValidatorSites
 JSS(uri_token);                   // in: LedgerEntry

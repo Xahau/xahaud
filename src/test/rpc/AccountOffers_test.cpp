@@ -119,23 +119,23 @@ public:
             BEAST_EXPECT(jroOuter[0u][jss::quality] == "100000000");
             BEAST_EXPECT(jroOuter[0u][jss::taker_gets][jss::currency] == "USD");
             BEAST_EXPECT(
-                jroOuter[0u][jss::taker_gets][jss::issuer] == gw.human());
-            BEAST_EXPECT(jroOuter[0u][jss::taker_gets][jss::value] == "2");
-            BEAST_EXPECT(jroOuter[0u][jss::taker_pays] == "200000000");
+                jroOuter[0u][jss::taker_gets][jss::issuer] == bob.human());
+            BEAST_EXPECT(jroOuter[0u][jss::taker_gets][jss::value] == "1");
+            BEAST_EXPECT(jroOuter[0u][jss::taker_pays] == "100000000");
 
-            BEAST_EXPECT(jroOuter[1u][jss::quality] == "100000000");
+            BEAST_EXPECT(jroOuter[1u][jss::quality] == "5000000");
             BEAST_EXPECT(jroOuter[1u][jss::taker_gets][jss::currency] == "USD");
             BEAST_EXPECT(
-                jroOuter[1u][jss::taker_gets][jss::issuer] == bob.human());
-            BEAST_EXPECT(jroOuter[1u][jss::taker_gets][jss::value] == "1");
-            BEAST_EXPECT(jroOuter[1u][jss::taker_pays] == "100000000");
+                jroOuter[1u][jss::taker_gets][jss::issuer] == gw.human());
+            BEAST_EXPECT(jroOuter[1u][jss::taker_gets][jss::value] == "6");
+            BEAST_EXPECT(jroOuter[1u][jss::taker_pays] == "30000000");
 
-            BEAST_EXPECT(jroOuter[2u][jss::quality] == "5000000");
+            BEAST_EXPECT(jroOuter[2u][jss::quality] == "100000000");
             BEAST_EXPECT(jroOuter[2u][jss::taker_gets][jss::currency] == "USD");
             BEAST_EXPECT(
                 jroOuter[2u][jss::taker_gets][jss::issuer] == gw.human());
-            BEAST_EXPECT(jroOuter[2u][jss::taker_gets][jss::value] == "6");
-            BEAST_EXPECT(jroOuter[2u][jss::taker_pays] == "30000000");
+            BEAST_EXPECT(jroOuter[2u][jss::taker_gets][jss::value] == "2");
+            BEAST_EXPECT(jroOuter[2u][jss::taker_pays] == "200000000");
         }
 
         {
@@ -327,7 +327,7 @@ public:
     run() override
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{supported_amendments()};
         testSequential(all, true);
         testSequential(all, false);
         testBadInput(all);
