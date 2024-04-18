@@ -697,7 +697,7 @@ JSS(TRANSACTION_RESULTS);   // out: RPC server_definitions
 JSS(TRANSACTION_TYPES);     // out: RPC server_definitions
 JSS(TYPES);                 // out: RPC server_definitions
 JSS(TRANSACTION_FLAGS);     // out: RPC server_definitions
-JSS(TRANSACTION_FLAGS_INDICIES);  // out: RPC server_definitions
+JSS(TRANSACTION_FLAGS_INDICES);   // out: RPC server_definitions
 JSS(type_hex);                    // out: STPathSet
 JSS(unl);                         // out: UnlList
 JSS(unlimited);                   // out: Connection.h

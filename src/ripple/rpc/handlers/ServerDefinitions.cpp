@@ -434,11 +434,11 @@ private:
         }
 
         // Transaction Indicies Flags:
-        ret[jss::TRANSACTION_FLAGS_INDICIES] = Json::objectValue;
+        ret[jss::TRANSACTION_FLAGS_INDICES] = Json::objectValue;
         for (auto const& entry : magic_enum::enum_entries<AccountFlags>())
         {
             const auto name = entry.second;
-            ret[jss::TRANSACTION_FLAGS_INDICIES]["AccountSet"][STR(name)] =
+            ret[jss::TRANSACTION_FLAGS_INDICES]["AccountSet"][STR(name)] =
                 static_cast<uint32_t>(entry.first);
         }
 
