@@ -1236,27 +1236,34 @@ hook::apply(
 
     switch (hookApiVersion)
     {
-        case 0: // wasm
+        case hook_api::CodeType::WASM:
         {
             HookExecutorWasm executor{hookCtx};
 
-            executor.executeWasm(
+            executor.execute(
                 bytecode.data(), (size_t)bytecode.size(), isCallback, hookArgument, j);
 
+            break;
         }
 
-        case 1: // js
+        case hook_api::CodeType::JS:
         {
 
             // RHUPTO: populate hookArgument, bytecode, perform execution
-            HookExecutorJs executor{hookCtx};
+            HookExecutorJS executor{hookCtx};
 
             executor.execute(
                 bytecode.data(), (size_t)bytecode.size(), isCallback, hookArgument, j);
-                    
 
-            js_std_eval_binary_bare(ctx, wasm.data(), wasm.size());
+            break;
         }
+
+        default:
+        {
+            hookCtx.result.exitType = hook_api::ExitType::LEDGER_ERROR;
+            return hookCtx.result;
+        }
+
     }
     
     JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "

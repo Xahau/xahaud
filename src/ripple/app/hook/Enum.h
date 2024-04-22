@@ -217,6 +217,7 @@ enum hook_log_code : uint16_t {
     CUSTOM_SECTION_DISALLOWED =
         86,               // the wasm contained a custom section (id=0)
     INTERNAL_ERROR = 87,  // an internal error described by the log text
+    JS_TEST_FAILURE = 88,   // smoke test of js bytecode failed
     // RH NOTE: only HookSet msgs got log codes, possibly all Hook log lines
     // should get a code?
 };
@@ -334,7 +335,14 @@ enum ExitType : uint8_t {
     ROLLBACK = 2,
     ACCEPT = 3,
     JSVM_ERROR = 4,
+    LEDGER_ERROR = 5,   // if the ledger contained for example a nonsense hookapi number
 };
+
+enum CodeType : uint8_t {
+    WASM = 0,
+    JS = 1,
+};
+
 
 const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
