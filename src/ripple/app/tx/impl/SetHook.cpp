@@ -461,15 +461,26 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
             if (version == 1)
             {
-                // RHTODO: don't eval here, scan for valid bytecode, return error if not
-                // figure out how to correctly sandbox quickjs runtime so segfault doesnt crash
-                //
-                // for now, do nothing here
-                //
+                // RHTODO: guard or other check for js, depending on design choices
+                
+                std::optional<std::string> result =
+                    hook::HookExecutorJS::validate(
+                        hook.data(), (size_t)hook.size());
+
+                if (result)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::JS_TEST_FAILURE << ")["
+                        << HS_ACC()
+                        << "Tried to set a hook with invalid code. VM error: "
+                        << *result;
+                    return false;
+                }
 
                 return true;
             }
-            else if (version == 0)
+            
+            if (version == 0)
             {
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
@@ -534,7 +545,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     << "size = " << hook.size();
 
                 std::optional<std::string> result2 =
-                    hook::HookExecutor::validateWasm(
+                    hook::HookExecutorWasm::validate(
                         hook.data(), (size_t)hook.size());
 
                 if (result2)
@@ -549,6 +560,11 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                 return *result;
             }
+
+            JLOG(ctx.j.trace())
+                << "HookSet(" << hook::log::HASH_OR_CODE << ")[" << HS_ACC()
+                << "]: Malformed transaction: SetHook specified invalid HookApiVersion.";
+            return false;
         }
 
         case hsoINVALID:

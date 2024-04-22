@@ -16,6 +16,9 @@
 #include <queue>
 #include <vector>
 #include <wasmedge/wasmedge.h>
+#include "quickjs.h"
+#include "quickjs-libc.h"
+
 namespace hook {
 struct HookContext;
 struct HookResult;
@@ -453,7 +456,7 @@ apply(
     bool hasCallback,
     bool isCallback,
     bool isStrongTSH,
-    uint32_t wasmParam,
+    uint32_t hookArgument,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
     std::shared_ptr<STObject const> const& provisionalMeta);
@@ -501,7 +504,7 @@ struct HookResult
     bool isCallback =
         false;  // true iff this hook execution is a callback in action
     bool isStrong = false;
-    uint32_t wasmParam = 0;
+    uint32_t hookArgument = 0;
     uint32_t overrideCount = 0;
     uint8_t hookChainPosition = 0;
     bool foreignStateSetDisabled = false;
@@ -511,8 +514,9 @@ struct HookResult
     std::shared_ptr<STObject const> provisionalMeta;
 };
 
-class HookExecutorWasm;
-class HookExecutorJs;
+class HookExecutorBase;
+//class HookExecutorWasm;
+//class HookExecutorJs;
 
 struct SlotEntry
 {
@@ -550,7 +554,7 @@ struct HookContext
         emitFailure;  // if this is a callback from a failed
                       // emitted txn then this optional becomes
                       // populated with the SLE
-    const HookExecutorWasm* module = 0;
+    const HookExecutorBase* module = 0;
 };
 
 bool
@@ -619,7 +623,7 @@ protected:
 public:
     HookContext& hookCtx;
 
-    virtual ~HookExecutorBase() {}
+    HookExecutorBase(HookContext& ctx) : hookCtx(ctx) {}
 
     virtual void execute(
         const void* code,
@@ -635,6 +639,8 @@ public:
         // Base class doesn't implement validation
         return "validate() illegally called on HookExecutorBase class";
     }
+
+    virtual ~HookExecutorBase() = default;
 };
 
 
@@ -646,9 +652,7 @@ public:
  * this is done during execteWasm function.
  * The instance is single use.
  */
-class HookExecutorWasm : public HookExecutorBase
-{
-private:
+
 // create these once at boot and keep them
 static WasmEdge_String exportName = WasmEdge_StringCreateByCString("env");
 static WasmEdge_String tableName = WasmEdge_StringCreateByCString("table");
@@ -666,6 +670,8 @@ static WasmEdge_String hookFunctionName =
 // see: lib/system/allocator.cpp
 #define WasmEdge_kPageSize 65536ULL
 
+class HookExecutorWasm : public HookExecutorBase
+{
 public:
     WasmEdge_ModuleInstanceContext* importObj;
 
@@ -747,7 +753,7 @@ public:
         const void* wasm,
         size_t len,
         bool callback,
-        uint32_t wasmParam,
+        uint32_t hookArgument,
         beast::Journal const& j) override
     {
         // HookExecutorWasm can only execute once
@@ -780,7 +786,7 @@ public:
             return;
         }
 
-        WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)wasmParam)};
+        WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)hookArgument)};
         WasmEdge_Value returns[1];
 
         res = WasmEdge_VMRunWasmFromBuffer(
@@ -808,7 +814,7 @@ public:
     }
 
     HookExecutorWasm(HookContext& ctx)
-        : hookCtx(ctx), importObj(WasmEdge_ModuleInstanceCreate(exportName))
+        : HookExecutorBase(ctx), importObj(WasmEdge_ModuleInstanceCreate(exportName))
     {
         ctx.module = this;
 
@@ -907,7 +913,7 @@ public:
         WasmEdge_ModuleInstanceAddMemory(importObj, memName, hostMem);
     }
 
-    ~HookExecutorWasm()
+    virtual ~HookExecutorWasm()
     {
         WasmEdge_ModuleInstanceDelete(importObj);
     };
@@ -1053,8 +1059,11 @@ public:
      * Validate that a web assembly blob can be loaded by wasmedge
      */
     static std::optional<std::string>
-    validate(const void* buf, size_t len)
+    validate(const void* buf, size_t buf_len)
     {
+
+        if (buf_len < 5)
+            return "Could not create QUICKJS instance, bytecode too short.";
 
         std::optional<std::string> retval;
 
@@ -1065,7 +1074,7 @@ public:
             return "Could not create QUICKJS instance";
 
         JSValue obj =
-            JS_ReadObject(ctx, buf, buf_len, JS_READ_OBJ_BYTECODE);
+            JS_ReadObject(ctx, (uint8_t const*)buf, buf_len, JS_READ_OBJ_BYTECODE);
         if (JS_IsException(obj))
         {
             if (const char* str = JS_ToCString(ctx, obj); str)
@@ -1074,7 +1083,7 @@ public:
                 JS_FreeCString(ctx, str);
             }
 
-            JS_FreeVal(ctx, obj);
+            JS_FreeValue(ctx, obj);
             return retval;
         }
 
@@ -1127,7 +1136,7 @@ public:
         const void* buf,
         size_t buf_len,
         bool callback,
-        uint32_t callParam,
+        uint32_t hookArgument,
         beast::Journal const& j) override
     {
         // HookExecutorWasm can only execute once
@@ -1138,6 +1147,7 @@ public:
                         << "]: creating quickjs instance";
 
         QuickJSVM vm;
+        JSContext* ctx = vm.ctx;
 
         if (!vm.sane())
         {
@@ -1149,11 +1159,11 @@ public:
         }
         
         JSValue obj =
-            JS_ReadObject(ctx, buf, buf_len, JS_READ_OBJ_BYTECODE);
+            JS_ReadObject(ctx, (uint8_t const*)buf, buf_len, JS_READ_OBJ_BYTECODE);
         
         if (JS_IsException(obj))
         {
-            JS_FreeVal(ctx, obj);
+            JS_FreeValue(ctx, obj);
             JLOG(j.warn()) << "HookError[" << HC_ACC()
                            << "]: Could not create QUICKJS instance (invalid bytecode).";
             hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
@@ -1179,11 +1189,11 @@ public:
         char expr[256];
 
         int expr_len = 
-            snprintf(expr_len, 256, "%s(%d)",
+            snprintf(expr, 256, "%s(%d)",
                 callback ? "Callback" : "Hook",
-                callParam);
+                hookArgument);
 
-        if (char_count < 7 || char_count == 256)
+        if (expr_len < 7 || expr_len == 256)
         {
             JLOG(j.warn()) << "HookError[" << HC_ACC()
                            << "]: Could not create QUICKJS instance (expr string).";
@@ -1192,7 +1202,7 @@ public:
             return;
         }
 
-        JSValue val =
+        val =
             JS_Eval(vm.ctx, expr, expr_len, "<qjsvm>", 0);
 
         if (JS_IsException(val))
@@ -1214,14 +1224,12 @@ public:
     }
 
     HookExecutorJS(HookContext& ctx)
-        : hookCtx(ctx)
+        : HookExecutorBase(ctx)
     {
         ctx.module = this;
-
-
     }
 
-    ~HookExecutorJS()
+    virtual ~HookExecutorJS()
     {
     };
 };

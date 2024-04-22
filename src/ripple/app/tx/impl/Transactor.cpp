@@ -1242,7 +1242,7 @@ Transactor::executeHookChain(
 
         bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
 
-        uint16_t hookApiVersion = hookDef-getFieldU16(sfHookApiVersion);
+        uint16_t hookApiVersion = hookDef->getFieldU16(sfHookApiVersion);
 
         try
         {
@@ -1397,6 +1397,7 @@ Transactor::doHookCallback(
             hook::HookResult callbackResult = hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 callbackHookHash,
+                hookDef->getFieldU16(sfHookApiVersion),
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
                 parameters,
@@ -1662,6 +1663,7 @@ Transactor::doAgainAsWeak(
             hook::HookResult aawResult = hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 hookHash,
+                hookDef->getFieldU16(sfHookApiVersion),
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
                 parameters,
