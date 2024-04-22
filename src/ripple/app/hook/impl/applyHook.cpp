@@ -1174,8 +1174,9 @@ hook::apply(
                                             used for caching (one day) */
     ripple::uint256 const&
         hookHash, /* hash of the actual hook byte code, used for metadata */
+    uint16_t hookApiVersion,
     ripple::uint256 const& hookNamespace,
-    ripple::Blob const& wasm,
+    ripple::Blob const& bytecode,
     std::map<
         std::vector<uint8_t>, /* param name  */
         std::vector<uint8_t>  /* param value */
@@ -1191,7 +1192,7 @@ hook::apply(
     bool hasCallback,
     bool isCallback,
     bool isStrong,
-    uint32_t wasmParam,
+    uint32_t hookArgument,
     uint8_t hookChainPosition,
     std::shared_ptr<STObject const> const& provisionalMeta)
 {
@@ -1220,11 +1221,11 @@ hook::apply(
              .hasCallback = hasCallback,
              .isCallback = isCallback,
              .isStrong = isStrong,
-             .wasmParam = wasmParam,
+             .hookArgument = hookArgument,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
              .provisionalMeta = provisionalMeta},
-        .emitFailure = isCallback && wasmParam & 1
+        .emitFailure = isCallback && hookArgument & 1
             ? std::optional<ripple::STObject>(
                   (*(applyCtx.view().peek(keylet::emittedTxn(
                        applyCtx.tx.getFieldH256(sfTransactionHash)))))
@@ -1233,24 +1234,44 @@ hook::apply(
 
     auto const& j = applyCtx.app.journal("View");
 
-    HookExecutor executor{hookCtx};
+    switch (hookApiVersion)
+    {
+        case 0: // wasm
+        {
+            HookExecutorWasm executor{hookCtx};
 
-    executor.executeWasm(
-        wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
+            executor.executeWasm(
+                bytecode.data(), (size_t)bytecode.size(), isCallback, hookArgument, j);
 
+        }
+
+        case 1: // js
+        {
+
+            // RHUPTO: populate hookArgument, bytecode, perform execution
+            HookExecutorJs executor{hookCtx};
+
+            executor.execute(
+                bytecode.data(), (size_t)bytecode.size(), isCallback, hookArgument, j);
+                    
+
+            js_std_eval_binary_bare(ctx, wasm.data(), wasm.size());
+        }
+    }
+    
     JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "
-                    << (hookCtx.result.exitType == hook_api::ExitType::ROLLBACK
-                            ? "ROLLBACK"
-                            : "ACCEPT")
-                    << " RS: '" << hookCtx.result.exitReason.c_str()
-                    << "' RC: " << hookCtx.result.exitCode;
-
+                << "ApiVersion: " << hookApiVersion << " "
+                << (hookCtx.result.exitType == hook_api::ExitType::ROLLBACK
+                        ? "ROLLBACK"
+                        : "ACCEPT")
+                << " RS: '" << hookCtx.result.exitReason.c_str()
+                << "' RC: " << hookCtx.result.exitCode;
     return hookCtx.result;
 }
 
 /* If XRPLD is running with trace log level hooks may produce debugging output
  * to the trace log specifying both a string and an integer to output */
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     trace_num,
     uint32_t read_ptr,
@@ -1290,7 +1311,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     trace,
     uint32_t mread_ptr,
@@ -1554,7 +1575,7 @@ set_state_cache(
     return 1;
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     state_set,
     uint32_t read_ptr,
@@ -1583,7 +1604,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t nread_ptr, uint32_t nread_len,         // namespace
     uint32_t aread_ptr, uint32_t aread_len )        // account
  */
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     state_foreign_set,
     uint32_t read_ptr,
@@ -2018,7 +2039,7 @@ hook::finalizeHookResult(
 }
 
 /* Retrieve the state into write_ptr identified by the key in kread_ptr */
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     state,
     uint32_t write_ptr,
@@ -2042,7 +2063,7 @@ DEFINE_HOOK_FUNCTION(
 /* This api actually serves both local and foreign state requests
  * feeding aread_ptr = 0 and aread_len = 0 will cause it to read local
  * feeding nread_len = 0 will cause hook's native namespace to be used */
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     state_foreign,
     uint32_t write_ptr,
@@ -2141,7 +2162,7 @@ DEFINE_HOOK_FUNCTION(
 
 // Cause the originating transaction to go through, save state changes and emit
 // emitted tx, exit hook
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     accept,
     uint32_t read_ptr,
@@ -2155,7 +2176,7 @@ DEFINE_HOOK_FUNCTION(
 
 // Cause the originating transaction to be rejected, discard state changes and
 // discard emitted tx, exit hook
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     rollback,
     uint32_t read_ptr,
@@ -2168,7 +2189,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Write the TxnID of the originating transaction into the write_ptr
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     otxn_id,
     uint32_t write_ptr,
@@ -2202,7 +2223,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Return the tt (Transaction Type) numeric code of the originating transaction
-DEFINE_HOOK_FUNCNARG(int64_t, otxn_type)
+DEFINE_WASM_FUNCNARG(int64_t, otxn_type)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2216,7 +2237,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_type)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
+DEFINE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2252,7 +2273,7 @@ DEFINE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
 // Return the burden of the originating transaction... this will be 1 unless the
 // originating transaction was itself an emitted transaction from a previous
 // hook invocation
-DEFINE_HOOK_FUNCNARG(int64_t, otxn_burden)
+DEFINE_WASM_FUNCNARG(int64_t, otxn_burden)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2289,7 +2310,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_burden)
 // Return the generation of the originating transaction... this will be 1 unless
 // the originating transaction was itself an emitted transaction from a previous
 // hook invocation
-DEFINE_HOOK_FUNCNARG(int64_t, otxn_generation)
+DEFINE_WASM_FUNCNARG(int64_t, otxn_generation)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2321,14 +2342,14 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_generation)
 }
 
 // Return the generation of a hypothetically emitted transaction from this hook
-DEFINE_HOOK_FUNCNARG(int64_t, etxn_generation)
+DEFINE_WASM_FUNCNARG(int64_t, etxn_generation)
 {
     // proxy only, no setup or teardown
     return otxn_generation(hookCtx, frameCtx) + 1;
 }
 
 // Return the current ledger sequence number
-DEFINE_HOOK_FUNCNARG(int64_t, ledger_seq)
+DEFINE_WASM_FUNCNARG(int64_t, ledger_seq)
 {
     HOOK_SETUP();
 
@@ -2337,7 +2358,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, ledger_seq)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     ledger_last_hash,
     uint32_t write_ptr,
@@ -2358,7 +2379,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, ledger_last_time)
+DEFINE_WASM_FUNCNARG(int64_t, ledger_last_time)
 {
     HOOK_SETUP();
 
@@ -2370,7 +2391,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, ledger_last_time)
 }
 
 // Dump a field from the originating transaction into the hook's memory
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     otxn_field,
     uint32_t write_ptr,
@@ -2415,7 +2436,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     slot,
     uint32_t write_ptr,
@@ -2459,7 +2480,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
+DEFINE_WASM_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2475,7 +2496,7 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, slot_count, uint32_t slot_no)
+DEFINE_WASM_FUNCTION(int64_t, slot_count, uint32_t slot_no)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2494,7 +2515,7 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_count, uint32_t slot_no)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     slot_set,
     uint32_t read_ptr,
@@ -2573,7 +2594,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, slot_size, uint32_t slot_no)
+DEFINE_WASM_FUNCTION(int64_t, slot_size, uint32_t slot_no)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2592,7 +2613,7 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_size, uint32_t slot_no)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     slot_subarray,
     uint32_t parent_slot,
@@ -2657,7 +2678,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     slot_subfield,
     uint32_t parent_slot,
@@ -2726,7 +2747,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
+DEFINE_WASM_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2764,7 +2785,7 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, slot_float, uint32_t slot_no)
+DEFINE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2809,7 +2830,7 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_float, uint32_t slot_no)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     util_keylet,
     uint32_t write_ptr,
@@ -3214,7 +3235,7 @@ DEFINE_HOOK_FUNCTION(
 /* Emit a transaction from this hook. Transaction must be in STObject form,
  * fully formed and valid. XRPLD does not modify transactions it only checks
  * them for validity. */
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     emit,
     uint32_t write_ptr,
@@ -3563,7 +3584,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // When implemented will return the hash of the current hook
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     hook_hash,
     uint32_t write_ptr,
@@ -3612,7 +3633,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Write the account id that the running hook is installed on into write_ptr
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     hook_account,
     uint32_t write_ptr,
@@ -3640,7 +3661,7 @@ DEFINE_HOOK_FUNCTION(
 
 // Deterministic nonces (can be called multiple times)
 // Writes nonce into the write_ptr
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     etxn_nonce,
     uint32_t write_ptr,
@@ -3681,7 +3702,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     ledger_nonce,
     uint32_t write_ptr,
@@ -3714,7 +3735,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     ledger_keylet,
     uint32_t write_ptr,
@@ -3764,7 +3785,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Reserve one or more transactions for emission from the running hook
-DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
+DEFINE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -3786,7 +3807,7 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
 }
 
 // Compute the burden of an emitted transaction based on a number of factors
-DEFINE_HOOK_FUNCNARG(int64_t, etxn_burden)
+DEFINE_WASM_FUNCNARG(int64_t, etxn_burden)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -3807,7 +3828,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, etxn_burden)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     util_sha512h,
     uint32_t write_ptr,
@@ -4038,7 +4059,7 @@ get_stobject_length(
 // of the payload of a subfield of that object. Arrays are returned fully
 // formed. If successful returns offset and length joined as int64_t. Use
 // SUB_OFFSET and SUB_LENGTH to extract.
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     sto_subfield,
     uint32_t read_ptr,
@@ -4108,7 +4129,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Same as subfield but indexes into a serialized array
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     sto_subarray,
     uint32_t read_ptr,
@@ -4176,7 +4197,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Convert an account ID into a base58-check encoded r-address
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     util_raddr,
     uint32_t write_ptr,
@@ -4214,7 +4235,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Convert a base58-check encoded r-address into a 20 byte account id
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     util_accid,
     uint32_t write_ptr,
@@ -4305,7 +4326,7 @@ overlapping_memory(std::vector<uint64_t> regions)
  * sread - source object
  * fread - field to inject
  */
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     sto_emplace,
     uint32_t write_ptr,
@@ -4459,7 +4480,7 @@ DEFINE_HOOK_FUNCTION(
 /**
  * Remove a field from an sto if the field is present
  */
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     sto_erase,
     uint32_t write_ptr,
@@ -4486,7 +4507,7 @@ DEFINE_HOOK_FUNCTION(
     return ret;
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     sto_validate,
     uint32_t read_ptr,
@@ -4525,7 +4546,7 @@ DEFINE_HOOK_FUNCTION(
 // Validate either an secp256k1 signature or an ed25519 signature, using the
 // XRPLD convention for identifying the key type. Pointer prefixes: d = data, s
 // = signature, k = public key.
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     util_verify,
     uint32_t dread_ptr,
@@ -4569,7 +4590,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Return the current fee base of the current ledger (multiplied by a margin)
-DEFINE_HOOK_FUNCNARG(int64_t, fee_base)
+DEFINE_WASM_FUNCNARG(int64_t, fee_base)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -4581,7 +4602,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, fee_base)
 
 // Return the fee base for a hypothetically emitted transaction from the current
 // hook based on byte count
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     etxn_fee_base,
     uint32_t read_ptr,
@@ -4619,7 +4640,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Populate an sfEmitDetails field in a soon-to-be emitted transaction
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     etxn_details,
     uint32_t write_ptr,
@@ -4708,7 +4729,7 @@ DEFINE_HOOK_FUNCTION(
 // track of how many times a runtime loop iterates and terminates the hook if
 // the iteration count rises above a preset number of iterations as determined
 // by the hook developer
-DEFINE_HOOK_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
+DEFINE_WASM_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -4757,7 +4778,7 @@ DEFINE_HOOK_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
         }                                                           \
     }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     trace_float,
     uint32_t read_ptr,
@@ -4817,7 +4838,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_set, int32_t exp, int64_t mantissa)
+DEFINE_WASM_FUNCTION(int64_t, float_set, int32_t exp, int64_t mantissa)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -4887,7 +4908,7 @@ float_multiply_internal_parts(
     return ret;
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     float_int,
     int64_t float1,
@@ -4929,7 +4950,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
+DEFINE_WASM_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -4952,7 +4973,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     float_mulratio,
     int64_t float1,
@@ -4984,7 +5005,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_negate, int64_t float1)
+DEFINE_WASM_FUNCTION(int64_t, float_negate, int64_t float1)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -4997,7 +5018,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_negate, int64_t float1)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     float_compare,
     int64_t float1,
@@ -5054,7 +5075,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
+DEFINE_WASM_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5096,7 +5117,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     float_sto,
     uint32_t write_ptr,
@@ -5312,7 +5333,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     float_sto_set,
     uint32_t read_ptr,
@@ -5466,7 +5487,7 @@ float_divide_internal(int64_t float1, int64_t float2)
     return normalize_xfl(man3, exp3, neg3);
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
+DEFINE_WASM_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5476,12 +5497,12 @@ DEFINE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, float_one)
+DEFINE_WASM_FUNCNARG(int64_t, float_one)
 {
     return float_one_internal;
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1)
+DEFINE_WASM_FUNCTION(int64_t, float_invert, int64_t float1)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5495,7 +5516,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_mantissa, int64_t float1)
+DEFINE_WASM_FUNCTION(int64_t, float_mantissa, int64_t float1)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5508,7 +5529,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_mantissa, int64_t float1)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_sign, int64_t float1)
+DEFINE_WASM_FUNCTION(int64_t, float_sign, int64_t float1)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5570,7 +5591,7 @@ double_to_xfl(double x)
     return ret;
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_log, int64_t float1)
+DEFINE_WASM_FUNCTION(int64_t, float_log, int64_t float1)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5593,7 +5614,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_log, int64_t float1)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
+DEFINE_WASM_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5618,7 +5639,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     otxn_param,
     uint32_t write_ptr,
@@ -5679,7 +5700,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     hook_param,
     uint32_t write_ptr,
@@ -5748,7 +5769,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     hook_param_set,
     uint32_t read_ptr,
@@ -5804,7 +5825,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     hook_skip,
     uint32_t read_ptr,
@@ -5870,12 +5891,12 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, hook_pos)
+DEFINE_WASM_FUNCNARG(int64_t, hook_pos)
 {
     return hookCtx.result.hookChainPosition;
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, hook_again)
+DEFINE_WASM_FUNCNARG(int64_t, hook_again)
 {
     HOOK_SETUP();
 
@@ -5893,7 +5914,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, hook_again)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
+DEFINE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
 {
     HOOK_SETUP();
 
@@ -5925,7 +5946,7 @@ DEFINE_HOOK_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
+DEFINE_WASM_FUNCTION(
     int64_t,
     xpop_slot,
     uint32_t slot_into_tx,
@@ -5996,352 +6017,3 @@ DEFINE_HOOK_FUNCTION(
 
     HOOK_TEARDOWN();
 }
-/*
-
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    str_find,
-    uint32_t hread_ptr, uint32_t hread_len,
-    uint32_t nread_ptr, uint32_t nread_len,
-    uint32_t mode,      uint32_t n)
-{
-    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx,
-hookCtx on current stack
-
-    if (NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length) ||
-        NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (hread_len > 32*1024)
-        return TOO_BIG;
-
-    if (nread_len > 256)
-        return TOO_BIG;
-
-    if (hread_len == 0)
-        return TOO_SMALL;
-
-    if (mode > 3)
-        return INVALID_ARGUMENT;
-
-    if (n >= hread_len)
-        return INVALID_ARGUMENT;
-
-    // overload for str_len
-    if (nread_ptr == 0)
-    {
-        if (nread_len != 0)
-            return INVALID_ARGUMENT;
-
-        return strnlen((const char*)(hread_ptr + memory), hread_len);
-    }
-
-    bool insensitive = mode % 2 == 1;
-
-    // just the haystack based on where to start search from
-    hread_ptr += n;
-    hread_len -= n;
-
-    if (NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    std::string_view haystack{(const char*)(memory + hread_ptr), hread_len};
-    if (mode < 2)
-    {
-        // plain string mode: 0 == case sensitive
-
-        std::string_view needle{(const char*)(memory + nread_ptr), nread_len};
-
-        auto found = std::search(
-            haystack.begin(), haystack.end(),
-            needle.begin(),   needle.end(),
-            insensitive
-            ?   [](char ch1, char ch2)
-                {
-                    return std::toupper(ch1) == std::toupper(ch2);
-                }
-            :   [](char ch1, char ch2)
-                {
-                    return ch1 == ch2;
-                }
-        );
-
-        if (found == haystack.end())
-            return DOESNT_EXIST;
-        return found - haystack.begin();
-    }
-    else
-    {
-        // regex mode mode: 2 == case sensitive
-
-        return NOT_IMPLEMENTED;
-
-    }
-}
-
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    str_replace,
-    uint32_t write_ptr, uint32_t write_len,
-    uint32_t hread_ptr, uint32_t hread_len,
-    uint32_t nread_ptr, uint32_t nread_len,
-    uint32_t rread_ptr, uint32_t rread_len,
-    uint32_t mode,      uint32_t n)
-{
-    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx,
-hookCtx on current stack
-
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
-        NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length) ||
-        NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length) ||
-        NOT_IN_BOUNDS(rread_ptr, rread_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (hread_len > 32*1024)
-        return TOO_BIG;
-
-    if (nread_len > 256)
-        return TOO_BIG;
-
-    if (hread_len == 0)
-        return TOO_SMALL;
-
-    if (nread_len == 0)
-        return TOO_SMALL;
-
-    return NOT_IMPLEMENTED;
-}
-
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    str_compare,
-    uint32_t fread_ptr, uint32_t fread_len,
-    uint32_t sread_ptr, uint32_t sread_len,
-    uint32_t mode)
-{
-    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx,
-hookCtx on current stack
-
-    if (NOT_IN_BOUNDS(fread_ptr, fread_len, memory_length) ||
-        NOT_IN_BOUNDS(sread_ptr, sread_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (mode > 1)
-        return INVALID_ARGUMENT;
-
-    if (fread_len > 255 || sread_len > 255)
-        return TOO_BIG;
-
-    if (fread_len == 0 || sread_len == 0)
-        return TOO_SMALL;
-
-    bool insensitive = mode == 1;
-
-    const char* it1 = (const char*)(memory + fread_ptr);
-    const char* it2 = (const char*)(memory + sread_ptr);
-    const char* end1 = it1 + fread_len;
-    const char* end2 = it2 + sread_len;
-
-    if (insensitive)
-    for(; it1 < end1 && it2 < end2; ++it1, ++it2)
-    {
-        if (*it1 < *it2)
-            return 0;
-        if (*it1 > *it2)
-            return 2;
-    }
-    else
-    for(; it1 < end1 && it2 < end2; ++it1, ++it2)
-    {
-        if (std::tolower(*it1) < std::tolower(*it2))
-            return 0;
-        if (std::tolower(*it1) > std::tolower(*it2))
-            return 2;
-    }
-    return 1;
-}
-
-
-inline
-ssize_t
-findNul(const void* vptr, size_t len)
-{
-    const char* ptr = (const char*)vptr;
-    ssize_t found = -1;
-    for (size_t i = 0; i < len; ++i)
-    if (ptr[i] == '\0')
-    {
-        found = i;
-        break;
-    }
-    return found;
-}
-
-//    Overloaded API:
-//    If operand_type == 0:
-//        Copy read_ptr/len to write_ptr/len, do nothing else.
-//    If operand_type >  0:
-//        Copy read_ptr/len to write_ptr/len up to nul terminator, then
-//        If operand_type == 1:
-//            Concatenate operand as an i32 to the end of the string in
-write_ptr
-//        If operand_type == 2:
-//            Concatenate operand as an u32 to the end of the string in
-write_ptr
-//        If operand_type == 3/4:
-//            As above with i/u64
-//        If operand_type == 5:
-//            As above with operand interpreted as an XFL. Top 4 bits of
-operand_type are
-//            precision for this type.
-//        If operand_type == 6:
-//            Interpret the four most significant bytes of operand as a ptr, and
-the
-//            four least significant bytes as a length.
-//            Write the bytes at this location to the end of write_ptr.
-//        Finally:
-//            Add a nul terminator to the end of write_ptr.
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    str_concat,
-    uint32_t write_ptr, uint32_t write_len,
-    uint32_t read_ptr,  uint32_t read_len,
-    uint64_t operand,   uint32_t operand_type)
-{
-    HOOK_SETUP(); // populates memory_ctx, memory, memory_length, applyCtx,
-hookCtx on current stack
-
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
-        NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (write_len > 1024 || read_len > 1024)
-        return TOO_BIG;
-    if (write_len == 0 || read_len == 0)
-        return TOO_SMALL;
-    if (write_len < read_len)
-        return TOO_SMALL;
-
-    uint8_t precision = (uint8_t)((operand_type & 0xF000U) >> 28U);
-    operand_type &= 0xFU;
-
-    if (operand_type > 6)
-        return INVALID_ARGUMENT;
-
-
-    //copy operation
-    if (operand_type == 0)
-    {
-        size_t bytecount = std::min(write_len, read_len);
-        memcpy(memory + write_ptr, memory + read_ptr, bytecount);
-        return bytecount;
-    }
-
-    ssize_t nuloffset =
-        findNul(memory + read_ptr, read_len);
-
-    if (nuloffset < 0)
-        return NOT_A_STRING;
-    else
-    if (write_len <= nuloffset)
-        return TOO_SMALL;
-
-    uint32_t write_start = write_ptr;
-
-
-    // copy the lhs into the write buffer
-    if (write_ptr != read_ptr)
-    {
-        size_t bytecount = std::min(write_len, std::min(read_len,
-(uint32_t)nuloffset)); memcpy(memory + write_ptr, memory + read_ptr, bytecount);
-        write_ptr += bytecount;
-        write_len -= bytecount;
-    }
-    else
-    {
-        write_ptr += nuloffset;
-        write_len -= nuloffset;
-    }
-
-    if (write_len == 0)
-        return TOO_SMALL;
-
-    const ssize_t lhscount = write_ptr - write_start;
-
-    // defensive check
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    auto write_num = [&]<typename T>(T i, const char* fmt) -> ssize_t
-    {
-        char buf[128];
-        int result = snprintf(buf, 128, fmt, i);
-        if (result < 0)
-            return TOO_BIG;
-        if (result + 1 > write_len)
-            return TOO_SMALL;
-        // defensive
-        size_t bytecount = std::min((uint32_t)result, std::min(127U, write_len -
-1)); memcpy(memory + write_ptr, buf, bytecount);
-        *(memory + write_ptr + bytecount) = '\0';
-        return bytecount + 1 + lhscount;
-    };
-
-    // rhs
-    switch (operand_type)
-    {
-        case 1:
-            return write_num(( int32_t)operand, "%d");
-        case 2:
-            return write_num((uint32_t)operand, "%u");
-        case 3:
-            return write_num(( int64_t)operand, "%lld");
-        case 4:
-            return write_num((uint64_t)operand, "%llu");
-        case 5:
-        {
-            // XFL
-            int32_t   e = get_exponent((int64_t)operand);
-            uint64_t  m = get_mantissa((int64_t)operand);
-            bool    neg =  is_negative((int64_t)operand);
-            double out = ((double)m) * pow(10, e);
-            if (neg)
-                out *= -1.0f;
-
-            if (precision > 0)
-            {
-                char fmtstr[10];
-                fmtstr[0] = '%';
-                fmtstr[1] = '.';
-                snprintf(fmtstr+2, 8, "%dg", precision);
-                return write_num(out, fmtstr);
-            }
-            return write_num(out, "%g");
-        }
-        case 6:
-        {
-            // STR
-            uint32_t ptr = (operand) >> 32U;
-            uint32_t len = (operand) & 0xFFFFFFFFU;
-
-            if (NOT_IN_BOUNDS(ptr, len, memory_length))
-                return OUT_OF_BOUNDS;
-
-            ssize_t nul = findNul(memory + ptr, len);
-            if (nul < 0)
-                return NOT_A_STRING;
-
-            if (nul > write_len - 1)
-                return TOO_SMALL;
-
-            // defensive
-            size_t bytecount = std::min((uint32_t)nul, std::min(len, write_len -
-1)); memcpy(memory + write_ptr, memory + ptr, bytecount);
-            *(memory + write_ptr + bytecount) = '\0';
-            return bytecount + 1 + lhscount;
-        }
-        default:
-            return INVALID_ARGUMENT;
-    }
-}
-*/

@@ -333,6 +333,7 @@ enum ExitType : uint8_t {
     WASM_ERROR = 1,
     ROLLBACK = 2,
     ACCEPT = 3,
+    JSVM_ERROR = 4,
 };
 
 const uint16_t max_state_modifications = 256;

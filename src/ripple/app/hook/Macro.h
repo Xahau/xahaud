@@ -115,7 +115,7 @@
     extern WasmEdge_FunctionTypeContext* WasmFunctionType##F; \
     extern WasmEdge_String WasmFunctionName##F;
 
-#define DEFINE_HOOK_FUNCTION(R, F, ...)                             \
+#define DEFINE_WASM_FUNCTION(R, F, ...)                             \
     WasmEdge_Result hook_api::WasmFunction##F(                      \
         void* data_ptr,                                             \
         const WasmEdge_CallingFrameContext* frameCtx,               \
@@ -150,9 +150,10 @@
     R hook_api::F(                                                  \
         hook::HookContext& hookCtx,                                 \
         WasmEdge_CallingFrameContext const& frameCtx,               \
-        __VA_ARGS__)
+        __VA_ARGS__)                                                \
 
-#define DEFINE_HOOK_FUNCNARG(R, F)                                           \
+
+#define DEFINE_WASM_FUNCNARG(R, F)                                           \
     WasmEdge_Result hook_api::WasmFunction##F(                               \
         void* data_ptr,                                                      \
         const WasmEdge_CallingFrameContext* frameCtx,                        \

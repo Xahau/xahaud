@@ -16,7 +16,6 @@
 #include <queue>
 #include <vector>
 #include <wasmedge/wasmedge.h>
-
 namespace hook {
 struct HookContext;
 struct HookResult;
@@ -436,6 +435,7 @@ apply(
                                             used for caching (one day) */
     ripple::uint256 const&
         hookHash, /* hash of the actual hook byte code, used for metadata */
+    uint16_t hookApiVersion,
     ripple::uint256 const& hookNamespace,
     ripple::Blob const& wasm,
     std::map<
@@ -511,7 +511,8 @@ struct HookResult
     std::shared_ptr<STObject const> provisionalMeta;
 };
 
-class HookExecutor;
+class HookExecutorWasm;
+class HookExecutorJs;
 
 struct SlotEntry
 {
@@ -549,7 +550,7 @@ struct HookContext
         emitFailure;  // if this is a callback from a failed
                       // emitted txn then this optional becomes
                       // populated with the SLE
-    const HookExecutor* module = 0;
+    const HookExecutorWasm* module = 0;
 };
 
 bool
@@ -593,7 +594,7 @@ gatherHookParameters(
     beast::Journal const& j_);
 
 // RH TODO: call destruct for these on rippled shutdown
-#define ADD_HOOK_FUNCTION(F, ctx)                          \
+#define ADD_WASM_FUNCTION(F, ctx)                          \
     {                                                      \
         WasmEdge_FunctionInstanceContext* hf =             \
             WasmEdge_FunctionInstanceCreate(               \
@@ -608,6 +609,46 @@ gatherHookParameters(
 #define HR_ACC() hookResult.account << "-" << hookResult.otxnAccount
 #define HC_ACC() hookCtx.result.account << "-" << hookCtx.result.otxnAccount
 
+
+
+class HookExecutorBase
+{
+protected:
+    bool spent = false;  // an HookExecutor can only be used once
+
+public:
+    HookContext& hookCtx;
+
+    virtual ~HookExecutorBase() {}
+
+    virtual void execute(
+        const void* code,
+        size_t len,
+        bool callback,
+        uint32_t param,
+        beast::Journal const& j) = 0;
+
+    static std::optional<std::string> validate(
+        const void* code,
+        size_t len)
+    {
+        // Base class doesn't implement validation
+        return "validate() illegally called on HookExecutorBase class";
+    }
+};
+
+
+/**
+ * HookExecutorWasm is effectively a two-part function:
+ * The first part sets up the Hook Api inside the wasm import, ready for use
+ * (this is done during object construction.)
+ * The second part is actually executing webassembly instructions
+ * this is done during execteWasm function.
+ * The instance is single use.
+ */
+class HookExecutorWasm : public HookExecutorBase
+{
+private:
 // create these once at boot and keep them
 static WasmEdge_String exportName = WasmEdge_StringCreateByCString("env");
 static WasmEdge_String tableName = WasmEdge_StringCreateByCString("table");
@@ -625,21 +666,7 @@ static WasmEdge_String hookFunctionName =
 // see: lib/system/allocator.cpp
 #define WasmEdge_kPageSize 65536ULL
 
-/**
- * HookExecutor is effectively a two-part function:
- * The first part sets up the Hook Api inside the wasm import, ready for use
- * (this is done during object construction.)
- * The second part is actually executing webassembly instructions
- * this is done during execteWasm function.
- * The instance is single use.
- */
-class HookExecutor
-{
-private:
-    bool spent = false;  // a HookExecutor can only be used once
-
 public:
-    HookContext& hookCtx;
     WasmEdge_ModuleInstanceContext* importObj;
 
     class WasmEdgeVM
@@ -688,7 +715,7 @@ public:
      * Validate that a web assembly blob can be loaded by wasmedge
      */
     static std::optional<std::string>
-    validateWasm(const void* wasm, size_t len)
+    validate(const void* wasm, size_t len)
     {
         WasmEdgeVM vm;
 
@@ -716,16 +743,15 @@ public:
      * into hookCtx
      */
     void
-    executeWasm(
+    execute(
         const void* wasm,
         size_t len,
         bool callback,
         uint32_t wasmParam,
-        beast::Journal const& j)
+        beast::Journal const& j) override
     {
-        // HookExecutor can only execute once
+        // HookExecutorWasm can only execute once
         assert(!spent);
-
         spent = true;
 
         JLOG(j.trace()) << "HookInfo[" << HC_ACC()
@@ -781,104 +807,97 @@ public:
         // RH NOTE: stack unwind will clean up WasmEdgeVM
     }
 
-    HookExecutor(HookContext& ctx)
+    HookExecutorWasm(HookContext& ctx)
         : hookCtx(ctx), importObj(WasmEdge_ModuleInstanceCreate(exportName))
     {
         ctx.module = this;
 
         WasmEdge_LogSetDebugLevel();
 
-        ADD_HOOK_FUNCTION(_g, ctx);
-        ADD_HOOK_FUNCTION(accept, ctx);
-        ADD_HOOK_FUNCTION(rollback, ctx);
-        ADD_HOOK_FUNCTION(util_raddr, ctx);
-        ADD_HOOK_FUNCTION(util_accid, ctx);
-        ADD_HOOK_FUNCTION(util_verify, ctx);
-        ADD_HOOK_FUNCTION(util_sha512h, ctx);
-        ADD_HOOK_FUNCTION(sto_validate, ctx);
-        ADD_HOOK_FUNCTION(sto_subfield, ctx);
-        ADD_HOOK_FUNCTION(sto_subarray, ctx);
-        ADD_HOOK_FUNCTION(sto_emplace, ctx);
-        ADD_HOOK_FUNCTION(sto_erase, ctx);
-        ADD_HOOK_FUNCTION(util_keylet, ctx);
+        ADD_WASM_FUNCTION(_g, ctx);
+        ADD_WASM_FUNCTION(accept, ctx);
+        ADD_WASM_FUNCTION(rollback, ctx);
+        ADD_WASM_FUNCTION(util_raddr, ctx);
+        ADD_WASM_FUNCTION(util_accid, ctx);
+        ADD_WASM_FUNCTION(util_verify, ctx);
+        ADD_WASM_FUNCTION(util_sha512h, ctx);
+        ADD_WASM_FUNCTION(sto_validate, ctx);
+        ADD_WASM_FUNCTION(sto_subfield, ctx);
+        ADD_WASM_FUNCTION(sto_subarray, ctx);
+        ADD_WASM_FUNCTION(sto_emplace, ctx);
+        ADD_WASM_FUNCTION(sto_erase, ctx);
+        ADD_WASM_FUNCTION(util_keylet, ctx);
 
-        ADD_HOOK_FUNCTION(emit, ctx);
-        ADD_HOOK_FUNCTION(etxn_burden, ctx);
-        ADD_HOOK_FUNCTION(etxn_fee_base, ctx);
-        ADD_HOOK_FUNCTION(etxn_details, ctx);
-        ADD_HOOK_FUNCTION(etxn_reserve, ctx);
-        ADD_HOOK_FUNCTION(etxn_generation, ctx);
-        ADD_HOOK_FUNCTION(etxn_nonce, ctx);
+        ADD_WASM_FUNCTION(emit, ctx);
+        ADD_WASM_FUNCTION(etxn_burden, ctx);
+        ADD_WASM_FUNCTION(etxn_fee_base, ctx);
+        ADD_WASM_FUNCTION(etxn_details, ctx);
+        ADD_WASM_FUNCTION(etxn_reserve, ctx);
+        ADD_WASM_FUNCTION(etxn_generation, ctx);
+        ADD_WASM_FUNCTION(etxn_nonce, ctx);
 
-        ADD_HOOK_FUNCTION(float_set, ctx);
-        ADD_HOOK_FUNCTION(float_multiply, ctx);
-        ADD_HOOK_FUNCTION(float_mulratio, ctx);
-        ADD_HOOK_FUNCTION(float_negate, ctx);
-        ADD_HOOK_FUNCTION(float_compare, ctx);
-        ADD_HOOK_FUNCTION(float_sum, ctx);
-        ADD_HOOK_FUNCTION(float_sto, ctx);
-        ADD_HOOK_FUNCTION(float_sto_set, ctx);
-        ADD_HOOK_FUNCTION(float_invert, ctx);
+        ADD_WASM_FUNCTION(float_set, ctx);
+        ADD_WASM_FUNCTION(float_multiply, ctx);
+        ADD_WASM_FUNCTION(float_mulratio, ctx);
+        ADD_WASM_FUNCTION(float_negate, ctx);
+        ADD_WASM_FUNCTION(float_compare, ctx);
+        ADD_WASM_FUNCTION(float_sum, ctx);
+        ADD_WASM_FUNCTION(float_sto, ctx);
+        ADD_WASM_FUNCTION(float_sto_set, ctx);
+        ADD_WASM_FUNCTION(float_invert, ctx);
 
-        ADD_HOOK_FUNCTION(float_divide, ctx);
-        ADD_HOOK_FUNCTION(float_one, ctx);
-        ADD_HOOK_FUNCTION(float_mantissa, ctx);
-        ADD_HOOK_FUNCTION(float_sign, ctx);
-        ADD_HOOK_FUNCTION(float_int, ctx);
-        ADD_HOOK_FUNCTION(float_log, ctx);
-        ADD_HOOK_FUNCTION(float_root, ctx);
+        ADD_WASM_FUNCTION(float_divide, ctx);
+        ADD_WASM_FUNCTION(float_one, ctx);
+        ADD_WASM_FUNCTION(float_mantissa, ctx);
+        ADD_WASM_FUNCTION(float_sign, ctx);
+        ADD_WASM_FUNCTION(float_int, ctx);
+        ADD_WASM_FUNCTION(float_log, ctx);
+        ADD_WASM_FUNCTION(float_root, ctx);
 
-        ADD_HOOK_FUNCTION(otxn_burden, ctx);
-        ADD_HOOK_FUNCTION(otxn_generation, ctx);
-        ADD_HOOK_FUNCTION(otxn_field, ctx);
-        ADD_HOOK_FUNCTION(otxn_id, ctx);
-        ADD_HOOK_FUNCTION(otxn_type, ctx);
-        ADD_HOOK_FUNCTION(otxn_slot, ctx);
-        ADD_HOOK_FUNCTION(otxn_param, ctx);
+        ADD_WASM_FUNCTION(otxn_burden, ctx);
+        ADD_WASM_FUNCTION(otxn_generation, ctx);
+        ADD_WASM_FUNCTION(otxn_field, ctx);
+        ADD_WASM_FUNCTION(otxn_id, ctx);
+        ADD_WASM_FUNCTION(otxn_type, ctx);
+        ADD_WASM_FUNCTION(otxn_slot, ctx);
+        ADD_WASM_FUNCTION(otxn_param, ctx);
 
-        ADD_HOOK_FUNCTION(hook_account, ctx);
-        ADD_HOOK_FUNCTION(hook_hash, ctx);
-        ADD_HOOK_FUNCTION(hook_again, ctx);
-        ADD_HOOK_FUNCTION(fee_base, ctx);
-        ADD_HOOK_FUNCTION(ledger_seq, ctx);
-        ADD_HOOK_FUNCTION(ledger_last_hash, ctx);
-        ADD_HOOK_FUNCTION(ledger_last_time, ctx);
-        ADD_HOOK_FUNCTION(ledger_nonce, ctx);
-        ADD_HOOK_FUNCTION(ledger_keylet, ctx);
+        ADD_WASM_FUNCTION(hook_account, ctx);
+        ADD_WASM_FUNCTION(hook_hash, ctx);
+        ADD_WASM_FUNCTION(hook_again, ctx);
+        ADD_WASM_FUNCTION(fee_base, ctx);
+        ADD_WASM_FUNCTION(ledger_seq, ctx);
+        ADD_WASM_FUNCTION(ledger_last_hash, ctx);
+        ADD_WASM_FUNCTION(ledger_last_time, ctx);
+        ADD_WASM_FUNCTION(ledger_nonce, ctx);
+        ADD_WASM_FUNCTION(ledger_keylet, ctx);
 
-        ADD_HOOK_FUNCTION(hook_param, ctx);
-        ADD_HOOK_FUNCTION(hook_param_set, ctx);
-        ADD_HOOK_FUNCTION(hook_skip, ctx);
-        ADD_HOOK_FUNCTION(hook_pos, ctx);
+        ADD_WASM_FUNCTION(hook_param, ctx);
+        ADD_WASM_FUNCTION(hook_param_set, ctx);
+        ADD_WASM_FUNCTION(hook_skip, ctx);
+        ADD_WASM_FUNCTION(hook_pos, ctx);
 
-        ADD_HOOK_FUNCTION(state, ctx);
-        ADD_HOOK_FUNCTION(state_foreign, ctx);
-        ADD_HOOK_FUNCTION(state_set, ctx);
-        ADD_HOOK_FUNCTION(state_foreign_set, ctx);
+        ADD_WASM_FUNCTION(state, ctx);
+        ADD_WASM_FUNCTION(state_foreign, ctx);
+        ADD_WASM_FUNCTION(state_set, ctx);
+        ADD_WASM_FUNCTION(state_foreign_set, ctx);
 
-        ADD_HOOK_FUNCTION(slot, ctx);
-        ADD_HOOK_FUNCTION(slot_clear, ctx);
-        ADD_HOOK_FUNCTION(slot_count, ctx);
-        ADD_HOOK_FUNCTION(slot_set, ctx);
-        ADD_HOOK_FUNCTION(slot_size, ctx);
-        ADD_HOOK_FUNCTION(slot_subarray, ctx);
-        ADD_HOOK_FUNCTION(slot_subfield, ctx);
-        ADD_HOOK_FUNCTION(slot_type, ctx);
-        ADD_HOOK_FUNCTION(slot_float, ctx);
+        ADD_WASM_FUNCTION(slot, ctx);
+        ADD_WASM_FUNCTION(slot_clear, ctx);
+        ADD_WASM_FUNCTION(slot_count, ctx);
+        ADD_WASM_FUNCTION(slot_set, ctx);
+        ADD_WASM_FUNCTION(slot_size, ctx);
+        ADD_WASM_FUNCTION(slot_subarray, ctx);
+        ADD_WASM_FUNCTION(slot_subfield, ctx);
+        ADD_WASM_FUNCTION(slot_type, ctx);
+        ADD_WASM_FUNCTION(slot_float, ctx);
 
-        ADD_HOOK_FUNCTION(trace, ctx);
-        ADD_HOOK_FUNCTION(trace_num, ctx);
-        ADD_HOOK_FUNCTION(trace_float, ctx);
+        ADD_WASM_FUNCTION(trace, ctx);
+        ADD_WASM_FUNCTION(trace_num, ctx);
+        ADD_WASM_FUNCTION(trace_float, ctx);
 
-        ADD_HOOK_FUNCTION(meta_slot, ctx);
-        ADD_HOOK_FUNCTION(xpop_slot, ctx);
-
-        /*
-        ADD_HOOK_FUNCTION(str_find, ctx);
-        ADD_HOOK_FUNCTION(str_replace, ctx);
-        ADD_HOOK_FUNCTION(str_compare, ctx);
-        ADD_HOOK_FUNCTION(str_concat, ctx);
-        */
+        ADD_WASM_FUNCTION(meta_slot, ctx);
+        ADD_WASM_FUNCTION(xpop_slot, ctx);
 
         WasmEdge_TableInstanceContext* hostTable =
             WasmEdge_TableInstanceCreate(tableType);
@@ -888,9 +907,322 @@ public:
         WasmEdge_ModuleInstanceAddMemory(importObj, memName, hostMem);
     }
 
-    ~HookExecutor()
+    ~HookExecutorWasm()
     {
         WasmEdge_ModuleInstanceDelete(importObj);
+    };
+};
+
+#define ADD_JS_FUNCTION(x,y)
+
+class HookExecutorJS : public HookExecutorBase
+{
+public:
+
+    class QuickJSVM
+    {
+    public:
+        JSRuntime* rt = NULL;
+        JSContext* ctx = NULL;
+
+        QuickJSVM()
+        {
+            rt = JS_NewRuntime();
+            ctx = JS_NewContextRaw(rt);
+            JS_AddIntrinsicBaseObjects(ctx);
+            JS_AddIntrinsicDate(ctx);
+            JS_AddIntrinsicEval(ctx);
+            JS_AddIntrinsicStringNormalize(ctx);
+            JS_AddIntrinsicRegExp(ctx);
+            JS_AddIntrinsicJSON(ctx);
+            JS_AddIntrinsicProxy(ctx);
+            JS_AddIntrinsicMapSet(ctx);
+            JS_AddIntrinsicTypedArrays(ctx);
+            JS_AddIntrinsicPromise(ctx);
+            JS_AddIntrinsicBigInt(ctx);
+            JS_SetMaxStackSize(rt, 65535);
+            JS_SetMemoryLimit(rt, 16 * 1024 * 1024);
+            JS_AddIntrinsicBaseObjects(ctx);
+            JS_AddIntrinsicJSON(ctx);
+            JS_AddIntrinsicBigInt(ctx);
+        
+            ADD_JS_FUNCTION(_g, ctx);
+            ADD_JS_FUNCTION(accept, ctx);
+            ADD_JS_FUNCTION(rollback, ctx);
+            ADD_JS_FUNCTION(util_raddr, ctx);
+            ADD_JS_FUNCTION(util_accid, ctx);
+            ADD_JS_FUNCTION(util_verify, ctx);
+            ADD_JS_FUNCTION(util_sha512h, ctx);
+            ADD_JS_FUNCTION(sto_validate, ctx);
+            ADD_JS_FUNCTION(sto_subfield, ctx);
+            ADD_JS_FUNCTION(sto_subarray, ctx);
+            ADD_JS_FUNCTION(sto_emplace, ctx);
+            ADD_JS_FUNCTION(sto_erase, ctx);
+            ADD_JS_FUNCTION(util_keylet, ctx);
+
+            ADD_JS_FUNCTION(emit, ctx);
+            ADD_JS_FUNCTION(etxn_burden, ctx);
+            ADD_JS_FUNCTION(etxn_fee_base, ctx);
+            ADD_JS_FUNCTION(etxn_details, ctx);
+            ADD_JS_FUNCTION(etxn_reserve, ctx);
+            ADD_JS_FUNCTION(etxn_generation, ctx);
+            ADD_JS_FUNCTION(etxn_nonce, ctx);
+
+            ADD_JS_FUNCTION(float_set, ctx);
+            ADD_JS_FUNCTION(float_multiply, ctx);
+            ADD_JS_FUNCTION(float_mulratio, ctx);
+            ADD_JS_FUNCTION(float_negate, ctx);
+            ADD_JS_FUNCTION(float_compare, ctx);
+            ADD_JS_FUNCTION(float_sum, ctx);
+            ADD_JS_FUNCTION(float_sto, ctx);
+            ADD_JS_FUNCTION(float_sto_set, ctx);
+            ADD_JS_FUNCTION(float_invert, ctx);
+
+            ADD_JS_FUNCTION(float_divide, ctx);
+            ADD_JS_FUNCTION(float_one, ctx);
+            ADD_JS_FUNCTION(float_mantissa, ctx);
+            ADD_JS_FUNCTION(float_sign, ctx);
+            ADD_JS_FUNCTION(float_int, ctx);
+            ADD_JS_FUNCTION(float_log, ctx);
+            ADD_JS_FUNCTION(float_root, ctx);
+
+            ADD_JS_FUNCTION(otxn_burden, ctx);
+            ADD_JS_FUNCTION(otxn_generation, ctx);
+            ADD_JS_FUNCTION(otxn_field, ctx);
+            ADD_JS_FUNCTION(otxn_id, ctx);
+            ADD_JS_FUNCTION(otxn_type, ctx);
+            ADD_JS_FUNCTION(otxn_slot, ctx);
+            ADD_JS_FUNCTION(otxn_param, ctx);
+
+            ADD_JS_FUNCTION(hook_account, ctx);
+            ADD_JS_FUNCTION(hook_hash, ctx);
+            ADD_JS_FUNCTION(hook_again, ctx);
+            ADD_JS_FUNCTION(fee_base, ctx);
+            ADD_JS_FUNCTION(ledger_seq, ctx);
+            ADD_JS_FUNCTION(ledger_last_hash, ctx);
+            ADD_JS_FUNCTION(ledger_last_time, ctx);
+            ADD_JS_FUNCTION(ledger_nonce, ctx);
+            ADD_JS_FUNCTION(ledger_keylet, ctx);
+
+            ADD_JS_FUNCTION(hook_param, ctx);
+            ADD_JS_FUNCTION(hook_param_set, ctx);
+            ADD_JS_FUNCTION(hook_skip, ctx);
+            ADD_JS_FUNCTION(hook_pos, ctx);
+
+            ADD_JS_FUNCTION(state, ctx);
+            ADD_JS_FUNCTION(state_foreign, ctx);
+            ADD_JS_FUNCTION(state_set, ctx);
+            ADD_JS_FUNCTION(state_foreign_set, ctx);
+
+            ADD_JS_FUNCTION(slot, ctx);
+            ADD_JS_FUNCTION(slot_clear, ctx);
+            ADD_JS_FUNCTION(slot_count, ctx);
+            ADD_JS_FUNCTION(slot_set, ctx);
+            ADD_JS_FUNCTION(slot_size, ctx);
+            ADD_JS_FUNCTION(slot_subarray, ctx);
+            ADD_JS_FUNCTION(slot_subfield, ctx);
+            ADD_JS_FUNCTION(slot_type, ctx);
+            ADD_JS_FUNCTION(slot_float, ctx);
+
+            ADD_JS_FUNCTION(trace, ctx);
+            ADD_JS_FUNCTION(trace_num, ctx);
+            ADD_JS_FUNCTION(trace_float, ctx);
+
+            ADD_JS_FUNCTION(meta_slot, ctx);
+            ADD_JS_FUNCTION(xpop_slot, ctx);
+        }
+
+        bool
+        sane()
+        {
+            return ctx && rt;
+        }
+
+        ~QuickJSVM()
+        {
+            if (rt)
+                JS_FreeRuntime(rt);
+            if (ctx)
+                JS_FreeContext(ctx);
+            rt = NULL;
+            ctx = NULL;
+        }
+    };
+
+    /**
+     * Validate that a web assembly blob can be loaded by wasmedge
+     */
+    static std::optional<std::string>
+    validate(const void* buf, size_t len)
+    {
+
+        std::optional<std::string> retval;
+
+        QuickJSVM vm;
+        JSContext* ctx = vm.ctx;
+
+        if (!vm.sane())
+            return "Could not create QUICKJS instance";
+
+        JSValue obj =
+            JS_ReadObject(ctx, buf, buf_len, JS_READ_OBJ_BYTECODE);
+        if (JS_IsException(obj))
+        {
+            if (const char* str = JS_ToCString(ctx, obj); str)
+            {
+                retval.emplace(str);
+                JS_FreeCString(ctx, str);
+            }
+
+            JS_FreeVal(ctx, obj);
+            return retval;
+        }
+
+        JSValue val = JS_EvalFunction(ctx, obj);
+        if (JS_IsException(val))
+        {
+            if (const char* str = JS_ToCString(ctx, val); str)
+            {
+                retval.emplace(str);
+                JS_FreeCString(ctx, str);
+            }
+            JS_FreeValue(ctx, val);
+            JS_FreeValue(ctx, obj);
+
+            return retval;
+        }
+
+        JS_FreeValue(ctx, val);
+
+        const char* testCalls = "if (typeof(Hook) != \"function\" || "
+            "(typeof(Callback) != \"function\" && typeof(Callback) != \"undefined\")) "
+            "throw Error(\"Hook/Callback function required\")";
+
+        val =
+            JS_Eval(vm.ctx, testCalls, sizeof(testCalls)-1, "<qjsvm>", 0);
+
+        if (JS_IsException(val))
+        {
+            if (const char* str = JS_ToCString(ctx, val); str)
+            {
+                retval.emplace(str);
+                JS_FreeCString(ctx, str);
+            }
+        }
+
+        JS_FreeValue(ctx, val);
+        JS_FreeValue(ctx, obj);
+
+        return retval;
+    }
+
+    /**
+     * Execute QuickJS bytecode against hook context.
+     * Once execution has occured the exector is spent and cannot be used again
+     * and should be destructed Information about the execution is populated
+     * into hookCtx
+     */
+    void
+    execute(
+        const void* buf,
+        size_t buf_len,
+        bool callback,
+        uint32_t callParam,
+        beast::Journal const& j) override
+    {
+        // HookExecutorWasm can only execute once
+        assert(!spent);
+        spent = true;
+
+        JLOG(j.trace()) << "HookInfo[" << HC_ACC()
+                        << "]: creating quickjs instance";
+
+        QuickJSVM vm;
+
+        if (!vm.sane())
+        {
+            JLOG(j.warn()) << "HookError[" << HC_ACC()
+                           << "]: Could not create QUICKJS instance.";
+
+            hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+            return;
+        }
+        
+        JSValue obj =
+            JS_ReadObject(ctx, buf, buf_len, JS_READ_OBJ_BYTECODE);
+        
+        if (JS_IsException(obj))
+        {
+            JS_FreeVal(ctx, obj);
+            JLOG(j.warn()) << "HookError[" << HC_ACC()
+                           << "]: Could not create QUICKJS instance (invalid bytecode).";
+            hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+            return;
+        }
+
+        JSValue val =
+            JS_EvalFunction(ctx, obj);
+
+        if (JS_IsException(val))
+        {
+            JS_FreeValue(ctx, val);
+            JS_FreeValue(ctx, obj);
+
+            JLOG(j.warn()) << "HookError[" << HC_ACC()
+                           << "]: Could not create QUICKJS instance (bytecode eval failure).";
+            hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+            return;
+        }
+
+        JS_FreeValue(ctx, val);
+
+        char expr[256];
+
+        int expr_len = 
+            snprintf(expr_len, 256, "%s(%d)",
+                callback ? "Callback" : "Hook",
+                callParam);
+
+        if (char_count < 7 || char_count == 256)
+        {
+            JLOG(j.warn()) << "HookError[" << HC_ACC()
+                           << "]: Could not create QUICKJS instance (expr string).";
+
+            hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+            return;
+        }
+
+        JSValue val =
+            JS_Eval(vm.ctx, expr, expr_len, "<qjsvm>", 0);
+
+        if (JS_IsException(val))
+        {
+            JS_FreeValue(ctx, val);
+            JS_FreeValue(ctx, obj);
+
+            JLOG(j.warn()) << "HookError[" << HC_ACC()
+                           << "]: Could not create QUICKJS instance (expr eval failure).";
+            hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+            return;
+        }
+
+        JS_FreeValue(ctx, val);
+        JS_FreeValue(ctx, obj);
+
+        hookCtx.result.instructionCount = 0; // RHTODO: fix this
+
+    }
+
+    HookExecutorJS(HookContext& ctx)
+        : hookCtx(ctx)
+    {
+        ctx.module = this;
+
+
+    }
+
+    ~HookExecutorJS()
+    {
     };
 };
 

@@ -431,13 +431,13 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
+            if (version > 1)
             {
                 // we currently only accept api version 0
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
-                       "sfHook->sfHookApiVersion invalid. (Try 0).";
+                       "sfHook->sfHookApiVersion invalid. (Try 0 or 1).";
                 return false;
             }
 
@@ -452,13 +452,25 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
-            // finally validate web assembly byte code
+            // finally validate byte code according to api version
+            if (!hookSetObj.isFieldPresent(sfCreateCode))
+                return {};
+
+            Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+
+
+            if (version == 1)
             {
-                if (!hookSetObj.isFieldPresent(sfCreateCode))
-                    return {};
+                // RHTODO: don't eval here, scan for valid bytecode, return error if not
+                // figure out how to correctly sandbox quickjs runtime so segfault doesnt crash
+                //
+                // for now, do nothing here
+                //
 
-                Blob hook = hookSetObj.getFieldVL(sfCreateCode);
-
+                return true;
+            }
+            else if (version == 0)
+            {
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
                 // As such the calling here is a bit convoluted.

@@ -1242,11 +1242,14 @@ Transactor::executeHookChain(
 
         bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
 
+        uint16_t hookApiVersion = hookDef-getFieldU16(sfHookApiVersion);
+
         try
         {
             results.push_back(hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 hookHash,
+                hookApiVersion,
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
                 parameters,
