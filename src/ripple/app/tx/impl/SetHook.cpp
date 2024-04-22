@@ -477,7 +477,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return false;
                 }
 
-                return true;
+                // RHTODO: fix
+                return std::pair<uint64_t,uint64_t>{1,1};
             }
             
             if (version == 0)
@@ -769,6 +770,7 @@ SetHook::preflight(PreflightContext const& ctx)
         }
         catch (std::exception& e)
         {
+            std::cout << "Exception: " << e.what() << "\n";
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::WASM_VALIDATION << ")[" << HS_ACC()
                 << "]: Exception: " << e.what();
@@ -1595,7 +1597,7 @@ SetHook::setHook()
                             << "HookSet(" << hook::log::WASM_INVALID << ")["
                             << HS_ACC()
                             << "]: Malformed transaction: SetHook operation "
-                               "would create invalid hook wasm";
+                               "would create invalid hook wasm: " << e.what();
                         return tecINTERNAL;
                     }
 
