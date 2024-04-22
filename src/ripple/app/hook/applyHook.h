@@ -948,9 +948,6 @@ public:
             JS_AddIntrinsicBigInt(ctx);
             JS_SetMaxStackSize(rt, 65535);
             JS_SetMemoryLimit(rt, 16 * 1024 * 1024);
-            JS_AddIntrinsicBaseObjects(ctx);
-            JS_AddIntrinsicJSON(ctx);
-            JS_AddIntrinsicBigInt(ctx);
         
             ADD_JS_FUNCTION(_g, ctx);
             ADD_JS_FUNCTION(accept, ctx);
@@ -1096,7 +1093,7 @@ public:
                 JS_FreeCString(ctx, str);
             }
             JS_FreeValue(ctx, val);
-            JS_FreeValue(ctx, obj);
+            //JS_FreeValue(ctx, obj);
 
             return retval;
         }
@@ -1120,7 +1117,7 @@ public:
         }
 
         JS_FreeValue(ctx, val);
-        JS_FreeValue(ctx, obj);
+        //JS_FreeValue(ctx, obj);
 
         return retval;
     }
