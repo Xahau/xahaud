@@ -1205,16 +1205,22 @@ public:
         if (JS_IsException(val))
         {
             JS_FreeValue(ctx, val);
-            JS_FreeValue(ctx, obj);
+            //JS_FreeValue(ctx, obj);
+
+            const char* str = JS_ToCString(ctx, obj);
 
             JLOG(j.warn()) << "HookError[" << HC_ACC()
-                           << "]: Could not create QUICKJS instance (expr eval failure).";
+                           << "]: Could not create QUICKJS instance (expr eval failure). "
+                           << "`" << expr << "` [size=" << expr_len << "]. "
+                           << str;
+            JS_FreeCString(ctx, str);
+
             hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
             return;
         }
 
         JS_FreeValue(ctx, val);
-        JS_FreeValue(ctx, obj);
+        //JS_FreeValue(ctx, obj);
 
         hookCtx.result.instructionCount = 0; // RHTODO: fix this
 
