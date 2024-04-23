@@ -339,6 +339,27 @@ JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
                                                     : RC_ROLLBACK);            \
     }
 
+#define HOOK_EXIT_JS(error_msg, error_code, exit_type)\
+{\
+    int64_t val = 0;\
+    if (JS_IsNumber(error_code))\
+       JS_ToInt64(ctx, &val, error_code);\
+    hookCtx.result.exitCode = val;\
+    hookCtx.result.exitType = exit_type;\
+    if (JS_IsString(error_msg))\
+    {\
+        size_t len;\
+        const char* cstr = JS_ToCStringLen(ctx, &len, error_msg);\
+        if (len > 256)\
+            len = 256;\
+        hookCtx.result.exitReason = std::string(cstr, len);\
+        JS_FreeCString(ctx, cstr);\
+    }\
+    return JS_NewInt64(ctx,\
+            exit_type == hook_api::ExitType::ACCEPT ? RC_ACCEPT                \
+                                                    : RC_ROLLBACK);            \
+}
+
 #define WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(                            \
     write_ptr_in, write_len_in, data_ptr_in, data_len_in, is_account_in) \
     {                                                                    \

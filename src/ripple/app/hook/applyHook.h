@@ -70,12 +70,26 @@ DECLARE_WASM_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len,
     int64_t error_code);
+
+DECLARE_JS_FUNCTION(
+    int64_t,
+    accept,
+    JSValue error_msg,
+    JSValue error_code);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     rollback,
     uint32_t read_ptr,
     uint32_t read_len,
     int64_t error_code);
+
+DECLARE_JS_FUNCTION(
+    int64_t,
+    rollback,
+    JSValue error_msg,
+    JSValue error_code);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     util_raddr,
@@ -409,14 +423,6 @@ DECLARE_WASM_FUNCTION(
     uint32_t slot_no_tx,
     uint32_t slot_no_meta);
 
-
-/// JS
-
-DECLARE_JS_FUNCTION(
-    int64_t,
-    accept,
-    JSValue error_msg,
-    JSValue error_code);
 
 } /* end namespace hook_api */
 

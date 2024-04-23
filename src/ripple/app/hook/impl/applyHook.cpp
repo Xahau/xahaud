@@ -2188,25 +2188,7 @@ DEFINE_JS_FUNCTION(
     JSValue error_code)
 {
     JS_HOOK_SETUP();
-    int64_t val = 0;
-    if (JS_IsNumber(error_code))
-       JS_ToInt64(ctx, &val, error_code);
-         
-    hookCtx.result.exitCode = val;
-    hookCtx.result.exitType = hook_api::ExitType::ACCEPT;
-
-    if (JS_IsString(error_msg))
-    {
-        size_t len;
-        const char* cstr = JS_ToCStringLen(ctx, &len, error_msg);
-        if (len > 256)
-            len = 256;
-        hookCtx.result.exitReason = std::string(cstr, len);
-        JS_FreeCString(ctx, cstr); 
-    }
-
-    return JS_NewInt64(ctx, RC_ACCEPT);
-
+    HOOK_EXIT_JS(error_msg, error_code, hook_api::ExitType::ACCEPT);
     JS_HOOK_TEARDOWN();
 } 
 
@@ -2223,6 +2205,17 @@ DEFINE_WASM_FUNCTION(
     HOOK_EXIT(read_ptr, read_len, error_code, hook_api::ExitType::ROLLBACK);
     WASM_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCTION(
+    int64_t,
+    rollback,
+    JSValue error_msg,
+    JSValue error_code)
+{
+    JS_HOOK_SETUP();
+    HOOK_EXIT_JS(error_msg, error_code, hook_api::ExitType::ROLLBACK);
+    JS_HOOK_TEARDOWN();
+} 
 
 // Write the TxnID of the originating transaction into the write_ptr
 DEFINE_WASM_FUNCTION(
