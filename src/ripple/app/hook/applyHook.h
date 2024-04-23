@@ -62,35 +62,35 @@ namespace hook_api {
     if (HOOK_DBG)   \
     fprintf
 
-DECLARE_HOOK_FUNCTION(int32_t, _g, uint32_t guard_id, uint32_t maxiter);
+DECLARE_WASM_FUNCTION(int32_t, _g, uint32_t guard_id, uint32_t maxiter);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     accept,
     uint32_t read_ptr,
     uint32_t read_len,
     int64_t error_code);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     rollback,
     uint32_t read_ptr,
     uint32_t read_len,
     int64_t error_code);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     util_raddr,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     util_accid,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     util_verify,
     uint32_t dread_ptr,
@@ -99,24 +99,24 @@ DECLARE_HOOK_FUNCTION(
     uint32_t sread_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     sto_validate,
     uint32_t tread_ptr,
     uint32_t tread_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     sto_subfield,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t field_id);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     sto_subarray,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t array_id);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     sto_emplace,
     uint32_t write_ptr,
@@ -126,7 +126,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t fread_ptr,
     uint32_t fread_len,
     uint32_t field_id);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     sto_erase,
     uint32_t write_ptr,
@@ -135,14 +135,14 @@ DECLARE_HOOK_FUNCTION(
     uint32_t read_len,
     uint32_t field_id);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     util_sha512h,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     util_keylet,
     uint32_t write_ptr,
@@ -154,25 +154,25 @@ DECLARE_HOOK_FUNCTION(
     uint32_t d,
     uint32_t e,
     uint32_t f);
-DECLARE_HOOK_FUNCNARG(int64_t, etxn_burden);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCNARG(int64_t, etxn_burden);
+DECLARE_WASM_FUNCTION(
     int64_t,
     etxn_details,
     uint32_t write_ptr,
     uint32_t write_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     etxn_fee_base,
     uint32_t read_ptr,
     uint32_t read_len);
-DECLARE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count);
-DECLARE_HOOK_FUNCNARG(int64_t, etxn_generation);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count);
+DECLARE_WASM_FUNCNARG(int64_t, etxn_generation);
+DECLARE_WASM_FUNCTION(
     int64_t,
     etxn_nonce,
     uint32_t write_ptr,
     uint32_t write_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     emit,
     uint32_t write_ptr,
@@ -180,24 +180,24 @@ DECLARE_HOOK_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len);
 
-DECLARE_HOOK_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
-DECLARE_HOOK_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
+DECLARE_WASM_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2);
+DECLARE_WASM_FUNCTION(
     int64_t,
     float_mulratio,
     int64_t float1,
     uint32_t round_up,
     uint32_t numerator,
     uint32_t denominator);
-DECLARE_HOOK_FUNCTION(int64_t, float_negate, int64_t float1);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, float_negate, int64_t float1);
+DECLARE_WASM_FUNCTION(
     int64_t,
     float_compare,
     int64_t float1,
     int64_t float2,
     uint32_t mode);
-DECLARE_HOOK_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2);
+DECLARE_WASM_FUNCTION(
     int64_t,
     float_sto,
     uint32_t write_ptr,
@@ -208,52 +208,52 @@ DECLARE_HOOK_FUNCTION(
     uint32_t iread_len,
     int64_t float1,
     uint32_t field_code);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     float_sto_set,
     uint32_t read_ptr,
     uint32_t read_len);
-DECLARE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1);
-DECLARE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2);
-DECLARE_HOOK_FUNCNARG(int64_t, float_one);
+DECLARE_WASM_FUNCTION(int64_t, float_invert, int64_t float1);
+DECLARE_WASM_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2);
+DECLARE_WASM_FUNCNARG(int64_t, float_one);
 
-DECLARE_HOOK_FUNCTION(int64_t, float_mantissa, int64_t float1);
-DECLARE_HOOK_FUNCTION(int64_t, float_sign, int64_t float1);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, float_mantissa, int64_t float1);
+DECLARE_WASM_FUNCTION(int64_t, float_sign, int64_t float1);
+DECLARE_WASM_FUNCTION(
     int64_t,
     float_int,
     int64_t float1,
     uint32_t decimal_places,
     uint32_t abs);
-DECLARE_HOOK_FUNCTION(int64_t, float_log, int64_t float1);
-DECLARE_HOOK_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n);
+DECLARE_WASM_FUNCTION(int64_t, float_log, int64_t float1);
+DECLARE_WASM_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     hook_account,
     uint32_t write_ptr,
     uint32_t write_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     hook_hash,
     uint32_t write_ptr,
     uint32_t write_len,
     int32_t hook_no);
-DECLARE_HOOK_FUNCNARG(int64_t, fee_base);
-DECLARE_HOOK_FUNCNARG(int64_t, ledger_seq);
-DECLARE_HOOK_FUNCNARG(int64_t, ledger_last_time);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCNARG(int64_t, fee_base);
+DECLARE_WASM_FUNCNARG(int64_t, ledger_seq);
+DECLARE_WASM_FUNCNARG(int64_t, ledger_last_time);
+DECLARE_WASM_FUNCTION(
     int64_t,
     ledger_last_hash,
     uint32_t write_ptr,
     uint32_t write_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     ledger_nonce,
     uint32_t write_ptr,
     uint32_t write_len);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     ledger_keylet,
     uint32_t write_ptr,
@@ -263,7 +263,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t hread_ptr,
     uint32_t hread_len);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     hook_param_set,
     uint32_t read_ptr,
@@ -273,7 +273,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t hread_ptr,
     uint32_t hread_len);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     hook_param,
     uint32_t write_ptr,
@@ -281,54 +281,54 @@ DECLARE_HOOK_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len);
 
-DECLARE_HOOK_FUNCNARG(int64_t, hook_again);
+DECLARE_WASM_FUNCNARG(int64_t, hook_again);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     hook_skip,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t flags);
-DECLARE_HOOK_FUNCNARG(int64_t, hook_pos);
+DECLARE_WASM_FUNCNARG(int64_t, hook_pos);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     slot,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t slot);
-DECLARE_HOOK_FUNCTION(int64_t, slot_clear, uint32_t slot);
-DECLARE_HOOK_FUNCTION(int64_t, slot_count, uint32_t slot);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, slot_clear, uint32_t slot);
+DECLARE_WASM_FUNCTION(int64_t, slot_count, uint32_t slot);
+DECLARE_WASM_FUNCTION(
     int64_t,
     slot_set,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t slot);
-DECLARE_HOOK_FUNCTION(int64_t, slot_size, uint32_t slot);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, slot_size, uint32_t slot);
+DECLARE_WASM_FUNCTION(
     int64_t,
     slot_subarray,
     uint32_t parent_slot,
     uint32_t array_id,
     uint32_t new_slot);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     slot_subfield,
     uint32_t parent_slot,
     uint32_t field_id,
     uint32_t new_slot);
-DECLARE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags);
-DECLARE_HOOK_FUNCTION(int64_t, slot_float, uint32_t slot_no);
+DECLARE_WASM_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags);
+DECLARE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no);
 
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     state_set,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     state_foreign_set,
     uint32_t read_ptr,
@@ -339,14 +339,14 @@ DECLARE_HOOK_FUNCTION(
     uint32_t nread_len,
     uint32_t aread_ptr,
     uint32_t aread_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     state,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     state_foreign,
     uint32_t write_ptr,
@@ -357,7 +357,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t nread_len,
     uint32_t aread_ptr,
     uint32_t aread_len);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     trace,
     uint32_t mread_ptr,
@@ -365,36 +365,36 @@ DECLARE_HOOK_FUNCTION(
     uint32_t dread_ptr,
     uint32_t dread_len,
     uint32_t as_hex);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     trace_num,
     uint32_t read_ptr,
     uint32_t read_len,
     int64_t number);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(
     int64_t,
     trace_float,
     uint32_t read_ptr,
     uint32_t read_len,
     int64_t float1);
 
-DECLARE_HOOK_FUNCNARG(int64_t, otxn_burden);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCNARG(int64_t, otxn_burden);
+DECLARE_WASM_FUNCTION(
     int64_t,
     otxn_field,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t field_id);
-DECLARE_HOOK_FUNCNARG(int64_t, otxn_generation);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCNARG(int64_t, otxn_generation);
+DECLARE_WASM_FUNCTION(
     int64_t,
     otxn_id,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t flags);
-DECLARE_HOOK_FUNCNARG(int64_t, otxn_type);
-DECLARE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_no);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCNARG(int64_t, otxn_type);
+DECLARE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_no);
+DECLARE_WASM_FUNCTION(
     int64_t,
     otxn_param,
     uint32_t write_ptr,
@@ -402,27 +402,22 @@ DECLARE_HOOK_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len);
 
-DECLARE_HOOK_FUNCTION(int64_t, meta_slot, uint32_t slot_no);
-DECLARE_HOOK_FUNCTION(
+DECLARE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_no);
+DECLARE_WASM_FUNCTION(
     int64_t,
     xpop_slot,
     uint32_t slot_no_tx,
     uint32_t slot_no_meta);
 
-/*
-    DECLARE_HOOK_FUNCTION(int64_t,  str_find,           uint32_t hread_ptr,
-   uint32_t hread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t mode,
-   uint32_t n); DECLARE_HOOK_FUNCTION(int64_t,  str_replace,        uint32_t
-   write_ptr, uint32_t write_len, uint32_t hread_ptr, uint32_t hread_len,
-                                                        uint32_t nread_ptr,
-   uint32_t nread_len, uint32_t rread_ptr, uint32_t rread_len, uint32_t mode,
-   uint32_t n); DECLARE_HOOK_FUNCTION(int64_t,  str_compare,        uint32_t
-   fread_ptr, uint32_t fread_len, uint32_t sread_ptr, uint32_t sread_len,
-                                                        uint32_t mode);
-    DECLARE_HOOK_FUNCTION(int64_t,  str_concat,         uint32_t write_ptr,
-   uint32_t write_len, uint32_t read_ptr,  uint32_t read_len, uint64_t operand,
-   uint32_t operand_type);
-*/
+
+/// JS
+
+DECLARE_JS_FUNCTION(
+    int64_t,
+    accept,
+    JSValue error_msg,
+    JSValue error_code);
+
 } /* end namespace hook_api */
 
 namespace hook {
@@ -609,6 +604,14 @@ gatherHookParameters(
         WasmEdge_ModuleInstanceAddFunction(                \
             importObj, hook_api::WasmFunctionName##F, hf); \
     }
+
+#define ADD_JS_FUNCTION(F, ctx)\
+{\
+    JSValue global_obj = JS_GetGlobalObject(ctx);\
+    JS_SetPropertyStr(ctx, global_obj, #F,\
+            JS_NewCFunction(ctx, hook_api::JSFunction##F, #F, hook_api::JSFunctionParamCount##F));\
+    JS_FreeValue(ctx, global_obj);\
+}
 
 #define HR_ACC() hookResult.account << "-" << hookResult.otxnAccount
 #define HC_ACC() hookCtx.result.account << "-" << hookCtx.result.otxnAccount
@@ -919,7 +922,6 @@ public:
     };
 };
 
-#define ADD_JS_FUNCTION(x,y)
 
 class HookExecutorJS : public HookExecutorBase
 {
@@ -931,7 +933,7 @@ public:
         JSRuntime* rt = NULL;
         JSContext* ctx = NULL;
 
-        QuickJSVM()
+        QuickJSVM(void* hookCtx)
         {
             rt = JS_NewRuntime();
             ctx = JS_NewContextRaw(rt);
@@ -948,10 +950,11 @@ public:
             JS_AddIntrinsicBigInt(ctx);
             JS_SetMaxStackSize(rt, 65535);
             JS_SetMemoryLimit(rt, 16 * 1024 * 1024);
-        
-            ADD_JS_FUNCTION(_g, ctx);
+
+            JS_SetRuntimeOpaque(rt, hookCtx);
+
             ADD_JS_FUNCTION(accept, ctx);
-            ADD_JS_FUNCTION(rollback, ctx);
+            /*ADD_JS_FUNCTION(rollback, ctx);
             ADD_JS_FUNCTION(util_raddr, ctx);
             ADD_JS_FUNCTION(util_accid, ctx);
             ADD_JS_FUNCTION(util_verify, ctx);
@@ -1033,6 +1036,7 @@ public:
 
             ADD_JS_FUNCTION(meta_slot, ctx);
             ADD_JS_FUNCTION(xpop_slot, ctx);
+            */
         }
 
         bool
@@ -1064,7 +1068,7 @@ public:
 
         std::optional<std::string> retval;
 
-        QuickJSVM vm;
+        QuickJSVM vm{NULL};
         JSContext* ctx = vm.ctx;
 
         if (!vm.sane())
@@ -1143,7 +1147,7 @@ public:
         JLOG(j.trace()) << "HookInfo[" << HC_ACC()
                         << "]: creating quickjs instance";
 
-        QuickJSVM vm;
+        QuickJSVM vm{reinterpret_cast<void*>(&hookCtx)};
         JSContext* ctx = vm.ctx;
 
         if (!vm.sane())
