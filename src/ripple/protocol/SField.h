@@ -341,6 +341,7 @@ extern SF_UINT8 const sfTransactionResult;
 extern SF_UINT8 const sfTickSize;
 extern SF_UINT8 const sfUNLModifyDisabling;
 extern SF_UINT8 const sfHookResult;
+extern SF_UINT8 const sfBatchIndex;
 
 // 16-bit integers (common)
 extern SF_UINT16 const sfLedgerEntryType;
@@ -410,7 +411,7 @@ extern SF_UINT32 const sfRewardLgrLast;
 extern SF_UINT32 const sfFirstNFTokenSequence;
 extern SF_UINT32 const sfImportSequence;
 extern SF_UINT32 const sfXahauActivationLgrSeq;
-extern SF_UINT32 const sfBatchIndex;
+extern SF_UINT32 const sfOuterSequence;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;
@@ -581,6 +582,7 @@ extern SField const sfSignerEntry;
 extern SField const sfNFToken;
 extern SField const sfEmitDetails;
 extern SField const sfHook;
+extern SField const sfBatchTxn;
 
 extern SField const sfSigner;
 extern SField const sfMajority;
