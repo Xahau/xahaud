@@ -63,6 +63,7 @@
 #include <test/jtx/require.h>
 #include <test/jtx/requires.h>
 #include <test/jtx/reward.h>
+#include <test/jtx/rpc.h>
 #include <test/jtx/sendmax.h>
 #include <test/jtx/seq.h>
 #include <test/jtx/sig.h>
