@@ -169,13 +169,14 @@ constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
 constexpr std::uint32_t const tfOptOut                   = 0x00000001;
 
 enum BatchFlags : std::uint32_t {
-    tfBatchAtomic = 0x00000001,
-    tfBatchFirst = 0x00000002,
-    tfBatchOne = 0x00000004,
+    tfAllOrNothing = 0x00000001,
+    tfOnlyOne = 0x00000002,
+    tfUntilFailure = 0x00000004,
+    tfIndependent = 0x00000008,
 };
 
 constexpr std::uint32_t const tfBatchMask =
-    ~(tfUniversal | tfBatchAtomic | tfBatchFirst);
+    ~(tfUniversal | tfAllOrNothing | tfOnlyOne | tfUntilFailure | tfIndependent);
 
 // clang-format on
 

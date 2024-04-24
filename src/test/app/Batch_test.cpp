@@ -22,12 +22,12 @@
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
 
-// tfBatchOne
+// tfOnlyOne
 // Tx1: Payment = tecUNFUNDED => Leave
 // Tx2: Payment = tesSUCCESS => Leave
 // TER(tesSUCCESS)
 
-// tfBatchFirst
+// tfUntilFailure
 // Tx1: Payment = tesSUCCESS => Leave
 // Tx2: Payment = tecUNFUNDED => Leave
 // TER(tesSUCCESS)
@@ -325,7 +325,7 @@ class Batch_test : public beast::unit_test::suite
         Json::Value const tx2 = pay(alice, bob, XRP(999));
         jv = addBatchTx(jv, tx2, alice, feeDrops, 1, seq + 2);
 
-        env(jv, fee(feeDrops * 2), txflags(tfBatchAtomic), ter(tecBATCH_FAILURE));
+        env(jv, fee(feeDrops * 2), txflags(tfAllOrNothing), ter(tecBATCH_FAILURE));
         env.close();
 
         Json::Value params;
@@ -389,7 +389,7 @@ class Batch_test : public beast::unit_test::suite
         Json::Value const tx3 = pay(alice, bob, XRP(1));
         jv = addBatchTx(jv, tx3, alice, feeDrops, 2, 2);
 
-        env(jv, fee(feeDrops * 3), txflags(tfBatchFirst), ter(tecBATCH_FAILURE));
+        env(jv, fee(feeDrops * 3), txflags(tfOnlyOne), ter(tecBATCH_FAILURE));
         env.close();
 
         Json::Value params;

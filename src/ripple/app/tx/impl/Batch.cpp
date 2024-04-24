@@ -217,23 +217,20 @@ invoke_preclaim(PreclaimContext const& ctx)
 
             if (id != beast::zero)
             {
-                // TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
+                TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
 
-                // if (result != tesSUCCESS)
-                //     return result;
-
-                // Ignore Sequence Validation on ttBATCH txns
-                TER result = tesSUCCESS;
+                if (result != tesSUCCESS)
+                    return result;
 
                 result = T::checkPriorTxAndLastLedger(ctx);
 
                 if (result != tesSUCCESS)
                     return result;
 
-                // result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
+                result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
-                // if (result != tesSUCCESS)
-                //     return result;
+                if (result != tesSUCCESS)
+                    return result;
 
                 result = T::checkSign(ctx);
 
@@ -297,7 +294,7 @@ Batch::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (txns.size() > 12)
+    if (txns.size() > 8)
     {
         JLOG(ctx.j.error()) << "Batch: txns array exceeds 12 entries.";
         return temMALFORMED;
@@ -485,26 +482,28 @@ Batch::doApply()
 
         avi.addBatchExecutionMetaData(std::move(meta));
 
-        std::cout << "tfBatchFirst: " << (flags & tfBatchFirst) << "\n";
-        std::cout << "tfBatchOne: " << (flags & tfBatchOne) << "\n";
+        std::cout << "tfAllOrNothing: " << (flags & tfAllOrNothing) << "\n";
+        std::cout << "tfOnlyOne: " << (flags & tfOnlyOne) << "\n";
+        std::cout << "tfUntilFailure: " << (flags & tfUntilFailure) << "\n";
+        std::cout << "tfIndependent: " << (flags & tfIndependent) << "\n";
         std::cout << "tfBatchAtomic: " << _result.first << "\n";
 
         if (_result.first != tesSUCCESS)
         {
-            if (flags & tfBatchFirst)
+            if (flags & tfUntilFailure)
             {
                 actx.discard();
                 result = tecBATCH_FAILURE;
                 break;
             }
-            if (flags & tfBatchOne)
+            if (flags & tfOnlyOne)
             {
                 actx.discard();
                 continue;
             }
         }
 
-        if (_result.first == tesSUCCESS && flags & tfBatchOne)
+        if (_result.first == tesSUCCESS && flags & tfOnlyOne)
         {
             result = tecBATCH_FAILURE;
             break;
