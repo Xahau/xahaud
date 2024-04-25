@@ -126,7 +126,7 @@ public:
     bool
     isBatchTxn()
     {
-        return tx.isFieldPresent(sfBatchIndex);
+        return tx.isFieldPresent(sfBatchTxn);
     }
 
     ApplyFlags const&

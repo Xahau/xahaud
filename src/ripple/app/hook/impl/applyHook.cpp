@@ -899,7 +899,7 @@ hook::isEmittedTxn(ripple::STTx const& tx)
 bool
 hook::isBatchTxn(ripple::STTx const& tx)
 {
-    return tx.isFieldPresent(ripple::sfBatchIndex);
+    return tx.isFieldPresent(ripple::sfBatchTxn);
 }
 
 int64_t

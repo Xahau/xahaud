@@ -82,15 +82,18 @@ class Batch_test : public beast::unit_test::suite
         Json::Value const& tx,
         jtx::Account const& account,
         XRPAmount feeDrops,
-        std::uint32_t index,
-        std::uint32_t next)
+        std::uint8_t index,
+        std::uint32_t outerSequence)
     {
         jv[sfRawTransactions.jsonName][index] = Json::Value{};
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction] = tx;
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][jss::SigningPubKey] = strHex(account.pk());
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfFee.jsonName] = 0;
         jv[sfRawTransactions.jsonName][index][jss::RawTransaction][jss::Sequence] = 0;
-        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfBatchIndex.jsonName] = next;
+        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfBatchTxn.jsonName] = Json::Value{};
+        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfBatchTxn.jsonName][jss::Account] = account.human();
+        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfBatchTxn.jsonName][sfOuterSequence.jsonName] = outerSequence;
+        jv[sfRawTransactions.jsonName][index][jss::RawTransaction][sfBatchTxn.jsonName][sfBatchIndex.jsonName] = index;
         return jv;
     }
 
@@ -254,11 +257,11 @@ class Batch_test : public beast::unit_test::suite
 
         // Tx 1
         Json::Value const tx1 = pay(alice, bob, XRP(1));
-        jv = addBatchTx(jv, tx1, alice, feeDrops, 0, seq + 1);
+        jv = addBatchTx(jv, tx1, alice, feeDrops, 0, seq);
 
         // Tx 2
         Json::Value const tx2 = pay(alice, bob, XRP(1));
-        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, seq + 2);
+        jv = addBatchTx(jv, tx2, alice, feeDrops, 1, seq);
 
         env(jv, fee(feeDrops * 2), ter(tesSUCCESS));
         env.close();
@@ -286,7 +289,7 @@ class Batch_test : public beast::unit_test::suite
         std::cout << "alice: " << env.balance(alice) << "\n";
         std::cout << "bob: " << env.balance(bob) << "\n";
 
-        BEAST_EXPECT(env.seq(alice) == 2);
+        BEAST_EXPECT(env.seq(alice) == 4);
         BEAST_EXPECT(env.balance(alice) == XRP(1000) - XRP(2) - (feeDrops * 2));
         BEAST_EXPECT(env.balance(bob) == XRP(1000) + XRP(2));
     }

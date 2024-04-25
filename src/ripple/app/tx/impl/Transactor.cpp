@@ -596,6 +596,12 @@ Transactor::checkSeqProxy(
         return tesSUCCESS;
     }
 
+    // // // pass all emitted tx provided their seq is 0
+    // if (view.rules().enabled(featureBatch) && hook::isBatchTxn(tx))
+    // {
+    //     return tesSUCCESS;
+    // }
+
     // reserved for emitted tx only at this time
     if (tx.isFieldPresent(sfFirstLedgerSequence))
         return tefINTERNAL;
@@ -734,14 +740,14 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
     // do not update sequence of sfAccountTxnID for emitted tx
     if (ctx_.isEmittedTxn())
         return tesSUCCESS;
-    
-    // do not update sequence of sfAccountTxnID for emitted tx
-    if (ctx_.isBatchTxn())
-        return tesSUCCESS;
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
     if (seqProx.isSeq())
     {
+        // do not update sequence of sfAccountTxnID for batch tx
+        if (ctx_.isBatchTxn())
+            return tesSUCCESS;
+
         // Note that if this transaction is a TicketCreate, then
         // the transaction will modify the account root sfSequence
         // yet again.
@@ -1761,6 +1767,12 @@ Transactor::operator()()
         }
     }
 #endif
+
+    // if (ctx_.isBatchTxn()) 
+    // {
+    //     JLOG(j_.trace()) << "BAD BATCH: " << ctx_.tx.getTransactionID();
+    //     return {tecINTERNAL, false};
+    // }
 
     // Enforce an absolute bar to applying emitted transactions which are either
     // explicitly in preflight test mode, or somehow managed to make their way

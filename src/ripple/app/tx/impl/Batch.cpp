@@ -217,20 +217,22 @@ invoke_preclaim(PreclaimContext const& ctx)
 
             if (id != beast::zero)
             {
-                TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
+                // TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
 
-                if (result != tesSUCCESS)
-                    return result;
+                // if (result != tesSUCCESS)
+                //     return result;
+
+                TER result = tesSUCCESS;
 
                 result = T::checkPriorTxAndLastLedger(ctx);
 
                 if (result != tesSUCCESS)
                     return result;
 
-                result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
+                // result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
-                if (result != tesSUCCESS)
-                    return result;
+                // if (result != tesSUCCESS)
+                //     return result;
 
                 result = T::checkSign(ctx);
 
@@ -364,6 +366,15 @@ Batch::preclaim(PreclaimContext const& ctx)
         preclaimResponses.push_back(response);
     }
 
+    for (auto const& response : preclaimResponses)
+    {
+        if (response != tesSUCCESS)
+        {
+            return response;
+        }
+    }
+    
+
     return tesSUCCESS;
 }
 
@@ -477,8 +488,7 @@ Batch::doApply()
 
         meta.setFieldU8(sfTransactionResult, TERtoInt(_result.first));
         meta.setFieldU16(sfTransactionType, stx.getTxnType());
-        if(_result.first == tesSUCCESS)
-            meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
+        meta.setFieldH256(sfTransactionHash, stx.getTransactionID());
 
         avi.addBatchExecutionMetaData(std::move(meta));
 
@@ -524,7 +534,8 @@ Batch::doApply()
     // std::cout << "ACCOUNT BALANCE: " << sleSrcAcc->getFieldAmount(sfBalance) << "\n";
 
     auto const feePaid = ctx_.tx[sfFee].xrp();
-    // sleSrcAcc->setFieldU32(sfSequence, ctx_.tx.getFieldU32(sfSequence) + 1);
+    // auto const& txns = ctx_.tx.getFieldArray(sfRawTransactions);
+    sleSrcAcc->setFieldU32(sfSequence, ctx_.tx.getFieldU32(sfSequence) + txns.size() + 1);
     sleSrcAcc->setFieldAmount(sfBalance, sleBase->getFieldAmount(sfBalance).xrp() - feePaid);
     sb.update(sleSrcAcc);
     sb.apply(ctx_.rawView());

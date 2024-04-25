@@ -135,9 +135,9 @@ OpenLedger::accept(
         if (tx->isFieldPresent(sfEmitDetails))
             continue;
         
-        // skip batch txns
-        if (tx->isFieldPresent(sfBatchIndex))
-            continue;
+        // // skip batch txns
+        // if (tx->isFieldPresent(sfBatchTxn))
+        //     continue;
 
         if (auto const toSkip = app.getHashRouter().shouldRelay(txId))
         {

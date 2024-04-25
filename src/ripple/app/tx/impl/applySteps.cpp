@@ -193,6 +193,11 @@ invoke_preclaim(PreclaimContext const& ctx)
     // list one, preflight will have already a flagged a failure.
     auto const id = ctx.tx.getAccountID(sfAccount);
 
+    std::cout << "invoke_preclaim: " << ctx.tx.getTxnType() << "\n";
+
+    // if (ctx.tx.isFieldPresent(sfBatchTxn))
+    //     return tesSUCCESS;
+
     if (id != beast::zero)
     {
         TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
@@ -681,6 +686,9 @@ doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view)
 #endif
         if (!preclaimResult.likelyToClaimFee)
             return {preclaimResult.ter, false};
+
+        // if (preclaimResult.tx.isFieldPresent(sfBatchTxn))
+        //     return tesSUCCESS;
 
         ApplyContext ctx(
             app,
