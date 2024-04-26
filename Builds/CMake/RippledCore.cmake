@@ -455,6 +455,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/GenesisMint.cpp
   src/ripple/app/tx/impl/Import.cpp
   src/ripple/app/tx/impl/Invoke.cpp
+  src/ripple/app/tx/impl/Remit.cpp
   src/ripple/app/tx/impl/SetSignerList.cpp
   src/ripple/app/tx/impl/SetTrust.cpp
   src/ripple/app/tx/impl/SignerEntries.cpp
@@ -740,6 +741,7 @@ if (tests)
     src/test/app/RCLCensorshipDetector_test.cpp
     src/test/app/RCLValidations_test.cpp
     src/test/app/Regression_test.cpp
+    src/test/app/Remit_test.cpp
     src/test/app/SHAMapStore_test.cpp
     src/test/app/SetAuth_test.cpp
     src/test/app/SetRegularKey_test.cpp
@@ -889,6 +891,7 @@ if (tests)
     src/test/jtx/impl/rate.cpp
     src/test/jtx/impl/regkey.cpp
     src/test/jtx/impl/reward.cpp
+    src/test/jtx/impl/remit.cpp
     src/test/jtx/impl/sendmax.cpp
     src/test/jtx/impl/seq.cpp
     src/test/jtx/impl/sig.cpp
@@ -980,6 +983,7 @@ if (tests)
     src/test/rpc/AccountLinesRPC_test.cpp
     src/test/rpc/AccountObjects_test.cpp
     src/test/rpc/AccountOffers_test.cpp
+    src/test/rpc/AccountNamespace_test.cpp
     src/test/rpc/AccountSet_test.cpp
     src/test/rpc/AccountTx_test.cpp
     src/test/rpc/AmendmentBlocked_test.cpp

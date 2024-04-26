@@ -164,6 +164,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<Import>(ctx);
         case ttINVOKE:
             return invoke_preflight_helper<Invoke>(ctx);
+        case ttREMIT:
+            return invoke_preflight_helper<Remit>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -192,22 +194,22 @@ invoke_preclaim(PreclaimContext const& ctx)
     {
         TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         result = T::checkPriorTxAndLastLedger(ctx);
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
 
         result = T::checkSign(ctx);
 
-        if (result != tesSUCCESS)
+        if (!isTesSuccess(result))
             return result;
     }
 
@@ -283,6 +285,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<Import>(ctx);
         case ttINVOKE:
             return invoke_preclaim<Invoke>(ctx);
+        case ttREMIT:
+            return invoke_preclaim<Remit>(ctx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -364,6 +368,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return Import::calculateBaseFee(view, tx);
         case ttINVOKE:
             return Invoke::calculateBaseFee(view, tx);
+        case ttREMIT:
+            return Remit::calculateBaseFee(view, tx);
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -543,6 +549,10 @@ invoke_apply(ApplyContext& ctx)
             Invoke p(ctx);
             return p();
         }
+        case ttREMIT: {
+            Remit p(ctx);
+            return p();
+        }
         case ttURITOKEN_MINT:
         case ttURITOKEN_BURN:
         case ttURITOKEN_BUY:
@@ -620,7 +630,7 @@ preclaim(
     try
     {
 #endif
-        if (ctx->preflightResult != tesSUCCESS)
+        if (!isTesSuccess(ctx->preflightResult))
             return {*ctx, ctx->preflightResult};
         return {*ctx, invoke_preclaim(*ctx)};
 #ifndef DEBUG

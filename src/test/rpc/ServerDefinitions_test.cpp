@@ -57,12 +57,16 @@ public:
         {
             Env env(*this);
             auto const result = env.rpc("server_definitions");
+            std::cout << "RESULT: " << result << "\n";
             BEAST_EXPECT(!result[jss::result].isMember(jss::error));
             BEAST_EXPECT(result[jss::result].isMember(jss::FIELDS));
             BEAST_EXPECT(result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));
             BEAST_EXPECT(
                 result[jss::result].isMember(jss::TRANSACTION_RESULTS));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_TYPES));
+            BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_FLAGS));
+            BEAST_EXPECT(
+                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
@@ -70,7 +74,7 @@ public:
     }
 
     void
-    testDefitionsHash(FeatureBitset features)
+    testDefinitionsHash(FeatureBitset features)
     {
         testcase("Definitions Hash");
 
@@ -92,6 +96,9 @@ public:
             BEAST_EXPECT(
                 !result[jss::result].isMember(jss::TRANSACTION_RESULTS));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TRANSACTION_TYPES));
+            BEAST_EXPECT(!result[jss::result].isMember(jss::TRANSACTION_FLAGS));
+            BEAST_EXPECT(
+                !result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
@@ -113,6 +120,9 @@ public:
             BEAST_EXPECT(
                 result[jss::result].isMember(jss::TRANSACTION_RESULTS));
             BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_TYPES));
+            BEAST_EXPECT(result[jss::result].isMember(jss::TRANSACTION_FLAGS));
+            BEAST_EXPECT(
+                result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
@@ -330,7 +340,7 @@ public:
     testServerDefinitions(FeatureBitset features)
     {
         testDefinitions(features);
-        testDefitionsHash(features);
+        testDefinitionsHash(features);
     }
 
     void

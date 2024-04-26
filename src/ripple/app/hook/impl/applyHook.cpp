@@ -70,6 +70,45 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     switch (tt)
     {
+        case ttREMIT: {
+            if (destAcc)
+                ADD_TSH(*destAcc, tshSTRONG);
+
+            if (tx.isFieldPresent(sfInform))
+            {
+                auto const inform = tx.getAccountID(sfInform);
+                if (*otxnAcc != inform && *destAcc != inform)
+                    ADD_TSH(inform, tshWEAK);
+            }
+
+            if (tx.isFieldPresent(sfURITokenIDs))
+            {
+                STVector256 tokenIds = tx.getFieldV256(sfURITokenIDs);
+                for (uint256 const klRaw : tokenIds)
+                {
+                    Keylet const id{ltURI_TOKEN, klRaw};
+                    if (!rv.exists(id))
+                        continue;
+
+                    auto const ut = rv.read(id);
+                    if (!ut ||
+                        ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
+                        continue;
+
+                    auto const owner = ut->getAccountID(sfOwner);
+                    auto const issuer = ut->getAccountID(sfIssuer);
+                    if (issuer != owner && issuer != *destAcc)
+                    {
+                        ADD_TSH(
+                            issuer,
+                            (ut->getFlags() & lsfBurnable) ? tshSTRONG
+                                                           : tshWEAK);
+                    }
+                }
+            }
+            break;
+        }
+
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
                 ADD_TSH(tx.getAccountID(sfIssuer), fixV2 ? tshWEAK : tshSTRONG);
@@ -256,14 +295,14 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             {
                 ADD_TSH(bo->getAccountID(sfOwner), tshSTRONG);
                 if (bo->isFieldPresent(sfDestination))
-                    ADD_TSH(bo->getAccountID(sfDestination), tshWEAK);
+                    ADD_TSH(bo->getAccountID(sfDestination), tshSTRONG);
             }
 
             if (so)
             {
                 ADD_TSH(so->getAccountID(sfOwner), tshSTRONG);
                 if (so->isFieldPresent(sfDestination))
-                    ADD_TSH(so->getAccountID(sfDestination), tshWEAK);
+                    ADD_TSH(so->getAccountID(sfDestination), tshSTRONG);
             }
 
             break;
@@ -279,7 +318,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 auto const offer = getNFTOffer(offerID, rv);
                 if (offer)
                 {
-                    ADD_TSH(offer->getAccountID(sfOwner), tshSTRONG);
+                    ADD_TSH(offer->getAccountID(sfOwner), tshWEAK);
                     if (offer->isFieldPresent(sfDestination))
                         ADD_TSH(offer->getAccountID(sfDestination), tshWEAK);
 
@@ -1759,7 +1798,7 @@ hook::finalizeHookState(
 
                     TER result = setHookState(applyCtx, acc, ns, key, slice);
 
-                    if (result != tesSUCCESS)
+                    if (!isTesSuccess(result))
                     {
                         JLOG(j.warn())
                             << "HookError[TX:" << txnID
@@ -3488,7 +3527,7 @@ DEFINE_HOOK_FUNCTION(
         ripple::ApplyFlags::tapPREFLIGHT_EMIT,
         j);
 
-    if (preflightResult.ter != tesSUCCESS)
+    if (!isTesSuccess(preflightResult.ter))
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: Transaction preflight failure: "

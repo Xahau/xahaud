@@ -516,7 +516,7 @@ public:
         };
 
         static constexpr std::
-            array<std::pair<std::string_view, std::uint32_t>, 7>
+            array<std::pair<std::string_view, std::uint32_t>, 8>
                 asFlags{
                     {{"defaultRipple", asfDefaultRipple},
                      {"depositAuth", asfDepositAuth},
@@ -524,6 +524,7 @@ public:
                      {"globalFreeze", asfGlobalFreeze},
                      {"noFreeze", asfNoFreeze},
                      {"requireAuthorization", asfRequireAuth},
+                     {"tshCollect", asfTshCollect},
                      {"requireDestinationTag", asfRequireDest}}};
 
         for (auto& asf : asFlags)
@@ -546,14 +547,15 @@ public:
         }
 
         static constexpr std::
-            array<std::pair<std::string_view, std::uint32_t>, 4>
+            array<std::pair<std::string_view, std::uint32_t>, 5>
                 disallowIncomingFlags{
                     {{"disallowIncomingCheck", asfDisallowIncomingCheck},
                      {"disallowIncomingNFTokenOffer",
                       asfDisallowIncomingNFTokenOffer},
                      {"disallowIncomingPayChan", asfDisallowIncomingPayChan},
                      {"disallowIncomingTrustline",
-                      asfDisallowIncomingTrustline}}};
+                      asfDisallowIncomingTrustline},
+                     {"disallowIncomingRemit", asfDisallowIncomingRemit}}};
 
         if (features[featureDisallowIncoming])
         {

@@ -571,6 +571,15 @@ class AccountTx_test : public beast::unit_test::suite
             env.close();
         }
 
+        // Remit
+        {
+            // Empty
+            // XAH
+            // USD
+            // URIToken Mint
+            // URIToken Transfer
+        }
+
         // Setup is done. Look at the transactions returned by account_tx.
         Json::Value params;
         params[jss::account] = alice.human();

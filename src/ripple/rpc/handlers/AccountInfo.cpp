@@ -78,7 +78,7 @@ doAccountInfo(RPC::JsonContext& context)
         return jvAccepted;
 
     static constexpr std::
-        array<std::pair<std::string_view, LedgerSpecificFlags>, 9>
+        array<std::pair<std::string_view, LedgerSpecificFlags>, 10>
             lsFlags{
                 {{"defaultRipple", lsfDefaultRipple},
                  {"depositAuth", lsfDepositAuth},
@@ -88,16 +88,18 @@ doAccountInfo(RPC::JsonContext& context)
                  {"noFreeze", lsfNoFreeze},
                  {"passwordSpent", lsfPasswordSpent},
                  {"requireAuthorization", lsfRequireAuth},
+                 {"tshCollect", lsfTshCollect},
                  {"requireDestinationTag", lsfRequireDestTag}}};
 
     static constexpr std::
-        array<std::pair<std::string_view, LedgerSpecificFlags>, 4>
+        array<std::pair<std::string_view, LedgerSpecificFlags>, 5>
             disallowIncomingFlags{
                 {{"disallowIncomingNFTokenOffer",
                   lsfDisallowIncomingNFTokenOffer},
                  {"disallowIncomingCheck", lsfDisallowIncomingCheck},
                  {"disallowIncomingPayChan", lsfDisallowIncomingPayChan},
-                 {"disallowIncomingTrustline", lsfDisallowIncomingTrustline}}};
+                 {"disallowIncomingTrustline", lsfDisallowIncomingTrustline},
+                 {"disallowIncomingRemit", lsfDisallowIncomingRemit}}};
 
     auto const sleAccepted = ledger->read(keylet::account(accountID));
     if (sleAccepted)
