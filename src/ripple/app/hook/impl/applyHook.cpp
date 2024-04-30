@@ -1318,6 +1318,58 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    int64_t,
+    trace,
+    JSValue msg,
+    JSValue data,
+    JSValue as_hex)
+{
+
+    JS_HOOK_SETUP();
+
+    std::string out;
+    if (JS_IsString(msg))
+    {
+        // RH TODO: check if there's a way to ensure the string isn't arbitrarily long before
+        // calling ToCStringLen
+        size_t len;
+        const char* cstr = JS_ToCStringLen(ctx, &len, msg);
+        if (len > 256)
+            len = 256;
+        out = std::string(cstr, len);
+        JS_FreeCString(ctx, cstr);
+    }
+
+
+    out += ": ";
+
+    if (JS_IsBool(as_hex) && !!JS_ToBool(ctx, as_hex))
+    {
+        // RH TODO
+    }
+    else
+    {
+        JSValue sdata = JS_JSONStringify(ctx, data, JS_UNDEFINED, JS_UNDEFINED);
+        size_t len;
+        const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
+        if (len > 1023)
+            len = 1023;
+        out += std::string(cstr, len);
+        JS_FreeCString(ctx, cstr);
+    }
+
+    
+    if (out.size() > 0)
+        j.trace() << "HookTrace[" << HC_ACC() << "]: "
+                  << out;
+
+    return JS_NewInt64(ctx, 0);
+//    return JS_NewString(ctx, out.c_str());
+
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCTION(
     int64_t,
     trace,
@@ -2249,6 +2301,28 @@ DEFINE_WASM_FUNCTION(
         memory_length);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    otxn_id,
+    JSValue flags_in)
+{
+    JS_HOOK_SETUP();
+
+    int64_t flags = 0;
+    
+    if (JS_IsNumber(flags_in))
+      JS_ToInt64(ctx, &flags, flags_in);
+
+    auto const& txID =
+        (hookCtx.emitFailure && !flags
+             ? applyCtx.tx.getFieldH256(sfTransactionHash)
+             : applyCtx.tx.getTransactionID());
+
+    return JS_NewArrayBufferCopy(ctx, txID.data(), txID.size());
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Return the tt (Transaction Type) numeric code of the originating transaction

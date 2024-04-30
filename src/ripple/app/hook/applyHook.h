@@ -379,6 +379,14 @@ DECLARE_WASM_FUNCTION(
     uint32_t dread_ptr,
     uint32_t dread_len,
     uint32_t as_hex);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    trace,
+    JSValue msg,
+    JSValue data,
+    JSValue as_hex);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     trace_num,
@@ -406,6 +414,12 @@ DECLARE_WASM_FUNCTION(
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t flags);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    otxn_id,
+    flags);
+
 DECLARE_WASM_FUNCNARG(int64_t, otxn_type);
 DECLARE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_no);
 DECLARE_WASM_FUNCTION(
@@ -960,7 +974,8 @@ public:
             JS_SetRuntimeOpaque(rt, hookCtx);
 
             ADD_JS_FUNCTION(accept, ctx);
-            /*ADD_JS_FUNCTION(rollback, ctx);
+            ADD_JS_FUNCTION(rollback, ctx);
+            /*
             ADD_JS_FUNCTION(util_raddr, ctx);
             ADD_JS_FUNCTION(util_accid, ctx);
             ADD_JS_FUNCTION(util_verify, ctx);
@@ -1001,7 +1016,9 @@ public:
             ADD_JS_FUNCTION(otxn_burden, ctx);
             ADD_JS_FUNCTION(otxn_generation, ctx);
             ADD_JS_FUNCTION(otxn_field, ctx);
+            */
             ADD_JS_FUNCTION(otxn_id, ctx);
+            /*
             ADD_JS_FUNCTION(otxn_type, ctx);
             ADD_JS_FUNCTION(otxn_slot, ctx);
             ADD_JS_FUNCTION(otxn_param, ctx);
@@ -1036,7 +1053,9 @@ public:
             ADD_JS_FUNCTION(slot_type, ctx);
             ADD_JS_FUNCTION(slot_float, ctx);
 
+            */
             ADD_JS_FUNCTION(trace, ctx);
+            /*
             ADD_JS_FUNCTION(trace_num, ctx);
             ADD_JS_FUNCTION(trace_float, ctx);
 
