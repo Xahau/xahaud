@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 #include <wasmedge/wasmedge.h>
+#include <quickjs/quickjs.h>
 
 using namespace ripple;
 
@@ -4301,7 +4302,8 @@ DEFINE_WASM_FUNCTION(
 
 // Convert an account ID into a base58-check encoded r-address
 DEFINE_WASM_FUNCTION(
-    int64_t,
+    
+        int64_t,
     util_raddr,
     uint32_t write_ptr,
     uint32_t write_len,
@@ -4335,6 +4337,54 @@ DEFINE_WASM_FUNCTION(
         memory_length);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    util_raddr,
+    JSValue acc_id)
+{
+    JS_HOOK_SETUP();
+
+    uint8_t id[20];
+    if (JS_IsArray(ctx, acc_id) > 0)
+    {
+        // 20 byte array
+        int64_t n = 0;
+        js_get_length64(ctx, &n, acc_id);
+
+        if (n < 20)
+            return JS_NewInt64(ctx, TOO_SMALL);
+        if (n > 20)
+            return JS_NewInt64(ctx, TOO_BIG);
+        for (int64_t i = 0; i < 20; ++i)
+        {
+            JSValue v = JS_GetPropertyInt64(ctx, acc_id, i);
+            if (!JS_IsNumber(v))
+                return JS_NewInt64(ctx, INVALID_ARGUMENT);
+            int64_t byte = 0;
+            JS_ToInt64(ctx, &byte, v);
+            if (byte > 256 || byte < 0)
+                return JS_NewInt64(ctx, INVALID_ARGUMENT);
+
+            id[i] = (uint8_t)byte;
+        }
+    }
+    else if (JS_IsString(acc_id))
+    {
+        // might be a 40 nibble hex string?
+        // RH TODO
+    }
+    else
+        return JS_NewInt64(ctx, INVALID_ARGUMENT);
+
+
+    std::string raddr =
+        encodeBase58Token(TokenType::AccountID, id, 20);
+
+    return JS_NewString(ctx, raddr.c_str());
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Convert a base58-check encoded r-address into a 20 byte account id

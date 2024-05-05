@@ -1052,6 +1052,11 @@ int JS_SetModuleExport(JSContext *ctx, JSModuleDef *m, const char *export_name,
 int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
                            const JSCFunctionListEntry *tab, int len);
 
+int js_get_length64(JSContext *ctx, int64_t *pres,
+                                       JSValueConst obj);
+
+JSValue JS_GetPropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx);
+
 #undef js_unlikely
 #undef js_force_inline
 
