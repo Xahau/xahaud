@@ -4432,6 +4432,88 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
+
+
+// extract a std::string from a JSValue if possible
+// 0, nullopt = invalid string
+// 0, "" = empty string
+// > 0, nullopt = longer than maxlen
+// > 0, populated = normal string
+inline
+std::pair<size_t, std::optional<std::string>>
+FromJSString(JSContext* ctx, JSValueConst& v, int max_len)
+{
+    std::optional<std::string> out;
+    size_t len { 0 };
+    if (!JS_IsString(v))
+        return {len, out};
+    
+    const char* cstr = JS_ToCStringLen(ctx, &len, v);
+    if (len > max_len)
+        return {len, out};
+
+    out = std::string(cstr, len);
+    JS_FreeCString(ctx, cstr);
+    return {len, out};
+}
+
+template <typename T>
+inline
+std::optional<JSValue>
+ToJSIntArray(JSContext* ctx, std::vector<T>& vec)
+{
+    if (vec.size() > 1024)
+        return {};
+
+    JSValue out = JS_NewArray(ctx);
+    if (JS_IsException(out))
+        return {};
+
+    int i = 0;
+    for (T& x: vec)
+        JS_DefinePropertyValueUint32(ctx, out, i++, JS_NewInt32(ctx, x), JS_PROP_C_W_E);
+
+    return out;
+}
+
+
+
+#define returnJS(X) return JS_NewInt64(ctx, X)
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    util_accid,
+    JSValue raddr)
+{
+    JS_HOOK_SETUP();
+
+    if (!JS_IsString(raddr))
+        return JS_NewInt64(ctx, INVALID_ARGUMENT);
+   
+    auto [len, str] = FromJSString(ctx, raddr, 49);
+    if (len > 49)
+        returnJS(TOO_BIG);
+
+    if (len < 20)
+        returnJS(TOO_SMALL);
+
+    if (!str)
+        returnJS(INVALID_ARGUMENT);
+
+    auto const result = decodeBase58Token(*str, TokenType::AccountID);
+
+    if (result.size() != 20)
+        returnJS(INVALID_ARGUMENT);
+
+    std::vector<uint8_t> vec(result.data(), result.data() + 20);
+
+    if (auto ret = ToJSIntArray(ctx, vec); ret)
+        return *ret;
+
+    returnJS(INTERNAL_ERROR);
+
+    JS_HOOK_TEARDOWN();
+}
 /**
  * Check if any of the integer intervals overlap
  * [a,b,  c,d, ... ] ::== {a-b}, {c-d}, ...
