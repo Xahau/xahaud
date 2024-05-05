@@ -18,6 +18,7 @@
 #include <wasmedge/wasmedge.h>
 #include "quickjs.h"
 #include "quickjs-libc.h"
+#include "quickjs-atom.h"
 
 namespace hook {
 struct HookContext;
@@ -97,6 +98,12 @@ DECLARE_WASM_FUNCTION(
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    util_raddr,
+    JSValue acc_id);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     util_accid,
@@ -975,8 +982,8 @@ public:
 
             ADD_JS_FUNCTION(accept, ctx);
             ADD_JS_FUNCTION(rollback, ctx);
-            /*
             ADD_JS_FUNCTION(util_raddr, ctx);
+            /*
             ADD_JS_FUNCTION(util_accid, ctx);
             ADD_JS_FUNCTION(util_verify, ctx);
             ADD_JS_FUNCTION(util_sha512h, ctx);

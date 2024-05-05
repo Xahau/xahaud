@@ -1244,7 +1244,8 @@ static int js_shape_prepare_update(JSContext *ctx, JSObject *p,
 static int init_shape_hash(JSRuntime *rt);
 static __exception int js_get_length32(JSContext *ctx, uint32_t *pres,
                                        JSValueConst obj);
-static __exception int js_get_length64(JSContext *ctx, int64_t *pres,
+//static __exception 
+int js_get_length64(JSContext *ctx, int64_t *pres,
                                        JSValueConst obj);
 static void free_arg_list(JSContext *ctx, JSValue *tab, uint32_t len);
 static JSValue *build_arg_list(JSContext *ctx, uint32_t *plen,
@@ -8007,7 +8008,8 @@ static int JS_TryGetPropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx,
     return present;
 }
 
-static JSValue JS_GetPropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx)
+//static 
+JSValue JS_GetPropertyInt64(JSContext *ctx, JSValueConst obj, int64_t idx)
 {
     JSAtom prop;
     JSValue val;
@@ -38427,7 +38429,8 @@ static __exception int js_get_length32(JSContext *ctx, uint32_t *pres,
     return JS_ToUint32Free(ctx, pres, len_val);
 }
 
-static __exception int js_get_length64(JSContext *ctx, int64_t *pres,
+//static __exception 
+int js_get_length64(JSContext *ctx, int64_t *pres,
                                        JSValueConst obj)
 {
     JSValue len_val;
