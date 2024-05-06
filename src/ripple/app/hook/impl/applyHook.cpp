@@ -812,6 +812,12 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
 {
     std::vector<uint8_t> out;
     out.reserve(max_len);
+
+    auto const a = JS_IsArray(ctx, v);
+    auto const s = JS_IsString(v);
+
+    std::cout << "FromJSIAOHS: a=" << a << ", s=" << s << "\n";
+
     if (JS_IsArray(ctx, v) > 0)
     {
         int64_t n = 0;
@@ -834,7 +840,7 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
             if (byte > 256 || byte < 0)
                 return {};
 
-            out[i] = (uint8_t)byte;
+            out.push_back((uint8_t)byte);
         }
 
         return out;
@@ -843,6 +849,15 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
     if (JS_IsString(v))
     {
         auto [len, str] = FromJSString(ctx, v, max_len << 1U);
+
+
+        std::cout << "Debug FromJSIAOHS: len=" << len << ", str=";
+        
+        if (str)
+            std::cout << "`" << *str << "`\n";
+        else
+            std::cout << "<no string>\n";
+
 
         if (!str)
             return {};
@@ -890,7 +905,7 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
             if (!a.has_value() || !b.has_value())
                 return {};
 
-            out[i] = (*a << 4U) | (*b);
+            out.push_back((*a << 4U) | (*b));
         }
 
         return out;
@@ -4072,6 +4087,7 @@ DEFINE_WASM_FUNCNARG(int64_t, etxn_burden)
 
     return burden;
 
+
     WASM_HOOK_TEARDOWN();
 }
 
@@ -4111,6 +4127,13 @@ DEFINE_JS_FUNCTION(
     auto vec = FromJSIntArrayOrHexString(ctx, data, 65536);
     if (!vec)
         returnJS(INVALID_ARGUMENT);
+
+    printf("jsutilsha512 debug. size=%d, ", vec->size());
+    for (int i = 0; i < vec->size(); ++i)
+    {
+        printf("%02x,", (*vec)[i]);
+    }
+    printf("\n");
 
     auto hash = ripple::sha512Half(ripple::Slice{vec->data(), vec->size()});
 
