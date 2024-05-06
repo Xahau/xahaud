@@ -757,6 +757,149 @@ normalize_xfl(T& man, int32_t& exp, bool neg = false)
 
 }  // namespace hook_float
 using namespace hook_float;
+
+// JS helpers
+
+// extract a std::string from a JSValue if possible
+// 0, nullopt = invalid string
+// 0, "" = empty string
+// > 0, nullopt = longer than maxlen
+// > 0, populated = normal string
+inline
+std::pair<size_t, std::optional<std::string>>
+FromJSString(JSContext* ctx, JSValueConst& v, int max_len)
+{
+    std::optional<std::string> out;
+    size_t len { 0 };
+    if (!JS_IsString(v))
+        return {len, out};
+    
+    const char* cstr = JS_ToCStringLen(ctx, &len, v);
+    if (len > max_len)
+        return {len, out};
+
+    out = std::string(cstr, len);
+    JS_FreeCString(ctx, cstr);
+    return {len, out};
+}
+
+template <typename T>
+inline
+std::optional<JSValue>
+ToJSIntArray(JSContext* ctx, std::vector<T>& vec)
+{
+    if (vec.size() > 1024)
+        return {};
+
+    JSValue out = JS_NewArray(ctx);
+    if (JS_IsException(out))
+        return {};
+
+    int i = 0;
+    for (T& x: vec)
+        JS_DefinePropertyValueUint32(ctx, out, i++, JS_NewInt32(ctx, x), JS_PROP_C_W_E);
+
+    return out;
+}
+
+
+
+#define returnJS(X) return JS_NewInt64(ctx, X)
+
+inline
+std::optional<std::vector<uint8_t>>
+FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
+{
+    std::vector<uint8_t> out;
+    out.reserve(max_len);
+    if (JS_IsArray(ctx, v) > 0)
+    {
+        int64_t n = 0;
+        js_get_length64(ctx, &n, v);
+
+        if (n == 0)
+            return {};
+
+        if (n > max_len)
+            return {};
+
+        for (int64_t i = 0; i < n; ++i)
+        {
+            JSValue x = JS_GetPropertyInt64(ctx, v, i);
+            if (!JS_IsNumber(x))
+                return {};
+            
+            int64_t byte = 0;
+            JS_ToInt64(ctx, &byte, x);
+            if (byte > 256 || byte < 0)
+                return {};
+
+            out[i] = (uint8_t)byte;
+        }
+
+        return out;
+    }
+
+    if (JS_IsString(v))
+    {
+        auto [len, str] = FromJSString(ctx, v, max_len << 1U);
+
+        if (!str)
+            return {};
+
+        if (len <= 0)
+            return {};
+
+        if (len > (max_len << 1U))
+            return {};
+
+        if (len != str->size())
+            return {};
+
+        auto const parseHexNibble = [](uint8_t a) -> std::optional<uint8_t>
+        {
+            if (a >= '0' && a <= '9')
+                return a - '0';
+
+            if (a >= 'A' && a <= 'F')
+                return a - 'A' + 10;
+
+            if (a >= 'a' && a <= 'f')
+                return a - 'a' + 10;
+
+            return {};
+        };
+
+        uint8_t const* cstr = reinterpret_cast<uint8_t const*>(str->c_str());
+
+        int i = 0;
+        if (len % 2 == 1)
+        {
+            auto first = parseHexNibble(*cstr++);
+            if (!first.has_value())
+                return {};
+
+            out[i++] = *first;
+        }
+
+        for (;i < len && *cstr != '\0'; ++i)
+        {
+            auto a = parseHexNibble(*cstr++);
+            auto b = parseHexNibble(*cstr++);
+
+            if (!a.has_value() || !b.has_value())
+                return {};
+
+            out[i] = (*a << 4U) | (*b);
+        }
+
+        return out;
+    }
+
+    return {};
+}
+
+
 inline int32_t
 no_free_slots(hook::HookContext& hookCtx)
 {
@@ -4346,41 +4489,13 @@ DEFINE_JS_FUNCTION(
 {
     JS_HOOK_SETUP();
 
-    uint8_t id[20];
-    if (JS_IsArray(ctx, acc_id) > 0)
-    {
-        // 20 byte array
-        int64_t n = 0;
-        js_get_length64(ctx, &n, acc_id);
+    auto vec = FromJSIntArrayOrHexString(ctx, acc_id, 20);
 
-        if (n < 20)
-            return JS_NewInt64(ctx, TOO_SMALL);
-        if (n > 20)
-            return JS_NewInt64(ctx, TOO_BIG);
-        for (int64_t i = 0; i < 20; ++i)
-        {
-            JSValue v = JS_GetPropertyInt64(ctx, acc_id, i);
-            if (!JS_IsNumber(v))
-                return JS_NewInt64(ctx, INVALID_ARGUMENT);
-            int64_t byte = 0;
-            JS_ToInt64(ctx, &byte, v);
-            if (byte > 256 || byte < 0)
-                return JS_NewInt64(ctx, INVALID_ARGUMENT);
-
-            id[i] = (uint8_t)byte;
-        }
-    }
-    else if (JS_IsString(acc_id))
-    {
-        // might be a 40 nibble hex string?
-        // RH TODO
-    }
-    else
-        return JS_NewInt64(ctx, INVALID_ARGUMENT);
-
+    if (!vec)
+        returnJS(INVALID_ARGUMENT);
 
     std::string raddr =
-        encodeBase58Token(TokenType::AccountID, id, 20);
+        encodeBase58Token(TokenType::AccountID, vec->data(), 20);
 
     return JS_NewString(ctx, raddr.c_str());
 
@@ -4434,51 +4549,6 @@ DEFINE_WASM_FUNCTION(
 
 
 
-// extract a std::string from a JSValue if possible
-// 0, nullopt = invalid string
-// 0, "" = empty string
-// > 0, nullopt = longer than maxlen
-// > 0, populated = normal string
-inline
-std::pair<size_t, std::optional<std::string>>
-FromJSString(JSContext* ctx, JSValueConst& v, int max_len)
-{
-    std::optional<std::string> out;
-    size_t len { 0 };
-    if (!JS_IsString(v))
-        return {len, out};
-    
-    const char* cstr = JS_ToCStringLen(ctx, &len, v);
-    if (len > max_len)
-        return {len, out};
-
-    out = std::string(cstr, len);
-    JS_FreeCString(ctx, cstr);
-    return {len, out};
-}
-
-template <typename T>
-inline
-std::optional<JSValue>
-ToJSIntArray(JSContext* ctx, std::vector<T>& vec)
-{
-    if (vec.size() > 1024)
-        return {};
-
-    JSValue out = JS_NewArray(ctx);
-    if (JS_IsException(out))
-        return {};
-
-    int i = 0;
-    for (T& x: vec)
-        JS_DefinePropertyValueUint32(ctx, out, i++, JS_NewInt32(ctx, x), JS_PROP_C_W_E);
-
-    return out;
-}
-
-
-
-#define returnJS(X) return JS_NewInt64(ctx, X)
 
 DEFINE_JS_FUNCTION(
     JSValue,
@@ -4822,6 +4892,43 @@ DEFINE_WASM_FUNCTION(
     return verify(key, data, sig, false) ? 1 : 0;
 
     WASM_HOOK_TEARDOWN();
+}
+
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    util_verify,
+    JSValue rawData,
+    JSValue rawSig,
+    JSValue rawKey)
+{
+    JS_HOOK_SETUP();
+
+    auto vKey = FromJSIntArrayOrHexString(ctx, rawKey, 33);
+
+    if (!vKey || vKey->size() != 33)
+        returnJS(INVALID_KEY);
+
+    auto vData = FromJSIntArrayOrHexString(ctx, rawData, 65536);
+    if (!vData || vData->empty())
+        returnJS(INVALID_ARGUMENT);
+
+    auto vSig = FromJSIntArrayOrHexString(ctx, rawSig, 1024);
+    if (!vSig || vSig->size() < 30)
+        returnJS(INVALID_ARGUMENT);
+
+
+    ripple::Slice keyslice{vKey->data(), vKey->size()};
+    ripple::Slice data{vData->data(), vData->size()};
+    ripple::Slice sig{vSig->data(), vSig->size()};
+
+    if (!publicKeyType(keyslice))
+        returnJS(INVALID_KEY);
+
+    ripple::PublicKey key{keyslice};
+    returnJS( verify(key, data, sig, false) ? 1 : 0 );
+    
+    JS_HOOK_TEARDOWN();
 }
 
 // Return the current fee base of the current ledger (multiplied by a margin)

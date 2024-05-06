@@ -126,6 +126,14 @@ DECLARE_WASM_FUNCTION(
     uint32_t sread_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    util_verify,
+    JSValue data,
+    JSValue sig,
+    JSValue pubkey);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     sto_validate,
@@ -990,8 +998,8 @@ public:
             ADD_JS_FUNCTION(rollback, ctx);
             ADD_JS_FUNCTION(util_raddr, ctx);
             ADD_JS_FUNCTION(util_accid, ctx);
-            /*
             ADD_JS_FUNCTION(util_verify, ctx);
+            /*
             ADD_JS_FUNCTION(util_sha512h, ctx);
             ADD_JS_FUNCTION(sto_validate, ctx);
             ADD_JS_FUNCTION(sto_subfield, ctx);
