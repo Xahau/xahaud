@@ -786,9 +786,9 @@ FromJSString(JSContext* ctx, JSValueConst& v, int max_len)
 template <typename T>
 inline
 std::optional<JSValue>
-ToJSIntArray(JSContext* ctx, std::vector<T>& vec)
+ToJSIntArray(JSContext* ctx, T& vec)
 {
-    if (vec.size() > 1024)
+    if (vec.size() > 65535)
         return {};
 
     JSValue out = JS_NewArray(ctx);
@@ -796,7 +796,7 @@ ToJSIntArray(JSContext* ctx, std::vector<T>& vec)
         return {};
 
     int i = 0;
-    for (T& x: vec)
+    for (auto& x: vec)
         JS_DefinePropertyValueUint32(ctx, out, i++, JS_NewInt32(ctx, x), JS_PROP_C_W_E);
 
     return out;
@@ -4100,6 +4100,30 @@ DEFINE_WASM_FUNCTION(
 
     WASM_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    util_sha512h,
+    JSValue data)
+{
+    JS_HOOK_SETUP();
+
+    auto vec = FromJSIntArrayOrHexString(ctx, data, 65536);
+    if (!vec)
+        returnJS(INVALID_ARGUMENT);
+
+    auto hash = ripple::sha512Half(ripple::Slice{vec->data(), vec->size()});
+
+    auto ret = ToJSIntArray(ctx, hash);
+
+    if (!ret)
+        returnJS(INTERNAL_ERROR);
+
+    return *ret;
+
+    JS_HOOK_TEARDOWN();
+}
+
 
 // these are only used by get_stobject_length below
 enum parse_error : int32_t {
