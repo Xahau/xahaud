@@ -783,10 +783,22 @@ FromJSString(JSContext* ctx, JSValueConst& v, int max_len)
     return {len, out};
 }
 
+inline
+std::optional<int64_t>
+FromJSInt(JSContext* ctx, JSValueConst& v)
+{
+    if (!JS_IsNumber(v))
+        return {};
+
+    int64_t out = 0;
+    JS_ToInt64(ctx, &out, v);
+    return out;
+}
+
 template <typename T>
 inline
 std::optional<JSValue>
-ToJSIntArray(JSContext* ctx, T& vec)
+ToJSIntArray(JSContext* ctx, T const& vec)
 {
     if (vec.size() > 65535)
         return {};
@@ -1029,6 +1041,23 @@ serialize_keylet(
         memory[write_ptr + 2 + i] = kl.key.data()[i];
 
     return 34;
+}
+
+inline
+std::vector<uint8_t>
+serialize_keylet_vec(ripple::Keylet const& kl)
+{
+
+    std::vector<uint8_t> out;
+    out.reserve(34);
+
+    out.push_back((kl.type >> 8) & 0xFFU);
+    out.push_back((kl.type >> 0) & 0xFFU);
+
+    for (int i = 0; i < 32; ++i)
+        out.push_back(kl.key.data()[i]);
+
+    return out;
 }
 
 std::optional<ripple::Keylet>
@@ -3091,6 +3120,86 @@ DEFINE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no)
 
     WASM_HOOK_TEARDOWN();
 }
+
+/*
+#define VAR_JSASSIGN(T, V) T& V = argv[_stack++]
+
+#define DEFINE_JS_FUNCTION(R, F, ...)\
+JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
+                        int argc, JSValueConst *argv)\
+*/
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    util_keylet,
+    JSValue keylet_type_raw,
+    JSValue dummy_value) /* use JSValueConst* argv & int argc */
+{
+    JS_HOOK_SETUP();
+
+    std::optional<int64_t> kt = FromJSInt(ctx, keylet_type_raw);
+
+    auto const last = keylet_code::LAST_KLTYPE_V1;
+
+    if (!kt.has_value() || *kt == 0 || *kt > last)
+        returnJS(INVALID_ARGUMENT);
+    
+    try
+    {
+        switch(*kt)
+        {
+            case keylet_code::QUALITY:
+            {
+                // looking for a 34 byte keylet and high 32 bits and low 32 bits of quality
+                // RHTODO: accept optionally a bigint here?
+                if (argc < 4)
+                    returnJS(INVALID_ARGUMENT);
+
+                auto h = FromJSInt(ctx, argv[2]);
+                auto l = FromJSInt(ctx, argv[3]);
+                auto kl = FromJSIntArrayOrHexString(ctx, argv[1], 34);
+
+                if (!h.has_value() || !l.has_value() || !kl.has_value() || kl->size() != 34)
+                    returnJS(INVALID_ARGUMENT);
+
+                // ensure it's a dir keylet or we will fail an assertion
+                if ((*kl)[0] != 0 || (*kl)[1] != 0x64U)
+                    returnJS(INVALID_ARGUMENT);
+
+                std::optional<ripple::Keylet> k =
+                    unserialize_keylet(kl->data(), kl->size());
+
+                if (!k)
+                    returnJS(NO_SUCH_KEYLET);
+
+                uint64_t arg = (((uint64_t)(*h)) << 32U) + ((uint64_t)(*l));
+
+                auto kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(ripple::keylet::quality(*k, arg)));
+
+                if (!kl_out.has_value())
+                    returnJS(INTERNAL_ERROR);
+
+                return *kl_out;
+                       
+            }
+
+            default:
+            {
+                returnJS(INTERNAL_ERROR);
+            }
+        }
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: Keylet (JS) exception "
+                       << e.what();
+        returnJS(INTERNAL_ERROR);
+    }
+
+    JS_HOOK_TEARDOWN();
+}
+
 
 DEFINE_WASM_FUNCTION(
     int64_t,
