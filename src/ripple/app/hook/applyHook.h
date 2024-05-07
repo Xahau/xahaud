@@ -195,6 +195,13 @@ DECLARE_WASM_FUNCTION(
     uint32_t d,
     uint32_t e,
     uint32_t f);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    util_keylet,
+    JSValue keylet_type,
+    JSValue keylet_data);
+
 DECLARE_WASM_FUNCNARG(int64_t, etxn_burden);
 DECLARE_WASM_FUNCTION(
     int64_t,
@@ -1006,13 +1013,14 @@ public:
             ADD_JS_FUNCTION(util_accid, ctx);
             ADD_JS_FUNCTION(util_verify, ctx);
             ADD_JS_FUNCTION(util_sha512h, ctx);
+            ADD_JS_FUNCTION(util_keylet, ctx);
+
             /*
             ADD_JS_FUNCTION(sto_validate, ctx);
             ADD_JS_FUNCTION(sto_subfield, ctx);
             ADD_JS_FUNCTION(sto_subarray, ctx);
             ADD_JS_FUNCTION(sto_emplace, ctx);
             ADD_JS_FUNCTION(sto_erase, ctx);
-            ADD_JS_FUNCTION(util_keylet, ctx);
 
             ADD_JS_FUNCTION(emit, ctx);
             ADD_JS_FUNCTION(etxn_burden, ctx);
