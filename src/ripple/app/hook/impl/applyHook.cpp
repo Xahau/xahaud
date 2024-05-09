@@ -3132,18 +3132,21 @@ JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
 DEFINE_JS_FUNCTION(
     JSValue,
     util_keylet,
-    JSValue keylet_type_raw,
+    JSValue kt_raw,
     JSValue dummy_value) /* use JSValueConst* argv & int argc */
 {
     JS_HOOK_SETUP();
 
-    std::optional<int64_t> kt = FromJSInt(ctx, keylet_type_raw);
+    std::optional<int64_t> kt = FromJSInt(ctx, kt_raw);
 
     auto const last = keylet_code::LAST_KLTYPE_V1;
 
     if (!kt.has_value() || *kt == 0 || *kt > last)
         returnJS(INVALID_ARGUMENT);
-    
+
+    // computed keylet is populated into this for return  
+    std::optional<JSValue> kl_out;
+
     try
     {
         switch(*kt)
@@ -3152,7 +3155,7 @@ DEFINE_JS_FUNCTION(
             {
                 // looking for a 34 byte keylet and high 32 bits and low 32 bits of quality
                 // RHTODO: accept optionally a bigint here?
-                if (argc < 4)
+                if (argc != 4)
                     returnJS(INVALID_ARGUMENT);
 
                 auto h = FromJSInt(ctx, argv[2]);
@@ -3174,14 +3177,304 @@ DEFINE_JS_FUNCTION(
 
                 uint64_t arg = (((uint64_t)(*h)) << 32U) + ((uint64_t)(*l));
 
-                auto kl_out = ToJSIntArray(ctx,
+                kl_out = ToJSIntArray(ctx,
                     serialize_keylet_vec(ripple::keylet::quality(*k, arg)));
 
-                if (!kl_out.has_value())
-                    returnJS(INTERNAL_ERROR);
-
-                return *kl_out;
+                break;
                        
+            }
+
+            case keylet_code::HOOK_DEFINITION:
+            case keylet_code::CHILD:
+            case keylet_code::EMITTED_TXN:
+            case keylet_code::UNCHECKED:
+            {
+                if (argc != 2)
+                    returnJS(INVALID_ARGUMENT);
+
+                auto hash = FromJSIntArrayOrHexString(ctx, argv[1], 32);
+
+                if (!hash.has_value() || hash->size() != 32)
+                    returnJS(INVALID_ARGUMENT);
+
+                base_uint<256> id =
+                    ripple::base_uint<256>::fromVoid(hash->data());
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                    *kt == keylet_code::CHILD
+                    ? ripple::keylet::child(id)
+                    : *kt == keylet_code::EMITTED_TXN
+                        ? ripple::keylet::emittedTxn(id)
+                        : *kt == keylet_code::HOOK_DEFINITION
+                            ? ripple::keylet::hookDefinition(id)
+                            : ripple::keylet::unchecked(id)));
+
+               break; 
+            }            
+
+            case keylet_code::OWNER_DIR:
+            case keylet_code::SIGNERS:
+            case keylet_code::ACCOUNT:
+            case keylet_code::HOOK: {
+                if (argc != 2)
+                    returnJS(INVALID_ARGUMENT);
+
+                auto accid = FromJSIntArrayOrHexString(ctx, argv[1], 20);
+
+                if (!accid.has_value() || accid->size() != 20)
+                    returnJS(INVALID_ARGUMENT);
+
+                auto const id = AccountID::fromVoid(accid->data());
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                        *kt == keylet_code::HOOK
+                            ? ripple::keylet::hook(id)
+                            : *kt == keylet_code::SIGNERS
+                                ? ripple::keylet::signers(id)
+                                : *kt == keylet_code::OWNER_DIR
+                                    ? ripple::keylet::ownerDir(id)
+                                    : ripple::keylet::account(id)));
+                
+                break;
+            }
+            
+            case keylet_code::OFFER:
+            case keylet_code::CHECK:
+            case keylet_code::ESCROW:
+            case keylet_code::NFT_OFFER: {
+                if (argc != 3)
+                    returnJS(INVALID_ARGUMENT);
+
+                auto accid = FromJSIntArrayOrHexString(ctx, argv[1], 20);
+
+                auto u = FromJSInt(ctx, argv[2]);
+
+                auto u2 = FromJSIntArrayOrHexString(ctx, argv[2], 32);
+
+                if (!accid.has_value() || accid->size() != 20)
+                    returnJS(INVALID_ARGUMENT);
+
+                // sanity check, the second param can be either a uint32 or a uint256
+                if (!(u.has_value() && *u < 0xFFFFFFFFULL) && 
+                        !(u2.has_value() && u2->size() == 32))
+                    returnJS(INVALID_ARGUMENT);
+                
+                auto const id = AccountID::fromVoid(accid->data());
+               
+                std::variant<uint32_t, uint256> seq;
+                if (u.has_value())
+                    seq = (uint32_t)(*u);
+                else
+                    seq = uint256::fromVoid(u2->data());
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                        *kt == keylet_code::CHECK
+                        ? ripple::keylet::check(id, seq)
+                        : *kt == keylet_code::ESCROW
+                            ? ripple::keylet::escrow(id, seq)
+                            : *kt == keylet_code::NFT_OFFER
+                                ? ripple::keylet::nftoffer(id, seq)
+                                : ripple::keylet::offer(id, seq)));
+               break; 
+            }            
+
+
+            case keylet_code::PAGE: {
+                if (argc != 4)
+                    returnJS(INVALID_ARGUMENT);
+
+                auto h = FromJSInt(ctx, argv[2]);
+                auto l = FromJSInt(ctx, argv[3]);
+                auto u = FromJSIntArrayOrHexString(ctx, argv[1], 32);
+
+                if (!h.has_value() || !l.has_value() || !u.has_value() || u->size() != 32)
+                    returnJS(INVALID_ARGUMENT);
+
+                uint64_t index = (((uint64_t)(*h)) << 32U) + ((uint64_t)(*l));
+                ripple::Keylet kl = ripple::keylet::page(
+                    ripple::base_uint<256>::fromVoid(u->data()), index);
+
+                kl_out = ToJSIntArray(ctx, serialize_keylet_vec(kl));
+                break;
+            }
+                                    
+            case keylet_code::HOOK_STATE: {
+                if (argc != 4)
+                    returnJS(INVALID_ARGUMENT);
+
+
+                auto accid = FromJSIntArrayOrHexString(ctx, argv[1], 20);
+                auto key = FromJSIntArrayOrHexString(ctx, argv[2], 32);
+                auto ns = FromJSIntArrayOrHexString(ctx, argv[3], 32);
+
+                if (!accid.has_value() || accid->size() != 20 ||
+                    !key.has_value() || key->size() != 32 ||
+                    !ns.has_value() || ns->size() != 32)
+                    returnJS(INVALID_ARGUMENT);
+
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec( 
+                        ripple::keylet::hookState(
+                            AccountID::fromVoid(accid->data()),
+                            ripple::base_uint<256>::fromVoid(key->data()),
+                            ripple::base_uint<256>::fromVoid(ns->data()))));
+
+                break;
+            }
+            
+            case keylet_code::HOOK_STATE_DIR:
+            {
+                if (argc != 3)
+                    returnJS(INVALID_ARGUMENT);
+
+                auto accid = FromJSIntArrayOrHexString(ctx, argv[1], 20);
+                auto ns = FromJSIntArrayOrHexString(ctx, argv[2], 32);
+
+                if (!accid.has_value() || accid->size() != 20 ||
+                    !ns.has_value() || ns->size() != 32)
+                    returnJS(INVALID_ARGUMENT);
+
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec( 
+                        ripple::keylet::hookStateDir(
+                            AccountID::fromVoid(accid->data()),
+                            ripple::base_uint<256>::fromVoid(ns->data()))));
+
+                break;
+            }
+
+            // skip is overloaded, has a single, optional 4 byte argument
+            case keylet_code::SKIP:
+            {
+                if (argc > 2)
+                    returnJS(INVALID_ARGUMENT);
+
+                std::optional<int64_t> param;
+
+                if (argc == 2)
+                    param = FromJSInt(ctx, argv[1]);
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                        param.has_value()
+                        ? ripple::keylet::skip((uint32_t)*param)
+                        : ripple::keylet::skip()));
+
+                break;
+            }
+
+            case keylet_code::AMENDMENTS:
+            case keylet_code::FEES:
+            case keylet_code::NEGATIVE_UNL:
+            case keylet_code::EMITTED_DIR:
+            {
+                if (argc != 1)
+                    returnJS(INVALID_ARGUMENT);
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                        *kt == keylet_code::AMENDMENTS
+                            ? ripple::keylet::amendments()
+                            : *kt == keylet_code::FEES
+                                ? ripple::keylet::fees()
+                                : *kt == keylet_code::NEGATIVE_UNL
+                                    ? ripple::keylet::negativeUNL()
+                                    : ripple::keylet::emittedDir()));
+
+                break;
+            }
+
+
+            case keylet_code::LINE:
+            {
+                if (argc != 4)
+                    returnJS(INVALID_ARGUMENT);
+                
+                auto accid1 = FromJSIntArrayOrHexString(ctx, argv[1], 20);
+                auto accid2 = FromJSIntArrayOrHexString(ctx, argv[2], 20);
+                auto cur    = FromJSIntArrayOrHexString(ctx, argv[3], 20);
+
+                if (!accid1.has_value() || accid1->size() != 20 ||
+                    !accid2.has_value() || accid2->size() != 20 ||
+                    !cur.has_value() || (cur->size() != 20 && cur->size() != 3))
+                    returnJS(INVALID_ARGUMENT);
+                
+                std::optional<Currency> cur2 =
+                    parseCurrency(cur->data(), cur->size());
+
+                if (!cur2.has_value())
+                    returnJS(INVALID_ARGUMENT);
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                        ripple::keylet::line(
+                            AccountID::fromVoid(accid1->data()),
+                            AccountID::fromVoid(accid2->data()),
+                            *cur2)));
+                break;
+            }
+
+            case keylet_code::DEPOSIT_PREAUTH:
+            {
+                if (argc != 3)
+                    returnJS(INVALID_ARGUMENT);
+                
+                auto accid1 = FromJSIntArrayOrHexString(ctx, argv[1], 20);
+                auto accid2 = FromJSIntArrayOrHexString(ctx, argv[2], 20);
+
+                if (!accid1.has_value() || accid1->size() != 20 ||
+                    !accid2.has_value() || accid2->size() != 20)
+                    returnJS(INVALID_ARGUMENT);
+
+                ripple::AccountID aid = AccountID::fromVoid(accid1->data());
+                ripple::AccountID bid = AccountID::fromVoid(accid2->data());
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                        ripple::keylet::depositPreauth(aid, bid)));
+
+                break;
+            }
+            
+            case keylet_code::PAYCHAN:
+            {
+                if (argc != 4)
+                    returnJS(INVALID_ARGUMENT);
+                
+                auto accid1 = FromJSIntArrayOrHexString(ctx, argv[1], 20);
+                auto accid2 = FromJSIntArrayOrHexString(ctx, argv[2], 20);
+                
+                auto u = FromJSInt(ctx, argv[3]);
+                auto u2 = FromJSIntArrayOrHexString(ctx, argv[3], 32);
+
+                if (!accid1.has_value() || accid1->size() != 20 ||
+                    !accid2.has_value() || accid2->size() != 20)
+                    returnJS(INVALID_ARGUMENT);
+
+                // sanity check, the second param can be either a uint32 or a uint256
+                if (!(u.has_value() && *u < 0xFFFFFFFFULL) && 
+                        !(u2.has_value() && u2->size() == 32))
+                    returnJS(INVALID_ARGUMENT);
+                
+                auto const id1 = AccountID::fromVoid(accid1->data());
+                auto const id2 = AccountID::fromVoid(accid2->data());
+               
+                std::variant<uint32_t, uint256> seq;
+                if (u.has_value())
+                    seq = (uint32_t)(*u);
+                else
+                    seq = uint256::fromVoid(u2->data());
+
+                kl_out = ToJSIntArray(ctx,
+                    serialize_keylet_vec(
+                        ripple::keylet::payChan(id1, id2, seq)));
+                
+                break;
             }
 
             default:
@@ -3189,6 +3482,11 @@ DEFINE_JS_FUNCTION(
                 returnJS(INTERNAL_ERROR);
             }
         }
+    
+        if (!kl_out.has_value())
+            returnJS(INTERNAL_ERROR);
+
+        return *kl_out;
     }
     catch (std::exception& e)
     {
