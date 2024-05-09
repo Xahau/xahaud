@@ -2508,6 +2508,7 @@ DEFINE_JS_FUNCTION(
              ? applyCtx.tx.getFieldH256(sfTransactionHash)
              : applyCtx.tx.getTransactionID());
 
+    // RH TODO: this can fail with a JSException, replace all instances with something safer V
     return JS_NewArrayBufferCopy(ctx, txID.data(), txID.size());
 
     JS_HOOK_TEARDOWN();
@@ -2725,10 +2726,31 @@ DEFINE_JS_FUNCNARG(JSValue, otxn_generation)
 }
 
 // Return the generation of a hypothetically emitted transaction from this hook
+inline
+int64_t __etxn_generation(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j)
+{
+    return __otxn_generation(hookCtx, applyCtx, j) + 1;
+}
+
 DEFINE_WASM_FUNCNARG(int64_t, etxn_generation)
 {
-    // proxy only, no setup or teardown
-    return otxn_generation(hookCtx, frameCtx) + 1;
+    WASM_HOOK_SETUP();
+
+    return __etxn_generation(hookCtx, applyCtx, j);
+    
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    etxn_generation)
+{
+    JS_HOOK_SETUP();
+
+    returnJS(__etxn_generation(hookCtx, applyCtx, j));
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Return the current ledger sequence number
@@ -4460,25 +4482,25 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
-// Deterministic nonces (can be called multiple times)
-// Writes nonce into the write_ptr
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    etxn_nonce,
-    uint32_t write_ptr,
-    uint32_t write_len)
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    hook_account);
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx, view on current stack
+    JS_HOOK_SETUP();
 
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
+    return JS_NewArrayBufferCopy(ctx, hookCtx.result.account.data(), 20);
+    
+    JS_HOOK_TEARDOWN();
+}
 
+// Deterministic nonces (can be called multiple times)
+inline
+std::optional<uint256>
+__etxn_nonce(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j)
+{   
     if (hookCtx.emit_nonce_counter > hook_api::max_nonce)
-        return TOO_MANY_NONCES;
-
-    if (write_len < 32)
-        return TOO_SMALL;
+        return {};
 
     // in some cases the same hook might execute multiple times
     // on one txn, therefore we need to pass this information to the nonce
@@ -4497,10 +4519,57 @@ DEFINE_WASM_FUNCTION(
 
     hookCtx.nonce_used[hash] = true;
 
+    return hash;
+}
+
+// Writes nonce into the write_ptr
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    etxn_nonce,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx, view on current stack
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto hash = __etxn_nonce(hookCtx, applyCtx, j);
+
+    if (!hash.has_value())
+        return TOO_MANY_NONCES;
+
     WRITE_WASM_MEMORY_AND_RETURN(
-        write_ptr, 32, hash.data(), 32, memory, memory_length);
+        write_ptr, 32, hash->data(), 32, memory, memory_length);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    etxn_nonce)
+{
+    JS_HOOK_SETUP();
+
+    auto hash = __etxn_nonce(hookCtx, applyCtx, j);
+
+    if (!hash.has_value())
+        returnJS(TOO_MANY_NONCES);
+
+    std::vector<uint8_t> vec{hash->data(), hash->data() + 32};
+
+    auto out = ToJSIntArray(ctx, vec);
+    
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(
@@ -4592,7 +4661,6 @@ DEFINE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count)
                    // hookCtx on current stack
 
     if (hookCtx.expected_etxn_count > -1)
-        
         return ALREADY_SET;
 
     if (count < 1)
@@ -4606,6 +4674,31 @@ DEFINE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count)
     return count;
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    etxn_reserve,
+    JSValue raw_count)
+{
+    JS_HOOK_SETUP();
+
+    if (hookCtx.expected_etxn_count > -1)
+        returnJS(ALREADY_SET);
+
+    auto count = FromJSInt(ctx, raw_count);
+
+    if (!count.has_value() || *count < 1)
+        returnJS(TOO_SMALL);
+
+    if (*count > hook_api::max_emit)
+        returnJS(TOO_BIG);
+
+    hookCtx.expected_etxn_count = *count;
+
+    returnJS(*count);
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCNARG(int64_t, etxn_burden)
@@ -5565,37 +5658,70 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
-// Populate an sfEmitDetails field in a soon-to-be emitted transaction
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    etxn_details,
-    uint32_t write_ptr,
-    uint32_t write_len)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    etxn_fee_base,
+    JSValue txblob)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
 
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
+    auto blob = FromJSIntArrayOrHexString(ctx, txblob, 65536);
+    if (!blob.has_value() || blob->empty())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (hookCtx.expected_etxn_count <= -1)
+        returnJS(PREREQUISITE_NOT_MET);
 
+    uint8_t const* ptr = blob->data();
+    size_t len = blob->size();
+
+    try
+    {
+        ripple::Slice tx{
+            reinterpret_cast<const void*>(ptr), len};
+
+        SerialIter sitTrans(tx);
+
+        std::unique_ptr<STTx const> stpTrans;
+        stpTrans = std::make_unique<STTx const>(std::ref(sitTrans));
+
+        returnJS(Transactor::calculateBaseFee(
+                   *(applyCtx.app.openLedger().current()), *stpTrans)
+            .drops());
+    }
+    catch (std::exception& e)
+    {
+        returnJS(INVALID_TXN);
+    }
+
+    JS_HOOK_TEARDOWN();
+}
+
+// Populate an sfEmitDetails field in a soon-to-be emitted transaction
+inline
+int64_t __etxn_details(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* out_ptr, size_t max_len)
+{
+    
     int64_t expected_size = 138U;
     if (!hookCtx.result.hasCallback)
         expected_size -= 22U;
 
-    if (write_len < expected_size)
+    if (max_len < expected_size)
         return TOO_SMALL;
 
     if (hookCtx.expected_etxn_count <= -1)
         return PREREQUISITE_NOT_MET;
 
-    uint32_t generation = (uint32_t)(etxn_generation(
-        hookCtx, frameCtx));  // always non-negative so cast is safe
+    uint32_t generation = __etxn_generation(hookCtx, applyCtx, j);
 
-    int64_t burden = etxn_burden(hookCtx, frameCtx);
+    int64_t burden = __etxn_burden(hookCtx, applyCtx, j);
+
     if (burden < 1)
         return FEE_TOO_LARGE;
 
-    unsigned char* out = memory + write_ptr;
+    uint8_t* out = out_ptr;
 
     *out++ = 0xEDU;  // begin sfEmitDetails                            /* upto =
                      // 0 | size =  1 */
@@ -5618,13 +5744,18 @@ DEFINE_WASM_FUNCTION(
     *out++ = (burden >> 0U) & 0xFFU;
     *out++ = 0x5BU;  // sfEmitParentTxnID preamble                      /* upto
                      // =  16 | size = 33 */
-    if (otxn_id(hookCtx, frameCtx, out - memory, 32, 1) != 32)
-        return INTERNAL_ERROR;
+    auto const& txID = applyCtx.tx.getTransactionID();
+    memcpy(out, txID.data(), 32);
     out += 32;
     *out++ = 0x5CU;  // sfEmitNonce                                     /* upto
                      // =  49 | size = 33 */
-    if (etxn_nonce(hookCtx, frameCtx, out - memory, 32) != 32)
+    
+    auto hash = __etxn_nonce(hookCtx, applyCtx, j);
+    if (!hash.has_value())
         return INTERNAL_ERROR;
+
+    memcpy(out, hash->data(), 32);
+
     out += 32;
     *out++ = 0x5DU;  // sfEmitHookHash preamble                          /* upto
                      // =  82 | size = 33 */
@@ -5636,19 +5767,61 @@ DEFINE_WASM_FUNCTION(
         *out++ = 0x8AU;  // sfEmitCallback preamble                         /*
                          // upto = 115 | size = 22 */
         *out++ = 0x14U;  // preamble cont
-        if (hook_account(hookCtx, frameCtx, out - memory, 20) != 20)
-            return INTERNAL_ERROR;
+    
+        memcpy(out, hookCtx.result.account.data(), 20);
+
         out += 20;
     }
     *out++ = 0xE1U;  // end object (sfEmitDetails)                     /* upto =
                      // 137 | size =  1 */
                      /* upto = 138 | --------- */
-    int64_t outlen = out - memory - write_ptr;
+    int64_t outlen = out - out_ptr;
 
     DBG_PRINTF("emitdetails size = %d\n", outlen);
     return outlen;
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    etxn_details,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    return __etxn_details(hookCtx, applyCtx, j, memory + write_ptr, write_len);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    etxn_details)
+{
+    JS_HOOK_SETUP();
+
+    uint8_t out[138];
+
+    int64_t retval = __etxn_details(hookCtx, applyCtx, j, out, 138);
+
+    if (retval <= 0)
+        returnJS(retval);
+
+    if (retval > 138)
+        returnJS(INTERNAL_ERROR);
+
+    auto outjs = ToJSIntArray(ctx, std::vector<uint8_t>{out, out + retval});
+
+    if (!outjs.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *outjs;
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Guard function... very important. Enforced on SetHook transaction, keeps
