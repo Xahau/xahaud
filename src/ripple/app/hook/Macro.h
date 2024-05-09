@@ -108,6 +108,11 @@
     extern WasmEdge_FunctionTypeContext* WasmFunctionType##F; \
     extern WasmEdge_String WasmFunctionName##F;
 
+#define DECLARE_JS_FUNCNARG(R, F, ...)\
+    extern JSValue JSFunction##F(JSContext *ctx, JSValueConst this_val,\
+                        int argc, JSValueConst *argv);\
+    const int JSFunctionParamCount##F = 0;
+
 #define DECLARE_JS_FUNCTION(R, F, ...)\
     extern JSValue JSFunction##F(JSContext *ctx, JSValueConst this_val,\
                         int argc, JSValueConst *argv);\
@@ -190,6 +195,13 @@
         WasmEdge_CallingFrameContext const& frameCtx)
 
 #define VAR_JSASSIGN(T, V) T& V = argv[_stack++]
+
+
+#define DEFINE_JS_FUNCNARG(R, F, ...)\
+JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
+                        int argc, JSValueConst *argv)\
+{
+
 
 #define DEFINE_JS_FUNCTION(R, F, ...)\
 JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
