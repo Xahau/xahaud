@@ -2528,6 +2528,21 @@ DEFINE_WASM_FUNCNARG(int64_t, otxn_type)
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    otxn_type)
+{
+    JS_HOOK_SETUP();
+    
+    if (hookCtx.emitFailure)
+        returnJS(safe_cast<TxType>(
+            hookCtx.emitFailure->getFieldU16(sfTransactionType)));
+
+    returnJS(applyCtx.tx.getTxnType());
+
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,

@@ -455,6 +455,9 @@ DECLARE_JS_FUNCTION(
     flags);
 
 DECLARE_WASM_FUNCNARG(int64_t, otxn_type);
+
+DECLARE_JS_FUNCNARG(int64_t, otxn_type);
+
 DECLARE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_no);
 DECLARE_WASM_FUNCTION(
     int64_t,
@@ -1053,8 +1056,8 @@ public:
             ADD_JS_FUNCTION(otxn_field, ctx);
             */
             ADD_JS_FUNCTION(otxn_id, ctx);
-            /*
             ADD_JS_FUNCTION(otxn_type, ctx);
+            /*
             ADD_JS_FUNCTION(otxn_slot, ctx);
             ADD_JS_FUNCTION(otxn_param, ctx);
 
