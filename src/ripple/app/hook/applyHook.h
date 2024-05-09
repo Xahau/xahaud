@@ -209,18 +209,34 @@ DECLARE_WASM_FUNCTION(
     etxn_details,
     uint32_t write_ptr,
     uint32_t write_len);
+DECLARE_JS_FUNCNARG(JSValue, etxn_details);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     etxn_fee_base,
     uint32_t read_ptr,
     uint32_t read_len);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    etxn_fee_base,
+    JSValue txblob);
+
 DECLARE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count);
+DECLARE_JS_FUNCTION(JSValue, etxn_reserve, JSValue count);
+
 DECLARE_WASM_FUNCNARG(int64_t, etxn_generation);
+DECLARE_JS_FUNCNARG(JSValue, etxn_generation);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     etxn_nonce,
     uint32_t write_ptr,
     uint32_t write_len);
+
+DECLARE_JS_FUNCNARG(
+    JSValue,
+    etxn_nonce);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     emit,
@@ -282,6 +298,10 @@ DECLARE_WASM_FUNCTION(
     hook_account,
     uint32_t write_ptr,
     uint32_t write_len);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    hook_account);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     hook_hash,
@@ -1049,13 +1069,12 @@ public:
             ADD_JS_FUNCTION(emit, ctx);
             */
             ADD_JS_FUNCTION(etxn_burden, ctx);
-            /*
             ADD_JS_FUNCTION(etxn_fee_base, ctx);
             ADD_JS_FUNCTION(etxn_details, ctx);
             ADD_JS_FUNCTION(etxn_reserve, ctx);
             ADD_JS_FUNCTION(etxn_generation, ctx);
             ADD_JS_FUNCTION(etxn_nonce, ctx);
-
+            /*
             ADD_JS_FUNCTION(float_set, ctx);
             ADD_JS_FUNCTION(float_multiply, ctx);
             ADD_JS_FUNCTION(float_mulratio, ctx);
@@ -1083,8 +1102,9 @@ public:
             ADD_JS_FUNCTION(otxn_slot, ctx);
             ADD_JS_FUNCTION(otxn_param, ctx);
 
-            /*
+            
             ADD_JS_FUNCTION(hook_account, ctx);
+            /*
             ADD_JS_FUNCTION(hook_hash, ctx);
             ADD_JS_FUNCTION(hook_again, ctx);
             ADD_JS_FUNCTION(fee_base, ctx);
