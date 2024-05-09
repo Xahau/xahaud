@@ -2543,11 +2543,11 @@ DEFINE_JS_FUNCNARG(
     JS_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
+inline
+int64_t __otxn_slot(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint32_t slot_into)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
-
     if (slot_into > hook_api::max_slots)
         return INVALID_ARGUMENT;
 
@@ -2573,9 +2573,34 @@ DEFINE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
     hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
 
     return slot_into;
+}
+
+DEFINE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return __otxn_slot(hookCtx, applyCtx, j, slot_into);
 
     WASM_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    otxn_slot,
+    JSValue slot_into)
+{
+    JS_HOOK_SETUP();
+    
+    auto si = FromJSInt(ctx, slot_into);
+    if (!si.has_value() || *si > 0xFFFFFFFFULL)
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__otxn_slot(hookCtx, applyCtx, j, (uint32_t)(*si)));
+
+    JS_HOOK_TEARDOWN();
+}
+
 // Return the burden of the originating transaction... this will be 1 unless the
 // originating transaction was itself an emitted transaction from a previous
 // hook invocation
@@ -6509,6 +6534,49 @@ DEFINE_WASM_FUNCTION(
     return DOESNT_EXIST;
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    otxn_param,
+    JSValue param_key)
+{
+    JS_HOOK_SETUP();
+
+    std::optional<std::vector<uint8_t>> key =
+        FromJSIntArrayOrHexString(ctx, param_key, hook::maxHookParameterKeySize());
+
+    if (!key.has_value() || key->empty())
+        returnJS(INVALID_ARGUMENT);
+
+    std::vector<uint8_t> const& paramName = *key;
+
+    auto const& params = applyCtx.tx.getFieldArray(sfHookParameters);
+
+    for (auto const& param : params)
+    {
+        if (!param.isFieldPresent(sfHookParameterName) ||
+            param.getFieldVL(sfHookParameterName) != paramName)
+            continue;
+
+        if (!param.isFieldPresent(sfHookParameterValue))
+            returnJS(DOESNT_EXIST);
+
+        auto const& val = param.getFieldVL(sfHookParameterValue);
+        if (val.empty())
+            returnJS(DOESNT_EXIST);
+
+        if (val.size() > hook::maxHookParameterValueSize())
+            returnJS(TOO_BIG);
+
+        auto out = ToJSIntArray(ctx, val);
+        if (!out.has_value())
+            returnJS(INTERNAL_ERROR);
+
+        return *out;
+    }
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(

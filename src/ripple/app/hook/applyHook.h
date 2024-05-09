@@ -459,6 +459,12 @@ DECLARE_WASM_FUNCNARG(int64_t, otxn_type);
 DECLARE_JS_FUNCNARG(int64_t, otxn_type);
 
 DECLARE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_no);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    otxn_slot,
+    JSValue slot_no);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     otxn_param,
@@ -466,6 +472,11 @@ DECLARE_WASM_FUNCTION(
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    otxn_param,
+    JSValue param_key);
 
 DECLARE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_no);
 DECLARE_WASM_FUNCTION(
@@ -1057,10 +1068,10 @@ public:
             */
             ADD_JS_FUNCTION(otxn_id, ctx);
             ADD_JS_FUNCTION(otxn_type, ctx);
-            /*
             ADD_JS_FUNCTION(otxn_slot, ctx);
             ADD_JS_FUNCTION(otxn_param, ctx);
 
+            /*
             ADD_JS_FUNCTION(hook_account, ctx);
             ADD_JS_FUNCTION(hook_hash, ctx);
             ADD_JS_FUNCTION(hook_again, ctx);
