@@ -203,6 +203,7 @@ DECLARE_JS_FUNCTION(
     JSValue keylet_data);
 
 DECLARE_WASM_FUNCNARG(int64_t, etxn_burden);
+DECLARE_JS_FUNCNARG(JSValue, etxn_burden);
 DECLARE_WASM_FUNCTION(
     int64_t,
     etxn_details,
@@ -435,13 +436,22 @@ DECLARE_WASM_FUNCTION(
     int64_t float1);
 
 DECLARE_WASM_FUNCNARG(int64_t, otxn_burden);
+DECLARE_JS_FUNCNARG(JSValue, otxn_burden);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     otxn_field,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t field_id);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    otxn_field,
+    JSValue field_id);
+
 DECLARE_WASM_FUNCNARG(int64_t, otxn_generation);
+DECLARE_JS_FUNCNARG(JSValue, otxn_generation);
 DECLARE_WASM_FUNCTION(
     int64_t,
     otxn_id,
@@ -1037,7 +1047,9 @@ public:
             ADD_JS_FUNCTION(sto_erase, ctx);
 
             ADD_JS_FUNCTION(emit, ctx);
+            */
             ADD_JS_FUNCTION(etxn_burden, ctx);
+            /*
             ADD_JS_FUNCTION(etxn_fee_base, ctx);
             ADD_JS_FUNCTION(etxn_details, ctx);
             ADD_JS_FUNCTION(etxn_reserve, ctx);
@@ -1062,10 +1074,10 @@ public:
             ADD_JS_FUNCTION(float_log, ctx);
             ADD_JS_FUNCTION(float_root, ctx);
 
+            */
             ADD_JS_FUNCTION(otxn_burden, ctx);
             ADD_JS_FUNCTION(otxn_generation, ctx);
             ADD_JS_FUNCTION(otxn_field, ctx);
-            */
             ADD_JS_FUNCTION(otxn_id, ctx);
             ADD_JS_FUNCTION(otxn_type, ctx);
             ADD_JS_FUNCTION(otxn_slot, ctx);

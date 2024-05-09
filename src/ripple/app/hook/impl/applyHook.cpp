@@ -2601,14 +2601,11 @@ DEFINE_JS_FUNCTION(
     JS_HOOK_TEARDOWN();
 }
 
-// Return the burden of the originating transaction... this will be 1 unless the
-// originating transaction was itself an emitted transaction from a previous
-// hook invocation
-DEFINE_WASM_FUNCNARG(int64_t, otxn_burden)
+// Compute the burden of an emitted transaction based on a number of factors
+inline
+int64_t __otxn_burden(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
-
     if (hookCtx.burden)
         return hookCtx.burden;
 
@@ -2634,18 +2631,55 @@ DEFINE_WASM_FUNCNARG(int64_t, otxn_burden)
          1);  // wipe out the two high bits just in case somehow they are set
     hookCtx.burden = burden;
     return (int64_t)(burden);
+}
+
+inline
+int64_t __etxn_burden(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j)
+{
+    if (hookCtx.expected_etxn_count <= -1)
+        return PREREQUISITE_NOT_MET;
+
+    // always non-negative so cast is safe
+    uint64_t last_burden = (uint64_t)__etxn_burden(hookCtx, applyCtx, j);
+
+    uint64_t burden = last_burden * hookCtx.expected_etxn_count;
+    if (burden <
+        last_burden)  // this overflow will never happen but handle it anyway
+        return FEE_TOO_LARGE;
+
+    return burden;
+}
+
+// Return the burden of the originating transaction... this will be 1 unless the
+// originating transaction was itself an emitted transaction from a previous
+// hook invocation
+DEFINE_WASM_FUNCNARG(int64_t, otxn_burden)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return __otxn_burden(hookCtx, applyCtx, j);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(JSValue, otxn_burden)
+{
+    JS_HOOK_SETUP();
+
+    returnJS(__etxn_burden(hookCtx, applyCtx, j));
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Return the generation of the originating transaction... this will be 1 unless
 // the originating transaction was itself an emitted transaction from a previous
 // hook invocation
-DEFINE_WASM_FUNCNARG(int64_t, otxn_generation)
+inline
+int64_t __otxn_generation(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
-
     // cache the result as it will not change for this hook execution
     if (hookCtx.generation)
         return hookCtx.generation;
@@ -2668,8 +2702,26 @@ DEFINE_WASM_FUNCNARG(int64_t, otxn_generation)
 
     hookCtx.generation = pd.getFieldU32(sfEmitGeneration);
     return hookCtx.generation;
+}
+
+DEFINE_WASM_FUNCNARG(int64_t, otxn_generation)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    
+    return __otxn_generation(hookCtx, applyCtx, j);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(JSValue, otxn_generation)
+{
+    JS_HOOK_SETUP();
+    
+    returnJS(__otxn_generation(hookCtx, applyCtx, j));
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Return the generation of a hypothetically emitted transaction from this hook
@@ -2765,6 +2817,46 @@ DEFINE_WASM_FUNCTION(
         field.getSType() == STI_ACCOUNT);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    otxn_field,
+    JSValue raw_field_id)
+{
+    JS_HOOK_SETUP();
+    
+    auto field_id = FromJSInt(ctx, raw_field_id);
+    if (!field_id.has_value() || *field_id > 0xFFFFFFFFULL)
+        returnJS(INVALID_ARGUMENT);
+
+    SField const& fieldType = ripple::SField::getField((uint32_t)(*field_id));
+
+    if (fieldType == sfInvalid)
+        returnJS(INVALID_FIELD);
+
+    if (!applyCtx.tx.isFieldPresent(fieldType))
+        returnJS(DOESNT_EXIST);
+
+    auto const& field = hookCtx.emitFailure
+        ? hookCtx.emitFailure->getField(fieldType)
+        : const_cast<ripple::STTx&>(applyCtx.tx).getField(fieldType);
+
+    Serializer s;
+    field.add(s);
+
+    uint8_t const* ptr = reinterpret_cast<uint8_t const*>(s.getDataPtr());
+    size_t len = s.getDataLength();
+    std::vector<uint8_t> out_vec {ptr, ptr + len};
+    
+    auto out = ToJSIntArray(ctx, out_vec);
+
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(
@@ -4500,6 +4592,7 @@ DEFINE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count)
                    // hookCtx on current stack
 
     if (hookCtx.expected_etxn_count > -1)
+        
         return ALREADY_SET;
 
     if (count < 1)
@@ -4515,28 +4608,25 @@ DEFINE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count)
     WASM_HOOK_TEARDOWN();
 }
 
-// Compute the burden of an emitted transaction based on a number of factors
 DEFINE_WASM_FUNCNARG(int64_t, etxn_burden)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.expected_etxn_count <= -1)
-        return PREREQUISITE_NOT_MET;
-
-    uint64_t last_burden = (uint64_t)otxn_burden(
-        hookCtx, frameCtx);  // always non-negative so cast is safe
-
-    uint64_t burden = last_burden * hookCtx.expected_etxn_count;
-    if (burden <
-        last_burden)  // this overflow will never happen but handle it anyway
-        return FEE_TOO_LARGE;
-
-    return burden;
-
+    return __etxn_burden(hookCtx, applyCtx, j);
 
     WASM_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCNARG(JSValue, etxn_burden)
+{
+    JS_HOOK_SETUP();
+    
+    returnJS(__etxn_burden(hookCtx, applyCtx, j));
+
+    JS_HOOK_TEARDOWN();
+}
+
 
 DEFINE_WASM_FUNCTION(
     int64_t,
