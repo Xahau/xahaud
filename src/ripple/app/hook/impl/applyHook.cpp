@@ -795,6 +795,8 @@ FromJSInt(JSContext* ctx, JSValueConst& v)
     return out;
 }
 
+#define returnJS(X) return JS_NewInt64(ctx, X)
+
 template <typename T>
 inline
 std::optional<JSValue>
@@ -815,8 +817,17 @@ ToJSIntArray(JSContext* ctx, T const& vec)
 }
 
 
+inline
+JSValue
+ToJSHash(JSContext* ctx, uint256 const hash_in)
+{
+    std::vector<uint8_t> hash{hash_in.data(), hash_in.data() + 32};
+    auto out = ToJSIntArray(ctx, hash);
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+    return *out;
+};
 
-#define returnJS(X) return JS_NewInt64(ctx, X)
 
 inline
 std::optional<std::vector<uint8_t>>
@@ -2763,6 +2774,15 @@ DEFINE_WASM_FUNCNARG(int64_t, ledger_seq)
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCNARG(JSValue, ledger_seq)
+{
+    JS_HOOK_SETUP();
+
+    returnJS(view.info().seq);
+
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCTION(
     int64_t,
     ledger_last_hash,
@@ -2784,6 +2804,18 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    ledger_last_hash)
+{
+    JS_HOOK_SETUP();
+
+    return ToJSHash(ctx, view.info().parentHash);
+
+    JS_HOOK_TEARDOWN();
+}
+    
+
 DEFINE_WASM_FUNCNARG(int64_t, ledger_last_time)
 {
     WASM_HOOK_SETUP();
@@ -2793,6 +2825,17 @@ DEFINE_WASM_FUNCNARG(int64_t, ledger_last_time)
         .count();
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(JSValue, ledger_last_time)
+{
+    JS_HOOK_SETUP();
+
+    returnJS(std::chrono::duration_cast<std::chrono::seconds>(
+               view.info().parentCloseTime.time_since_epoch())
+        .count());
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Dump a field from the originating transaction into the hook's memory
@@ -4455,6 +4498,42 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    JSValue,
+    hook_hash,
+    JSValue raw_hook_no)
+{
+    JS_HOOK_SETUP();
+
+    auto hook_no_opt = FromJSInt(ctx, raw_hook_no);
+    if (!hook_no_opt.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    int32_t hook_no = *hook_no_opt;
+
+
+    if (hook_no == -1)
+        return ToJSHash(ctx, hookCtx.result.hookHash);
+
+    std::shared_ptr<SLE> hookSLE =
+        applyCtx.view().peek(hookCtx.result.hookKeylet);
+    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
+        returnJS(INTERNAL_ERROR);
+
+    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
+    if (hook_no >= hooks.size())
+        returnJS(DOESNT_EXIST);
+
+    auto const& hook = hooks[hook_no];
+    if (!hook.isFieldPresent(sfHookHash))
+        returnJS(DOESNT_EXIST);
+
+    return ToJSHash(ctx, hook.getFieldH256(sfHookHash));
+
+    JS_HOOK_TEARDOWN();
+}
+    
+
 // Write the account id that the running hook is installed on into write_ptr
 DEFINE_WASM_FUNCTION(
     int64_t,
@@ -4605,6 +4684,29 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    ledger_nonce)
+{
+    JS_HOOK_SETUP();
+
+    if (hookCtx.ledger_nonce_counter > hook_api::max_nonce)
+        returnJS(TOO_MANY_NONCES);
+
+    auto hash = ripple::sha512Half(
+        ripple::HashPrefix::hookNonce,
+        view.info().seq,
+        view.info().parentCloseTime.time_since_epoch().count(),
+        view.info().parentHash,
+        applyCtx.tx.getTransactionID(),
+        hookCtx.ledger_nonce_counter++,
+        hookCtx.result.account);
+    
+    return ToJSHash(ctx, hash);
+
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCTION(
     int64_t,
     ledger_keylet,
@@ -4652,6 +4754,49 @@ DEFINE_WASM_FUNCTION(
     return serialize_keylet(kl_out, memory, write_ptr, write_len);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    ledger_keylet,
+    JSValue raw_lo,
+    JSValue raw_hi)
+{
+    JS_HOOK_SETUP();
+
+    auto lo = FromJSIntArrayOrHexString(ctx, raw_lo, 34);
+    auto hi = FromJSIntArrayOrHexString(ctx, raw_hi, 34);
+
+    if (!lo.has_value() || lo->size() != 34 ||
+        !hi.has_value() || hi->size() != 34)
+        returnJS(INVALID_ARGUMENT);
+    
+    std::optional<ripple::Keylet> klLo =
+        unserialize_keylet(lo->data(), 34);
+    std::optional<ripple::Keylet> klHi =
+        unserialize_keylet(hi->data(), 34);
+    if (!klLo ||!klHi)
+        returnJS(INVALID_ARGUMENT);
+
+    if (klLo->type != klHi->type)
+        returnJS(DOES_NOT_MATCH);
+
+    std::optional<ripple::uint256> found =
+        view.succ((*klLo).key, (*klHi).key.next());
+
+    if (!found.has_value())
+        returnJS(DOESNT_EXIST);
+
+    Keylet kl_found{klLo->type, *found};
+
+    auto out = ToJSIntArray(ctx, serialize_keylet_vec(kl_found));
+    
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+    
+    return *out;
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Reserve one or more transactions for emission from the running hook
@@ -5586,6 +5731,7 @@ DEFINE_JS_FUNCTION(
     if (!vKey || vKey->size() != 33)
         returnJS(INVALID_KEY);
 
+
     auto vData = FromJSIntArrayOrHexString(ctx, rawData, 65536);
     if (!vData || vData->empty())
         returnJS(INVALID_ARGUMENT);
@@ -5617,6 +5763,15 @@ DEFINE_WASM_FUNCNARG(int64_t, fee_base)
     return view.fees().base.drops();
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(JSValue, fee_base)
+{
+    JS_HOOK_SETUP();
+
+    returnJS(view.fees().base.drops());    
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Return the fee base for a hypothetically emitted transaction from the current
@@ -7054,6 +7209,24 @@ DEFINE_WASM_FUNCNARG(int64_t, hook_again)
     return PREREQUISITE_NOT_MET;
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(JSValue, hook_again)
+{
+    JS_HOOK_SETUP();
+
+    if (hookCtx.result.executeAgainAsWeak)
+        returnJS(ALREADY_SET);
+
+    if (hookCtx.result.isStrong)
+    {
+        hookCtx.result.executeAgainAsWeak = true;
+        returnJS(1);
+    }
+
+    returnJS(PREREQUISITE_NOT_MET);
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
