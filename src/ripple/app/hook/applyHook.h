@@ -308,19 +308,34 @@ DECLARE_WASM_FUNCTION(
     uint32_t write_ptr,
     uint32_t write_len,
     int32_t hook_no);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    hook_hash,
+    JSValue hook_no);
+
 DECLARE_WASM_FUNCNARG(int64_t, fee_base);
+DECLARE_JS_FUNCNARG(JSValue, fee_base);
 DECLARE_WASM_FUNCNARG(int64_t, ledger_seq);
+DECLARE_JS_FUNCNARG(JSvalue, ledger_seq);
 DECLARE_WASM_FUNCNARG(int64_t, ledger_last_time);
+DECLARE_JS_FUNCNARG(JSValue, ledger_last_time);
 DECLARE_WASM_FUNCTION(
     int64_t,
     ledger_last_hash,
     uint32_t write_ptr,
     uint32_t write_len);
+DECLARE_JS_FUNCNARG(
+    JSValue,
+    ledger_last_hash);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     ledger_nonce,
     uint32_t write_ptr,
     uint32_t write_len);
+DECLARE_JS_FUNCNARG(
+    JSValue,
+    ledger_nonce);
 
 DECLARE_WASM_FUNCTION(
     int64_t,
@@ -331,6 +346,12 @@ DECLARE_WASM_FUNCTION(
     uint32_t lread_len,
     uint32_t hread_ptr,
     uint32_t hread_len);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    ledger_keylet,
+    JSValue low,
+    JSValue high);
 
 DECLARE_WASM_FUNCTION(
     int64_t,
@@ -351,6 +372,9 @@ DECLARE_WASM_FUNCTION(
     uint32_t read_len);
 
 DECLARE_WASM_FUNCNARG(int64_t, hook_again);
+DECLARE_JS_FUNCNARG(
+    JSValue,
+    hook_again);
 
 DECLARE_WASM_FUNCTION(
     int64_t,
@@ -1104,7 +1128,6 @@ public:
 
             
             ADD_JS_FUNCTION(hook_account, ctx);
-            /*
             ADD_JS_FUNCTION(hook_hash, ctx);
             ADD_JS_FUNCTION(hook_again, ctx);
             ADD_JS_FUNCTION(fee_base, ctx);
@@ -1113,7 +1136,7 @@ public:
             ADD_JS_FUNCTION(ledger_last_time, ctx);
             ADD_JS_FUNCTION(ledger_nonce, ctx);
             ADD_JS_FUNCTION(ledger_keylet, ctx);
-
+            /*
             ADD_JS_FUNCTION(hook_param, ctx);
             ADD_JS_FUNCTION(hook_param_set, ctx);
             ADD_JS_FUNCTION(hook_skip, ctx);
