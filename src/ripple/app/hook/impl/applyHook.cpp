@@ -6997,6 +6997,41 @@ DEFINE_JS_FUNCTION(
     JS_HOOK_TEARDOWN();
 }
 
+inline
+std::optional<std::vector<uint8_t>>
+ __hook_param(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        std::vector<uint8_t> const& paramName)
+{
+    // first check for overrides set by prior hooks in the chain
+    auto const& overrides = hookCtx.result.hookParamOverrides;
+    if (overrides.find(hookCtx.result.hookHash) != overrides.end())
+    {
+        auto const& params = overrides.at(hookCtx.result.hookHash);
+        if (params.find(paramName) != params.end())
+        {
+            auto const& param = params.at(paramName);
+            if (param.size() == 0)
+                return {};  // allow overrides to "delete" parameters
+
+            return std::vector<uint8_t>{param.data(), param.data() + param.size()};
+        }
+    }
+
+    // next check if there's a param set on this hook
+    auto const& params = hookCtx.result.hookParams;
+    if (params.find(paramName) != params.end())
+    {
+        auto const& param = params.at(paramName);
+        if (param.size() == 0)
+            return {};
+
+        return std::vector<uint8_t>{param.data(), param.data() + param.size()};
+    }
+
+    return {};
+}
+
 DEFINE_WASM_FUNCTION(
     int64_t,
     hook_param,
@@ -7017,53 +7052,77 @@ DEFINE_WASM_FUNCTION(
     if (read_len < 1)
         return TOO_SMALL;
 
-    if (read_len > 32)
+    if (read_len > hook::maxHookParameterKeySize())
         return TOO_BIG;
 
     std::vector<uint8_t> paramName{
         read_ptr + memory, read_ptr + read_len + memory};
 
-    // first check for overrides set by prior hooks in the chain
-    auto const& overrides = hookCtx.result.hookParamOverrides;
-    if (overrides.find(hookCtx.result.hookHash) != overrides.end())
-    {
-        auto const& params = overrides.at(hookCtx.result.hookHash);
-        if (params.find(paramName) != params.end())
-        {
-            auto const& param = params.at(paramName);
-            if (param.size() == 0)
-                return DOESNT_EXIST;  // allow overrides to "delete" parameters
+    auto param = __hook_param(hookCtx, applyCtx, j, paramName);
 
-            WRITE_WASM_MEMORY_AND_RETURN(
-                write_ptr,
-                write_len,
-                param.data(),
-                param.size(),
-                memory,
-                memory_length);
-        }
-    }
+    if (!param.has_value())
+        return DOESNT_EXIST;
 
-    // next check if there's a param set on this hook
-    auto const& params = hookCtx.result.hookParams;
-    if (params.find(paramName) != params.end())
-    {
-        auto const& param = params.at(paramName);
-        if (param.size() == 0)
-            return DOESNT_EXIST;
-
-        WRITE_WASM_MEMORY_AND_RETURN(
+    WRITE_WASM_MEMORY_AND_RETURN(
             write_ptr,
             write_len,
-            param.data(),
-            param.size(),
+            param->data(),
+            param->size(),
             memory,
             memory_length);
-    }
-
-    return DOESNT_EXIST;
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    hook_param,
+    JSValue raw_name)
+{
+    JS_HOOK_SETUP();
+
+    auto param_name = FromJSIntArrayOrHexString(ctx, raw_name, hook::maxHookParameterKeySize());
+
+    if (!param_name.has_value() || param_name->empty())
+        returnJS(INVALID_ARGUMENT);
+
+    auto param = __hook_param(hookCtx, applyCtx, j, *param_name);
+
+    if (!param.has_value())
+        returnJS(DOESNT_EXIST);
+
+    auto out = ToJSIntArray(ctx, *param);
+    
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __hook_param_set(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint256 const& hash,
+        std::vector<uint8_t> const& paramName, 
+        std::vector<uint8_t> const& paramValue)
+{
+    if (hookCtx.result.overrideCount >= hook_api::max_params)
+        return TOO_MANY_PARAMS;
+
+    hookCtx.result.overrideCount++;
+
+    auto& overrides = hookCtx.result.hookParamOverrides;
+    if (overrides.find(hash) == overrides.end())
+    {
+        overrides[hash] = std::map<std::vector<uint8_t>, std::vector<uint8_t>>{
+            {std::move(paramName), std::move(paramValue)}};
+    }
+    else
+        overrides[hash][std::move(paramName)] = std::move(paramValue);
+
+    return paramValue.size();
 }
 
 DEFINE_WASM_FUNCTION(
@@ -7103,46 +7162,46 @@ DEFINE_WASM_FUNCTION(
 
     ripple::uint256 hash = ripple::uint256::fromVoid(memory + hread_ptr);
 
-    if (hookCtx.result.overrideCount >= hook_api::max_params)
-        return TOO_MANY_PARAMS;
-
-    hookCtx.result.overrideCount++;
-
-    auto& overrides = hookCtx.result.hookParamOverrides;
-    if (overrides.find(hash) == overrides.end())
-    {
-        overrides[hash] = std::map<std::vector<uint8_t>, std::vector<uint8_t>>{
-            {std::move(paramName), std::move(paramValue)}};
-    }
-    else
-        overrides[hash][std::move(paramName)] = std::move(paramValue);
-
-    return read_len;
+    return __hook_param_set(hookCtx, applyCtx, j, hash, paramName, paramValue);
 
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    hook_skip,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t flags)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    hook_param_set,
+    JSValue val,
+    JSValue key,
+    JSValue hhash)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
 
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
+    auto param_key = FromJSIntArrayOrHexString(ctx, key, hook::maxHookParameterKeySize());
+    auto param_val = FromJSIntArrayOrHexString(ctx, val, hook::maxHookParameterValueSize());
+    auto param_hash = FromJSIntArrayOrHexString(ctx, hhash, 32);
 
-    if (read_len != 32)
-        return INVALID_ARGUMENT;
+    if (!param_key.has_value() || param_key->empty() || 
+        param_key->size() > hook::maxHookParameterKeySize() ||
+        !param_val.has_value() || param_val->size() > hook::maxHookParameterValueSize() ||
+        !param_hash.has_value() || param_hash->size() != 32)
+        returnJS(INVALID_ARGUMENT);
 
-    if (flags != 0 && flags != 1)
-        return INVALID_ARGUMENT;
+    ripple::uint256 hash = ripple::uint256::fromVoid(param_hash->data());
+        
+    if (hookCtx.result.overrideCount >= hook_api::max_params)
+        returnJS(TOO_MANY_PARAMS);
 
+    returnJS(__hook_param_set(hookCtx, applyCtx, j, hash, *param_key, *param_val));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __hook_skip(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint256 const& hash, uint32_t flags)
+{
     auto& skips = hookCtx.result.hookSkips;
-    ripple::uint256 hash = ripple::uint256::fromVoid(memory + read_ptr);
 
     if (flags == 1)
     {
@@ -7184,13 +7243,70 @@ DEFINE_WASM_FUNCTION(
     // finally add it to the skips list
     hookCtx.result.hookSkips.emplace(hash);
     return 1;
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    hook_skip,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t flags)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (read_len != 32)
+        return INVALID_ARGUMENT;
+
+    if (flags != 0 && flags != 1)
+        return INVALID_ARGUMENT;
+
+    ripple::uint256 hash = ripple::uint256::fromVoid(memory + read_ptr);
+
+    return __hook_skip(hookCtx, applyCtx, j, hash, flags);
 
     WASM_HOOK_TEARDOWN();
 }
 
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    hook_skip,
+    JSValue raw_hhash,
+    JSValue raw_flags)
+{
+    JS_HOOK_SETUP();
+
+    auto hhash = FromJSIntArrayOrHexString(ctx, raw_hhash, 32);
+    auto flags = FromJSInt(ctx, raw_flags);
+
+    if (!hhash.has_value() || hhash->size() != 32 ||
+        !flags.has_value() || *flags > 1 || *flags < 0)
+        returnJS(INVALID_ARGUMENT);
+
+    ripple::uint256 hash = ripple::uint256::fromVoid(hhash->data());
+   
+    returnJS(__hook_skip(hookCtx, applyCtx, j, hash, *flags));
+
+    JS_HOOK_TEARDOWN();
+}
+
+
 DEFINE_WASM_FUNCNARG(int64_t, hook_pos)
 {
     return hookCtx.result.hookChainPosition;
+}
+
+DEFINE_JS_FUNCNARG(JSValue, hook_pos)
+{
+    JS_HOOK_SETUP();
+
+    returnJS(hookCtx.result.hookChainPosition);
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCNARG(int64_t, hook_again)
