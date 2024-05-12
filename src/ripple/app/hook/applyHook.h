@@ -363,6 +363,13 @@ DECLARE_WASM_FUNCTION(
     uint32_t hread_ptr,
     uint32_t hread_len);
 
+DECLARE_JS_FUNCTION(
+    JSvalue,
+    hook_param_set,
+    JSValue val,
+    JSValue key,
+    JSValue hhash);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     hook_param,
@@ -370,6 +377,11 @@ DECLARE_WASM_FUNCTION(
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    hook_param,
+    JSValue key);
 
 DECLARE_WASM_FUNCNARG(int64_t, hook_again);
 DECLARE_JS_FUNCNARG(
@@ -382,7 +394,16 @@ DECLARE_WASM_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t flags);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    hook_skip,
+    JSValue hhash,
+    JSValue flags);
+
 DECLARE_WASM_FUNCNARG(int64_t, hook_pos);
+
+DECLARE_JS_FUNCNARG(JSValue, hook_pos);
 
 DECLARE_WASM_FUNCTION(
     int64_t,
@@ -1136,12 +1157,13 @@ public:
             ADD_JS_FUNCTION(ledger_last_time, ctx);
             ADD_JS_FUNCTION(ledger_nonce, ctx);
             ADD_JS_FUNCTION(ledger_keylet, ctx);
-            /*
+            
             ADD_JS_FUNCTION(hook_param, ctx);
             ADD_JS_FUNCTION(hook_param_set, ctx);
             ADD_JS_FUNCTION(hook_skip, ctx);
             ADD_JS_FUNCTION(hook_pos, ctx);
 
+            /*
             ADD_JS_FUNCTION(state, ctx);
             ADD_JS_FUNCTION(state_foreign, ctx);
             ADD_JS_FUNCTION(state_set, ctx);
