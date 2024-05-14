@@ -442,6 +442,12 @@ DECLARE_WASM_FUNCTION(
     uint32_t read_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    state_set,
+    JSValue val,
+    JSValue key);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     state_foreign_set,
@@ -453,6 +459,15 @@ DECLARE_WASM_FUNCTION(
     uint32_t nread_len,
     uint32_t aread_ptr,
     uint32_t aread_len);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    state_foreign_set,
+    JSValue val,
+    JSValue key,
+    JSValue ns,
+    JSValue accid);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     state,
@@ -460,6 +475,11 @@ DECLARE_WASM_FUNCTION(
     uint32_t write_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    state,
+    JSValue key);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     state_foreign,
@@ -471,6 +491,13 @@ DECLARE_WASM_FUNCTION(
     uint32_t nread_len,
     uint32_t aread_ptr,
     uint32_t aread_len);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    state_foreign,
+    JSValue key,
+    JSValue ns,
+    JSValue accid);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     trace,
@@ -1163,12 +1190,12 @@ public:
             ADD_JS_FUNCTION(hook_skip, ctx);
             ADD_JS_FUNCTION(hook_pos, ctx);
 
-            /*
             ADD_JS_FUNCTION(state, ctx);
             ADD_JS_FUNCTION(state_foreign, ctx);
             ADD_JS_FUNCTION(state_set, ctx);
             ADD_JS_FUNCTION(state_foreign_set, ctx);
 
+            /*
             ADD_JS_FUNCTION(slot, ctx);
             ADD_JS_FUNCTION(slot_clear, ctx);
             ADD_JS_FUNCTION(slot_count, ctx);
