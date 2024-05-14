@@ -194,7 +194,7 @@
         hook::HookContext& hookCtx,                                          \
         WasmEdge_CallingFrameContext const& frameCtx)
 
-#define VAR_JSASSIGN(T, V) T& V = argv[_stack++]
+#define VAR_JSASSIGN(T, V) if (_stack >= argc) returnJS(INVALID_ARGUMENT); T& V = argv[_stack++]
 
 
 #define DEFINE_JS_FUNCNARG(R, F, ...)\
@@ -202,6 +202,7 @@ JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
                         int argc, JSValueConst *argv)\
 {
 
+#define FORWARD_JS_FUNCTION_CALL(F, ac, av) hook_api::JSFunction##F(ctx, this_val, ac, av)
 
 #define DEFINE_JS_FUNCTION(R, F, ...)\
 JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\

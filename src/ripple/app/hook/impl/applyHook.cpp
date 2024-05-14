@@ -1710,7 +1710,7 @@ set_state_cache(
     ripple::AccountID const& acc,
     ripple::uint256 const& ns,
     ripple::uint256 const& key,
-    ripple::Blob& data,
+    ripple::Blob const& data,
     bool modified)
 {
     auto& stateMap = hookCtx.result.stateMap;
@@ -1853,6 +1853,139 @@ DEFINE_WASM_FUNCTION(
         0,
         0);
 }
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    state_set,
+    JSValue data,
+    JSValue key)
+{
+    JS_HOOK_SETUP();
+
+    JSValueConst argv2[] = {
+        argv[0],
+        argv[1],
+        JS_UNDEFINED,
+        JS_UNDEFINED
+    };
+    
+    return FORWARD_JS_FUNCTION_CALL(state_foreign_set, 4, argv2);
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __state_foreign_set(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        Blob const& data, uint256 const& key, uint256 const& ns, AccountID const& acc)
+{
+    int64_t aread_len = acc.size();    
+    int64_t read_len = data.size();
+
+    // local modifications are always allowed
+    if (aread_len == 0 || acc == hookCtx.result.account)
+    {
+        if (int64_t ret = set_state_cache(hookCtx, acc, ns, key, data, true);
+            ret < 0)
+            return ret;
+
+        return read_len;
+    }
+
+    // execution to here means it's actually a foreign set
+    if (hookCtx.result.foreignStateSetDisabled)
+        return PREVIOUS_FAILURE_PREVENTS_RETRY;
+
+    // first check if we've already modified this state
+    auto cacheEntry = lookup_state_cache(hookCtx, acc, ns, key);
+    if (cacheEntry && cacheEntry->get().first)
+    {
+        // if a cache entry already exists and it has already been modified
+        // don't check grants again
+        if (int64_t ret = set_state_cache(hookCtx, acc, ns, key, data, true);
+            ret < 0)
+            return ret;
+
+        return read_len;
+    }
+
+    // cache miss or cache was present but entry was not marked as previously
+    // modified therefore before continuing we need to check grants
+    auto const sle = applyCtx.view().read(ripple::keylet::hook(acc));
+    if (!sle)
+        return INTERNAL_ERROR;
+
+    bool found_auth = false;
+
+    // we do this by iterating the hooks installed on the foreign account and in
+    // turn their grants and namespaces
+    auto const& hooks = sle->getFieldArray(sfHooks);
+    for (auto const& hookObj : hooks)
+    {
+        // skip blank entries
+        if (!hookObj.isFieldPresent(sfHookHash))
+            continue;
+
+        if (!hookObj.isFieldPresent(sfHookGrants))
+            continue;
+
+        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
+
+        if (hookGrants.size() < 1)
+            continue;
+
+        // the grant allows the hook to modify the granter's namespace only
+        if (hookObj.isFieldPresent(sfHookNamespace))
+        {
+            if (hookObj.getFieldH256(sfHookNamespace) != ns)
+                continue;
+        }
+        else
+        {
+            // fetch the hook definition
+            auto const def = applyCtx.view().read(ripple::keylet::hookDefinition(
+                hookObj.getFieldH256(sfHookHash)));
+            if (!def)  // should never happen except in a rare race condition
+                continue;
+            if (def->getFieldH256(sfHookNamespace) != ns)
+                continue;
+        }
+
+        // this is expensive search so we'll disallow after one failed attempt
+        for (auto const& hookGrantObj : hookGrants)
+        {
+            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
+
+            if (hookGrantObj.getFieldH256(sfHookHash) ==
+                    hookCtx.result.hookHash &&
+                (!hasAuthorizedField ||
+                 hookGrantObj.getAccountID(sfAuthorize) ==
+                     hookCtx.result.account))
+            {
+                found_auth = true;
+                break;
+            }
+        }
+
+        if (found_auth)
+            break;
+    }
+
+    if (!found_auth)
+    {
+        // hook only gets one attempt
+        hookCtx.result.foreignStateSetDisabled = true;
+        return NOT_AUTHORIZED;
+    }
+
+    if (int64_t ret = set_state_cache(hookCtx, acc, ns, key, data, true);
+        ret < 0)
+        return ret;
+
+    return read_len;
+
+
+}
 // update or create a hook state object
 // read_ptr = data to set, kread_ptr = key
 // RH NOTE passing 0 size causes a delete operation which is as-intended
@@ -1935,109 +2068,70 @@ DEFINE_WASM_FUNCTION(
 
     ripple::Blob data{memory + read_ptr, memory + read_ptr + read_len};
 
-    // local modifications are always allowed
-    if (aread_len == 0 || acc == hookCtx.result.account)
-    {
-        if (int64_t ret = set_state_cache(hookCtx, acc, ns, *key, data, true);
-            ret < 0)
-            return ret;
+    return __state_foreign_set(hookCtx, applyCtx, j, data, *key, ns, acc);
 
-        return read_len;
-    }
 
-    // execution to here means it's actually a foreign set
-    if (hookCtx.result.foreignStateSetDisabled)
-        return PREVIOUS_FAILURE_PREVENTS_RETRY;
-
-    // first check if we've already modified this state
-    auto cacheEntry = lookup_state_cache(hookCtx, acc, ns, *key);
-    if (cacheEntry && cacheEntry->get().first)
-    {
-        // if a cache entry already exists and it has already been modified
-        // don't check grants again
-        if (int64_t ret = set_state_cache(hookCtx, acc, ns, *key, data, true);
-            ret < 0)
-            return ret;
-
-        return read_len;
-    }
-
-    // cache miss or cache was present but entry was not marked as previously
-    // modified therefore before continuing we need to check grants
-    auto const sle = view.read(ripple::keylet::hook(acc));
-    if (!sle)
-        return INTERNAL_ERROR;
-
-    bool found_auth = false;
-
-    // we do this by iterating the hooks installed on the foreign account and in
-    // turn their grants and namespaces
-    auto const& hooks = sle->getFieldArray(sfHooks);
-    for (auto const& hookObj : hooks)
-    {
-        // skip blank entries
-        if (!hookObj.isFieldPresent(sfHookHash))
-            continue;
-
-        if (!hookObj.isFieldPresent(sfHookGrants))
-            continue;
-
-        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
-
-        if (hookGrants.size() < 1)
-            continue;
-
-        // the grant allows the hook to modify the granter's namespace only
-        if (hookObj.isFieldPresent(sfHookNamespace))
-        {
-            if (hookObj.getFieldH256(sfHookNamespace) != ns)
-                continue;
-        }
-        else
-        {
-            // fetch the hook definition
-            auto const def = view.read(ripple::keylet::hookDefinition(
-                hookObj.getFieldH256(sfHookHash)));
-            if (!def)  // should never happen except in a rare race condition
-                continue;
-            if (def->getFieldH256(sfHookNamespace) != ns)
-                continue;
-        }
-
-        // this is expensive search so we'll disallow after one failed attempt
-        for (auto const& hookGrantObj : hookGrants)
-        {
-            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
-
-            if (hookGrantObj.getFieldH256(sfHookHash) ==
-                    hookCtx.result.hookHash &&
-                (!hasAuthorizedField ||
-                 hookGrantObj.getAccountID(sfAuthorize) ==
-                     hookCtx.result.account))
-            {
-                found_auth = true;
-                break;
-            }
-        }
-
-        if (found_auth)
-            break;
-    }
-
-    if (!found_auth)
-    {
-        // hook only gets one attempt
-        hookCtx.result.foreignStateSetDisabled = true;
-        return NOT_AUTHORIZED;
-    }
-
-    if (int64_t ret = set_state_cache(hookCtx, acc, ns, *key, data, true);
-        ret < 0)
-        return ret;
-
-    return read_len;
     WASM_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    state_foreign_set,
+    JSValue raw_val,
+    JSValue raw_key,
+    JSValue raw_ns,
+    JSValue raw_acc)
+{
+    JS_HOOK_SETUP();
+
+    auto val = FromJSIntArrayOrHexString(ctx, raw_val, hook::maxHookStateDataSize());
+    auto key_in = FromJSIntArrayOrHexString(ctx, raw_key, 32);
+    auto ns_in  = FromJSIntArrayOrHexString(ctx, raw_ns, 32);
+    auto acc_in = FromJSIntArrayOrHexString(ctx, raw_acc, 20);
+
+    if (!val.has_value() && !JS_IsUndefined(raw_val))
+        returnJS(INVALID_ARGUMENT);
+
+    if (!ns_in.has_value() && !JS_IsUndefined(raw_ns))
+        returnJS(INVALID_ARGUMENT);
+
+    if (!acc_in.has_value() && !JS_IsUndefined(raw_acc))
+        returnJS(INVALID_ARGUMENT);
+
+    // val may be populated and empty, this is a delete operation...
+
+    if (!key_in.has_value() || key_in->empty())
+        returnJS(INVALID_ARGUMENT);
+
+    if (ns_in.has_value() && ns_in->size() != 32)
+        returnJS(INVALID_ARGUMENT);
+
+    if (acc_in.has_value() && acc_in->size() != 20)
+        returnJS(INVALID_ARGUMENT);
+
+    uint256 ns = ns_in.has_value()
+        ? uint256::fromVoid(ns_in->data())
+        : hookCtx.result.hookNamespace;
+
+    AccountID acc = acc_in.has_value()
+        ? AccountID::fromVoid(acc_in->data())
+        : hookCtx.result.account;
+
+    auto key = make_state_key(
+        std::string_view{(const char*)(key_in->data()), key_in->size()});
+
+    auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+    if (!sleAccount)
+        returnJS(tefINTERNAL);
+
+    if (!key)
+        returnJS(INTERNAL_ERROR);
+    
+    returnJS(__state_foreign_set(hookCtx, applyCtx, j, *val, *key, ns, acc));
+
+    JS_HOOK_TEARDOWN();
+}
+    
 
 ripple::TER
 hook::finalizeHookState(
@@ -2376,7 +2470,8 @@ DEFINE_WASM_FUNCTION(
 
     uint256 ns = nread_len == 0
         ? hookCtx.result.hookNamespace
-        : ripple::base_uint<256>::fromVoid(memory + nread_ptr);
+        
+: ripple::base_uint<256>::fromVoid(memory + nread_ptr);
 
     ripple::AccountID acc = is_foreign ? AccountID::fromVoid(memory + aread_ptr)
                                        : hookCtx.result.account;
@@ -2416,6 +2511,99 @@ DEFINE_WASM_FUNCTION(
         write_ptr, write_len, b.data(), b.size(), false);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    state_foreign,
+    JSValue raw_key,
+    JSValue raw_ns,
+    JSValue raw_accid)
+{
+    JS_HOOK_SETUP();
+
+    auto key_in = FromJSIntArrayOrHexString(ctx, raw_key, 32);
+    auto ns_in = FromJSIntArrayOrHexString(ctx, raw_ns, 32);
+    auto accid_in = FromJSIntArrayOrHexString(ctx, raw_accid, 20);
+
+    if (!key_in.has_value() || key_in->empty())
+        returnJS(INVALID_ARGUMENT);
+
+    // RH TODO: enhance this check to only allow undefined or false or array or hexstring
+    
+    if (ns_in.has_value() && ns_in->size() != 32)
+        returnJS(INVALID_ARGUMENT);
+
+    if (accid_in.has_value() && accid_in->size() != 20)
+        returnJS(INVALID_ARGUMENT);
+
+    uint256 ns = ns_in.has_value()
+        ? uint256::fromVoid(ns_in->data())
+        : hookCtx.result.hookNamespace;
+
+    AccountID acc = accid_in.has_value()
+        ? AccountID::fromVoid(accid_in->data())
+        : hookCtx.result.account;
+        
+
+    auto key = make_state_key(
+        std::string_view{(const char*)(key_in->data()), key_in->size()});
+
+    if (!key.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    // first check if the requested state was previously cached this session
+    auto cacheEntryLookup = lookup_state_cache(hookCtx, acc, ns, *key);
+    if (cacheEntryLookup)
+    {
+        auto const& cacheEntry = cacheEntryLookup->get();
+
+        auto out = ToJSIntArray(ctx,  cacheEntry.second);
+
+        if (!out)
+            returnJS(INTERNAL_ERROR);
+
+        return *out;
+    }
+
+    auto hsSLE = view.peek(keylet::hookState(acc, *key, ns));
+
+    if (!hsSLE)
+        returnJS(DOESNT_EXIST);
+
+    Blob b = hsSLE->getFieldVL(sfHookStateData);
+
+    // it exists add it to cache and return it
+    if (set_state_cache(hookCtx, acc, ns, *key, b, false) < 0)
+        returnJS(INTERNAL_ERROR);  // should never happen
+        
+    auto out = ToJSIntArray(ctx, b);
+
+    if (!out)
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
+
+    JS_HOOK_TEARDOWN();
+}
+
+/* Retrieve the state into write_ptr identified by the key in kread_ptr */
+DEFINE_JS_FUNCTION(
+    JSValue,
+    state,
+    JSValue key)
+{
+    JS_HOOK_SETUP();
+
+    JSValueConst argv2[] = {
+        argv[0],
+        JS_UNDEFINED,
+        JS_UNDEFINED
+    };
+    
+    return FORWARD_JS_FUNCTION_CALL(state_foreign, 3, argv2);
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Cause the originating transaction to go through, save state changes and emit
