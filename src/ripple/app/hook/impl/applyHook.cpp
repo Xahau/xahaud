@@ -1072,7 +1072,7 @@ serialize_keylet_vec(ripple::Keylet const& kl)
 }
 
 std::optional<ripple::Keylet>
-unserialize_keylet(uint8_t* ptr, uint32_t len)
+unserialize_keylet(uint8_t const* ptr, uint32_t len)
 {
     if (len != 34)
         return {};
@@ -3156,6 +3156,44 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot,
+    JSValue raw_slot_no)
+{
+    JS_HOOK_SETUP();
+
+    auto slot_no = FromJSInt(ctx, raw_slot_no);
+    if (!slot_no.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (hookCtx.slot.find(*slot_no) == hookCtx.slot.end())
+        returnJS(DOESNT_EXIST);
+
+    if (hookCtx.slot[*slot_no].entry == 0)
+        returnJS(INTERNAL_ERROR);
+
+    Serializer s;
+    hookCtx.slot[*slot_no].entry->add(s);
+
+    ssize_t len = s.getDataLength();
+    ssize_t olen = len;
+    uint8_t const* ptr = reinterpret_cast<uint8_t const*>(s.getDataPtr());
+
+    if (hookCtx.slot[*slot_no].entry->getSType() == STI_ACCOUNT)
+    {
+        --len;
+        ++ptr;
+    }
+
+    if (len < 0 || len > olen)
+        returnJS(INTERNAL_ERROR);
+    
+    return JS_NewArrayBufferCopy(ctx, ptr, len);
+
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
@@ -3170,6 +3208,28 @@ DEFINE_WASM_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
     return 1;
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_clear,
+    JSValue raw_slot_no)
+{
+    JS_HOOK_SETUP();
+    
+    auto slot_no = FromJSInt(ctx, raw_slot_no);
+    if (!slot_no.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (hookCtx.slot.find(*slot_no) == hookCtx.slot.end())
+        returnJS(DOESNT_EXIST);
+    
+    hookCtx.slot.erase(*slot_no);
+    hookCtx.slot_free.push(*slot_no);
+
+    returnJS(1);
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(int64_t, slot_count, uint32_t slot_no)
@@ -3191,35 +3251,45 @@ DEFINE_WASM_FUNCTION(int64_t, slot_count, uint32_t slot_no)
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    slot_set,
-    uint32_t read_ptr,
-    uint32_t read_len,  // readptr is a keylet
-    uint32_t slot_into /* providing 0 allocates a slot to you */)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_count,
+    JSValue raw_slot_no)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
 
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
+    auto slot_no = FromJSInt(ctx, raw_slot_no);
+    if (!slot_no.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (hookCtx.slot.find(*slot_no) == hookCtx.slot.end())
+        returnJS(DOESNT_EXIST);
 
-    if ((read_len != 32 && read_len != 34) || slot_into > hook_api::max_slots)
-        return INVALID_ARGUMENT;
+    if (hookCtx.slot[*slot_no].entry == 0)
+        returnJS(INTERNAL_ERROR);
 
-    // check if we can emplace the object to a slot
-    if (slot_into == 0 && no_free_slots(hookCtx))
-        return NO_FREE_SLOTS;
+    if (hookCtx.slot[*slot_no].entry->getSType() != STI_ARRAY)
+        returnJS(NOT_AN_ARRAY);
 
-    std::vector<uint8_t> slot_key{
-        memory + read_ptr, memory + read_ptr + read_len};
+    returnJS(hookCtx.slot[*slot_no].entry->downcast<ripple::STArray>().size());
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __slot_set(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        std::vector<uint8_t> const& slot_key, uint32_t slot_into)
+{
+    size_t read_len = slot_key.size();
+
     std::optional<std::shared_ptr<const ripple::STObject>> slot_value =
         std::nullopt;
 
     if (read_len == 34)
     {
         std::optional<ripple::Keylet> kl =
-            unserialize_keylet(memory + read_ptr, read_len);
+            unserialize_keylet(slot_key.data(), read_len);
         if (!kl)
             return DOESNT_EXIST;
 
@@ -3234,7 +3304,7 @@ DEFINE_WASM_FUNCTION(
     }
     else if (read_len == 32)
     {
-        uint256 hash = ripple::base_uint<256>::fromVoid(memory + read_ptr);
+        uint256 hash = ripple::base_uint<256>::fromVoid(slot_key.data());
 
         ripple::error_code_i ec{ripple::error_code_i::rpcUNKNOWN};
 
@@ -3267,8 +3337,55 @@ DEFINE_WASM_FUNCTION(
 
     return slot_into;
 
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    slot_set,
+    uint32_t read_ptr,
+    uint32_t read_len,  // readptr is a keylet
+    uint32_t slot_into /* providing 0 allocates a slot to you */)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if ((read_len != 32 && read_len != 34) || slot_into > hook_api::max_slots)
+        return INVALID_ARGUMENT;
+
+    // check if we can emplace the object to a slot
+    if (slot_into == 0 && no_free_slots(hookCtx))
+        return NO_FREE_SLOTS;
+
+    std::vector<uint8_t> slot_key{
+        memory + read_ptr, memory + read_ptr + read_len};
+
+    return __slot_set(hookCtx, applyCtx, j, slot_key, slot_into);
+
     WASM_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_set,
+    JSValue raw_key,
+    JSValue raw_slot_into)
+{
+    JS_HOOK_SETUP();
+
+    auto key = FromJSIntArrayOrHexString(ctx, raw_key, 34);
+    auto slot_into = FromJSInt(ctx, raw_slot_into);
+
+    if (!key.has_value() || !slot_into.has_value() || *slot_into < 0 || *slot_into > hook_api::max_slots)
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__slot_set(hookCtx, applyCtx, j, *key, *slot_into));
+
+    JS_HOOK_TEARDOWN();
+}
+
 
 DEFINE_WASM_FUNCTION(int64_t, slot_size, uint32_t slot_no)
 {
@@ -3289,15 +3406,36 @@ DEFINE_WASM_FUNCTION(int64_t, slot_size, uint32_t slot_no)
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    slot_subarray,
-    uint32_t parent_slot,
-    uint32_t array_id,
-    uint32_t new_slot)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_size,
+    JSValue raw_slot_no)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
+
+    auto slot_no = FromJSInt(ctx, raw_slot_no);
+    if (!slot_no.has_value() || *slot_no < 0 || *slot_no > hook_api::max_slots)
+        returnJS(INVALID_ARGUMENT);
+
+    if (hookCtx.slot.find(*slot_no) == hookCtx.slot.end())
+        returnJS(DOESNT_EXIST);
+
+    if (hookCtx.slot[*slot_no].entry == 0)
+        returnJS(INTERNAL_ERROR);
+
+    // RH TODO: this is a very expensive way of computing size, cache it
+    Serializer s;
+    hookCtx.slot[*slot_no].entry->add(s);
+    returnJS(s.getDataLength());
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __slot_subarray(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint32_t parent_slot, uint32_t array_id, uint32_t new_slot)
+{
 
     if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
         return DOESNT_EXIST;
@@ -3351,19 +3489,49 @@ DEFINE_WASM_FUNCTION(
         return NOT_AN_ARRAY;
     }
 
-    WASM_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(
     int64_t,
-    slot_subfield,
+    slot_subarray,
     uint32_t parent_slot,
-    uint32_t field_id,
+    uint32_t array_id,
     uint32_t new_slot)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
+    return __slot_subarray(hookCtx, applyCtx, j, parent_slot, array_id, new_slot);
+
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_subarray,
+    JSValue raw_parent_slot,
+    JSValue raw_array_id,
+    JSValue raw_new_slot)
+{
+    JS_HOOK_SETUP();
+    
+    auto parent_slot = FromJSInt(ctx, raw_parent_slot);
+    auto array_id = FromJSInt(ctx, raw_array_id);
+    auto new_slot = FromJSInt(ctx, raw_new_slot);
+
+    if (!parent_slot.has_value() || !array_id.has_value() || !new_slot.has_value())
+        returnJS(INVALID_ARGUMENT);
+        
+    returnJS(__slot_subarray(hookCtx, applyCtx, j, *parent_slot, *array_id, *new_slot));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __slot_subfield(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint32_t parent_slot, uint32_t field_id, uint32_t new_slot)
+{
     if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
@@ -3420,13 +3588,49 @@ DEFINE_WASM_FUNCTION(
         return NOT_AN_OBJECT;
     }
 
-    WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    slot_subfield,
+    uint32_t parent_slot,
+    uint32_t field_id,
+    uint32_t new_slot)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
+
+    return __slot_subfield(hookCtx, applyCtx, j, parent_slot, field_id, new_slot);
+
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_subfield,
+    JSValue raw_parent_slot,
+    JSValue raw_field_id,
+    JSValue raw_new_slot)
+{
+    JS_HOOK_SETUP();
+
+    auto parent_slot = FromJSInt(ctx, raw_parent_slot);
+    auto field_id = FromJSInt(ctx, raw_field_id);
+    auto new_slot = FromJSInt(ctx, raw_new_slot);
+
+    if (!parent_slot.has_value() || !field_id.has_value() || !new_slot.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__slot_subfield(hookCtx, applyCtx, j, *parent_slot, *field_id, *new_slot));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __slot_type(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint32_t slot_no, uint32_t flags)
+{
 
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
@@ -3458,14 +3662,42 @@ DEFINE_WASM_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
         return INTERNAL_ERROR;
     }
 
-    WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no)
+DEFINE_WASM_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
+    return __slot_type(hookCtx, applyCtx, j, slot_no, flags);
+
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_type,
+    JSValue raw_slot_no,
+    JSValue raw_flags)
+{
+    JS_HOOK_SETUP();
+
+    auto slot_no = FromJSInt(ctx, raw_slot_no);
+    auto flags = FromJSInt(ctx, raw_flags);
+
+    if (!slot_no.has_value() || !flags.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__slot_type(hookCtx, applyCtx, j, *slot_no, *flags));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __slot_float(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint32_t slot_no)
+{
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
         return DOESNT_EXIST;
 
@@ -3502,9 +3734,35 @@ DEFINE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no)
     {
         return NOT_AN_AMOUNT;
     }
+}
+
+DEFINE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return __slot_float(hookCtx, applyCtx, j, slot_no);
 
     WASM_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_float,
+    JSValue raw_slot_no)
+{
+    JS_HOOK_SETUP();
+
+    auto slot_no = FromJSInt(ctx, raw_slot_no);
+
+    if (!slot_no.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__slot_float(hookCtx, applyCtx, j, *slot_no));
+
+    JS_HOOK_TEARDOWN();
+}
+    
 
 /*
 #define VAR_JSASSIGN(T, V) T& V = argv[_stack++]
