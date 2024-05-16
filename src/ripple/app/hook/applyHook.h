@@ -411,29 +411,77 @@ DECLARE_WASM_FUNCTION(
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t slot);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot,
+    JSValue slot_no);
+
 DECLARE_WASM_FUNCTION(int64_t, slot_clear, uint32_t slot);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_clear,
+    JSValue slot_no);
+
 DECLARE_WASM_FUNCTION(int64_t, slot_count, uint32_t slot);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_count,
+    JSValeu slot_no);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     slot_set,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t slot);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_set,
+    JSValue kl,
+    JSValue slot_no);
+
 DECLARE_WASM_FUNCTION(int64_t, slot_size, uint32_t slot);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_size,
+    JSValue slot_no);
 DECLARE_WASM_FUNCTION(
     int64_t,
     slot_subarray,
     uint32_t parent_slot,
     uint32_t array_id,
     uint32_t new_slot);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_subarray,
+    JSValue parent_slot_no,
+    JSValue array_id,
+    JSValue new_slot_no);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     slot_subfield,
     uint32_t parent_slot,
     uint32_t field_id,
     uint32_t new_slot);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_subfield,
+    JSValue parent_slot_no,
+    JSValue field_id,
+    JSValue new_slot_no);
+
 DECLARE_WASM_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_type,
+    JSValue slot_no,
+    JSValeu flags);
 DECLARE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_float,
+    JSValue slot_no);
 
 DECLARE_WASM_FUNCTION(
     int64_t,
