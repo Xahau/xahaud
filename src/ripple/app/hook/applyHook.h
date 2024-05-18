@@ -1243,7 +1243,6 @@ public:
             ADD_JS_FUNCTION(state_set, ctx);
             ADD_JS_FUNCTION(state_foreign_set, ctx);
 
-            /*
             ADD_JS_FUNCTION(slot, ctx);
             ADD_JS_FUNCTION(slot_clear, ctx);
             ADD_JS_FUNCTION(slot_count, ctx);
@@ -1254,7 +1253,6 @@ public:
             ADD_JS_FUNCTION(slot_type, ctx);
             ADD_JS_FUNCTION(slot_float, ctx);
 
-            */
             ADD_JS_FUNCTION(trace, ctx);
             /*
             ADD_JS_FUNCTION(trace_num, ctx);
