@@ -23,7 +23,11 @@ set(QUICKJS_COMPILE_DEFINITIONS
 
 # Create static library
 add_library(quickjs STATIC ${QUICKJS_SOURCES})
-target_include_directories(quickjs PUBLIC ${QUICKJS_INCLUDE_DIRS})
+target_include_directories(quickjs
+  PUBLIC
+    $<BUILD_INTERFACE:${QUICKJS_INCLUDE_DIRS}>
+    $<INSTALL_INTERFACE:include/quickjs>  # Adjust the install path as needed
+)
 target_compile_definitions(quickjs PUBLIC ${QUICKJS_COMPILE_DEFINITIONS})
 
 add_library(NIH::quickjs ALIAS quickjs)
