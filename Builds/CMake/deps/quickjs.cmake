@@ -26,7 +26,7 @@ add_library(quickjs STATIC ${QUICKJS_SOURCES})
 target_include_directories(quickjs
   PUBLIC
     $<BUILD_INTERFACE:${QUICKJS_INCLUDE_DIRS}>
-    $<INSTALL_INTERFACE:include/quickjs>  # Adjust the install path as needed
+    $<INSTALL_INTERFACE:include/quickjs>
 )
 target_compile_definitions(quickjs PUBLIC ${QUICKJS_COMPILE_DEFINITIONS})
 
