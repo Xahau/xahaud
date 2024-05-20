@@ -5570,29 +5570,17 @@ get_stobject_length(
     return pe_unknown_type_late;
 }
 
-// Given an serialized object in memory locate and return the offset and length
-// of the payload of a subfield of that object. Arrays are returned fully
-// formed. If successful returns offset and length joined as int64_t. Use
-// SUB_OFFSET and SUB_LENGTH to extract.
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    sto_subfield,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t field_id)
+
+inline
+int64_t __sto_subfield(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* start, size_t read_len, uint32_t field_id)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
-
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
-
     if (read_len < 2)
         return TOO_SMALL;
 
-    unsigned char* start = (unsigned char*)(memory + read_ptr);
-    unsigned char* upto = start;
-    unsigned char* end = start + read_len;
+    uint8_t* upto = start;
+    uint8_t* end = start + read_len;
 
     DBG_PRINTF(
         "sto_subfield called, looking for field %u type %u\n",
@@ -5639,17 +5627,17 @@ DEFINE_WASM_FUNCTION(
         return PARSE_ERROR;
 
     return DOESNT_EXIST;
-
-    WASM_HOOK_TEARDOWN();
 }
-
-// Same as subfield but indexes into a serialized array
+// Given an serialized object in memory locate and return the offset and length
+// of the payload of a subfield of that object. Arrays are returned fully
+// formed. If successful returns offset and length joined as int64_t. Use
+// SUB_OFFSET and SUB_LENGTH to extract.
 DEFINE_WASM_FUNCTION(
     int64_t,
-    sto_subarray,
+    sto_subfield,
     uint32_t read_ptr,
     uint32_t read_len,
-    uint32_t index_id)
+    uint32_t field_id)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5657,10 +5645,44 @@ DEFINE_WASM_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
+    unsigned char* start = (unsigned char*)(memory + read_ptr);
+
+    return __sto_subfield(hookCtx, applyCtx, j, start, read_len, field_id);
+
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    sto_subfield,
+    JSValue raw_sto,
+    JSValue raw_field_id)
+{
+    JS_HOOK_SETUP();
+
+    auto sto_in = FromJSIntArrayOrHexString(ctx, raw_sto, 1024);
+    auto field_id = FromJSInt(ctx, raw_field_id);
+
+    if (!sto_in.has_value() || !field_id.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (*field_id > 0xFFFFFFFFULL || *field_id < 0)
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__sto_subfield(hookCtx, applyCtx, j, sto_in->data(), sto_in->size(), (uint32_t)(*field_id)));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __sto_subarray(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* start, size_t read_len, uint32_t index_id)
+{
+
     if (read_len < 2)
         return TOO_SMALL;
 
-    unsigned char* start = (unsigned char*)(memory + read_ptr);
     unsigned char* upto = start;
     unsigned char* end = start + read_len;
 
@@ -5707,14 +5729,55 @@ DEFINE_WASM_FUNCTION(
         return PARSE_ERROR;
 
     return DOESNT_EXIST;
+    
+}
+
+// Same as subfield but indexes into a serialized array
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    sto_subarray,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t index_id)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    unsigned char* start = (unsigned char*)(memory + read_ptr);
+
+    return __sto_subarray(hookCtx, applyCtx, j, start, read_len, index_id);
 
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    JSValue,
+    sto_subarray,
+    JSValue raw_sto,
+    JSValue raw_index_id)
+{
+    JS_HOOK_SETUP();
+    
+    auto sto_in = FromJSIntArrayOrHexString(ctx, raw_sto, 1024);
+    auto index_id = FromJSInt(ctx, raw_index_id);
+
+    if (!sto_in.has_value() || !index_id.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (*index_id > 0xFFFFFFFFULL || *index_id < 0)
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__sto_subfield(hookCtx, applyCtx, j, sto_in->data(), sto_in->size(), (uint32_t)(*index_id)));
+
+    JS_HOOK_TEARDOWN();
+}
+
 // Convert an account ID into a base58-check encoded r-address
 DEFINE_WASM_FUNCTION(
-    
-        int64_t,
+    int64_t,
     util_raddr,
     uint32_t write_ptr,
     uint32_t write_len,
@@ -5893,36 +5956,13 @@ overlapping_memory(std::vector<uint64_t> regions)
     return false;
 }
 
-/**
- * Inject a field into an sto if there is sufficient space
- * Field must be fully formed and wrapped (NOT JUST PAYLOAD)
- * sread - source object
- * fread - field to inject
- */
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    sto_emplace,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t sread_ptr,
-    uint32_t sread_len,
-    uint32_t fread_ptr,
-    uint32_t fread_len,
-    uint32_t field_id)
+inline
+std::variant<int64_t, std::vector<uint8_t>>
+__sto_emplace(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* sread_ptr, size_t sread_len,
+        uint8_t* fread_ptr, size_t fread_len, uint32_t field_id)
 {
-    WASM_HOOK_SETUP();
-
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (NOT_IN_BOUNDS(sread_ptr, sread_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (NOT_IN_BOUNDS(fread_ptr, fread_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (write_len < sread_len + fread_len)
-        return TOO_SMALL;
 
     // RH TODO: put these constants somewhere (votable?)
     if (sread_len > 1024 * 16)
@@ -5934,12 +5974,6 @@ DEFINE_WASM_FUNCTION(
     if (fread_len == 0 && fread_ptr == 0)
     {
         // this is a delete operation
-        if (overlapping_memory(
-                {write_ptr,
-                 write_ptr + write_len,
-                 sread_ptr,
-                 sread_ptr + sread_len}))
-            return MEM_OVERLAP;
     }
     else
     {
@@ -5948,25 +5982,21 @@ DEFINE_WASM_FUNCTION(
 
         if (fread_len < 2)
             return TOO_SMALL;
-
-        // check for buffer overlaps
-        if (overlapping_memory(
-                {write_ptr,
-                 write_ptr + write_len,
-                 sread_ptr,
-                 sread_ptr + sread_len,
-                 fread_ptr,
-                 fread_ptr + fread_len}))
-            return MEM_OVERLAP;
     }
+
+    std::vector<uint8_t> out;
+    out.reserve(sread_len + fread_len);
+    std::fill(out.begin(), out.end(), 0);
+
+    uint8_t* write_ptr = out.data();
 
     // we must inject the field at the canonical location....
     // so find that location
-    unsigned char* start = (unsigned char*)(memory + sread_ptr);
-    unsigned char* upto = start;
-    unsigned char* end = start + sread_len;
-    unsigned char* inject_start = end;
-    unsigned char* inject_end = end;
+    uint8_t* start = sread_ptr;
+    uint8_t* upto = start;
+    uint8_t* end = start + sread_len;
+    uint8_t* inject_start = end;
+    uint8_t* inject_end = end;
 
     DBG_PRINTF(
         "sto_emplace called, looking for field %u type %u\n",
@@ -6010,44 +6040,122 @@ DEFINE_WASM_FUNCTION(
     // part 1
     if (inject_start - start > 0)
     {
-        WRITE_WASM_MEMORY(
-            bytes_written,
-            write_ptr,
-            write_len,
-            start,
-            (inject_start - start),
-            memory,
-            memory_length);
+        size_t len = inject_start - start;
+        memcpy(write_ptr, start, len);
+        bytes_written += len; 
     }
 
     if (fread_len > 0)
     {
         // write the field (or don't if it's a delete operation)
-        WRITE_WASM_MEMORY(
-            bytes_written,
-            (write_ptr + bytes_written),
-            (write_len - bytes_written),
-            memory + fread_ptr,
-            fread_len,
-            memory,
-            memory_length);
+        memcpy(write_ptr + bytes_written, fread_ptr, fread_len);
+        bytes_written += fread_len;
     }
 
     // part 2
     if (end - inject_end > 0)
     {
-        WRITE_WASM_MEMORY(
-            bytes_written,
-            (write_ptr + bytes_written),
-            (write_len - bytes_written),
-            inject_end,
-            (end - inject_end),
-            memory,
-            memory_length);
+        size_t len = end - inject_end;
+        memcpy(write_ptr + bytes_written, inject_end, len);
     }
-    return bytes_written;
 
-    WASM_HOOK_TEARDOWN();
+    out.resize(bytes_written);
+    return out;
+}
+/**
+ * Inject a field into an sto if there is sufficient space
+ * Field must be fully formed and wrapped (NOT JUST PAYLOAD)
+ * sread - source object
+ * fread - field to inject
+ */
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    sto_emplace,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t sread_ptr,
+    uint32_t sread_len,
+    uint32_t fread_ptr,
+    uint32_t fread_len,
+    uint32_t field_id)
+{
+    WASM_HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(sread_ptr, sread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(fread_ptr, fread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto out = __sto_emplace(hookCtx, applyCtx, j,
+        sread_ptr + memory, sread_len, fread_ptr + memory, fread_len, field_id);
+
+    if (std::holds_alternative<int64_t>(out))
+        return std::get<int64_t>(out);
+
+    // otherwise it's returned a vec<u8>
+
+    std::vector<uint8_t> const& vec = std::get<std::vector<uint8_t>>(out);
+
+    if (vec.size() > write_len)
+        return INTERNAL_ERROR;
+
+    WRITE_WASM_MEMORY_AND_RETURN(write_ptr, write_len, vec.data(), vec.size(), memory, memory_length);
+
+    WASM_HOOK_TEARDOWN();    
+}
+
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    sto_emplace,
+    JSValue raw_sto,
+    JSValue raw_field,
+    JSValue raw_field_id)
+{
+    JS_HOOK_SETUP();
+
+    auto sto = FromJSIntArrayOrHexString(ctx, raw_sto, 16*1024);
+    auto field = FromJSIntArrayOrHexString(ctx, raw_field, 4*1024);
+    auto field_id = FromJSInt(ctx, raw_field_id);
+
+    if (!sto.has_value() || !field_id.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (*field_id > 0xFFFFFFFFULL || *field_id < 0)
+        returnJS(INVALID_ARGUMENT);
+
+    if (!field.has_value() && !JS_IsUndefined(raw_field))
+        returnJS(INVALID_ARGUMENT);
+
+    bool const isErase = !field.has_value();
+
+    auto ret = __sto_emplace(hookCtx, applyCtx, j,
+        sto->data(), sto->size(), 
+        isErase ? 0 : field->data(), 
+        isErase ? 0 : field->size(), 
+        *field_id);
+    
+    if (std::holds_alternative<int64_t>(ret))
+        returnJS(std::get<int64_t>(ret));
+
+    // otherwise it's returned a vec<u8>
+
+    std::vector<uint8_t> const& vec = std::get<std::vector<uint8_t>>(ret);
+
+    if (vec.size() > sto->size() + (isErase ? 0 : field->size()))
+        returnJS(INTERNAL_ERROR);
+
+    auto out = ToJSIntArray(ctx, vec);
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
+
+    JS_HOOK_TEARDOWN();
 }
 
 /**
@@ -6080,24 +6188,35 @@ DEFINE_WASM_FUNCTION(
     return ret;
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    sto_validate,
-    uint32_t read_ptr,
-    uint32_t read_len)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    sto_erase,
+    JSValue raw_sto,
+    JSValue raw_field)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
 
-    // RH TODO: see if an internal ripple function/class would do this better
+    JSValueConst argv2[] = {
+        argv[0],
+        JS_UNDEFINED,
+        argv[1]
+    };
+    
+    return FORWARD_JS_FUNCTION_CALL(sto_emplace, 3, argv2);
 
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
+    JS_HOOK_TEARDOWN();
+}
 
+inline
+int64_t
+__sto_validate(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* read_ptr, size_t read_len)
+{
     if (read_len < 2)
         return TOO_SMALL;
 
-    unsigned char* start = (unsigned char*)(memory + read_ptr);
+    unsigned char* start = read_ptr;
     unsigned char* upto = start;
     unsigned char* end = start + read_len;
 
@@ -6113,7 +6232,42 @@ DEFINE_WASM_FUNCTION(
 
     return upto == end ? 1 : 0;
 
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    sto_validate,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    // RH TODO: see if an internal ripple function/class would do this better
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    return __sto_validate(hookCtx, applyCtx, j, read_ptr + memory, read_len);
+
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    sto_validate,
+    JSValue raw_sto)
+{
+    JS_HOOK_SETUP();
+
+    auto sto = FromJSIntArrayOrHexString(ctx, raw_sto, 16*1024);
+
+    if (!sto.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__sto_validate(hookCtx, applyCtx, j, sto->data(), sto->size()));
+
+    JS_HOOK_TEARDOWN();
 }
 
 // Validate either an secp256k1 signature or an ed25519 signature, using the
@@ -7439,6 +7593,8 @@ DEFINE_JS_FUNCTION(
 
         return *out;
     }
+
+    returnJS(DOESNT_EXIST);
 
     JS_HOOK_TEARDOWN();
 }

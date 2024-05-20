@@ -139,18 +139,32 @@ DECLARE_WASM_FUNCTION(
     sto_validate,
     uint32_t tread_ptr,
     uint32_t tread_len);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    sto_validate,
+    JSValue sto);
 DECLARE_WASM_FUNCTION(
     int64_t,
     sto_subfield,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t field_id);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    sto_subfield,
+    JSValue sto,
+    JSValue field_id);
 DECLARE_WASM_FUNCTION(
     int64_t,
     sto_subarray,
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t array_id);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    sto_subarray,
+    JSValue sto,
+    JSValue array_id);
 DECLARE_WASM_FUNCTION(
     int64_t,
     sto_emplace,
@@ -161,6 +175,12 @@ DECLARE_WASM_FUNCTION(
     uint32_t fread_ptr,
     uint32_t fread_len,
     uint32_t field_id);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    sto_emplace,
+    JSValue sto,
+    JSValue field_bytes,
+    JSValue field_id);
 DECLARE_WASM_FUNCTION(
     int64_t,
     sto_erase,
@@ -169,6 +189,11 @@ DECLARE_WASM_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t field_id);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    sto_erase,
+    JSValue sto,
+    JSValue field_id);
 
 DECLARE_WASM_FUNCTION(
     int64_t,
@@ -476,7 +501,7 @@ DECLARE_JS_FUNCTION(
     JSValue,
     slot_type,
     JSValue slot_no,
-    JSValeu flags);
+    JSValue flags);
 DECLARE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no);
 DECLARE_JS_FUNCTION(
     JSValue,
@@ -1179,13 +1204,13 @@ public:
             ADD_JS_FUNCTION(util_sha512h, ctx);
             ADD_JS_FUNCTION(util_keylet, ctx);
 
-            /*
+           
             ADD_JS_FUNCTION(sto_validate, ctx);
             ADD_JS_FUNCTION(sto_subfield, ctx);
             ADD_JS_FUNCTION(sto_subarray, ctx);
             ADD_JS_FUNCTION(sto_emplace, ctx);
             ADD_JS_FUNCTION(sto_erase, ctx);
-
+            /*
             ADD_JS_FUNCTION(emit, ctx);
             */
             ADD_JS_FUNCTION(etxn_burden, ctx);
