@@ -155,6 +155,7 @@ class Xrpl(ConanFile):
         libxrpl = self.cpp_info.components['libxrpl']
         libxrpl.libs = [
             'xrpl_core',
+            'xrpl.libpb',
             'ed25519',
             'secp256k1',
         ]
