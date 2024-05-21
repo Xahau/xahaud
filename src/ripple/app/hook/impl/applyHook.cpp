@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <limits>
 #include <tuple>
+#include <ripple/json/json_value.h>
+#include <ripple/json/json_writer.h>
 
 using namespace ripple;
 // check if any std::optionals are missing (any !has_value())
@@ -2973,7 +2975,7 @@ int64_t __etxn_burden(
         return PREREQUISITE_NOT_MET;
 
     // always non-negative so cast is safe
-    uint64_t last_burden = (uint64_t)__etxn_burden(hookCtx, applyCtx, j);
+    uint64_t last_burden = (uint64_t)__otxn_burden(hookCtx, applyCtx, j);
 
     uint64_t burden = last_burden * hookCtx.expected_etxn_count;
     if (burden <
@@ -5060,9 +5062,44 @@ DEFINE_JS_FUNCTION(
 {
     JS_HOOK_SETUP();
 
-    auto tx = FromJSIntArrayOrHexString(ctx, raw_tx, 0x10000);
+    std::optional<std::vector<uint8_t>> tx = FromJSIntArrayOrHexString(ctx, raw_tx, 0x10000);
+
     if (!tx.has_value() || tx->empty())
-        returnJS(INVALID_ARGUMENT);
+    {
+    
+        // the user may specify the tx as a js object        
+        if (!JS_IsObject(raw_tx))
+            returnJS(INVALID_ARGUMENT);
+
+        // stringify it
+        JSValue sdata = JS_JSONStringify(ctx, raw_tx, JS_UNDEFINED, JS_UNDEFINED);
+        if (JS_IsException(sdata))
+            returnJS(INVALID_ARGUMENT);
+
+        size_t len;
+        const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
+        if (len > 1024*1024)
+            returnJS(TOO_BIG);
+        std::string const tmpl(cstr, len);
+        JS_FreeCString(ctx, cstr);
+        
+        // parse it on rippled side
+        Json::Value json;
+        Json::Reader reader;
+        if (!reader.parse(tmpl, json) || !json || !json.isObject())
+            returnJS(INVALID_ARGUMENT);
+
+        // turn the json into a stobject    
+        STParsedJSONObject parsed(std::string(jss::tx_json), json);
+        if (!parsed.object.has_value())
+            returnJS(INVALID_ARGUMENT);
+
+        // turn the stobject into a tx_blob
+        STObject& obj = *(parsed.object);
+        Serializer s;
+        obj.add(s);
+        tx = s.getData();
+    }
 
     auto ret = __emit(hookCtx, applyCtx, j, tx->data(), tx->size());
 
@@ -5079,6 +5116,141 @@ DEFINE_JS_FUNCTION(
     hookCtx.result.emittedTxn.push(tpTrans);
 
     return *out;
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __etxn_details(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* out_ptr, size_t max_len);
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    prepare,
+    JSValue raw_tmpl)
+{
+    JS_HOOK_SETUP();
+
+    if (!JS_IsObject(raw_tmpl))
+        returnJS(INVALID_ARGUMENT);
+
+    auto& view = applyCtx.view();
+
+    // stringify it
+    JSValue sdata = JS_JSONStringify(ctx, raw_tmpl, JS_UNDEFINED, JS_UNDEFINED);
+    if (JS_IsException(sdata))
+        returnJS(INVALID_ARGUMENT);
+    size_t len;
+    const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
+    if (len > 1024*1024)
+        returnJS(TOO_BIG);
+    std::string tmpl(cstr, len);
+    JS_FreeCString(ctx, cstr);
+    
+    // parse it on rippled side
+    Json::Value json;
+    Json::Reader reader;
+    if (!reader.parse(tmpl, json) || !json || !json.isObject())
+        returnJS(INVALID_ARGUMENT);
+
+    // add a dummy fee
+    json[jss::fee] = "0";
+
+    // force key to empty
+    json[jss::SigningPubKey] = "";
+
+    // force sequence to 0
+    json[jss::Sequence] = Json::Value(0u);
+
+    std::string raddr =
+        encodeBase58Token(TokenType::AccountID, hookCtx.result.account.data(), 20);
+
+    json[jss::Account] = raddr;
+
+    int64_t seq = view.info().seq;
+    if (!json.isMember(jss::FirstLedgerSequence))
+        json[jss::FirstLedgerSequence] = Json::Value((uint32_t)(seq + 1));
+
+    if (!json.isMember(jss::LastLedgerSequence))
+        json[jss::LastLedgerSequence] = Json::Value((uint32_t)(seq + 5));
+    
+    uint8_t details[512];
+    if (!json.isMember(jss::EmitDetails))
+    {
+        int64_t ret = __etxn_details(hookCtx, applyCtx, j, details, 512);
+        if (ret <= 0)
+            returnJS(INTERNAL_ERROR);
+        Slice s(reinterpret_cast<void const*>(details), (size_t)ret);
+
+        try
+        {
+            SerialIter sit{s};
+            STObject st{sit, sfGeneric};
+            json[jss::EmitDetails] = st.getJson(JsonOptions::none);
+        }
+        catch (std::exception const& ex)
+        {
+            JLOG(j.warn())
+                << "Exception in " << __func__ << ": " << ex.what();
+            returnJS(INTERNAL_ERROR);
+        }
+    }
+
+    
+    STParsedJSONObject parsed(std::string(jss::tx_json), json);
+    if (!parsed.object.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    STObject& obj = *(parsed.object);
+
+    // serialize it
+    Serializer s;
+    obj.add(s);
+    Blob tx_blob = s.getData();
+
+    // run it through the fee estimate, this doubles as a txn sanity check
+    int64_t fee = __etxn_fee_base(hookCtx, applyCtx, j, tx_blob.data(), tx_blob.size());
+    if (fee < 0)
+        returnJS(INVALID_ARGUMENT);
+
+    json[jss::fee] = to_string(fee);
+
+    // send it back to the user
+
+    const std::string flat = Json::FastWriter().write(json);
+
+    JSValue out;
+    out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
+
+    if (JS_IsException(out))
+        returnJS(INTERNAL_ERROR);
+
+    return out;
+
+    JS_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCNARG(
+    JSValue,
+    otxn_json)
+{
+    JS_HOOK_SETUP();
+
+    auto const& st = std::make_unique<ripple::STObject>(
+        hookCtx.emitFailure ? *(hookCtx.emitFailure)
+                            : const_cast<ripple::STTx&>(applyCtx.tx)
+                                  .downcast<ripple::STObject>());
+    
+    const std::string flat = Json::FastWriter().write(st->getJson(JsonOptions::none));
+
+    JSValue out;
+    out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
+
+    if (JS_IsException(out))
+        returnJS(INTERNAL_ERROR);
+
+    return out;
 
     JS_HOOK_TEARDOWN();
 }
