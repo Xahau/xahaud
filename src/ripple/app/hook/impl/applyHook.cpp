@@ -18,8 +18,43 @@
 #include <vector>
 #include <wasmedge/wasmedge.h>
 #include <quickjs/quickjs.h>
+#include <type_traits>
+#include <cstdint>
+#include <limits>
+#include <tuple>
 
 using namespace ripple;
+// check if any std::optionals are missing (any !has_value())
+template <typename... Optionals>
+inline bool any_missing(const Optionals&... optionals) {
+    return ((!optionals.has_value() || ...));
+}
+
+// check if all optional ints are within uint32_t range
+template <typename... OptionalInts>
+inline bool fits_u32(const OptionalInts&... optionals) {
+    constexpr uint32_t uint32_max = std::numeric_limits<uint32_t>::max();
+    return ((optionals.has_value() && 
+             *optionals >= 0 &&
+             *optionals <= uint32_max) && ...);
+}
+
+// check if all optional ints are within int32_t range
+template <typename... OptionalInts>
+inline bool fits_i32(const OptionalInts&... optionals) {
+    constexpr uint32_t int32_max = std::numeric_limits<int32_t>::max();
+    constexpr uint32_t int32_min = std::numeric_limits<int32_t>::min();
+    return ((optionals.has_value() && 
+             *optionals >= int32_min &&
+             *optionals <= int32_max) && ...);
+}
+
+
+// execute FromJSInt on more than one variable at the same time
+template <typename... Args>
+auto FromJSInts(JSContext* ctx, Args... args) {
+    return std::make_tuple(FromJSInt(ctx, args)...);
+}
 
 namespace hook {
 std::vector<std::pair<AccountID, bool>>
@@ -787,12 +822,109 @@ inline
 std::optional<int64_t>
 FromJSInt(JSContext* ctx, JSValueConst& v)
 {
-    if (!JS_IsNumber(v))
-        return {};
+    if (JS_IsNumber(v))
+    {
+        int64_t out = 0;
+        JS_ToInt64(ctx, &out, v);
+        return out;
+    }
 
-    int64_t out = 0;
-    JS_ToInt64(ctx, &out, v);
-    return out;
+    // if the value is a string, then try to parse it,
+    // mindful and tolerant of unary minus, whitespace, commas, underscores, alternative case,
+    // decimal point and bignum notation
+    if (JS_IsString(v))
+    {
+        auto [len, s] = FromJSString(ctx, v, 20);
+
+        if (!s.has_value() || len <= 0)
+            return {};
+    
+        char buffer[21] = {
+            0,0,0,0,0,
+            0,0,0,0,0,
+            0,0,0,0,0,
+            0,0,0,0,0,0};
+
+        char* out = buffer;
+
+        const char* start = s->data();
+        const char* ptr = start;
+        const char* end = ptr + len;
+
+        // Strip leading whitespace
+        while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r'))
+            ++ptr;
+
+        if (ptr == end)
+            return {};
+
+        // Check for unary minus
+        bool isNegative = (*ptr == '-');
+        if (isNegative)
+            *out++ = *ptr++;
+
+        // Check for hex prefix
+        bool isHex = (ptr + 1 < end && ptr[0] == '0' && (ptr[1] == 'x' || ptr[1] == 'X'));
+        if (isHex)
+        {
+            *out++ = *ptr++;
+            *out++ = *ptr++;
+        }
+
+        bool hasDecimalPoint = false;
+
+        // Character validation loop
+        while (ptr < end) {
+            char c = *ptr;
+            if (c >= '0' && c <= '9')
+                *out++ = *ptr++;
+            else if (isHex && ((c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')))
+                *out++ = *ptr++;
+            else if (c == '_' || c == ',')
+            {
+                if (ptr != start && *(ptr - 1) == '_' || *(ptr - 1) == ',')
+                    return {};
+                ++ptr;
+            }
+            else if (c == 'n' && ptr + 1 == end) // Bignum suffix
+                ++ptr;
+            else if (c == '.')
+            {
+                if (!hasDecimalPoint && !isHex)
+                {
+                    hasDecimalPoint = true;
+                    ++ptr;
+                    break;  // we will discard / truncate the decimal
+                }
+
+                return {};
+            }
+            else
+                break;
+        }
+
+        // truncate decimal if any
+        for (;hasDecimalPoint && ptr < end && *ptr >= '0' && *ptr <= '9'; ++ptr);
+
+        // Strip trailing whitespace if any
+        while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r'))
+            ++ptr;
+
+        // if the value wasn't fully parsed it's not a valid number
+        if (ptr != end)
+            return {};
+
+        // Parse the buffer into an int64_t
+        int64_t result;
+        if (sscanf(buffer, isHex ? "%llx" : "%lld", &result) != 1)
+            return {};
+
+        // Return the parsed value
+        return result;
+    }
+
+    return {};
+
 }
 
 #define returnJS(X) return JS_NewInt64(ctx, X)
@@ -5984,10 +6116,7 @@ __sto_emplace(
             return TOO_SMALL;
     }
 
-    std::vector<uint8_t> out;
-    out.reserve(sread_len + fread_len);
-    std::fill(out.begin(), out.end(), 0);
-
+    std::vector<uint8_t> out((size_t)(sread_len + fread_len), (uint8_t)0);
     uint8_t* write_ptr = out.data();
 
     // we must inject the field at the canonical location....
@@ -6632,6 +6761,20 @@ DEFINE_WASM_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
         }                                                           \
     }
 
+#define RETURNJS_IF_INVALID_FLOAT(float1)                           \
+    {                                                               \
+        if (float1 < 0)                                             \
+            returnJS(hook_api::INVALID_FLOAT);                      \
+        if (float1 != 0)                                            \
+        {                                                           \
+            uint64_t mantissa = get_mantissa(float1);               \
+            int32_t exponent = get_exponent(float1);                \
+            if (mantissa < minMantissa || mantissa > maxMantissa || \
+                exponent > maxExponent || exponent < minExponent)   \
+                returnJS(INVALID_FLOAT);                            \
+        }                                                           \
+    }
+
 DEFINE_WASM_FUNCTION(
     int64_t,
     trace_float,
@@ -6712,6 +6855,38 @@ DEFINE_WASM_FUNCTION(int64_t, float_set, int32_t exp, int64_t mantissa)
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_set,
+    JSValue raw_e,
+    JSValue raw_m)
+{
+    JS_HOOK_SETUP();
+
+    auto e = FromJSInt(ctx, raw_e);
+    auto m = FromJSInt(ctx, raw_m);
+
+    if (!e.has_value() || !m.has_value() || !fits_i32(e))
+        returnJS(INVALID_ARGUMENT);
+
+    int64_t mantissa = *m;
+    int32_t exp = *e;
+
+    if (mantissa == 0)
+        returnJS(0);
+
+    int64_t normalized = hook_float::normalize_xfl(mantissa, exp);
+
+    // the above function will underflow into a canonical 0
+    // but this api must report that underflow
+    if (normalized == 0 || normalized == XFL_OVERFLOW)
+        returnJS(INVALID_FLOAT);
+
+    returnJS(normalized);
+
+    JS_HOOK_TEARDOWN();
+}
+
 inline int64_t
 mulratio_internal(
     int64_t& man1,
@@ -6762,16 +6937,11 @@ float_multiply_internal_parts(
     return ret;
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    float_int,
-    int64_t float1,
-    uint32_t decimal_places,
-    uint32_t absolute)
+inline
+int64_t __float_int(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        int64_t float1, uint32_t decimal_places, uint32_t absolute)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
-
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0)
         return 0;
@@ -6800,15 +6970,50 @@ DEFINE_WASM_FUNCTION(
         man1 /= power_of_ten[shift];
 
     return man1;
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    float_int,
+    int64_t float1,
+    uint32_t decimal_places,
+    uint32_t absolute)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+    return __float_int(hookCtx, applyCtx, j,
+        float1, decimal_places, absolute);
 
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_int,
+    JSValue raw_float1,
+    JSValue raw_dp,
+    JSValue raw_abs)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
 
+    auto f1 = FromJSInt(ctx, raw_float1);
+    auto dp = FromJSInt(ctx, raw_dp);
+    auto ab = FromJSInt(ctx, raw_abs);
+
+    if (any_missing(f1, dp, ab) ||
+        !fits_u32(dp, ab))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__float_int(hookCtx, applyCtx, j, *f1, (uint32_t)(*dp), (uint32_t)(*ab)));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __float_multiply(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        int64_t float1, int64_t float2)
+{
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
@@ -6823,21 +7028,46 @@ DEFINE_WASM_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
     bool neg2 = is_negative(float2);
 
     return float_multiply_internal_parts(man1, exp1, neg1, man2, exp2, neg2);
-
-    WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    float_mulratio,
-    int64_t float1,
-    uint32_t round_up,
-    uint32_t numerator,
-    uint32_t denominator)
+
+DEFINE_WASM_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
+    return __float_multiply(hookCtx, applyCtx, j, float1, float2);
+
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_multiply,
+    JSValue raw_f1,
+    JSValue raw_f2)
+{
+    JS_HOOK_SETUP();
+    
+    auto f1 = FromJSInt(ctx, raw_f1);
+    auto f2 = FromJSInt(ctx, raw_f2);
+
+    if (any_missing(f1, f2))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__float_multiply(hookCtx, applyCtx, j, *f1, *f2));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __float_mulratio(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        int64_t float1,
+        uint32_t round_up,
+        uint32_t numerator,
+        uint32_t denominator)
+{
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0)
         return 0;
@@ -6855,8 +7085,42 @@ DEFINE_WASM_FUNCTION(
         man1 *= -1LL;
 
     return make_float((uint64_t)man1, exp1, is_negative(float1));
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    float_mulratio,
+    int64_t float1,
+    uint32_t round_up,
+    uint32_t numerator,
+    uint32_t denominator)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return __float_mulratio(hookCtx, applyCtx, j, float1, round_up, numerator, denominator);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_mulratio,
+    JSValue raw_f1,
+    JSValue raw_ru,
+    JSValue raw_n,
+    JSValue raw_d)
+{
+    JS_HOOK_SETUP();
+
+    auto [f1, ru, n, d] = FromJSInts(ctx, raw_f1, raw_ru, raw_n, raw_d);
+
+    if (any_missing(f1, ru, n, d) || !fits_u32(ru, n, d))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__float_mulratio(hookCtx, applyCtx, j, *f1, (uint32_t)(*ru), (uint32_t)(*n), (uint32_t)(*d)));
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(int64_t, float_negate, int64_t float1)
@@ -6872,15 +7136,30 @@ DEFINE_WASM_FUNCTION(int64_t, float_negate, int64_t float1)
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    float_compare,
-    int64_t float1,
-    int64_t float2,
-    uint32_t mode)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_negate,
+    JSValue raw_f1)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
+
+    auto float1 = FromJSInt(ctx, raw_f1);
+    if (!float1.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (*float1 == 0)
+        returnJS(0);
+    RETURNJS_IF_INVALID_FLOAT(*float1);
+    returnJS(hook_float::invert_sign(*float1));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __float_compare(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        int64_t float1, int64_t float2, uint32_t mode)
+{
 
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
@@ -6926,13 +7205,46 @@ DEFINE_WASM_FUNCTION(
         return XFL_OVERFLOW;
     }
 
-    WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    float_compare,
+    int64_t float1,
+    int64_t float2,
+    uint32_t mode)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
+    return __float_compare(hookCtx, applyCtx, j, float1, float2, mode);
+
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_compare,
+    JSValue raw_f1,
+    JSValue raw_f2,
+    JSValue raw_mode)
+{
+    JS_HOOK_SETUP();
+
+    auto [f1, f2, mode] = FromJSInts(ctx, raw_f1, raw_f2, raw_mode);
+    if (any_missing(f1, f2, mode) || !fits_u32(mode))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__float_compare(hookCtx, applyCtx, j, *f1, *f2, (uint32_t)(*mode)));
+
+    JS_HOOK_TEARDOWN();
+}
+
+
+inline
+int64_t __float_sum(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        int64_t float1, int64_t float2)
+{
 
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
@@ -6967,66 +7279,44 @@ DEFINE_WASM_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
     {
         return XFL_OVERFLOW;
     }
+}
+
+DEFINE_WASM_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+    return __float_sum(hookCtx, applyCtx, j, float1, float2);
 
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    float_sto,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t cread_ptr,
-    uint32_t cread_len,
-    uint32_t iread_ptr,
-    uint32_t iread_len,
-    int64_t float1,
-    uint32_t field_code)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_sum,
+    JSValue raw_f1,
+    JSValue raw_f2)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
 
-    std::optional<Currency> currency;
-    std::optional<AccountID> issuer;
+    auto [f1, f2] = FromJSInts(ctx, raw_f1, raw_f2);
+    if (any_missing(f1, f2))
+        returnJS(INVALID_ARGUMENT);
 
-    // bounds and argument checks
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
+    returnJS(__float_sum(hookCtx, applyCtx, j, *f1, *f2));
 
-    if (cread_len == 0)
-    {
-        if (cread_ptr != 0)
-            return INVALID_ARGUMENT;
-    }
-    else
-    {
-        if (cread_len != 20 && cread_len != 3)
-            return INVALID_ARGUMENT;
+    JS_HOOK_TEARDOWN();
+}
 
-        if (NOT_IN_BOUNDS(cread_ptr, cread_len, memory_length))
-            return OUT_OF_BOUNDS;
-
-        currency = parseCurrency(memory + cread_ptr, cread_len);
-
-        if (!currency)
-            return INVALID_ARGUMENT;
-    }
-
-    if (iread_len == 0)
-    {
-        if (iread_ptr != 0)
-            return INVALID_ARGUMENT;
-    }
-    else
-    {
-        if (iread_len != 20)
-            return INVALID_ARGUMENT;
-
-        if (NOT_IN_BOUNDS(iread_ptr, iread_len, memory_length))
-            return OUT_OF_BOUNDS;
-
-        issuer = AccountID::fromVoid(memory + iread_ptr);
-    }
+inline
+std::variant<int64_t, std::vector<uint8_t>>
+__float_sto(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint32_t write_len,
+        std::optional<Currency> currency,
+        std::optional<AccountID> issuer,
+        int64_t float1,
+        uint32_t field_code)
+{
 
     RETURN_IF_INVALID_FLOAT(float1);
 
@@ -7072,33 +7362,32 @@ DEFINE_WASM_FUNCTION(
     if (bytes_needed > write_len)
         return TOO_SMALL;
 
+    std::vector<uint8_t> vec(bytes_needed);
+    uint8_t* write_ptr = vec.data();
+
     if (is_xrp || is_short)
     {
         // do nothing
     }
     else if (field < 16 && type < 16)
     {
-        *(memory + write_ptr) = (((uint8_t)type) << 4U) + ((uint8_t)field);
-        bytes_written++;
+        *write_ptr++ = (((uint8_t)type) << 4U) + ((uint8_t)field);
     }
     else if (field >= 16 && type < 16)
     {
-        *(memory + write_ptr) = (((uint8_t)type) << 4U);
-        *(memory + write_ptr + 1) = ((uint8_t)field);
-        bytes_written += 2;
+        *write_ptr++ = (((uint8_t)type) << 4U);
+        *write_ptr++ = ((uint8_t)field);
     }
     else if (field < 16 && type >= 16)
     {
-        *(memory + write_ptr) = (((uint8_t)field) << 4U);
-        *(memory + write_ptr + 1) = ((uint8_t)type);
-        bytes_written += 2;
+        *write_ptr++ = (((uint8_t)field) << 4U);
+        *write_ptr++ = ((uint8_t)type);
     }
     else
     {
-        *(memory + write_ptr) = 0;
-        *(memory + write_ptr + 1) = ((uint8_t)type);
-        *(memory + write_ptr + 2) = ((uint8_t)field);
-        bytes_written += 3;
+        *write_ptr++ = 0;
+        *write_ptr++ = ((uint8_t)type);
+        *write_ptr++ = ((uint8_t)field);
     }
 
     uint64_t man = get_mantissa(float1);
@@ -7152,62 +7441,164 @@ DEFINE_WASM_FUNCTION(
         out[7] = (uint8_t)((man >> 0U) & 0xFFU);
     }
 
-    WRITE_WASM_MEMORY(
-        bytes_written,
-        write_ptr + bytes_written,
-        write_len - bytes_written,
-        out,
-        8,
-        memory,
-        memory_length);
+    std::memcpy(write_ptr, out, 8);
+    write_ptr += 8;
 
     if (!is_xrp && !is_short)
     {
-        WRITE_WASM_MEMORY(
-            bytes_written,
-            write_ptr + bytes_written,
-            write_len - bytes_written,
-            (*currency).data(),
-            20,
-            memory,
-            memory_length);
-
-        WRITE_WASM_MEMORY(
-            bytes_written,
-            write_ptr + bytes_written,
-            write_len - bytes_written,
-            (*issuer).data(),
-            20,
-            memory,
-            memory_length);
+        std::memcpy(write_ptr, currency->data(), 20);
+        write_ptr += 20;
+        std::memcpy(write_ptr, issuer->data(), 20);
     }
 
-    return bytes_written;
-
-    WASM_HOOK_TEARDOWN();
+    return vec;
 }
+
 
 DEFINE_WASM_FUNCTION(
     int64_t,
-    float_sto_set,
-    uint32_t read_ptr,
-    uint32_t read_len)
+    float_sto,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t cread_ptr,
+    uint32_t cread_len,
+    uint32_t iread_ptr,
+    uint32_t iread_len,
+    int64_t float1,
+    uint32_t field_code)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (read_len < 8)
-        return NOT_AN_OBJECT;
+    // error checking preserved here, in the same order to avoid a fork condition 
 
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+    std::optional<Currency> currency;
+    std::optional<AccountID> issuer;
+
+    // bounds and argument checks
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    uint8_t* upto = memory + read_ptr;
+    if (cread_len == 0)
+    {
+        if (cread_ptr != 0)
+            return INVALID_ARGUMENT;
+    }
+    else
+    {
+        if (cread_len != 20 && cread_len != 3)
+            return INVALID_ARGUMENT;
+
+        if (NOT_IN_BOUNDS(cread_ptr, cread_len, memory_length))
+            return OUT_OF_BOUNDS;
+
+        currency = parseCurrency(memory + cread_ptr, cread_len);
+
+        if (!currency)
+            return INVALID_ARGUMENT;
+    }
+
+    if (iread_len == 0)
+    {
+        if (iread_ptr != 0)
+            return INVALID_ARGUMENT;
+    }
+    else
+    {
+        if (iread_len != 20)
+            return INVALID_ARGUMENT;
+
+        if (NOT_IN_BOUNDS(iread_ptr, iread_len, memory_length))
+            return OUT_OF_BOUNDS;
+
+        issuer = AccountID::fromVoid(memory + iread_ptr);
+    }
+    
+    auto ret = __float_sto(hookCtx, applyCtx, j, write_len,
+        currency, issuer,        
+        float1, field_code);
+
+    if (std::holds_alternative<int64_t>(ret))
+        return std::get<int64_t>(ret);
+
+    std::vector<uint8_t> const& vec = std::get<std::vector<uint8_t>>(ret);
+    if (vec.size() > write_len)
+        return TOO_SMALL;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len,
+        vec.data(), vec.size(),
+        memory, memory_length);
+        
+    WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_sto,
+    JSValue raw_cur,
+    JSValue raw_isu,
+    JSValue raw_f1,
+    JSValue raw_fc)
+{
+    JS_HOOK_SETUP();
+    
+
+    auto [f1, fc] = FromJSInts(ctx, raw_f1, raw_fc);
+    auto cur = FromJSIntArrayOrHexString(ctx, raw_cur, 20);
+    auto isu = FromJSIntArrayOrHexString(ctx, raw_isu, 20);
+
+    if (!cur.has_value() && !JS_IsUndefined(raw_cur))
+        returnJS(INVALID_ARGUMENT);
+
+    if (!isu.has_value() && !JS_IsUndefined(raw_isu))
+        returnJS(INVALID_ARGUMENT);
+
+    if (any_missing(f1, fc) || !fits_u32(fc))
+        returnJS(INVALID_ARGUMENT);
+
+
+    std::optional<Currency> currency;
+    std::optional<AccountID> issuer;
+    if (cur.has_value())
+        currency = parseCurrency(cur->data(), cur->size());
+    if (isu.has_value())
+        issuer = AccountID::fromVoid(isu->data());
+
+    // RH TODO: 64 is wrong, figure out the longest this can be (< 64)
+    auto ret = __float_sto(hookCtx, applyCtx, j,
+        64, currency, issuer, *f1, *fc);
+
+    if (std::holds_alternative<int64_t>(ret))
+        returnJS(std::get<int64_t>(ret));
+
+    std::vector<uint8_t> const& vec = std::get<std::vector<uint8_t>>(ret);
+    if (vec.size() > 64)
+        returnJS(INTERNAL_ERROR);    
+    
+    auto out = ToJSIntArray(ctx, vec); 
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+    return *out;
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __float_sto_set(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* read_ptr, uint32_t read_len)
+{
+
+    if (read_len < 8)
+        return NOT_AN_OBJECT;
+    
+    uint8_t* upto = read_ptr;
 
     if (read_len > 8)
     {
-        uint8_t hi = memory[read_ptr] >> 4U;
-        uint8_t lo = memory[read_ptr] & 0xFU;
+        uint8_t hi = *upto >> 4U;
+        uint8_t lo = *upto & 0xFU;
 
         if (hi == 0 && lo == 0)
         {
@@ -7266,7 +7657,43 @@ DEFINE_WASM_FUNCTION(
 
     return hook_float::normalize_xfl(mantissa, exponent, is_negative);
 
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    float_sto_set,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (read_len < 8)
+        return NOT_AN_OBJECT;
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+    
+    return __float_sto_set(hookCtx, applyCtx, j, memory + read_ptr, read_len);
+
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_sto_set,
+    JSValue raw_sto)
+{
+    JS_HOOK_SETUP();
+
+    auto sto = FromJSIntArrayOrHexString(ctx, raw_sto, 0x10000);
+
+    if (!sto.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__float_sto_set(hookCtx, applyCtx, j, sto->data(), sto->size()));
+
+    JS_HOOK_TEARDOWN();
 }
 
 const int64_t float_one_internal = make_float(1000000000000000ull, -15, false);
@@ -7351,9 +7778,35 @@ DEFINE_WASM_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_divide,
+    JSValue raw_f1,
+    JSValue raw_f2)
+{
+    JS_HOOK_SETUP();
+
+    auto [f1, f2] = FromJSInts(ctx, raw_f1, raw_f2);
+    if (any_missing(f1, f2))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(float_divide_internal(*f1, *f2));
+
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCNARG(int64_t, float_one)
 {
     return float_one_internal;
+}
+
+DEFINE_JS_FUNCNARG(JSValue, float_one)
+{
+    JS_HOOK_SETUP();
+
+    returnJS(float_one_internal);
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(int64_t, float_invert, int64_t float1)
@@ -7370,6 +7823,26 @@ DEFINE_WASM_FUNCTION(int64_t, float_invert, int64_t float1)
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_invert,
+    JSValue raw_f1)
+{
+    JS_HOOK_SETUP();
+
+    auto f1 = FromJSInt(ctx, raw_f1);
+    if (!f1.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (*f1 == 0)
+        returnJS(DIVISION_BY_ZERO);
+    if (*f1 == float_one_internal)
+        returnJS(float_one_internal);
+    returnJS(float_divide_internal(float_one_internal, *f1));
+
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCTION(int64_t, float_mantissa, int64_t float1)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
@@ -7383,6 +7856,27 @@ DEFINE_WASM_FUNCTION(int64_t, float_mantissa, int64_t float1)
     WASM_HOOK_TEARDOWN();
 }
 
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_mantissa,
+    JSValue raw_f1)
+{
+    JS_HOOK_SETUP();
+    
+    auto f1 = FromJSInt(ctx, raw_f1);
+    if (!f1.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    RETURNJS_IF_INVALID_FLOAT(*f1);
+
+    if (*f1 == 0)
+        returnJS(0);
+
+    returnJS(get_mantissa(*f1));
+    
+    JS_HOOK_TEARDOWN();
+}
+
 DEFINE_WASM_FUNCTION(int64_t, float_sign, int64_t float1)
 {
     WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
@@ -7394,6 +7888,27 @@ DEFINE_WASM_FUNCTION(int64_t, float_sign, int64_t float1)
     return is_negative(float1);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_sign,
+    JSValue raw_f1)
+{
+    JS_HOOK_SETUP();
+
+    auto f1 = FromJSInt(ctx, raw_f1);
+    if (!f1.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    RETURNJS_IF_INVALID_FLOAT(*f1);
+
+    if (*f1 == 0)
+        returnJS(0);
+
+    returnJS(is_negative(*f1));
+
+    JS_HOOK_TEARDOWN();
 }
 
 inline int64_t
@@ -7445,11 +7960,12 @@ double_to_xfl(double x)
     return ret;
 }
 
-DEFINE_WASM_FUNCTION(int64_t, float_log, int64_t float1)
-{
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
 
+inline
+int64_t __float_log(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        int64_t float1)
+{
     RETURN_IF_INVALID_FLOAT(float1);
 
     if (float1 == 0)
@@ -7464,15 +7980,40 @@ DEFINE_WASM_FUNCTION(int64_t, float_log, int64_t float1)
     double result = log10(inp) + exp1;
 
     return double_to_xfl(result);
+}
+
+DEFINE_WASM_FUNCTION(int64_t, float_log, int64_t float1)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+    
+    return __float_log(hookCtx, applyCtx, j, float1);
+
 
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_log,
+    JSValue raw_f1)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    JS_HOOK_SETUP();
 
+    auto f1 = FromJSInt(ctx, raw_f1);
+    if (!f1.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__float_log(hookCtx, applyCtx, j, *f1));
+
+    JS_HOOK_TEARDOWN();
+}
+
+inline
+int64_t __float_root(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        int64_t float1, uint32_t n)
+{
     RETURN_IF_INVALID_FLOAT(float1);
     if (float1 == 0)
         return 0;
@@ -7490,7 +8031,33 @@ DEFINE_WASM_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
 
     return double_to_xfl(result);
 
+}
+
+DEFINE_WASM_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return __float_root(hookCtx, applyCtx, j, float1, n);
+
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    float_root,
+    JSValue raw_f1,
+    JSValue raw_n)
+{
+    JS_HOOK_SETUP();
+
+    auto [f1, n] = FromJSInts(ctx, raw_f1, raw_n);
+    if (any_missing(f1, n) || !fits_u32(n))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__float_root(hookCtx, applyCtx, j, *f1, (uint32_t)(*n)));
+
+    JS_HOOK_TEARDOWN();
 }
 
 DEFINE_WASM_FUNCTION(
