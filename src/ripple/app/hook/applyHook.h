@@ -270,6 +270,11 @@ DECLARE_WASM_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len);
 
+DECLARE_JS_FUNCTION(
+    JSValue,
+    emit,
+    JSValue txn);
+
 DECLARE_WASM_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
 DECLARE_JS_FUNCTION(
     JSValue,
@@ -1294,9 +1299,9 @@ public:
             ADD_JS_FUNCTION(sto_subarray, ctx);
             ADD_JS_FUNCTION(sto_emplace, ctx);
             ADD_JS_FUNCTION(sto_erase, ctx);
-            /*
+            
             ADD_JS_FUNCTION(emit, ctx);
-            */
+            
             ADD_JS_FUNCTION(etxn_burden, ctx);
             ADD_JS_FUNCTION(etxn_fee_base, ctx);
             ADD_JS_FUNCTION(etxn_details, ctx);

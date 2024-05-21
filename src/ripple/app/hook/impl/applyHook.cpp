@@ -4676,30 +4676,26 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
+// RH TODO: reorder functions to avoid prototyping if possible
+inline
+int64_t
+__etxn_fee_base(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* read_ptr, size_t read_len);
+
 /* Emit a transaction from this hook. Transaction must be in STObject form,
  * fully formed and valid. XRPLD does not modify transactions it only checks
  * them for validity. */
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    emit,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len)
+inline
+std::variant<int64_t,   // populated if error code
+std::shared_ptr<Transaction>> // otherwise tx itself if tx is valid
+__emit(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* read_ptr, uint32_t read_len)
 {
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
 
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (write_len < 32)
-        return TOO_SMALL;
-
-    auto& app = hookCtx.applyCtx.app;
+    auto& app = applyCtx.app;
+    auto& view = applyCtx.view();
 
     if (hookCtx.expected_etxn_count < 0)
         return PREREQUISITE_NOT_MET;
@@ -4707,13 +4703,13 @@ DEFINE_WASM_FUNCTION(
     if (hookCtx.result.emittedTxn.size() >= hookCtx.expected_etxn_count)
         return TOO_MANY_EMITTED_TXN;
 
-    ripple::Blob blob{memory + read_ptr, memory + read_ptr + read_len};
+    ripple::Blob blob{read_ptr, read_ptr + read_len};
 
     std::shared_ptr<STTx const> stpTrans;
     try
     {
         stpTrans = std::make_shared<STTx const>(
-            SerialIter{memory + read_ptr, read_len});
+            SerialIter{read_ptr, read_len});
     }
     catch (std::exception& e)
     {
@@ -4852,7 +4848,7 @@ DEFINE_WASM_FUNCTION(
 
     auto const& hash = emitDetails.getFieldH256(sfEmitHookHash);
 
-    uint32_t gen_proper = etxn_generation(hookCtx, frameCtx);
+    uint32_t gen_proper = (uint32_t)(__etxn_generation(hookCtx, applyCtx, j));
 
     if (gen != gen_proper)
     {
@@ -4863,7 +4859,7 @@ DEFINE_WASM_FUNCTION(
         return EMISSION_FAILURE;
     }
 
-    uint64_t bur_proper = etxn_burden(hookCtx, frameCtx);
+    uint64_t bur_proper = (uint32_t)(__etxn_burden(hookCtx, applyCtx, j));
     if (bur != bur_proper)
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
@@ -4950,7 +4946,7 @@ DEFINE_WASM_FUNCTION(
     }
 
     // rule 7 check the emitted txn pays the appropriate fee
-    int64_t minfee = etxn_fee_base(hookCtx, frameCtx, read_ptr, read_len);
+    int64_t minfee = __etxn_fee_base(hookCtx, applyCtx, j, read_ptr, read_len);
 
     if (minfee < 0)
     {
@@ -4987,7 +4983,7 @@ DEFINE_WASM_FUNCTION(
     // preflight the transaction
     auto preflightResult = ripple::preflight(
         applyCtx.app,
-        applyCtx.view().rules(),
+        view.rules(),
         *stpTrans,
         ripple::ApplyFlags::tapPREFLIGHT_EMIT,
         j);
@@ -4999,6 +4995,36 @@ DEFINE_WASM_FUNCTION(
                         << preflightResult.ter;
         return EMISSION_FAILURE;
     }
+
+    return tpTrans;
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    emit,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto ret = __emit(hookCtx, applyCtx, j, memory + read_ptr, read_len);
+
+    if (std::holds_alternative<int64_t>(ret))
+        return std::get<int64_t>(ret);
+    
+    auto const& tpTrans = std::get<std::shared_ptr<Transaction>>(ret);
 
     auto const& txID = tpTrans->getID();
 
@@ -5025,6 +5051,36 @@ DEFINE_WASM_FUNCTION(
 
     return result;
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    emit,
+    JSValue raw_tx)
+{
+    JS_HOOK_SETUP();
+
+    auto tx = FromJSIntArrayOrHexString(ctx, raw_tx, 0x10000);
+    if (!tx.has_value() || tx->empty())
+        returnJS(INVALID_ARGUMENT);
+
+    auto ret = __emit(hookCtx, applyCtx, j, tx->data(), tx->size());
+
+    if (std::holds_alternative<int64_t>(ret))
+        returnJS(std::get<int64_t>(ret));
+    
+    auto const& tpTrans = std::get<std::shared_ptr<Transaction>>(ret);
+    auto const& txID = tpTrans->getID();
+    auto out = ToJSIntArray(ctx, txID);
+
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    hookCtx.result.emittedTxn.push(tpTrans);
+
+    return *out;
+
+    JS_HOOK_TEARDOWN();
 }
 
 // When implemented will return the hash of the current hook
@@ -6505,25 +6561,19 @@ DEFINE_JS_FUNCNARG(JSValue, fee_base)
 
 // Return the fee base for a hypothetically emitted transaction from the current
 // hook based on byte count
-DEFINE_WASM_FUNCTION(
-    int64_t,
-    etxn_fee_base,
-    uint32_t read_ptr,
-    uint32_t read_len)
-{
-    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
-
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
-
+inline
+int64_t
+__etxn_fee_base(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint8_t* read_ptr, size_t read_len)
+{    
     if (hookCtx.expected_etxn_count <= -1)
         return PREREQUISITE_NOT_MET;
 
     try
     {
         ripple::Slice tx{
-            reinterpret_cast<const void*>(read_ptr + memory), read_len};
+            reinterpret_cast<const void*>(read_ptr), read_len};
 
         SerialIter sitTrans(tx);
 
@@ -6538,6 +6588,21 @@ DEFINE_WASM_FUNCTION(
     {
         return INVALID_TXN;
     }
+}
+
+DEFINE_WASM_FUNCTION(
+    int64_t,
+    etxn_fee_base,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    WASM_HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    return __etxn_fee_base(hookCtx, applyCtx, j, memory + read_ptr, read_len);
 
     WASM_HOOK_TEARDOWN();
 }
@@ -6553,30 +6618,7 @@ DEFINE_JS_FUNCTION(
     if (!blob.has_value() || blob->empty())
         returnJS(INVALID_ARGUMENT);
     
-    if (hookCtx.expected_etxn_count <= -1)
-        returnJS(PREREQUISITE_NOT_MET);
-
-    uint8_t const* ptr = blob->data();
-    size_t len = blob->size();
-
-    try
-    {
-        ripple::Slice tx{
-            reinterpret_cast<const void*>(ptr), len};
-
-        SerialIter sitTrans(tx);
-
-        std::unique_ptr<STTx const> stpTrans;
-        stpTrans = std::make_unique<STTx const>(std::ref(sitTrans));
-
-        returnJS(Transactor::calculateBaseFee(
-                   *(applyCtx.app.openLedger().current()), *stpTrans)
-            .drops());
-    }
-    catch (std::exception& e)
-    {
-        returnJS(INVALID_TXN);
-    }
+    returnJS(__etxn_fee_base(hookCtx, applyCtx, j, blob->data(), blob->size()));
 
     JS_HOOK_TEARDOWN();
 }
