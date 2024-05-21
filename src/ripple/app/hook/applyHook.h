@@ -271,7 +271,19 @@ DECLARE_WASM_FUNCTION(
     uint32_t read_len);
 
 DECLARE_WASM_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_set,
+    JSValue e,
+    JSValue m);
+
 DECLARE_WASM_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_multiply,
+    JSValue f1,
+    JSValue f2);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     float_mulratio,
@@ -279,14 +291,40 @@ DECLARE_WASM_FUNCTION(
     uint32_t round_up,
     uint32_t numerator,
     uint32_t denominator);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_mulratio,
+    JSValue f1,
+    JSValue round_up,
+    JSValue numerator,
+    JSValue denominator);
+
 DECLARE_WASM_FUNCTION(int64_t, float_negate, int64_t float1);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_negate,
+    JSValue f1);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     float_compare,
     int64_t float1,
     int64_t float2,
     uint32_t mode);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_compare,
+    JSValue f1,
+    JSValue f2,
+    JSValue mode);
+
 DECLARE_WASM_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_sum,
+    JSValue f1,
+    JSValue f2);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     float_sto,
@@ -298,26 +336,72 @@ DECLARE_WASM_FUNCTION(
     uint32_t iread_len,
     int64_t float1,
     uint32_t field_code);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_sto,
+    JSValue cur,
+    JSValue isu,
+    JSValue float1,
+    JSValue field_code);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     float_sto_set,
     uint32_t read_ptr,
     uint32_t read_len);
-DECLARE_WASM_FUNCTION(int64_t, float_invert, int64_t float1);
-DECLARE_WASM_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2);
-DECLARE_WASM_FUNCNARG(int64_t, float_one);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_sto_set,
+    JSValue buf);
 
+DECLARE_WASM_FUNCTION(int64_t, float_invert, int64_t float1);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_invert,
+    JSValue f1);
+DECLARE_WASM_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_divide,
+    JSValue f1,
+    JSValue f2);
+DECLARE_WASM_FUNCNARG(int64_t, float_one);
+DECLARE_JS_FUNCNARG(
+    JSValue,
+    float_one);
 DECLARE_WASM_FUNCTION(int64_t, float_mantissa, int64_t float1);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_mantissa,
+    JSValue f1);
 DECLARE_WASM_FUNCTION(int64_t, float_sign, int64_t float1);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_sign,
+    JSValue f1);
 DECLARE_WASM_FUNCTION(
     int64_t,
     float_int,
     int64_t float1,
     uint32_t decimal_places,
     uint32_t abs);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_int,
+    JSValue f1,
+    JSValue decimal_places,
+    JSValue abs);
 DECLARE_WASM_FUNCTION(int64_t, float_log, int64_t float1);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_log,
+    JSValue float1);
 DECLARE_WASM_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n);
-
+DECLARE_JS_FUNCTION(
+    JSValue,
+    float_root,
+    JSValue f1,
+    JSValue n);
 DECLARE_WASM_FUNCTION(
     int64_t,
     hook_account,
@@ -1219,7 +1303,7 @@ public:
             ADD_JS_FUNCTION(etxn_reserve, ctx);
             ADD_JS_FUNCTION(etxn_generation, ctx);
             ADD_JS_FUNCTION(etxn_nonce, ctx);
-            /*
+            
             ADD_JS_FUNCTION(float_set, ctx);
             ADD_JS_FUNCTION(float_multiply, ctx);
             ADD_JS_FUNCTION(float_mulratio, ctx);
@@ -1238,7 +1322,6 @@ public:
             ADD_JS_FUNCTION(float_log, ctx);
             ADD_JS_FUNCTION(float_root, ctx);
 
-            */
             ADD_JS_FUNCTION(otxn_burden, ctx);
             ADD_JS_FUNCTION(otxn_generation, ctx);
             ADD_JS_FUNCTION(otxn_field, ctx);
