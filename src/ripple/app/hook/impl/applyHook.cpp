@@ -5155,7 +5155,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
 
     // add a dummy fee
-    json[jss::fee] = "0";
+    json[jss::Fee] = "0";
 
     // force key to empty
     json[jss::SigningPubKey] = "";
@@ -5179,14 +5179,17 @@ DEFINE_JS_FUNCTION(
     if (!json.isMember(jss::EmitDetails))
     {
         int64_t ret = __etxn_details(hookCtx, applyCtx, j, details, 512);
-        if (ret <= 0)
+        if (ret <= 2)
             returnJS(INTERNAL_ERROR);
-        Slice s(reinterpret_cast<void const*>(details), (size_t)ret);
 
+        // truncate the head and tail (emit details object markers)
+        Slice s(reinterpret_cast<void const*>(details + 1), (size_t)(ret - 2));
+
+        std::cout << "emitdets: " << strHex(s) << "\n";
         try
         {
             SerialIter sit{s};
-            STObject st{sit, sfGeneric};
+            STObject st{sit, sfEmitDetails};
             json[jss::EmitDetails] = st.getJson(JsonOptions::none);
         }
         catch (std::exception const& ex)
@@ -5197,6 +5200,10 @@ DEFINE_JS_FUNCTION(
         }
     }
 
+    {
+        const std::string flat = Json::FastWriter().write(json);
+        std::cout << "intermediate: `" << flat << "`\n";
+    }
     
     STParsedJSONObject parsed(std::string(jss::tx_json), json);
     if (!parsed.object.has_value())
@@ -5214,7 +5221,7 @@ DEFINE_JS_FUNCTION(
     if (fee < 0)
         returnJS(INVALID_ARGUMENT);
 
-    json[jss::fee] = to_string(fee);
+    json[jss::Fee] = to_string(fee);
 
     // send it back to the user
 
