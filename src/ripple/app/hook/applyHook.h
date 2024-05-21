@@ -275,6 +275,15 @@ DECLARE_JS_FUNCTION(
     emit,
     JSValue txn);
 
+DECLARE_JS_FUNCTION(
+    JSValue,
+    prepare,
+    JSValue tmpl);
+
+DECLARE_JS_FUNCNARG(
+    JSValue,
+    otxn_json);
+
 DECLARE_WASM_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
 DECLARE_JS_FUNCTION(
     JSValue,
@@ -1301,6 +1310,8 @@ public:
             ADD_JS_FUNCTION(sto_erase, ctx);
             
             ADD_JS_FUNCTION(emit, ctx);
+            ADD_JS_FUNCTION(prepare, ctx);
+            ADD_JS_FUNCTION(otxn_json, ctx);
             
             ADD_JS_FUNCTION(etxn_burden, ctx);
             ADD_JS_FUNCTION(etxn_fee_base, ctx);
