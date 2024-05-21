@@ -1090,9 +1090,9 @@ touchAccount(
         return;
 
     if (!sle)
-        *sle = view.peek(keylet::account(id));
+        sle = view.peek(keylet::account(id));
 
-    if (!(*sle))
+    if (!sle || !(*sle))
         return;
 
     uint64_t tc = (*sle)->isFieldPresent(sfTouchCount)
