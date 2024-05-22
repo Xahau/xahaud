@@ -38,7 +38,7 @@ Json::Value
 hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv) = 0);
 
 Json::Value
-hso(std::vector<uint8_t> const& wasmBytes, uint16_t apiVersion, void (*f)(Json::Value& jv) = 0);
+hsov1(std::vector<uint8_t> const& wasmBytes, uint16_t apiVersion, void (*f)(Json::Value& jv) = 0);
 
 
 Json::Value
