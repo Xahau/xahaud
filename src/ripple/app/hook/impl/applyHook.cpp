@@ -2849,8 +2849,12 @@ DEFINE_JS_FUNCTION(
              ? applyCtx.tx.getFieldH256(sfTransactionHash)
              : applyCtx.tx.getTransactionID());
 
-    // RH TODO: this can fail with a JSException, replace all instances with something safer V
-    return JS_NewArrayBufferCopy(ctx, txID.data(), txID.size());
+    auto out = ToJSIntArray(ctx, Slice{txID.data(), txID.size()});
+
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
 
     JS_HOOK_TEARDOWN();
 }
@@ -5529,7 +5533,12 @@ DEFINE_JS_FUNCNARG(
 {
     JS_HOOK_SETUP();
 
-    return JS_NewArrayBufferCopy(ctx, hookCtx.result.account.data(), 20);
+    auto out = ToJSIntArray(ctx, Slice{hookCtx.result.account.data(), 20u});
+
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
     
     JS_HOOK_TEARDOWN();
 }
