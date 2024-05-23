@@ -417,7 +417,7 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A1["USD"](0), tfSetFreeze));
         auto affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, 1u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
             return;
 
         auto let =
@@ -475,7 +475,7 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A3["USD"](0), tfSetFreeze));
         auto affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, 3u)))
             return;
         auto ff =
             affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
