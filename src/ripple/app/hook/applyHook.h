@@ -284,6 +284,21 @@ DECLARE_JS_FUNCNARG(
     JSValue,
     otxn_json);
 
+DECLARE_JS_FUNCTION(
+    JSValue,
+    slot_json,
+    JSValue slotno);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    sto_to_json,
+    JSValue sto_in);
+
+DECLARE_JS_FUNCTION(
+    JSValue,
+    sto_from_json,
+    JSValue json_in);
+
 DECLARE_WASM_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
 DECLARE_JS_FUNCTION(
     JSValue,
@@ -752,12 +767,21 @@ DECLARE_JS_FUNCTION(
     JSValue param_key);
 
 DECLARE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_no);
+DECLARE_JS_FUNCTION(
+    JSValue,
+    meta_slot,
+    JSValue slot_no);
+
 DECLARE_WASM_FUNCTION(
     int64_t,
     xpop_slot,
     uint32_t slot_no_tx,
     uint32_t slot_no_meta);
-
+DECLARE_JS_FUNCTION(
+    JSValue,
+    xpop_slot,
+    JSValue slot_no_tx,
+    JSValue slot_no_meta);
 
 } /* end namespace hook_api */
 
@@ -1312,7 +1336,11 @@ public:
             ADD_JS_FUNCTION(emit, ctx);
             ADD_JS_FUNCTION(prepare, ctx);
             ADD_JS_FUNCTION(otxn_json, ctx);
-            
+           
+            ADD_JS_FUNCTION(slot_json, ctx);
+            ADD_JS_FUNCTION(sto_to_json, ctx);
+            ADD_JS_FUNCTION(sto_from_json, ctx);
+
             ADD_JS_FUNCTION(etxn_burden, ctx);
             ADD_JS_FUNCTION(etxn_fee_base, ctx);
             ADD_JS_FUNCTION(etxn_details, ctx);
@@ -1382,9 +1410,9 @@ public:
             ADD_JS_FUNCTION(trace_num, ctx);
             ADD_JS_FUNCTION(trace_float, ctx);
 
+            */
             ADD_JS_FUNCTION(meta_slot, ctx);
             ADD_JS_FUNCTION(xpop_slot, ctx);
-            */
         }
 
         bool

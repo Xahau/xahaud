@@ -1679,7 +1679,15 @@ DEFINE_JS_FUNCTION(
 
     if (JS_IsBool(as_hex) && !!JS_ToBool(ctx, as_hex))
     {
-        // RH TODO
+        auto in = FromJSIntArrayOrHexString(ctx, data, 64*1024);
+        if (in.has_value())
+        {
+            if (in->size() > 1024)
+                in->resize(1024);
+            out += strHex(*in);
+        }
+        else
+            out += "<could not display hex>";
     }
     else
     {
@@ -3320,10 +3328,15 @@ DEFINE_JS_FUNCTION(
         ++ptr;
     }
 
-    if (len < 0 || len > olen)
+    if (len <= 0 || len > olen)
         returnJS(INTERNAL_ERROR);
     
-    return JS_NewArrayBufferCopy(ctx, ptr, len);
+    auto out = ToJSIntArray(ctx, Slice{ptr, (size_t)len});
+
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    return *out;
 
     JS_HOOK_TEARDOWN();
 }
@@ -5261,6 +5274,142 @@ DEFINE_JS_FUNCNARG(
 
     JS_HOOK_TEARDOWN();
 }
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    slot_json,
+    JSValue raw_slot_no)
+{
+    JS_HOOK_SETUP();
+    
+    auto slot_no = FromJSInt(ctx, raw_slot_no);
+    if (!slot_no.has_value())
+        returnJS(INVALID_ARGUMENT);
+    
+    if (hookCtx.slot.find(*slot_no) == hookCtx.slot.end())
+        returnJS(DOESNT_EXIST);
+
+    if (hookCtx.slot[*slot_no].entry == 0)
+        returnJS(INTERNAL_ERROR);
+
+    const std::string flat = Json::FastWriter().write(
+        hookCtx.slot[*slot_no].entry->getJson(JsonOptions::none));
+
+    JSValue out;
+    out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
+
+    if (JS_IsException(out))
+        returnJS(INTERNAL_ERROR);
+
+    return out;
+
+    JS_HOOK_TEARDOWN();
+}
+
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    sto_to_json,
+    JSValue raw_sto_in)
+{
+    JS_HOOK_SETUP();
+    auto sto_in = FromJSIntArrayOrHexString(ctx, raw_sto_in, 16*1024);
+    if (!sto_in.has_value() || sto_in->empty())
+        returnJS(INVALID_ARGUMENT);
+
+    std::unique_ptr<STObject> obj;
+    try
+    {
+        SerialIter sit(makeSlice(*sto_in));
+        obj = std::make_unique<STObject>(std::ref(sit), sfGeneric);
+    
+        if (!obj)
+            returnJS(INVALID_ARGUMENT);
+
+        const std::string flat = Json::FastWriter().write(obj->getJson(JsonOptions::none));
+
+        JSValue out;
+        out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
+
+        if (JS_IsException(out))
+            returnJS(INTERNAL_ERROR);
+
+        return out;
+    }
+    catch (std::exception const& e)
+    {
+        returnJS(INVALID_ARGUMENT);
+    }
+
+    JS_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    sto_from_json,
+    JSValue raw_json_in)
+{
+    JS_HOOK_SETUP();
+
+    auto [len, in] = FromJSString(ctx, raw_json_in, 64*1024);
+    if (!in.has_value())
+    {
+        if (!JS_IsObject(raw_json_in))
+            returnJS(INVALID_ARGUMENT);
+
+        // stringify it
+        JSValue sdata = JS_JSONStringify(ctx, raw_json_in, JS_UNDEFINED, JS_UNDEFINED);
+        if (JS_IsException(sdata))
+            returnJS(INVALID_ARGUMENT);
+
+        const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
+        if (len > 64*1024)
+            returnJS(TOO_BIG);
+
+        in = std::string(cstr, len);
+        JS_FreeCString(ctx, cstr);
+    }
+
+    if (!in.has_value() || len <= 0 || in->empty())
+        returnJS(INVALID_ARGUMENT);
+    
+    std::cout << "sto_from_json, strlen = " << len << "\n";
+
+
+    Json::Value json;
+    Json::Reader reader;
+    if (!reader.parse(*in, json) || !json || !json.isObject())
+        returnJS(INVALID_ARGUMENT);
+    
+    std::cout << "sto_from_json, valid json\n";
+    std::cout << to_string(json);
+
+    // turn the json into a stobject    
+    STParsedJSONObject parsed(std::string(jss::tx_json), json);
+    if (!parsed.object.has_value())
+        returnJS(INVALID_ARGUMENT);
+
+    std::cout << "sto_from_json valid STParsedJSONObject\n";
+
+    // turn the stobject into a tx_blob
+    STObject& obj = *(parsed.object);
+    Serializer s;
+    obj.add(s);
+    
+    Blob b = s.getData();
+    
+    auto out = ToJSIntArray(ctx, b);
+    
+    if (!out.has_value())
+        returnJS(INTERNAL_ERROR);
+
+    std::cout << "sto_from_json returning len=" << b.size() << "\n";
+
+    return *out;
+
+    JS_HOOK_TEARDOWN();
+}
+
 
 // When implemented will return the hash of the current hook
 DEFINE_WASM_FUNCTION(
@@ -8735,9 +8884,11 @@ DEFINE_JS_FUNCNARG(JSValue, hook_again)
     JS_HOOK_TEARDOWN();
 }
 
-DEFINE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
+inline
+int64_t __meta_slot(
+        hook::HookContext& hookCtx, ApplyContext& applyCtx, beast::Journal& j,
+        uint32_t slot_into)
 {
-    WASM_HOOK_SETUP();
 
     if (!hookCtx.result.provisionalMeta)
         return PREREQUISITE_NOT_MET;
@@ -8764,7 +8915,32 @@ DEFINE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
 
     return slot_into;
 
+}
+
+DEFINE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
+{
+    WASM_HOOK_SETUP();
+
+    return __meta_slot(hookCtx, applyCtx, j, slot_into);
+
     WASM_HOOK_TEARDOWN();
+}
+
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    meta_slot,
+    JSValue raw_slot_into)
+{
+    JS_HOOK_SETUP();
+
+    auto slot_into = FromJSInt(ctx, raw_slot_into);
+    if (!slot_into.has_value() || !fits_u32(slot_into))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__meta_slot(hookCtx, applyCtx, j, (uint32_t)(*slot_into)));
+
+    JS_HOOK_TEARDOWN();
 }
 
 inline
@@ -8846,6 +9022,24 @@ DEFINE_WASM_FUNCTION(
     return __xpop_slot(hookCtx, applyCtx, j, slot_into_tx, slot_into_meta);
 
     WASM_HOOK_TEARDOWN();
+}
+
+DEFINE_JS_FUNCTION(
+    JSValue,
+    xpop_slot,
+    JSValue raw_slot_into_tx,
+    JSValue raw_slot_into_meta)
+{
+    JS_HOOK_SETUP();
+
+    auto slot_into_tx = FromJSInt(ctx, raw_slot_into_tx);
+    auto slot_into_meta = FromJSInt(ctx, raw_slot_into_meta);
+    if (any_missing(slot_into_tx, slot_into_meta) || !fits_u32(slot_into_tx, slot_into_meta))
+        returnJS(INVALID_ARGUMENT);
+
+    returnJS(__xpop_slot(hookCtx, applyCtx, j, (uint32_t)(*slot_into_tx), (uint32_t)(*slot_into_meta)));
+
+    JS_HOOK_TEARDOWN();
 }
 
 /*
