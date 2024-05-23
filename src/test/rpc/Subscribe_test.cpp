@@ -1263,9 +1263,7 @@ public:
     }
 
     void
-    setTSHHook(
-        jtx::Env& env,
-        jtx::Account const& account)
+    setTSHHook(jtx::Env& env, jtx::Account const& account)
     {
         using namespace test::jtx;
         env(hook(account, {{hso(TshHook, overrideFlag)}}, 0),
@@ -1311,12 +1309,15 @@ public:
             }
             BEAST_EXPECT(jv[jss::result][jss::status] == "success");
         }
-        
+
         // Test Invoke Tx
         {
             setTSHHook(env, bob);
             // Submit and Close
-            env(invoke::invoke(alice), invoke::dest(bob), fee(XRP(1)), ter(tesSUCCESS));
+            env(invoke::invoke(alice),
+                invoke::dest(bob),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // Check stream update
