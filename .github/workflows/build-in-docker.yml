@@ -7,8 +7,8 @@ on:
     branches: [ "dev", "candidate", "release", "jshooks" ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   checkout:
