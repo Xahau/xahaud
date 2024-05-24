@@ -3246,9 +3246,14 @@ DEFINE_JS_FUNCTION(
 
     uint8_t const* ptr = reinterpret_cast<uint8_t const*>(s.getDataPtr());
     size_t len = s.getDataLength();
-    std::vector<uint8_t> out_vec {ptr, ptr + len};
-    
-    auto out = ToJSIntArray(ctx, out_vec);
+   
+    if (field.getSType() == STI_ACCOUNT && len > 1)
+    {
+        ptr++;
+        len--;
+    }
+ 
+    auto out = ToJSIntArray(ctx, Slice{ptr, (size_t)len});
 
     if (!out.has_value())
         returnJS(INTERNAL_ERROR);
