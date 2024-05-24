@@ -11,16 +11,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  builder:
+  checkout:
     runs-on: [self-hosted, vanity]
     steps:
     - uses: actions/checkout@v3
       with:
         clean: false
+  checkpatterns:
+    runs-on: [self-hosted, vanity]
+    needs: checkout
+    steps:
     - name: Check for suspicious patterns
       run: /bin/bash suspicious_patterns.sh
+  build:
+    runs-on: [self-hosted, vanity]
+    needs: checkpatterns
+    steps:
     - name: Build using Docker
       run: /bin/bash release-builder.sh
+  tests:
+    runs-on: [self-hosted, vanity]
+    needs: build
+    steps:
     - name: Unit tests
       run: /bin/bash docker-unit-tests.sh
 
