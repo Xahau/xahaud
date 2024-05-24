@@ -44,8 +44,8 @@ inline bool fits_u32(const OptionalInts&... optionals) {
 // check if all optional ints are within int32_t range
 template <typename... OptionalInts>
 inline bool fits_i32(const OptionalInts&... optionals) {
-    constexpr uint32_t int32_max = std::numeric_limits<int32_t>::max();
-    constexpr uint32_t int32_min = std::numeric_limits<int32_t>::min();
+    constexpr int32_t int32_max = std::numeric_limits<int32_t>::max();
+    constexpr int32_t int32_min = std::numeric_limits<int32_t>::min();
     return ((optionals.has_value() && 
              *optionals >= int32_min &&
              *optionals <= int32_max) && ...);
