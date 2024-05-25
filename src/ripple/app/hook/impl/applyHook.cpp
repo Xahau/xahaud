@@ -826,14 +826,15 @@ FromJSInt(JSContext* ctx, JSValueConst& v)
 {
     if (JS_IsNumber(v))
     {
-        if (JS_IsBigInt(ctx, v))
-        {
-            int64_t out = 0;
-            JS_ToBigInt64(ctx, &out, v);
-            return out;
-        }
         int64_t out = 0;
         JS_ToInt64(ctx, &out, v);
+        return out;
+    }
+    
+    if (JS_IsBigInt(ctx, v))
+    {
+        int64_t out = 0;
+        JS_ToBigInt64(ctx, &out, v);
         return out;
     }
 
