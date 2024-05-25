@@ -826,6 +826,12 @@ FromJSInt(JSContext* ctx, JSValueConst& v)
 {
     if (JS_IsNumber(v))
     {
+        if (JS_IsBigInt(ctx, v))
+        {
+            int64_t out = 0;
+            JS_ToBigInt64(ctx, &out, v);
+            return out;
+        }
         int64_t out = 0;
         JS_ToInt64(ctx, &out, v);
         return out;
@@ -930,6 +936,7 @@ FromJSInt(JSContext* ctx, JSValueConst& v)
 }
 
 #define returnJS(X) return JS_NewInt64(ctx, X)
+#define returnJSXFL(X) return JS_NewBigInt64(ctx, X)
 
 template <typename T>
 inline
@@ -1688,6 +1695,13 @@ DEFINE_JS_FUNCTION(
         }
         else
             out += "<could not display hex>";
+    }
+    else if (JS_IsBigInt(ctx, data))
+    {
+        size_t len;
+        const char* cstr = JS_ToCStringLen(ctx, &len, data);
+        out += std::string(cstr, len);
+        JS_FreeCString(ctx, cstr);
     }
     else
     {
@@ -7266,7 +7280,7 @@ DEFINE_JS_FUNCTION(
     if (normalized == 0 || normalized == XFL_OVERFLOW)
         returnJS(INVALID_FLOAT);
 
-    returnJS(normalized);
+    returnJSXFL(normalized);
 
     JS_HOOK_TEARDOWN();
 }
@@ -7388,7 +7402,7 @@ DEFINE_JS_FUNCTION(
         !fits_u32(dp, ab))
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__float_int(hookCtx, applyCtx, j, *f1, (uint32_t)(*dp), (uint32_t)(*ab)));
+    returnJSXFL(__float_int(hookCtx, applyCtx, j, *f1, (uint32_t)(*dp), (uint32_t)(*ab)));
 
     JS_HOOK_TEARDOWN();
 }
@@ -7439,7 +7453,7 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, f2))
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__float_multiply(hookCtx, applyCtx, j, *f1, *f2));
+    returnJSXFL(__float_multiply(hookCtx, applyCtx, j, *f1, *f2));
 
     JS_HOOK_TEARDOWN();
 }
@@ -7502,7 +7516,7 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, ru, n, d) || !fits_u32(ru, n, d))
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__float_mulratio(hookCtx, applyCtx, j, *f1, (uint32_t)(*ru), (uint32_t)(*n), (uint32_t)(*d)));
+    returnJSXFL(__float_mulratio(hookCtx, applyCtx, j, *f1, (uint32_t)(*ru), (uint32_t)(*n), (uint32_t)(*d)));
 
     JS_HOOK_TEARDOWN();
 }
@@ -7534,7 +7548,7 @@ DEFINE_JS_FUNCTION(
     if (*float1 == 0)
         returnJS(0);
     RETURNJS_IF_INVALID_FLOAT(*float1);
-    returnJS(hook_float::invert_sign(*float1));
+    returnJSXFL(hook_float::invert_sign(*float1));
 
     JS_HOOK_TEARDOWN();
 }
@@ -7686,7 +7700,7 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, f2))
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__float_sum(hookCtx, applyCtx, j, *f1, *f2));
+    returnJSXFL(__float_sum(hookCtx, applyCtx, j, *f1, *f2));
 
     JS_HOOK_TEARDOWN();
 }
@@ -8174,7 +8188,7 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, f2))
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(float_divide_internal(*f1, *f2));
+    returnJSXFL(float_divide_internal(*f1, *f2));
 
     JS_HOOK_TEARDOWN();
 }
@@ -8188,7 +8202,7 @@ DEFINE_JS_FUNCNARG(JSValue, float_one)
 {
     JS_HOOK_SETUP();
 
-    returnJS(float_one_internal);
+    returnJSXFL(float_one_internal);
 
     JS_HOOK_TEARDOWN();
 }
@@ -8222,7 +8236,7 @@ DEFINE_JS_FUNCTION(
         returnJS(DIVISION_BY_ZERO);
     if (*f1 == float_one_internal)
         returnJS(float_one_internal);
-    returnJS(float_divide_internal(float_one_internal, *f1));
+    returnJSXFL(float_divide_internal(float_one_internal, *f1));
 
     JS_HOOK_TEARDOWN();
 }
@@ -8256,7 +8270,7 @@ DEFINE_JS_FUNCTION(
     if (*f1 == 0)
         returnJS(0);
 
-    returnJS(get_mantissa(*f1));
+    returnJSXFL(get_mantissa(*f1));
     
     JS_HOOK_TEARDOWN();
 }
@@ -8290,7 +8304,7 @@ DEFINE_JS_FUNCTION(
     if (*f1 == 0)
         returnJS(0);
 
-    returnJS(is_negative(*f1));
+    returnJSXFL(is_negative(*f1));
 
     JS_HOOK_TEARDOWN();
 }
@@ -8388,7 +8402,7 @@ DEFINE_JS_FUNCTION(
     if (!f1.has_value())
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__float_log(hookCtx, applyCtx, j, *f1));
+    returnJSXFL(__float_log(hookCtx, applyCtx, j, *f1));
 
     JS_HOOK_TEARDOWN();
 }
@@ -8439,7 +8453,7 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, n) || !fits_u32(n))
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__float_root(hookCtx, applyCtx, j, *f1, (uint32_t)(*n)));
+    returnJSXFL(__float_root(hookCtx, applyCtx, j, *f1, (uint32_t)(*n)));
 
     JS_HOOK_TEARDOWN();
 }
