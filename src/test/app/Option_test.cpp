@@ -58,8 +58,8 @@ struct Option_test : public beast::unit_test::suite
         std::uint32_t const& seq)
     {
         auto const sle = env.le(keylet::optionOffer(account, seq));
-        if (sle->isFieldPresent(sfAmount))
-            return (*sle)[sfAmount];
+        if (sle->isFieldPresent(sfLockedBalance))
+            return (*sle)[sfLockedBalance];
         return STAmount(0);
     }
 
@@ -67,13 +67,13 @@ struct Option_test : public beast::unit_test::suite
     optionlist(
         jtx::Account const& account,
         std::uint32_t expiration,
-        STAmount const& amount)
+        STAmount const& strikePrice)
     {
         using namespace jtx;
         Json::Value jv;
         jv[jss::TransactionType] = jss::OptionList;
         jv[jss::Account] = account.human();
-        jv[jss::Amount] = amount.getJson(JsonOptions::none);
+        jv[sfStrikePrice.jsonName] = strikePrice.getJson(JsonOptions::none);
         jv[sfExpiration.jsonName] = expiration;
         return jv;
     }
@@ -83,15 +83,15 @@ struct Option_test : public beast::unit_test::suite
         jtx::Account const& account,
         uint256 const& optionId,
         uint32_t const& quantity,
-        STAmount const& amount)
+        STAmount const& premium)
     {
         using namespace jtx;
         Json::Value jv;
         jv[jss::TransactionType] = jss::OptionCreate;
         jv[jss::Account] = account.human();
-        jv[sfOfferID.jsonName] = to_string(optionId);
-        jv[jss::Amount] = amount.getJson(JsonOptions::none);
-        jv[sfQualityIn.jsonName] = quantity;
+        jv[sfOptionID.jsonName] = to_string(optionId);
+        jv[jss::Amount] = premium.getJson(JsonOptions::none);
+        jv[sfQuantity.jsonName] = quantity;
         return jv;
     }
 
@@ -105,8 +105,8 @@ struct Option_test : public beast::unit_test::suite
         Json::Value jv;
         jv[jss::TransactionType] = jss::OptionExecute;
         jv[jss::Account] = account.human();
-        jv[sfOfferID.jsonName] = to_string(optionId);
-        jv[sfInvoiceID.jsonName] = to_string(offerId);
+        jv[sfOptionID.jsonName] = to_string(optionId);
+        jv[sfSwapID.jsonName] = to_string(offerId);
         ;
         return jv;
     }
@@ -123,6 +123,33 @@ struct Option_test : public beast::unit_test::suite
     getOfferIndex(AccountID const& account, std::uint32_t sequence)
     {
         return keylet::optionOffer(account, sequence).key;
+    }
+
+    static auto
+    getOptionList(
+        jtx::Env& env,
+        AccountID const& issuer)
+    {
+        Json::Value jvbp;
+        jvbp[jss::ledger_index] = "current";
+        jvbp[jss::account] = to_string(issuer);
+        jvbp[jss::type] = "option";
+        return env.rpc("json", "account_objects", to_string(jvbp))[jss::result];
+    }
+
+    static auto
+    getOptionBookOffers(
+        jtx::Env& env,
+        STAmount const& strike_price,
+        std::uint32_t expiration)
+    {
+        Json::Value jvbp;
+        jvbp[jss::ledger_index] = "current";
+        jvbp[jss::strike_price][jss::currency] = to_string(strike_price.issue().currency);
+        jvbp[jss::strike_price][jss::issuer] = to_string(strike_price.issue().account);
+        jvbp[jss::strike_price][jss::value] = to_string(strike_price.mantissa());
+        jvbp[jss::expiration] = to_string(expiration);
+        return env.rpc("json", "option_book_offers", to_string(jvbp))[jss::result];
     }
 
     void
@@ -364,7 +391,7 @@ struct Option_test : public beast::unit_test::suite
         //     network::makeNetworkConfig(21337),
         //     features,
         //     nullptr,
-        //     beast::severities::kWarning};
+        //     beast::severities::kTrace};
         
         auto const feeDrops = env.current()->fees().base;
 
@@ -408,6 +435,9 @@ struct Option_test : public beast::unit_test::suite
         BEAST_EXPECT(
             lockedValue(env, writer, seq) == XRP(quantity));
 
+        auto jrr = getOptionBookOffers(env, XRP(strikePrice), expiration);
+        std::cout << "RESULT: " << jrr << "\n";
+
         preWriter = env.balance(writer);
         preBuyer = env.balance(buyer);
 
@@ -428,6 +458,9 @@ struct Option_test : public beast::unit_test::suite
         preWriter = env.balance(writer);
         preBuyer = env.balance(buyer);
 
+        auto jrr1 = getOptionBookOffers(env, XRP(strikePrice), expiration);
+        std::cout << "RESULT1: " << jrr1 << "\n";
+
         // Execute Option
         env(optionexecute(buyer, optionId, offerId), ter(tesSUCCESS));
         env.close();
@@ -438,6 +471,11 @@ struct Option_test : public beast::unit_test::suite
         BEAST_EXPECT(
             env.balance(writer) ==
             preWriter + XRP(quantity * strikePrice));
+
+        auto jrrList = getOptionList(env, zeroAcct);
+        std::cout << "RESULT LIST: " << jrrList << "\n";
+        auto jrr2 = getOptionBookOffers(env, XRP(strikePrice), expiration);
+        std::cout << "RESULT2: " << jrr2 << "\n";
     }
 
 public:

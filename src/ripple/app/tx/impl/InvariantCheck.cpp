@@ -110,8 +110,8 @@ XRPNotCreated::visitEntry(
                     drops_ -= (*before)[sfAmount].xrp().drops();
                 break;
             case ltOPTION_OFFER:
-                if (isXRP((*before)[sfAmount]))
-                    drops_ -= (*before)[sfAmount].xrp().drops();
+                if (isXRP((*before)[sfLockedBalance]))
+                    drops_ -= (*before)[sfLockedBalance].xrp().drops();
                 break;
             default:
                 break;
@@ -136,8 +136,8 @@ XRPNotCreated::visitEntry(
                     drops_ += (*after)[sfAmount].xrp().drops();
                 break;
             case ltOPTION_OFFER:
-                if (!isDelete && isXRP((*after)[sfAmount]))
-                    drops_ += (*after)[sfAmount].xrp().drops();
+                if (!isDelete && isXRP((*after)[sfLockedBalance]))
+                    drops_ += (*after)[sfLockedBalance].xrp().drops();
                 break;
             default:
                 break;

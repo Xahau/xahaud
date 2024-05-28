@@ -368,7 +368,7 @@ LedgerFormats::LedgerFormats()
     add(jss::Option,
         ltOPTION,
         {
-            {sfAmount,               soeREQUIRED},
+            {sfStrikePrice,          soeREQUIRED},
             {sfExpiration,           soeREQUIRED},
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED}
@@ -380,14 +380,14 @@ LedgerFormats::LedgerFormats()
         {
             {sfOwner,                soeREQUIRED},
             {sfOwnerNode,            soeREQUIRED},
-            {sfOfferID,              soeREQUIRED}, // OptionID
-            {sfAmount,               soeREQUIRED}, // Locked Amount
-            {sfTakerPays,            soeREQUIRED}, // Premium
-            {sfQualityIn,            soeREQUIRED}, // Quantity
-            {sfQualityOut,           soeREQUIRED}, // To Seal
+            {sfOptionID,             soeREQUIRED}, // OptionID
+            {sfLockedBalance,        soeREQUIRED}, // Locked Amount
+            {sfAmount,               soeREQUIRED}, // Premium
+            {sfQuantity,             soeREQUIRED}, // Quantity
+            {sfToSeal,               soeREQUIRED}, // To Seal
             {sfBookDirectory,        soeREQUIRED},
             {sfBookNode,             soeREQUIRED},
-            {sfInvoiceID,            soeOPTIONAL}, // MatchID
+            {sfSwapID,               soeOPTIONAL}, // MatchID
             {sfCheckID,              soeOPTIONAL}, // SwapID
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED}

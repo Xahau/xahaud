@@ -460,7 +460,7 @@ TxFormats::TxFormats()
     add(jss::OptionList,
         ttOPTION_LIST,
         {
-            {sfAmount, soeREQUIRED},
+            {sfStrikePrice, soeREQUIRED},
             {sfExpiration, soeREQUIRED},
             {sfTicketSequence, soeOPTIONAL},
         },
@@ -469,10 +469,10 @@ TxFormats::TxFormats()
     add(jss::OptionCreate,
         ttOPTION_CREATE,
         {
-            {sfOfferID, soeREQUIRED}, // Option ID
+            {sfOptionID, soeREQUIRED}, // Option ID
             {sfAmount, soeREQUIRED}, // Premium
-            {sfQualityIn, soeREQUIRED}, // Quantity
-            {sfInvoiceID, soeOPTIONAL}, // Swap ID
+            {sfQuantity, soeREQUIRED}, // Quantity
+            {sfSwapID, soeOPTIONAL}, // Swap ID
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
@@ -480,8 +480,8 @@ TxFormats::TxFormats()
     add(jss::OptionExecute,
         ttOPTION_EXECUTE,
         {
-            {sfOfferID, soeREQUIRED},
-            {sfInvoiceID, soeOPTIONAL},
+            {sfOptionID, soeREQUIRED},
+            {sfSwapID, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);

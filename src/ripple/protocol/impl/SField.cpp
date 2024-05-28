@@ -157,6 +157,8 @@ CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32, 
 
 CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 
+CONSTRUCT_TYPED_SFIELD(sfToSeal,                "ToSeal",               UINT32,    94);
+CONSTRUCT_TYPED_SFIELD(sfQuantity,              "Quantity",             UINT32,    95);
 CONSTRUCT_TYPED_SFIELD(sfXahauActivationLgrSeq, "XahauActivationLgrSeq",UINT32,    96);
 CONSTRUCT_TYPED_SFIELD(sfImportSequence,        "ImportSequence",       UINT32,    97);
 CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);
@@ -236,6 +238,8 @@ CONSTRUCT_TYPED_SFIELD(sfURITokenID,            "URITokenID",           UINT256,
 CONSTRUCT_TYPED_SFIELD(sfGovernanceFlags,       "GovernanceFlags",      UINT256,   99);
 CONSTRUCT_TYPED_SFIELD(sfGovernanceMarks,       "GovernanceMarks",      UINT256,   98);
 CONSTRUCT_TYPED_SFIELD(sfEmittedTxnID,          "EmittedTxnID",         UINT256,   97);
+CONSTRUCT_TYPED_SFIELD(sfOptionID,              "OptionID",             UINT256,   96);
+CONSTRUCT_TYPED_SFIELD(sfSwapID,                "SwapID",               UINT256,   95);
 
 // currency amount (common)
 CONSTRUCT_TYPED_SFIELD(sfAmount,                "Amount",               AMOUNT,     1);
@@ -261,6 +265,7 @@ CONSTRUCT_TYPED_SFIELD(sfLockedBalance,         "LockedBalance",        AMOUNT, 
 CONSTRUCT_TYPED_SFIELD(sfBaseFeeDrops,            "BaseFeeDrops",           AMOUNT,    22);
 CONSTRUCT_TYPED_SFIELD(sfReserveBaseDrops,        "ReserveBaseDrops",       AMOUNT,    23);
 CONSTRUCT_TYPED_SFIELD(sfReserveIncrementDrops,   "ReserveIncrementDrops",  AMOUNT,    24);
+CONSTRUCT_TYPED_SFIELD(sfStrikePrice,             "StrikePrice",            AMOUNT,    25);
 
 // variable length (common)
 CONSTRUCT_TYPED_SFIELD(sfPublicKey,             "PublicKey",            VL,         1);

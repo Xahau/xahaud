@@ -62,15 +62,15 @@ OptionList::doApply()
 
     AccountID const srcAccID = ctx_.tx.getAccountID(sfAccount);
     std::uint32_t const expiration = ctx_.tx.getFieldU32(sfExpiration);
-    STAmount const amount = ctx_.tx.getFieldAmount(sfAmount);
+    STAmount const strikePrice = ctx_.tx.getFieldAmount(sfStrikePrice);
 
     auto sleSrcAcc = sb.peek(keylet::account(srcAccID));
     if (!sleSrcAcc)
         return terNO_ACCOUNT;
 
-    auto const optionKeylet = keylet::option(amount.getIssuer(), expiration);
+    auto const optionKeylet = keylet::option(strikePrice.getIssuer(), expiration);
     auto const sleOption = std::make_shared<SLE>(optionKeylet);
-    (*sleOption)[sfAmount] = amount;
+    (*sleOption)[sfStrikePrice] = strikePrice;
     (*sleOption)[sfExpiration] = expiration;
 
     // apply

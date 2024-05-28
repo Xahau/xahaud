@@ -60,8 +60,8 @@ OptionExecute::doApply()
     beast::Journal const& j = ctx_.journal;
 
     AccountID const srcAccID = ctx_.tx.getAccountID(sfAccount);
-    uint256 const optionID = ctx_.tx.getFieldH256(sfOfferID);
-    uint256 const offerID = ctx_.tx.getFieldH256(sfInvoiceID);
+    uint256 const optionID = ctx_.tx.getFieldH256(sfOptionID);
+    uint256 const offerID = ctx_.tx.getFieldH256(sfSwapID);
     auto const flags = ctx_.tx.getFlags();
 
     auto sleSrcAcc = sb.peek(keylet::account(srcAccID));
@@ -74,7 +74,7 @@ OptionExecute::doApply()
         return tecNO_TARGET;
     
     AccountID const ownrAccID = sleOptionOffer->getAccountID(sfOwner);
-    auto const sealedID = sleOptionOffer->getFieldH256(sfInvoiceID);
+    auto const sealedID = sleOptionOffer->getFieldH256(sfSwapID);
     auto oppOfferKeylet = ripple::keylet::unchecked(sealedID);
     auto sleSealedOffer = sb.peek(oppOfferKeylet);
     if (!sleSealedOffer)
@@ -93,9 +93,9 @@ OptionExecute::doApply()
     if (!sleOption)
         return tecINTERNAL;
 
-    STAmount const strikePrice = sleOption->getFieldAmount(sfAmount);
-    STAmount const quantityShares = sleSealedOffer->getFieldAmount(sfAmount);
-    std::uint32_t const quantity = sleOptionOffer->getFieldU32(sfQualityIn);
+    STAmount const strikePrice = sleOption->getFieldAmount(sfStrikePrice);
+    STAmount const quantityShares = sleSealedOffer->getFieldAmount(sfLockedBalance);
+    std::uint32_t const quantity = sleOptionOffer->getFieldU32(sfQuantity);
     STAmount const totalValue = STAmount(strikePrice.issue(), (strikePrice.mantissa() * quantity));
 
     if (flags & tfOptionExpire)

@@ -410,6 +410,8 @@ extern SF_UINT32 const sfRewardLgrLast;
 extern SF_UINT32 const sfFirstNFTokenSequence;
 extern SF_UINT32 const sfImportSequence;
 extern SF_UINT32 const sfXahauActivationLgrSeq;
+extern SF_UINT32 const sfQuantity;
+extern SF_UINT32 const sfToSeal;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;
@@ -483,6 +485,8 @@ extern SF_UINT256 const sfURITokenID;
 extern SF_UINT256 const sfGovernanceFlags;
 extern SF_UINT256 const sfGovernanceMarks;
 extern SF_UINT256 const sfEmittedTxnID;
+extern SF_UINT256 const sfOptionID;
+extern SF_UINT256 const sfSwapID;
 
 // currency amount (common)
 extern SF_AMOUNT const sfAmount;
@@ -496,6 +500,7 @@ extern SF_AMOUNT const sfFee;
 extern SF_AMOUNT const sfSendMax;
 extern SF_AMOUNT const sfDeliverMin;
 extern SF_AMOUNT const sfLockedBalance;
+extern SF_AMOUNT const sfStrikePrice;
 
 // currency amount (uncommon)
 extern SF_AMOUNT const sfMinimumOffer;

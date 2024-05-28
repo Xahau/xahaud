@@ -49,8 +49,8 @@ OptionCreate::preflight(PreflightContext const& ctx)
     }
 
     auto const flags = ctx.tx.getFlags();
-    std::optional<uint256> const swapID = ctx.tx[~sfInvoiceID];
-    std::uint32_t const quantity = ctx.tx.getFieldU32(sfQualityIn);
+    std::optional<uint256> const swapID = ctx.tx[~sfSwapID];
+    std::uint32_t const quantity = ctx.tx.getFieldU32(sfQuantity);
 
     bool const isClose = (flags & tfPosition) != 0;
 
@@ -124,7 +124,7 @@ sealOption(
         bool const _isSell = (flags & tfAction) != 0;
 
         // Skip Sealed Options
-        if (sleItem->getFieldU32(sfQualityOut) == 0)
+        if (sleItem->getFieldU32(sfToSeal) == 0)
         {
             continue;
         }
@@ -132,7 +132,7 @@ sealOption(
         // looking for oposite option position.
         if (_isPut == isPut && _isSell != isSell)
         {
-            uint256 const sealID = sleItem->getFieldH256(sfInvoiceID);
+            uint256 const sealID = sleItem->getFieldH256(sfSwapID);
             if (sealID.isNonZero())
             {
                 continue;
@@ -159,11 +159,11 @@ OptionCreate::doApply()
     beast::Journal const& j = ctx_.journal;
 
     AccountID const srcAccID = ctx_.tx.getAccountID(sfAccount);
-    uint256 const optionID = ctx_.tx.getFieldH256(sfOfferID);
+    uint256 const optionID = ctx_.tx.getFieldH256(sfOptionID);
     auto const flags = ctx_.tx.getFlags();
     STAmount const premium = ctx_.tx.getFieldAmount(sfAmount);
-    std::uint32_t const quantity = ctx_.tx.getFieldU32(sfQualityIn);
-    std::optional<uint256> const swapID = ctx_.tx[~sfInvoiceID];
+    std::uint32_t const quantity = ctx_.tx.getFieldU32(sfQuantity);
+    std::optional<uint256> const swapID = ctx_.tx[~sfSwapID];
 
     STAmount const totalPremium =
         STAmount(premium.issue(), (premium.mantissa() * quantity));
@@ -176,13 +176,18 @@ OptionCreate::doApply()
     if (!sleOptionAcc)
         return tecINTERNAL;
 
-    STAmount const strikePrice = sleOptionAcc->getFieldAmount(sfAmount);
+    STAmount const strikePrice = sleOptionAcc->getFieldAmount(sfStrikePrice);
     std::uint32_t const expiration = sleOptionAcc->getFieldU32(sfExpiration);
     STAmount const quantityShares = STAmount(strikePrice.issue(), isXRP(premium) ? quantity * 1000000 : quantity);
 
     bool const isPut = (flags & tfType) != 0;
     bool const isSell = (flags & tfAction) != 0;
     bool const isClose = (flags & tfPosition) != 0;
+
+    // std::cout << "OptionCreate.getIssuer(): " << strikePrice.getIssuer() << "\n";
+    // std::cout << "OptionCreate.getCurrency(): " << strikePrice.getCurrency() << "\n";
+    // std::cout << "OptionCreate.mantissa(): " << strikePrice.mantissa() << "\n";
+    // std::cout << "OptionCreate.expiration: " << expiration << "\n";
 
     auto optionBookDirKeylet = keylet::optionBook(
         strikePrice.getIssuer(),
@@ -202,9 +207,9 @@ OptionCreate::doApply()
         JLOG(j.warn()) << "Updating Sealed Offer: sealID";
         auto sealedKeylet = ripple::keylet::unchecked(*sealID);
         auto sealedOption = sb.peek(sealedKeylet);
-        sealedOption->setFieldH256(sfInvoiceID, optionOfferKeylet.key);
-        uint32_t currSealed = sealedOption->getFieldU32(sfQualityOut);
-        sealedOption->setFieldU32(sfQualityOut, currSealed - quantity);
+        sealedOption->setFieldH256(sfSwapID, optionOfferKeylet.key);
+        uint32_t currSealed = sealedOption->getFieldU32(sfToSeal);
+        sealedOption->setFieldU32(sfToSeal, currSealed - quantity);
         oppAccID = sealedOption->getAccountID(sfOwner);
         sb.update(sealedOption);
     }
@@ -248,23 +253,22 @@ OptionCreate::doApply()
         optionOffer->setFlag(flags);
         optionOffer->setAccountID(sfOwner, srcAccID);
         optionOffer->setFieldU64(sfOwnerNode, *page);
-        optionOffer->setFieldH256(sfOfferID, optionID);
-        optionOffer->setFieldU32(sfQualityIn, quantity);
-        optionOffer->setFieldU32(sfQualityOut, quantity);
-        optionOffer->setFieldAmount(sfTakerPays, STAmount(0));  // Premium
-        optionOffer->setFieldAmount(sfAmount, STAmount(0));     // Locked
+        optionOffer->setFieldH256(sfOptionID, optionID);
+        optionOffer->setFieldU32(sfQuantity, quantity);
+        optionOffer->setFieldU32(sfToSeal, quantity);
+        optionOffer->setFieldAmount(sfAmount, premium);  // Premium
+        optionOffer->setFieldAmount(sfLockedBalance, STAmount(0));     // Locked
         if (sealID)
         {
             JLOG(j.warn()) << "Updating Option Offer: sealID";
-            optionOffer->setFieldH256(sfInvoiceID, *sealID);
-            optionOffer->setFieldU32(sfQualityOut, 0);
+            optionOffer->setFieldH256(sfSwapID, *sealID);
+            optionOffer->setFieldU32(sfToSeal, 0);
         }
         if (isSell)
         {
             JLOG(j.warn()) << "Updating Option Offer: isSell";
-            // Update the locked balance and premium
-            optionOffer->setFieldAmount(sfTakerPays, premium);      // Premium
-            optionOffer->setFieldAmount(sfAmount, quantityShares);  // Locked
+            // Update the locked balance
+            optionOffer->setFieldAmount(sfLockedBalance, quantityShares);  // Locked
         }
 
         Option const option{
@@ -305,7 +309,7 @@ OptionCreate::doApply()
     {
         JLOG(j.warn()) << "Updating Option Offer: isClose";
         auto optionOffer = sb.peek(optionOfferKeylet);
-        uint256 const sealID = optionOffer->getFieldH256(sfInvoiceID);
+        uint256 const sealID = optionOffer->getFieldH256(sfSwapID);
         if (!sealID)
         {
             JLOG(j.warn())
@@ -321,15 +325,15 @@ OptionCreate::doApply()
             JLOG(j.warn()) << "OptionCreate: Swap Option does not exist.";
             return tecINTERNAL;
         }
-        swapOption->setFieldH256(sfInvoiceID, optionOfferKeylet.key);
+        swapOption->setFieldH256(sfSwapID, optionOfferKeylet.key);
         sb.update(swapOption);
 
         // Update New Option
-        optionOffer->setFieldH256(sfInvoiceID, *swapID);
+        optionOffer->setFieldH256(sfSwapID, *swapID);
         sb.update(optionOffer);
 
         // Erase Swap Sealed Option
-        uint256 const swapSealedID = swapOption->getFieldH256(sfInvoiceID);
+        uint256 const swapSealedID = swapOption->getFieldH256(sfSwapID);
         if (!swapSealedID)
         {
             JLOG(j.warn()) << "OptionCreate: Swap Option is not sealed.";
