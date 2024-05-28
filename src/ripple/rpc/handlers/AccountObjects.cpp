@@ -208,6 +208,7 @@ doAccountObjects(RPC::JsonContext& context)
             {jss::hook, ltHOOK},
             {jss::payment_channel, ltPAYCHAN},
             {jss::uri_token, ltURI_TOKEN},
+            {jss::option, ltOPTION},
             {jss::state, ltRIPPLE_STATE}};
 
         typeFilter.emplace();

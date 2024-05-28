@@ -315,6 +315,12 @@ optionBook(AccountID const& issuer, Currency const& currency, std::uint64_t stri
 Keylet
 optionOffer(AccountID const& id, std::uint32_t seq)  noexcept;
 
+inline Keylet
+optionOffer(uint256 const& key) noexcept
+{
+    return {ltOPTION_OFFER, key};
+}
+
 Keylet
 optionQuality(Keylet const& k, std::uint64_t q) noexcept;
 

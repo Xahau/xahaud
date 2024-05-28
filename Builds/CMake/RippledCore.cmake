@@ -634,6 +634,7 @@ target_sources (rippled PRIVATE
   src/ripple/rpc/handlers/NFTOffers.cpp
   src/ripple/rpc/handlers/NodeToShard.cpp
   src/ripple/rpc/handlers/NoRippleCheck.cpp
+  src/ripple/rpc/handlers/OptionBookOffers.cpp
   src/ripple/rpc/handlers/OwnerInfo.cpp
   src/ripple/rpc/handlers/PathFind.cpp
   src/ripple/rpc/handlers/PayChanClaim.cpp

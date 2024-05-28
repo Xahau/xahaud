@@ -163,6 +163,15 @@ public:
         unsigned int iLimit,
         Json::Value const& jvMarker,
         Json::Value& jvResult) = 0;
+    
+    virtual void
+    getOptionBookPage(
+        std::shared_ptr<ReadView const>& lpLedger,
+        STAmount const& strikePrice,
+        std::uint32_t const& expiration,
+        unsigned int iLimit,
+        Json::Value const& jvMarker,
+        Json::Value& jvResult) = 0;
 
     //--------------------------------------------------------------------------
 

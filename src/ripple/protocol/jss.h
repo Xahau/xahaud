@@ -515,6 +515,7 @@ JSS(open);                       // out: handlers/Ledger
 JSS(open_ledger_cost);           // out: SubmitTransaction
 JSS(open_ledger_fee);            // out: TxQ
 JSS(open_ledger_level);          // out: TxQ
+JSS(option);                     // out: AccountObjects
 JSS(owner);                      // in: LedgerEntry, out: NetworkOPs
 JSS(owner_funds);                // in/out: Ledger, NetworkOPs, AcceptedLedgerTx
 JSS(page_index);
@@ -635,6 +636,7 @@ JSS(stop_history_tx_only);  // in: Unsubscribe, stop history tx stream
 JSS(storedSeqs);            // out: NodeToShardStatus
 JSS(streams);               // in: Subscribe, Unsubscribe
 JSS(strict);                // in: AccountCurrencies, AccountInfo
+JSS(strike_price);          // in: NetworkOPs
 JSS(sub_index);             // in: LedgerEntry
 JSS(subcommand);            // in: PathFind
 JSS(success);               // rpc
