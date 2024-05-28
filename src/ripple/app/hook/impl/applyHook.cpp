@@ -6599,6 +6599,7 @@ __sto_emplace(
     {
         size_t len = end - inject_end;
         memcpy(write_ptr + bytes_written, inject_end, len);
+        bytes_written += len;
     }
 
     out.resize(bytes_written);
