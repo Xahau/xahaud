@@ -189,8 +189,8 @@ doAccountObjects(RPC::JsonContext& context)
         }
     }
 
-    if (!ledger->exists(keylet::account(accountID)))
-        return rpcError(rpcACT_NOT_FOUND);
+    // if (!ledger->exists(keylet::account(accountID)))
+    //     return rpcError(rpcACT_NOT_FOUND);
 
     std::optional<std::vector<LedgerEntryType>> typeFilter;
 

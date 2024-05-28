@@ -368,6 +368,7 @@ LedgerFormats::LedgerFormats()
     add(jss::Option,
         ltOPTION,
         {
+            {sfOwnerNode,            soeREQUIRED},
             {sfStrikePrice,          soeREQUIRED},
             {sfExpiration,           soeREQUIRED},
             {sfPreviousTxnID,        soeREQUIRED},

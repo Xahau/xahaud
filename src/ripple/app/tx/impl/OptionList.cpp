@@ -68,8 +68,25 @@ OptionList::doApply()
     if (!sleSrcAcc)
         return terNO_ACCOUNT;
 
-    auto const optionKeylet = keylet::option(strikePrice.getIssuer(), expiration);
-    auto const sleOption = std::make_shared<SLE>(optionKeylet);
+    std::optional<Keylet> const optionKeylet = keylet::option(strikePrice.getIssuer(), expiration);
+    if (sb.exists(*optionKeylet))
+        return tecDUPLICATE;
+    
+    auto const sleOption = std::make_shared<SLE>(*optionKeylet);
+
+    auto const newPage = sb.dirInsert(
+        keylet::ownerDir(strikePrice.getIssuer()),
+        *optionKeylet,
+        describeOwnerDir(strikePrice.getIssuer()));
+
+    JLOG(j_.trace()) << "Adding Option to owner directory "
+                        << to_string(optionKeylet->key) << ": "
+                        << (newPage ? "success" : "failure");
+
+    if (!newPage)
+        return tecDIR_FULL;
+
+    (*sleOption)[sfOwnerNode] = *newPage;
     (*sleOption)[sfStrikePrice] = strikePrice;
     (*sleOption)[sfExpiration] = expiration;
 
