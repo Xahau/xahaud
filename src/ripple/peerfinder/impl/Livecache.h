@@ -69,9 +69,14 @@ public:
     public:
         // Iterator transformation to extract the endpoint from Element
         struct Transform
+#ifdef _LIBCPP_VERSION
+            : public std::unary_function<Element, Endpoint>
+#endif
         {
+#ifndef _LIBCPP_VERSION
             using first_argument = Element;
             using result_type = Endpoint;
+#endif
 
             explicit Transform() = default;
 
@@ -234,9 +239,15 @@ public:
 
         template <bool IsConst>
         struct Transform
+#ifdef _LIBCPP_VERSION
+            : public std::
+                  unary_function<typename lists_type::value_type, Hop<IsConst>>
+#endif
         {
+#ifndef _LIBCPP_VERSION
             using first_argument = typename lists_type::value_type;
             using result_type = Hop<IsConst>;
+#endif
 
             explicit Transform() = default;
 

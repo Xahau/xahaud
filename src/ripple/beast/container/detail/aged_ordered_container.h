@@ -145,78 +145,111 @@ private:
     };
 
     // VFALCO TODO This should only be enabled for maps.
-    class pair_value_compare : public Compare
+    class pair_value_compare
+        : public beast::detail::empty_base_optimization<Compare>
+#ifdef _LIBCPP_VERSION
+        ,
+          public std::binary_function<value_type, value_type, bool>
+#endif
     {
     public:
+#ifndef _LIBCPP_VERSION
         using first_argument = value_type;
         using second_argument = value_type;
         using result_type = bool;
+#endif
 
         bool
         operator()(value_type const& lhs, value_type const& rhs) const
         {
-            return Compare::operator()(lhs.first, rhs.first);
+            return this->member()(lhs.first, rhs.first);
         }
 
         pair_value_compare()
         {
         }
 
-        pair_value_compare(pair_value_compare const& other) : Compare(other)
+        pair_value_compare(pair_value_compare const& other)
+            : beast::detail::empty_base_optimization<Compare>(other)
         {
         }
 
     private:
         friend aged_ordered_container;
 
-        pair_value_compare(Compare const& compare) : Compare(compare)
+        pair_value_compare(Compare const& compare)
+            : beast::detail::empty_base_optimization<Compare>(compare)
         {
         }
     };
 
     // Compares value_type against element, used in insert_check
     // VFALCO TODO hoist to remove template argument dependencies
-    class KeyValueCompare : public Compare
+    class KeyValueCompare
+        : public beast::detail::empty_base_optimization<Compare>
+#ifdef _LIBCPP_VERSION
+        ,
+          public std::binary_function<Key, element, bool>
+#endif
     {
     public:
+#ifndef _LIBCPP_VERSION
         using first_argument = Key;
         using second_argument = element;
         using result_type = bool;
+#endif
 
         KeyValueCompare() = default;
 
-        KeyValueCompare(Compare const& compare) : Compare(compare)
+        KeyValueCompare(Compare const& compare)
+            : beast::detail::empty_base_optimization<Compare>(compare)
         {
         }
+
+        // VFALCO NOTE WE might want only to enable these overloads
+        //                if Compare has is_transparent
+#if 0
+        template <class K>
+        bool operator() (K const& k, element const& e) const
+        {
+            return this->member() (k, extract (e.value));
+        }
+
+        template <class K>
+        bool operator() (element const& e, K const& k) const
+        {
+            return this->member() (extract (e.value), k);
+        }
+#endif
 
         bool
         operator()(Key const& k, element const& e) const
         {
-            return Compare::operator()(k, extract(e.value));
+            return this->member()(k, extract(e.value));
         }
 
         bool
         operator()(element const& e, Key const& k) const
         {
-            return Compare::operator()(extract(e.value), k);
+            return this->member()(extract(e.value), k);
         }
 
         bool
         operator()(element const& x, element const& y) const
         {
-            return Compare::operator()(extract(x.value), extract(y.value));
+            return this->member()(extract(x.value), extract(y.value));
         }
 
         Compare&
         compare()
         {
-            return *this;
+            return beast::detail::empty_base_optimization<Compare>::member();
         }
 
         Compare const&
         compare() const
         {
-            return *this;
+            return beast::detail::empty_base_optimization<Compare>::member();
         }
     };
 

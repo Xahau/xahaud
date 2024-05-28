@@ -1503,240 +1503,532 @@ public:
         env.close();
     }
 
-    // void
-    // test_emit(FeatureBitset features)
-
     void
-    test_otxn_field(FeatureBitset features)
+    test_emit(FeatureBitset features)
     {
-        testcase("Test otxn_field");
+        testcase("Test float_emit");
         using namespace jtx;
-        Env env{*this, features};
+        Env env{
+            *this, envconfig(), features, nullptr, beast::severities::kWarning
+            //            beast::severities::kTrace
+        };
 
-        Account const alice{"alice"};
-        Account const bob{"bob"};
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = jswasm[R"[test.hook](
-            const INVALID_ARGUMENT = -7
-            const sfAccount = 0x80001
+        TestHook hook = wasm[R"[test.hook](
+        #include <stdint.h>
+        extern int32_t _g(uint32_t, uint32_t);
+        extern int64_t accept (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t emit (uint32_t, uint32_t, uint32_t, uint32_t);
+        extern int64_t etxn_reserve(uint32_t);
+        extern int64_t otxn_param(uint32_t, uint32_t, uint32_t, uint32_t);
+        extern int64_t hook_account(uint32_t, uint32_t);
+        extern int64_t otxn_field (
+            uint32_t write_ptr,
+            uint32_t write_len,
+            uint32_t field_id
+        );
+        #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+        #define OUT_OF_BOUNDS (-1)
+        #define ttPAYMENT 0
+        #define tfCANONICAL 0x80000000UL
+        #define amAMOUNT 1U
+        #define amFEE 8U
+        #define atACCOUNT 1U
+        #define DOESNT_EXIST (-5)
+        #define atDESTINATION 3U
+        #define SBUF(x) (uint32_t)x,sizeof(x)
 
-            const ASSERT = (x, code) => {
-                if (!x) {
-                    rollback(x.toString(), code);
-                }
+        #define PREREQUISITE_NOT_MET -9
+        #define ENCODE_DROPS_SIZE 9
+        #define ENCODE_DROPS(buf_out, drops, amount_type ) \
+            {\
+                uint8_t uat = amount_type; \
+                uint64_t udrops = drops; \
+                buf_out[0] = 0x60U +(uat & 0x0FU ); \
+                buf_out[1] = 0b01000000 + (( udrops >> 56 ) & 0b00111111 ); \
+                buf_out[2] = (udrops >> 48) & 0xFFU; \
+                buf_out[3] = (udrops >> 40) & 0xFFU; \
+                buf_out[4] = (udrops >> 32) & 0xFFU; \
+                buf_out[5] = (udrops >> 24) & 0xFFU; \
+                buf_out[6] = (udrops >> 16) & 0xFFU; \
+                buf_out[7] = (udrops >>  8) & 0xFFU; \
+                buf_out[8] = (udrops >>  0) & 0xFFU; \
+                buf_out += ENCODE_DROPS_SIZE; \
             }
 
-            const Hook = (arg) => {
-                ASSERT(otxn_field(sfAccount) == 20);
-                ASSERT(otxn_field(1) == INVALID_ARGUMENT);
-                
-                let acc2 = hook_account();
-                ASSERT(acc2 == 20);
+        #define _06_XX_ENCODE_DROPS(buf_out, drops, amount_type )\
+            ENCODE_DROPS(buf_out, drops, amount_type );
 
-                for (var i = 0; i < 20; ++i)
-                    ASSERT(acc[i] == acc2[i]);
+        #define ENCODE_DROPS_AMOUNT(buf_out, drops )\
+            ENCODE_DROPS(buf_out, drops, amAMOUNT );
+        #define _06_01_ENCODE_DROPS_AMOUNT(buf_out, drops )\
+            ENCODE_DROPS_AMOUNT(buf_out, drops );
 
-                return accept("0", 0);
+        #define ENCODE_DROPS_FEE(buf_out, drops )\
+            ENCODE_DROPS(buf_out, drops, amFEE );
+        #define _06_08_ENCODE_DROPS_FEE(buf_out, drops )\
+            ENCODE_DROPS_FEE(buf_out, drops );
+
+        #define ENCODE_TT_SIZE 3
+        #define ENCODE_TT(buf_out, tt )\
+            {\
+                uint8_t utt = tt;\
+                buf_out[0] = 0x12U;\
+                buf_out[1] =(utt >> 8 ) & 0xFFU;\
+                buf_out[2] =(utt >> 0 ) & 0xFFU;\
+                buf_out += ENCODE_TT_SIZE; \
             }
+        #define _01_02_ENCODE_TT(buf_out, tt)\
+            ENCODE_TT(buf_out, tt);
+
+
+        #define ENCODE_ACCOUNT_SIZE 22
+        #define ENCODE_ACCOUNT(buf_out, account_id, account_type)\
+            {\
+                uint8_t uat = account_type;\
+                buf_out[0] = 0x80U + uat;\
+                buf_out[1] = 0x14U;\
+                *(uint64_t*)(buf_out +  2) = *(uint64_t*)(account_id +  0);\
+                *(uint64_t*)(buf_out + 10) = *(uint64_t*)(account_id +  8);\
+                *(uint32_t*)(buf_out + 18) = *(uint32_t*)(account_id + 16);\
+                buf_out += ENCODE_ACCOUNT_SIZE;\
+            }
+        #define _08_XX_ENCODE_ACCOUNT(buf_out, account_id, account_type)\
+            ENCODE_ACCOUNT(buf_out, account_id, account_type);
+
+        #define ENCODE_ACCOUNT_SRC_SIZE 22
+        #define ENCODE_ACCOUNT_SRC(buf_out, account_id)\
+            ENCODE_ACCOUNT(buf_out, account_id, atACCOUNT);
+        #define _08_01_ENCODE_ACCOUNT_SRC(buf_out, account_id)\
+            ENCODE_ACCOUNT_SRC(buf_out, account_id);
+
+        #define ENCODE_ACCOUNT_DST_SIZE 22
+        #define ENCODE_ACCOUNT_DST(buf_out, account_id)\
+            ENCODE_ACCOUNT(buf_out, account_id, atDESTINATION);
+        #define _08_03_ENCODE_ACCOUNT_DST(buf_out, account_id)\
+            ENCODE_ACCOUNT_DST(buf_out, account_id);
+
+        #define ENCODE_ACCOUNT_OWNER_SIZE 22
+        #define ENCODE_ACCOUNT_OWNER(buf_out, account_id) \
+            ENCODE_ACCOUNT(buf_out, account_id, atOWNER);
+        #define _08_02_ENCODE_ACCOUNT_OWNER(buf_out, account_id) \
+            ENCODE_ACCOUNT_OWNER(buf_out, account_id);
+
+        #define ENCODE_UINT32_COMMON_SIZE 5U
+        #define ENCODE_UINT32_COMMON(buf_out, i, field)\
+            {\
+                uint32_t ui = i; \
+                uint8_t uf = field; \
+                buf_out[0] = 0x20U +(uf & 0x0FU); \
+                buf_out[1] =(ui >> 24 ) & 0xFFU; \
+                buf_out[2] =(ui >> 16 ) & 0xFFU; \
+                buf_out[3] =(ui >>  8 ) & 0xFFU; \
+                buf_out[4] =(ui >>  0 ) & 0xFFU; \
+                buf_out += ENCODE_UINT32_COMMON_SIZE; \
+            }
+        #define _02_XX_ENCODE_UINT32_COMMON(buf_out, i, field)\
+            ENCODE_UINT32_COMMON(buf_out, i, field)\
+
+        #define ENCODE_UINT32_UNCOMMON_SIZE 6U
+        #define ENCODE_UINT32_UNCOMMON(buf_out, i, field)\
+            {\
+                uint32_t ui = i; \
+                uint8_t uf = field; \
+                buf_out[0] = 0x20U; \
+                buf_out[1] = uf; \
+                buf_out[2] =(ui >> 24 ) & 0xFFU; \
+                buf_out[3] =(ui >> 16 ) & 0xFFU; \
+                buf_out[4] =(ui >>  8 ) & 0xFFU; \
+                buf_out[5] =(ui >>  0 ) & 0xFFU; \
+                buf_out += ENCODE_UINT32_UNCOMMON_SIZE; \
+            }
+        #define _02_XX_ENCODE_UINT32_UNCOMMON(buf_out, i, field)\
+            ENCODE_UINT32_UNCOMMON(buf_out, i, field)\
+
+        #define ENCODE_LLS_SIZE 6U
+        #define ENCODE_LLS(buf_out, lls )\
+            ENCODE_UINT32_UNCOMMON(buf_out, lls, 0x1B );
+        #define _02_27_ENCODE_LLS(buf_out, lls )\
+            ENCODE_LLS(buf_out, lls );
+
+        #define ENCODE_FLS_SIZE 6U
+        #define ENCODE_FLS(buf_out, fls )\
+            ENCODE_UINT32_UNCOMMON(buf_out, fls, 0x1A );
+        #define _02_26_ENCODE_FLS(buf_out, fls )\
+            ENCODE_FLS(buf_out, fls );
+
+        #define ENCODE_TAG_SRC_SIZE 5
+        #define ENCODE_TAG_SRC(buf_out, tag )\
+            ENCODE_UINT32_COMMON(buf_out, tag, 0x3U );
+        #define _02_03_ENCODE_TAG_SRC(buf_out, tag )\
+            ENCODE_TAG_SRC(buf_out, tag );
+
+        #define ENCODE_TAG_DST_SIZE 5
+        #define ENCODE_TAG_DST(buf_out, tag )\
+            ENCODE_UINT32_COMMON(buf_out, tag, 0xEU );
+        #define _02_14_ENCODE_TAG_DST(buf_out, tag )\
+            ENCODE_TAG_DST(buf_out, tag );
+
+        #define ENCODE_SEQUENCE_SIZE 5
+        #define ENCODE_SEQUENCE(buf_out, sequence )\
+            ENCODE_UINT32_COMMON(buf_out, sequence, 0x4U );
+        #define _02_04_ENCODE_SEQUENCE(buf_out, sequence )\
+            ENCODE_SEQUENCE(buf_out, sequence );
+
+        #define ENCODE_FLAGS_SIZE 5
+        #define ENCODE_FLAGS(buf_out, tag )\
+            ENCODE_UINT32_COMMON(buf_out, tag, 0x2U );
+        #define _02_02_ENCODE_FLAGS(buf_out, tag )\
+            ENCODE_FLAGS(buf_out, tag );
+
+        #define ENCODE_SIGNING_PUBKEY_SIZE 35
+        #define ENCODE_SIGNING_PUBKEY(buf_out, pkey )\
+            {\
+                buf_out[0] = 0x73U;\
+                buf_out[1] = 0x21U;\
+                *(uint64_t*)(buf_out +  2) = *(uint64_t*)(pkey +  0);\
+                *(uint64_t*)(buf_out + 10) = *(uint64_t*)(pkey +  8);\
+                *(uint64_t*)(buf_out + 18) = *(uint64_t*)(pkey + 16);\
+                *(uint64_t*)(buf_out + 26) = *(uint64_t*)(pkey + 24);\
+                buf[34] = pkey[32];\
+                buf_out += ENCODE_SIGNING_PUBKEY_SIZE;\
+            }
+
+        #define _07_03_ENCODE_SIGNING_PUBKEY(buf_out, pkey )\
+            ENCODE_SIGNING_PUBKEY(buf_out, pkey );
+
+        #define ENCODE_SIGNING_PUBKEY_NULL_SIZE 35
+        #define ENCODE_SIGNING_PUBKEY_NULL(buf_out )\
+            {\
+                buf_out[0] = 0x73U;\
+                buf_out[1] = 0x21U;\
+                *(uint64_t*)(buf_out+2) = 0;\
+                *(uint64_t*)(buf_out+10) = 0;\
+                *(uint64_t*)(buf_out+18) = 0;\
+                *(uint64_t*)(buf_out+25) = 0;\
+                buf_out += ENCODE_SIGNING_PUBKEY_NULL_SIZE;\
+            }
+
+        #define _07_03_ENCODE_SIGNING_PUBKEY_NULL(buf_out )\
+            ENCODE_SIGNING_PUBKEY_NULL(buf_out );
+
+        extern int64_t etxn_fee_base (
+            uint32_t read_ptr,
+          	uint32_t read_len
+        );
+        extern int64_t etxn_details (
+            uint32_t write_ptr,
+          	uint32_t write_len
+        );
+        extern int64_t ledger_seq (void);
+
+        #define PREPARE_PAYMENT_SIMPLE_SIZE 270U
+        #define PREPARE_PAYMENT_SIMPLE(buf_out_master, drops_amount_raw, to_address, dest_tag_raw, src_tag_raw)\
+            {\
+                uint8_t* buf_out = buf_out_master;\
+                uint8_t acc[20];\
+                uint64_t drops_amount = (drops_amount_raw);\
+                uint32_t dest_tag = (dest_tag_raw);\
+                uint32_t src_tag = (src_tag_raw);\
+                uint32_t cls = (uint32_t)ledger_seq();\
+                hook_account(SBUF(acc));\
+                _01_02_ENCODE_TT                   (buf_out, ttPAYMENT                      );      /* uint16  | size   3 */ \
+                _02_02_ENCODE_FLAGS                (buf_out, tfCANONICAL                    );      /* uint32  | size   5 */ \
+                _02_03_ENCODE_TAG_SRC              (buf_out, src_tag                        );      /* uint32  | size   5 */ \
+                _02_04_ENCODE_SEQUENCE             (buf_out, 0                              );      /* uint32  | size   5 */ \
+                _02_14_ENCODE_TAG_DST              (buf_out, dest_tag                       );      /* uint32  | size   5 */ \
+                _02_26_ENCODE_FLS                  (buf_out, cls + 1                        );      /* uint32  | size   6 */ \
+                _02_27_ENCODE_LLS                  (buf_out, cls + 5                        );      /* uint32  | size   6 */ \
+                _06_01_ENCODE_DROPS_AMOUNT         (buf_out, drops_amount                   );      /* amount  | size   9 */ \
+                uint8_t* fee_ptr = buf_out;\
+                _06_08_ENCODE_DROPS_FEE            (buf_out, 0                              );      /* amount  | size   9 */ \
+                _07_03_ENCODE_SIGNING_PUBKEY_NULL  (buf_out                                 );      /* pk      | size  35 */ \
+                _08_01_ENCODE_ACCOUNT_SRC          (buf_out, acc                            );      /* account | size  22 */ \
+                _08_03_ENCODE_ACCOUNT_DST          (buf_out, to_address                     );      /* account | size  22 */ \
+                int64_t edlen = etxn_details((uint32_t)buf_out, PREPARE_PAYMENT_SIMPLE_SIZE);       /* emitdet | size 1?? */ \
+                int64_t fee = etxn_fee_base(buf_out_master, PREPARE_PAYMENT_SIMPLE_SIZE);                                    \
+                _06_08_ENCODE_DROPS_FEE            (fee_ptr, fee                            );                               \
+            }
+
+        #define UINT16_FROM_BUF(buf)\
+            (((uint64_t)((buf)[0]) <<  8U) +\
+             ((uint64_t)((buf)[1]) <<  0U))
+
+        #define BUFFER_EQUAL_32(buf1, buf2)\
+            (\
+                *(((uint64_t*)(buf1)) + 0) == *(((uint64_t*)(buf2)) + 0) &&\
+                *(((uint64_t*)(buf1)) + 1) == *(((uint64_t*)(buf2)) + 1) &&\
+                *(((uint64_t*)(buf1)) + 2) == *(((uint64_t*)(buf2)) + 2) &&\
+                *(((uint64_t*)(buf1)) + 3) == *(((uint64_t*)(buf2)) + 3) &&\
+                *(((uint64_t*)(buf1)) + 4) == *(((uint64_t*)(buf2)) + 4) &&\
+                *(((uint64_t*)(buf1)) + 5) == *(((uint64_t*)(buf2)) + 5) &&\
+                *(((uint64_t*)(buf1)) + 6) == *(((uint64_t*)(buf2)) + 6) &&\
+                *(((uint64_t*)(buf1)) + 7) == *(((uint64_t*)(buf2)) + 7))
+
+        #define ASSERT(x)\
+             if (!(x))\
+                rollback((uint32_t)#x,sizeof(#x),__LINE__)
+
+        #define sfDestination ((8U << 16U) + 3U)
+
+        extern int64_t etxn_generation(void);
+        extern int64_t otxn_generation(void);
+        extern int64_t otxn_burden(void);
+        extern int64_t etxn_burden(void);
+
+        int64_t cbak(uint32_t r)
+        {
+            // on callback we emit 2 more txns
+            uint8_t bob[20];
+            ASSERT(otxn_field(SBUF(bob), sfDestination) == 20);
+
+            ASSERT(otxn_generation() + 1 == etxn_generation());
+
+            ASSERT(etxn_burden() == PREREQUISITE_NOT_MET);
+
+            ASSERT(etxn_reserve(2) == 2);
+            
+            ASSERT(otxn_burden() > 0);
+            ASSERT(etxn_burden() == otxn_burden() * 2);
+
+            uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
+            PREPARE_PAYMENT_SIMPLE(tx, 1000, bob, 0, 0);
+
+            uint8_t hash1[32];
+            ASSERT(emit(SBUF(hash1), SBUF(tx)) == 32);
+
+            ASSERT(etxn_details(tx + 132, 138) == 138);
+            uint8_t hash2[32];
+            ASSERT(emit(SBUF(hash2), SBUF(tx)) == 32);
+
+            ASSERT(!BUFFER_EQUAL_32(hash1, hash2)); 
+
+            return accept(0,0,0);
+        }
+
+        int64_t hook(uint32_t r)
+        {
+            _g(1,1);
+
+            etxn_reserve(1);
+            
+            // bounds checks
+            ASSERT(emit(1000000, 32, 0, 32) == OUT_OF_BOUNDS);
+            ASSERT(emit(0,1000000, 0, 32) == OUT_OF_BOUNDS);
+            ASSERT(emit(0,32, 1000000, 32) == OUT_OF_BOUNDS);
+            ASSERT(emit(0,32, 0, 1000000) == OUT_OF_BOUNDS);
+
+            ASSERT(otxn_generation() == 0);
+            ASSERT(otxn_burden == 1);
+
+            uint8_t bob[20];
+            ASSERT(otxn_param(SBUF(bob), "bob", 3) == 20);
+
+            uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
+            PREPARE_PAYMENT_SIMPLE(tx, 1000, bob, 0, 0);
+
+            uint8_t hash[32];
+            ASSERT(emit(SBUF(hash), SBUF(tx)) == 32);
+
+            return accept(0,0,0);
+        }
         )[test.hook]"];
 
-        // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set otxn_field"),
+        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, overrideFlag)}}, 0),
+            M("set emit"),
             HSFEE);
         env.close();
 
-        // invoke the hook
-        env(pay(alice, bob, XRP(1)), M("test otxn_field"), fee(XRP(1)));
-    }
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
 
-    void
-    test_hook_account(FeatureBitset features)
-    {
-        testcase("Test hook_account");
-        using namespace jtx;
+        Json::Value params{Json::arrayValue};
+        params[0U][jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("bob"));
+        params[0U][jss::HookParameter][jss::HookParameterValue] =
+            strHex(bob.id());
 
-        auto const test = [&](Account alice) -> void {
-            Env env{*this, features};
+        invoke[jss::HookParameters] = params;
 
-            // Env env{*this, envconfig(), features, nullptr,
-            //     beast::severities::kTrace
-            // };
+        env(invoke, M("test emit"), fee(XRP(1)));
 
-            auto const bob = Account{"bob"};
-            env.fund(XRP(10000), alice);
-            env.fund(XRP(10000), bob);
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
 
-            TestHook hook = {0x43U, 0x0bU, 0x0cU, 0x41U, 0x53U, 0x53U, 0x45U, 0x52U, 0x54U, 0x08U,
-      0x48U, 0x6fU, 0x6fU, 0x6bU, 0x28U, 0x77U, 0x61U, 0x73U, 0x6dU, 0x6aU,
-      0x73U, 0x2fU, 0x74U, 0x65U, 0x73U, 0x74U, 0x2dU, 0x31U, 0x2dU, 0x67U,
-      0x65U, 0x6eU, 0x2eU, 0x6aU, 0x73U, 0x02U, 0x78U, 0x08U, 0x63U, 0x6fU,
-      0x64U, 0x65U, 0x10U, 0x72U, 0x6fU, 0x6cU, 0x6cU, 0x62U, 0x61U, 0x63U,
-      0x6bU, 0x06U, 0x61U, 0x72U, 0x67U, 0x08U, 0x61U, 0x63U, 0x63U, 0x32U,
-      0x18U, 0x68U, 0x6fU, 0x6fU, 0x6bU, 0x5fU, 0x61U, 0x63U, 0x63U, 0x6fU,
-      0x75U, 0x6eU, 0x74U, 0x0aU, 0x74U, 0x72U, 0x61U, 0x63U, 0x65U, 0x0cU,
-      0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x0cU, 0x00U, 0x06U, 0x00U,
-      0xa2U, 0x01U, 0x00U, 0x01U, 0x00U, 0x01U, 0x00U, 0x02U, 0x32U, 0x01U,
-      0xa4U, 0x01U, 0x00U, 0x00U, 0x00U, 0x3fU, 0xe3U, 0x00U, 0x00U, 0x00U,
-      0x80U, 0x3fU, 0xe4U, 0x00U, 0x00U, 0x00U, 0x80U, 0x3eU, 0xe3U, 0x00U,
-      0x00U, 0x00U, 0x80U, 0x3eU, 0xe4U, 0x00U, 0x00U, 0x00U, 0x80U, 0xc2U,
-      0x00U, 0x4dU, 0xe3U, 0x00U, 0x00U, 0x00U, 0x3aU, 0xe3U, 0x00U, 0x00U,
-      0x00U, 0xc2U, 0x01U, 0x4dU, 0xe4U, 0x00U, 0x00U, 0x00U, 0x3aU, 0xe4U,
-      0x00U, 0x00U, 0x00U, 0xc7U, 0x28U, 0xcaU, 0x03U, 0x01U, 0x07U, 0x3dU,
-      0x00U, 0x0cU, 0x0cU, 0x00U, 0x0cU, 0x0eU, 0x0cU, 0x02U, 0x06U, 0x00U,
-      0x00U, 0x02U, 0x00U, 0x02U, 0x03U, 0x00U, 0x00U, 0x16U, 0x02U, 0xccU,
-      0x03U, 0x00U, 0x01U, 0x00U, 0xceU, 0x03U, 0x00U, 0x01U, 0x00U, 0xd3U,
-      0x97U, 0xecU, 0x12U, 0x38U, 0xe8U, 0x00U, 0x00U, 0x00U, 0xd3U, 0x42U,
-      0x38U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0xd4U, 0xf2U, 0x0eU,
-      0x29U, 0xcaU, 0x03U, 0x02U, 0x03U, 0x03U, 0x17U, 0x59U, 0x0cU, 0x02U,
-      0x06U, 0x00U, 0x00U, 0x01U, 0x01U, 0x01U, 0x04U, 0x00U, 0x00U, 0x34U,
-      0x02U, 0xd2U, 0x03U, 0x00U, 0x01U, 0x00U, 0xd4U, 0x03U, 0x01U, 0x00U,
-      0x20U, 0x61U, 0x00U, 0x00U, 0x38U, 0xebU, 0x00U, 0x00U, 0x00U, 0xf0U,
-      0xcbU, 0x38U, 0xecU, 0x00U, 0x00U, 0x00U, 0x04U, 0xeaU, 0x00U, 0x00U,
-      0x00U, 0x62U, 0x00U, 0x00U, 0x09U, 0xf3U, 0x0eU, 0x38U, 0xe3U, 0x00U,
-      0x00U, 0x00U, 0x62U, 0x00U, 0x00U, 0xebU, 0xbfU, 0x14U, 0xaaU, 0xf1U,
-      0x0eU, 0x38U, 0xedU, 0x00U, 0x00U, 0x00U, 0x62U, 0x00U, 0x00U, 0xb7U,
-      0x23U, 0x02U, 0x00U, 0xcaU, 0x03U, 0x08U, 0x04U, 0x12U, 0x26U, 0x53U,
-      0x49U};
+        std::optional<uint256> emithash;
+        {
+            auto meta = env.meta();  // meta can close
 
-            // TestHook hook = jswasm[
-            //     R"[test.hook](
-            //     const ASSERT = (x, code) => {
-            //     if (!x) {
-            //     rollback(x.toString(), code);
-            //     }
-            //     }
+            // ensure hook execution occured
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
-            //     const Hook = (arg) => {
-            //     let acc2 = hook_account();
-            //     trace("acc2", acc2, false);
-            //     ASSERT(acc2.length == 20);
-            //     return accept(acc2, 0);
-            //     }
-            // )[test.hook]"];
+            auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
+            BEAST_EXPECT(
+                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
+                                                                       : false);
+            BEAST_EXPECT(
+                hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
-            std::cout << "TEST: 1" << "\n";
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
 
-            // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, overrideFlag)}}, 0),
-                M("set hook_account"),
-                HSFEE);
-            env.close();
+            // ensure there was one emitted txn
+            BEAST_EXPECT(hookExecutions[0].getFieldU16(sfHookEmitCount) == 1);
 
-            std::cout << "TEST: 2" << "\n";
+            BEAST_REQUIRE(meta->isFieldPresent(sfAffectedNodes));
 
-            // invoke the hook
-            env(pay(bob, alice, XRP(1)), M("test hook_account"), fee(XRP(1)));
+            BEAST_REQUIRE(meta->getFieldArray(sfAffectedNodes).size() == 3);
 
-            std::cout << "TEST: 3" << "\n";
+            for (auto const& node : meta->getFieldArray(sfAffectedNodes))
             {
-                auto meta = env.meta();
-
-                // ensure hook execution occured
-                BEAST_REQUIRE(meta);
-                BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
-
-                std::cout << "TEST: 3.1" << "\n";
-
-                // ensure there was only one hook execution
-                auto const hookExecutions =
-                    meta->getFieldArray(sfHookExecutions);
-                BEAST_REQUIRE(hookExecutions.size() == 1);
-
-                std::cout << "TEST: 3.2" << "\n";
-
-                // get the data in the return string of the extention
-                auto const retStr =
-                    hookExecutions[0].getFieldVL(sfHookReturnString);
-
-                std::cout << "TEST: 3.3" << "\n";
-
-                // check that it matches the account id
-                BEAST_EXPECT(retStr.size() == 20);
-                auto const a = alice.id();
-                BEAST_EXPECT(memcmp(retStr.data(), a.data(), 20) == 0);
-            }
-
-            std::cout << "TEST: 4" << "\n";
-
-            // install the same hook bob
-            env(ripple::test::jtx::hook(bob, {{hsov1(hook, 1, overrideFlag)}}, 0),
-                M("set hook_account 2"),
-                HSFEE);
-            env.close();
-
-            std::cout << "TEST: 5" << "\n";
-
-            // invoke the hook
-            env(pay(bob, alice, XRP(1)), M("test hook_account 2"), fee(XRP(1)));
-
-            // there should be two hook executions, the first should be bob's
-            // address the second should be alice's
-            {
-                auto meta = env.meta();
-
-                // ensure hook execution occured
-                BEAST_REQUIRE(meta);
-                BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
-
-                // ensure there were two hook executions
-                auto const hookExecutions =
-                    meta->getFieldArray(sfHookExecutions);
-                BEAST_REQUIRE(hookExecutions.size() == 2);
-
+                SField const& metaType = node.getFName();
+                uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
+                if (metaType == sfCreatedNode && nodeType == ltEMITTED_TXN)
                 {
-                    // get the data in the return string of the extention
-                    auto const retStr =
-                        hookExecutions[0].getFieldVL(sfHookReturnString);
+                    BEAST_REQUIRE(node.isFieldPresent(sfNewFields));
 
-                    // check that it matches the account id
-                    BEAST_EXPECT(retStr.size() == 20);
-                    auto const b = bob.id();
-                    BEAST_EXPECT(memcmp(retStr.data(), b.data(), 20) == 0);
-                }
+                    auto const& nf = const_cast<ripple::STObject&>(node)
+                                         .getField(sfNewFields)
+                                         .downcast<STObject>();
 
-                {
-                    // get the data in the return string of the extention
-                    auto const retStr =
-                        hookExecutions[1].getFieldVL(sfHookReturnString);
+                    auto const& et = const_cast<ripple::STObject&>(nf)
+                                         .getField(sfEmittedTxn)
+                                         .downcast<STObject>();
 
-                    // check that it matches the account id
-                    BEAST_EXPECT(retStr.size() == 20);
-                    auto const a = alice.id();
-                    BEAST_EXPECT(memcmp(retStr.data(), a.data(), 20) == 0);
+                    auto const& em = const_cast<ripple::STObject&>(et)
+                                         .getField(sfEmitDetails)
+                                         .downcast<STObject>();
+
+                    BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == 1);
+                    BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == 1);
+
+                    Blob txBlob = et.getSerializer().getData();
+                    auto const tx = std::make_unique<STTx>(
+                        Slice{txBlob.data(), txBlob.size()});
+                    emithash = tx->getTransactionID();
+
+                    break;
                 }
             }
-        };
 
-        test(Account{"alice"});
-        test(Account{"cho"});
+            BEAST_REQUIRE(emithash);
+            BEAST_EXPECT(
+                emithash == hookEmissions[0u].getFieldH256(sfEmittedTxnID));
+        }
+
+        {
+            auto balbefore = env.balance(bob).value().xrp().drops();
+
+            env.close();
+
+            auto const ledger = env.closed();
+
+            int txcount = 0;
+            for (auto& i : ledger->txs)
+            {
+                auto const& hash = i.first->getTransactionID();
+                txcount++;
+                BEAST_EXPECT(hash == *emithash);
+            }
+
+            BEAST_EXPECT(txcount == 1);
+
+            auto balafter = env.balance(bob).value().xrp().drops();
+
+            BEAST_EXPECT(balafter - balbefore == 1000);
+
+            env.close();
+        }
+
+        uint64_t burden_expected = 2;
+        for (int j = 0; j < 7; ++j)
+        {
+            auto const ledger = env.closed();
+            for (auto& i : ledger->txs)
+            {
+                auto const& em = const_cast<ripple::STTx&>(*(i.first))
+                                     .getField(sfEmitDetails)
+                                     .downcast<STObject>();
+                BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == burden_expected);
+                BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == j + 2);
+                BEAST_REQUIRE(i.second->isFieldPresent(sfHookExecutions));
+                auto const hookExecutions =
+                    i.second->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(hookExecutions.size() == 1);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
+                BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+            }
+            env.close();
+            burden_expected *= 2U;
+        }
+
+        {
+            auto const ledger = env.closed();
+            int txcount = 0;
+            for (auto& i : ledger->txs)
+            {
+                txcount++;
+                auto const& em = const_cast<ripple::STTx&>(*(i.first))
+                                     .getField(sfEmitDetails)
+                                     .downcast<STObject>();
+                BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == 256);
+                BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == 9);
+                BEAST_REQUIRE(i.second->isFieldPresent(sfHookExecutions));
+                auto const hookExecutions =
+                    i.second->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(hookExecutions.size() == 1);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU64(sfHookReturnCode) ==
+                    283);  // emission failure on first emit
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+            }
+            BEAST_EXPECT(txcount == 256);
+        }
+
+        // next close will lead to zero transactions
+        env.close();
+        {
+            auto const ledger = env.closed();
+            int txcount = 0;
+            for ([[maybe_unused]] auto& i : ledger->txs)
+                txcount++;
+            BEAST_EXPECT(txcount == 0);
+        }
     }
 
     void
     testWithFeatures(FeatureBitset features)
     {
-        // testHooksOwnerDir(features);
-        // testHooksDisabled(features);
-        // testTxStructure(features);
-        // // testInferHookSetOperation(); // Not Version Specific
-        // // testParams(features); // Not Version Specific
-        // // testGrants(features); // Not Version Specific
+        testHooksOwnerDir(features);
+        testHooksDisabled(features);
+        testTxStructure(features);
+        // testInferHookSetOperation(); // Not Version Specific
+        // testParams(features); // Not Version Specific
+        // testGrants(features); // Not Version Specific
 
-        // testInstall(features);
-        // testDelete(features);
-        // testNSDelete(features);
-        // testCreate(features);
-        // testUpdate(features);
-        // testWithTickets(features);
+        testInstall(features);
+        testDelete(features);
+        testNSDelete(features);
+        testCreate(features);
+        testUpdate(features);
+        testWithTickets(features);
 
-        // // DA TODO: illegalfunc_wasm
-        // // testWasm(features);
-        // test_accept(features);
-        // test_rollback(features);
-
-        // DA HERE
+        // DA TODO: illegalfunc_wasm
+        // testWasm(features);
+        test_accept(features);
+        test_rollback(features);
 
         // testGuards(features); // Not Used in JSHooks
 
@@ -1772,7 +2064,7 @@ public:
         // test_float_sto_set(features);   //
         // test_float_sum(features);       //
 
-        test_hook_account(features);    //
+        // test_hook_account(features);    //
         // test_hook_again(features);      //
         // test_hook_hash(features);       //
         // test_hook_param(features);      //
@@ -1857,7 +2149,6 @@ private:
     TestHook illegalfunc_wasm =  // WASM: 3
         jswasm[
             R"[test.hook](
-            const Hook = (arg) => {
             console.log("HERE");
             return accept(ret, 0);
             }
