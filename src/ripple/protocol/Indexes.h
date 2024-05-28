@@ -298,15 +298,6 @@ Keylet
 uritoken(AccountID const& issuer, Blob const& uri);
 
 Keylet
-broker()  noexcept;;
-
-Keylet
-brokerStateDir(AccountID const& id, AccountID const& account)  noexcept;
-
-Keylet
-brokerState(AccountID const& id, AccountID const& issuer, uint256 const& ns) noexcept;
-
-Keylet
 option(AccountID const& issuer, std::uint32_t expiration)  noexcept;
 
 Keylet
