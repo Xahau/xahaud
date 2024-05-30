@@ -7404,7 +7404,9 @@ DEFINE_JS_FUNCTION(
         !fits_u32(dp, ab))
         returnJS(INVALID_ARGUMENT);
 
-    returnJSXFL(__float_int(hookCtx, applyCtx, j, *f1, (uint32_t)(*dp), (uint32_t)(*ab)));
+    // Note! This is the only (?) place where a float/... method has to return `returnJS` instead
+    // of `returnJSXFL` as this is where we cast to JS usable Number
+    returnJS(__float_int(hookCtx, applyCtx, j, *f1, (uint32_t)(*dp), (uint32_t)(*ab)));
 
     JS_HOOK_TEARDOWN();
 }
