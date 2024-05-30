@@ -1561,10 +1561,6 @@ public:
         auto const test = [&](Account alice) -> void {
             Env env{*this, features};
 
-            // Env env{*this, envconfig(), features, nullptr,
-            //     beast::severities::kTrace
-            // };
-
             auto const bob = Account{"bob"};
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
@@ -2346,9 +2342,6 @@ public:
         testcase("Test hook_param_set");
         using namespace jtx;
         Env env{*this, features};
-        // Env env{*this, envconfig(), features, nullptr,
-        //     beast::severities::kTrace
-        // };
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -3486,10 +3479,7 @@ public:
     test_util_accid(FeatureBitset features)
     {
         using namespace jtx;
-        // Env env{*this, features};
-        Env env{*this, envconfig(), features, nullptr,
-            beast::severities::kTrace
-        };
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
