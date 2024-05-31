@@ -3946,8 +3946,8 @@ JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
 DEFINE_JS_FUNCTION(
     JSValue,
     util_keylet,
-    JSValue kt_raw,
-    JSValue dummy_value) /* use JSValueConst* argv & int argc */
+    JSValue kt_raw) 
+    /* use JSValueConst* argv & int argc */
 {
     JS_HOOK_SETUP();
 
