@@ -62,6 +62,12 @@ InnerObjectFormats::InnerObjectFormats()
             {sfFirstLedgerSequence, soeREQUIRED},
         });
 
+    add(sfBatchExecution.jsonName.c_str(),
+        sfBatchExecution.getCode(),
+        {{sfTransactionType, soeREQUIRED},
+         {sfTransactionResult, soeREQUIRED},
+         {sfTransactionHash, soeOPTIONAL}});
+
     add(sfHookExecution.jsonName.c_str(),
         sfHookExecution.getCode(),
         {{sfHookResult, soeREQUIRED},
@@ -157,6 +163,13 @@ InnerObjectFormats::InnerObjectFormats()
             {sfDigest, soeOPTIONAL},
             {sfFlags, soeOPTIONAL},
         });
+
+    add(sfBatchTxn.jsonName.c_str(),
+        sfBatchTxn.getCode(),
+        {{sfAccount, soeREQUIRED},
+         {sfOuterSequence, soeREQUIRED},
+         {sfSequence, soeOPTIONAL},
+         {sfBatchIndex, soeREQUIRED}});
 }
 
 InnerObjectFormats const&

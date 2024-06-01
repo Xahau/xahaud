@@ -185,6 +185,8 @@ enum TxType : std::uint16_t
     ttUNL_MODIFY = 102,
     ttEMIT_FAILURE = 103,
     ttUNL_REPORT = 104,
+
+    ttBATCH = 105,
 };
 // clang-format on
 

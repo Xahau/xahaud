@@ -44,6 +44,8 @@ TxFormats::TxFormats()
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
         {sfOperationLimit, soeOPTIONAL},
+        {sfCloseResolution, soeOPTIONAL},
+        {sfBatchTxn, soeOPTIONAL},
     };
 
     add(jss::AccountSet,
@@ -454,6 +456,13 @@ TxFormats::TxFormats()
         {
             {sfURITokenID, soeREQUIRED},
             {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::Batch,
+        ttBATCH,
+        {
+            {sfRawTransactions, soeOPTIONAL},
         },
         commonFields);
 }

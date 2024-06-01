@@ -440,7 +440,38 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
         return temBAD_FEE;
 
     // Only check fee is sufficient when the ledger is open.
-    if (ctx.view.open())
+    if (ctx.view.open() && ctx.tx.getTxnType() == ttBATCH)
+    {
+        XRPAmount feeDue = XRPAmount{0};
+        auto const& txns = ctx.tx.getFieldArray(sfRawTransactions);
+        for (std::size_t i = 0; i < txns.size(); ++i)
+        {
+            auto const& txn = txns[i];
+            if (!txn.isFieldPresent(sfFee))
+            {
+                JLOG(ctx.j.warn())
+                    << "Batch: sfFee missing in array entry.";
+                return telINSUF_FEE_P;
+            }
+            auto const _fee = txn.getFieldAmount(sfFee);
+            feeDue += _fee.xrp();
+
+            // auto const tt = txn.getFieldU16(sfTransactionType);
+            // auto const txtype = safe_cast<TxType>(tt);
+            // auto const stx = STTx(txtype, [&txn](STObject& obj) { obj = std::move(txn); });
+            // auto const _fee = Transactor::calculateBaseFee(ctx.view, stx);
+            // feeDue += _fee;
+        }
+
+        if (feePaid < feeDue)
+        {
+            JLOG(ctx.j.trace())
+                << "Insufficient fee paid: " << to_string(feePaid) << "/"
+                << to_string(feeDue);
+            return telINSUF_FEE_P;
+        }
+    }
+    if (ctx.view.open() && ctx.tx.getTxnType() != ttBATCH)
     {
         auto const feeDue =
             minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
@@ -500,6 +531,7 @@ TER
 Transactor::payFee()
 {
     auto const feePaid = ctx_.tx[sfFee].xrp();
+    std::cout << "feePaid: " << feePaid << "\n";
 
     auto const sle = view().peek(keylet::account(account_));
     // RH NOTE: we don't need to check for ttIMPORT here because this function
@@ -510,7 +542,9 @@ Transactor::payFee()
     // Deduct the fee, so it's not available during the transaction.
     // Will only write the account back if the transaction succeeds.
 
+    std::cout << "mSourceBalance1.1: " << mSourceBalance << "\n";
     mSourceBalance -= feePaid;
+    std::cout << "mSourceBalance1.2: " << mSourceBalance << "\n";
     sle->setFieldAmount(sfBalance, mSourceBalance);
 
     // VFALCO Should we call view().rawDestroyXRP() here as well?
@@ -526,9 +560,12 @@ Transactor::checkSeqProxy(
 {
     auto const id = tx.getAccountID(sfAccount);
 
+    auto const tt = tx.getTxnType();
+
     auto const sle = view.read(keylet::account(id));
 
     SeqProxy const t_seqProx = tx.getSeqProxy();
+    std::cout << "Transactor::checkSeqProxy: " << t_seqProx.value() << "\n";
     if (!sle)
     {
         if (view.rules().enabled(featureImport) &&
@@ -559,6 +596,12 @@ Transactor::checkSeqProxy(
         return tesSUCCESS;
     }
 
+    // // // pass all emitted tx provided their seq is 0
+    // if (view.rules().enabled(featureBatch) && hook::isBatchTxn(tx))
+    // {
+    //     return tesSUCCESS;
+    // }
+
     // reserved for emitted tx only at this time
     if (tx.isFieldPresent(sfFirstLedgerSequence))
         return tefINTERNAL;
@@ -582,6 +625,7 @@ Transactor::checkSeqProxy(
                 return terPRE_SEQ;
             }
             // It's an already-used sequence number.
+            JLOG(j.trace()) << "applyTransaction: " << tt;
             JLOG(j.trace()) << "applyTransaction: has past sequence number "
                             << "a_seq=" << a_seq << " t_seq=" << t_seqProx;
             return tefPAST_SEQ;
@@ -700,6 +744,10 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
     if (seqProx.isSeq())
     {
+        // do not update sequence of sfAccountTxnID for batch tx
+        if (ctx_.isBatchTxn())
+            return tesSUCCESS;
+
         // Note that if this transaction is a TicketCreate, then
         // the transaction will modify the account root sfSequence
         // yet again.
@@ -776,6 +824,10 @@ Transactor::apply()
 {
     preCompute();
 
+    auto const tt = ctx_.tx.getTxnType();
+    std::cout << "tt: " << tt << "\n";
+    std::cout << "id: " << ctx_.tx.getTransactionID() << "\n";
+
     // If the transactor requires a valid account and the transaction doesn't
     // list one, preflight will have already a flagged a failure.
     auto const sle = view().peek(keylet::account(account_));
@@ -806,7 +858,6 @@ Transactor::apply()
 
         view().update(sle);
     }
-
     return doApply();
 }
 
@@ -1125,10 +1176,11 @@ Transactor::reset(XRPAmount fee)
     ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
     std::vector<STObject> executions;
     std::vector<STObject> emissions;
-    avi.copyHookMetaData(executions, emissions);
+    std::vector<STObject> batch;
+    avi.copyHookMetaData(executions, emissions, batch);
     ctx_.discard();
     ApplyViewImpl& avi2 = dynamic_cast<ApplyViewImpl&>(ctx_.view());
-    avi2.setHookMetaData(std::move(executions), std::move(emissions));
+    avi2.setHookMetaData(std::move(executions), std::move(emissions), std::move(batch));
 
     auto const txnAcct =
         view().peek(keylet::account(ctx_.tx.getAccountID(sfAccount)));
@@ -1716,6 +1768,12 @@ Transactor::operator()()
     }
 #endif
 
+    // if (ctx_.isBatchTxn()) 
+    // {
+    //     JLOG(j_.trace()) << "BAD BATCH: " << ctx_.tx.getTransactionID();
+    //     return {tecINTERNAL, false};
+    // }
+
     // Enforce an absolute bar to applying emitted transactions which are either
     // explicitly in preflight test mode, or somehow managed to make their way
     // here despite not being emitted here by a hook here.
@@ -1806,7 +1864,8 @@ Transactor::operator()()
     if (ctx_.size() > oversizeMetaDataCap)
         result = tecOVERSIZE;
 
-    if (isTecClaim(result) && (view().flags() & tapFAIL_HARD))
+    if ((isTecClaim(result) && (view().flags() & tapFAIL_HARD)) ||
+        view().flags() & tapPREFLIGHT_BATCH)
     {
         // If the tapFAIL_HARD flag is set, a tec result
         // must not do anything
@@ -2040,6 +2099,8 @@ Transactor::operator()()
             ctx_.destroyXRP(fee);
 
         // Once we call apply, we will no longer be able to look at view()
+        std::cout << "Transaction::apply" << "\n";
+        std::cout << "Transaction::apply: " << (view().flags() & tapPREFLIGHT_BATCH) << "\n";
         ctx_.apply(result);
     }
 

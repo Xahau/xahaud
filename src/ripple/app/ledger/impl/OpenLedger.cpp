@@ -120,7 +120,10 @@ OpenLedger::accept(
         f(*next, j_);
     // Apply local tx
     for (auto const& item : locals)
+    {
+        JLOG(j_.trace()) << "OpenLedger::accept: getTxQ" << "\n";
         app.getTxQ().apply(app, *next, item.second, flags, j_);
+    }
 
     // If we didn't relay this transaction recently, relay it to all peers
     for (auto const& txpair : next->txs)
@@ -131,6 +134,10 @@ OpenLedger::accept(
         // skip emitted txns
         if (tx->isFieldPresent(sfEmitDetails))
             continue;
+        
+        // // skip batch txns
+        // if (tx->isFieldPresent(sfBatchTxn))
+        //     continue;
 
         if (auto const toSkip = app.getHashRouter().shouldRelay(txId))
         {

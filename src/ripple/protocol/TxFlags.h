@@ -190,6 +190,16 @@ enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };
 
+enum BatchFlags : std::uint32_t {
+    tfAllOrNothing = 0x00000001,
+    tfOnlyOne = 0x00000002,
+    tfUntilFailure = 0x00000004,
+    tfIndependent = 0x00000008,
+};
+
+constexpr std::uint32_t const tfBatchMask =
+    ~(tfUniversal | tfAllOrNothing | tfOnlyOne | tfUntilFailure | tfIndependent);
+
 // clang-format on
 
 }  // namespace ripple

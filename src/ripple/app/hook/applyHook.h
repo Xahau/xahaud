@@ -22,6 +22,8 @@ struct HookContext;
 struct HookResult;
 bool
 isEmittedTxn(ripple::STTx const& tx);
+bool
+isBatchTxn(ripple::STTx const& tx);
 
 // This map type acts as both a read and write cache for hook execution
 // and is preserved across the execution of the set of hook chains

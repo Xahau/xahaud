@@ -129,9 +129,15 @@ OpenView::txCount() const
 void
 OpenView::apply(TxsRawView& to) const
 {
+    // std::cout << "OpenView::apply" << "\n";
+    // std::cout << "OpenView::apply: " << items_.size() << "\n";
+    std::cout << "OpenView::apply: " << txs_.size() << "\n";
     items_.apply(to);
     for (auto const& item : txs_)
+    {
+        // std::cout << "OpenView::apply: " << to_string(item.first) << "\n";
         to.rawTxInsert(item.first, item.second.txn, item.second.meta);
+    }
 }
 
 //---

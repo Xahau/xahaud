@@ -89,6 +89,7 @@ CONSTRUCT_TYPED_SFIELD(sfTransactionResult,     "TransactionResult",    UINT8,  
 CONSTRUCT_TYPED_SFIELD(sfTickSize,              "TickSize",             UINT8,     16);
 CONSTRUCT_TYPED_SFIELD(sfUNLModifyDisabling,    "UNLModifyDisabling",   UINT8,     17);
 CONSTRUCT_TYPED_SFIELD(sfHookResult,            "HookResult",           UINT8,     18);
+CONSTRUCT_TYPED_SFIELD(sfBatchIndex,            "BatchIndex",           UINT8,     19);
 
 // 16-bit integers
 CONSTRUCT_TYPED_SFIELD(sfLedgerEntryType,       "LedgerEntryType",      UINT16,     1, SField::sMD_Never);
@@ -157,6 +158,7 @@ CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32, 
 
 CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 
+CONSTRUCT_TYPED_SFIELD(sfOuterSequence,         "OuterSequence",        UINT32,    95);
 CONSTRUCT_TYPED_SFIELD(sfXahauActivationLgrSeq, "XahauActivationLgrSeq",UINT32,    96);
 CONSTRUCT_TYPED_SFIELD(sfImportSequence,        "ImportSequence",       UINT32,    97);
 CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);
@@ -344,12 +346,15 @@ CONSTRUCT_UNTYPED_SFIELD(sfHookExecution,       "HookExecution",        OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfHookDefinition,      "HookDefinition",       OBJECT,    22);
 CONSTRUCT_UNTYPED_SFIELD(sfHookParameter,       "HookParameter",        OBJECT,    23);
 CONSTRUCT_UNTYPED_SFIELD(sfHookGrant,           "HookGrant",            OBJECT,    24);
+CONSTRUCT_UNTYPED_SFIELD(sfRawTransaction,      "RawTransaction",       OBJECT,    99);
+CONSTRUCT_UNTYPED_SFIELD(sfBatchExecution,      "BatchExecution",       OBJECT,    97);
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMint,         "GenesisMint",          OBJECT,    96);
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidator,     "ActiveValidator",      OBJECT,    95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKey,         "ImportVLKey",          OBJECT,    94);
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmission,        "HookEmission",         OBJECT,    93);
 CONSTRUCT_UNTYPED_SFIELD(sfMintURIToken,        "MintURIToken",         OBJECT,    92); 
 CONSTRUCT_UNTYPED_SFIELD(sfAmountEntry,         "AmountEntry",          OBJECT,    91);
+CONSTRUCT_UNTYPED_SFIELD(sfBatchTxn,            "BatchTxn",             OBJECT,    90);
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array
@@ -370,6 +375,9 @@ CONSTRUCT_UNTYPED_SFIELD(sfDisabledValidators,  "DisabledValidators",   ARRAY,  
 CONSTRUCT_UNTYPED_SFIELD(sfHookExecutions,      "HookExecutions",       ARRAY,     18);
 CONSTRUCT_UNTYPED_SFIELD(sfHookParameters,      "HookParameters",       ARRAY,     19);
 CONSTRUCT_UNTYPED_SFIELD(sfHookGrants,          "HookGrants",           ARRAY,     20);
+CONSTRUCT_UNTYPED_SFIELD(sfRawTransactions,     "RawTransactions",      ARRAY,     99);
+CONSTRUCT_UNTYPED_SFIELD(sfBatchExecutions,     "BatchExecutions",      ARRAY,     98);
+CONSTRUCT_UNTYPED_SFIELD(sfEmittedTxns,         "EmittedTxns",          ARRAY,     97);
 CONSTRUCT_UNTYPED_SFIELD(sfGenesisMints,        "GenesisMints",         ARRAY,     96);
 CONSTRUCT_UNTYPED_SFIELD(sfActiveValidators,    "ActiveValidators",     ARRAY,     95);
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKeys,        "ImportVLKeys",         ARRAY,     94);

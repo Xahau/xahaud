@@ -54,6 +54,7 @@ public:
     void
     apply(RawView& to)
     {
+        std::cout << "Sandbox::apply: " << "\n";
         items_.apply(to);
     }
 };

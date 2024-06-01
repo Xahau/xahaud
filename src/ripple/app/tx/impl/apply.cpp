@@ -73,6 +73,20 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
+    if (rules.enabled(featureBatch) && applyFlags & tapPREFLIGHT_BATCH)
+    {
+        // batched transactions do not contain signatures
+        if (tx.isFieldPresent(sfTxnSignature))
+            return {Validity::SigBad, "Batch txn contains signature."};
+
+        std::string reason;
+        if (!passesLocalChecks(tx, reason))
+            return {Validity::SigGoodOnly, reason};
+
+        router.setFlags(id, SF_SIGGOOD);
+        return {Validity::Valid, ""};
+    }
+
     if (flags & SF_SIGBAD)
         // Signature is known bad
         return {Validity::SigBad, "Transaction has bad signature."};
@@ -146,6 +160,9 @@ apply(
 {
     STAmountSO stAmountSO{view.rules().enabled(fixSTAmountCanonicalize)};
     NumberSO stNumberSO{view.rules().enabled(fixUniversalNumber)};
+
+    if (tx.isFieldPresent(sfBatchTxn))
+        return {tesSUCCESS, false};
 
     auto pfresult = preflight(app, view.rules(), tx, flags, j);
     auto pcresult = preclaim(pfresult, app, view);

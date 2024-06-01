@@ -340,6 +340,7 @@ enum TECcodes : TERUnderlyingType {
     tecXCHAIN_SELF_COMMIT = 185,                  // RESERVED - XCHAIN
     tecXCHAIN_BAD_PUBLIC_KEY_ACCOUNT_PAIR = 186,  // RESERVED - XCHAIN
     tecINSUF_RESERVE_SELLER = 187,
+    tecBATCH_FAILURE = 188,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 
