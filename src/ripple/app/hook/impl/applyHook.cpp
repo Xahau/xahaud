@@ -6315,7 +6315,7 @@ DEFINE_JS_FUNCTION(
     if (*index_id > 0xFFFFFFFFULL || *index_id < 0)
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__sto_subfield(hookCtx, applyCtx, j, sto_in->data(), sto_in->size(), (uint32_t)(*index_id)));
+    returnJS(__sto_subarray(hookCtx, applyCtx, j, sto_in->data(), sto_in->size(), (uint32_t)(*index_id)));
 
     JS_HOOK_TEARDOWN();
 }
