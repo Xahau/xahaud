@@ -2,25 +2,37 @@ name: Build using Docker
 
 on:
   push:
-    branches: [ "dev", "candidate", "release" ]
+    branches: [ "dev", "candidate", "release", "jshooks" ]
   pull_request:
-    branches: [ "dev", "candidate", "release" ]
+    branches: [ "dev", "candidate", "release", "jshooks" ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
-  builder:
+  checkout:
     runs-on: [self-hosted, vanity]
     steps:
     - uses: actions/checkout@v3
       with:
         clean: false
+  checkpatterns:
+    runs-on: [self-hosted, vanity]
+    needs: checkout
+    steps:
     - name: Check for suspicious patterns
       run: /bin/bash suspicious_patterns.sh
+  build:
+    runs-on: [self-hosted, vanity]
+    needs: checkpatterns
+    steps:
     - name: Build using Docker
       run: /bin/bash release-builder.sh
+  tests:
+    runs-on: [self-hosted, vanity]
+    needs: build
+    steps:
     - name: Unit tests
       run: /bin/bash docker-unit-tests.sh
 
