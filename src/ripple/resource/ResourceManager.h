@@ -80,6 +80,7 @@ public:
 
 std::unique_ptr<Manager>
 make_Manager(
+    Section const& section,
     beast::insight::Collector::ptr const& collector,
     beast::Journal journal);
 

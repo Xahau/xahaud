@@ -588,6 +588,7 @@ target_sources (rippled PRIVATE
   src/ripple/resource/impl/Consumer.cpp
   src/ripple/resource/impl/Fees.cpp
   src/ripple/resource/impl/ResourceManager.cpp
+  src/ripple/resource/impl/Tuning.cpp
   #[===============================[
      main sources:
        subdir: rpc

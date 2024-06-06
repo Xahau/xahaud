@@ -45,9 +45,10 @@ private:
 
 public:
     ManagerImp(
+        Section const& section,
         beast::insight::Collector::ptr const& collector,
         beast::Journal journal)
-        : journal_(journal), logic_(collector, stopwatch(), journal)
+        : journal_(journal), logic_(section, collector, stopwatch(), journal)
     {
         thread_ = std::thread{&ManagerImp::run, this};
     }
@@ -173,10 +174,11 @@ Manager::~Manager() = default;
 
 std::unique_ptr<Manager>
 make_Manager(
+    Section const& section,
     beast::insight::Collector::ptr const& collector,
     beast::Journal journal)
 {
-    return std::make_unique<ManagerImp>(collector, journal);
+    return std::make_unique<ManagerImp>(section, collector, journal);
 }
 
 }  // namespace Resource

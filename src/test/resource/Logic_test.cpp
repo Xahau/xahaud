@@ -42,8 +42,8 @@ public:
         using clock_type = boost::base_from_member<TestStopwatch>;
 
     public:
-        explicit TestLogic(beast::Journal journal)
-            : Logic(beast::insight::NullCollector::New(), member, journal)
+        explicit TestLogic(Section const& section, beast::Journal journal)
+            : Logic(section, beast::insight::NullCollector::New(), member, journal)
         {
         }
 
@@ -89,9 +89,13 @@ public:
         else
             testcase("Unlimited warn/drop");
 
-        TestLogic logic(j);
+        auto const config = test::jtx::envconfig([](std::unique_ptr<Config> cfg) {
+            return cfg;
+        });
 
-        Charge const fee(dropThreshold + 1);
+        TestLogic logic(config->section("resource"), j);
+
+        Charge const fee(Tuning::dropThreshold + 1);
         beast::IP::Endpoint const addr(
             beast::IP::Endpoint::from_string("192.0.2.2"));
 
@@ -173,7 +177,7 @@ public:
             using namespace std::chrono_literals;
             // Give Consumer time to become readmitted.  Should never
             // exceed expiration time.
-            auto n = secondsUntilExpiration + 1s;
+            auto n = Tuning::secondsUntilExpiration + 1s;
             while (--n > 0s)
             {
                 ++logic.clock();
@@ -199,7 +203,11 @@ public:
     {
         testcase("Imports");
 
-        TestLogic logic(j);
+        auto const config = test::jtx::envconfig([](std::unique_ptr<Config> cfg) {
+            return cfg;
+        });
+
+        TestLogic logic(config->section("resource"), j);
 
         Gossip g[5];
 
@@ -217,7 +225,11 @@ public:
     {
         testcase("Import");
 
-        TestLogic logic(j);
+        auto const config = test::jtx::envconfig([](std::unique_ptr<Config> cfg) {
+            return cfg;
+        });
+
+        TestLogic logic(config->section("resource"), j);
 
         Gossip g;
         Gossip::Item item;
@@ -236,7 +248,11 @@ public:
     {
         testcase("Charge");
 
-        TestLogic logic(j);
+        auto const config = test::jtx::envconfig([](std::unique_ptr<Config> cfg) {
+            return cfg;
+        });
+
+        TestLogic logic(config->section("resource"), j);
 
         {
             beast::IP::Endpoint address(
@@ -276,6 +292,41 @@ public:
     }
 
     void
+    testConfig(beast::Journal j)
+    {
+
+        std::cout << "warningThreshold: " << Tuning::warningThreshold << "\n";
+        std::cout << "dropThreshold: " << Tuning::dropThreshold << "\n";
+        std::cout << "getDecayWindowSeconds: " << Tuning::getDecayWindowSeconds() << "\n";
+        std::cout << "minimumGossipBalance: " << Tuning::minimumGossipBalance << "\n";
+
+        BEAST_EXPECT(Tuning::warningThreshold == 5000);
+        BEAST_EXPECT(Tuning::dropThreshold == 15000);
+        BEAST_EXPECT(Tuning::getDecayWindowSeconds() == 32);
+        BEAST_EXPECT(Tuning::minimumGossipBalance == 1000);
+        BEAST_EXPECT(Tuning::secondsUntilExpiration == std::chrono::seconds{300});
+        BEAST_EXPECT(Tuning::gossipExpirationSeconds == std::chrono::seconds{30});
+
+        auto const config = test::jtx::envconfig([](std::unique_ptr<Config> cfg) {
+            cfg->section("resource").set("warning_threshold", "15000");
+            cfg->section("resource").set("drop_threshold", "25000");
+            cfg->section("resource").set("minimum_gossip_balance", "2000");
+            cfg->section("resource").set("seconds_until_expiration", "600");
+            cfg->section("resource").set("gossip_expiration_seconds", "60");
+            return cfg;
+        });
+
+        TestLogic logic(config->section("resource"), j);
+
+        BEAST_EXPECT(Tuning::warningThreshold == 15000);
+        BEAST_EXPECT(Tuning::dropThreshold == 25000);
+        BEAST_EXPECT(Tuning::getDecayWindowSeconds() == 32);
+        BEAST_EXPECT(Tuning::minimumGossipBalance == 2000);
+        // BEAST_EXPECT(Tuning::secondsUntilExpiration == 600);
+        // BEAST_EXPECT(Tuning::gossipExpirationSeconds == 60);
+    }
+
+    void
     run() override
     {
         using namespace beast::severities;
@@ -286,6 +337,7 @@ public:
         testCharges(journal);
         testImports(journal);
         testImport(journal);
+        testConfig(journal);
     }
 };
 

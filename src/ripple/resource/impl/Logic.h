@@ -88,11 +88,27 @@ private:
     //--------------------------------------------------------------------------
 public:
     Logic(
+        Section const& section,
         beast::insight::Collector::ptr const& collector,
         clock_type& clock,
         beast::Journal journal)
         : m_stats(collector), m_clock(clock), m_journal(journal)
     {
+        std::uint32_t warningThreshold;
+        if (get_if_exists(section, "warning_threshold", warningThreshold))
+            Tuning::warningThreshold = warningThreshold;
+
+        std::uint32_t dropThreshold;
+        if (get_if_exists(section, "drop_threshold", dropThreshold))
+            Tuning::dropThreshold = dropThreshold;
+        
+        // std::uint32_t decayWindowSeconds;
+        // if (get_if_exists(section, "decay_window_seconds", decayWindowSeconds))
+        //     Tuning::decayWindowSeconds = decayWindowSeconds;
+        
+        std::uint32_t minimumGossipBalance;
+        if (get_if_exists(section, "minimum_gossip_balance", minimumGossipBalance))
+            Tuning::minimumGossipBalance = minimumGossipBalance;
     }
 
     ~Logic()
@@ -200,7 +216,7 @@ public:
     Json::Value
     getJson()
     {
-        return getJson(warningThreshold);
+        return getJson(Tuning::warningThreshold);
     }
 
     /** Returns a Json::objectValue. */
@@ -266,7 +282,7 @@ public:
         {
             Gossip::Item item;
             item.balance = inboundEntry.local_balance.value(now);
-            if (item.balance >= minimumGossipBalance)
+            if (item.balance >= Tuning::minimumGossipBalance)
             {
                 item.address = inboundEntry.key->address;
                 gossip.items.push_back(item);
@@ -294,7 +310,7 @@ public:
             {
                 // This is a new import
                 Import& next(resultIt->second);
-                next.whenExpires = elapsed + gossipExpirationSeconds;
+                next.whenExpires = elapsed + Tuning::gossipExpirationSeconds;
                 next.items.reserve(gossip.items.size());
 
                 for (auto const& gossipItem : gossip.items)
@@ -312,7 +328,7 @@ public:
                 // balances and then deduct the old remote balances.
 
                 Import next;
-                next.whenExpires = elapsed + gossipExpirationSeconds;
+                next.whenExpires = elapsed + Tuning::gossipExpirationSeconds;
                 next.items.reserve(gossip.items.size());
                 for (auto const& gossipItem : gossip.items)
                 {
@@ -387,10 +403,10 @@ public:
     static Disposition
     disposition(int balance)
     {
-        if (balance >= dropThreshold)
+        if (balance >= Tuning::dropThreshold)
             return Disposition::drop;
 
-        if (balance >= warningThreshold)
+        if (balance >= Tuning::warningThreshold)
             return Disposition::warn;
 
         return Disposition::ok;
@@ -437,7 +453,7 @@ public:
                     break;
             }
             inactive_.push_back(entry);
-            entry.whenExpires = m_clock.now() + secondsUntilExpiration;
+            entry.whenExpires = m_clock.now() + Tuning::secondsUntilExpiration;
         }
     }
 
@@ -460,7 +476,7 @@ public:
         std::lock_guard _(lock_);
         bool notify(false);
         auto const elapsed = m_clock.now();
-        if (entry.balance(m_clock.now()) >= warningThreshold &&
+        if (entry.balance(m_clock.now()) >= Tuning::warningThreshold &&
             elapsed != entry.lastWarningTime)
         {
             charge(entry, feeWarning);
@@ -485,11 +501,11 @@ public:
         bool drop(false);
         clock_type::time_point const now(m_clock.now());
         int const balance(entry.balance(now));
-        if (balance >= dropThreshold)
+        if (balance >= Tuning::dropThreshold)
         {
             JLOG(m_journal.warn())
                 << "Consumer entry " << entry << " dropped with balance "
-                << balance << " at or above drop threshold " << dropThreshold;
+                << balance << " at or above drop threshold " << Tuning::dropThreshold;
 
             // Adding feeDrop at this point keeps the dropped connection
             // from re-connecting for at least a little while after it is
