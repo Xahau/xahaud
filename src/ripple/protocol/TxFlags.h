@@ -192,9 +192,9 @@ enum ClaimRewardFlags : uint32_t {
 
 // OptionCreate flags:
 enum OptionCreateFlags : uint32_t {
-    tfType = 0x00010000,
-    tfAction = 0x00020000,
-    tfPosition = 0x00040000,
+    tfType = 0x00010000, // 0 Call 1 Put
+    tfAction = 0x00020000, // 0 Buy 2 Sell
+    tfPosition = 0x00040000, // 0 Open 4 Close
 };
 constexpr std::uint32_t tfOptionCreateMask =
     ~(tfUniversal | tfType | tfAction | tfPosition);
