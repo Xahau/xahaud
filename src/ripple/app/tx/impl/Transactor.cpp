@@ -1792,6 +1792,12 @@ Transactor::operator()()
            SF_EMITTED)))
         return {tecINTERNAL, false};
 
+    if (auto const& trap = ctx_.app.trapTxID();
+        trap && *trap == ctx_.tx.getTransactionID())
+    {
+        JLOG(j_.debug()) << "Transaction trapped: " << *trap;
+    }
+
     auto result = ctx_.preclaimResult;
 
     bool const hooksEnabled = view().rules().enabled(featureHooks);

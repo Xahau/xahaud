@@ -228,6 +228,7 @@ public:
     std::unique_ptr<RelationalDatabase> mRelationalDatabase;
     std::unique_ptr<DatabaseCon> mWalletDB;
     std::unique_ptr<Overlay> overlay_;
+    std::optional<uint256> trapTxID_;
 
     boost::asio::signal_set m_signals;
 
@@ -1257,6 +1258,12 @@ public:
         return maxDisallowedLedger_;
     }
 
+    virtual const std::optional<uint256>&
+    trapTxID() const override
+    {
+        return trapTxID_;
+    }
+
 private:
     // For a newly-started validator, this is the greatest persisted ledger
     // and new validations must be greater than this.
@@ -1282,7 +1289,8 @@ private:
         std::string const& ledgerID,
         bool replay,
         bool isFilename,
-        bool isJson);
+        bool isJson,
+        std::optional<uint256> trapTxID);
 
     void
     setMaxDisallowedLedger();
@@ -1415,7 +1423,8 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
                     config_->START_LEDGER,
                     startUp == Config::REPLAY,
                     startUp == Config::LOAD_FILE,
-                    startUp == Config::LOAD_JSON))
+                    startUp == Config::LOAD_JSON,
+                    config_->TRAP_TX_HASH))
             {
                 JLOG(m_journal.error())
                     << "The specified ledger could not be loaded.";
@@ -2265,7 +2274,8 @@ ApplicationImp::loadOldLedger(
     std::string const& ledgerID,
     bool replay,
     bool isFileName,
-    bool isJson)
+    bool isJson,
+    std::optional<uint256> trapTxID)
 {
     try
     {
@@ -2417,6 +2427,11 @@ ApplicationImp::loadOldLedger(
             {
                 (void)_;
                 auto txID = tx->getTransactionID();
+                if (trapTxID == txID)
+                {
+                    trapTxID_ = txID;
+                    JLOG(m_journal.debug()) << "Trap transaction set: " << txID;
+                }
 
                 auto s = std::make_shared<Serializer>();
                 tx->add(*s);
@@ -2431,6 +2446,14 @@ ApplicationImp::loadOldLedger(
             }
 
             m_ledgerMaster->takeReplay(std::move(replayData));
+
+            if (trapTxID && !trapTxID_)
+            {
+                JLOG(m_journal.fatal())
+                    << "Ledger " << replayLedger->info().seq
+                    << " does not contain the transaction hash " << *trapTxID;
+                return false;
+            }
         }
     }
     catch (SHAMapMissingNode const& mn)
