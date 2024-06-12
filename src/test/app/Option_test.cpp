@@ -67,13 +67,16 @@ struct Option_test : public beast::unit_test::suite
     optionlist(
         jtx::Account const& account,
         std::uint32_t expiration,
-        STAmount const& strikePrice)
+        STAmount const& strikePrice,
+        STAmount const& amount)
     {
         using namespace jtx;
         Json::Value jv;
         jv[jss::TransactionType] = jss::OptionList;
         jv[jss::Account] = account.human();
         jv[sfStrikePrice.jsonName] = strikePrice.getJson(JsonOptions::none);
+        jv[sfIssuer.jsonName] = to_string(amount.getIssuer());
+        jv[sfCurrency.jsonName] = to_string(amount.getCurrency());
         jv[sfExpiration.jsonName] = expiration;
         return jv;
     }
@@ -114,9 +117,11 @@ struct Option_test : public beast::unit_test::suite
     static uint256
     getOptionIndex(
         AccountID const& issuer,
+        Currency const& currency,
+        std::uint64_t const& strike,
         std::uint32_t expiration)
     {
-        return keylet::option(issuer, expiration).key;
+        return keylet::option(issuer, currency, strike, expiration).key;
     }
 
     static uint256
@@ -152,276 +157,390 @@ struct Option_test : public beast::unit_test::suite
         return env.rpc("json", "option_book_offers", to_string(jvbp))[jss::result];
     }
 
-    void
-    testBookBuy(FeatureBitset features)
-    {
-        testcase("book buy");
+    // void
+    // testBookBuy(FeatureBitset features)
+    // {
+    //     testcase("book buy");
 
+    //     using namespace test::jtx;
+    //     using namespace std::literals;
+
+    //     test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+
+    //     auto const alice = Account("alice");
+    //     auto const bob = Account("bob");
+    //     auto const gw = Account("gw");
+    //     IOU const USD(gw["USD"]);
+
+    //     env.fund(XRP(1000), gw, alice, bob);
+    //     env.close();
+    //     env.trust(USD(100000), alice, bob);
+    //     env.close();
+    //     env(pay(gw, alice, USD(10000)));
+    //     env(pay(gw, bob, USD(10000)));
+    //     env.close();
+
+    //     // Alice offers to sell 100 XRP for 110 USD.
+    //     // Create an sell: TakerPays 100, TakerGets 110/USD
+    //     env(offer(alice, XRP(100), USD(110)), txflags(tfSell));  // <- Best
+    //     // Alice offers to sell 100 XRP for 100 USD.
+    //     // Create an sell: TakerPays 100, TakerGets 100/USD
+    //     env(offer(alice, XRP(100), USD(100)), txflags(tfSell));
+    //     // Alice offers to sell 100 XRP for 90 USD.
+    //     // Create an sell: TakerPays 100, TakerGets 90/USD
+    //     env(offer(alice, XRP(100), USD(90)), txflags(tfSell));
+    //     // Alice offers to sell 100 XRP for 80 USD.
+    //     // Create an sell: TakerPays 100, TakerGets 80/USD
+    //     env(offer(alice, XRP(100), USD(80)), txflags(tfSell));
+    //     // Alice offers to sell 100 XRP for 70 USD.
+    //     // Create an sell: TakerPays 100, TakerGets 70/USD
+    //     env(offer(alice, XRP(100), USD(70)), txflags(tfSell));  // <- Worst
+    //     env.close();
+
+    //     // Bob offers to buy 110 USD for 100 XRP.
+    //     // env(offer(bob, USD(110), XRP(100))); // <- Best
+
+    //     Book const book1{
+    //         xrpIssue(),
+    //         USD.issue(),
+    //     };
+
+    //     const uint256 uBookBase1 = getBookBase(book1);
+    //     const uint256 uBookEnd1 = getQualityNext(uBookBase1);
+    //     auto view1 = env.closed();
+    //     auto key1 = view1->succ(uBookBase1, uBookEnd1);
+    //     if (key1)
+    //     {
+    //         auto sleOfferDir1 = view1->read(keylet::page(key1.value()));
+    //         uint256 offerIndex1;
+    //         unsigned int bookEntry1;
+    //         cdirFirst(
+    //             *view1,
+    //             sleOfferDir1->key(),
+    //             sleOfferDir1,
+    //             bookEntry1,
+    //             offerIndex1);
+    //         auto sleOffer1 = view1->read(keylet::offer(offerIndex1));
+    //         auto const dir1 =
+    //             to_string(sleOffer1->getFieldH256(sfBookDirectory));
+    //         auto const uTipIndex1 = sleOfferDir1->key();
+    //         STAmount dirRate1 = amountFromQuality(getQuality(uTipIndex1));
+    //         auto const rate1 = dirRate1 / 1'000'000;
+    //         std::cout << "dirRate1: " << dirRate1 << "\n";
+    //         std::cout << "rate1: " << rate1 << "\n";
+    //         std::cout << "rate1=: " << (100 / rate1) << "\n";
+    //         BEAST_EXPECT(100 / rate1 == 110);
+    //     }
+    // }
+
+    // void
+    // testBookSell(FeatureBitset features)
+    // {
+    //     testcase("book sell");
+
+    //     using namespace test::jtx;
+    //     using namespace std::literals;
+
+    //     test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+
+    //     auto const alice = Account("alice");
+    //     auto const bob = Account("bob");
+    //     auto const gw = Account("gw");
+    //     IOU const USD(gw["USD"]);
+
+    //     env.fund(XRP(1000), gw, alice, bob);
+    //     env.close();
+    //     env.trust(USD(100000), alice, bob);
+    //     env.close();
+    //     env(pay(gw, alice, USD(10000)));
+    //     env(pay(gw, bob, USD(10000)));
+    //     env.close();
+
+    //     // Bob offers to buy 70 XRP for 100 USD.
+    //     // Create an buy: TakerPays 100/USD, TakerGets 70
+    //     env(offer(bob, USD(100), XRP(70)));  // <- Worst
+    //     // Bob offers to buy 80 XRP for 100 USD.
+    //     // Create an buy: TakerPays 100/USD, TakerGets 80
+    //     env(offer(bob, USD(100), XRP(80)));
+    //     // Bob offers to buy 90 XRP for 100 USD.
+    //     // Create an buy: TakerPays 100/USD, TakerGets 90
+    //     env(offer(bob, USD(100), XRP(90)));
+    //     // Bob offers to buy 100 XRP for 100 USD.
+    //     // Create an buy: TakerPays 100/USD, TakerGets 100
+    //     env(offer(bob, USD(100), XRP(100)));
+    //     // Bob offers to buy 110 XRP for 100 USD.
+    //     // Create an buy: TakerPays 100/USD, TakerGets 110
+    //     env(offer(bob, USD(100), XRP(110)));  // <- Best
+    //     env.close();
+
+    //     // Alice offers to sell 110 XRP for 100 USD.
+    //     // env(offer(alice, XRP(110), USD(100))); // <- Best
+
+    //     Book const bookOpp{
+    //         USD.issue(),
+    //         xrpIssue(),
+    //     };
+
+    //     const uint256 uBookBaseOpp = getBookBase(bookOpp);
+    //     const uint256 uBookEndOpp = getQualityNext(uBookBaseOpp);
+    //     auto view = env.closed();
+    //     auto key = view->succ(uBookBaseOpp, uBookEndOpp);
+    //     if (key)
+    //     {
+    //         auto sleOfferDir = view->read(keylet::page(key.value()));
+    //         uint256 offerIndex;
+    //         unsigned int bookEntry;
+    //         cdirFirst(
+    //             *view, sleOfferDir->key(), sleOfferDir, bookEntry, offerIndex);
+    //         auto sleOffer = view->read(keylet::offer(offerIndex));
+    //         auto const dir = to_string(sleOffer->getFieldH256(sfBookDirectory));
+    //         auto const uTipIndex = sleOfferDir->key();
+    //         STAmount dirRate = amountFromQuality(getQuality(uTipIndex));
+    //         auto const rate = dirRate * 1'000'000;
+    //         std::cout << "dirRate: " << dirRate << "\n";
+    //         std::cout << "rate: " << rate << "\n";
+    //         std::cout << "rate=: " << (100 / rate) << "\n";
+    //         BEAST_EXPECT(100 / rate == 110);
+    //     }
+    // }
+
+    // void
+    // testOptionBookBuy(FeatureBitset features)
+    // {
+    //     testcase("option book buy");
+
+    //     using namespace test::jtx;
+    //     using namespace std::literals;
+
+    //     test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+
+    //     auto const alice = Account("alice");
+    //     auto const bob = Account("bob");
+    //     auto const broker = Account("broker");
+    //     auto const gw = Account("gw");
+    //     IOU const USD(gw["USD"]);
+
+    //     env.fund(XRP(1000), gw, alice, bob, broker);
+    //     env.close();
+    //     env.trust(USD(100000), alice, bob);
+    //     env.close();
+    //     env(pay(gw, alice, USD(10000)));
+    //     env(pay(gw, bob, USD(10000)));
+    //     env.close();
+
+    //     AccountID const zeroAcct{AccountID{}};
+    //     auto const _exp = env.now() + 1s;
+    //     auto const expiration = _exp.time_since_epoch().count();
+    //     uint256 const optionId{getOptionIndex(zeroAcct, expiration)};
+    //     env(optionlist(alice, expiration, XRP(10), XRP(10)), ter(tesSUCCESS));
+    //     env.close();
+
+    //     env(optioncreate(alice, optionId, 100, XRP(70)),
+    //         txflags(tfAction),
+    //         ter(tesSUCCESS));
+    //     env(optioncreate(alice, optionId, 100, XRP(80)),
+    //         txflags(tfAction),
+    //         ter(tesSUCCESS));
+    //     env(optioncreate(alice, optionId, 100, XRP(90)),
+    //         txflags(tfAction),
+    //         ter(tesSUCCESS));
+    //     env(optioncreate(alice, optionId, 100, XRP(100)),
+    //         txflags(tfAction),
+    //         ter(tesSUCCESS));
+    //     env(optioncreate(alice, optionId, 100, XRP(110)),
+    //         txflags(tfAction),
+    //         ter(tesSUCCESS));
+    //     env.close();
+
+    //     STAmount strikePrice = XRP(10);
+    //     const uint256 uBookBaseOpp = getOptionBookBase(
+    //         strikePrice.getIssuer(),
+    //         strikePrice.getCurrency(),
+    //         strikePrice.mantissa(),
+    //         expiration);
+    //     std::cout << "BOOK BASE: " << uBookBaseOpp << "\n";
+    //     const uint256 uBookEndOpp = getOptionQualityNext(uBookBaseOpp);
+    //     std::cout << "BOOK BASE END: " << uBookEndOpp << "\n";
+    //     auto view = env.closed();
+    //     auto key = view->succ(uBookBaseOpp, uBookEndOpp);
+    //     if (key)
+    //     {
+    //         auto sleOfferDir = view->read(keylet::page(key.value()));
+    //         uint256 offerIndex;
+    //         unsigned int bookEntry;
+    //         cdirFirst(
+    //             *view, sleOfferDir->key(), sleOfferDir, bookEntry, offerIndex);
+    //         auto sleOffer = view->read(keylet::unchecked(offerIndex));
+    //         STAmount premium = sleOffer->getFieldAmount(sfAmount);
+    //         auto const dir = to_string(sleOffer->getFieldH256(sfBookDirectory));
+    //         std::cout << "dir: " << dir << "\n";
+    //         auto const uTipIndex = sleOfferDir->key();
+    //         auto const optionQuality = getOptionQuality(uTipIndex);
+    //         std::cout << "optionQuality: " << optionQuality << "\n";
+    //         STAmount dirRate = STAmount(premium.issue(), optionQuality);
+    //         std::cout << "dirRate: " << dirRate << "\n";
+    //         // BEAST_EXPECT(100 / rate == 110);
+    //     }
+    // }
+
+    // void
+    // testEnabled(FeatureBitset features)
+    // {
+    //     using namespace test::jtx;
+    //     using namespace std::literals;
+    //     testcase("enabled");
+
+    //     test::jtx::Env env{*this, network::makeNetworkConfig(21337), features};
+    //     // test::jtx::Env env{
+    //     //     *this,
+    //     //     network::makeNetworkConfig(21337),
+    //     //     features,
+    //     //     nullptr,
+    //     //     beast::severities::kTrace};
+        
+    //     auto const feeDrops = env.current()->fees().base;
+
+    //     auto const writer = Account("alice");
+    //     auto const buyer = Account("bob");
+    //     auto const gw = Account("gateway");
+    //     auto const USD = gw["USD"];
+
+    //     env.fund(XRP(100000), writer, buyer, gw);
+    //     env.close();
+
+    //     BEAST_EXPECT(0 == 0);
+    //     AccountID const zeroAcct{AccountID{}};
+
+    //     auto const _exp = env.now() + 1s;
+    //     auto const expiration = _exp.time_since_epoch().count();
+    //     uint256 const optionId{getOptionIndex(zeroAcct, expiration)};
+
+    //     auto preWriter = env.balance(writer);
+    //     auto preBuyer = env.balance(buyer);
+
+    //     auto const strikePrice = 10;
+    //     env(optionlist(writer, expiration, XRP(strikePrice), XRP(strikePrice)),
+    //         ter(tesSUCCESS));
+    //     env.close();
+
+    //     BEAST_EXPECT(env.balance(writer) == preWriter - feeDrops);
+
+    //     // Call - Sell - Open
+    //     auto const premium = 1;
+    //     auto const quantity = 100;
+    //     auto const seq = env.seq(writer);
+    //     env(optioncreate(writer, optionId, quantity, XRP(premium)),
+    //         txflags(tfAction),
+    //         ter(tesSUCCESS));
+    //     env.close();
+
+    //     BEAST_EXPECT(
+    //         env.balance(writer) ==
+    //         preWriter - (feeDrops * 2) - XRP(quantity));
+    //     BEAST_EXPECT(
+    //         lockedValue(env, writer, seq) == XRP(quantity));
+
+    //     auto jrr = getOptionBookOffers(env, XRP(strikePrice), expiration);
+    //     std::cout << "RESULT: " << jrr << "\n";
+
+    //     preWriter = env.balance(writer);
+    //     preBuyer = env.balance(buyer);
+
+    //     // Call - Buy - Open
+    //     auto const seq1 = env.seq(buyer);
+    //     env(optioncreate(buyer, optionId, quantity, XRP(premium)),
+    //         ter(tesSUCCESS));
+    //     env.close();
+
+    //     uint256 const offerId{getOfferIndex(buyer, seq1)};
+    //     BEAST_EXPECT(
+    //         env.balance(buyer) ==
+    //         preBuyer - feeDrops - XRP(quantity * premium));
+    //     BEAST_EXPECT(
+    //         env.balance(writer) ==
+    //         preWriter + XRP(quantity * premium));
+
+    //     preWriter = env.balance(writer);
+    //     preBuyer = env.balance(buyer);
+
+    //     auto jrr1 = getOptionBookOffers(env, XRP(strikePrice), expiration);
+    //     std::cout << "RESULT1: " << jrr1 << "\n";
+
+    //     // Execute Option
+    //     env(optionexecute(buyer, optionId, offerId), ter(tesSUCCESS));
+    //     env.close();
+
+    //     BEAST_EXPECT(
+    //         env.balance(buyer) ==
+    //         preBuyer - feeDrops - XRP(quantity * strikePrice) + XRP(quantity));
+    //     BEAST_EXPECT(
+    //         env.balance(writer) ==
+    //         preWriter + XRP(quantity * strikePrice));
+
+    //     auto jrrList = getOptionList(env, zeroAcct);
+    //     std::cout << "RESULT LIST: " << jrrList << "\n";
+    //     auto jrr2 = getOptionBookOffers(env, XRP(strikePrice), expiration);
+    //     std::cout << "RESULT2: " << jrr2 << "\n";
+    // }
+
+    void
+    testIC(FeatureBitset features)
+    {
         using namespace test::jtx;
         using namespace std::literals;
+        testcase("ic");
 
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-        auto const gw = Account("gw");
-        IOU const USD(gw["USD"]);
-
-        env.fund(XRP(1000), gw, alice, bob);
-        env.close();
-        env.trust(USD(100000), alice, bob);
-        env.close();
-        env(pay(gw, alice, USD(10000)));
-        env(pay(gw, bob, USD(10000)));
-        env.close();
-
-        // Alice offers to sell 100 XRP for 110 USD.
-        // Create an sell: TakerPays 100, TakerGets 110/USD
-        env(offer(alice, XRP(100), USD(110)), txflags(tfSell));  // <- Best
-        // Alice offers to sell 100 XRP for 100 USD.
-        // Create an sell: TakerPays 100, TakerGets 100/USD
-        env(offer(alice, XRP(100), USD(100)), txflags(tfSell));
-        // Alice offers to sell 100 XRP for 90 USD.
-        // Create an sell: TakerPays 100, TakerGets 90/USD
-        env(offer(alice, XRP(100), USD(90)), txflags(tfSell));
-        // Alice offers to sell 100 XRP for 80 USD.
-        // Create an sell: TakerPays 100, TakerGets 80/USD
-        env(offer(alice, XRP(100), USD(80)), txflags(tfSell));
-        // Alice offers to sell 100 XRP for 70 USD.
-        // Create an sell: TakerPays 100, TakerGets 70/USD
-        env(offer(alice, XRP(100), USD(70)), txflags(tfSell));  // <- Worst
-        env.close();
-
-        // Bob offers to buy 110 USD for 100 XRP.
-        // env(offer(bob, USD(110), XRP(100))); // <- Best
-
-        Book const book1{
-            xrpIssue(),
-            USD.issue(),
-        };
-
-        const uint256 uBookBase1 = getBookBase(book1);
-        const uint256 uBookEnd1 = getQualityNext(uBookBase1);
-        auto view1 = env.closed();
-        auto key1 = view1->succ(uBookBase1, uBookEnd1);
-        if (key1)
-        {
-            auto sleOfferDir1 = view1->read(keylet::page(key1.value()));
-            uint256 offerIndex1;
-            unsigned int bookEntry1;
-            cdirFirst(
-                *view1,
-                sleOfferDir1->key(),
-                sleOfferDir1,
-                bookEntry1,
-                offerIndex1);
-            auto sleOffer1 = view1->read(keylet::offer(offerIndex1));
-            auto const dir1 =
-                to_string(sleOffer1->getFieldH256(sfBookDirectory));
-            auto const uTipIndex1 = sleOfferDir1->key();
-            STAmount dirRate1 = amountFromQuality(getQuality(uTipIndex1));
-            auto const rate1 = dirRate1 / 1'000'000;
-            std::cout << "dirRate1: " << dirRate1 << "\n";
-            std::cout << "rate1: " << rate1 << "\n";
-            std::cout << "rate1=: " << (100 / rate1) << "\n";
-            BEAST_EXPECT(100 / rate1 == 110);
-        }
-    }
-
-    void
-    testBookSell(FeatureBitset features)
-    {
-        testcase("book sell");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-        auto const gw = Account("gw");
-        IOU const USD(gw["USD"]);
-
-        env.fund(XRP(1000), gw, alice, bob);
-        env.close();
-        env.trust(USD(100000), alice, bob);
-        env.close();
-        env(pay(gw, alice, USD(10000)));
-        env(pay(gw, bob, USD(10000)));
-        env.close();
-
-        // Bob offers to buy 70 XRP for 100 USD.
-        // Create an buy: TakerPays 100/USD, TakerGets 70
-        env(offer(bob, USD(100), XRP(70)));  // <- Worst
-        // Bob offers to buy 80 XRP for 100 USD.
-        // Create an buy: TakerPays 100/USD, TakerGets 80
-        env(offer(bob, USD(100), XRP(80)));
-        // Bob offers to buy 90 XRP for 100 USD.
-        // Create an buy: TakerPays 100/USD, TakerGets 90
-        env(offer(bob, USD(100), XRP(90)));
-        // Bob offers to buy 100 XRP for 100 USD.
-        // Create an buy: TakerPays 100/USD, TakerGets 100
-        env(offer(bob, USD(100), XRP(100)));
-        // Bob offers to buy 110 XRP for 100 USD.
-        // Create an buy: TakerPays 100/USD, TakerGets 110
-        env(offer(bob, USD(100), XRP(110)));  // <- Best
-        env.close();
-
-        // Alice offers to sell 110 XRP for 100 USD.
-        // env(offer(alice, XRP(110), USD(100))); // <- Best
-
-        Book const bookOpp{
-            USD.issue(),
-            xrpIssue(),
-        };
-
-        const uint256 uBookBaseOpp = getBookBase(bookOpp);
-        const uint256 uBookEndOpp = getQualityNext(uBookBaseOpp);
-        auto view = env.closed();
-        auto key = view->succ(uBookBaseOpp, uBookEndOpp);
-        if (key)
-        {
-            auto sleOfferDir = view->read(keylet::page(key.value()));
-            uint256 offerIndex;
-            unsigned int bookEntry;
-            cdirFirst(
-                *view, sleOfferDir->key(), sleOfferDir, bookEntry, offerIndex);
-            auto sleOffer = view->read(keylet::offer(offerIndex));
-            auto const dir = to_string(sleOffer->getFieldH256(sfBookDirectory));
-            auto const uTipIndex = sleOfferDir->key();
-            STAmount dirRate = amountFromQuality(getQuality(uTipIndex));
-            auto const rate = dirRate * 1'000'000;
-            std::cout << "dirRate: " << dirRate << "\n";
-            std::cout << "rate: " << rate << "\n";
-            std::cout << "rate=: " << (100 / rate) << "\n";
-            BEAST_EXPECT(100 / rate == 110);
-        }
-    }
-
-    void
-    testOptionBookBuy(FeatureBitset features)
-    {
-        testcase("option book buy");
-
-        using namespace test::jtx;
-        using namespace std::literals;
-
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
-
-        auto const alice = Account("alice");
-        auto const bob = Account("bob");
-        auto const broker = Account("broker");
-        auto const gw = Account("gw");
-        IOU const USD(gw["USD"]);
-
-        env.fund(XRP(1000), gw, alice, bob, broker);
-        env.close();
-        env.trust(USD(100000), alice, bob);
-        env.close();
-        env(pay(gw, alice, USD(10000)));
-        env(pay(gw, bob, USD(10000)));
-        env.close();
-
-        AccountID const zeroAcct{AccountID{}};
-        auto const _exp = env.now() + 1s;
-        auto const expiration = _exp.time_since_epoch().count();
-        uint256 const optionId{getOptionIndex(zeroAcct, expiration)};
-        env(optionlist(alice, expiration, XRP(10)), ter(tesSUCCESS));
-        env.close();
-
-        env(optioncreate(alice, optionId, 100, XRP(70)),
-            txflags(tfAction),
-            ter(tesSUCCESS));
-        env(optioncreate(alice, optionId, 100, XRP(80)),
-            txflags(tfAction),
-            ter(tesSUCCESS));
-        env(optioncreate(alice, optionId, 100, XRP(90)),
-            txflags(tfAction),
-            ter(tesSUCCESS));
-        env(optioncreate(alice, optionId, 100, XRP(100)),
-            txflags(tfAction),
-            ter(tesSUCCESS));
-        env(optioncreate(alice, optionId, 100, XRP(110)),
-            txflags(tfAction),
-            ter(tesSUCCESS));
-        env.close();
-
-        STAmount strikePrice = XRP(10);
-        const uint256 uBookBaseOpp = getOptionBookBase(
-            strikePrice.getIssuer(),
-            strikePrice.getCurrency(),
-            strikePrice.mantissa(),
-            expiration);
-        std::cout << "BOOK BASE: " << uBookBaseOpp << "\n";
-        const uint256 uBookEndOpp = getOptionQualityNext(uBookBaseOpp);
-        std::cout << "BOOK BASE END: " << uBookEndOpp << "\n";
-        auto view = env.closed();
-        auto key = view->succ(uBookBaseOpp, uBookEndOpp);
-        if (key)
-        {
-            auto sleOfferDir = view->read(keylet::page(key.value()));
-            uint256 offerIndex;
-            unsigned int bookEntry;
-            cdirFirst(
-                *view, sleOfferDir->key(), sleOfferDir, bookEntry, offerIndex);
-            auto sleOffer = view->read(keylet::unchecked(offerIndex));
-            STAmount premium = sleOffer->getFieldAmount(sfAmount);
-            auto const dir = to_string(sleOffer->getFieldH256(sfBookDirectory));
-            std::cout << "dir: " << dir << "\n";
-            auto const uTipIndex = sleOfferDir->key();
-            auto const optionQuality = getOptionQuality(uTipIndex);
-            std::cout << "optionQuality: " << optionQuality << "\n";
-            STAmount dirRate = STAmount(premium.issue(), optionQuality);
-            std::cout << "dirRate: " << dirRate << "\n";
-            // BEAST_EXPECT(100 / rate == 110);
-        }
-    }
-
-    void
-    testEnabled(FeatureBitset features)
-    {
-        using namespace test::jtx;
-        using namespace std::literals;
-        testcase("enabled");
-
-        test::jtx::Env env{*this, network::makeNetworkConfig(21337), features};
-        // test::jtx::Env env{
-        //     *this,
-        //     network::makeNetworkConfig(21337),
-        //     features,
-        //     nullptr,
-        //     beast::severities::kTrace};
+        // test::jtx::Env env{*this, network::makeNetworkConfig(21337), features};
+        test::jtx::Env env{
+            *this,
+            network::makeNetworkConfig(21337),
+            features,
+            nullptr,
+            beast::severities::kTrace};
         
         auto const feeDrops = env.current()->fees().base;
 
         auto const writer = Account("alice");
         auto const buyer = Account("bob");
         auto const gw = Account("gateway");
+        auto const GME = gw["GME"];
         auto const USD = gw["USD"];
 
         env.fund(XRP(100000), writer, buyer, gw);
         env.close();
-
-        BEAST_EXPECT(0 == 0);
-        AccountID const zeroAcct{AccountID{}};
+        env.trust(USD(100000), writer, buyer);
+        env.close();
+        env(pay(gw, writer, USD(10000)));
+        env(pay(gw, buyer, USD(10000)));
+        env.close();
+        env.trust(GME(100000), writer, buyer);
+        env.close();
+        env(pay(gw, writer, USD(10000)));
+        env.close();
 
         auto const _exp = env.now() + 1s;
         auto const expiration = _exp.time_since_epoch().count();
-        uint256 const optionId{getOptionIndex(zeroAcct, expiration)};
+        uint256 const optionId{getOptionIndex(gw.id(), USD.currency, 20, expiration)};
 
         auto preWriter = env.balance(writer);
+        auto preWriterGME = env.balance(writer, GME.issue());
         auto preBuyer = env.balance(buyer);
+        auto preBuyerGME = env.balance(buyer, GME.issue());
 
-        auto const strikePrice = 10;
-        env(optionlist(writer, expiration, XRP(strikePrice)),
+        auto const strikePrice = 20;
+        env(optionlist(writer, expiration, USD(strikePrice), GME(0)),
             ter(tesSUCCESS));
         env.close();
 
         BEAST_EXPECT(env.balance(writer) == preWriter - feeDrops);
 
+        auto const strikePrice1 = 25;
+        env(optionlist(writer, expiration, USD(strikePrice1), GME(0)),
+            ter(tesSUCCESS));
+        env.close();
+
         // Call - Sell - Open
-        auto const premium = 1;
+        auto const premium = 0.5;
         auto const quantity = 100;
         auto const seq = env.seq(writer);
         env(optioncreate(writer, optionId, quantity, XRP(premium)),
@@ -431,51 +550,55 @@ struct Option_test : public beast::unit_test::suite
 
         BEAST_EXPECT(
             env.balance(writer) ==
-            preWriter - (feeDrops * 2) - XRP(quantity));
+            preWriter - (feeDrops * 2));
         BEAST_EXPECT(
-            lockedValue(env, writer, seq) == XRP(quantity));
+            env.balance(writer, GME.issue()) == preWriterGME - GME(quantity));
+        BEAST_EXPECT(
+            lockedValue(env, writer, seq) == GME(quantity));
 
-        auto jrr = getOptionBookOffers(env, XRP(strikePrice), expiration);
+        auto jrr = getOptionBookOffers(env, GME(strikePrice), expiration);
         std::cout << "RESULT: " << jrr << "\n";
 
         preWriter = env.balance(writer);
+        preWriterGME = env.balance(writer, GME.issue());
         preBuyer = env.balance(buyer);
+        preBuyerGME = env.balance(buyer, GME.issue());
 
-        // Call - Buy - Open
-        auto const seq1 = env.seq(buyer);
-        env(optioncreate(buyer, optionId, quantity, XRP(premium)),
-            ter(tesSUCCESS));
-        env.close();
+        // // Call - Buy - Open
+        // auto const seq1 = env.seq(buyer);
+        // env(optioncreate(buyer, optionId, quantity, GME(premium)),
+        //     ter(tesSUCCESS));
+        // env.close();
 
-        uint256 const offerId{getOfferIndex(buyer, seq1)};
-        BEAST_EXPECT(
-            env.balance(buyer) ==
-            preBuyer - feeDrops - XRP(quantity * premium));
-        BEAST_EXPECT(
-            env.balance(writer) ==
-            preWriter + XRP(quantity * premium));
+        // uint256 const offerId{getOfferIndex(buyer, seq1)};
+        // BEAST_EXPECT(
+        //     env.balance(buyer) ==
+        //     preBuyer - feeDrops - GME(quantity * premium));
+        // BEAST_EXPECT(
+        //     env.balance(writer) ==
+        //     preWriter + GME(quantity * premium));
 
-        preWriter = env.balance(writer);
-        preBuyer = env.balance(buyer);
+        // preWriter = env.balance(writer);
+        // preBuyer = env.balance(buyer);
 
-        auto jrr1 = getOptionBookOffers(env, XRP(strikePrice), expiration);
-        std::cout << "RESULT1: " << jrr1 << "\n";
+        // auto jrr1 = getOptionBookOffers(env, GME(strikePrice), expiration);
+        // std::cout << "RESULT1: " << jrr1 << "\n";
 
-        // Execute Option
-        env(optionexecute(buyer, optionId, offerId), ter(tesSUCCESS));
-        env.close();
+        // // Execute Option
+        // env(optionexecute(buyer, optionId, offerId), ter(tesSUCCESS));
+        // env.close();
 
-        BEAST_EXPECT(
-            env.balance(buyer) ==
-            preBuyer - feeDrops - XRP(quantity * strikePrice) + XRP(quantity));
-        BEAST_EXPECT(
-            env.balance(writer) ==
-            preWriter + XRP(quantity * strikePrice));
+        // BEAST_EXPECT(
+        //     env.balance(buyer) ==
+        //     preBuyer - feeDrops - GME(quantity * strikePrice) + GME(quantity));
+        // BEAST_EXPECT(
+        //     env.balance(writer) ==
+        //     preWriter + GME(quantity * strikePrice));
 
-        auto jrrList = getOptionList(env, zeroAcct);
-        std::cout << "RESULT LIST: " << jrrList << "\n";
-        auto jrr2 = getOptionBookOffers(env, XRP(strikePrice), expiration);
-        std::cout << "RESULT2: " << jrr2 << "\n";
+        // auto jrrList = getOptionList(env, zeroAcct);
+        // std::cout << "RESULT LIST: " << jrrList << "\n";
+        // auto jrr2 = getOptionBookOffers(env, GME(strikePrice), expiration);
+        // std::cout << "RESULT2: " << jrr2 << "\n";
     }
 
 public:
@@ -487,7 +610,8 @@ public:
         // testBookBuy(sa);
         // testBookSell(sa);
         // testOptionBookBuy(sa);
-        testEnabled(sa);
+        // testEnabled(sa);
+        testIC(sa);
     }
 };
 

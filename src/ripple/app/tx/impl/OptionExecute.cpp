@@ -98,6 +98,9 @@ OptionExecute::doApply()
     std::uint32_t const quantity = sleOptionOffer->getFieldU32(sfQuantity);
     STAmount const totalValue = STAmount(strikePrice.issue(), (strikePrice.mantissa() * quantity));
 
+    JLOG(j.warn()) << "OptionExecute: QUANTITY SHARES" << quantityShares << "\n";
+    JLOG(j.warn()) << "OptionExecute: TOTAL VALUE" << totalValue << "\n";
+
     if (flags & tfOptionExpire)
     {
         JLOG(j.warn()) << "OptionExecute: EXPIRE OPTION";
@@ -111,38 +114,94 @@ OptionExecute::doApply()
     {
         case 0: {
             JLOG(j.warn()) << "OptionExecute: EXERCISE CALL";
-            if (isXRP(quantityShares))
-            {   
+
+            STAmount hBalance = mSourceBalance;
+            
+            // subtract the total value from the buyer
+            // add the total value to the writer
+            if (isXRP(totalValue))
+            {
                 if (mSourceBalance < totalValue.xrp())
                     return tecUNFUNDED_PAYMENT;
 
-                STAmount hBalance = mSourceBalance;
+                // 1.
+                hBalance -= totalValue.xrp();
+                if (hBalance < beast::zero || hBalance > mSourceBalance)
+                    return tecINTERNAL;
+
+
+                // 2.
+                STAmount wBalance = sleOppAcc->getFieldAmount(sfBalance);
+                STAmount prior = wBalance;
+                wBalance += totalValue.xrp();
+                if (wBalance < beast::zero || wBalance < prior)
+                    return tecINTERNAL;
+                sleOppAcc->setFieldAmount(sfBalance, wBalance);
+            }
+            else
+            {
+                // 1. & 2.
+                TER canBuyerXfer = trustTransferAllowed(
+                    sb,
+                    std::vector<AccountID>{srcAccID, oppAccID},
+                    totalValue.issue(),
+                    j);
+
+                if (!isTesSuccess(canBuyerXfer))
+                {
+                    return canBuyerXfer;
+                }
+
+                STAmount availableBuyerFunds{accountFunds(
+                    sb, srcAccID, totalValue, fhZERO_IF_FROZEN, j)};
                 
-                // subtract the total value from the buyer
-                {
-                    hBalance -= totalValue.xrp();
-                    if (hBalance < beast::zero || hBalance > mSourceBalance)
-                        return tecINTERNAL;
-                }
+                if (availableBuyerFunds < totalValue)
+                    return tecUNFUNDED_PAYMENT;
 
-                // add the total value to the writer
-                {
-                    STAmount wBalance = sleOppAcc->getFieldAmount(sfBalance);
-                    STAmount prior = wBalance;
-                    wBalance += totalValue.xrp();
-                    if (wBalance < beast::zero || wBalance < prior)
-                        return tecINTERNAL;
-                    sleOppAcc->setFieldAmount(sfBalance, wBalance);
-                }
+                if (TER result = accountSend(
+                        sb, srcAccID, oppAccID, totalValue, j, true);
+                    !isTesSuccess(result))
+                    return result;
+            }
 
-                // add the shares to the buyer
-                {
-                    STAmount prior = hBalance;
-                    hBalance += quantityShares.xrp();
-                    if (hBalance < beast::zero || hBalance < prior)
-                        return tecINTERNAL;
-                }
+            // add the shares to the buyer
+            if (isXRP(quantityShares))
+            {   
+                STAmount prior = hBalance;
+                hBalance += quantityShares.xrp();
+                if (hBalance < beast::zero || hBalance < prior)
+                    return tecINTERNAL;
                 sleSrcAcc->setFieldAmount(sfBalance, hBalance);
+            }
+            else
+            {
+                AccountID const issuerAccID = totalValue.getIssuer();
+                {
+                    // check permissions
+                    if (issuerAccID == oppAccID || issuerAccID == srcAccID)
+                    {
+                        // no permission check needed when the issuer sends out or a
+                        // subscriber sends back RH TODO: move this condition into
+                        // trustTransferAllowed, guarded by an amendment
+                    }
+                    else if (TER canXfer = trustTransferAllowed(
+                                sb,
+                                std::vector<AccountID>{oppAccID, srcAccID},
+                                quantityShares.issue(),
+                                j);
+                            !isTesSuccess(canXfer))
+                        return canXfer;
+
+                    STAmount availableFunds{accountFunds(sb, oppAccID, quantityShares, fhZERO_IF_FROZEN, j)};
+
+                    if (availableFunds < quantityShares)
+                        return tecUNFUNDED_PAYMENT;
+
+                    // action the transfer
+                    if (TER result = accountSend(sb, oppAccID, srcAccID, quantityShares, j, true); !isTesSuccess(result))
+                        return result;
+                }
+
             }
             break;
         }

@@ -370,6 +370,8 @@ LedgerFormats::LedgerFormats()
         {
             {sfOwnerNode,            soeREQUIRED},
             {sfStrikePrice,          soeREQUIRED},
+            {sfIssuer,               soeREQUIRED},
+            {sfCurrency,             soeREQUIRED},
             {sfExpiration,           soeREQUIRED},
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED}

@@ -461,6 +461,8 @@ TxFormats::TxFormats()
         ttOPTION_LIST,
         {
             {sfStrikePrice, soeREQUIRED},
+            {sfIssuer, soeREQUIRED},
+            {sfCurrency, soeREQUIRED},
             {sfExpiration, soeREQUIRED},
             {sfTicketSequence, soeOPTIONAL},
         },

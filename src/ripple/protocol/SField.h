@@ -444,6 +444,7 @@ extern SF_UINT160 const sfTakerPaysCurrency;
 extern SF_UINT160 const sfTakerPaysIssuer;
 extern SF_UINT160 const sfTakerGetsCurrency;
 extern SF_UINT160 const sfTakerGetsIssuer;
+extern SF_UINT160 const sfCurrency;
 
 // 256-bit (common)
 extern SF_UINT256 const sfLedgerHash;

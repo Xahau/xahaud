@@ -178,16 +178,26 @@ OptionCreate::doApply()
 
     STAmount const strikePrice = sleOptionAcc->getFieldAmount(sfStrikePrice);
     std::uint32_t const expiration = sleOptionAcc->getFieldU32(sfExpiration);
-    STAmount const quantityShares = STAmount(strikePrice.issue(), isXRP(premium) ? quantity * 1000000 : quantity);
+    AccountID const issuer = sleOptionAcc->getAccountID(sfIssuer);
+    Currency const currency = Currency(sleOptionAcc->getFieldH160(sfCurrency));
+    // STAmount const quantityShares = STAmount({ issuer, currency }, isXRP(strikePrice) ? quantity * 1000000 : quantity);
+    STAmount const quantityShares = STAmount(Issue(currency, issuer), quantity);
+
+    if (strikePrice.issue() != totalPremium.issue() || strikePrice.issue() != totalPremium.issue())
+    {
+        return temBAD_ISSUER;
+    }
 
     bool const isPut = (flags & tfType) != 0;
     bool const isSell = (flags & tfAction) != 0;
     bool const isClose = (flags & tfPosition) != 0;
 
-    // std::cout << "OptionCreate.getIssuer(): " << strikePrice.getIssuer() << "\n";
-    // std::cout << "OptionCreate.getCurrency(): " << strikePrice.getCurrency() << "\n";
-    // std::cout << "OptionCreate.mantissa(): " << strikePrice.mantissa() << "\n";
-    // std::cout << "OptionCreate.expiration: " << expiration << "\n";
+    std::cout << "OptionCreate.getIssuer(): " << strikePrice.getIssuer() << "\n";
+    std::cout << "OptionCreate.getCurrency(): " << strikePrice.getCurrency() << "\n";
+    std::cout << "OptionCreate.mantissa(): " << strikePrice.mantissa() << "\n";
+    std::cout << "OptionCreate.exponent(): " << strikePrice.exponent() << "\n";
+    std::cout << "OptionCreate.value(): " << strikePrice.value() << "\n";
+    std::cout << "OptionCreate.expiration: " << expiration << "\n";
 
     auto optionBookDirKeylet = keylet::optionBook(
         strikePrice.getIssuer(),
@@ -226,11 +236,11 @@ OptionCreate::doApply()
     {
         JLOG(j.warn()) << "Creating Option Offer: !isClose";
         // Add Option to Issuer
-        if (!isXRP(premium))
-        {
-            // unimplemented
-            return tecINTERNAL;
-        }
+        // if (!isXRP(premium))
+        // {
+        //     // unimplemented
+        //     return tecINTERNAL;
+        // }
 
         // Add Option to Self
         std::uint32_t ownerCount{(*sleSrcAcc)[sfOwnerCount]};
@@ -370,7 +380,7 @@ OptionCreate::doApply()
             if (mSourceBalance < totalPremium.xrp())
                 return tecUNFUNDED_PAYMENT;
 
-            // subtract the balance from the buyer
+            // subtract the premium from the buyer
             {
                 STAmount bal = mSourceBalance;
                 bal -= totalPremium.xrp();
@@ -379,7 +389,7 @@ OptionCreate::doApply()
                 sleSrcAcc->setFieldAmount(sfBalance, bal);
             }
 
-            // add the balance to the writer
+            // add the premium to the writer
             {
                 STAmount bal = sleOppAcc->getFieldAmount(sfBalance);
                 STAmount prior = bal;
@@ -389,6 +399,32 @@ OptionCreate::doApply()
                 sleOppAcc->setFieldAmount(sfBalance, bal);
             }
         }
+        else
+        {
+            // // 1. & 2.
+            // TER canBuyerXfer = trustTransferAllowed(
+            //     sb,
+            //     std::vector<AccountID>{srcAccID, oppAccID},
+            //     totalPremium.issue(),
+            //     j);
+
+            // if (!isTesSuccess(canBuyerXfer))
+            // {
+            //     return canBuyerXfer;
+            // }
+
+            // STAmount availableBuyerFunds{accountFunds(
+            //     sb, srcAccID, totalPremium, fhZERO_IF_FROZEN, j)};
+            
+            // if (availableBuyerFunds < totalPremium)
+            //     return tecUNFUNDED_PAYMENT;
+
+            // if (TER result = accountSend(
+            //         sb, srcAccID, oppAccID, totalPremium, j, true);
+            //     !isTesSuccess(result))
+            //     return result;
+            return tecINTERNAL;
+        }
 
         sb.update(sleOppAcc);
     }
@@ -397,7 +433,7 @@ OptionCreate::doApply()
         JLOG(j.warn()) << "Updating Option Balances: isSell";
         if (isXRP(quantityShares))
         {
-            // subtract the balance from the writer
+            // subtract the quantity from the writer
             if (mSourceBalance < quantityShares.xrp())
                 return tecUNFUNDED_PAYMENT;
             {
@@ -408,6 +444,19 @@ OptionCreate::doApply()
 
                 sleSrcAcc->setFieldAmount(sfBalance, bal);
             }
+        }
+        else
+        {
+            STAmount availableBuyerFunds{accountFunds(
+                sb, srcAccID, quantityShares, fhZERO_IF_FROZEN, j)};
+            
+            if (availableBuyerFunds < quantityShares)
+                return tecUNFUNDED_PAYMENT;
+
+            std::shared_ptr<SLE> sleLine = sb.peek(keylet::line(srcAccID, quantityShares.getIssuer(), quantityShares.getCurrency()));
+
+            if (TER const result = trustAdjustLockedBalance(ctx_.view(), sleLine, quantityShares, 1, ctx_.journal, true); !isTesSuccess(result))
+                return result;
         }
     }
 

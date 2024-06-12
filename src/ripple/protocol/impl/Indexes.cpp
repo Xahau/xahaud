@@ -474,9 +474,9 @@ uritoken(AccountID const& issuer, Blob const& uri)
 }
 
 Keylet
-option(AccountID const& issuer, std::uint32_t expiration) noexcept
+option(AccountID const& issuer, Currency const& currency, std::uint64_t strike, std::uint32_t expiration) noexcept
 {
-    return {ltOPTION,indexHash(LedgerNameSpace::OPTION, issuer, expiration)};
+    return {ltOPTION, indexHash(LedgerNameSpace::OPTION, issuer, currency, strike, expiration)};
 }
 
 Keylet
