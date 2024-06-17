@@ -40,7 +40,6 @@
 
 #include <ripple/core/ConfigSections.h>
 #include <boost/algorithm/string/predicate.hpp>
-#include <boost/utility/in_place_factory.hpp>
 
 namespace ripple {
 
@@ -811,7 +810,7 @@ OverlayImpl::getOverlayInfo()
             auto version{sp->getVersion()};
             if (!version.empty())
                 // Could move here if Json::value supported moving from strings
-                pv[jss::version] = version;
+                pv[jss::version] = std::string{version};
         }
 
         std::uint32_t minSeq, maxSeq;
@@ -981,9 +980,9 @@ OverlayImpl::processValidatorList(
         return true;
     };
 
-    auto key = req.target().substr(prefix.size());
+    std::string_view key = req.target().substr(prefix.size());
 
-    if (auto slash = key.find('/'); slash != boost::string_view::npos)
+    if (auto slash = key.find('/'); slash != std::string_view::npos)
     {
         auto verString = key.substr(0, slash);
         if (!boost::conversion::try_lexical_convert(verString, version))

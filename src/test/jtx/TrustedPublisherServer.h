@@ -575,7 +575,7 @@ private:
                 if (ec)
                     break;
 
-                std::string path = req.target();  //.to_string();
+                std::string_view const path = req.target();  //.to_string();
                 res.insert("Server", "TrustedPublisherServer");
                 res.version(req.version());
                 res.keep_alive(req.keep_alive());
