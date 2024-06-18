@@ -449,7 +449,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/NFTokenMint.cpp
   src/ripple/app/tx/impl/OfferStream.cpp
   src/ripple/app/tx/impl/OptionCreate.cpp
-  src/ripple/app/tx/impl/OptionExecute.cpp
+  src/ripple/app/tx/impl/OptionExercise.cpp
   src/ripple/app/tx/impl/OptionList.cpp
   src/ripple/app/tx/impl/PayChan.cpp
   src/ripple/app/tx/impl/Payment.cpp

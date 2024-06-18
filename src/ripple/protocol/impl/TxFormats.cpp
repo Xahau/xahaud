@@ -479,8 +479,8 @@ TxFormats::TxFormats()
         },
         commonFields);
 
-    add(jss::OptionExecute,
-        ttOPTION_EXECUTE,
+    add(jss::OptionExercise,
+        ttOPTION_EXERCISE,
         {
             {sfOptionID, soeREQUIRED},
             {sfSwapID, soeOPTIONAL},

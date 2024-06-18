@@ -124,7 +124,7 @@ sealOption(
         bool const _isSell = (flags & tfAction) != 0;
 
         // Skip Sealed Options
-        if (sleItem->getFieldU32(sfToSeal) == 0)
+        if (sleItem->getFieldU32(sfOpenInterest) == 0)
         {
             continue;
         }
@@ -165,8 +165,7 @@ OptionCreate::doApply()
     std::uint32_t const quantity = ctx_.tx.getFieldU32(sfQuantity);
     std::optional<uint256> const swapID = ctx_.tx[~sfSwapID];
 
-    STAmount const totalPremium =
-        STAmount(premium.issue(), (premium.mantissa() * quantity));
+    STAmount const totalPremium = mulRound(premium, STAmount(premium.issue(), quantity), premium.issue(), false);
 
     auto sleSrcAcc = sb.peek(keylet::account(srcAccID));
     if (!sleSrcAcc)
@@ -184,9 +183,7 @@ OptionCreate::doApply()
     STAmount const quantityShares = STAmount(Issue(currency, issuer), quantity);
 
     if (strikePrice.issue() != totalPremium.issue() || strikePrice.issue() != totalPremium.issue())
-    {
         return temBAD_ISSUER;
-    }
 
     bool const isPut = (flags & tfType) != 0;
     bool const isSell = (flags & tfAction) != 0;
@@ -218,8 +215,8 @@ OptionCreate::doApply()
         auto sealedKeylet = ripple::keylet::unchecked(*sealID);
         auto sealedOption = sb.peek(sealedKeylet);
         sealedOption->setFieldH256(sfSwapID, optionOfferKeylet.key);
-        uint32_t currSealed = sealedOption->getFieldU32(sfToSeal);
-        sealedOption->setFieldU32(sfToSeal, currSealed - quantity);
+        uint32_t currSealed = sealedOption->getFieldU32(sfOpenInterest);
+        sealedOption->setFieldU32(sfOpenInterest, currSealed - quantity);
         oppAccID = sealedOption->getAccountID(sfOwner);
         sb.update(sealedOption);
     }
@@ -265,14 +262,14 @@ OptionCreate::doApply()
         optionOffer->setFieldU64(sfOwnerNode, *page);
         optionOffer->setFieldH256(sfOptionID, optionID);
         optionOffer->setFieldU32(sfQuantity, quantity);
-        optionOffer->setFieldU32(sfToSeal, quantity);
+        optionOffer->setFieldU32(sfOpenInterest, quantity);
         optionOffer->setFieldAmount(sfAmount, premium);  // Premium
         optionOffer->setFieldAmount(sfLockedBalance, STAmount(0));     // Locked
         if (sealID)
         {
             JLOG(j.warn()) << "Updating Option Offer: sealID";
             optionOffer->setFieldH256(sfSwapID, *sealID);
-            optionOffer->setFieldU32(sfToSeal, 0);
+            optionOffer->setFieldU32(sfOpenInterest, 0);
         }
         if (isSell)
         {
@@ -402,28 +399,29 @@ OptionCreate::doApply()
         else
         {
             // // 1. & 2.
-            // TER canBuyerXfer = trustTransferAllowed(
-            //     sb,
-            //     std::vector<AccountID>{srcAccID, oppAccID},
-            //     totalPremium.issue(),
-            //     j);
+            TER canBuyerXfer = trustTransferAllowed(
+                sb,
+                std::vector<AccountID>{srcAccID, oppAccID},
+                totalPremium.issue(),
+                j);
 
-            // if (!isTesSuccess(canBuyerXfer))
-            // {
-            //     return canBuyerXfer;
-            // }
+            if (!isTesSuccess(canBuyerXfer))
+            {
+                return canBuyerXfer;
+            }
 
-            // STAmount availableBuyerFunds{accountFunds(
-            //     sb, srcAccID, totalPremium, fhZERO_IF_FROZEN, j)};
+            STAmount availableBuyerFunds{accountFunds(
+                sb, srcAccID, totalPremium, fhZERO_IF_FROZEN, j)};
             
-            // if (availableBuyerFunds < totalPremium)
-            //     return tecUNFUNDED_PAYMENT;
 
-            // if (TER result = accountSend(
-            //         sb, srcAccID, oppAccID, totalPremium, j, true);
-            //     !isTesSuccess(result))
-            //     return result;
-            return tecINTERNAL;
+            JLOG(j.warn()) << "availableBuyerFunds: " << availableBuyerFunds << "/n";
+            JLOG(j.warn()) << "totalPremium: " << totalPremium << "/n";
+            if (availableBuyerFunds < totalPremium)
+                return tecUNFUNDED_PAYMENT;
+
+            if (TER result = accountSend(sb, srcAccID, oppAccID, totalPremium, j, true); !isTesSuccess(result))
+                return result;
+
         }
 
         sb.update(sleOppAcc);
@@ -453,9 +451,9 @@ OptionCreate::doApply()
             if (availableBuyerFunds < quantityShares)
                 return tecUNFUNDED_PAYMENT;
 
-            std::shared_ptr<SLE> sleLine = sb.peek(keylet::line(srcAccID, quantityShares.getIssuer(), quantityShares.getCurrency()));
+            std::shared_ptr<SLE> sleLine = ctx_.view().peek(keylet::line(srcAccID, quantityShares.getIssuer(), quantityShares.getCurrency()));
 
-            if (TER const result = trustAdjustLockedBalance(ctx_.view(), sleLine, quantityShares, 1, ctx_.journal, true); !isTesSuccess(result))
+            if (TER const result = trustAdjustLockedBalance(ctx_.view(), sleLine, quantityShares, 1, ctx_.journal, WetRun); !isTesSuccess(result))
                 return result;
         }
     }

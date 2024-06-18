@@ -157,7 +157,7 @@ CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32, 
 
 CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 
-CONSTRUCT_TYPED_SFIELD(sfToSeal,                "ToSeal",               UINT32,    94);
+CONSTRUCT_TYPED_SFIELD(sfOpenInterest,          "OpenInterest",         UINT32,    94);
 CONSTRUCT_TYPED_SFIELD(sfQuantity,              "Quantity",             UINT32,    95);
 CONSTRUCT_TYPED_SFIELD(sfXahauActivationLgrSeq, "XahauActivationLgrSeq",UINT32,    96);
 CONSTRUCT_TYPED_SFIELD(sfImportSequence,        "ImportSequence",       UINT32,    97);

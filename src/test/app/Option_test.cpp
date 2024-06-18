@@ -106,7 +106,7 @@ struct Option_test : public beast::unit_test::suite
     {
         using namespace jtx;
         Json::Value jv;
-        jv[jss::TransactionType] = jss::OptionExecute;
+        jv[jss::TransactionType] = jss::OptionExercise;
         jv[jss::Account] = account.human();
         jv[sfOptionID.jsonName] = to_string(optionId);
         jv[sfSwapID.jsonName] = to_string(offerId);

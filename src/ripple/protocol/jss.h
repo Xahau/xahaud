@@ -113,7 +113,7 @@ JSS(OfferCreate);              // transaction type.
 JSS(OfferSequence);            // field.
 JSS(Option);                   // ledger type.
 JSS(OptionCreate);             // transaction type.
-JSS(OptionExecute);            // transaction type.
+JSS(OptionExercise);            // transaction type.
 JSS(OptionList);               // transaction type.
 JSS(OptionOffer);              // ledger type.
 JSS(Paths);                    // in/out: TransactionSign

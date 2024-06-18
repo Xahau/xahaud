@@ -39,7 +39,7 @@
 #include <ripple/app/tx/impl/NFTokenCreateOffer.h>
 #include <ripple/app/tx/impl/NFTokenMint.h>
 #include <ripple/app/tx/impl/OptionCreate.h>
-#include <ripple/app/tx/impl/OptionExecute.h>
+#include <ripple/app/tx/impl/OptionExercise.h>
 #include <ripple/app/tx/impl/OptionList.h>
 #include <ripple/app/tx/impl/PayChan.h>
 #include <ripple/app/tx/impl/Payment.h>
@@ -129,8 +129,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<EscrowCancel>(ctx);
         case ttOPTION_CREATE:
             return invoke_preflight_helper<OptionCreate>(ctx);
-        case ttOPTION_EXECUTE:
-            return invoke_preflight_helper<OptionExecute>(ctx);
+        case ttOPTION_EXERCISE:
+            return invoke_preflight_helper<OptionExercise>(ctx);
         case ttOPTION_LIST:
             return invoke_preflight_helper<OptionList>(ctx);
         case ttPAYCHAN_CLAIM:
@@ -256,8 +256,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<EscrowCancel>(ctx);
         case ttOPTION_CREATE:
             return invoke_preclaim<OptionCreate>(ctx);
-        case ttOPTION_EXECUTE:
-            return invoke_preclaim<OptionExecute>(ctx);
+        case ttOPTION_EXERCISE:
+            return invoke_preclaim<OptionExercise>(ctx);
         case ttOPTION_LIST:
             return invoke_preclaim<OptionList>(ctx);
         case ttPAYCHAN_CLAIM:
@@ -345,8 +345,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return EscrowCancel::calculateBaseFee(view, tx);
         case ttOPTION_CREATE:
             return OptionCreate::calculateBaseFee(view, tx);
-        case ttOPTION_EXECUTE:
-            return OptionExecute::calculateBaseFee(view, tx);
+        case ttOPTION_EXERCISE:
+            return OptionExercise::calculateBaseFee(view, tx);
         case ttOPTION_LIST:
             return OptionList::calculateBaseFee(view, tx);
         case ttPAYCHAN_CLAIM:
@@ -496,8 +496,8 @@ invoke_apply(ApplyContext& ctx)
             OptionCreate p(ctx);
             return p();
         }
-        case ttOPTION_EXECUTE: {
-            OptionExecute p(ctx);
+        case ttOPTION_EXERCISE: {
+            OptionExercise p(ctx);
             return p();
         }
         case ttOPTION_LIST: {

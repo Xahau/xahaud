@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/impl/OptionExecute.h>
+#include <ripple/app/tx/impl/OptionExercise.h>
 #include <ripple/basics/Log.h>
 #include <ripple/ledger/ApplyView.h>
 #include <ripple/ledger/View.h>
@@ -29,13 +29,13 @@
 namespace ripple {
 
 TxConsequences
-OptionExecute::makeTxConsequences(PreflightContext const& ctx)
+OptionExercise::makeTxConsequences(PreflightContext const& ctx)
 {
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
 NotTEC
-OptionExecute::preflight(PreflightContext const& ctx)
+OptionExercise::preflight(PreflightContext const& ctx)
 {
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
@@ -50,12 +50,12 @@ OptionExecute::preflight(PreflightContext const& ctx)
 
 
 TER
-OptionExecute::doApply()
+OptionExercise::doApply()
 {
     if (!view().rules().enabled(featureOptions))
         return temDISABLED;
 
-    Sandbox sb(&ctx_.view());
+    // Sandbox sb(&ctx_.view());
 
     beast::Journal const& j = ctx_.journal;
 
@@ -64,24 +64,24 @@ OptionExecute::doApply()
     uint256 const offerID = ctx_.tx.getFieldH256(sfSwapID);
     auto const flags = ctx_.tx.getFlags();
 
-    auto sleSrcAcc = sb.peek(keylet::account(srcAccID));
+    auto sleSrcAcc = ctx_.view().peek(keylet::account(srcAccID));
     if (!sleSrcAcc)
         return terNO_ACCOUNT;
 
     auto optionOfferKeylet = ripple::keylet::unchecked(offerID);
-    auto sleOptionOffer = sb.peek(optionOfferKeylet);
+    auto sleOptionOffer = ctx_.view().peek(optionOfferKeylet);
     if (!sleOptionOffer)
         return tecNO_TARGET;
     
     AccountID const ownrAccID = sleOptionOffer->getAccountID(sfOwner);
     auto const sealedID = sleOptionOffer->getFieldH256(sfSwapID);
     auto oppOfferKeylet = ripple::keylet::unchecked(sealedID);
-    auto sleSealedOffer = sb.peek(oppOfferKeylet);
+    auto sleSealedOffer = ctx_.view().peek(oppOfferKeylet);
     if (!sleSealedOffer)
         return tecNO_TARGET;
 
     AccountID const oppAccID = sleSealedOffer->getAccountID(sfOwner);
-    auto sleOppAcc = sb.peek(keylet::account(oppAccID));
+    auto sleOppAcc = ctx_.view().peek(keylet::account(oppAccID));
     if (!sleOppAcc)
         return terNO_ACCOUNT;
 
@@ -89,31 +89,32 @@ OptionExecute::doApply()
     bool const isPut = (optionFlags & tfType) != 0;
     bool const isSell = (optionFlags & tfAction) != 0;
 
-    auto sleOption = sb.peek(keylet::unchecked(optionID));
+    auto sleOption = ctx_.view().peek(keylet::unchecked(optionID));
     if (!sleOption)
         return tecINTERNAL;
 
     STAmount const strikePrice = sleOption->getFieldAmount(sfStrikePrice);
     STAmount const quantityShares = sleSealedOffer->getFieldAmount(sfLockedBalance);
     std::uint32_t const quantity = sleOptionOffer->getFieldU32(sfQuantity);
-    STAmount const totalValue = STAmount(strikePrice.issue(), (strikePrice.mantissa() * quantity));
+    STAmount const totalValue = mulRound(strikePrice, STAmount(strikePrice.issue(), quantity), strikePrice.issue(), false);
 
-    JLOG(j.warn()) << "OptionExecute: QUANTITY SHARES" << quantityShares << "\n";
-    JLOG(j.warn()) << "OptionExecute: TOTAL VALUE" << totalValue << "\n";
+
+    JLOG(j.warn()) << "OptionExercise: QUANTITY SHARES" << quantityShares << "\n";
+    JLOG(j.warn()) << "OptionExercise: TOTAL VALUE" << totalValue << "\n";
 
     if (flags & tfOptionExpire)
     {
-        JLOG(j.warn()) << "OptionExecute: EXPIRE OPTION";
-        sb.erase(sleSealedOffer);
-        sb.erase(sleOptionOffer);
-        sb.apply(ctx_.rawView());
+        JLOG(j.warn()) << "OptionExercise: EXPIRE OPTION";
+        ctx_.view().erase(sleSealedOffer);
+        ctx_.view().erase(sleOptionOffer);
+        // sb.apply(ctx_.rawView());
         return tesSUCCESS;
     }
 
     switch (isPut)
     {
         case 0: {
-            JLOG(j.warn()) << "OptionExecute: EXERCISE CALL";
+            JLOG(j.warn()) << "OptionExercise: EXERCISE CALL";
 
             STAmount hBalance = mSourceBalance;
             
@@ -129,7 +130,6 @@ OptionExecute::doApply()
                 if (hBalance < beast::zero || hBalance > mSourceBalance)
                     return tecINTERNAL;
 
-
                 // 2.
                 STAmount wBalance = sleOppAcc->getFieldAmount(sfBalance);
                 STAmount prior = wBalance;
@@ -142,7 +142,7 @@ OptionExecute::doApply()
             {
                 // 1. & 2.
                 TER canBuyerXfer = trustTransferAllowed(
-                    sb,
+                    ctx_.view(),
                     std::vector<AccountID>{srcAccID, oppAccID},
                     totalValue.issue(),
                     j);
@@ -153,13 +153,13 @@ OptionExecute::doApply()
                 }
 
                 STAmount availableBuyerFunds{accountFunds(
-                    sb, srcAccID, totalValue, fhZERO_IF_FROZEN, j)};
+                    ctx_.view(), srcAccID, totalValue, fhZERO_IF_FROZEN, j)};
                 
                 if (availableBuyerFunds < totalValue)
                     return tecUNFUNDED_PAYMENT;
 
                 if (TER result = accountSend(
-                        sb, srcAccID, oppAccID, totalValue, j, true);
+                        ctx_.view(), srcAccID, oppAccID, totalValue, j, true);
                     !isTesSuccess(result))
                     return result;
             }
@@ -175,38 +175,34 @@ OptionExecute::doApply()
             }
             else
             {
-                AccountID const issuerAccID = totalValue.getIssuer();
-                {
-                    // check permissions
-                    if (issuerAccID == oppAccID || issuerAccID == srcAccID)
-                    {
-                        // no permission check needed when the issuer sends out or a
-                        // subscriber sends back RH TODO: move this condition into
-                        // trustTransferAllowed, guarded by an amendment
-                    }
-                    else if (TER canXfer = trustTransferAllowed(
-                                sb,
-                                std::vector<AccountID>{oppAccID, srcAccID},
-                                quantityShares.issue(),
-                                j);
-                            !isTesSuccess(canXfer))
-                        return canXfer;
+                // Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
+                // auto const issuerAccID = totalPremium.getIssuer();
+                // auto const xferRate = transferRate(view(), issuerAccID);
+                // // // update if issuer rate is less than locked rate
+                // // if (xferRate < lockedRate)
+                // //     lockedRate = xferRate;
 
-                    STAmount availableFunds{accountFunds(sb, oppAccID, quantityShares, fhZERO_IF_FROZEN, j)};
-
-                    if (availableFunds < quantityShares)
-                        return tecUNFUNDED_PAYMENT;
-
-                    // action the transfer
-                    if (TER result = accountSend(sb, oppAccID, srcAccID, quantityShares, j, true); !isTesSuccess(result))
-                        return result;
-                }
-
+                // all the significant complexity of checking the validity of this
+                // transfer and ensuring the lines exist etc is hidden away in this
+                // function, all we need to do is call it and return if unsuccessful.
+                TER const result = trustTransferLockedBalance(
+                    ctx_.view(),
+                    account_,  // txn signing account
+                    sleOppAcc, // src account
+                    sleSrcAcc, // dst account
+                    quantityShares, // xfer amount
+                    -1,
+                    parityRate,
+                    j_,
+                    WetRun  // wet run;
+                );
+                if (!isTesSuccess(result))
+                    return result;
             }
             break;
         }
         case 1: {
-            JLOG(j.warn()) << "OptionExecute: EXERCISE PUT";
+            JLOG(j.warn()) << "OptionExercise: EXERCISE PUT";
             if (isXRP(quantityShares))
             {       
                 // add the total value to the holder
@@ -245,16 +241,16 @@ OptionExecute::doApply()
     }
 
     // apply
-    sb.update(sleOppAcc);
-    sb.update(sleSrcAcc);
-    sb.erase(sleSealedOffer);
-    sb.erase(sleOptionOffer);
-    sb.apply(ctx_.rawView());
+    ctx_.view().update(sleOppAcc);
+    ctx_.view().update(sleSrcAcc);
+    ctx_.view().erase(sleSealedOffer);
+    ctx_.view().erase(sleOptionOffer);
+    // sb.apply(ctx_.rawView());
     return tesSUCCESS;
 }
 
 XRPAmount
-OptionExecute::calculateBaseFee(ReadView const& view, STTx const& tx)
+OptionExercise::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     return Transactor::calculateBaseFee(view, tx);
 }

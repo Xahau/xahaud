@@ -27,12 +27,12 @@
 
 namespace ripple {
 
-class OptionExecute : public Transactor
+class OptionExercise : public Transactor
 {
 public:
     static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    explicit OptionExecute(ApplyContext& ctx) : Transactor(ctx)
+    explicit OptionExercise(ApplyContext& ctx) : Transactor(ctx)
     {
     }
 

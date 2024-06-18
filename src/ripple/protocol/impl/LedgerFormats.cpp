@@ -387,7 +387,7 @@ LedgerFormats::LedgerFormats()
             {sfLockedBalance,        soeREQUIRED}, // Locked Amount
             {sfAmount,               soeREQUIRED}, // Premium
             {sfQuantity,             soeREQUIRED}, // Quantity
-            {sfToSeal,               soeREQUIRED}, // To Seal
+            {sfOpenInterest,         soeREQUIRED}, // To Seal
             {sfBookDirectory,        soeREQUIRED},
             {sfBookNode,             soeREQUIRED},
             {sfSwapID,               soeOPTIONAL}, // MatchID
