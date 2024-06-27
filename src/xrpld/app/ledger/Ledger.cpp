@@ -831,7 +831,7 @@ Ledger::updateNegativeUNL()
 
     if (hasToDisable)
     {
-        newNUnl.emplace_back(sfDisabledValidator);
+        newNUnl.push_back(STObject::makeInnerObject(sfDisabledValidator));
         newNUnl.back().setFieldVL(
             sfPublicKey, sle->getFieldVL(sfValidatorToDisable));
         newNUnl.back().setFieldU32(sfFirstLedgerSequence, seq());

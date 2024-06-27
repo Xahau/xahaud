@@ -303,339 +303,353 @@ public:
     {
         // Put a bunch of different LedgerEntryTypes into a ledger
         using namespace test::jtx;
-        using namespace std::chrono;
 
-        std::vector<std::string> const keys = {
-            "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
-            "1"};
-        Env env{*this, network::makeNetworkVLConfig(21337, keys)};
-
-        Account const alice{"alice"};
-        Account const gw{"gateway"};
-        auto const USD = gw["USD"];
-        env.fund(XRP(100000), gw, alice);
-
-        auto makeRequest = [&env](Json::StaticString const& type) {
-            Json::Value jvParams;
-            jvParams[jss::ledger_index] = "current";
-            jvParams[jss::type] = type;
-            return env.rpc(
-                "json",
-                "ledger_data",
-                boost::lexical_cast<std::string>(jvParams))[jss::result];
-        };
-
-        // Assert that state is an empty array.
-        for (auto const& type :
-             {jss::amendments,
-              jss::check,
-              jss::directory,
-              jss::offer,
-              jss::signer_list,
-              jss::state,
-              jss::ticket,
-              jss::escrow,
-              jss::payment_channel,
-              jss::hook,
-              jss::hook_definition,
-              jss::hook_state,
-              jss::uri_token,
-              jss::deposit_preauth})
+        // Make sure fixInnerObjTemplate2 doesn't break amendments.
+        for (FeatureBitset const& features :
+             {supported_amendments() - fixInnerObjTemplate2,
+              supported_amendments() | fixInnerObjTemplate2})
         {
-            auto const jrr = makeRequest(type);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 0));
-        }
+            using namespace std::chrono;
 
-        int const num_accounts = 10;
-
-        for (auto i = 0; i < num_accounts; i++)
-        {
-            Account const bob{std::string("bob") + std::to_string(i)};
-            env.fund(XRP(1000), bob);
-        }
-        env(offer(Account{"bob0"}, USD(100), XRP(100)));
-        env.trust(Account{"bob2"}["USD"](100), Account{"bob3"});
-
-        auto majorities = getMajorityAmendments(*env.closed());
-        for (int i = 0; i <= 256; ++i)
-        {
-            env.close();
-            majorities = getMajorityAmendments(*env.closed());
-            if (!majorities.empty())
-                break;
-        }
-        env(signers(
-            Account{"bob0"}, 1, {{Account{"bob1"}, 1}, {Account{"bob2"}, 1}}));
-        env(ticket::create(env.master, 1));
-
-        {
-            Json::Value jv;
-            jv[jss::TransactionType] = jss::EscrowCreate;
-            jv[jss::Flags] = tfUniversal;
-            jv[jss::Account] = Account{"bob5"}.human();
-            jv[jss::Destination] = Account{"bob6"}.human();
-            jv[jss::Amount] = XRP(50).value().getJson(JsonOptions::none);
-            jv[sfFinishAfter.fieldName] = NetClock::time_point{env.now() + 10s}
-                                              .time_since_epoch()
-                                              .count();
-            env(jv);
-        }
-
-        {
-            std::string const createCodeHex =
-                "0061736D01000000011B0460027F7F017F60047F7F7F7F017E60037F7F7E01"
-                "7E60017F017E02270303656E76025F67000003656E760973746174655F7365"
-                "74000103656E76066163636570740002030201030503010002062B077F0141"
-                "9088040B7F004180080B7F00418A080B7F004180080B7F00419088040B7F00"
-                "41000B7F0041010B07080104686F6F6B00030AE7800001E3800002017F017E"
-                "230041106B220124002001200036020C41012200200010001A200141800828"
-                "0000360208200141046A410022002F0088083B010020012000280084083602"
-                "004100200020014106200141086A4104100110022102200141106A24002002"
-                "0B0B1001004180080B096B65790076616C7565";
-            std::string ns_str =
-                "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECA"
-                "FE";
-            Json::Value jv = ripple::test::jtx::hook(
-                Account{"bob3"}, {{hso(createCodeHex)}}, 0);
-            jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
-            env(jv, fee(100'000'000));
-            env.close();
-            env(pay(Account{"bob2"}, Account{"bob3"}, XRP(1)), fee(XRP(1)));
-            env.close();
-        }
-
-        {
-            std::string const uri(maxTokenURILength, '?');
-            env(uritoken::mint(Account{"bob2"}, uri));
-            env.close();
-        }
-
-        {
-            Json::Value jv;
-            jv[jss::TransactionType] = jss::PaymentChannelCreate;
-            jv[jss::Flags] = tfUniversal;
-            jv[jss::Account] = Account{"bob6"}.human();
-            jv[jss::Destination] = Account{"bob7"}.human();
-            jv[jss::Amount] = XRP(100).value().getJson(JsonOptions::none);
-            jv[jss::SettleDelay] = NetClock::duration{10s}.count();
-            jv[sfPublicKey.fieldName] = strHex(Account{"bob6"}.pk().slice());
-            jv[sfCancelAfter.fieldName] = NetClock::time_point{env.now() + 300s}
-                                              .time_since_epoch()
-                                              .count();
-            env(jv);
-        }
-
-        {
-            auto const master = Account("masterpassphrase");
-            env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
-            env.close();
-            env(import::import(
-                    alice, import::loadXpop(test::ImportTCAccountSet::w_seed)),
-                fee(10 * 10),
-                ter(tesSUCCESS));
-            env.close();
-        }
-
-        {
-            // ADD UNL REPORT
-            std::vector<std::string> const _ivlKeys = {
+            std::vector<std::string> const keys = {
                 "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
-                "CDC1",
-                "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1"
-                "CDC2",
+                "CDC1"};
+            Env env{*this, network::makeNetworkVLConfig(21337, keys), features};
+
+            Account const alice{"alice"};
+            Account const gw{"gateway"};
+            auto const USD = gw["USD"];
+            env.fund(XRP(100000), gw, alice);
+
+            auto makeRequest = [&env](Json::StaticString const& type) {
+                Json::Value jvParams;
+                jvParams[jss::ledger_index] = "current";
+                jvParams[jss::type] = type;
+                return env.rpc(
+                    "json",
+                    "ledger_data",
+                    boost::lexical_cast<std::string>(jvParams))[jss::result];
             };
 
-            std::vector<PublicKey> ivlKeys;
-            for (auto const& strPk : _ivlKeys)
+            // Assert that state is an empty array.
+            for (auto const& type :
+                 {jss::amendments,
+                  jss::check,
+                  jss::directory,
+                  jss::offer,
+                  jss::signer_list,
+                  jss::state,
+                  jss::ticket,
+                  jss::escrow,
+                  jss::payment_channel,
+                  jss::hook,
+                  jss::hook_definition,
+                  jss::hook_state,
+                  jss::uri_token,
+                  jss::deposit_preauth})
             {
-                auto pkHex = strUnHex(strPk);
-                ivlKeys.emplace_back(makeSlice(*pkHex));
+                auto const jrr = makeRequest(type);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 0));
             }
 
-            std::vector<std::string> const _vlKeys = {
-                "ED8E43A943A174190BA2FAE91F44AC6E2D1D8202EFDCC2EA3DBB39814576D6"
-                "90F7",
-                "ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E"
-                "738B"};
+            int const num_accounts = 10;
 
-            std::vector<PublicKey> vlKeys;
-            for (auto const& strPk : _vlKeys)
+            for (auto i = 0; i < num_accounts; i++)
             {
-                auto pkHex = strUnHex(strPk);
-                vlKeys.emplace_back(makeSlice(*pkHex));
+                Account const bob{std::string("bob") + std::to_string(i)};
+                env.fund(XRP(1000), bob);
+            }
+            env(offer(Account{"bob0"}, USD(100), XRP(100)));
+            env.trust(Account{"bob2"}["USD"](100), Account{"bob3"});
+
+            auto majorities = getMajorityAmendments(*env.closed());
+            for (int i = 0; i <= 256; ++i)
+            {
+                env.close();
+                majorities = getMajorityAmendments(*env.closed());
+                if (!majorities.empty())
+                    break;
             }
 
-            // insert a ttUNL_REPORT pseudo into the open ledger
-            env.app().openLedger().modify(
-                [&](OpenView& view, beast::Journal j) -> bool {
-                    STTx tx = test::unl::createUNLReportTx(
-                        env.current()->seq() + 1, ivlKeys[0], vlKeys[0]);
-                    uint256 txID = tx.getTransactionID();
-                    auto s = std::make_shared<ripple::Serializer>();
-                    tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
-                    view.rawTxInsert(txID, std::move(s), nullptr);
-                    return true;
-                });
+            env(signers(
+                Account{"bob0"},
+                1,
+                {{Account{"bob1"}, 1}, {Account{"bob2"}, 1}}));
+            env(ticket::create(env.master, 1));
 
-            // close the ledger
+            {
+                Json::Value jv;
+                jv[jss::TransactionType] = jss::EscrowCreate;
+                jv[jss::Flags] = tfUniversal;
+                jv[jss::Account] = Account{"bob5"}.human();
+                jv[jss::Destination] = Account{"bob6"}.human();
+                jv[jss::Amount] = XRP(50).value().getJson(JsonOptions::none);
+                jv[sfFinishAfter.fieldName] =
+                    NetClock::time_point{env.now() + 10s}
+                        .time_since_epoch()
+                        .count();
+                env(jv);
+            }
+
+            {
+                std::string const createCodeHex =
+                    "0061736D01000000011B0460027F7F017F60047F7F7F7F017E60037F7F"
+                    "7E017E60017F017E02270303656E76025F67000003656E760973746174"
+                    "655F736574000103656E76066163636570740002030201030503010002"
+                    "062B077F01419088040B7F004180080B7F00418A080B7F004180080B7F"
+                    "00419088040B7F0041000B7F0041010B07080104686F6F6B00030AE780"
+                    "0001E3800002017F017E230041106B220124002001200036020C410122"
+                    "00200010001A2001418008280000360208200141046A410022002F0088"
+                    "083B010020012000280084083602004100200020014106200141086A41"
+                    "04100110022102200141106A240020020B0B1001004180080B096B6579"
+                    "0076616C7565";
+                std::string ns_str =
+                    "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECA"
+                    "FECAFE";
+                Json::Value jv = ripple::test::jtx::hook(
+                    Account{"bob3"}, {{hso(createCodeHex)}}, 0);
+                jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
+                env(jv, fee(100'000'000));
+                env.close();
+                env(pay(Account{"bob2"}, Account{"bob3"}, XRP(1)), fee(XRP(1)));
+                env.close();
+            }
+
+            {
+                std::string const uri(maxTokenURILength, '?');
+                env(uritoken::mint(Account{"bob2"}, uri));
+                env.close();
+            }
+
+            {
+                Json::Value jv;
+                jv[jss::TransactionType] = jss::PaymentChannelCreate;
+                jv[jss::Flags] = tfUniversal;
+                jv[jss::Account] = Account{"bob6"}.human();
+                jv[jss::Destination] = Account{"bob7"}.human();
+                jv[jss::Amount] = XRP(100).value().getJson(JsonOptions::none);
+                jv[jss::SettleDelay] = NetClock::duration{10s}.count();
+                jv[sfPublicKey.fieldName] =
+                    strHex(Account{"bob6"}.pk().slice());
+                jv[sfCancelAfter.fieldName] =
+                    NetClock::time_point{env.now() + 300s}
+                        .time_since_epoch()
+                        .count();
+                env(jv);
+            }
+
+            {
+                auto const master = Account("masterpassphrase");
+                env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+                env.close();
+                env(import::import(
+                        alice,
+                        import::loadXpop(test::ImportTCAccountSet::w_seed)),
+                    fee(10 * 10),
+                    ter(tesSUCCESS));
+                env.close();
+            }
+
+            {
+                // ADD UNL REPORT
+                std::vector<std::string> const _ivlKeys = {
+                    "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9"
+                    "D5A1CDC1",
+                    "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9"
+                    "D5A1CDC2",
+                };
+
+                std::vector<PublicKey> ivlKeys;
+                for (auto const& strPk : _ivlKeys)
+                {
+                    auto pkHex = strUnHex(strPk);
+                    ivlKeys.emplace_back(makeSlice(*pkHex));
+                }
+
+                std::vector<std::string> const _vlKeys = {
+                    "ED8E43A943A174190BA2FAE91F44AC6E2D1D8202EFDCC2EA3DBB398145"
+                    "76D690F7",
+                    "ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE"
+                    "5E6E738B"};
+
+                std::vector<PublicKey> vlKeys;
+                for (auto const& strPk : _vlKeys)
+                {
+                    auto pkHex = strUnHex(strPk);
+                    vlKeys.emplace_back(makeSlice(*pkHex));
+                }
+
+                // insert a ttUNL_REPORT pseudo into the open ledger
+                env.app().openLedger().modify(
+                    [&](OpenView& view, beast::Journal j) -> bool {
+                        STTx tx = test::unl::createUNLReportTx(
+                            env.current()->seq() + 1, ivlKeys[0], vlKeys[0]);
+                        uint256 txID = tx.getTransactionID();
+                        auto s = std::make_shared<ripple::Serializer>();
+                        tx.add(*s);
+                        env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                        view.rawTxInsert(txID, std::move(s), nullptr);
+                        return true;
+                    });
+
+                // close the ledger
+                env.close();
+            }
+
+            env(check::create("bob6", "bob7", XRP(100)));
+
+            // bob9 DepositPreauths bob4 and bob8.
+            env(deposit::auth(Account{"bob9"}, Account{"bob4"}));
+            env(deposit::auth(Account{"bob9"}, Account{"bob8"}));
             env.close();
-        }
 
-        env(check::create("bob6", "bob7", XRP(100)));
+            // Now fetch each type
 
-        // bob9 DepositPreauths bob4 and bob8.
-        env(deposit::auth(Account{"bob9"}, Account{"bob4"}));
-        env(deposit::auth(Account{"bob9"}, Account{"bob8"}));
-        env.close();
+            {  // jvParams[jss::type] = "account";
+                auto const jrr = makeRequest(jss::account);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 13));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::AccountRoot);
+            }
 
-        // Now fetch each type
+            {  // jvParams[jss::type] = "amendments";
+                auto const jrr = makeRequest(jss::amendments);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 0));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::Amendments);
+            }
 
-        {  // jvParams[jss::type] = "account";
-            auto const jrr = makeRequest(jss::account);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 13));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::AccountRoot);
-        }
+            {  // jvParams[jss::type] = "unl_report";
+                auto const jrr = makeRequest(jss::unl_report);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::UNLReport);
+            }
 
-        {  // jvParams[jss::type] = "amendments";
-            auto const jrr = makeRequest(jss::amendments);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 0));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::Amendments);
-        }
+            {  // jvParams[jss::type] = "check";
+                auto const jrr = makeRequest(jss::check);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::Check);
+            }
 
-        {  // jvParams[jss::type] = "unl_report";
-            auto const jrr = makeRequest(jss::unl_report);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+            {  // jvParams[jss::type] = "directory";
+                auto const jrr = makeRequest(jss::directory);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 10));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::DirectoryNode);
+            }
 
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::UNLReport);
-        }
+            {  // jvParams[jss::type] = "fee";
+                auto const jrr = makeRequest(jss::fee);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::FeeSettings);
+            }
 
-        {  // jvParams[jss::type] = "check";
-            auto const jrr = makeRequest(jss::check);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::Check);
-        }
+            {  // jvParams[jss::type] = "hashes";
+                auto const jrr = makeRequest(jss::hashes);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 2));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::LedgerHashes);
+            }
 
-        {  // jvParams[jss::type] = "directory";
-            auto const jrr = makeRequest(jss::directory);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 10));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::DirectoryNode);
-        }
+            {  // jvParams[jss::type] = "import_vlseq";
+                auto const jrr = makeRequest(jss::import_vlseq);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::ImportVLSequence);
+            }
 
-        {  // jvParams[jss::type] = "fee";
-            auto const jrr = makeRequest(jss::fee);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::FeeSettings);
-        }
+            {  // jvParams[jss::type] = "offer";
+                auto const jrr = makeRequest(jss::offer);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::Offer);
+            }
 
-        {  // jvParams[jss::type] = "hashes";
-            auto const jrr = makeRequest(jss::hashes);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 2));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::LedgerHashes);
-        }
+            {  // jvParams[jss::type] = "signer_list";
+                auto const jrr = makeRequest(jss::signer_list);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::SignerList);
+            }
 
-        {  // jvParams[jss::type] = "import_vlseq";
-            auto const jrr = makeRequest(jss::import_vlseq);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::ImportVLSequence);
-        }
+            {  // jvParams[jss::type] = "state";
+                auto const jrr = makeRequest(jss::state);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::RippleState);
+            }
 
-        {  // jvParams[jss::type] = "offer";
-            auto const jrr = makeRequest(jss::offer);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::Offer);
-        }
+            {  // jvParams[jss::type] = "ticket";
+                auto const jrr = makeRequest(jss::ticket);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::Ticket);
+            }
 
-        {  // jvParams[jss::type] = "signer_list";
-            auto const jrr = makeRequest(jss::signer_list);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::SignerList);
-        }
+            {  // jvParams[jss::type] = "escrow";
+                auto const jrr = makeRequest(jss::escrow);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::Escrow);
+            }
 
-        {  // jvParams[jss::type] = "state";
-            auto const jrr = makeRequest(jss::state);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::RippleState);
-        }
+            {  // jvParams[jss::type] = "hook";
+                auto const jrr = makeRequest(jss::hook);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::Hook);
+            }
 
-        {  // jvParams[jss::type] = "ticket";
-            auto const jrr = makeRequest(jss::ticket);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::Ticket);
-        }
+            {  // jvParams[jss::type] = "hook_definition";
+                auto const jrr = makeRequest(jss::hook_definition);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::HookDefinition);
+            }
 
-        {  // jvParams[jss::type] = "escrow";
-            auto const jrr = makeRequest(jss::escrow);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::Escrow);
-        }
+            {  // jvParams[jss::type] = "hook_state";
+                auto const jrr = makeRequest(jss::hook_state);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::HookState);
+            }
 
-        {  // jvParams[jss::type] = "hook";
-            auto const jrr = makeRequest(jss::hook);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::Hook);
-        }
+            {  // jvParams[jss::type] = "uri_token";
+                auto const jrr = makeRequest(jss::uri_token);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::URIToken);
+            }
 
-        {  // jvParams[jss::type] = "hook_definition";
-            auto const jrr = makeRequest(jss::hook_definition);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::HookDefinition);
-        }
+            {  // jvParams[jss::type] = "payment_channel";
+                auto const jrr = makeRequest(jss::payment_channel);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::PayChannel);
+            }
 
-        {  // jvParams[jss::type] = "hook_state";
-            auto const jrr = makeRequest(jss::hook_state);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::HookState);
-        }
+            {  // jvParams[jss::type] = "deposit_preauth";
+                auto const jrr = makeRequest(jss::deposit_preauth);
+                BEAST_EXPECT(checkArraySize(jrr[jss::state], 2));
+                for (auto const& j : jrr[jss::state])
+                    BEAST_EXPECT(j["LedgerEntryType"] == jss::DepositPreauth);
+            }
 
-        {  // jvParams[jss::type] = "uri_token";
-            auto const jrr = makeRequest(jss::uri_token);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::URIToken);
-        }
-
-        {  // jvParams[jss::type] = "payment_channel";
-            auto const jrr = makeRequest(jss::payment_channel);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 1));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::PayChannel);
-        }
-
-        {  // jvParams[jss::type] = "deposit_preauth";
-            auto const jrr = makeRequest(jss::deposit_preauth);
-            BEAST_EXPECT(checkArraySize(jrr[jss::state], 2));
-            for (auto const& j : jrr[jss::state])
-                BEAST_EXPECT(j["LedgerEntryType"] == jss::DepositPreauth);
-        }
-
-        {  // jvParams[jss::type] = "misspelling";
-            Json::Value jvParams;
-            jvParams[jss::ledger_index] = "current";
-            jvParams[jss::type] = "misspelling";
-            auto const jrr = env.rpc(
-                "json",
-                "ledger_data",
-                boost::lexical_cast<std::string>(jvParams))[jss::result];
-            BEAST_EXPECT(jrr.isMember("error"));
-            BEAST_EXPECT(jrr["error"] == "invalidParams");
-            BEAST_EXPECT(jrr["error_message"] == "Invalid field 'type'.");
+            {  // jvParams[jss::type] = "misspelling";
+                Json::Value jvParams;
+                jvParams[jss::ledger_index] = "current";
+                jvParams[jss::type] = "misspelling";
+                auto const jrr = env.rpc(
+                    "json",
+                    "ledger_data",
+                    boost::lexical_cast<std::string>(jvParams))[jss::result];
+                BEAST_EXPECT(jrr.isMember("error"));
+                BEAST_EXPECT(jrr["error"] == "invalidParams");
+                BEAST_EXPECT(jrr["error_message"] == "Invalid field 'type'.");
+            }
         }
     }
 
@@ -650,7 +664,7 @@ public:
         testLedgerHeader();
         testLedgerType();
     }
-};
+};  // namespace ripple
 
 BEAST_DEFINE_TESTSUITE_PRIO(LedgerData, app, ripple, 1);
 
