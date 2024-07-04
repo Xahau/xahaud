@@ -23,6 +23,7 @@
 #include <ripple/resource/Consumer.h>
 #include <ripple/resource/impl/Entry.h>
 #include <ripple/resource/impl/Logic.h>
+#include <ripple/resource/impl/Tuning.h>
 #include <test/unit_test/SuiteJournal.h>
 
 #include <boost/utility/base_from_member.hpp>

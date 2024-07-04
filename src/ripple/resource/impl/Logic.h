@@ -31,6 +31,7 @@
 #include <ripple/resource/Fees.h>
 #include <ripple/resource/Gossip.h>
 #include <ripple/resource/impl/Import.h>
+#include <ripple/resource/impl/Tuning.h>
 #include <cassert>
 #include <mutex>
 
