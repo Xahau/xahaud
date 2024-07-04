@@ -367,9 +367,9 @@ JSValue hook_api::JSFunction##F(JSContext *ctx, JSValueConst this_val,\
         hookCtx.result.exitReason = std::string(cstr, len);\
         JS_FreeCString(ctx, cstr);\
     }\
-    return JS_NewInt64(ctx,\
-            exit_type == hook_api::ExitType::ACCEPT ? RC_ACCEPT                \
-                                                    : RC_ROLLBACK);            \
+    return\
+        JS_Exit(ctx,\
+            exit_type == hook_api::ExitType::ACCEPT ? "HookExit Accept" : "HookExit Rollback");\
 }
 
 #define WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(                            \

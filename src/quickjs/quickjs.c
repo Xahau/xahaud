@@ -193,7 +193,7 @@ typedef enum JSErrorEnum {
     JS_URI_ERROR,
     JS_INTERNAL_ERROR,
     JS_AGGREGATE_ERROR,
-
+    JS_EXIT,    /* used to close the vm down early */
     JS_NATIVE_ERROR_COUNT, /* number of different NativeError objects */
 } JSErrorEnum;
 
@@ -6618,6 +6618,22 @@ static BOOL is_backtrace_needed(JSContext *ctx, JSValueConst obj)
 JSValue JS_NewError(JSContext *ctx)
 {
     return JS_NewObjectClass(ctx, JS_CLASS_ERROR);
+}
+
+JSValue JS_Exit(JSContext* ctx, const char* msg)
+{
+    JSValue obj, ret;
+    obj = JS_NewObjectProtoClass(ctx, ctx->native_error_proto[JS_EXIT],
+                                 JS_CLASS_ERROR);
+    if (unlikely(JS_IsException(obj))) {
+        obj = JS_NULL;
+    } else {
+        JS_DefinePropertyValue(ctx, obj, JS_ATOM_message,
+                               JS_NewString(ctx, msg == 0 ? "JS_EXIT called" : msg),
+                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    }
+    ret = JS_Throw(ctx, obj);
+    return ret;
 }
 
 static JSValue JS_ThrowError2(JSContext *ctx, JSErrorEnum error_num,
@@ -52617,7 +52633,7 @@ void JS_EnableBignumExt(JSContext *ctx, BOOL enable)
 static const char * const native_error_name[JS_NATIVE_ERROR_COUNT] = {
     "EvalError", "RangeError", "ReferenceError",
     "SyntaxError", "TypeError", "URIError",
-    "InternalError", "AggregateError",
+    "InternalError", "AggregateError", "JSExit"
 };
 
 /* Minimum amount of objects to be able to compile code and display

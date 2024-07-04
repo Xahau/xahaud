@@ -1586,16 +1586,27 @@ public:
         {
             JS_FreeValue(ctx, val);
             //JS_FreeValue(ctx, obj);
+            
 
-            const char* str = JS_ToCString(ctx, obj);
+            if (hookCtx.result.exitType == hook_api::ExitType::ACCEPT || 
+                hookCtx.result.exitType == hook_api::ExitType::ROLLBACK)
+            {
+                // this is an accept or rollback, which is handled as an internal exception
+                // to facilitate easy exit from the jsvm, but it's not actuall an error
+                // so do nothing
+            }
+            else
+            {
+                const char* str = JS_ToCString(ctx, obj);
 
-            JLOG(j.warn()) << "HookError[" << HC_ACC()
-                           << "]: Could not create QUICKJS instance (expr eval failure). "
-                           << "`" << expr << "` [size=" << expr_len << "]. "
-                           << str;
-            JS_FreeCString(ctx, str);
+                JLOG(j.warn()) << "HookError[" << HC_ACC()
+                               << "]: Could not create QUICKJS instance (expr eval failure). "
+                               << "`" << expr << "` [size=" << expr_len << "]. "
+                               << str;
+                JS_FreeCString(ctx, str);
 
-            hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+                hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+            }
             return;
         }
 
