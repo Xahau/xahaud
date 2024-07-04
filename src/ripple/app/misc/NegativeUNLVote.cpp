@@ -21,6 +21,7 @@
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/NegativeUNLVote.h>
+#include <ripple/json/to_string.h>
 
 namespace ripple {
 
