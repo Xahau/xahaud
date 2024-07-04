@@ -1303,15 +1303,12 @@ public:
             rt = JS_NewRuntime();
             ctx = JS_NewContextRaw(rt);
             JS_AddIntrinsicBaseObjects(ctx);
-            JS_AddIntrinsicDate(ctx);
             JS_AddIntrinsicEval(ctx);
             JS_AddIntrinsicStringNormalize(ctx);
             JS_AddIntrinsicRegExp(ctx);
             JS_AddIntrinsicJSON(ctx);
-            JS_AddIntrinsicProxy(ctx);
             JS_AddIntrinsicMapSet(ctx);
             JS_AddIntrinsicTypedArrays(ctx);
-            JS_AddIntrinsicPromise(ctx);
             JS_AddIntrinsicBigInt(ctx);
             JS_SetMaxStackSize(rt, 65535);
             JS_SetMemoryLimit(rt, 16 * 1024 * 1024);
