@@ -60,6 +60,7 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account alice{"alice"};
@@ -113,7 +114,8 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, bob["USD"](0), tfSetFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+            // std::cout << "RESULT: " << affected << "\n";
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -131,10 +133,11 @@ class Freeze_test : public beast::unit_test::suite
             env(offer(bob, G1["USD"](5), XRP(25)));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 5u)))
+            std::cout << "RESULT: " << affected << "\n";
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 6u : 5u)))
                 return;
             auto ff =
-                affected[3u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+                affected[withTouch ? 4u : 3u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
             BEAST_EXPECT(
                 ff[sfHighLimit.fieldName] ==
                 bob["USD"](100).value().getJson(JsonOptions::none));
@@ -543,8 +546,9 @@ public:
             testOffersWhenFrozen(features);
         };
         using namespace test::jtx;
-        auto const sa = supported_amendments() - featureXahauGenesis;
+        auto const sa = supported_amendments();
         testAll(sa - featureFlowCross);
+        testAll(sa - featureTouch);
         testAll(sa);
     }
 };
