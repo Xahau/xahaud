@@ -1535,7 +1535,8 @@ hook::apply(
     bool isStrong,
     uint32_t hookArgument,
     uint8_t hookChainPosition,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint32_t instructionLimit)
 {
     HookContext hookCtx = {
         .applyCtx = applyCtx,
@@ -1582,7 +1583,8 @@ hook::apply(
             HookExecutorWasm executor{hookCtx};
 
             executor.execute(
-                bytecode.data(), (size_t)bytecode.size(), isCallback, hookArgument, j);
+                bytecode.data(),
+                (size_t)bytecode.size(), isCallback, hookArgument, 0 /* instructioin limit not used in wasm */, j);
 
             break;
         }
@@ -1594,7 +1596,7 @@ hook::apply(
             HookExecutorJS executor{hookCtx};
 
             executor.execute(
-                bytecode.data(), (size_t)bytecode.size(), isCallback, hookArgument, j);
+                bytecode.data(), (size_t)bytecode.size(), isCallback, hookArgument, instructionLimit, j);
 
             break;
         }

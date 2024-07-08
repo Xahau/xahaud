@@ -433,7 +433,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
             if (version > 1)
             {
-                // we currently only accept api version 0
+                // we currently only accept api version 0 and 1
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
@@ -462,7 +462,33 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             if (version == 1)
             {
                 // RHTODO: guard or other check for js, depending on design choices
-                
+               
+                if (hookSetObj.isFieldPresent(sfFee) &&
+                    isXRP(hookSetObj.getFieldAmount(sfFee)))
+                {
+                    STAmount amt = hookSetObj.getFieldAmount(sfFee);
+                    uint64_t fee = amt.xrp().drops();
+                    if (amt < beast::zero || fee < 1 || fee > 1000000)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::JS_FEE_TOO_HIGH << ")["
+                            << HS_ACC()
+                            << "]: Malformed transaction: When creating a JS Hook "
+                            << "you must include a Fee <= 1000000.";
+                        return false;
+
+                    }
+                }
+                else
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::JS_FEE_MISSING << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: When creating a JS Hook "
+                        << "you must include a Fee field indicating the instruction limit.";
+                    return false;
+                }
+
                 std::optional<std::string> result =
                     hook::HookExecutorJS::validate(
                         hook.data(), (size_t)hook.size());
@@ -749,7 +775,8 @@ SetHook::preflight(PreflightContext const& ctx)
             if (name != sfCreateCode && name != sfHookHash &&
                 name != sfHookNamespace && name != sfHookParameters &&
                 name != sfHookOn && name != sfHookGrants &&
-                name != sfHookApiVersion && name != sfFlags)
+                name != sfHookApiVersion && name != sfFlags &&
+                name != sfFee)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
@@ -1525,6 +1552,17 @@ SetHook::setHook()
                     return tecREQUIRES_FLAG;
                 }
 
+                uint16_t hookApiVersion = hookSetObj->get().getFieldU16(sfHookApiVersion);
+
+                if (hookApiVersion == 1 && !hookSetObj->get().isFieldPresent(sfFee))
+                {
+                    JLOG(ctx.j.warn())
+                        << "HookSet(" << hook::log::JS_FEE_MISSING << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook operation for JS Hook missing fee.";
+                    return tecINTERNAL;
+                }
+
                 ripple::Blob wasmBytes =
                     hookSetObj->get().getFieldVL(sfCreateCode);
 
@@ -1611,6 +1649,14 @@ SetHook::setHook()
                             slesToUpdate.emplace(*oldDefKeylet, oldDefSLE);
                     }
 
+                    // override instruction count with fee for js
+                    if (hookApiVersion == 1)
+                    {
+                        uint64_t fee = hookSetObj->get().getFieldAmount(sfFee).xrp().drops();
+                        maxInstrCountHook = fee;
+                        maxInstrCountCbak = fee; // RH TODO: add a second fee for cbak?
+                    }
+
                     auto newHookDef = std::make_shared<SLE>(keylet);
                     newHookDef->setFieldH256(sfHookHash, *createHookHash);
                     newHookDef->setFieldH256(sfHookOn, *newHookOn);
@@ -1620,9 +1666,7 @@ SetHook::setHook()
                         hookSetObj->get().isFieldPresent(sfHookParameters)
                             ? hookSetObj->get().getFieldArray(sfHookParameters)
                             : STArray{});
-                    newHookDef->setFieldU16(
-                        sfHookApiVersion,
-                        hookSetObj->get().getFieldU16(sfHookApiVersion));
+                    newHookDef->setFieldU16(sfHookApiVersion, hookApiVersion);
                     newHookDef->setFieldVL(sfCreateCode, wasmBytes);
                     newHookDef->setFieldH256(
                         sfHookSetTxnID, ctx.tx.getTransactionID());

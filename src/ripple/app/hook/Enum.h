@@ -225,6 +225,8 @@ enum hook_log_code : uint16_t {
         86,               // the wasm contained a custom section (id=0)
     INTERNAL_ERROR = 87,  // an internal error described by the log text
     JS_TEST_FAILURE = 88,   // smoke test of js bytecode failed
+    JS_FEE_MISSING = 89,
+    JS_FEE_TOO_HIGH = 90,
     // RH NOTE: only HookSet msgs got log codes, possibly all Hook log lines
     // should get a code?
 };

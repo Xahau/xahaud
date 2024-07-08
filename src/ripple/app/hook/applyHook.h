@@ -819,7 +819,8 @@ apply(
     uint32_t hookArgument,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
-    std::shared_ptr<STObject const> const& provisionalMeta);
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint32_t instructionLimit);
 
 struct HookContext;
 
@@ -998,6 +999,7 @@ public:
         size_t len,
         bool callback,
         uint32_t param,
+        uint32_t instructionLimit,
         beast::Journal const& j) = 0;
 
     static std::optional<std::string> validate(
@@ -1122,6 +1124,7 @@ public:
         size_t len,
         bool callback,
         uint32_t hookArgument,
+        uint32_t instructionLimit, /* this is unused in wasm, set to 0 */
         beast::Journal const& j) override
     {
         // HookExecutorWasm can only execute once
@@ -1298,9 +1301,9 @@ public:
         JSRuntime* rt = NULL;
         JSContext* ctx = NULL;
 
-        QuickJSVM(void* hookCtx)
+        QuickJSVM(void* hookCtx, uint32_t instructionLimit)
         {
-            rt = JS_NewRuntime();
+            rt = JS_NewRuntime(instructionLimit);
             ctx = JS_NewContextRaw(rt);
             JS_AddIntrinsicBaseObjects(ctx);
             JS_AddIntrinsicEval(ctx);
@@ -1430,7 +1433,7 @@ public:
     };
 
     /**
-     * Validate that a web assembly blob can be loaded by wasmedge
+     * Validate that a js blob can be loaded by quickjs
      */
     static std::optional<std::string>
     validate(const void* buf, size_t buf_len)
@@ -1441,7 +1444,8 @@ public:
 
         std::optional<std::string> retval;
 
-        QuickJSVM vm{NULL};
+        // RHNOTE: hard instrction (internal program counter loop) limit of 1MM, like wasm.
+        QuickJSVM vm{NULL, 1000000};
         JSContext* ctx = vm.ctx;
 
         if (!vm.sane())
@@ -1511,6 +1515,7 @@ public:
         size_t buf_len,
         bool callback,
         uint32_t hookArgument,
+        uint32_t instructionLimit,
         beast::Journal const& j) override
     {
         // HookExecutorWasm can only execute once
@@ -1520,7 +1525,7 @@ public:
         JLOG(j.trace()) << "HookInfo[" << HC_ACC()
                         << "]: creating quickjs instance";
 
-        QuickJSVM vm{reinterpret_cast<void*>(&hookCtx)};
+        QuickJSVM vm{reinterpret_cast<void*>(&hookCtx), instructionLimit};
         JSContext* ctx = vm.ctx;
 
         if (!vm.sane())

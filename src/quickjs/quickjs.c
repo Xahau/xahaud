@@ -303,6 +303,7 @@ struct JSRuntime {
     uint32_t operator_count;
 #endif
     void *user_opaque;
+    int64_t instruction_limit;
 };
 
 struct JSClass {
@@ -1615,7 +1616,7 @@ static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
 }
 #endif
 
-JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
+JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque, uint32_t instructionLimit)
 {
     JSRuntime *rt;
     JSMallocState ms;
@@ -1635,6 +1636,7 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
     }
     rt->malloc_state = ms;
     rt->malloc_gc_threshold = 256 * 1024;
+    rt->instruction_limit = instructionLimit;
 
     bf_context_init(&rt->bf_ctx, js_bf_realloc, rt);
     set_dummy_numeric_ops(&rt->bigint_ops);
@@ -1772,9 +1774,9 @@ static const JSMallocFunctions def_malloc_funcs = {
     js_def_malloc_usable_size,
 };
 
-JSRuntime *JS_NewRuntime(void)
+JSRuntime *JS_NewRuntime(uint32_t instructionLimit)
 {
-    return JS_NewRuntime2(&def_malloc_funcs, NULL);
+    return JS_NewRuntime2(&def_malloc_funcs, NULL, instructionLimit);
 }
 
 void JS_SetMemoryLimit(JSRuntime *rt, size_t limit)
@@ -6857,6 +6859,15 @@ static no_inline __exception int __js_poll_interrupts(JSContext *ctx)
 
 static inline __exception int js_poll_interrupts(JSContext *ctx)
 {
+    if (unlikely(--ctx->rt->instruction_limit <= 0))
+    {
+        /* XXX: should set a specific flag to avoid catching */
+        /* RHTODO: investigate if this is user-catchable. */
+        JS_ThrowInternalError(ctx, "interrupted");
+        JS_SetUncatchableError(ctx, ctx->rt->current_exception, TRUE);
+        return -1;
+    }
+
     if (unlikely(--ctx->interrupt_counter <= 0)) {
         return __js_poll_interrupts(ctx);
     } else {
