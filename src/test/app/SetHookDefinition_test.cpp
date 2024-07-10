@@ -17,6 +17,8 @@
 */
 //==============================================================================
 
+#include <ripple/core/ConfigSections.h>
+#include <ripple/ledger/Directory.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
@@ -45,7 +47,6 @@ struct SetHookDefinition_test : public beast::unit_test::suite
     testEnabled(FeatureBitset features)
     {
         using namespace test::jtx;
-
         testcase("Enabled");
         Account const alice = Account("alice");
 
