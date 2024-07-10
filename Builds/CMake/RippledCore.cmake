@@ -455,6 +455,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/Remit.cpp
   src/ripple/app/tx/impl/SetAccount.cpp
   src/ripple/app/tx/impl/SetHook.cpp
+  src/ripple/app/tx/impl/SetHookDefinition.cpp
   src/ripple/app/tx/impl/SetRegularKey.cpp
   src/ripple/app/tx/impl/SetSignerList.cpp
   src/ripple/app/tx/impl/SetTrust.cpp
@@ -757,6 +758,7 @@ if (tests)
     src/test/app/ValidatorList_test.cpp
     src/test/app/ValidatorSite_test.cpp
     src/test/app/SetHook_test.cpp
+    src/test/app/SetHookDefinition_test.cpp
     src/test/app/SetHookTSH_test.cpp
     src/test/app/Wildcard_test.cpp
     src/test/app/XahauGenesis_test.cpp

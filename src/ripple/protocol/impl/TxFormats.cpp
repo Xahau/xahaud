@@ -456,6 +456,19 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::SetHookDefinition,
+        ttHOOK_SET_DEFINITION,
+        {
+            {sfCreateCode, soeREQUIRED},
+            {sfHookNamespace, soeREQUIRED},
+            {sfHookParameters, soeREQUIRED},
+            {sfHookGrants, soeOPTIONAL},
+            {sfHookOn, soeREQUIRED},
+            {sfHookApiVersion, soeREQUIRED},
+            {sfFlags, soeREQUIRED},
+        },
+        commonFields);
 }
 
 TxFormats const&

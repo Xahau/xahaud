@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2015 Ripple Labs Inc.
+    Copyright (c) 2012, 2013 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,30 +17,38 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/basics/mulDiv.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <limits>
-#include <utility>
+#ifndef RIPPLE_TX_SETHOOK_DEFINTION_H_INCLUDED
+#define RIPPLE_TX_SETHOOK_DEFINTION_H_INCLUDED
+
+#include <ripple/app/tx/impl/Transactor.h>
+#include <ripple/basics/Log.h>
+#include <ripple/protocol/TxFlags.h>
+#include <ripple/protocol/UintTypes.h>
 
 namespace ripple {
 
-std::pair<bool, std::uint64_t>
-mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
+class SetHookDefinition : public Transactor
 {
-    using namespace boost::multiprecision;
+public:
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Blocker};
 
-    boost::multiprecision::uint128_t result;
-    result = multiply(result, value, mul);
+    explicit SetHookDefinition(ApplyContext& ctx) : Transactor(ctx)
+    {
+    }
 
-    result /= div;
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
 
-    auto constexpr limit = std::numeric_limits<std::uint64_t>::max();
+    static NotTEC
+    preflight(PreflightContext const& ctx);
 
-    if (result > limit)
-        return {false, limit};
+    static TER
+    preclaim(PreclaimContext const& ctx);
 
-    return {true, static_cast<std::uint64_t>(result)};
-}
+    TER
+    doApply() override;
+};
 
 }  // namespace ripple
+
+#endif

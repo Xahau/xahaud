@@ -43,6 +43,7 @@
 #include <ripple/app/tx/impl/Remit.h>
 #include <ripple/app/tx/impl/SetAccount.h>
 #include <ripple/app/tx/impl/SetHook.h>
+#include <ripple/app/tx/impl/SetHookDefinition.h>
 #include <ripple/app/tx/impl/SetRegularKey.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/SetTrust.h>
@@ -175,6 +176,8 @@ invoke_preflight(PreflightContext const& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preflight_helper<URIToken>(ctx);
+        case ttHOOK_SET_DEFINITION:
+            return invoke_preflight_helper<SetHookDefinition>(ctx);
         default:
             assert(false);
             return {temUNKNOWN, TxConsequences{temUNKNOWN}};
@@ -296,6 +299,8 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preclaim<URIToken>(ctx);
+        case ttHOOK_SET_DEFINITION:
+            return invoke_preclaim<SetHookDefinition>(ctx);
         default:
             assert(false);
             return temUNKNOWN;
@@ -379,6 +384,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return URIToken::calculateBaseFee(view, tx);
+        case ttHOOK_SET_DEFINITION:
+            return SetHookDefinition::calculateBaseFee(view, tx);
         default:
             return XRPAmount{0};
     }
@@ -562,6 +569,10 @@ invoke_apply(ApplyContext& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER: {
             URIToken p(ctx);
+            return p();
+        }
+        case ttHOOK_SET_DEFINITION: {
+            SetHookDefinition p(ctx);
             return p();
         }
         default:

@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2015 Ripple Labs Inc.
+    Copyright (c) 2012, 2013 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,30 +17,44 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/basics/mulDiv.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <limits>
-#include <utility>
+#include <ripple/app/tx/impl/SetHookDefinition.h>
+#include <ripple/basics/Log.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/TxFlags.h>
 
 namespace ripple {
 
-std::pair<bool, std::uint64_t>
-mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
+XRPAmount
+SetHookDefinition::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    using namespace boost::multiprecision;
+    return Transactor::calculateBaseFee(view, tx);
+}
 
-    boost::multiprecision::uint128_t result;
-    result = multiply(result, value, mul);
+NotTEC
+SetHookDefinition::preflight(PreflightContext const& ctx)
+{
+    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
+        return ret;
 
-    result /= div;
+    return preflight2(ctx);
+}
 
-    auto constexpr limit = std::numeric_limits<std::uint64_t>::max();
+TER
+SetHookDefinition::preclaim(PreclaimContext const& ctx)
+{
+    if (!ctx.view.rules().enabled(featureHooksUpdate2))
+        return temDISABLED;
 
-    if (result > limit)
-        return {false, limit};
+    return tesSUCCESS;
+}
 
-    return {true, static_cast<std::uint64_t>(result)};
+TER
+SetHookDefinition::doApply()
+{
+    if (!ctx.view.rules().enabled(featureHooksUpdate2))
+        return temDISABLED;
+    
+    return tesSUCCESS;
 }
 
 }  // namespace ripple

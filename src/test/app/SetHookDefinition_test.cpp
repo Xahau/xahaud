@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2015 Ripple Labs Inc.
+    Copyright (c) 2016 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,30 +17,42 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/basics/mulDiv.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <limits>
-#include <utility>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx.h>
 
 namespace ripple {
-
-std::pair<bool, std::uint64_t>
-mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
+namespace test {
+struct SetHookDefinition_test : public beast::unit_test::suite
 {
-    using namespace boost::multiprecision;
+    void
+    testEnabled(FeatureBitset features)
+    {
+        using namespace test::jtx;
 
-    boost::multiprecision::uint128_t result;
-    result = multiply(result, value, mul);
+        testcase("Enabled");
+        Env env{*this};
+        Account const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+    }
 
-    result /= div;
+    void
+    testWithFeats(FeatureBitset features)
+    {
+        testEnabled(features);
+    }
 
-    auto constexpr limit = std::numeric_limits<std::uint64_t>::max();
+public:
+    void
+    run() override
+    {
+        using namespace test::jtx;
+        auto const sa = supported_amendments();
+        testWithFeats(sa);
+    }
+};
 
-    if (result > limit)
-        return {false, limit};
-
-    return {true, static_cast<std::uint64_t>(result)};
-}
-
+BEAST_DEFINE_TESTSUITE(SetHookDefinition, app, ripple);
+}  // namespace test
 }  // namespace ripple

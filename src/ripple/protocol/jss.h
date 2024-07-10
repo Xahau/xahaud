@@ -129,6 +129,7 @@ JSS(Sequence);                 // in/out: TransactionSign; field.
 JSS(SetFlag);                  // field.
 JSS(SetRegularKey);            // transaction type.
 JSS(SetHook);                  // transaction type.
+JSS(SetHookDefinition);        // transaction type.
 JSS(Hook);                     // ledger type.
 JSS(HookDefinition);           // ledger type.
 JSS(HookState);                // ledger type.
