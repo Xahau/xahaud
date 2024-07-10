@@ -172,6 +172,13 @@ hookDefinition(uint256 const& hash) noexcept
 }
 
 Keylet
+hookDefinition(AccountID const& account, std::uint32_t seq) noexcept
+{
+    return {
+        ltHOOK_DEFINITION, indexHash(LedgerNameSpace::HOOK_DEFINITION, account, seq)};
+}
+
+Keylet
 hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept
 {
     return {ltHOOK_STATE, indexHash(LedgerNameSpace::HOOK_STATE, id, key, ns)};

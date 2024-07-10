@@ -63,6 +63,9 @@ Keylet
 hookDefinition(uint256 const& hash) noexcept;
 
 Keylet
+hookDefinition(AccountID const& account, std::uint32_t seq) noexcept;
+
+Keylet
 hook(AccountID const& id) noexcept;
 
 Keylet
