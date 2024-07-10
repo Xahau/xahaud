@@ -33,6 +33,9 @@ SetHookDefinition::calculateBaseFee(ReadView const& view, STTx const& tx)
 NotTEC
 SetHookDefinition::preflight(PreflightContext const& ctx)
 {
+    // if (!ctx.rules.enabled(featureHooksUpdate2))
+    //     return temDISABLED;
+
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
@@ -42,8 +45,8 @@ SetHookDefinition::preflight(PreflightContext const& ctx)
 TER
 SetHookDefinition::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureHooksUpdate2))
-        return temDISABLED;
+    // if (!ctx.view.rules().enabled(featureHooksUpdate2))
+    //     return temDISABLED;
 
     return tesSUCCESS;
 }
@@ -51,9 +54,51 @@ SetHookDefinition::preclaim(PreclaimContext const& ctx)
 TER
 SetHookDefinition::doApply()
 {
-    if (!ctx_.view().rules().enabled(featureHooksUpdate2))
-        return temDISABLED;
-    
+    auto j = ctx_.app.journal("View");
+    Sandbox sb(&ctx_.view());
+    auto const sle = sb.read(keylet::account(account_));
+    if (!sle)
+        return tefINTERNAL;
+
+    ripple::Blob wasmBytes = ctx_.tx.getFieldVL(sfCreateCode);
+
+    if (wasmBytes.size() > hook::maxHookWasmSize())
+    {
+        JLOG(j.warn()) << "Malformed transaction: SetHookDefinition operation "
+                          "would create blob larger than max";
+        return tecINTERNAL;
+    }
+
+    auto const createHookHash =
+        ripple::sha512Half_s(ripple::Slice(wasmBytes.data(), wasmBytes.size()));
+
+    Keylet keylet = ripple::keylet::hookDefinition(
+        account_, ctx_.tx.getFieldU32(sfSequence));
+    auto newHookDef = std::make_shared<SLE>(keylet);
+    newHookDef->setFieldH256(sfHookHash, createHookHash);
+    newHookDef->setAccountID(sfOwner, account_);
+    newHookDef->setFieldH256(sfHookOn, ctx_.tx.getFieldH256(sfHookOn));
+    newHookDef->setFieldH256(sfHookNamespace, ctx_.tx.getFieldH256(sfHookOn));
+    newHookDef->setFieldArray(
+        sfHookParameters,
+        ctx_.tx.isFieldPresent(sfHookParameters)
+            ? ctx_.tx.getFieldArray(sfHookParameters)
+            : STArray{});
+    newHookDef->setFieldU16(
+        sfHookApiVersion, ctx_.tx.getFieldU16(sfHookApiVersion));
+    newHookDef->setFieldVL(sfCreateCode, wasmBytes);
+    newHookDef->setFieldH256(sfHookSetTxnID, ctx_.tx.getTransactionID());
+    newHookDef->setFieldU64(sfReferenceCount, 0);
+    newHookDef->setFieldU32(sfFlags, hsfMUTALBE);
+    if (ctx_.tx.isFieldPresent(sfHookGrants))
+    {
+        auto const& grants = ctx_.tx.getFieldArray(sfHookGrants);
+        if (!grants.empty())
+            newHookDef->setFieldArray(sfHookGrants, grants);
+    }
+
+    sb.update(newHookDef);
+    sb.apply(ctx_.rawView());
     return tesSUCCESS;
 }
 

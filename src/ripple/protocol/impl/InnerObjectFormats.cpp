@@ -90,7 +90,8 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookOn, soeREQUIRED},
          {sfHookApiVersion, soeREQUIRED},
          {sfFlags, soeREQUIRED},
-         {sfFee, soeREQUIRED}});
+         {sfFee, soeREQUIRED},
+         {sfOwner, soeOPTIONAL}});
 
     add(sfHook.jsonName.c_str(),
         sfHook.getCode(),
