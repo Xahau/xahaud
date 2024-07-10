@@ -462,7 +462,7 @@ TxFormats::TxFormats()
         {
             {sfCreateCode, soeREQUIRED},
             {sfHookNamespace, soeREQUIRED},
-            {sfHookParameters, soeREQUIRED},
+            {sfHookParameters, soeOPTIONAL},
             {sfHookGrants, soeOPTIONAL},
             {sfHookOn, soeREQUIRED},
             {sfHookApiVersion, soeREQUIRED},

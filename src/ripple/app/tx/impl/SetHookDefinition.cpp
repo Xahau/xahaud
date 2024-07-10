@@ -51,7 +51,7 @@ SetHookDefinition::preclaim(PreclaimContext const& ctx)
 TER
 SetHookDefinition::doApply()
 {
-    if (!ctx.view.rules().enabled(featureHooksUpdate2))
+    if (!ctx_.view().rules().enabled(featureHooksUpdate2))
         return temDISABLED;
     
     return tesSUCCESS;
