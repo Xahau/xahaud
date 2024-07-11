@@ -74,6 +74,8 @@ runs:
           --output-folder . \
           --build missing \
           --settings build_type=${{ inputs.configuration }} \
+          -Dtests=TRUE \
+          -Dxrpld=TRUE \
           ..
 
     - name: Save Conan cache
