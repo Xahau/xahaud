@@ -1,11 +1,23 @@
 # QuickJS source files
 set(QUICKJS_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/libutf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/qsort_r.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/tutf8e.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/vector.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/char-utils.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/buffer-utils.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/utils.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/ringbuffer.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/libregexp.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/quickjs.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/libregexp.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/libunicode.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/cutils.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/quickjs-libc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/libbf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/quickjs-textcode.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/quickjs-internal.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quickjs/debug.c
 )
 
 # QuickJS include directories

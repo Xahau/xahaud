@@ -20,6 +20,10 @@
 #include "quickjs-libc.h"
 #include "quickjs-atom.h"
 
+extern "C" {
+    JSModuleDef* js_init_module_textdecoder(JSContext* ctx, const char* name);
+}
+
 namespace hook {
 struct HookContext;
 struct HookResult;
@@ -1313,6 +1317,8 @@ public:
             JS_AddIntrinsicMapSet(ctx);
             JS_AddIntrinsicTypedArrays(ctx);
             JS_AddIntrinsicBigInt(ctx);
+            ::js_init_module_textdecoder(ctx, "textdecoder");
+
             JS_SetMaxStackSize(rt, 65535);
             JS_SetMemoryLimit(rt, 16 * 1024 * 1024);
 
