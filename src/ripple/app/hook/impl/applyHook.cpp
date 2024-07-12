@@ -981,7 +981,7 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
     auto const a = JS_IsArray(ctx, v);
     auto const s = JS_IsString(v);
 
-    std::cout << "FromJSIAOHS: a=" << a << ", s=" << s << "\n";
+    // std::cout << "FromJSIAOHS: a=" << a << ", s=" << s << "\n";
 
     if (JS_IsArray(ctx, v) > 0)
     {
@@ -1016,12 +1016,12 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
         auto [len, str] = FromJSString(ctx, v, max_len << 1U);
 
 
-        std::cout << "Debug FromJSIAOHS: len=" << len << ", str=";
+        // std::cout << "Debug FromJSIAOHS: len=" << len << ", str=";
         
-        if (str)
-            std::cout << "`" << *str << "`\n";
-        else
-            std::cout << "<no string>\n";
+        // if (str)
+        //     std::cout << "`" << *str << "`\n";
+        // else
+        //     std::cout << "<no string>\n";
 
 
         if (!str)
@@ -5900,12 +5900,12 @@ DEFINE_JS_FUNCTION(
     if (!vec)
         returnJS(INVALID_ARGUMENT);
 
-    printf("jsutilsha512 debug. size=%d, ", vec->size());
-    for (int i = 0; i < vec->size(); ++i)
-    {
-        printf("%02x,", (*vec)[i]);
-    }
-    printf("\n");
+    // printf("jsutilsha512 debug. size=%d, ", vec->size());
+    // for (int i = 0; i < vec->size(); ++i)
+    // {
+    //     printf("%02x,", (*vec)[i]);
+    // }
+    // printf("\n");
 
     auto hash = ripple::sha512Half(ripple::Slice{vec->data(), vec->size()});
 
