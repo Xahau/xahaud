@@ -2248,8 +2248,8 @@ DEFINE_JS_FUNCTION(
     auto ns_in  = FromJSIntArrayOrHexString(ctx, raw_ns, 32);
     auto acc_in = FromJSIntArrayOrHexString(ctx, raw_acc, 20);
 
-    if (!val.has_value() && !JS_IsUndefined(raw_val))
-        returnJS(INVALID_ARGUMENT);
+    // if (!val.has_value() && !JS_IsUndefined(raw_val))
+    //     returnJS(INVALID_ARGUMENT);
 
     if (!ns_in.has_value() && !JS_IsUndefined(raw_ns))
         returnJS(INVALID_ARGUMENT);
@@ -2286,7 +2286,11 @@ DEFINE_JS_FUNCTION(
     if (!key)
         returnJS(INTERNAL_ERROR);
     
-    returnJS(__state_foreign_set(hookCtx, applyCtx, j, *val, *key, ns, acc));
+    ripple::Blob data;
+    if (val.has_value())
+        data = ripple::Blob(val->data(), val->data() + val->size());
+    
+    returnJS(__state_foreign_set(hookCtx, applyCtx, j, data, *key, ns, acc));
 
     JS_HOOK_TEARDOWN();
 }
