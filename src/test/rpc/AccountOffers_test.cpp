@@ -37,6 +37,8 @@ public:
     void
     testNonAdminMinLimit(FeatureBitset features)
     {
+        testcase("Non-Admin Min Limit");
+
         using namespace jtx;
         Env env{*this, envconfig(no_admin), features};
         Account const gw("G1");
@@ -81,6 +83,9 @@ public:
     void
     testSequential(FeatureBitset features, bool asAdmin)
     {
+        testcase(
+            std::string("Sequential - ") + (asAdmin ? "admin" : "non-admin"));
+
         using namespace jtx;
         Env env{*this, asAdmin ? envconfig() : envconfig(no_admin), features};
         Account const gw("G1");
@@ -215,6 +220,8 @@ public:
     void
     testBadInput(FeatureBitset features)
     {
+        testcase("Bad input");
+
         using namespace jtx;
         Env env(*this, features);
         Account const gw("G1");
@@ -231,6 +238,26 @@ public:
             BEAST_EXPECT(jrr[jss::error] == "badSyntax");
             BEAST_EXPECT(jrr[jss::status] == "error");
             BEAST_EXPECT(jrr[jss::error_message] == "Syntax error.");
+        }
+
+        {
+            // test account non-string
+            auto testInvalidAccountParam = [&](auto const& param) {
+                Json::Value params;
+                params[jss::account] = param;
+                auto jrr = env.rpc(
+                    "json", "account_offers", to_string(params))[jss::result];
+                BEAST_EXPECT(jrr[jss::error] == "invalidParams");
+                BEAST_EXPECT(
+                    jrr[jss::error_message] == "Invalid field 'account'.");
+            };
+
+            testInvalidAccountParam(1);
+            testInvalidAccountParam(1.1);
+            testInvalidAccountParam(true);
+            testInvalidAccountParam(Json::Value(Json::nullValue));
+            testInvalidAccountParam(Json::Value(Json::objectValue));
+            testInvalidAccountParam(Json::Value(Json::arrayValue));
         }
 
         {
@@ -282,7 +309,9 @@ public:
                 jvParams.toStyledString())[jss::result];
             BEAST_EXPECT(jrr[jss::error] == "invalidParams");
             BEAST_EXPECT(jrr[jss::status] == "error");
-            BEAST_EXPECT(jrr[jss::error_message] == "Invalid parameters.");
+            BEAST_EXPECTS(
+                jrr[jss::error_message] == "Invalid field 'marker'.",
+                jrr.toStyledString());
         }
 
         {
@@ -328,7 +357,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(AccountOffers, app, ripple);
+BEAST_DEFINE_TESTSUITE(AccountOffers, rpc, ripple);
 
 }  // namespace test
 }  // namespace ripple
