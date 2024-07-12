@@ -82,10 +82,10 @@ hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv))
 }
 
 Json::Value
-hsov1(std::vector<uint8_t> const& wasmBytes, uint16_t apiVersion = 0, void (*f)(Json::Value& jv))
+hsov1(std::vector<uint8_t> const& wasmBytes, uint16_t const& apiVersion, STAmount const& fee, void (*f)(Json::Value& jv))
 {
     if (wasmBytes.size() == 0)
-        throw std::runtime_error("empty hook wasm passed to hso()");
+        throw std::runtime_error("empty hook wasm passed to hsov1()");
 
     Json::Value jv;
     jv[jss::CreateCode] = strHex(wasmBytes);
@@ -94,6 +94,7 @@ hsov1(std::vector<uint8_t> const& wasmBytes, uint16_t apiVersion = 0, void (*f)(
             "0000000000000000000000000000000000000000000000000000000000000000";
         jv[jss::HookNamespace] = to_string(uint256{beast::zero});
         jv[jss::HookApiVersion] = Json::Value{apiVersion};
+        jv[jss::Fee] = fee.getJson(JsonOptions::none);
     }
 
     if (f)
