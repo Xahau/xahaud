@@ -37052,7 +37052,7 @@ void JS_SetConstructor(JSContext *ctx, JSValueConst func_obj,
                        0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
 }
 
-static void JS_NewGlobalCConstructor2(JSContext *ctx,
+void JS_NewGlobalCConstructor2(JSContext *ctx,
                                       JSValue func_obj,
                                       const char *name,
                                       JSValueConst proto)
@@ -37074,7 +37074,7 @@ static JSValueConst JS_NewGlobalCConstructor(JSContext *ctx, const char *name,
     return func_obj;
 }
 
-static JSValueConst JS_NewGlobalCConstructorOnly(JSContext *ctx, const char *name,
+JSValueConst JS_NewGlobalCConstructorOnly(JSContext *ctx, const char *name,
                                                  JSCFunction *func, int length,
                                                  JSValueConst proto)
 {

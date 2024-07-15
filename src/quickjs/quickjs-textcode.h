@@ -65,7 +65,7 @@ extern const char* const textcode_encodings[];
 
 size_t textdecoder_length(TextDecoder*);
 JSValue textdecoder_read(TextDecoder*, JSContext* ctx);
-int js_code_init(JSContext*, JSModuleDef* m);
+int js_code_init_textdecoder(JSContext*, JSModuleDef* m);
 size_t textencoder_length(TextEncoder*);
 JSValue textencoder_read(TextEncoder*, JSContext* ctx);
 int js_encoder_init(JSContext*, JSModuleDef* m);

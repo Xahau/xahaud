@@ -21,7 +21,7 @@
 #include "quickjs-atom.h"
 
 extern "C" {
-    JSModuleDef* js_init_module_textdecoder(JSContext* ctx, const char* name);
+    int js_code_init_textdecoder(JSContext*, JSModuleDef* m);
 }
 
 namespace hook {
@@ -1317,7 +1317,8 @@ public:
             JS_AddIntrinsicMapSet(ctx);
             JS_AddIntrinsicTypedArrays(ctx);
             JS_AddIntrinsicBigInt(ctx);
-            ::js_init_module_textdecoder(ctx, "textdecoder");
+            //::js_init_module_textdecoder(ctx, "textdecoder");
+            ::js_code_init_textdecoder(ctx, 0);
 
             JS_SetMaxStackSize(rt, 65535);
             JS_SetMemoryLimit(rt, 16 * 1024 * 1024);

@@ -625,10 +625,28 @@ static const JSCFunctionListEntry js_encoder_funcs[] = {
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "TextEncoder", JS_PROP_CONFIGURABLE),
 };
 
+extern
+void JS_NewGlobalCConstructor2(JSContext *ctx,
+                                      JSValue func_obj,
+                                      const char *name,
+                                      JSValueConst proto);
 int
-js_code_init(JSContext* ctx, JSModuleDef* m) {
+js_code_init_textdecoder(JSContext* ctx, JSModuleDef* m)
+{
+    // RH TODO: check if this (possibly being called twice or for some other reason) produces a mem leak
+    JS_NewClassID(&js_encoder_class_id);
+    JS_NewClass(JS_GetRuntime(ctx), js_encoder_class_id, &js_encoder_class);
 
-  if(js_decoder_class_id == 0) {
+    textencoder_ctor = JS_NewCFunction2(ctx, js_encoder_constructor, "TextEncoder", 1, JS_CFUNC_constructor, 0);
+    textencoder_proto = JS_NewObject(ctx);
+
+    JS_SetPropertyFunctionList(ctx, textencoder_proto, js_encoder_funcs, countof(js_encoder_funcs));
+    JS_SetClassProto(ctx, js_encoder_class_id, textencoder_proto);
+    JS_SetConstructor(ctx, textencoder_ctor, textencoder_proto);
+
+    JS_NewGlobalCConstructor2(ctx, textencoder_ctor, "TextEncoder", textencoder_proto);
+
+
     JS_NewClassID(&js_decoder_class_id);
     JS_NewClass(JS_GetRuntime(ctx), js_decoder_class_id, &js_decoder_class);
 
@@ -639,33 +657,8 @@ js_code_init(JSContext* ctx, JSModuleDef* m) {
     JS_SetClassProto(ctx, js_decoder_class_id, textdecoder_proto);
 
     JS_SetConstructor(ctx, textdecoder_ctor, textdecoder_proto);
-
-    JS_NewClassID(&js_encoder_class_id);
-    JS_NewClass(JS_GetRuntime(ctx), js_encoder_class_id, &js_encoder_class);
-
-    textencoder_ctor = JS_NewCFunction2(ctx, js_encoder_constructor, "TextEncoder", 1, JS_CFUNC_constructor, 0);
-    textencoder_proto = JS_NewObject(ctx);
-
-    JS_SetPropertyFunctionList(ctx, textencoder_proto, js_encoder_funcs, countof(js_encoder_funcs));
-    JS_SetClassProto(ctx, js_encoder_class_id, textencoder_proto);
-
-    JS_SetConstructor(ctx, textencoder_ctor, textencoder_proto);
-
-    // js_set_inspect_method(ctx, textdecoder_proto,
-    // js_decoder_inspect);
-  }
-
-  if(m) {
-    JS_SetModuleExport(ctx, m, "TextDecoder", textdecoder_ctor);
-    JS_SetModuleExport(ctx, m, "TextEncoder", textencoder_ctor);
-
-    /*  const char* module_name = JS_AtomToCString(ctx, m->module_name);
-
-      if(!strcmp(module_name, "textdecoder"))
-        JS_SetModuleExport(ctx, m, "default", textdecoder_ctor);
-
-      JS_FreeCString(ctx, module_name);*/
-  }
+    
+    JS_NewGlobalCConstructor2(ctx, textdecoder_ctor, "TextDecoder", textdecoder_proto);
 
   return 0;
 }
@@ -680,12 +673,13 @@ VISIBLE JSModuleDef*
 JS_INIT_MODULE(JSContext* ctx, const char* module_name) {
   JSModuleDef* m;
 
-  if((m = JS_NewCModule(ctx, module_name, js_code_init))) {
+  /*if((m = JS_NewCModule(ctx, module_name, js_code_init)))
+  {
     JS_AddModuleExport(ctx, m, "TextDecoder");
     JS_AddModuleExport(ctx, m, "TextEncoder");
-    /*if(!strcmp(module_name, "textdecoder"))
-      JS_AddModuleExport(ctx, m, "default");*/
-  }
+    //if(!strcmp(module_name, "textdecoder"))
+    //  JS_AddModuleExport(ctx, m, "default");
+  }*/
 
   return m;
 }
