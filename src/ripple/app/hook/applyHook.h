@@ -1591,39 +1591,54 @@ public:
         val =
             JS_Eval(vm.ctx, expr, expr_len, "<qjsvm>", 0);
 
-        if (JS_IsException(val))
         {
-            JS_FreeValue(ctx, val);
-            //JS_FreeValue(ctx, obj);
-            
+            JSValue exception_val = JS_GetException(ctx);
+            int is_error;
 
-            if (hookCtx.result.exitType == hook_api::ExitType::ACCEPT || 
-                hookCtx.result.exitType == hook_api::ExitType::ROLLBACK)
+            is_error = JS_IsError(ctx, exception_val);
             {
-                // this is an accept or rollback, which is handled as an internal exception
-                // to facilitate easy exit from the jsvm, but it's not actuall an error
-                // so do nothing
-            }
-            else
-            {
-                const char* str = JS_ToCString(ctx, obj);
+                const char *str;
 
-                JLOG(j.warn()) << "HookError[" << HC_ACC()
-                               << "]: Could not create QUICKJS instance (expr eval failure). "
-                               << "`" << expr << "` [size=" << expr_len << "]. "
-                               << str;
-                JS_FreeCString(ctx, str);
-
-                hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+                str = JS_ToCString(ctx, exception_val);
+                if (str)
+                {
+                    JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << str;
+                    JS_FreeCString(ctx, str);
+                }
+                else
+                {
+                    JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: [exception]";
+                }
+                             
             }
-            return;
+            if (is_error) {
+                JSValue val = JS_GetPropertyStr(ctx, exception_val, "stack");
+                if (!JS_IsUndefined(val)) {
+                    const char *str;
+
+                    str = JS_ToCString(ctx, val);
+                    if (str)
+                    {
+                        JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << str;
+                        JS_FreeCString(ctx, str);
+                    }
+                    else
+                    {
+                        JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: [exception]";
+                    }                
+                }
+                JS_FreeValue(ctx, val);
+            }            
+            JS_FreeValue(ctx, exception_val);
         }
 
+        /*
+            // RHTODO: place jsvm_error exit type logic appropriately
+            hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
+            hookCtx.result.instructionCount = 0; //?
+        */
         JS_FreeValue(ctx, val);
         //JS_FreeValue(ctx, obj);
-
-        hookCtx.result.instructionCount = 0; // RHTODO: fix this
-
     }
 
     HookExecutorJS(HookContext& ctx)
