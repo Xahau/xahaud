@@ -1591,54 +1591,80 @@ public:
         val =
             JS_Eval(vm.ctx, expr, expr_len, "<qjsvm>", 0);
 
+        int normal_exit = 0;
+
+        JSValue exception_val = JS_GetException(ctx);
+        if (!JS_IsUndefined(exception_val) && JS_IsError(ctx, exception_val))
         {
-            JSValue exception_val = JS_GetException(ctx);
-            int is_error;
+       
+            int printed_something = 0;
 
-            is_error = JS_IsError(ctx, exception_val);
+            // Most exceptions should have a message field, try to fetch and print that 
+            JSValue msg = JS_GetPropertyStr(ctx, exception_val, "message");
+            if (!JS_IsUndefined(msg))
             {
-                const char *str;
-
-                str = JS_ToCString(ctx, exception_val);
-                if (str)
+                if (const char *str = JS_ToCString(ctx, msg); str)
                 {
-                    JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << str;
+                    std::string m(str);
                     JS_FreeCString(ctx, str);
+                   
+                    if ((m == "HookExit Accept" || m == "HookExit Rollback") &&
+                        (hookCtx.result.exitType == hook_api::ExitType::ACCEPT ||
+                        hookCtx.result.exitType == hook_api::ExitType::ROLLBACK))
+                    {
+                        normal_exit = 1;
+                    }
+                    else
+                    {   
+                        JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: JSException " << m;
+                        printed_something++;
+                    }
                 }
-                else
-                {
-                    JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: [exception]";
-                }
-                             
             }
-            if (is_error) {
-                JSValue val = JS_GetPropertyStr(ctx, exception_val, "stack");
-                if (!JS_IsUndefined(val)) {
-                    const char *str;
+            JS_FreeValue(ctx, msg);
 
-                    str = JS_ToCString(ctx, val);
-                    if (str)
+            // Accept/rollback are handled via an uncatchable exception internally in quickjs
+            // so only print a backtrace if it isn't a normal exit.               
+            if (!normal_exit)
+            {
+
+                if (!printed_something)
+                {
+                    JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: [unknown exception]";
+                }
+
+                JSValue bt = JS_GetPropertyStr(ctx, exception_val, "stack");
+                if (!normal_exit && !JS_IsUndefined(bt))
+                {
+                    if (const char *str = JS_ToCString(ctx, bt); str)
                     {
                         JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << str;
                         JS_FreeCString(ctx, str);
                     }
-                    else
-                    {
-                        JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: [exception]";
-                    }                
                 }
-                JS_FreeValue(ctx, val);
-            }            
-            JS_FreeValue(ctx, exception_val);
-        }
 
+                JS_FreeValue(ctx, bt);
+            }
+        }            
+        JS_FreeValue(ctx, exception_val);
+        
+        if (normal_exit)
+        {
+            if (hookCtx.result.exitType == hook_api::ExitType::ACCEPT)
+            {
+                JLOG(j.warn()) << "HookInfo[" << HC_ACC() << "]: JSVM Exited with ACCEPT";
+            }
+            else
+            {
+                JLOG(j.warn()) << "HookInfo[" << HC_ACC() << "]: JSVM Exited with ROLLBACK";
+            }
+        }
         /*
             // RHTODO: place jsvm_error exit type logic appropriately
             hookCtx.result.exitType = hook_api::ExitType::JSVM_ERROR;
             hookCtx.result.instructionCount = 0; //?
         */
         JS_FreeValue(ctx, val);
-        //JS_FreeValue(ctx, obj);
     }
 
     HookExecutorJS(HookContext& ctx)

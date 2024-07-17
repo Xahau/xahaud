@@ -194,6 +194,7 @@ typedef enum JSErrorEnum {
     JS_INTERNAL_ERROR,
     JS_AGGREGATE_ERROR,
     JS_EXIT,    /* used to close the vm down early */
+    JS_INSTRUCTION_LIMIT, /* used when instruction limit is reached */
     JS_NATIVE_ERROR_COUNT, /* number of different NativeError objects */
 } JSErrorEnum;
 
@@ -6634,6 +6635,7 @@ JSValue JS_Exit(JSContext* ctx, const char* msg)
                                JS_NewString(ctx, msg == 0 ? "JS_EXIT called" : msg),
                                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
     }
+    JS_SetUncatchableError(ctx, obj, TRUE);
     ret = JS_Throw(ctx, obj);
     return ret;
 }
@@ -6778,6 +6780,23 @@ JSValue __attribute__((format(printf, 2, 3))) JS_ThrowInternalError(JSContext *c
     return val;
 }
 
+JSValue JS_ThrowInstructionLimit(JSContext *ctx)
+{
+    JSValue obj, ret;
+    obj = JS_NewObjectProtoClass(ctx, ctx->native_error_proto[JS_INSTRUCTION_LIMIT],
+                                 JS_CLASS_ERROR);
+    if (unlikely(JS_IsException(obj))) {
+        obj = JS_NULL;
+    } else {
+        JS_DefinePropertyValue(ctx, obj, JS_ATOM_message,
+                               JS_NewString(ctx, "Instruction limit reached"),
+                               JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    }
+    JS_SetUncatchableError(ctx, obj, TRUE);
+    ret = JS_Throw(ctx, obj);
+    return ret;
+}
+
 JSValue JS_ThrowOutOfMemory(JSContext *ctx)
 {
     JSRuntime *rt = ctx->rt;
@@ -6863,8 +6882,7 @@ static inline __exception int js_poll_interrupts(JSContext *ctx)
     {
         /* XXX: should set a specific flag to avoid catching */
         /* RHTODO: investigate if this is user-catchable. */
-        JS_ThrowInternalError(ctx, "interrupted");
-        JS_SetUncatchableError(ctx, ctx->rt->current_exception, TRUE);
+        JS_ThrowInstructionLimit(ctx);
         return -1;
     }
 
@@ -52644,7 +52662,7 @@ void JS_EnableBignumExt(JSContext *ctx, BOOL enable)
 static const char * const native_error_name[JS_NATIVE_ERROR_COUNT] = {
     "EvalError", "RangeError", "ReferenceError",
     "SyntaxError", "TypeError", "URIError",
-    "InternalError", "AggregateError", "JSExit"
+    "InternalError", "AggregateError", "Exit", "InstructionLimit"
 };
 
 /* Minimum amount of objects to be able to compile code and display
