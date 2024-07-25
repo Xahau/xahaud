@@ -27,7 +27,9 @@
 #include <xrpl/protocol/STTx.h>              // STTx::maxMultiSigners
 #include <xrpl/protocol/TER.h>               // temMALFORMED
 #include <xrpl/protocol/UintTypes.h>         // AccountID
+
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace ripple {
@@ -35,11 +37,18 @@ namespace ripple {
 // Forward declarations
 class STObject;
 
-// Support for SignerEntries that is needed by a few Transactors
+// Support for SignerEntries that is needed by a few Transactors.
+//
+// SignerEntries is represented as a std::vector<SignerEntries::SignerEntry>.
+// There is no direct constructor for SignerEntries.
+//
+//  o A std::vector<SignerEntries::SignerEntry> is a SignerEntries.
+//  o More commonly, SignerEntries are extracted from an STObject by
+//    calling SignerEntries::deserialize().
 class SignerEntries
 {
 public:
-    explicit SignerEntries() = default;
+    explicit SignerEntries() = delete;
     // Values determined during preCompute for use later.
     enum Operation { unknown, set, destroy };
     Operation do_{unknown};
@@ -73,11 +82,15 @@ public:
     };
 
     // Deserialize a SignerEntries array from the network or from the ledger.
+    //
+    // obj Contains a SignerEntries field that is an STArray.
+    // journal For reporting error conditions.
+    // annotation Source of SignerEntries, like "ledger" or "transaction".
     static Expected<std::vector<SignerEntry>, NotTEC>
     deserialize(
         STObject const& obj,
         beast::Journal journal,
-        std::string const& annotation);
+        std::string_view annotation);
 
     static std::tuple<
         NotTEC,
