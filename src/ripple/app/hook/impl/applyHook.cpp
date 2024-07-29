@@ -6522,7 +6522,7 @@ __sto_emplace(
     if (sread_len < 2)
         return TOO_SMALL;
 
-    if (fread_len == 0 && fread_ptr == 0)
+    if (fread_len == 0 && *fread_ptr == 0)
     {
         // this is a delete operation
     }
@@ -6638,6 +6638,45 @@ DEFINE_WASM_FUNCTION(
 
     if (NOT_IN_BOUNDS(fread_ptr, fread_len, memory_length))
         return OUT_OF_BOUNDS;
+
+    if (write_len < sread_len + fread_len)
+        return TOO_SMALL;
+
+    // RH TODO: put these constants somewhere (votable?)
+    if (sread_len > 1024 * 16)
+        return TOO_BIG;
+
+    if (sread_len < 2)
+        return TOO_SMALL;
+
+    if (fread_len == 0 && fread_ptr == 0)
+    {
+        // this is a delete operation
+        if (overlapping_memory(
+                {write_ptr,
+                 write_ptr + write_len,
+                 sread_ptr,
+                 sread_ptr + sread_len}))
+            return MEM_OVERLAP;
+    }
+    else
+    {
+        if (fread_len > 4096)
+            return TOO_BIG;
+
+        if (fread_len < 2)
+            return TOO_SMALL;
+        
+        // check for buffer overlaps
+        if (overlapping_memory(
+                {write_ptr,
+                 write_ptr + write_len,
+                 sread_ptr,
+                 sread_ptr + sread_len,
+                 fread_ptr,
+                 fread_ptr + fread_len}))
+            return MEM_OVERLAP;
+    }
 
     auto out = __sto_emplace(hookCtx, applyCtx, j,
         sread_ptr + memory, sread_len, fread_ptr + memory, fread_len, field_id);
