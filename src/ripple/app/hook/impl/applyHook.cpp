@@ -2247,15 +2247,15 @@ DEFINE_JS_FUNCTION(
     auto key_in = FromJSIntArrayOrHexString(ctx, raw_key, 32);
     auto ns_in  = FromJSIntArrayOrHexString(ctx, raw_ns, 32);
     auto acc_in = FromJSIntArrayOrHexString(ctx, raw_acc, 20);
-
+    
     // if (!val.has_value() && !JS_IsUndefined(raw_val))
     //     returnJS(INVALID_ARGUMENT);
 
-    if (!ns_in.has_value() && !JS_IsUndefined(raw_ns))
-        returnJS(INVALID_ARGUMENT);
+    // if (!ns_in.has_value() && !JS_IsUndefined(raw_ns))
+    //     returnJS(INVALID_ARGUMENT);
 
-    if (!acc_in.has_value() && !JS_IsUndefined(raw_acc))
-        returnJS(INVALID_ARGUMENT);
+    // if (!acc_in.has_value() && !JS_IsUndefined(raw_acc))
+    //     returnJS(INVALID_ARGUMENT);
 
     // val may be populated and empty, this is a delete operation...
 
@@ -3334,6 +3334,9 @@ DEFINE_JS_FUNCTION(
     JSValue raw_slot_no)
 {
     JS_HOOK_SETUP();
+    
+    if (argc == 2 && !JS_IsBool(argv[1]))
+        returnJS(INVALID_ARGUMENT);
 
     auto slot_no = FromJSInt(ctx, raw_slot_no);
     if (!slot_no.has_value())
@@ -3365,6 +3368,9 @@ DEFINE_JS_FUNCTION(
 
     if (!out.has_value())
         returnJS(INTERNAL_ERROR);
+
+    if (argc == 2 && !!JS_ToBool(ctx, argv[1]))
+        returnJS(data_as_int64(ptr, len));
 
     return *out;
 
@@ -3555,8 +3561,15 @@ DEFINE_JS_FUNCTION(
     auto key = FromJSIntArrayOrHexString(ctx, raw_key, 34);
     auto slot_into = FromJSInt(ctx, raw_slot_into);
 
-    if (!key.has_value() || !slot_into.has_value() || *slot_into < 0 || *slot_into > hook_api::max_slots)
+    if (!key.has_value() || !slot_into.has_value())
         returnJS(INVALID_ARGUMENT);
+
+    if ((key->size() != 32 && key->size() != 34) || *slot_into < 0 || *slot_into > hook_api::max_slots)
+        returnJS(INVALID_ARGUMENT);
+
+    // check if we can emplace the object to a slot
+    if (*slot_into == 0 && no_free_slots(hookCtx))
+        returnJS(NO_FREE_SLOTS);
 
     returnJS(__slot_set(hookCtx, applyCtx, j, *key, *slot_into));
 
@@ -7502,7 +7515,11 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, f2))
         returnJS(INVALID_ARGUMENT);
 
-    returnJSXFL(__float_multiply(hookCtx, applyCtx, j, *f1, *f2));
+    int64_t const out = __float_multiply(hookCtx, applyCtx, j, *f1, *f2);
+    if (out <= 0)
+        returnJS(out);
+
+    returnJSXFL(out);
 
     JS_HOOK_TEARDOWN();
 }
@@ -7565,7 +7582,11 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, ru, n, d) || !fits_u32(ru, n, d))
         returnJS(INVALID_ARGUMENT);
 
-    returnJSXFL(__float_mulratio(hookCtx, applyCtx, j, *f1, (uint32_t)(*ru), (uint32_t)(*n), (uint32_t)(*d)));
+    int64_t const out = __float_mulratio(hookCtx, applyCtx, j, *f1, (uint32_t)(*ru), (uint32_t)(*n), (uint32_t)(*d));
+    if (out <= 0)
+        returnJS(out);
+
+    returnJSXFL(out);
 
     JS_HOOK_TEARDOWN();
 }
@@ -8237,7 +8258,11 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, f2))
         returnJS(INVALID_ARGUMENT);
 
-    returnJSXFL(float_divide_internal(*f1, *f2));
+    int64_t const out = float_divide_internal(*f1, *f2);
+    if (out <= 0)
+        returnJS(out);
+    
+    returnJSXFL(out);
 
     JS_HOOK_TEARDOWN();
 }
@@ -8284,8 +8309,13 @@ DEFINE_JS_FUNCTION(
     if (*f1 == 0)
         returnJS(DIVISION_BY_ZERO);
     if (*f1 == float_one_internal)
-        returnJS(float_one_internal);
-    returnJSXFL(float_divide_internal(float_one_internal, *f1));
+        returnJSXFL(float_one_internal);
+
+    int64_t const out = float_divide_internal(float_one_internal, *f1);
+    if (out <= 0)
+        returnJS(out);
+
+    returnJSXFL(out);
 
     JS_HOOK_TEARDOWN();
 }
@@ -8319,7 +8349,11 @@ DEFINE_JS_FUNCTION(
     if (*f1 == 0)
         returnJS(0);
 
-    returnJSXFL(get_mantissa(*f1));
+    int64_t const out = get_mantissa(*f1);
+    if (out <= 0)
+        returnJS(out);
+    
+    returnJSXFL(out);
     
     JS_HOOK_TEARDOWN();
 }
@@ -8351,7 +8385,7 @@ DEFINE_JS_FUNCTION(
     RETURNJS_IF_INVALID_FLOAT(*f1);
 
     if (*f1 == 0)
-        returnJS(0);
+        returnJSXFL(0);
 
     returnJSXFL(is_negative(*f1));
 
@@ -8451,7 +8485,11 @@ DEFINE_JS_FUNCTION(
     if (!f1.has_value())
         returnJS(INVALID_ARGUMENT);
 
-    returnJSXFL(__float_log(hookCtx, applyCtx, j, *f1));
+    int64_t const out = __float_log(hookCtx, applyCtx, j, *f1);
+    if (out <= 0)
+        returnJS(out);
+    
+    returnJSXFL(out);
 
     JS_HOOK_TEARDOWN();
 }
@@ -8502,7 +8540,11 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, n) || !fits_u32(n))
         returnJS(INVALID_ARGUMENT);
 
-    returnJSXFL(__float_root(hookCtx, applyCtx, j, *f1, (uint32_t)(*n)));
+    int64_t out = __float_root(hookCtx, applyCtx, j, *f1, (uint32_t)(*n));
+    if (out <= 0)
+        returnJS(out);
+
+    returnJSXFL(out);
 
     JS_HOOK_TEARDOWN();
 }
