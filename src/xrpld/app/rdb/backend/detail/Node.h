@@ -251,7 +251,6 @@ getHashesByIndex(
  * @param app Application object.
  * @param startIndex Offset of first returned entry.
  * @param quantity Number of returned entries.
- * @param count True if counting of all transaction in that shard required.
  * @return Vector of shared pointers to transactions sorted in
  *         descending order by ledger sequence. Also number of transactions
  *         if count == true.
@@ -261,8 +260,7 @@ getTxHistory(
     soci::session& session,
     Application& app,
     LedgerIndex startIndex,
-    int quantity,
-    bool count);
+    int quantity);
 
 /**
  * @brief getOldestAccountTxs Returns oldest transactions for given
@@ -274,9 +272,6 @@ getTxHistory(
  *        the account, minimum and maximum ledger numbers to search,
  *        offset of first entry to return, number of transactions to return,
  *        flag if this number unlimited.
- * @param limit_used Number or transactions already returned in calls
- *        to another shard databases, if shard databases are used.
- *        None if node database is used.
  * @param j Journal.
  * @return Vector of pairs of found transactions and their metadata
  *         sorted in ascending order by account sequence.
@@ -292,7 +287,6 @@ getOldestAccountTxs(
     Application& app,
     LedgerMaster& ledgerMaster,
     RelationalDatabase::AccountTxOptions const& options,
-    std::optional<int> const& limit_used,
     beast::Journal j);
 
 /**
@@ -305,9 +299,6 @@ getOldestAccountTxs(
  *        the account, minimum and maximum ledger numbers to search,
  *        offset of first entry to return, number of transactions to return,
  *        flag if this number unlimited.
- * @param limit_used Number or transactions already returned in calls
- *        to another shard databases, if shard databases are used.
- *        None if node database is used.
  * @param j Journal.
  * @return Vector of pairs of found transactions and their metadata
  *         sorted in descending order by account sequence.
@@ -323,7 +314,6 @@ getNewestAccountTxs(
     Application& app,
     LedgerMaster& ledgerMaster,
     RelationalDatabase::AccountTxOptions const& options,
-    std::optional<int> const& limit_used,
     beast::Journal j);
 
 /**
@@ -336,9 +326,6 @@ getNewestAccountTxs(
  *        the account, minimum and maximum ledger numbers to search,
  *        offset of first entry to return, number of transactions to return,
  *        flag if this number unlimited.
- * @param limit_used Number or transactions already returned in calls
- *        to another shard databases, if shard databases are used.
- *        None if node database is used.
  * @param j Journal.
  * @return Vector of tuples of found transactions, their metadata and
  *         account sequences sorted in ascending order by account
@@ -353,7 +340,6 @@ getOldestAccountTxsB(
     soci::session& session,
     Application& app,
     RelationalDatabase::AccountTxOptions const& options,
-    std::optional<int> const& limit_used,
     beast::Journal j);
 
 /**
@@ -366,9 +352,6 @@ getOldestAccountTxsB(
  *        the account, minimum and maximum ledger numbers to search,
  *        offset of first entry to return, number of transactions to return,
  *        flag if this number unlimited.
- * @param limit_used Number or transactions already returned in calls
- *        to another shard databases, if shard databases are used.
- *        None if node database is used.
  * @param j Journal.
  * @return Vector of tuples of found transactions, their metadata and
  *         account sequences sorted in descending order by account
@@ -383,7 +366,6 @@ getNewestAccountTxsB(
     soci::session& session,
     Application& app,
     RelationalDatabase::AccountTxOptions const& options,
-    std::optional<int> const& limit_used,
     beast::Journal j);
 
 /**
@@ -398,8 +380,6 @@ getNewestAccountTxsB(
  *        match: the account, minimum and maximum ledger numbers to search,
  *        marker of first returned entry, number of transactions to return,
  *        flag if this number unlimited.
- * @param limit_used Number or transactions already returned in calls
- *        to another shard databases.
  * @param page_length Total number of transactions to return.
  * @return Vector of tuples of found transactions, their metadata and
  *         account sequences sorted in ascending order by account
@@ -414,7 +394,6 @@ oldestAccountTxPage(
         void(std::uint32_t, std::string const&, Blob&&, Blob&&)> const&
         onTransaction,
     RelationalDatabase::AccountTxPageOptions const& options,
-    int limit_used,
     std::uint32_t page_length);
 
 /**
@@ -429,8 +408,6 @@ oldestAccountTxPage(
  *        match: the account, minimum and maximum ledger numbers to search,
  *        marker of first returned entry, number of transactions to return,
  *        flag if this number unlimited.
- * @param limit_used Number or transactions already returned in calls
- *        to another shard databases.
  * @param page_length Total number of transactions to return.
  * @return Vector of tuples of found transactions, their metadata and
  *         account sequences sorted in descending order by account
@@ -445,7 +422,6 @@ newestAccountTxPage(
         void(std::uint32_t, std::string const&, Blob&&, Blob&&)> const&
         onTransaction,
     RelationalDatabase::AccountTxPageOptions const& options,
-    int limit_used,
     std::uint32_t page_length);
 
 /**

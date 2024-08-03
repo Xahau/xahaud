@@ -12,9 +12,7 @@
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/ledger/CachedSLEs.h>
 #include <xrpld/nodestore/Database.h>
-#include <xrpld/nodestore/DatabaseShard.h>
 #include <xrpld/overlay/Overlay.h>
-#include <xrpld/shamap/ShardFamily.h>
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/mulDiv.h>
 #include <xrpl/protocol/BuildInfo.h>
@@ -109,18 +107,7 @@ struct [[gnu::packed]] DebugCounters
     std::uint32_t treenodeCacheSize{0};
     std::uint32_t treenodeTrackSize{0};
 
-    // Shard metrics
-    std::int32_t shardFullbelowSize{0};
-    std::uint32_t shardTreenodeCacheSize{0};
-    std::uint32_t shardTreenodeTrackSize{0};
-    std::uint32_t shardWriteLoad{0};
-    std::uint64_t shardNodeWrites{0};
-    std::uint64_t shardNodeReadsTotal{0};
-    std::uint64_t shardNodeReadsHit{0};
-    std::uint64_t shardNodeWrittenBytes{0};
-    std::uint64_t shardNodeReadBytes{0};
-
-    // Node store metrics (when not using shards)
+    // Node store metrics
     std::uint64_t nodeWriteCount{0};
     std::uint64_t nodeWriteSize{0};
     std::uint64_t nodeFetchCount{0};
@@ -456,38 +443,18 @@ private:
         counters.alHitRate = static_cast<std::uint32_t>(
             app_.getAcceptedLedgerCache().getHitRate() * 1000);
         counters.fullbelowSize = static_cast<std::int32_t>(
-            app_.getNodeFamily().getFullBelowCache(0)->size());
+            app_.getNodeFamily().getFullBelowCache()->size());
         counters.treenodeCacheSize =
-            app_.getNodeFamily().getTreeNodeCache(0)->getCacheSize();
+            app_.getNodeFamily().getTreeNodeCache()->getCacheSize();
         counters.treenodeTrackSize =
-            app_.getNodeFamily().getTreeNodeCache(0)->getTrackSize();
+            app_.getNodeFamily().getTreeNodeCache()->getTrackSize();
 
-        // Handle shard metrics if available
-        if (auto shardStore = app_.getShardStore())
-        {
-            auto shardFamily =
-                dynamic_cast<ShardFamily*>(app_.getShardFamily());
-            auto const [cacheSz, trackSz] = shardFamily->getTreeNodeCacheSize();
-
-            counters.shardFullbelowSize = shardFamily->getFullBelowCacheSize();
-            counters.shardTreenodeCacheSize = cacheSz;
-            counters.shardTreenodeTrackSize = trackSz;
-            counters.shardWriteLoad = shardStore->getWriteLoad();
-            counters.shardNodeWrites = shardStore->getStoreCount();
-            counters.shardNodeReadsTotal = shardStore->getFetchTotalCount();
-            counters.shardNodeReadsHit = shardStore->getFetchHitCount();
-            counters.shardNodeWrittenBytes = shardStore->getStoreSize();
-            counters.shardNodeReadBytes = shardStore->getFetchSize();
-        }
-        else
-        {
-            // Get regular node store metrics
-            counters.nodeWriteCount = app_.getNodeStore().getStoreCount();
-            counters.nodeWriteSize = app_.getNodeStore().getStoreSize();
-            counters.nodeFetchCount = app_.getNodeStore().getFetchTotalCount();
-            counters.nodeFetchHitCount = app_.getNodeStore().getFetchHitCount();
-            counters.nodeFetchSize = app_.getNodeStore().getFetchSize();
-        }
+        // Get regular node store metrics
+        counters.nodeWriteCount = app_.getNodeStore().getStoreCount();
+        counters.nodeWriteSize = app_.getNodeStore().getStoreSize();
+        counters.nodeFetchCount = app_.getNodeStore().getFetchTotalCount();
+        counters.nodeFetchHitCount = app_.getNodeStore().getFetchHitCount();
+        counters.nodeFetchSize = app_.getNodeStore().getFetchSize();
 
         return {counters, objectCounts};
     }

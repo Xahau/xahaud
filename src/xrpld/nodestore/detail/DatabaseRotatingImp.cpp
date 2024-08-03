@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
@@ -79,6 +78,7 @@ DatabaseRotatingImp::rotateWithLock(
                     // If we have the ledger, store it in the writable backend
                     JLOG(j_.debug()) << "Ensuring pinned ledger " << seq
                                      << " is in writable backend";
+                    // TQ: TODO: check this
                     Database::storeLedger(*ledger, writableBackend_);
                 }
                 else

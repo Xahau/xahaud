@@ -36,20 +36,12 @@ Database::Database(
     beast::Journal journal)
     : j_(journal)
     , scheduler_(scheduler)
-    , ledgersPerShard_(get<std::uint32_t>(
-          config,
-          "ledgers_per_shard",
-          DEFAULT_LEDGERS_PER_SHARD))
     , earliestLedgerSeq_(
           get<std::uint32_t>(config, "earliest_seq", XRP_LEDGER_EARLIEST_SEQ))
-    , earliestShardIndex_((earliestLedgerSeq_ - 1) / ledgersPerShard_)
     , requestBundle_(get<int>(config, "rq_bundle", 4))
     , readThreads_(std::max(1, readThreads))
 {
     assert(readThreads != 0);
-
-    if (ledgersPerShard_ == 0 || ledgersPerShard_ % 256 != 0)
-        Throw<std::runtime_error>("Invalid ledgers_per_shard");
 
     if (earliestLedgerSeq_ < 1)
         Throw<std::runtime_error>("Invalid earliest_seq");
@@ -146,19 +138,6 @@ bool
 Database::isStopping() const
 {
     return readStopping_.load(std::memory_order_relaxed);
-}
-
-std::uint32_t
-Database::maxLedgers(std::uint32_t shardIndex) const noexcept
-{
-    if (shardIndex > earliestShardIndex_)
-        return ledgersPerShard_;
-
-    if (shardIndex == earliestShardIndex_)
-        return lastLedgerSeq(shardIndex) - firstLedgerSeq(shardIndex) + 1;
-
-    assert(!"Invalid shard index");
-    return 0;
 }
 
 void

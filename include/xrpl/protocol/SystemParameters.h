@@ -68,9 +68,6 @@ systemCurrencyCode()
 /** The XRP ledger network's earliest allowed sequence */
 static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
 
-/** The number of ledgers in a shard */
-static constexpr std::uint32_t DEFAULT_LEDGERS_PER_SHARD{16384u};
-
 /** The minimum amount of support an amendment should have.
 
     @note This value is used by legacy code and will become obsolete

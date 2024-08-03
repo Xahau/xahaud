@@ -35,11 +35,6 @@ struct ConfigSection
         return "node_db";
     }
     static std::string
-    shardDatabase()
-    {
-        return "shard_db";
-    }
-    static std::string
     importNodeDatabase()
     {
         return "import_db";
@@ -57,7 +52,6 @@ struct ConfigSection
 #define SECTION_ELB_SUPPORT "elb_support"
 #define SECTION_FEE_DEFAULT "fee_default"
 #define SECTION_FETCH_DEPTH "fetch_depth"
-#define SECTION_HISTORICAL_SHARD_PATHS "historical_shard_paths"
 #define SECTION_IMPORT_VL_KEYS "import_vl_keys"
 #define SECTION_INSIGHT "insight"
 #define SECTION_IO_WORKERS "io_workers"

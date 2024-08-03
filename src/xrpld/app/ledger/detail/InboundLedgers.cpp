@@ -22,7 +22,6 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/nodestore/DatabaseShard.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpl/basics/DecayingSample.h>
 #include <xrpl/basics/Log.h>
@@ -73,9 +72,6 @@ public:
     {
         auto doAcquire = [&, seq, reason]() -> std::shared_ptr<Ledger const> {
             assert(hash.isNonZero());
-            assert(
-                reason != InboundLedger::Reason::SHARD ||
-                (seq != 0 && app_.getShardStore()));
 
             // probably not the right rule
             if (app_.getOPs().isNeedNetworkLedger() &&
@@ -122,25 +118,6 @@ public:
             if (!inbound->isComplete())
                 return {};
 
-            if (reason == InboundLedger::Reason::HISTORY)
-            {
-                if (inbound->getLedger()->stateMap().family().isShardBacked())
-                    app_.getNodeStore().storeLedger(inbound->getLedger());
-            }
-            else if (reason == InboundLedger::Reason::SHARD)
-            {
-                auto shardStore = app_.getShardStore();
-                if (!shardStore)
-                {
-                    JLOG(j_.error())
-                        << "Acquiring shard with no shard store available";
-                    return {};
-                }
-                if (inbound->getLedger()->stateMap().family().isShardBacked())
-                    shardStore->setStored(inbound->getLedger());
-                else
-                    shardStore->storeLedger(inbound->getLedger());
-            }
             return inbound->getLedger();
         };
         using namespace std::chrono_literals;
@@ -325,7 +302,7 @@ public:
     }
 
     // Should only be called with an inboundledger that has
-    // a reason of history or shard
+    // a reason of history
     void
     onLedgerFetched() override
     {

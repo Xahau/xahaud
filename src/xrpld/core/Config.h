@@ -148,7 +148,6 @@ private:
 
 public:
     bool doImport = false;
-    bool nodeToShard = false;
     bool ELB_SUPPORT = false;
 
     // Entries from [ips] config stanza

@@ -22,7 +22,6 @@
 #include <xrpld/app/rdb/backend/FlatmapDatabase.h>
 #include <xrpld/app/rdb/backend/RWDBDatabase.h>
 #include <xrpld/core/ConfigSections.h>
-#include <xrpld/nodestore/DatabaseShard.h>
 
 namespace ripple {
 
