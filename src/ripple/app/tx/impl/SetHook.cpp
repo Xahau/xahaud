@@ -431,12 +431,12 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (!ctx.rules.enabled(featureHooksV1) && version == 1)
+            if (!ctx.rules.enabled(featureJSHooks) && version == 1)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
-                       "sfHook->sfHookApiVersion invalid. (HooksV1 not enabled).";
+                       "sfHook->sfHookApiVersion invalid. (JSHooks not enabled).";
                 return false;
             }
             if (version > 1)

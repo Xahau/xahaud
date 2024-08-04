@@ -358,7 +358,7 @@ extern uint256 const fixXahauV2;
 extern uint256 const featureRemit;
 extern uint256 const featureZeroB2M;
 extern uint256 const fixNSDelete;
-extern uint256 const featureHooksV1;
+extern uint256 const featureJSHooks;
 
 }  // namespace ripple
 
