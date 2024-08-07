@@ -147,6 +147,7 @@ transResults()
         MAKE_ERROR(tefNFTOKEN_IS_NOT_TRANSFERABLE, "The specified NFToken is not transferable."),
         MAKE_ERROR(tefNONDIR_EMIT,                 "An emitted txn was injected into the ledger without a corresponding directory entry."),
         MAKE_ERROR(tefIMPORT_BLACKHOLED,           "Cannot import keying because target account is blackholed."),
+        MAKE_ERROR(tefINVALID_LEDGER_FIX_TYPE,     "The LedgerFixType field has an invalid value."),
 
         MAKE_ERROR(telLOCAL_ERROR,            "Local failure."),
         MAKE_ERROR(telBAD_DOMAIN,             "Domain too long."),

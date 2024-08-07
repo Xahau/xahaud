@@ -190,6 +190,7 @@ enum TEFcodes : TERUnderlyingType {
     tefPAST_IMPORT_VL_SEQ,
     tefNONDIR_EMIT,
     tefIMPORT_BLACKHOLED,
+    tefINVALID_LEDGER_FIX_TYPE,
 };
 
 //------------------------------------------------------------------------------

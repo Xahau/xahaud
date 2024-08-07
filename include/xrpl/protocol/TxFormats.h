@@ -203,6 +203,9 @@ enum TxType : std::uint16_t
     /** This transaction type deletes an Oracle instance */
     ttORACLE_DELETE = 61,
 
+    /** This transaction type fixes a problem in the ledger state */
+    ttLEDGER_STATE_FIX = 62,
+
     /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
     ttREMARKS_SET = 94,
 
