@@ -9,6 +9,15 @@ echo "-- GITHUB_RUN_NUMBER: $4"
 
 umask 0000;
 
+echo "Fixing CentOS 7 EOL"
+
+sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+yum clean all
+yum-config-manager --disable centos-sclo-sclo
+
+####
+
 cd /io;
 mkdir src/certs;
 curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o src/certs/certbundle.h;
