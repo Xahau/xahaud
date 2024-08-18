@@ -24,13 +24,13 @@
 #include <ripple/nodestore/impl/EncodedBlob.h>
 #include <ripple/nodestore/impl/codec.h>
 #include <boost/filesystem.hpp>
+#include "snug.hpp"
 #include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <memory>
-#include "snug.hpp"
 
 namespace ripple {
 namespace NodeStore {
@@ -38,7 +38,8 @@ namespace NodeStore {
 class SnugDBBackend : public Backend
 {
 private:
-    static constexpr uint64_t BUFFER_SIZE = 256ULL*1024ULL*1024ULL; // 256 Mib read buffer per thread
+    static constexpr uint64_t BUFFER_SIZE =
+        256ULL * 1024ULL * 1024ULL;  // 256 Mib read buffer per thread
 public:
     beast::Journal const j_;
     std::string const name_;
@@ -49,14 +50,11 @@ public:
         Section const& keyValues,
         Scheduler& scheduler,
         beast::Journal journal)
-        : j_(journal)
-        , name_(get(keyValues, "path"))
-        , scheduler_(scheduler)
+        : j_(journal), name_(get(keyValues, "path")), scheduler_(scheduler)
     {
         if (name_.empty())
             throw std::runtime_error(
                 "nodestore: Missing path in SnugDB backend");
-
     }
 
     ~SnugDBBackend() override
@@ -68,8 +66,7 @@ public:
         }
         catch (std::exception const& e)
         {
-            JLOG(j_.warn())
-                << "SnugDB threw on destruction: " << e.what();
+            JLOG(j_.warn()) << "SnugDB threw on destruction: " << e.what();
             // Don't allow exceptions to propagate out of destructors.
         }
     }
@@ -91,10 +88,8 @@ public:
             return;
         }
 
-        std::string path = name_ + "/" +
-            std::to_string(uid) + "-" + 
-            std::to_string(appType) + "-" + 
-            std::to_string(salt);
+        std::string path = name_ + "/" + std::to_string(uid) + "-" +
+            std::to_string(appType) + "-" + std::to_string(salt);
 
         boost::filesystem::create_directories(path);
         db_ = std::make_unique<snug::SnugDB>(path);
@@ -126,31 +121,33 @@ public:
 
         pno->reset();
 
-        static thread_local std::unique_ptr<uint8_t[]> 
-            thread_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+        static thread_local std::unique_ptr<uint8_t[]> thread_buffer =
+            std::make_unique<uint8_t[]>(BUFFER_SIZE);
 
         uint8_t* ptr = &(thread_buffer[0]);
 
         uint64_t len = BUFFER_SIZE;
         int result = db_->read_entry(
-                static_cast<uint8_t*>(const_cast<void*>(key)), 
-                ptr,
-                &len);
-
+            static_cast<uint8_t*>(const_cast<void*>(key)), ptr, &len);
 
         if (0)
         {
             std::stringstream ss;
             const unsigned char* bytes = static_cast<const unsigned char*>(key);
-            for (int i = 0; i < 32; ++i) {
-                ss << std::setfill('0') << std::setw(2) << std::hex << static_cast<int>(bytes[i]);
+            for (int i = 0; i < 32; ++i)
+            {
+                ss << std::setfill('0') << std::setw(2) << std::hex
+                   << static_cast<int>(bytes[i]);
             }
             std::string key_hex = ss.str();
 
             // Print the result using printf
-            printf("snug fetch: len=%zu result=%zu key=%s\n", len, result, key_hex.c_str());        
+            printf(
+                "snug fetch: len=%zu result=%zu key=%s\n",
+                len,
+                result,
+                key_hex.c_str());
         }
-
 
         if (result == 1)
             return notFound;
@@ -190,24 +187,28 @@ public:
     do_insert(std::shared_ptr<NodeObject> const& no)
     {
         EncodedBlob e(no);
-       
+
         if (0)
-        { 
+        {
             std::stringstream ss;
-            const unsigned char* bytes = static_cast<const unsigned char*>(const_cast<void*>(e.getKey()));
+            const unsigned char* bytes = static_cast<const unsigned char*>(
+                const_cast<void*>(e.getKey()));
             for (int i = 0; i < 32; ++i)
-                ss << std::setfill('0') << std::setw(2) << std::hex << static_cast<int>(bytes[i]);
+                ss << std::setfill('0') << std::setw(2) << std::hex
+                   << static_cast<int>(bytes[i]);
             std::string key_hex = ss.str();
 
-
-            std::cout << "snugdb write: len=" << e.getSize() << ", key=" << key_hex << "\n";
+            std::cout << "snugdb write: len=" << e.getSize()
+                      << ", key=" << key_hex << "\n";
         }
         int out = db_->write_entry(
             static_cast<uint8_t*>(const_cast<void*>(e.getKey())),
             static_cast<uint8_t*>(const_cast<void*>(e.getData())),
             e.getSize());
         if (out != 0)
-            throw std::runtime_error("SnugDB could not write entry. Disk full? error" + std::to_string(out));
+            throw std::runtime_error(
+                "SnugDB could not write entry. Disk full? error" +
+                std::to_string(out));
     }
 
     void
@@ -243,19 +244,22 @@ public:
     void
     for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override
     {
-        db_->visit_all([](uint8_t* key, uint8_t* data, uint64_t len, void* fp) -> void
-        {
-            DecodedBlob decoded(key, data, len);
-            if (!decoded.wasOk())
-            {
-                throw std::runtime_error("Missing or corrupted data in snugdb");
-                return;
-            }
+        db_->visit_all(
+            [](uint8_t* key, uint8_t* data, uint64_t len, void* fp) -> void {
+                DecodedBlob decoded(key, data, len);
+                if (!decoded.wasOk())
+                {
+                    throw std::runtime_error(
+                        "Missing or corrupted data in snugdb");
+                    return;
+                }
 
-            std::function<void(std::shared_ptr<NodeObject>)> f = 
-                *(reinterpret_cast<std::function<void(std::shared_ptr<NodeObject>)>*>(fp));
-            f(decoded.createObject());
-        }, reinterpret_cast<void*>(&f));
+                std::function<void(std::shared_ptr<NodeObject>)> f =
+                    *(reinterpret_cast<
+                        std::function<void(std::shared_ptr<NodeObject>)>*>(fp));
+                f(decoded.createObject());
+            },
+            reinterpret_cast<void*>(&f));
     }
 
     int
