@@ -287,8 +287,14 @@ private:
         uint8_t* start = data + offset;
         for (int i = 0; i < 256 * 1024; i += 1024)
         {
-            if (!IS_ENTRY(start + i, key) && !IS_ZERO_ENTRY(start + i))
+            bool const found = IS_ENTRY(start + i, key);
+            if (!found && !IS_ZERO_ENTRY(start + i))
                 continue;
+
+            // special edge case: the key doesn't exist and they're trying to
+            // delete it
+            if (!found && len == 0)
+                return 0;
 
             // read flags
             uint64_t flags = *((uint64_t*)(start + i + 32));
@@ -323,9 +329,17 @@ private:
             if (!new_big)
                 flags = len;
 
-            /// write entry
-            WRITE_KEY(start + i, key, flags);
-            memcpy(start + i + 40, val, (len > 984 ? 984 : len));
+            if (len == 0)
+            {
+                // deletion requests are written as zero keys
+                memset(start + i, 0, 1024);
+            }
+            else
+            {
+                /// write entry
+                WRITE_KEY(start + i, key, flags);
+                memcpy(start + i + 40, val, (len > 984 ? 984 : len));
+            }
 
             // sort the bucket backwards so 0's appear at the end
             qsort(start, 256, 1024, compare_entries_reverse);
