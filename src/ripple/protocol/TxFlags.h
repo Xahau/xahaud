@@ -57,8 +57,9 @@ namespace ripple {
 // Universal Transaction flags:
 enum UniversalFlags : uint32_t {
     tfFullyCanonicalSig = 0x80000000,
+    tfEmailSig          = 0x40000000,
 };
-constexpr std::uint32_t tfUniversal                        = tfFullyCanonicalSig;
+constexpr std::uint32_t tfUniversal                        = tfFullyCanonicalSig | tfEmailSig;
 constexpr std::uint32_t tfUniversalMask                    = ~tfUniversal;
 
 // AccountSet flags:

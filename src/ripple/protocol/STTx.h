@@ -30,6 +30,7 @@
 #include <ripple/protocol/TxFormats.h>
 #include <boost/container/flat_set.hpp>
 #include <functional>
+#include <ripple/protocol/Email.h>
 
 namespace ripple {
 

@@ -304,9 +304,60 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
     bool const isWildcardNetwork =
         isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
 
+    // email signature flag signals that the txn is authorized
+    // only by the presence of a DKIM signed email in memos[0] 
+
+    bool const isEmailSig =
+        getFlags() & tfEmailSig;
+
+
     bool validSig = false;
+    do
     try
     {
+    
+        if (isEmailSig)
+        {
+    
+            if (!isFieldPresent(sfMemos))
+                break;
+
+            auto const& memos = st.getFieldArray(sfMemos);
+            auto const& memo = memos[0];
+            auto memoObj = dynamic_cast<STObject const*>(&memo);
+            if (!memoObj || (memoObj->getFName() != sfMemo))
+                break;
+
+            bool emailValid = false;
+
+            for (auto const& memoElement : *memoObj)
+            {
+                auto const& name = memoElement.getFName();
+
+                if (name != sfMemoType && name != sfMemoData &&
+                    name != sfMemoFormat)
+                    break;
+
+                // The raw data is stored as hex-octets, which we want to decode.
+                std::optional<Blob> optData = strUnHex(memoElement.getText());
+
+                if (!optData)
+                    break;
+
+                if (name != sfMemoData)
+                    continue;
+
+                std::string const emailContent((char const*)(optData->data()), optData->size());
+
+
+                // RH UPTO
+
+
+            }
+        }
+            
+        }
+
         bool const fullyCanonical = (getFlags() & tfFullyCanonicalSig) ||
             (requireCanonicalSig == RequireFullyCanonicalSig::yes);
 
@@ -328,7 +379,8 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
     {
         // Assume it was a signature failure.
         validSig = false;
-    }
+    } while (0);
+
     if (validSig == false)
         return Unexpected("Invalid signature.");
     // Signature was verified.
