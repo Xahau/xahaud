@@ -542,6 +542,7 @@ target_sources (rippled PRIVATE
   src/ripple/nodestore/backend/NuDBFactory.cpp
   src/ripple/nodestore/backend/NullFactory.cpp
   src/ripple/nodestore/backend/RocksDBFactory.cpp
+  src/ripple/nodestore/backend/SnugDBFactory.cpp
   src/ripple/nodestore/impl/BatchWriter.cpp
   src/ripple/nodestore/impl/Database.cpp
   src/ripple/nodestore/impl/DatabaseNodeImp.cpp
