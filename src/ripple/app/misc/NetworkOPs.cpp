@@ -1142,8 +1142,12 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
     // Enforce Network bar for emitted txn
     if (view->rules().enabled(featureHooks) && hook::isEmittedTxn(*iTrans))
     {
-        JLOG(m_journal.warn())
-            << "Submitted transaction invalid: EmitDetails present.";
+        // RH NOTE: Warning removed here due to ConsesusSet using this function
+        // which continually triggers this bar. Doesn't seem dangerous, just
+        // annoying.
+
+        // JLOG(m_journal.warn())
+        //    << "Submitted transaction invalid: EmitDetails present.";
         return;
     }
 
@@ -1155,7 +1159,11 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 
     if ((flags & SF_BAD) != 0)
     {
-        JLOG(m_journal.warn()) << "Submitted transaction cached bad";
+        // RH NOTE: Warning removed here due to ConsesusSet using this function
+        // which continually triggers this bar. Doesn't seem dangerous, just
+        // annoying.
+
+        // JLOG(m_journal.warn()) << "Submitted transaction cached bad";
         return;
     }
 
