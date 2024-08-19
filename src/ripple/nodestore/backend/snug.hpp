@@ -12,6 +12,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
+
+#define MMAPFLAGS (PROT_READ | PROT_WRITE | MAP_NORESERVE), MAP_SHARED
 namespace snug {
 
 int
@@ -158,7 +160,11 @@ private:
         {
             // no free blocks, allocate a new one
             uint64_t next_block = *((uint64_t*)big_file);
-            *((uint64_t*)(big_file)) += 32768;
+            // special edge case, first block ever allocated:
+            if (!next_block)
+                next_block += 32768;
+
+            *((uint64_t*)(big_file)) = next_block + 32768;
 
             if (next_block + 32768 > BIGSIZE)
                 return 0;
@@ -481,13 +487,7 @@ private:
                     "Unable to get file stats: " + full_path);
             }
 
-            void* mapped = mmap(
-                nullptr,
-                file_stat.st_size,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
-                fd,
-                0);
+            void* mapped = mmap(nullptr, file_stat.st_size, MMAPFLAGS, fd, 0);
             close(fd);  // Can close fd after mmap
 
             if (mapped == MAP_FAILED)
@@ -519,13 +519,7 @@ private:
                     "Unable to get file stats: " + new_file);
             }
 
-            void* mapped = mmap(
-                nullptr,
-                file_stat.st_size,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
-                fd,
-                0);
+            void* mapped = mmap(nullptr, file_stat.st_size, MMAPFLAGS, fd, 0);
             close(fd);  // Can close fd after mmap
 
             if (mapped == MAP_FAILED)
