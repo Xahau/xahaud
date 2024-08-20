@@ -256,6 +256,8 @@ BaseWSPeer<Handler, Impl>::close(
         return post(strand_, [self = impl().shared_from_this(), reason] {
             self->close(reason);
         });
+    if (do_close_)
+        return;
     do_close_ = true;
     if (wq_.empty())
     {
