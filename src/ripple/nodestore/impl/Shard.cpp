@@ -859,7 +859,8 @@ Shard::open(std::lock_guard<std::mutex> const& lock)
         acquireInfo_ = std::make_unique<AcquireInfo>();
         acquireInfo_->SQLiteDB = makeAcquireDB(
             setup,
-            DatabaseCon::CheckpointerSetup{&app_.getJobQueue(), &app_.logs()});
+            DatabaseCon::CheckpointerSetup{&app_.getJobQueue(), &app_.logs()},
+            j_);
 
         state_ = ShardState::acquire;
         progress_ = 0;
@@ -978,7 +979,7 @@ Shard::initSQLite(std::lock_guard<std::mutex> const&)
             case ShardState::complete:
             case ShardState::finalizing:
             case ShardState::finalized: {
-                auto [lgr, tx] = makeShardCompleteLedgerDBs(config, setup);
+                auto [lgr, tx] = makeShardCompleteLedgerDBs(config, setup, j_);
 
                 lgrSQLiteDB_ = std::move(lgr);
                 lgrSQLiteDB_->getSession() << boost::str(
@@ -1002,7 +1003,8 @@ Shard::initSQLite(std::lock_guard<std::mutex> const&)
                     config,
                     setup,
                     DatabaseCon::CheckpointerSetup{
-                        &app_.getJobQueue(), &app_.logs()});
+                        &app_.getJobQueue(), &app_.logs()},
+                    j_);
 
                 lgrSQLiteDB_ = std::move(lgr);
                 lgrSQLiteDB_->getSession() << boost::str(
