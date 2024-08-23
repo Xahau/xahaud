@@ -426,6 +426,12 @@ public:
     int
     getValueFor(SizedItem item, std::optional<std::size_t> node = std::nullopt)
         const;
+
+    beast::Journal
+    journal() const
+    {
+        return j_;
+    }
 };
 
 FeeSetup
