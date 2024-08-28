@@ -99,8 +99,6 @@ class RelationalDatabase;
 class DatabaseCon;
 class SHAMapStore;
 
-class ReportingETL;
-
 using NodeCache = TaggedCache<SHAMapHash, Blob>;
 
 template <class Adaptor>
@@ -251,9 +249,6 @@ public:
 
     virtual std::chrono::milliseconds
     getIOLatency() = 0;
-
-    virtual ReportingETL&
-    getReportingETL() = 0;
 
     virtual bool
     serverOkay(std::string& reason) = 0;

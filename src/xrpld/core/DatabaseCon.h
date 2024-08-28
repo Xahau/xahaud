@@ -88,7 +88,6 @@ public:
 
         Config::StartUpType startUp = Config::NORMAL;
         bool standAlone = false;
-        bool reporting = false;
         boost::filesystem::path dataDir;
         // Indicates whether or not to return the `globalPragma`
         // from commonPragma()
@@ -120,8 +119,7 @@ public:
         beast::Journal journal)
         // Use temporary files or regular DB files?
         : DatabaseCon(
-              setup.standAlone && !setup.reporting &&
-                      setup.startUp != Config::LOAD &&
+              setup.standAlone && setup.startUp != Config::LOAD &&
                       setup.startUp != Config::LOAD_FILE &&
                       setup.startUp != Config::REPLAY
                   ? ""

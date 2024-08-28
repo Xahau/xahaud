@@ -22,7 +22,6 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/app/reporting/P2pProxy.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>

@@ -412,7 +412,7 @@ private:
             CountedObjects::getInstance().getCounts(1);
 
         // Database metrics if applicable
-        if (!app_.config().reporting() && app_.config().useTxTables())
+        if (app_.config().useTxTables())
         {
             auto const db =
                 dynamic_cast<SQLiteDatabase*>(&app_.getRelationalDatabase());
@@ -723,10 +723,7 @@ private:
         header->uptime = UptimeClock::now().time_since_epoch().count();
         header->io_latency_us = app_.getIOLatency().count();
         header->validation_quorum = app_.validators().quorum();
-
-        if (!app_.config().reporting())
-            header->peer_count = app_.overlay().size();
-
+        header->peer_count = app_.overlay().size();
         header->node_size = app_.config().NODE_SIZE;
 
         // Get state accounting data
@@ -790,25 +787,22 @@ private:
         if (fp != 0)
             header->fetch_pack_size = fp;
 
-        // Pack load factor info if not reporting
-        if (!app_.config().reporting())
-        {
-            auto const escalationMetrics =
-                app_.getTxQ().getMetrics(*app_.openLedger().current());
-            auto const loadFactorServer = app_.getFeeTrack().getLoadFactor();
-            auto const loadBaseServer = app_.getFeeTrack().getLoadBase();
-            auto const loadFactorFeeEscalation =
-                mulDiv(
-                    escalationMetrics.openLedgerFeeLevel,
-                    loadBaseServer,
-                    escalationMetrics.referenceFeeLevel)
-                    .value_or(muldiv_max);
+        // Pack load factor info
+        auto const escalationMetrics =
+            app_.getTxQ().getMetrics(*app_.openLedger().current());
+        auto const loadFactorServer = app_.getFeeTrack().getLoadFactor();
+        auto const loadBaseServer = app_.getFeeTrack().getLoadBase();
+        auto const loadFactorFeeEscalation =
+            mulDiv(
+                escalationMetrics.openLedgerFeeLevel,
+                loadBaseServer,
+                escalationMetrics.referenceFeeLevel)
+                .value_or(muldiv_max);
 
-            header->load_factor = std::max(
-                safe_cast<std::uint64_t>(loadFactorServer),
-                loadFactorFeeEscalation);
-            header->load_base = loadBaseServer;
-        }
+        header->load_factor = std::max(
+            safe_cast<std::uint64_t>(loadFactorServer),
+            loadFactorFeeEscalation);
+        header->load_base = loadBaseServer;
 
 #if defined(__linux__)
         // Get system info using sysinfo
@@ -899,7 +893,7 @@ private:
 
         // Pack ledger info and ranges
         auto lpClosed = ledgerMaster.getValidatedLedger();
-        if (!lpClosed && !app_.config().reporting())
+        if (!lpClosed)
             lpClosed = ledgerMaster.getClosedLedger();
 
         if (lpClosed)
