@@ -5474,6 +5474,7 @@ private:
             params[jss::transaction] = txIds[i];
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
+            BEAST_EXPECT(meta[jss::delivered_amount] == "1000000");
             for (auto const& node : meta[sfAffectedNodes.jsonName])
             {
                 auto const nodeType = node[sfLedgerEntryType.jsonName];

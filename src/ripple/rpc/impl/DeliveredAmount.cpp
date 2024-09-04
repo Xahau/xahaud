@@ -61,22 +61,7 @@ getDeliveredAmount(
 
     if (serializedTx->isFieldPresent(sfAmount))
     {
-        using namespace std::chrono_literals;
-
-        // Ledger 4594095 is the first ledger in which the DeliveredAmount field
-        // was present when a partial payment was made and its absence indicates
-        // that the amount delivered is listed in the Amount field.
-        //
-        // If the ledger closed long after the DeliveredAmount code was deployed
-        // then its absence indicates that the amount delivered is listed in the
-        // Amount field. DeliveredAmount went live January 24, 2014.
-        // 446000000 is in Feb 2014, well after DeliveredAmount went live
-        if (getLedgerIndex() >= 4594095 ||
-            getCloseTime() > NetClock::time_point{446000000s} ||
-            (serializedTx && serializedTx->isFieldPresent(sfNetworkID)))
-        {
-            return serializedTx->getFieldAmount(sfAmount);
-        }
+        return serializedTx->getFieldAmount(sfAmount);
     }
 
     return {};
