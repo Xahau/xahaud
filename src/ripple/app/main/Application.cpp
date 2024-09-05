@@ -352,6 +352,7 @@ public:
         , validatorKeys_(*config_, m_journal)
 
         , m_resourceManager(Resource::make_Manager(
+              config_->section("resource"),
               m_collectorManager->collector(),
               logs_->journal("Resource")))
 

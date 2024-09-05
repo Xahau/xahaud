@@ -17,33 +17,18 @@
 */
 //==============================================================================
 
-// Tuning.h
-#ifndef RIPPLE_RESOURCE_TUNING_H_INCLUDED
-#define RIPPLE_RESOURCE_TUNING_H_INCLUDED
-
-#include <chrono>
+#include "Tuning.h"
 
 namespace ripple {
 namespace Resource {
 
-class Tuning
-{
-public:
-    static std::uint32_t warningThreshold;
-    static std::uint32_t dropThreshold;
-    // static std::uint32_t decayWindowSeconds;
-    static std::uint32_t minimumGossipBalance;
+uint32_t Tuning::warningThreshold = 5000;
+uint32_t Tuning::dropThreshold = 15000;
+// uint32_t Tuning::decayWindowSeconds = 32;
+uint32_t Tuning::minimumGossipBalance = 1000;
 
-    static std::chrono::seconds const secondsUntilExpiration;
-    static std::chrono::seconds const gossipExpirationSeconds;
-
-    static constexpr std::uint32_t getDecayWindowSeconds()
-    {
-        return 32;
-    }
-};
+std::chrono::seconds constexpr Tuning::secondsUntilExpiration{300};
+std::chrono::seconds constexpr Tuning::gossipExpirationSeconds{30};
 
 }  // namespace Resource
 }  // namespace ripple
-
-#endif

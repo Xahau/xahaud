@@ -89,7 +89,7 @@ struct Entry : public beast::List<Entry>::Node
     int refcount;
 
     // Exponentially decaying balance of resource consumption
-    DecayingSample<decayWindowSeconds, clock_type> local_balance;
+    DecayingSample<Tuning::getDecayWindowSeconds(), clock_type> local_balance;
 
     // Normalized balance contribution from imports
     int remote_balance;
