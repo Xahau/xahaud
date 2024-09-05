@@ -92,10 +92,10 @@ ApplyView::dirAdd(
     }
 
     bool const capped = !rules().enabled(fixPageCap);
-    
+
     // Check whether we're out of pages.
     if (++page >= dirNodeMaxPages && capped)
-            return std::nullopt;
+        return std::nullopt;
 
     // We are about to create a new node; we'll link it to
     // the chain first:
