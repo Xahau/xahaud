@@ -28,6 +28,7 @@
 #include <ripple/core/JobQueue.h>
 #include <ripple/nodestore/DatabaseShard.h>
 #include <ripple/protocol/jss.h>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -139,6 +140,37 @@ public:
                 shardStore->storeLedger(inbound->getLedger());
         }
         return inbound->getLedger();
+    }
+
+    void
+    acquireAsync(
+        uint256 const& hash,
+        std::uint32_t seq,
+        InboundLedger::Reason reason) override
+    {
+        std::unique_lock lock(acquiresMutex_);
+        try
+        {
+            if (pendingAcquires_.contains(hash))
+                return;
+            pendingAcquires_.insert(hash);
+            lock.unlock();
+            acquire(hash, seq, reason);
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(j_.warn())
+                << "Exception thrown for acquiring new inbound ledger " << hash
+                << ": " << e.what();
+        }
+        catch (...)
+        {
+            JLOG(j_.warn())
+                << "Unknown exception thrown for acquiring new inbound ledger "
+                << hash;
+        }
+        lock.lock();
+        pendingAcquires_.erase(hash);
     }
 
     std::shared_ptr<InboundLedger>
@@ -426,6 +458,9 @@ private:
     beast::insight::Counter mCounter;
 
     std::unique_ptr<PeerSetBuilder> mPeerSetBuilder;
+
+    std::set<uint256> pendingAcquires_;
+    std::mutex acquiresMutex_;
 };
 
 //------------------------------------------------------------------------------
