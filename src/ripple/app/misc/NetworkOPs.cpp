@@ -70,10 +70,10 @@
 #include <boost/asio/ip/host_name.hpp>
 #include <boost/asio/steady_timer.hpp>
 
-#include <mutex>
-#include <string>
-#include <set>
 #include <exception>
+#include <mutex>
+#include <set>
+#include <string>
 #include <tuple>
 #include <unordered_map>
 #include <utility>

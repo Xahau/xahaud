@@ -252,8 +252,7 @@ void
 handleNewValidation(
     Application& app,
     std::shared_ptr<STValidation> const& val,
-    std::string const& source
-    std::string const& source,
+    std::string const& source std::string const& source,
     BypassAccept const bypassAccept = BypassAccept::no,
     std::optional<beast::Journal> j = std::nullopt);
 
