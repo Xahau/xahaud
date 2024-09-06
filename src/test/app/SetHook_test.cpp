@@ -19,6 +19,8 @@
 #include <ripple/app/hook/Enum.h>
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/tx/impl/SetHook.h>
+#include <ripple/json/json_reader.h>
+#include <ripple/json/json_writer.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
 #include <test/app/SetHook_wasm.h>
@@ -87,6 +89,147 @@ public:
 // fee unit tests, the rest of the time we want to ignore it.
 #define HSFEE fee(100'000'000)
 #define M(m) memo(m, "", "")
+
+    std::unique_ptr<Config>
+    makePageCapConfig(
+        FeatureBitset features,
+        uint32_t networkID,
+        std::string fee,
+        std::string a_res,
+        std::string o_res,
+        uint32_t ledgerID)
+    {
+        using namespace jtx;
+
+        Json::Value jsonValue;
+        Json::Reader reader;
+        std::string base_genesis = R"json({
+        "ledger": {
+            "accepted": true,
+            "accountState": [
+                {
+                    "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                    "Balance": "100000000000000000",
+                    "Flags": 0,
+                    "LedgerEntryType": "AccountRoot",
+                    "OwnerCount": 0,
+                    "PreviousTxnID": "A92EF82C3C68F771927E3892A2F708F12CBD492EF68A860F042E4053C8EC6C8D",
+                    "PreviousTxnLgrSeq": 0,
+                    "Sequence": 1,
+                    "index": "2B6AC232AA4C4BE41BF49D2459FA4A0347E1B543A4C92FCEE0821C0201E2E9A8"
+                },
+                {
+                    "Amendments": [],
+                    "Flags": 0,
+                    "LedgerEntryType": "Amendments",
+                    "index": "7DB0788C020F02780A673DC74757F23823FA3014C1866E72CC4CD8B226CD6EF4"
+                },
+                {
+                    "BaseFee": "A",
+                    "Flags": 0,
+                    "LedgerEntryType": "FeeSettings",
+                    "ReferenceFeeUnits": 10,
+                    "ReserveBase": 1000000,
+                    "ReserveIncrement": 200000,
+                    "XahauActivationLgrSeq": 0,
+                    "index": "4BC50C9B0D8515D3EAAE1E74B29A95804346C491EE1A95BF25E4AAB854A6A651"
+                },
+                {
+                    "Flags": 0,
+                    "IndexNext": "40000",
+                    "IndexPrevious": "3fffe",
+                    "Indexes": [],
+                    "LedgerEntryType": "DirectoryNode",
+                    "Owner": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                    "RootIndex": "EC1A88838E9ADA27E8ED583917C1530D2F48C3A3C93F50EDAD662D662E9BCC76",
+                    "index": "EC1A88838E9ADA27E8ED583917C1530D2F48C3A3C93F50EDAD662D662E9BCC76"
+                },
+                {
+                    "Flags": 0,
+                    "IndexNext": "3fffe",
+                    "IndexPrevious": "3fffd",
+                    "Indexes": [],
+                    "LedgerEntryType": "DirectoryNode",
+                    "Owner": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                    "RootIndex": "EC1A88838E9ADA27E8ED583917C1530D2F48C3A3C93F50EDAD662D662E9BCC76",
+                    "index": "4A5F3F9E6762A4F89FFCD385FF2309E1F7D1309321BFEEA61D5C9ACB768DB61B"
+                },
+                {
+                    "Flags": 0,
+                    "Indexes": [],
+                    "LedgerEntryType": "DirectoryNode",
+                    "Owner": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                    "RootIndex": "A33EC6BB85FB5674074C4A3A43373BB17645308F3EAE1933E3E35252162B217D",
+                    "index": "A33EC6BB85FB5674074C4A3A43373BB17645308F3EAE1933E3E35252162B217D"
+                },
+                {
+                    "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                    "Balance": "99999899000000",
+                    "Flags": 8388608,
+                    "LedgerEntryType": "AccountRoot",
+                    "HookNamespaces": [ "0000000000000000000000000000000000000000000000000000000000000000" ],
+                    "HookStateCount": 8388576,
+                    "OwnerCount": 8388577,
+                    "PreviousTxnID": "A92EF82C3C68F771927E3892A2F708F12CBD492EF68A860F042E4053C8EC6C8D",
+                    "PreviousTxnLgrSeq": 0,
+                    "Sequence": 3,
+                    "index": "92FA6A9FC8EA6018D5D16532D7795C91BFB0831355BDFDA177E86C8BF997985F"
+                }
+            ],
+            "account_hash": "5DF3A98772FB73E782B8740E87885C6BAD9BA486422E3626DEF968AD2CB2C514",
+            "close_flags": 0,
+            "close_time": 0,
+            "close_time_human": "2000-Jan-01 00:00:00.000000",
+            "close_time_resolution": 10,
+            "closed": true,
+            "hash": "56DA0940767AC2F17F0E384F04816002403D0756432B9D503DDA20128A2AAF11",
+            "ledger_hash": "56DA0940767AC2F17F0E384F04816002403D0756432B9D503DDA20128A2AAF11",
+            "ledger_index": "0",
+            "parent_close_time": 0,
+            "parent_hash": "56DA0940767AC2F17F0E384F04816002403D0756432B9D503DDA20128A2AAF11",
+            "seqNum": "5",
+            "totalCoins": "100000000000000000",
+            "total_coins": "100000000000000000",
+            "transaction_hash": "9A77D1D1A4B36DA77B9C4DC63FDEB8F821741D157802F9C42A6ED86003D8B4A0",
+            "transactions": []
+        },
+        "ledger_current_index": 0,
+        "status": "success",
+        "validated": true
+        })json";
+        reader.parse(base_genesis, jsonValue);
+
+        foreachFeature(features, [&](uint256 const& feature) {
+            std::string featureName = featureToName(feature);
+            std::optional<uint256> featureHash =
+                getRegisteredFeature(featureName);
+            if (featureHash.has_value())
+            {
+                std::string hashString = to_string(featureHash.value());
+                jsonValue["ledger"]["accountState"][1]["Amendments"].append(
+                    hashString);
+            }
+        });
+
+        jsonValue["ledger_current_index"] = ledgerID;
+        jsonValue["ledger"]["ledger_index"] = to_string(ledgerID);
+        jsonValue["ledger"]["seqNum"] = to_string(ledgerID);
+
+        return envconfig([&](std::unique_ptr<Config> cfg) {
+            cfg->NETWORK_ID = networkID;
+            cfg->START_LEDGER = jsonValue.toStyledString();
+            cfg->START_UP = Config::LOAD_JSON;
+            Section config;
+            config.append(
+                {"reference_fee = " + fee,
+                 "account_reserve = " + a_res,
+                 "owner_reserve = " + o_res});
+            auto setup = setup_FeeVote(config);
+            cfg->FEES = setup;
+            return cfg;
+        });
+    }
+
     void
     testHooksOwnerDir(FeatureBitset features)
     {
@@ -926,6 +1069,73 @@ public:
             // ensure the owner count is 1
             BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 1);
         }
+    }
+
+    void
+    testPageCap(FeatureBitset features)
+    {
+        testcase("Test page cap");
+
+        using namespace jtx;
+
+        test::jtx::Env env{
+            *this,
+            makePageCapConfig(features, 21337, "10", "1000000", "200000", 0),
+            features};
+
+        bool const hasFix = env.current()->rules().enabled(fixPageCap);
+
+        auto const alice = Account{"alice"};
+        env.memoize(alice);
+
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000000), bob);
+
+        auto const preHookCount = (*env.le(alice))[sfHookStateCount];
+        auto const preOwnerCount = (*env.le(alice))[sfOwnerCount];
+
+        std::string hook =
+            "0061736D01000000012A0660057F7F7F7F7F017E60027F7F017E60027F7F017F60"
+            "047F7F7F7F017E60037F7F7E017E60017F017E02520603656E7605747261636500"
+            "0003656E760C686F6F6B5F6163636F756E74000103656E76025F67000203656E76"
+            "057374617465000303656E760973746174655F736574000303656E760661636365"
+            "70740004030201050503010002062B077F0141B088040B7F004180080B7F0041A2"
+            "080B7F004180080B7F0041B088040B7F0041000B7F0041010B07080104686F6F6B"
+            "00060ABF830001BB830002017F017E230041D0006B220124002001200036024C41"
+            "900841114180084110410010001A200141306A2200411410011A4101410110021A"
+            "200141286A41082000411410031A2001200131002F200131002842388620013100"
+            "294230867C200131002A4228867C200131002B4220867C200131002C4218867C20"
+            "0131002D4210867C200131002E4208867C7C3703202001410036021C0340419280"
+            "80807841C90110021A200128021C41C8014E4504402001200134021C2001290320"
+            "42C8017E7C370310200141106A220041082000410810041A2001200128021C4101"
+            "6A36021C0C010B0B2001200129032042017C3703202001200141286A220036020C"
+            "200128020C200129032042388842FF01833C0000200128020C2001290320423088"
+            "42FF01833C0001200128020C200129032042288842FF01833C0002200128020C20"
+            "0129032042208842FF01833C0003200128020C200129032042188842FF01833C00"
+            "04200128020C200129032042108842FF01833C0005200128020C20012903204208"
+            "8842FF01833C0006200128020C200129032042FF01833C00072000410820014130"
+            "6A411410041A4180084110421C1005200141D0006A24000B0B2801004180080B21"
+            "426173652E633A2043616C6C65642E0022426173652E633A2043616C6C65642E2"
+            "2";
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set fix_page_cap"),
+            HSFEE);
+        env.close();
+
+        env(invoke::invoke(alice),
+            M("test simple"),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+
+        BEAST_EXPECT(
+            (*env.le(alice))[sfHookStateCount] == hasFix ? preHookCount + 200
+                                                         : preHookCount + 64);
+        BEAST_EXPECT(
+            (*env.le(alice))[sfOwnerCount] == hasFix ? preHookCount + 202
+                                                     : preHookCount + 66);
     }
 
     void
@@ -11761,6 +11971,7 @@ public:
 
         testNSDelete(features);
         testNSDeletePartial(features);
+        testPageCap(features);
 
         testWasm(features);
         test_accept(features);
@@ -11862,6 +12073,8 @@ public:
         testWithFeatures(sa - fixXahauV2);
         testWithFeatures(sa - fixXahauV1 - fixXahauV2);
         testWithFeatures(sa - fixXahauV1 - fixXahauV2 - fixNSDelete);
+        testWithFeatures(
+            sa - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap);
     }
 
 private:
