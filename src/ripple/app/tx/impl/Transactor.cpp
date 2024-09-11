@@ -1923,7 +1923,7 @@ Transactor::operator()()
         uint32_t lgrCur = view().seq();
 
         bool const has240819 = view().rules().enabled(fix240819);
-        bool const has240820 = view().rules().enabled(fix240911);
+        bool const has240911 = view().rules().enabled(fix240911);
 
         auto const& sfRewardFields =
             *(ripple::SField::knownCodeToField.at(917511 - has240819));
@@ -1972,11 +1972,11 @@ Transactor::operator()()
             uint32_t lgrElapsed = lgrCur - lgrLast;
 
             // overflow safety
-            if (!has240820 &&
+            if (!has240911 &&
                 (lgrElapsed > lgrCur || lgrElapsed > lgrLast ||
                  lgrElapsed == 0))
                 continue;
-            if (has240820 && (lgrElapsed > lgrCur || lgrElapsed == 0))
+            if (has240911 && (lgrElapsed > lgrCur || lgrElapsed == 0))
                 continue;
 
             uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
