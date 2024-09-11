@@ -1972,7 +1972,9 @@ Transactor::operator()()
             uint32_t lgrElapsed = lgrCur - lgrLast;
 
             // overflow safety
-            if (!has240820 && (lgrElapsed > lgrCur || lgrElapsed > lgrLast || lgrElapsed == 0))
+            if (!has240820 &&
+                (lgrElapsed > lgrCur || lgrElapsed > lgrLast ||
+                 lgrElapsed == 0))
                 continue;
             if (has240820 && (lgrElapsed > lgrCur || lgrElapsed == 0))
                 continue;
