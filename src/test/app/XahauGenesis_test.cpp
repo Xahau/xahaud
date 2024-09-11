@@ -5373,6 +5373,88 @@ struct XahauGenesis_test : public beast::unit_test::suite
     }
 
     void
+    testNoClaim(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test no claim");
+
+        Env env{
+            *this, envconfig(), features - featureXahauGenesis};
+
+        double const rateDrops = 0.00333333333 * 1'000'000;
+        STAmount const feesXRP = XRP(1);
+
+        auto const user = Account("user");
+        env.fund(XRP(1000), user);
+        env.close();
+
+        // setup governance
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const david = Account("david");
+        auto const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        // update reward delay
+        {
+            // this will be the new reward delay
+            // 100
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env, alice, bob, carol, david, edward, 'R', 'D', vote_data);
+        }
+
+        // verify unl report does not exist
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        // opt in claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // close ledgers (2 cycles)
+        for (int i = 0; i < 20; ++i)
+        {
+            env.close(10s);
+        }
+
+        // close claim ledger & time
+        STAmount const preUser = env.balance(user);
+        NetClock::time_point const preTime = lastClose(env);
+        std::uint32_t const preLedger = env.current()->seq();
+        auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
+
+        // claim reward
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        // trigger emitted txn
+        env.close();
+
+        // calculate rewards
+        bool const hasFix = env.current()->rules().enabled(fix240819) && env.current()->rules().enabled(fix240911);
+        STAmount const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
+        BEAST_EXPECT(netReward == (hasFix ? XRP(3.329999) : XRP(3.329999)));
+
+        // validate account fields
+        STAmount const postUser = preUser + netReward;
+        BEAST_EXPECT(expectAccountFields(
+            env, user, preLedger, preLedger + 1, hasFix ? (preUser - feesXRP) : postUser, preTime));
+        BEAST_EXPECT(
+            postUser == (hasFix ? XRP(1002.329999) : XRP(1002.329999)));
+    }
+
+    void
     testNoClaimLate(FeatureBitset features)
     {
         using namespace jtx;
@@ -5445,7 +5527,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // calculate rewards
-        bool const hasFix = env.current()->rules().enabled(fix240819) && env.current()->rules().enabled(fix240820);
+        bool const hasFix = env.current()->rules().enabled(fix240819) && env.current()->rules().enabled(fix240911);
         STAmount const netReward = rewardUserAmount(*acctSle, preLedger, rateDrops);
         BEAST_EXPECT(netReward == (hasFix ? XRP(3.479999) : XRP(6.663333)));
 
@@ -5479,6 +5561,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testDepositWithdraw(features);
         testDepositLate(features);
         testDepositWithdrawLate(features);
+        testNoClaim(features);
         testNoClaimLate(features);
     }
 
@@ -5500,7 +5583,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testGovernHookWithFeats(sa);
         testRewardHookWithFeats(sa);
         testRewardHookWithFeats(sa - fix240819);
-        testRewardHookWithFeats(sa - fix240819 - fix240820);
+        testRewardHookWithFeats(sa - fix240819 - fix240911);
     }
 };
 

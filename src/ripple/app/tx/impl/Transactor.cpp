@@ -1923,7 +1923,7 @@ Transactor::operator()()
         uint32_t lgrCur = view().seq();
 
         bool const has240819 = view().rules().enabled(fix240819);
-        bool const has240820 = view().rules().enabled(fix240820);
+        bool const has240820 = view().rules().enabled(fix240911);
 
         auto const& sfRewardFields =
             *(ripple::SField::knownCodeToField.at(917511 - has240819));

@@ -359,7 +359,7 @@ extern uint256 const featureRemit;
 extern uint256 const featureZeroB2M;
 extern uint256 const fixNSDelete;
 extern uint256 const fix240819;
-extern uint256 const fix240820;
+extern uint256 const fix240911;
 
 }  // namespace ripple
 
