@@ -202,7 +202,7 @@ getRemarksIssuer(T const& sleO)
             }
             else
             {
-                issuer = (highReserve ? highAcc : lowAcc);
+                issuer = (highReserve ? lowAcc : highAcc);
                 break;
             }
         }
