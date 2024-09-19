@@ -8389,9 +8389,9 @@ DEFINE_JS_FUNCTION(
     RETURNJS_IF_INVALID_FLOAT(*f1);
 
     if (*f1 == 0)
-        returnJSXFL(0);
+        returnJS(0);
 
-    returnJSXFL(is_negative(*f1));
+    returnJS(is_negative(*f1));
 
     JS_HOOK_TEARDOWN();
 }
