@@ -136,8 +136,8 @@ class Freeze_test : public beast::unit_test::suite
             std::cout << "RESULT: " << affected << "\n";
             if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 6u : 5u)))
                 return;
-            auto ff =
-                affected[withTouch ? 4u : 3u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+            auto ff = affected[withTouch ? 4u : 3u][sfModifiedNode.fieldName]
+                              [sfFinalFields.fieldName];
             BEAST_EXPECT(
                 ff[sfHighLimit.fieldName] ==
                 bob["USD"](100).value().getJson(JsonOptions::none));

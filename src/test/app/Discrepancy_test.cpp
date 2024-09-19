@@ -109,7 +109,8 @@ class Discrepancy_test : public beast::unit_test::suite
         auto meta = jrr[jss::meta];
         uint64_t sumPrev{0};
         uint64_t sumFinal{0};
-        BEAST_EXPECT(meta[sfAffectedNodes.fieldName].size() == withTouch ? 11 : 10);
+        BEAST_EXPECT(
+            meta[sfAffectedNodes.fieldName].size() == withTouch ? 11 : 10);
         for (auto const& an : meta[sfAffectedNodes.fieldName])
         {
             Json::Value node;
