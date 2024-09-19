@@ -345,10 +345,8 @@ struct SetRemarks_test : public beast::unit_test::suite
             env.close();
         }
         // tecCLAIM: SetRemarks: insane remarks accounting.
-        {
-        }
-        // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
-        // remarks.
+        {}  // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
+            // remarks.
         {
             std::vector<remarks::remark> _marks;
             unsigned int hexValue = 0xEFAC;
@@ -381,14 +379,6 @@ struct SetRemarks_test : public beast::unit_test::suite
 
         // terNO_ACCOUNT
         // tecNO_TARGET
-        {
-            // setup env
-            Env env{*this, features};
-            auto const alice = Account("alice");
-            auto const bob = Account("bob");
-            env.fund(XRP(1000), alice, bob);
-            env.close();
-        }
         // tecNO_PERMISSION
         // tecTOO_MANY_REMARKS
     }
@@ -437,9 +427,6 @@ struct SetRemarks_test : public beast::unit_test::suite
 
         // setup env
         Env env{*this, features};
-        // Env env{*this, envconfig(), features, nullptr,
-        //     beast::severities::kTrace
-        // };
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const gw = Account("gw");
