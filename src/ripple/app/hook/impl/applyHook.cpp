@@ -3948,7 +3948,11 @@ DEFINE_JS_FUNCTION(
     if (!slot_no.has_value())
         returnJS(INVALID_ARGUMENT);
 
-    returnJS(__slot_float(hookCtx, applyCtx, j, *slot_no));
+    auto const out = __slot_float(hookCtx, applyCtx, j, *slot_no);
+    if (out <= 0)
+        returnJS(out);
+    
+    returnJSXFL(out);
 
     JS_HOOK_TEARDOWN();
 }
