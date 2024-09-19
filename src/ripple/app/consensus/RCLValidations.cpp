@@ -135,8 +135,10 @@ RCLValidationsAdaptor::acquire(LedgerHash const& hash)
         Application* pApp = &app_;
 
         app_.getJobQueue().addJob(
-            jtADVANCE, "getConsensusLedger", [pApp, hash]() {
-                pApp->getInboundLedgers().acquire(
+            jtADVANCE, "getConsensusLedger2", [pApp, hash, this]() {
+                JLOG(j_.debug())
+                    << "JOB advanceLedger getConsensusLedger2 started";
+                pApp->getInboundLedgers().acquireAsync(
                     hash, 0, InboundLedger::Reason::CONSENSUS);
             });
         return std::nullopt;
@@ -152,7 +154,9 @@ void
 handleNewValidation(
     Application& app,
     std::shared_ptr<STValidation> const& val,
-    std::string const& source)
+    std::string const& source,
+    BypassAccept const bypassAccept,
+    std::optional<beast::Journal> j)
 {
     auto const& signingKey = val->getSignerPublic();
     auto const& hash = val->getLedgerHash();
@@ -177,7 +181,23 @@ handleNewValidation(
     if (outcome == ValStatus::current)
     {
         if (val->isTrusted())
-            app.getLedgerMaster().checkAccept(hash, seq);
+        {
+            // Was: app.getLedgerMaster().checkAccept(hash, seq);
+            // https://github.com/XRPLF/rippled/commit/fbbea9e6e25795a8a6bd1bf64b780771933a9579
+            if (bypassAccept == BypassAccept::yes)
+            {
+                assert(j.has_value());
+                if (j.has_value())
+                {
+                    JLOG(j->trace()) << "Bypassing checkAccept for validation "
+                                     << val->getLedgerHash();
+                }
+            }
+            else
+            {
+                app.getLedgerMaster().checkAccept(hash, seq);
+            }
+        }
         return;
     }
 

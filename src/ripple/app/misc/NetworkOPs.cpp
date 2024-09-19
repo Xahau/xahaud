@@ -70,7 +70,9 @@
 #include <boost/asio/ip/host_name.hpp>
 #include <boost/asio/steady_timer.hpp>
 
+#include <exception>
 #include <mutex>
+#include <set>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -776,6 +778,9 @@ private:
 
     StateAccounting accounting_{};
 
+    std::set<uint256> pendingValidations_;
+    std::mutex validationsMutex_;
+
 private:
     struct Stats
     {
@@ -1142,8 +1147,12 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
     // Enforce Network bar for emitted txn
     if (view->rules().enabled(featureHooks) && hook::isEmittedTxn(*iTrans))
     {
-        JLOG(m_journal.warn())
-            << "Submitted transaction invalid: EmitDetails present.";
+        // RH NOTE: Warning removed here due to ConsesusSet using this function
+        // which continually triggers this bar. Doesn't seem dangerous, just
+        // annoying.
+
+        // JLOG(m_journal.warn())
+        //    << "Submitted transaction invalid: EmitDetails present.";
         return;
     }
 
@@ -1155,7 +1164,11 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 
     if ((flags & SF_BAD) != 0)
     {
-        JLOG(m_journal.warn()) << "Submitted transaction cached bad";
+        // RH NOTE: Warning removed here due to ConsesusSet using this function
+        // which continually triggers this bar. Doesn't seem dangerous, just
+        // annoying.
+
+        // JLOG(m_journal.warn()) << "Submitted transaction cached bad";
         return;
     }
 
@@ -1783,7 +1796,8 @@ NetworkOPsImp::checkLastClosedLedger(
     }
 
     JLOG(m_journal.warn()) << "We are not running on the consensus ledger";
-    JLOG(m_journal.info()) << "Our LCL: " << getJson({*ourClosed, {}});
+    JLOG(m_journal.info()) << "Our LCL: " << ourClosed->info().hash
+                           << getJson({*ourClosed, {}});
     JLOG(m_journal.info()) << "Net LCL " << closedLedger;
 
     if ((mMode == OperatingMode::TRACKING) || (mMode == OperatingMode::FULL))
@@ -2337,7 +2351,37 @@ NetworkOPsImp::recvValidation(
     JLOG(m_journal.trace())
         << "recvValidation " << val->getLedgerHash() << " from " << source;
 
-    handleNewValidation(app_, val, source);
+    // handleNewValidation(app_, val, source);
+    // https://github.com/XRPLF/rippled/commit/fbbea9e6e25795a8a6bd1bf64b780771933a9579
+    std::unique_lock lock(validationsMutex_);
+    BypassAccept bypassAccept = BypassAccept::no;
+    try
+    {
+        if (pendingValidations_.contains(val->getLedgerHash()))
+            bypassAccept = BypassAccept::yes;
+        else
+            pendingValidations_.insert(val->getLedgerHash());
+        lock.unlock();
+        handleNewValidation(app_, val, source, bypassAccept, m_journal);
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(m_journal.warn())
+            << "Exception thrown for handling new validation "
+            << val->getLedgerHash() << ": " << e.what();
+    }
+    catch (...)
+    {
+        JLOG(m_journal.warn())
+            << "Unknown exception thrown for handling new validation "
+            << val->getLedgerHash();
+    }
+    if (bypassAccept == BypassAccept::no)
+    {
+        lock.lock();
+        pendingValidations_.erase(val->getLedgerHash());
+        lock.unlock();
+    }
 
     pubValidation(val);
 
