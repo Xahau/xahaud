@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2015 Ripple Labs Inc.
+    Copyright (c) 2024 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,30 +17,48 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/basics/mulDiv.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <limits>
-#include <utility>
+#ifndef RIPPLE_TEST_JTX_REMARKS_H_INCLUDED
+#define RIPPLE_TEST_JTX_REMARKS_H_INCLUDED
+
+#include <test/jtx/Account.h>
+#include <test/jtx/Env.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
 
-std::pair<bool, std::uint64_t>
-mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
+namespace remarks {
+
+struct remark
 {
-    using namespace boost::multiprecision;
+    std::string name;
+    std::optional<std::string> value;
+    std::optional<std::uint32_t> flags;
+    remark(
+        std::string name_,
+        std::optional<std::string> value_ = std::nullopt,
+        std::optional<std::uint32_t> flags_ = std::nullopt)
+        : name(name_), value(value_), flags(flags_)
+    {
+        if (value_)
+            value = *value_;
 
-    boost::multiprecision::uint128_t result;
-    result = multiply(result, value, mul);
+        if (flags_)
+            flags = *flags_;
+    }
+};
 
-    result /= div;
+Json::Value
+setRemarks(
+    jtx::Account const& account,
+    uint256 const& id,
+    std::vector<remark> const& marks);
 
-    auto constexpr limit = std::numeric_limits<std::uint64_t>::max();
+}  // namespace remarks
 
-    if (result > limit)
-        return {false, limit};
+}  // namespace jtx
 
-    return {true, static_cast<std::uint64_t>(result)};
-}
-
+}  // namespace test
 }  // namespace ripple
+
+#endif  // RIPPLE_TEST_JTX_REMARKS_H_INCLUDED

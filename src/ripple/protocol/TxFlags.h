@@ -190,6 +190,9 @@ enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };
 
+// Remarks flags:
+constexpr std::uint32_t const tfImmutable = 1;
+
 // clang-format on
 
 }  // namespace ripple

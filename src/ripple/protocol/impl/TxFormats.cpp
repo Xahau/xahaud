@@ -456,6 +456,14 @@ TxFormats::TxFormats()
             {sfTicketSequence, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::SetRemarks,
+        ttREMARKS_SET,
+        {
+            {sfObjectID, soeREQUIRED},
+            {sfRemarks, soeREQUIRED},
+        },
+        commonFields);
 }
 
 TxFormats const&

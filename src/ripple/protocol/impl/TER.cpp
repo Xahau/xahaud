@@ -92,6 +92,8 @@ transResults()
         MAKE_ERROR(tecREQUIRES_FLAG,                 "The transaction or part-thereof requires a flag that wasn't set."),
         MAKE_ERROR(tecPRECISION_LOSS,                "The amounts used by the transaction cannot interact."),
         MAKE_ERROR(tecINSUF_RESERVE_SELLER,          "The seller of an object has insufficient reserves, and thus cannot complete the sale."),
+        MAKE_ERROR(tecIMMUTABLE,                     "The remark is marked immutable on the object, and therefore cannot be updated."),
+        MAKE_ERROR(tecTOO_MANY_REMARKS,              "The number of remarks on the object would exceed the limit of 32."),
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),
         MAKE_ERROR(tefBAD_AUTH,                    "Transaction's public key is not authorized."),

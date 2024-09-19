@@ -456,6 +456,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/Import.cpp
   src/ripple/app/tx/impl/Invoke.cpp
   src/ripple/app/tx/impl/Remit.cpp
+  src/ripple/app/tx/impl/SetRemarks.cpp
   src/ripple/app/tx/impl/SetSignerList.cpp
   src/ripple/app/tx/impl/SetTrust.cpp
   src/ripple/app/tx/impl/SignerEntries.cpp
@@ -744,7 +745,10 @@ if (tests)
     src/test/app/Remit_test.cpp
     src/test/app/SHAMapStore_test.cpp
     src/test/app/SetAuth_test.cpp
+    src/test/app/SetHook_test.cpp
+    src/test/app/SetHookTSH_test.cpp
     src/test/app/SetRegularKey_test.cpp
+    src/test/app/SetRemarks_test.cpp
     src/test/app/SetTrust_test.cpp
     src/test/app/Taker_test.cpp
     src/test/app/TheoreticalQuality_test.cpp
@@ -756,8 +760,6 @@ if (tests)
     src/test/app/ValidatorKeys_test.cpp
     src/test/app/ValidatorList_test.cpp
     src/test/app/ValidatorSite_test.cpp
-    src/test/app/SetHook_test.cpp
-    src/test/app/SetHookTSH_test.cpp
     src/test/app/Wildcard_test.cpp
     src/test/app/XahauGenesis_test.cpp
     src/test/app/tx/apply_test.cpp
@@ -891,6 +893,7 @@ if (tests)
     src/test/jtx/impl/rate.cpp
     src/test/jtx/impl/regkey.cpp
     src/test/jtx/impl/reward.cpp
+    src/test/jtx/impl/remarks.cpp
     src/test/jtx/impl/remit.cpp
     src/test/jtx/impl/sendmax.cpp
     src/test/jtx/impl/seq.cpp

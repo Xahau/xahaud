@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2015 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,30 +17,40 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/basics/mulDiv.h>
-#include <boost/multiprecision/cpp_int.hpp>
-#include <limits>
-#include <utility>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/remarks.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
+namespace remarks {
 
-std::pair<bool, std::uint64_t>
-mulDiv(std::uint64_t value, std::uint64_t mul, std::uint64_t div)
+Json::Value
+setRemarks(
+    jtx::Account const& account,
+    uint256 const& id,
+    std::vector<remark> const& marks)
 {
-    using namespace boost::multiprecision;
-
-    boost::multiprecision::uint128_t result;
-    result = multiply(result, value, mul);
-
-    result /= div;
-
-    auto constexpr limit = std::numeric_limits<std::uint64_t>::max();
-
-    if (result > limit)
-        return {false, limit};
-
-    return {true, static_cast<std::uint64_t>(result)};
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::SetRemarks;
+    jv[jss::Account] = account.human();
+    jv[sfObjectID.jsonName] = strHex(id);
+    auto& ja = jv[sfRemarks.getJsonName()];
+    for (std::size_t i = 0; i < marks.size(); ++i)
+    {
+        ja[i][sfRemark.jsonName] = Json::Value{};
+        ja[i][sfRemark.jsonName][sfRemarkName.jsonName] = marks[i].name;
+        if (marks[i].value)
+            ja[i][sfRemark.jsonName][sfRemarkValue.jsonName] = *marks[i].value;
+        if (marks[i].flags)
+            ja[i][sfRemark.jsonName][sfFlags.jsonName] = *marks[i].flags;
+    }
+    jv[sfRemarks.jsonName] = ja;
+    return jv;
 }
 
+}  // namespace remarks
+}  // namespace jtx
+}  // namespace test
 }  // namespace ripple
