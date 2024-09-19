@@ -1948,6 +1948,13 @@ Transactor::operator()()
         STObject const meta = metaRaw.getAsObject();
 
         uint32_t lgrCur = view().seq();
+
+        bool const has240819 = view().rules().enabled(fix240819);
+        bool const has240911 = view().rules().enabled(fix240911);
+
+        auto const& sfRewardFields =
+            *(ripple::SField::knownCodeToField.at(917511 - has240819));
+
         // iterate all affected balances
         for (auto const& node : meta.getFieldArray(sfAffectedNodes))
         {
@@ -1959,7 +1966,7 @@ Transactor::operator()()
             if (nodeType != ltACCOUNT_ROOT || metaType == sfDeletedNode)
                 continue;
 
-            if (!node.isFieldPresent(sfFinalFields) ||
+            if (!node.isFieldPresent(sfRewardFields) ||
                 !node.isFieldPresent(sfLedgerIndex))
                 continue;
 
@@ -1975,7 +1982,7 @@ Transactor::operator()()
                 continue;
 
             STObject& finalFields = (const_cast<STObject&>(node))
-                                        .getField(sfFinalFields)
+                                        .getField(sfRewardFields)
                                         .downcast<STObject>();
 
             if (!finalFields.isFieldPresent(sfBalance))
@@ -1992,7 +1999,11 @@ Transactor::operator()()
             uint32_t lgrElapsed = lgrCur - lgrLast;
 
             // overflow safety
-            if (lgrElapsed > lgrCur || lgrElapsed > lgrLast || lgrElapsed == 0)
+            if (!has240911 &&
+                (lgrElapsed > lgrCur || lgrElapsed > lgrLast ||
+                 lgrElapsed == 0))
+                continue;
+            if (has240911 && (lgrElapsed > lgrCur || lgrElapsed == 0))
                 continue;
 
             uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
