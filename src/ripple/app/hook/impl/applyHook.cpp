@@ -3949,7 +3949,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
 
     auto const out = __slot_float(hookCtx, applyCtx, j, *slot_no);
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
     
     returnJSXFL(out);
@@ -7520,7 +7520,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
 
     int64_t const out = __float_multiply(hookCtx, applyCtx, j, *f1, *f2);
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
 
     returnJSXFL(out);
@@ -7587,7 +7587,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
 
     int64_t const out = __float_mulratio(hookCtx, applyCtx, j, *f1, (uint32_t)(*ru), (uint32_t)(*n), (uint32_t)(*d));
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
 
     returnJSXFL(out);
@@ -8263,7 +8263,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
 
     int64_t const out = float_divide_internal(*f1, *f2);
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
     
     returnJSXFL(out);
@@ -8316,7 +8316,7 @@ DEFINE_JS_FUNCTION(
         returnJSXFL(float_one_internal);
 
     int64_t const out = float_divide_internal(float_one_internal, *f1);
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
 
     returnJSXFL(out);
@@ -8354,7 +8354,7 @@ DEFINE_JS_FUNCTION(
         returnJS(0);
 
     int64_t const out = get_mantissa(*f1);
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
     
     returnJSXFL(out);
@@ -8490,7 +8490,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
 
     int64_t const out = __float_log(hookCtx, applyCtx, j, *f1);
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
     
     returnJSXFL(out);
@@ -8545,7 +8545,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
 
     int64_t out = __float_root(hookCtx, applyCtx, j, *f1, (uint32_t)(*n));
-    if (out <= 0)
+    if (out < 0)
         returnJS(out);
 
     returnJSXFL(out);
