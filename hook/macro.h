@@ -1,5 +1,5 @@
 /**
- * These are helper macros for writing hooks, all of them are optional as is including hookmacro.h at all
+ * These are helper macros for writing hooks, all of them are optional as is including macro.h at all
  */
 
 #include <stdint.h>
