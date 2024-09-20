@@ -75,6 +75,7 @@ include(deps/gRPC)
 include(deps/cassandra)
 include(deps/Postgres)
 include(deps/WasmEdge)
+include(deps/Mongo)
 
 ###
 
