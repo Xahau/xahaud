@@ -498,6 +498,19 @@ Config::loadFromString(std::string const& fileContents)
             boost::filesystem::path p(dbPath);
             legacy("database_path", boost::filesystem::absolute(p).string());
         }
+
+        const Section& rdb_section{section(SECTION_RELATIONAL_DB)};
+        if (!rdb_section.empty())
+        {
+            if (boost::iequals(get(rdb_section, "backend"), "sqlite"))
+            {
+                RELATIONAL_DB = 0;
+            }
+            else if (boost::iequals(get(rdb_section, "backend"), "lmdb"))
+            {
+                RELATIONAL_DB = 1;
+            }
+        }
     }
 
     std::string strTemp;

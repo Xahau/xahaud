@@ -58,12 +58,12 @@ getNodeIdentity(
         return {publicKey, secretKey};
     }
 
-    auto db = app.getWalletDB().checkoutDb();
+    auto db = app.getWalletDB().checkoutLMDB();
 
     if (cmdline.count("newnodeid") != 0)
-        clearNodeIdentity(*db);
+        clearNodeIdentity(db.get());
 
-    return getNodeIdentity(*db);
+    return getNodeIdentity(db.get());
 }
 
 }  // namespace ripple

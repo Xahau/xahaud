@@ -328,8 +328,8 @@ AmendmentTableImpl::AmendmentTableImpl(
 
     // Find out if the FeatureVotes table exists in WalletDB
     bool const featureVotesExist = [this]() {
-        auto db = db_.checkoutDb();
-        return createFeatureVotes(*db);
+        auto db = db_.checkoutLMDB();
+        return createFeatureVotes(db.get());
     }();
 
     // Parse supported amendments
@@ -404,9 +404,9 @@ AmendmentTableImpl::AmendmentTableImpl(
     }
 
     // Read amendment votes from wallet.db
-    auto db = db_.checkoutDb();
+    auto db = db_.checkoutLMDB();
     readAmendments(
-        *db,
+        db.get(),
         [&](boost::optional<std::string> amendment_hash,
             boost::optional<std::string> amendment_name,
             boost::optional<AmendmentVote> vote) {
@@ -506,8 +506,8 @@ AmendmentTableImpl::persistVote(
     AmendmentVote vote) const
 {
     assert(vote != AmendmentVote::obsolete);
-    auto db = db_.checkoutDb();
-    voteAmendment(*db, amendment, name, vote);
+    auto db = db_.checkoutLMDB();
+    voteAmendment(db.get(), amendment, name, vote);
 }
 
 bool

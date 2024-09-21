@@ -24,6 +24,7 @@
 #include <ripple/core/Config.h>
 #include <ripple/core/SociDB.h>
 #include <boost/filesystem/path.hpp>
+#include <lmdb.h>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -33,6 +34,51 @@ class session;
 }
 
 namespace ripple {
+
+class LockedLmdbSession
+{
+public:
+    using mutex = std::recursive_mutex;
+
+private:
+    std::shared_ptr<MDB_env> env_;
+    std::unique_lock<mutex> lmdblock_;
+
+public:
+    LockedLmdbSession(std::shared_ptr<MDB_env> env, mutex& m)
+        : env_(std::move(env)), lmdblock_(m)
+    {
+    }
+    LockedLmdbSession(LockedLmdbSession&& rhs) noexcept
+        : env_(std::move(rhs.env_)), lmdblock_(std::move(rhs.lmdblock_))
+    {
+    }
+    LockedLmdbSession() = delete;
+    LockedLmdbSession(LockedLmdbSession const& rhs) = delete;
+    LockedLmdbSession&
+    operator=(LockedLmdbSession const& rhs) = delete;
+
+    MDB_env*
+    get()
+    {
+        return env_.get();
+    }
+    MDB_env&
+    operator*()
+    {
+        return *env_;
+    }
+    MDB_env*
+    operator->()
+    {
+        return env_.get();
+    }
+    explicit
+    operator bool() const
+    {
+        return bool(env_);
+    }
+};
 
 class LockedSociSession
 {
@@ -88,6 +134,7 @@ public:
         Config::StartUpType startUp = Config::NORMAL;
         bool standAlone = false;
         bool reporting = false;
+        bool sqlite3 = true;
         boost::filesystem::path dataDir;
         // Indicates whether or not to return the `globalPragma`
         // from commonPragma()
@@ -166,6 +213,20 @@ public:
         setupCheckpointing(checkpointerSetup.jobQueue, *checkpointerSetup.logs);
     }
 
+    DatabaseCon(
+        Setup const& setup,
+        std::string const& dbName,
+        CheckpointerSetup const& checkpointerSetup)
+        : DatabaseCon(setup.dataDir / dbName)
+    {
+        setupCheckpointing(checkpointerSetup.jobQueue, *checkpointerSetup.logs);
+    }
+
+    DatabaseCon(Setup const& setup, std::string const& dbName)
+        : DatabaseCon(setup.dataDir / dbName)
+    {
+    }
+
     ~DatabaseCon();
 
     soci::session&
@@ -178,6 +239,18 @@ public:
     checkoutDb()
     {
         return LockedSociSession(session_, lock_);
+    }
+
+    MDB_env&
+    getLMDB()
+    {
+        return *env_;
+    }
+
+    LockedLmdbSession
+    checkoutLMDB()
+    {
+        return LockedLmdbSession(env_, lmdblock_);
     }
 
 private:
@@ -214,7 +287,23 @@ private:
         }
     }
 
+    DatabaseCon(boost::filesystem::path const& pPath)
+        : env_([&pPath]() {
+            boost::system::error_code ec;
+            boost::filesystem::create_directories(pPath, ec);
+            MDB_env *env;
+            mdb_env_create(&env);
+            mdb_env_set_mapsize(env, 10737418240);
+            mdb_env_set_maxdbs(env, 10);
+            mdb_env_open(env, pPath.c_str(), 0, 0664);
+            return std::shared_ptr<MDB_env>(
+                env, [](MDB_env* env) { mdb_env_close(env); });
+        }())
+    {
+    }
+
     LockedSociSession::mutex lock_;
+    LockedLmdbSession::mutex lmdblock_;
 
     // checkpointer may outlive the DatabaseCon when the checkpointer jobQueue
     // callback locks a weak pointer and the DatabaseCon is then destroyed. In
@@ -223,6 +312,7 @@ private:
     // the checkpointer can keep a weak_ptr) and the checkpointer is a
     // shared_ptr in this class. session_ will never be null.
     std::shared_ptr<soci::session> const session_;
+    std::shared_ptr<MDB_env> const env_;
     std::shared_ptr<Checkpointer> checkpointer_;
 };
 

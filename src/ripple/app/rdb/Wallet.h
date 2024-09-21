@@ -26,12 +26,14 @@
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/overlay/PeerReservationTable.h>
 #include <ripple/peerfinder/impl/Store.h>
+#include <lmdb.h>
 
 namespace ripple {
 
 /**
  * @brief makeWalletDB Opens the wallet database and returns it.
  * @param setup Path to the database and other opening parameters.
+ * @param j Journal.
  * @return Unique pointer to the database descriptor.
  */
 std::unique_ptr<DatabaseCon>
@@ -41,6 +43,7 @@ makeWalletDB(DatabaseCon::Setup const& setup);
  * @brief makeTestWalletDB Opens a test wallet database with an arbitrary name.
  * @param setup Path to the database and other opening parameters.
  * @param dbname Name of the database.
+ * @param j Journal.
  * @return Unique pointer to the database descriptor.
  */
 std::unique_ptr<DatabaseCon>
@@ -55,6 +58,12 @@ makeTestWalletDB(DatabaseCon::Setup const& setup, std::string const& dbname);
  * @param mCache Cache for storing the manifest.
  * @param j Journal.
  */
+void
+getManifests(
+    MDB_env* env,
+    std::string const& dbTable,
+    ManifestCache& mCache,
+    beast::Journal j);
 void
 getManifests(
     soci::session& session,
@@ -72,6 +81,13 @@ getManifests(
  */
 void
 saveManifests(
+    MDB_env* env,
+    std::string const& dbTable,
+    std::function<bool(PublicKey const&)> const& isTrusted,
+    hash_map<PublicKey, Manifest> const& map,
+    beast::Journal j);
+void
+saveManifests(
     soci::session& session,
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
@@ -85,9 +101,13 @@ saveManifests(
  * @param serialized Manifest of the validator in raw format.
  */
 void
+addValidatorManifest(MDB_env* env, std::string const& serialized);
+void
 addValidatorManifest(soci::session& session, std::string const& serialized);
 
 /** Delete any saved public/private key associated with this node. */
+void
+clearNodeIdentity(MDB_env* env);
 void
 clearNodeIdentity(soci::session& session);
 
@@ -102,6 +122,8 @@ clearNodeIdentity(soci::session& session);
     @return Pair of public and private secp256k1 keys.
  */
 std::pair<PublicKey, SecretKey>
+getNodeIdentity(MDB_env* env);
+std::pair<PublicKey, SecretKey>
 getNodeIdentity(soci::session& session);
 
 /**
@@ -111,6 +133,8 @@ getNodeIdentity(soci::session& session);
  * @return Peer reservation hash table.
  */
 std::unordered_set<PeerReservation, beast::uhash<>, KeyEqual>
+getPeerReservationTable(MDB_env* env, beast::Journal j);
+std::unordered_set<PeerReservation, beast::uhash<>, KeyEqual>
 getPeerReservationTable(soci::session& session, beast::Journal j);
 
 /**
@@ -119,6 +143,11 @@ getPeerReservationTable(soci::session& session, beast::Journal j);
  * @param nodeId Public key of the node.
  * @param description Description of the node.
  */
+void
+insertPeerReservation(
+    MDB_env* env,
+    PublicKey const& nodeId,
+    std::string const& description);
 void
 insertPeerReservation(
     soci::session& session,
@@ -132,6 +161,8 @@ insertPeerReservation(
  * @param nodeId Public key of the node to remove.
  */
 void
+deletePeerReservation(MDB_env* env, PublicKey const& nodeId);
+void
 deletePeerReservation(soci::session& session, PublicKey const& nodeId);
 
 /**
@@ -139,6 +170,8 @@ deletePeerReservation(soci::session& session, PublicKey const& nodeId);
  * @param session Session with the wallet database.
  * @return true if the table already exists
  */
+bool
+createFeatureVotes(MDB_env* env);
 bool
 createFeatureVotes(soci::session& session);
 
@@ -154,6 +187,13 @@ enum class AmendmentVote : int { obsolete = -1, up = 0, down = 1 };
  */
 void
 readAmendments(
+    MDB_env* env,
+    std::function<void(
+        boost::optional<std::string> amendment_hash,
+        boost::optional<std::string> amendment_name,
+        boost::optional<AmendmentVote> vote)> const& callback);
+void
+readAmendments(
     soci::session& session,
     std::function<void(
         boost::optional<std::string> amendment_hash,
@@ -167,6 +207,12 @@ readAmendments(
  * @param name Name of the amendment.
  * @param vote Whether to vote in favor of this amendment.
  */
+void
+voteAmendment(
+    MDB_env* env,
+    uint256 const& amendment,
+    std::string const& name,
+    AmendmentVote vote);
 void
 voteAmendment(
     soci::session& session,

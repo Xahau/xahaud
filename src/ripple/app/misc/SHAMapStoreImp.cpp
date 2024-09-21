@@ -22,6 +22,7 @@
 #include <ripple/app/ledger/TransactionMaster.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/rdb/State.h>
+#include <ripple/app/rdb/backend/LMDBDatabase.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/beast/core/CurrentThreadName.h>
 #include <ripple/core/ConfigSections.h>
@@ -634,8 +635,53 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
     if (healthWait() == stopping)
         return;
 
-    SQLiteDatabase* const db =
-        dynamic_cast<SQLiteDatabase*>(&app_.getRelationalDatabase());
+    if (app_.config().RELATIONAL_DB == 0)
+    {
+
+        SQLiteDatabase* const db =
+            dynamic_cast<SQLiteDatabase*>(&app_.getRelationalDatabase());
+
+        if (!db)
+            Throw<std::runtime_error>("Failed to get relational database");
+
+        clearSql(
+            lastRotated,
+            "Ledgers",
+            [db]() -> std::optional<LedgerIndex> { return db->getMinLedgerSeq(); },
+            [db](LedgerIndex min) -> void { db->deleteBeforeLedgerSeq(min); });
+        if (healthWait() == stopping)
+            return;
+
+        if (!app_.config().useTxTables())
+            return;
+
+        clearSql(
+            lastRotated,
+            "Transactions",
+            [&db]() -> std::optional<LedgerIndex> {
+                return db->getTransactionsMinLedgerSeq();
+            },
+            [&db](LedgerIndex min) -> void {
+                db->deleteTransactionsBeforeLedgerSeq(min);
+            });
+        if (healthWait() == stopping)
+            return;
+
+        clearSql(
+            lastRotated,
+            "AccountTransactions",
+            [&db]() -> std::optional<LedgerIndex> {
+                return db->getAccountTransactionsMinLedgerSeq();
+            },
+            [&db](LedgerIndex min) -> void {
+                db->deleteAccountTransactionsBeforeLedgerSeq(min);
+            });
+        if (healthWait() == stopping)
+            return;
+    }
+
+    LMDBDatabase* const db =
+        dynamic_cast<LMDBDatabase*>(&app_.getRelationalDatabase());
 
     if (!db)
         Throw<std::runtime_error>("Failed to get relational database");

@@ -127,12 +127,36 @@ getConnection(soci::session& s)
 }
 
 std::uint32_t
+getKBUsedAll(MDB_env* env)
+{
+    // if (!getConnection(s))
+    //     Throw<std::logic_error>("No connection found.");
+    return static_cast<size_t>(
+        sqlite_api::sqlite3_memory_used() / kilobytes(1));
+}
+
+std::uint32_t
 getKBUsedAll(soci::session& s)
 {
     if (!getConnection(s))
         Throw<std::logic_error>("No connection found.");
     return static_cast<size_t>(
         sqlite_api::sqlite3_memory_used() / kilobytes(1));
+}
+
+std::uint32_t
+getKBUsedDB(MDB_env* env)
+{
+    // This function will have to be customized when other backends are added
+    // if (auto conn = getConnection(s))
+    // {
+    //     int cur = 0, hiw = 0;
+    //     sqlite_api::sqlite3_db_status(
+    //         conn, SQLITE_DBSTATUS_CACHE_USED, &cur, &hiw, 0);
+    //     return cur / kilobytes(1);
+    // }
+    // Throw<std::logic_error>("");
+    return 0;  // Silence compiler warning.
 }
 
 std::uint32_t

@@ -41,6 +41,7 @@ inline constexpr std::uint32_t SQLITE_TUNING_CUTOFF = 10'000'000;
 
 // Ledger database holds ledgers and ledger confirmations
 inline constexpr auto LgrDBName{"ledger.db"};
+inline constexpr auto LMDBLgrDBName{"ledger"};
 
 inline constexpr std::array<char const*, 1> LgrDBPragma{
     {"PRAGMA journal_size_limit=1582080;"}};
@@ -71,6 +72,7 @@ inline constexpr std::array<char const*, 5> LgrDBInit{
 
 // Transaction database holds transactions and public keys
 inline constexpr auto TxDBName{"transaction.db"};
+inline constexpr auto LMDBTxDBName{"transaction"};
 
 // In C++17 omitting the explicit template parameters caused
 // a crash
@@ -215,6 +217,7 @@ inline constexpr std::array<char const*, 2> FinalShardDBPragma{
 ////////////////////////////////////////////////////////////////////////////////
 
 inline constexpr auto WalletDBName{"wallet.db"};
+inline constexpr auto LMDBWalletDBName{"wallet"};
 
 inline constexpr std::array<char const*, 6> WalletDBInit{
     {"BEGIN TRANSACTION;",

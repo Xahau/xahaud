@@ -633,8 +633,8 @@ OverlayImpl::onManifests(
 
                 if (app_.validators().listed(mo->masterKey))
                 {
-                    auto db = app_.getWalletDB().checkoutDb();
-                    addValidatorManifest(*db, serialized);
+                    auto db = app_.getWalletDB().checkoutLMDB();
+                    addValidatorManifest(db.get(), serialized);
                 }
             }
         }
