@@ -38,6 +38,7 @@
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
 #include <ripple/app/misc/impl/AccountTxPaging.h>
+#include <ripple/app/rdb/backend/LMDBDatabase.h>
 #include <ripple/app/rdb/backend/PostgresDatabase.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/app/reporting/ReportingETL.h>
@@ -3542,7 +3543,7 @@ NetworkOPsImp::unsubAccountInternal(
 void
 NetworkOPsImp::addAccountHistoryJob(SubAccountHistoryInfoWeak subInfo)
 {
-    enum DatabaseType { Postgres, Sqlite, None };
+    enum DatabaseType { Postgres, Sqlite, LMDB, None };
     static const auto databaseType = [&]() -> DatabaseType {
 #ifdef RIPPLED_REPORTING
         if (app_.config().reporting())

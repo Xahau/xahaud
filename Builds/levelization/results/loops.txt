@@ -53,7 +53,7 @@ Loop: test.app test.jtx
   test.app > test.jtx
 
 Loop: test.app test.rpc
-  test.rpc == test.app
+  test.rpc ~= test.app
 
 Loop: test.jtx test.toplevel
   test.toplevel > test.jtx

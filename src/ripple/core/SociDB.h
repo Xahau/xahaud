@@ -37,6 +37,7 @@
 #include <ripple/core/JobQueue.h>
 #define SOCI_USE_BOOST
 #include <cstdint>
+#include <lmdb.h>
 #include <soci/soci.h>
 #include <string>
 #include <vector>
@@ -98,7 +99,11 @@ open(
     std::string const& connectionString);
 
 std::uint32_t
+getKBUsedAll(MDB_env* env);
+std::uint32_t
 getKBUsedAll(soci::session& s);
+std::uint32_t
+getKBUsedDB(MDB_env* env);
 std::uint32_t
 getKBUsedDB(soci::session& s);
 

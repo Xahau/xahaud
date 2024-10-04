@@ -19,6 +19,7 @@
 
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/beast/unit_test.h>
+#include <ripple/json/json_reader.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>

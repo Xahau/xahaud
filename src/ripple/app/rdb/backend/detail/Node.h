@@ -27,6 +27,7 @@
 #include <ripple/overlay/PeerReservationTable.h>
 #include <ripple/peerfinder/impl/Store.h>
 #include <boost/filesystem.hpp>
+#include <lmdb.h>
 
 namespace ripple {
 namespace detail {
@@ -63,6 +64,8 @@ makeLedgerDBs(
  * @return Ledger sequence or none if no ledgers exist.
  */
 std::optional<LedgerIndex>
+getMinLedgerSeq(MDB_env* env, TableType type);
+std::optional<LedgerIndex>
 getMinLedgerSeq(soci::session& session, TableType type);
 
 /**
@@ -71,6 +74,8 @@ getMinLedgerSeq(soci::session& session, TableType type);
  * @param type Table ID for which the result is returned.
  * @return Ledger sequence or none if no ledgers exist.
  */
+std::optional<LedgerIndex>
+getMaxLedgerSeq(MDB_env* env, TableType type);
 std::optional<LedgerIndex>
 getMaxLedgerSeq(soci::session& session, TableType type);
 
@@ -81,6 +86,8 @@ getMaxLedgerSeq(soci::session& session, TableType type);
  * @param type Table ID from which entries will be deleted.
  * @param ledgerSeq Ledger sequence.
  */
+void
+deleteByLedgerSeq(MDB_env* env, TableType type, LedgerIndex ledgerSeq);
 void
 deleteByLedgerSeq(
     soci::session& session,
@@ -95,6 +102,8 @@ deleteByLedgerSeq(
  * @param ledgerSeq Ledger sequence.
  */
 void
+deleteBeforeLedgerSeq(MDB_env* env, TableType type, LedgerIndex ledgerSeq);
+void
 deleteBeforeLedgerSeq(
     soci::session& session,
     TableType type,
@@ -107,6 +116,8 @@ deleteBeforeLedgerSeq(
  * @return Number of rows.
  */
 std::size_t
+getRows(MDB_env* env, TableType type);
+std::size_t
 getRows(soci::session& session, TableType type);
 
 /**
@@ -117,6 +128,8 @@ getRows(soci::session& session, TableType type);
  * @return Struct CountMinMax which contain minimum sequence,
  *         maximum sequence and number of rows.
  */
+RelationalDatabase::CountMinMax
+getRowsMinMax(MDB_env* env, TableType type);
 RelationalDatabase::CountMinMax
 getRowsMinMax(soci::session& session, TableType type);
 
@@ -145,6 +158,8 @@ saveValidatedLedger(
  * @return Ledger or none if ledger not found.
  */
 std::optional<LedgerInfo>
+getLedgerInfoByIndex(MDB_env* env, LedgerIndex ledgerSeq, beast::Journal j);
+std::optional<LedgerInfo>
 getLedgerInfoByIndex(
     soci::session& session,
     LedgerIndex ledgerSeq,
@@ -157,6 +172,8 @@ getLedgerInfoByIndex(
  * @return Ledger info or none if ledger not found.
  */
 std::optional<LedgerInfo>
+getNewestLedgerInfo(MDB_env* env, beast::Journal j);
+std::optional<LedgerInfo>
 getNewestLedgerInfo(soci::session& session, beast::Journal j);
 
 /**
@@ -167,6 +184,11 @@ getNewestLedgerInfo(soci::session& session, beast::Journal j);
  * @param j Journal.
  * @return Ledger info or none if ledger not found.
  */
+std::optional<LedgerInfo>
+getLimitedOldestLedgerInfo(
+    MDB_env* env,
+    LedgerIndex ledgerFirstIndex,
+    beast::Journal j);
 std::optional<LedgerInfo>
 getLimitedOldestLedgerInfo(
     soci::session& session,
@@ -183,6 +205,11 @@ getLimitedOldestLedgerInfo(
  */
 std::optional<LedgerInfo>
 getLimitedNewestLedgerInfo(
+    MDB_env* env,
+    LedgerIndex ledgerFirstIndex,
+    beast::Journal j);
+std::optional<LedgerInfo>
+getLimitedNewestLedgerInfo(
     soci::session& session,
     LedgerIndex ledgerFirstIndex,
     beast::Journal j);
@@ -194,6 +221,8 @@ getLimitedNewestLedgerInfo(
  * @param j Journal.
  * @return Ledger or none if ledger not found.
  */
+std::optional<LedgerInfo>
+getLedgerInfoByHash(MDB_env* env, uint256 const& ledgerHash, beast::Journal j);
 std::optional<LedgerInfo>
 getLedgerInfoByHash(
     soci::session& session,
@@ -207,6 +236,8 @@ getLedgerInfoByHash(
  * @return Hash of the ledger.
  */
 uint256
+getHashByIndex(MDB_env* env, LedgerIndex ledgerIndex);
+uint256
 getHashByIndex(soci::session& session, LedgerIndex ledgerIndex);
 
 /**
@@ -218,6 +249,8 @@ getHashByIndex(soci::session& session, LedgerIndex ledgerIndex);
  * @return Struct LedgerHashPair which contain hashes of the ledger and
  *         its parent ledger.
  */
+std::optional<LedgerHashPair>
+getHashesByIndex(MDB_env* env, LedgerIndex ledgerIndex, beast::Journal j);
 std::optional<LedgerHashPair>
 getHashesByIndex(
     soci::session& session,
@@ -235,6 +268,12 @@ getHashesByIndex(
  * @return Map which points sequence number of found ledger to the struct
  *         LedgerHashPair which contains ledger hash and its parent hash.
  */
+std::map<LedgerIndex, LedgerHashPair>
+getHashesByIndex(
+    MDB_env* env,
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq,
+    beast::Journal j);
 std::map<LedgerIndex, LedgerHashPair>
 getHashesByIndex(
     soci::session& session,
@@ -464,6 +503,13 @@ newestAccountTxPage(
  */
 std::variant<RelationalDatabase::AccountTx, TxSearched>
 getTransaction(
+    MDB_env* env,
+    Application& app,
+    uint256 const& id,
+    std::optional<ClosedInterval<uint32_t>> const& range,
+    error_code_i& ec);
+std::variant<RelationalDatabase::AccountTx, TxSearched>
+getTransaction(
     soci::session& session,
     Application& app,
     uint256 const& id,
@@ -477,6 +523,8 @@ getTransaction(
  * @param j Journal.
  * @return True if space is available.
  */
+bool
+dbHasSpace(MDB_env* env, Config const& config, beast::Journal j);
 bool
 dbHasSpace(soci::session& session, Config const& config, beast::Journal j);
 

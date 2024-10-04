@@ -73,8 +73,8 @@ PeerReservationTable::load(DatabaseCon& connection)
     std::lock_guard lock(mutex_);
 
     connection_ = &connection;
-    auto db = connection.checkoutDb();
-    auto table = getPeerReservationTable(*db, journal_);
+    auto db = connection.checkoutLMDB();
+    auto table = getPeerReservationTable(db.get(), journal_);
     table_.insert(table.begin(), table.end());
 
     return true;
@@ -108,8 +108,9 @@ PeerReservationTable::insert_or_assign(PeerReservation const& reservation)
     }
     table_.insert(hint, reservation);
 
-    auto db = connection_->checkoutDb();
-    insertPeerReservation(*db, reservation.nodeId, reservation.description);
+    auto db = connection_->checkoutLMDB();
+    insertPeerReservation(
+        db.get(), reservation.nodeId, reservation.description);
 
     return previous;
 }
@@ -126,8 +127,8 @@ PeerReservationTable::erase(PublicKey const& nodeId)
     {
         previous = *it;
         table_.erase(it);
-        auto db = connection_->checkoutDb();
-        deletePeerReservation(*db, nodeId);
+        auto db = connection_->checkoutLMDB();
+        deletePeerReservation(db.get(), nodeId);
     }
 
     return previous;

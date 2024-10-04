@@ -512,8 +512,8 @@ ManifestCache::applyManifest(Manifest m)
 void
 ManifestCache::load(DatabaseCon& dbCon, std::string const& dbTable)
 {
-    auto db = dbCon.checkoutDb();
-    ripple::getManifests(*db, dbTable, *this, j_);
+    auto db = dbCon.checkoutLMDB();
+    ripple::getManifests(db.get(), dbTable, *this, j_);
 }
 
 bool
@@ -580,8 +580,8 @@ ManifestCache::save(
     std::function<bool(PublicKey const&)> const& isTrusted)
 {
     std::shared_lock lock{mutex_};
-    auto db = dbCon.checkoutDb();
+    auto db = dbCon.checkoutLMDB();
 
-    saveManifests(*db, dbTable, isTrusted, map_, j_);
+    saveManifests(db.get(), dbTable, isTrusted, map_, j_);
 }
 }  // namespace ripple

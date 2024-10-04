@@ -29,6 +29,7 @@
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NetworkOPs.h>
+#include <ripple/app/rdb/backend/LMDBDatabase.h>
 #include <ripple/app/rdb/backend/PostgresDatabase.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/basics/Log.h>
@@ -1010,14 +1011,28 @@ saveValidatedLedger(
         return true;
     }
 
-    auto const db = dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
+    if (app.config().RELATIONAL_DB == 0)
+    {
+        auto const db = dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
+        if (!db)
+            Throw<std::runtime_error>("Failed to get relational database");
+
+        auto const res = db->saveValidatedLedger(ledger, current);
+        // Clients can now trust the database for
+        // information about this ledger sequence.
+
+        app.pendingSaves().finishWork(seq);
+        return res;
+    }
+
+    auto const db = dynamic_cast<LMDBDatabase*>(&app.getRelationalDatabase());
     if (!db)
         Throw<std::runtime_error>("Failed to get relational database");
 
     auto const res = db->saveValidatedLedger(ledger, current);
-
     // Clients can now trust the database for
     // information about this ledger sequence.
+
     app.pendingSaves().finishWork(seq);
     return res;
 }

@@ -24,12 +24,15 @@
 #include <ripple/basics/base64.h>
 #include <ripple/json/json_reader.h>
 #include <ripple/json/json_value.h>
+#include <ripple/json/to_string.h>
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Import.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/STTx.h>
+#include <ripple/protocol/STValidation.h>
+#include <ripple/protocol/st.h>
 #include <algorithm>
 #include <charconv>
 #include <iostream>

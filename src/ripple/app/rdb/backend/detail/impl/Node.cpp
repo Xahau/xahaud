@@ -64,7 +64,7 @@ to_string(TableType type)
 }
 
 DatabasePairValid
-makeLedgerDBs(
+makeSQLLedgerDBs(
     Config const& config,
     DatabaseCon::Setup const& setup,
     DatabaseCon::CheckpointerSetup const& checkpointerSetup)
@@ -119,6 +119,145 @@ makeLedgerDBs(
         return {std::move(lgr), {}, true};
 }
 
+DatabasePairValid
+makeLMDBLedgerDBs(
+    Config const& config,
+    DatabaseCon::Setup const& setup,
+    DatabaseCon::CheckpointerSetup const& checkpointerSetup)
+{
+    // ledger database
+    auto lgr{
+        std::make_unique<DatabaseCon>(setup, LMDBLgrDBName, checkpointerSetup)};
+    lgr->getLMDB();
+
+    if (config.useTxTables())
+    {
+        // transaction database
+        auto tx{std::make_unique<DatabaseCon>(
+            setup, LMDBTxDBName, checkpointerSetup)};
+        tx->getLMDB();
+
+        return {std::move(lgr), std::move(tx), true};
+    }
+    else
+        return {std::move(lgr), {}, true};
+}
+
+DatabasePairValid
+makeLedgerDBs(
+    Config const& config,
+    DatabaseCon::Setup const& setup,
+    DatabaseCon::CheckpointerSetup const& checkpointerSetup)
+{
+    if (setup.sqlite3)
+    {
+        return makeSQLLedgerDBs(config, setup, checkpointerSetup);
+    }
+
+    return makeLMDBLedgerDBs(config, setup, checkpointerSetup);
+}
+
+std::optional<LedgerIndex>
+getMinLedgerSeq(MDB_env* env, TableType type)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+    std::optional<LedgerIndex> minLedgerSeq;
+
+    mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
+    mdb_dbi_open(txn, to_string(type).c_str(), 0, &dbi);
+
+    MDB_cursor* cursor;
+    mdb_cursor_open(txn, dbi, &cursor);
+
+    if (mdb_cursor_get(cursor, &key, &data, MDB_FIRST) == 0)
+    {
+        minLedgerSeq = *static_cast<LedgerIndex*>(data.mv_data);
+    }
+
+    mdb_cursor_close(cursor);
+    mdb_txn_commit(txn);
+    mdb_dbi_close(env, dbi);
+
+    return minLedgerSeq;
+}
+
+std::optional<LedgerIndex>
+getMaxLedgerSeq(MDB_env* env, TableType type)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+    std::optional<LedgerIndex> maxLedgerSeq;
+
+    mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
+    mdb_dbi_open(txn, to_string(type).c_str(), 0, &dbi);
+
+    MDB_cursor* cursor;
+    mdb_cursor_open(txn, dbi, &cursor);
+
+    if (mdb_cursor_get(cursor, &key, &data, MDB_LAST) == 0)
+    {
+        maxLedgerSeq = *static_cast<LedgerIndex*>(data.mv_data);
+    }
+
+    mdb_cursor_close(cursor);
+    mdb_txn_commit(txn);
+    mdb_dbi_close(env, dbi);
+
+    return maxLedgerSeq;
+}
+
+void
+deleteByLedgerSeq(MDB_env* env, TableType type, LedgerIndex ledgerSeq)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+
+    mdb_txn_begin(env, nullptr, 0, &txn);
+    mdb_dbi_open(txn, to_string(type).c_str(), 0, &dbi);
+
+    key.mv_size = sizeof(LedgerIndex);
+    key.mv_data = &ledgerSeq;
+
+    mdb_del(txn, dbi, &key, nullptr);
+
+    mdb_txn_commit(txn);
+    mdb_dbi_close(env, dbi);
+}
+
+void
+deleteBeforeLedgerSeq(MDB_env* env, TableType type, LedgerIndex ledgerSeq)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+
+    mdb_txn_begin(env, nullptr, 0, &txn);
+    mdb_dbi_open(txn, to_string(type).c_str(), 0, &dbi);
+
+    MDB_cursor* cursor;
+    mdb_cursor_open(txn, dbi, &cursor);
+
+    while (mdb_cursor_get(cursor, &key, &data, MDB_NEXT) == 0)
+    {
+        if (*static_cast<LedgerIndex*>(key.mv_data) < ledgerSeq)
+        {
+            mdb_cursor_del(cursor, 0);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    mdb_cursor_close(cursor);
+    mdb_txn_commit(txn);
+    mdb_dbi_close(env, dbi);
+}
+
 std::optional<LedgerIndex>
 getMinLedgerSeq(soci::session& session, TableType type)
 {
@@ -157,6 +296,73 @@ deleteBeforeLedgerSeq(
 }
 
 std::size_t
+getRows(MDB_env* env, TableType type)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key;
+    std::size_t rows = 0;
+
+    if (mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn) != 0)
+        throw std::runtime_error("Failed to begin transaction");
+
+    if (mdb_dbi_open(txn, to_string(type).c_str(), 0, &dbi) != 0)
+        throw std::runtime_error("Failed to open database");
+
+    MDB_cursor* cursor;
+    if (mdb_cursor_open(txn, dbi, &cursor) != 0)
+        throw std::runtime_error("Failed to open cursor");
+
+    while (mdb_cursor_get(cursor, &key, nullptr, MDB_NEXT) == 0)
+    {
+        ++rows;
+    }
+
+    mdb_cursor_close(cursor);
+    mdb_txn_abort(txn);
+
+    return rows;
+}
+
+RelationalDatabase::CountMinMax
+getRowsMinMax(MDB_env* env, TableType type)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+    RelationalDatabase::CountMinMax res = {
+        0,
+        std::numeric_limits<ripple::LedgerIndex>::max(),
+        std::numeric_limits<ripple::LedgerIndex>::min()};
+
+    if (mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn) != 0)
+        throw std::runtime_error("Failed to begin transaction");
+
+    if (mdb_dbi_open(txn, to_string(type).c_str(), 0, &dbi) != 0)
+        throw std::runtime_error("Failed to open database");
+
+    MDB_cursor* cursor;
+    if (mdb_cursor_open(txn, dbi, &cursor) != 0)
+        throw std::runtime_error("Failed to open cursor");
+
+    while (mdb_cursor_get(cursor, &key, &data, MDB_NEXT) == 0)
+    {
+        ++res.numberOfRows;
+        ripple::LedgerIndex ledgerSeq =
+            *static_cast<ripple::LedgerIndex*>(data.mv_data);
+        if (ledgerSeq < res.minLedgerSequence)
+            res.minLedgerSequence = ledgerSeq;
+        if (ledgerSeq > res.maxLedgerSequence)
+            res.maxLedgerSequence = ledgerSeq;
+    }
+
+    mdb_cursor_close(cursor);
+    mdb_txn_abort(txn);
+
+    return res;
+}
+
+std::size_t
 getRows(soci::session& session, TableType type)
 {
     std::size_t rows;
@@ -184,7 +390,233 @@ getRowsMinMax(soci::session& session, TableType type)
 }
 
 bool
-saveValidatedLedger(
+saveLMDBValidatedLedger(
+    DatabaseCon& ldgDB,
+    DatabaseCon& txnDB,
+    Application& app,
+    std::shared_ptr<Ledger const> const& ledger,
+    bool current)
+{
+    auto j = app.journal("Ledger");
+    auto seq = ledger->info().seq;
+    auto hash = ledger->info().hash;
+    JLOG(j.warn()) << "saveLMDBValidatedLedger "
+                   << (current ? "" : "fromAcquire ") << seq;
+
+    if (!ledger->info().accountHash.isNonZero())
+    {
+        JLOG(j.fatal()) << "AH is zero: " << getJson({*ledger, {}});
+        assert(false);
+    }
+
+    if (ledger->info().accountHash != ledger->stateMap().getHash().as_uint256())
+    {
+        JLOG(j.fatal()) << "sAL: " << ledger->info().accountHash
+                        << " != " << ledger->stateMap().getHash();
+        JLOG(j.fatal()) << "saveAcceptedLedger: seq=" << seq
+                        << ", current=" << current;
+        assert(false);
+    }
+
+    assert(ledger->info().txHash == ledger->txMap().getHash().as_uint256());
+
+    // Save the ledger header in the hashed object store
+    {
+        Serializer s(128);
+        s.add32(HashPrefix::ledgerMaster);
+        addRaw(ledger->info(), s);
+        app.getNodeStore().store(
+            hotLEDGER, std::move(s.modData()), ledger->info().hash, seq);
+    }
+
+    std::shared_ptr<AcceptedLedger> aLedger;
+    try
+    {
+        aLedger = app.getAcceptedLedgerCache().fetch(ledger->info().hash);
+        if (!aLedger)
+        {
+            aLedger = std::make_shared<AcceptedLedger>(ledger, app);
+            app.getAcceptedLedgerCache().canonicalize_replace_client(
+                ledger->info().hash, aLedger);
+        }
+    }
+    catch (std::exception const&)
+    {
+        JLOG(j.warn()) << "An accepted ledger was missing nodes";
+        app.getLedgerMaster().failedSave(seq, ledger->info().hash);
+        app.pendingSaves().finishWork(seq);
+        return false;
+    }
+
+    // Delete ledger and transactions
+    {
+        MDB_val key1, key2;
+        key1.mv_size = sizeof(seq);
+        key1.mv_data = &seq;
+        key2.mv_size = sizeof(hash);
+        key2.mv_data = &hash;
+
+        {
+            MDB_dbi dbi1, dbi2;
+            MDB_txn* txn;
+            auto db = ldgDB.checkoutLMDB();
+            MDB_env* env = db.get();
+            mdb_txn_begin(env, nullptr, 0, &txn);
+            try
+            {
+                mdb_dbi_open(txn, "LedgerHashBySeq", MDB_CREATE, &dbi1);
+                mdb_dbi_open(txn, "Ledgers", MDB_CREATE, &dbi2);
+                mdb_del(txn, dbi1, &key1, nullptr);
+                mdb_del(txn, dbi2, &key2, nullptr);
+                mdb_dbi_close(env, dbi1);
+                mdb_dbi_close(env, dbi2);
+
+                if (app.config().useTxTables())
+                {
+                    MDB_dbi dbi1, dbi2;
+                    mdb_dbi_open(txn, "Transactions", MDB_CREATE, &dbi1);
+                    mdb_dbi_open(txn, "AccountTransactions", MDB_CREATE, &dbi2);
+
+                    mdb_del(txn, dbi1, &key1, nullptr);
+                    mdb_del(txn, dbi2, &key1, nullptr);
+
+                    for (auto const& acceptedLedgerTx : *aLedger)
+                    {
+                        uint256 transactionID =
+                            acceptedLedgerTx->getTransactionID();
+
+                        MDB_val txKey = {
+                            transactionID.size(), (void*)transactionID.data()};
+                        mdb_del(txn, dbi2, &txKey, nullptr);
+
+                        auto const& accts = acceptedLedgerTx->getAffected();
+                        if (!accts.empty())
+                        {
+                            for (auto const& account : accts)
+                            {
+                                std::string acctKey =
+                                    toBase58(account) + std::to_string(seq);
+                                MDB_val acctTxKey = {
+                                    acctKey.size(), (void*)acctKey.data()};
+                                mdb_put(txn, dbi2, &acctTxKey, &txKey, 0);
+                            }
+                        }
+                        else if (auto const& sleTxn =
+                                     acceptedLedgerTx->getTxn();
+                                 !isPseudoTx(*sleTxn))
+                        {
+                            JLOG(j.warn()) << "Transaction in ledger " << seq
+                                           << " affects no accounts";
+                            JLOG(j.warn())
+                                << sleTxn->getJson(JsonOptions::none);
+                        }
+
+                        std::string metaKey =
+                            to_string(transactionID) + std::to_string(seq);
+                        MDB_val metaTxKey = {
+                            metaKey.size(), (void*)metaKey.data()};
+                        MDB_val metaData = {
+                            acceptedLedgerTx->getEscMeta().size(),
+                            (void*)acceptedLedgerTx->getEscMeta().data()};
+                        mdb_put(txn, dbi1, &metaTxKey, &metaData, 0);
+
+                        app.getMasterTransaction().inLedger(
+                            transactionID,
+                            seq,
+                            acceptedLedgerTx->getTxnSeq(),
+                            app.config().NETWORK_ID);
+                    }
+                    mdb_dbi_close(env, dbi1);
+                    mdb_dbi_close(env, dbi2);
+                }
+
+                mdb_txn_commit(txn);
+            }
+            catch (std::exception const&)
+            {
+                mdb_txn_abort(txn);
+                mdb_dbi_close(env, dbi1);
+                mdb_dbi_close(env, dbi2);
+                JLOG(j.error()) << "Failed to delete ledger and transactions";
+                throw;
+            }
+        }
+    }
+
+    // Insert ledger
+    {
+        MDB_dbi dbi1;
+        MDB_dbi dbi2;
+        MDB_txn* txn;
+        auto db = ldgDB.checkoutLMDB();
+        MDB_env* env = db.get();
+
+        if (mdb_txn_begin(env, nullptr, 0, &txn) != 0)
+        {
+            std::cout << "Failed to begin transaction" << std::endl;
+            JLOG(j.error()) << "Failed to begin transaction";
+        }
+
+        try
+        {
+            if (mdb_dbi_open(txn, "Ledgers", MDB_CREATE, &dbi1) != 0)
+            {
+                // std::cout << "Failed to open database" << std::endl;
+                JLOG(j.error()) << "Failed to open database";
+                throw std::runtime_error("Failed to open database");
+            }
+
+            if (mdb_dbi_open(txn, "LedgerHashBySeq", MDB_CREATE, &dbi2) != 0)
+            {
+                // std::cout << "Failed to open database" << std::endl;
+                JLOG(j.error()) << "Failed to open database";
+                throw std::runtime_error("Failed to open database");
+            }
+
+            MDB_val key1, key2, data1, data2;
+            std::string ledgerHash = to_string(ledger->info().hash);
+            key1.mv_size = ledgerHash.size();
+            key1.mv_data = ledgerHash.data();
+
+            std::string ledgerSeq = std::to_string(ledger->info().seq);
+            key2.mv_size = ledgerSeq.size();
+            key2.mv_data = ledgerSeq.data();
+
+            Serializer s;
+            addRaw(ledger->info(), s, true);
+            data1.mv_size = s.getDataLength();
+            data1.mv_data = s.getDataPtr();
+            
+            data2.mv_size = ledgerHash.size();
+            data2.mv_data = ledgerHash.data();
+
+            // Slice key2Slice(key2.mv_data, key2.mv_size);
+            // Slice data2Slice(data2.mv_data, data2.mv_size);
+
+            // std::cout << "Inserting DB2 Key: " << key2Slice << std::endl;
+            // std::cout << "Inserting DB2 Data: " << data2Slice << std::endl;
+
+            mdb_put(txn, dbi1, &key1, &data1, 0);
+            mdb_put(txn, dbi2, &key2, &data2, 0);
+            mdb_txn_commit(txn);
+            mdb_dbi_close(env, dbi1);
+            mdb_dbi_close(env, dbi2);
+        }
+        catch (std::exception const&)
+        {
+            std::cout << "Failed to insert ledger" << std::endl;
+            JLOG(j.error()) << "Failed to insert ledger";
+            mdb_txn_abort(txn);
+            mdb_dbi_close(env, dbi1);
+            mdb_dbi_close(env, dbi2);
+        }
+    }
+
+    return true;
+}
+
+bool
+saveSQLValidatedLedger(
     DatabaseCon& ldgDB,
     DatabaseCon& txnDB,
     Application& app,
@@ -195,8 +627,8 @@ saveValidatedLedger(
     auto seq = ledger->info().seq;
 
     // TODO(tom): Fix this hard-coded SQL!
-    JLOG(j.trace()) << "saveValidatedLedger " << (current ? "" : "fromAcquire ")
-                    << seq;
+    JLOG(j.info()) << "saveSQLValidatedLedger "
+                   << (current ? "" : "fromAcquire ") << seq;
 
     if (!ledger->info().accountHash.isNonZero())
     {
@@ -383,6 +815,118 @@ saveValidatedLedger(
     return true;
 }
 
+bool
+saveValidatedLedger(
+    DatabaseCon& ldgDB,
+    DatabaseCon& txnDB,
+    Application& app,
+    std::shared_ptr<Ledger const> const& ledger,
+    bool current)
+{
+    if (app.config().RELATIONAL_DB == 0)
+    {
+        return saveSQLValidatedLedger(ldgDB, txnDB, app, ledger, current);
+    }
+    return saveLMDBValidatedLedger(ldgDB, txnDB, app, ledger, current);
+}
+
+static std::optional<LedgerInfo>
+getLedgerInfo(
+    MDB_env* env,
+    std::string const& db,
+    std::string const& key,
+    beast::Journal j)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val mdb_key, mdb_data;
+
+    // Start a read-only transaction
+    if (mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn) != 0)
+    {
+        return {};
+    }
+
+    // Open the database
+
+    if (mdb_dbi_open(txn, db.c_str(), 0, &dbi) != 0)
+    {
+        mdb_txn_abort(txn);
+        return {};
+    }
+
+    // Set the key to search for
+    mdb_key.mv_size = key.size();
+    mdb_key.mv_data = const_cast<char*>(key.data());
+
+    // Get the value associated with the key
+    if (mdb_get(txn, dbi, &mdb_key, &mdb_data) != 0)
+    {
+        mdb_txn_abort(txn);
+        return {};
+    }
+
+    Slice dataSlice(mdb_data.mv_data, mdb_data.mv_size);
+    LedgerInfo info = deserializeHeader(dataSlice, true);
+    // Commit the transaction
+    mdb_txn_commit(txn);
+    return info;
+}
+
+std::optional<LedgerInfo>
+getLedgerInfoByIndex(MDB_env* env, LedgerIndex ledgerSeq, beast::Journal j)
+{
+    auto const ledgerHash = getHashByIndex(env, ledgerSeq);
+    std::ostringstream s;
+    s << ledgerHash;
+    return getLedgerInfo(env, "Ledgers", s.str(), j);
+}
+
+// Shard (Depricated)
+std::optional<LedgerInfo>
+getNewestLedgerInfo(MDB_env* env, beast::Journal j)
+{
+    // LMDB does not support SQL-like queries directly
+    // You need to implement a way to find the newest ledger info
+    // This might involve iterating over keys or maintaining a separate index
+    // For simplicity, this example assumes a key "NewestLedger" exists
+    return getLedgerInfo(env, "Ledgers", "NewestLedger", j);
+}
+
+// Shard (Depricated)
+std::optional<LedgerInfo>
+getLimitedOldestLedgerInfo(
+    MDB_env* env,
+    LedgerIndex ledgerFirstIndex,
+    beast::Journal j)
+{
+    // Similar to getNewestLedgerInfo, you need to implement a way to find the
+    // oldest ledger info For simplicity, this example assumes a key
+    // "OldestLedger" exists
+    return getLedgerInfo(env, "Ledgers", "OldestLedger", j);
+}
+
+// Shard (Depricated)
+std::optional<LedgerInfo>
+getLimitedNewestLedgerInfo(
+    MDB_env* env,
+    LedgerIndex ledgerFirstIndex,
+    beast::Journal j)
+{
+    // Similar to getNewestLedgerInfo, you need to implement a way to find the
+    // limited newest ledger info For simplicity, this example assumes a key
+    // "LimitedNewestLedger" exists
+    return getLedgerInfo(env, "Ledgers", "LimitedNewestLedger", j);
+}
+
+std::optional<LedgerInfo>
+getLedgerInfoByHash(MDB_env* env, uint256 const& ledgerHash, beast::Journal j)
+{
+    std::ostringstream s;
+    s << ledgerHash;
+    return getLedgerInfo(env, "Ledgers", s.str(), j);
+}
+
 /**
  * @brief getLedgerInfo Returns the info of the ledger retrieved from the
  *        database by using the provided SQL query suffix.
@@ -516,6 +1060,50 @@ getLedgerInfoByHash(
 }
 
 uint256
+getHashByIndex(MDB_env* env, LedgerIndex ledgerIndex)
+{
+    uint256 ret;
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+
+    // Convert ledgerIndex to string
+    std::string keyStr = beast::lexicalCastThrow<std::string>(ledgerIndex);
+
+    // Begin a new transaction
+    if (mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn) != 0)
+        return ret;
+
+    // Open the database
+    if (mdb_dbi_open(txn, "LedgerHashBySeq", 0, &dbi) != 0)
+    {
+        mdb_txn_abort(txn);
+        return ret;
+    }
+
+    // Set the key
+    key.mv_size = keyStr.size();
+    key.mv_data = const_cast<char*>(keyStr.data());
+
+    // Get the value
+    if (mdb_get(txn, dbi, &key, &data) == 0)
+    {
+        std::string hash(static_cast<char*>(data.mv_data), data.mv_size);
+        if (!hash.empty() && ret.parseHex(hash))
+        {
+            mdb_txn_commit(txn);
+            mdb_dbi_close(env, dbi);
+            return ret;
+        }
+    }
+
+    // Cleanup
+    mdb_txn_abort(txn);
+    mdb_dbi_close(env, dbi);
+    return ret;
+}
+
+uint256
 getHashByIndex(soci::session& session, LedgerIndex ledgerIndex)
 {
     uint256 ret;
@@ -543,6 +1131,144 @@ getHashByIndex(soci::session& session, LedgerIndex ledgerIndex)
         return ret;
 
     return ret;
+}
+
+std::optional<LedgerHashPair>
+getHashesByIndex(MDB_env* env, LedgerIndex ledgerIndex, beast::Journal j)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+    int rc;
+
+    rc = mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
+    if (rc != 0)
+    {
+        JLOG(j.error()) << "Failed to begin transaction: " << mdb_strerror(rc);
+        return {};
+    }
+
+    rc = mdb_dbi_open(txn, "Ledgers", 0, &dbi);
+    if (rc != 0)
+    {
+        mdb_txn_abort(txn);
+        JLOG(j.error()) << "Failed to open database: " << mdb_strerror(rc);
+        return {};
+    }
+
+    key.mv_size = sizeof(ledgerIndex);
+    key.mv_data = &ledgerIndex;
+
+    rc = mdb_get(txn, dbi, &key, &data);
+    if (rc == MDB_NOTFOUND)
+    {
+        mdb_txn_abort(txn);
+        JLOG(j.trace()) << "Don't have ledger " << ledgerIndex;
+        return {};
+    }
+    else if (rc != 0)
+    {
+        mdb_txn_abort(txn);
+        JLOG(j.error()) << "Failed to get data: " << mdb_strerror(rc);
+        return {};
+    }
+
+    // Assuming data.mv_data points to a structure containing LedgerHash and
+    // PrevHash
+    LedgerHashPair hashes;
+    std::string lhO(
+        static_cast<char*>(data.mv_data), 32);  // Assuming 32-byte hash
+    std::string phO(
+        static_cast<char*>(data.mv_data) + 32, 32);  // Assuming 32-byte hash
+
+    if (!hashes.ledgerHash.parseHex(lhO) || !hashes.parentHash.parseHex(phO))
+    {
+        mdb_txn_abort(txn);
+        JLOG(j.trace()) << "Error parse hashes for ledger " << ledgerIndex;
+        return {};
+    }
+
+    mdb_txn_commit(txn);
+    return hashes;
+}
+
+std::map<LedgerIndex, LedgerHashPair>
+getHashesByIndex(
+    MDB_env* env,
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq,
+    beast::Journal j)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_cursor* cursor;
+    MDB_val key, data;
+    int rc;
+
+    rc = mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
+    if (rc != 0)
+    {
+        JLOG(j.error()) << "Failed to begin transaction: " << mdb_strerror(rc);
+        return {};
+    }
+
+    rc = mdb_dbi_open(txn, "Ledgers", 0, &dbi);
+    if (rc != 0)
+    {
+        mdb_txn_abort(txn);
+        JLOG(j.error()) << "Failed to open database: " << mdb_strerror(rc);
+        return {};
+    }
+
+    rc = mdb_cursor_open(txn, dbi, &cursor);
+    if (rc != 0)
+    {
+        mdb_txn_abort(txn);
+        JLOG(j.error()) << "Failed to open cursor: " << mdb_strerror(rc);
+        return {};
+    }
+
+    std::map<LedgerIndex, LedgerHashPair> res;
+
+    for (LedgerIndex seq = minSeq; seq <= maxSeq; ++seq)
+    {
+        key.mv_size = sizeof(seq);
+        key.mv_data = &seq;
+
+        rc = mdb_cursor_get(cursor, &key, &data, MDB_SET);
+        if (rc == MDB_NOTFOUND)
+        {
+            continue;
+        }
+        else if (rc != 0)
+        {
+            JLOG(j.error()) << "Failed to get data: " << mdb_strerror(rc);
+            continue;
+        }
+
+        // Assuming data.mv_data points to a structure containing LedgerHash and
+        // PrevHash
+        std::uint64_t ls = *static_cast<std::uint64_t*>(key.mv_data);
+        std::string lh(
+            static_cast<char*>(data.mv_data), 32);  // Assuming 32-byte hash
+        std::string ph(
+            static_cast<char*>(data.mv_data) + 32,
+            32);  // Assuming 32-byte hash
+
+        LedgerHashPair& hashes = res[rangeCheckedCast<LedgerIndex>(ls)];
+        if (!hashes.ledgerHash.parseHex(lh))
+        {
+            JLOG(j.warn()) << "Error parsed hash for ledger seq: " << ls;
+        }
+        if (!hashes.parentHash.parseHex(ph))
+        {
+            JLOG(j.warn()) << "Error parsed prev hash for ledger seq: " << ls;
+        }
+    }
+
+    mdb_cursor_close(cursor);
+    mdb_txn_commit(txn);
+    return res;
 }
 
 std::optional<LedgerHashPair>
@@ -1292,6 +2018,129 @@ newestAccountTxPage(
 
 std::variant<RelationalDatabase::AccountTx, TxSearched>
 getTransaction(
+    MDB_env* env,
+    Application& app,
+    uint256 const& id,
+    std::optional<ClosedInterval<uint32_t>> const& range,
+    error_code_i& ec)
+{
+    MDB_txn* txn;
+    MDB_dbi dbi;
+    MDB_val key, data;
+    int rc;
+
+    rc = mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
+    if (rc != MDB_SUCCESS)
+    {
+        ec = rpcDB_DESERIALIZATION;  // Assuming this is the appropriate error
+                                     // code
+        return TxSearched::unknown;
+    }
+
+    rc = mdb_dbi_open(txn, "Transactions", 0, &dbi);
+    if (rc != MDB_SUCCESS)
+    {
+        mdb_txn_abort(txn);
+        ec = rpcDB_DESERIALIZATION;
+        return TxSearched::unknown;
+    }
+
+    std::string key_str = to_string(id);
+    key.mv_size = key_str.size();
+    key.mv_data = key_str.data();
+
+    rc = mdb_get(txn, dbi, &key, &data);
+    if (rc == MDB_NOTFOUND)
+    {
+        if (!range)
+        {
+            mdb_txn_abort(txn);
+            return TxSearched::unknown;
+        }
+
+        // Check the range
+        MDB_cursor* cursor;
+        rc = mdb_cursor_open(txn, dbi, &cursor);
+        if (rc != MDB_SUCCESS)
+        {
+            mdb_txn_abort(txn);
+            ec = rpcDB_DESERIALIZATION;
+            return TxSearched::unknown;
+        }
+
+        uint64_t count = 0;
+        MDB_val key_range, data_range;
+        for (uint32_t i = range->first(); i <= range->last(); ++i)
+        {
+            key_range.mv_size = sizeof(i);
+            key_range.mv_data = &i;
+            rc = mdb_cursor_get(cursor, &key_range, &data_range, MDB_SET_KEY);
+            if (rc == MDB_SUCCESS)
+            {
+                ++count;
+            }
+        }
+
+        mdb_cursor_close(cursor);
+        mdb_txn_abort(txn);
+
+        return count == (range->last() - range->first() + 1) ? TxSearched::all
+                                                             : TxSearched::some;
+    }
+    else if (rc != MDB_SUCCESS)
+    {
+        mdb_txn_abort(txn);
+        ec = rpcDB_DESERIALIZATION;
+        return TxSearched::unknown;
+    }
+
+    // Assuming the data is structured as follows: LedgerSeq, Status, RawTxn,
+    // TxnMeta You will need to parse the data appropriately For simplicity,
+    // let's assume data.mv_data points to a struct with these fields
+    struct TransactionData
+    {
+        uint64_t ledgerSeq;
+        std::string status;
+        std::vector<uint8_t> rawTxn;
+        std::vector<uint8_t> rawMeta;
+    };
+
+    TransactionData* txnData = static_cast<TransactionData*>(data.mv_data);
+
+    try
+    {
+        auto _txn = Transaction::transactionFromSQL(
+            txnData->ledgerSeq, txnData->status, txnData->rawTxn, app);
+
+        if (!txnData->ledgerSeq)
+        {
+            mdb_txn_commit(txn);
+            return std::pair{std::move(_txn), nullptr};
+        }
+
+        std::uint32_t inLedger =
+            rangeCheckedCast<std::uint32_t>(txnData->ledgerSeq);
+
+        auto txMeta = std::make_shared<TxMeta>(id, inLedger, txnData->rawMeta);
+
+        mdb_txn_commit(txn);
+        return std::pair{std::move(_txn), std::move(txMeta)};
+    }
+    catch (std::exception& e)
+    {
+        JLOG(app.journal("Ledger").warn())
+            << "Unable to deserialize transaction from raw SQL value. Error: "
+            << e.what();
+
+        ec = rpcDB_DESERIALIZATION;
+    }
+
+    mdb_txn_abort(txn);
+    return TxSearched::unknown;
+}
+
+std::variant<RelationalDatabase::AccountTx, TxSearched>
+getTransaction(
     soci::session& session,
     Application& app,
     uint256 const& id,
@@ -1369,6 +2218,73 @@ getTransaction(
     }
 
     return TxSearched::unknown;
+}
+
+bool
+dbHasSpace(MDB_env* env, Config const& config, beast::Journal j)
+{
+    boost::filesystem::space_info space =
+        boost::filesystem::space(config.legacy("database_path"));
+
+    if (space.available < megabytes(512))
+    {
+        JLOG(j.fatal()) << "Remaining free disk space is less than 512MB";
+        return false;
+    }
+
+    if (config.useTxTables())
+    {
+        DatabaseCon::Setup dbSetup = setup_DatabaseCon(config);
+        boost::filesystem::path dbPath = dbSetup.dataDir / LMDBTxDBName;
+        boost::system::error_code ec;
+        std::optional<std::uint64_t> dbSize =
+            boost::filesystem::file_size(dbPath, ec);
+        if (ec)
+        {
+            JLOG(j.error())
+                << "Error checking transaction db file size: " << ec.message();
+            dbSize.reset();
+        }
+
+        MDB_stat stat;
+        if (mdb_env_stat(env, &stat) != MDB_SUCCESS)
+        {
+            JLOG(j.error()) << "Error getting LMDB statistics";
+            return false;
+        }
+
+        std::uint32_t pageSize = stat.ms_psize;
+        std::uint32_t maxPages =
+            stat.ms_entries;  // This is not exactly the same as max_page_count
+                              // in SQLite
+        std::uint32_t pageCount =
+            stat.ms_branch_pages + stat.ms_leaf_pages + stat.ms_overflow_pages;
+        std::uint32_t freePages = maxPages - pageCount;
+        std::uint64_t freeSpace =
+            safe_cast<std::uint64_t>(freePages) * pageSize;
+        JLOG(j.info())
+            << "Transaction DB pathname: " << dbPath.string()
+            << "; file size: " << dbSize.value_or(-1) << " bytes"
+            << "; LMDB page size: " << pageSize << " bytes"
+            << "; Free pages: " << freePages << "; Free space: " << freeSpace
+            << " bytes; "
+            << "Note that this does not take into account available disk "
+               "space.";
+
+        if (freeSpace < megabytes(512))
+        {
+            JLOG(j.fatal())
+                << "Free LMDB space for transaction db is less than "
+                   "512MB. To fix this, rippled must be executed with the "
+                   "vacuum parameter before restarting. "
+                   "Note that this activity can take multiple days, "
+                   "depending on database size.";
+            // return false;
+            return true;
+        }
+    }
+
+    return true;
 }
 
 bool

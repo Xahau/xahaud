@@ -19,6 +19,7 @@
 
 #include <ripple/basics/contract.h>
 #include <ripple/ledger/detail/ApplyViewBase.h>
+#include <ripple/protocol/STAccount.h>
 
 namespace ripple {
 namespace detail {

@@ -169,6 +169,8 @@ public:
 
     std::string START_LEDGER;
 
+    uint32_t RELATIONAL_DB = 1;  // 0 == SQLite, 1 == LMDB
+
     // Network parameters
     uint32_t NETWORK_ID = 0;
 

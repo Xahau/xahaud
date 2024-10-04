@@ -21,6 +21,7 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/Transaction.h>
+#include <ripple/app/rdb/backend/LMDBDatabase.h>
 #include <ripple/app/rdb/backend/PostgresDatabase.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/app/tx/apply.h>
@@ -162,7 +163,20 @@ Transaction::load(
     std::optional<ClosedInterval<uint32_t>> const& range,
     error_code_i& ec)
 {
-    auto const db = dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
+
+    if (app.config().RELATIONAL_DB == 0)
+    {
+        auto const db = dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
+
+        if (!db)
+        {
+            Throw<std::runtime_error>("Failed to get relational database");
+        }
+
+        return db->getTransaction(id, range, ec);
+    }
+
+     auto const db = dynamic_cast<LMDBDatabase*>(&app.getRelationalDatabase());
 
     if (!db)
     {

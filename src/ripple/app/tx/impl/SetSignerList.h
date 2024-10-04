@@ -71,6 +71,18 @@ public:
         AccountID const& account,
         beast::Journal j);
 
+    static TER
+    removeSignersFromLedger(
+        Application& app,
+        ApplyView& view,
+        Keylet const& accountKeylet,
+        Keylet const& ownerDirKeylet,
+        Keylet const& signerListKeylet,
+        beast::Journal j);
+
+    static int
+    signerCountBasedOwnerCountDelta(std::size_t entryCount, Rules const& rules);
+
 private:
     static void
     writeSignersToSLE(

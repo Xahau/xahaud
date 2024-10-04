@@ -110,10 +110,24 @@ setup_DatabaseCon(Config const& c, std::optional<beast::Journal> j)
     setup.startUp = c.START_UP;
     setup.standAlone = c.standalone();
     setup.reporting = c.reporting();
+    setup.sqlite3 = false;
     setup.dataDir = c.legacy("database_path");
     if (!setup.standAlone && setup.dataDir.empty())
     {
         Throw<std::runtime_error>("database_path must be set.");
+    }
+
+    const Section& rdb_section{c.section(SECTION_RELATIONAL_DB)};
+    if (!rdb_section.empty())
+    {
+        if (boost::iequals(get(rdb_section, "backend"), "sqlite"))
+        {
+            setup.sqlite3 = true;
+        }
+        else if (boost::iequals(get(rdb_section, "backend"), "lmdb"))
+        {
+            setup.sqlite3 = false;
+        }
     }
 
     if (!setup.globalPragma)
@@ -236,6 +250,7 @@ setup_DatabaseCon(Config const& c, std::optional<beast::Journal> j)
             return result;
         }();
     }
+
     setup.useGlobalPragma = true;
 
     return setup;

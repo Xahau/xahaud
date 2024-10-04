@@ -226,7 +226,6 @@ doAccountTxHelp(RPC::Context& context, AccountTxArgs const& args)
 
     auto const db =
         dynamic_cast<SQLiteDatabase*>(&context.app.getRelationalDatabase());
-
     if (!db)
         Throw<std::runtime_error>("Failed to get relational database");
 
