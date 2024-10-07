@@ -101,6 +101,9 @@ to_string(ConsensusMode m)
    consensus will internally go back to open (see Consensus::handleWrongLedger).
 */
 enum class ConsensusPhase {
+    //! We dont know the ConsensusPhase
+    unknown,
+    
     //! We haven't closed our ledger yet, but others might have
     open,
 

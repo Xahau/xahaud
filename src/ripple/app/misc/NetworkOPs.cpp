@@ -733,7 +733,7 @@ private:
 
     RCLConsensus mConsensus;
 
-    ConsensusPhase mLastConsensusPhase;
+    ConsensusPhase mLastConsensusPhase = ConsensusPhase::unknown;
 
     LedgerMaster& m_ledgerMaster;
 
