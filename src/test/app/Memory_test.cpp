@@ -43,9 +43,32 @@ class Memory_test : public beast::unit_test::suite
     }
 
     void
+    testHook(FeatureBitset features)
+    {
+        testcase("hook");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        Env env{*this, envconfig(), features};
+
+        auto const account = Account("alice");
+        auto const dest = Account("bob");
+        env.fund(XRP(10000), account, dest);
+        env.close();
+
+        env(genesis::setAcceptHook(account), fee(XRP(2)));
+        env.close();
+
+        env(pay(dest, account, XRP(1)), fee(XRP(2)));
+        env.close();
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
-        testPayment(features);
+        // testPayment(features);
+        testHook(features);
     }
 
 public:
