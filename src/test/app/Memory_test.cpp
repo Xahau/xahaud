@@ -60,8 +60,11 @@ class Memory_test : public beast::unit_test::suite
         env(genesis::setAcceptHook(account), fee(XRP(2)));
         env.close();
 
-        env(pay(dest, account, XRP(1)), fee(XRP(2)));
-        env.close();
+        for (int i = 0; i < 10; ++i)
+        {
+            env(pay(account, dest, XRP(1)), fee(XRP(1)));
+            env.close();
+        }
     }
 
     void
