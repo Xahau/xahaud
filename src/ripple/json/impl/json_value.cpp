@@ -182,6 +182,7 @@ Value::Value(ValueType type) : type_(type), allocated_(0)
     switch (type)
     {
         case nullValue:
+            value_.map_ = nullptr;
             break;
 
         case intValue:
