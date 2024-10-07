@@ -201,24 +201,30 @@ Door<Handler>::Detector::do_detect(boost::asio::yield_context do_yield)
                     buf.data(),
                     std::move(stream_)))
                 sp->run();
-            return;
         }
-        if (auto sp = ios().template emplace<PlainHTTPPeer<Handler>>(
-                port_,
-                handler_,
-                ioc_,
-                j_,
-                remote_address_,
-                buf.data(),
-                std::move(stream_)))
-            sp->run();
-        return;
+        else
+        {
+            if (auto sp = ios().template emplace<PlainHTTPPeer<Handler>>(
+                    port_,
+                    handler_,
+                    ioc_,
+                    j_,
+                    remote_address_,
+                    buf.data(),
+                    std::move(stream_)))
+                sp->run();
+        }
     }
-    if (ec != boost::asio::error::operation_aborted)
+    else
     {
-        JLOG(j_.trace()) << "Error detecting ssl: " << ec.message() << " from "
-                         << remote_address_;
+        if (ec != boost::asio::error::operation_aborted)
+        {
+            JLOG(j_.trace()) << "Error detecting ssl: " << ec.message() << " from "
+                            << remote_address_;
+        }
     }
+
+    this->close();
 }
 
 //------------------------------------------------------------------------------
