@@ -179,6 +179,8 @@ install (
     src/ripple/basics/contract.h
     src/ripple/basics/FeeUnits.h
     src/ripple/basics/hardened_hash.h
+    src/ripple/basics/IntrusivePointer.h
+    src/ripple/basics/SharedWeakCachePointer.h
     src/ripple/basics/strHex.h
   DESTINATION include/ripple/basics)
 install (

@@ -20,7 +20,7 @@
 #include <ripple/shamap/SHAMapInnerNode.h>
 
 #include <ripple/shamap/SHAMapTreeNode.h>
-#include <ripple/shamap/detail/TaggedPointer.ipp>
+#include <ripple/shamap/impl/TaggedPointer.ipp>
 #include <ripple/basics/IntrusivePointer.ipp>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>

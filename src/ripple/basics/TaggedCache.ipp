@@ -22,7 +22,7 @@
 
 #include <ripple/basics/TaggedCache.h>
 
-#include <xrpl/basics/IntrusivePointer.ipp>
+#include <ripple/basics/IntrusivePointer.ipp>
 
 namespace ripple {
 

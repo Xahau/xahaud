@@ -20,9 +20,9 @@
 #ifndef RIPPLE_BASICS_INTRUSIVEPOINTER_IPP_INCLUDED
 #define RIPPLE_BASICS_INTRUSIVEPOINTER_IPP_INCLUDED
 
-#include <xrpl/basics/IntrusivePointer.h>
+#include <ripple/basics/IntrusivePointer.h>
 
-#include <xrpl/basics/IntrusiveRefCounts.h>
+#include <ripple/basics/IntrusiveRefCounts.h>
 
 #include <utility>
 

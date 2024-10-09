@@ -176,7 +176,7 @@ SHAMap::finishFetch(
 {
     assert(backed_);
 
-    std::shared_ptr<SHAMapTreeNode> node;
+    intr_ptr::SharedPtr<SHAMapTreeNode> node;
     try
     {
         if (!object)
@@ -209,7 +209,7 @@ SHAMap::finishFetch(
         JLOG(journal_.warn()) << "Invalid DB node " << hash;
     }
 
-    return std::shared_ptr<SHAMapTreeNode>();
+    return intr_ptr::SharedPtr<SHAMapTreeNode>();
 }
 
 // See if a sync filter has a node

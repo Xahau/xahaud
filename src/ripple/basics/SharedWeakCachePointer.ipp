@@ -20,7 +20,7 @@
 #ifndef RIPPLE_BASICS_SHAREDWEAKCACHEPOINTER_IPP_INCLUDED
 #define RIPPLE_BASICS_SHAREDWEAKCACHEPOINTER_IPP_INCLUDED
 
-#include <xrpl/basics/SharedWeakCachePointer.h>
+#include <ripple/basics/SharedWeakCachePointer.h>
 
 namespace ripple {
 template <class T>

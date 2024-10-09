@@ -23,7 +23,7 @@
 #include <ripple/shamap/SHAMapItem.h>
 #include <ripple/shamap/SHAMapNodeID.h>
 #include <ripple/shamap/SHAMapTreeNode.h>
-#include <ripple/shamap/detail/TaggedPointer.h>
+#include <ripple/shamap/impl/TaggedPointer.h>
 #include <ripple/basics/IntrusivePointer.h>
 #include <ripple/basics/TaggedCache.h>
 #include <ripple/beast/utility/Journal.h>

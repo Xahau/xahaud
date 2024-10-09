@@ -26,7 +26,6 @@
 #include <ripple/basics/UnorderedContainers.h>
 #include <ripple/basics/base_uint.h>
 #include <ripple/json/json_value.h>
-#include <ripple/protocol/json_get_or_throw.h>
 #include <cstddef>
 #include <mutex>
 #include <optional>
