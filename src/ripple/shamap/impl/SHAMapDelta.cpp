@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/shamap/SHAMap.h>
 #include <ripple/basics/IntrusivePointer.ipp>
 #include <ripple/basics/contract.h>
+#include <ripple/shamap/SHAMap.h>
 
 #include <array>
 #include <stack>

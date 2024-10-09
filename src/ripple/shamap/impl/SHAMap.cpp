@@ -17,14 +17,14 @@
 */
 //==============================================================================
 
+#include <ripple/basics/TaggedCache.ipp>
+#include <ripple/basics/contract.h>
 #include <ripple/shamap/SHAMap.h>
 #include <ripple/shamap/SHAMapAccountStateLeafNode.h>
 #include <ripple/shamap/SHAMapNodeID.h>
 #include <ripple/shamap/SHAMapSyncFilter.h>
 #include <ripple/shamap/SHAMapTxLeafNode.h>
 #include <ripple/shamap/SHAMapTxPlusMetaLeafNode.h>
-#include <ripple/basics/TaggedCache.ipp>
-#include <ripple/basics/contract.h>
 
 namespace ripple {
 

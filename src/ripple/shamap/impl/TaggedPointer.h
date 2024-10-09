@@ -20,8 +20,8 @@
 #ifndef RIPPLE_SHAMAP_TAGGEDPOINTER_H_INCLUDED
 #define RIPPLE_SHAMAP_TAGGEDPOINTER_H_INCLUDED
 
-#include <ripple/shamap/SHAMapTreeNode.h>
 #include <ripple/basics/IntrusivePointer.h>
+#include <ripple/shamap/SHAMapTreeNode.h>
 
 #include <cstdint>
 #include <optional>

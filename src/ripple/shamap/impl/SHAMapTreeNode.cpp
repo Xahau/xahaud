@@ -17,12 +17,6 @@
 */
 //==============================================================================
 
-#include <ripple/shamap/SHAMapAccountStateLeafNode.h>
-#include <ripple/shamap/SHAMapInnerNode.h>
-#include <ripple/shamap/SHAMapLeafNode.h>
-#include <ripple/shamap/SHAMapTreeNode.h>
-#include <ripple/shamap/SHAMapTxLeafNode.h>
-#include <ripple/shamap/SHAMapTxPlusMetaLeafNode.h>
 #include <ripple/basics/IntrusivePointer.ipp>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>
@@ -31,6 +25,12 @@
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/protocol/HashPrefix.h>
 #include <ripple/protocol/digest.h>
+#include <ripple/shamap/SHAMapAccountStateLeafNode.h>
+#include <ripple/shamap/SHAMapInnerNode.h>
+#include <ripple/shamap/SHAMapLeafNode.h>
+#include <ripple/shamap/SHAMapTreeNode.h>
+#include <ripple/shamap/SHAMapTxLeafNode.h>
+#include <ripple/shamap/SHAMapTxPlusMetaLeafNode.h>
 #include <mutex>
 
 #include <openssl/sha.h>

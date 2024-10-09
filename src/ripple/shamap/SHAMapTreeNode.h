@@ -20,8 +20,6 @@
 #ifndef RIPPLE_SHAMAP_SHAMAPTREENODE_H_INCLUDED
 #define RIPPLE_SHAMAP_SHAMAPTREENODE_H_INCLUDED
 
-#include <ripple/shamap/SHAMapItem.h>
-#include <ripple/shamap/SHAMapNodeID.h>
 #include <ripple/basics/CountedObject.h>
 #include <ripple/basics/IntrusivePointer.h>
 #include <ripple/basics/IntrusiveRefCounts.h>
@@ -29,6 +27,8 @@
 #include <ripple/basics/TaggedCache.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/protocol/Serializer.h>
+#include <ripple/shamap/SHAMapItem.h>
+#include <ripple/shamap/SHAMapNodeID.h>
 
 #include <cstdint>
 #include <memory>

@@ -19,8 +19,6 @@
 
 #include <ripple/shamap/SHAMapInnerNode.h>
 
-#include <ripple/shamap/SHAMapTreeNode.h>
-#include <ripple/shamap/impl/TaggedPointer.ipp>
 #include <ripple/basics/IntrusivePointer.ipp>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>
@@ -29,6 +27,8 @@
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/protocol/HashPrefix.h>
 #include <ripple/protocol/digest.h>
+#include <ripple/shamap/SHAMapTreeNode.h>
+#include <ripple/shamap/impl/TaggedPointer.ipp>
 
 #include <algorithm>
 #include <iterator>

@@ -21,8 +21,8 @@
 #define RIPPLE_BASICS_TAGGEDCACHE_H_INCLUDED
 
 #include <ripple/basics/IntrusivePointer.h>
-#include <ripple/basics/SharedWeakCachePointer.ipp>
 #include <ripple/basics/Log.h>
+#include <ripple/basics/SharedWeakCachePointer.ipp>
 #include <ripple/basics/UnorderedContainers.h>
 #include <ripple/basics/hardened_hash.h>
 #include <ripple/beast/clock/abstract_clock.h>

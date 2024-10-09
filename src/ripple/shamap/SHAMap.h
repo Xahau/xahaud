@@ -20,6 +20,9 @@
 #ifndef RIPPLE_SHAMAP_SHAMAP_H_INCLUDED
 #define RIPPLE_SHAMAP_SHAMAP_H_INCLUDED
 
+#include <ripple/basics/IntrusivePointer.h>
+#include <ripple/basics/UnorderedContainers.h>
+#include <ripple/beast/utility/Journal.h>
 #include <ripple/nodestore/Database.h>
 #include <ripple/nodestore/NodeObject.h>
 #include <ripple/shamap/Family.h>
@@ -31,9 +34,6 @@
 #include <ripple/shamap/SHAMapMissingNode.h>
 #include <ripple/shamap/SHAMapTreeNode.h>
 #include <ripple/shamap/TreeNodeCache.h>
-#include <ripple/basics/IntrusivePointer.h>
-#include <ripple/basics/UnorderedContainers.h>
-#include <ripple/beast/utility/Journal.h>
 #include <cassert>
 #include <stack>
 #include <vector>

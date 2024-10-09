@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/shamap/SHAMap.h>
-#include <ripple/shamap/SHAMapSyncFilter.h>
 #include <ripple/basics/TaggedCache.ipp>
 #include <ripple/basics/random.h>
+#include <ripple/shamap/SHAMap.h>
+#include <ripple/shamap/SHAMapSyncFilter.h>
 
 namespace ripple {
 

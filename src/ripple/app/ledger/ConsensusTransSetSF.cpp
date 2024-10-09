@@ -22,10 +22,10 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/misc/Transaction.h>
-#include <ripple/core/JobQueue.h>
-#include <ripple/nodestore/Database.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/TaggedCache.ipp>
+#include <ripple/core/JobQueue.h>
+#include <ripple/nodestore/Database.h>
 #include <ripple/protocol/HashPrefix.h>
 #include <ripple/protocol/digest.h>
 

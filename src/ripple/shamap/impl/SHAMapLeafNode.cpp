@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/shamap/SHAMapLeafNode.h>
 #include <ripple/basics/IntrusivePointer.ipp>
 #include <ripple/basics/contract.h>
 #include <ripple/beast/core/LexicalCast.h>
+#include <ripple/shamap/SHAMapLeafNode.h>
 
 namespace ripple {
 

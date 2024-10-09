@@ -20,13 +20,13 @@
 #ifndef RIPPLE_SHAMAP_SHAMAPINNERNODE_H_INCLUDED
 #define RIPPLE_SHAMAP_SHAMAPINNERNODE_H_INCLUDED
 
+#include <ripple/basics/IntrusivePointer.h>
+#include <ripple/basics/TaggedCache.h>
+#include <ripple/beast/utility/Journal.h>
 #include <ripple/shamap/SHAMapItem.h>
 #include <ripple/shamap/SHAMapNodeID.h>
 #include <ripple/shamap/SHAMapTreeNode.h>
 #include <ripple/shamap/impl/TaggedPointer.h>
-#include <ripple/basics/IntrusivePointer.h>
-#include <ripple/basics/TaggedCache.h>
-#include <ripple/beast/utility/Journal.h>
 
 #include <atomic>
 #include <bitset>
