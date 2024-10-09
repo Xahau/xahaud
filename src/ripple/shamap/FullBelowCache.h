@@ -21,6 +21,7 @@
 #define RIPPLE_SHAMAP_FULLBELOWCACHE_H_INCLUDED
 
 #include <ripple/basics/KeyCache.h>
+#include <ripple/basics/TaggedCache.h>
 #include <ripple/basics/TaggedCache.ipp>
 #include <ripple/basics/base_uint.h>
 #include <ripple/beast/insight/Collector.h>

@@ -20,7 +20,7 @@
 #ifndef RIPPLE_BASICS_TAGGEDCACHE_IPP_INCLUDED
 #define RIPPLE_BASICS_TAGGEDCACHE_IPP_INCLUDED
 
-#include <xrpl/basics/TaggedCache.h>
+#include <ripple/basics/TaggedCache.h>
 
 namespace ripple {
 

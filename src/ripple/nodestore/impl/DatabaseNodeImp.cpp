@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/nodestore/detail/DatabaseNodeImp.h>
+#include <ripple/nodestore/impl/DatabaseNodeImp.h>
 #include <ripple/basics/TaggedCache.ipp>
 #include <ripple/protocol/HashPrefix.h>
 
