@@ -240,7 +240,7 @@ public:
     bool LEDGER_REPLAY = false;
 
     // Work queue limits
-    int MAX_TRANSACTIONS = 250;
+    int MAX_TRANSACTIONS = 1000;
     static constexpr int MAX_JOB_QUEUE_TX = 1000;
     static constexpr int MIN_JOB_QUEUE_TX = 100;
 
