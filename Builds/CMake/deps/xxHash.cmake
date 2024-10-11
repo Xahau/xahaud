@@ -20,9 +20,15 @@ ExternalProject_Add(
    -DXXHASH_BUILD_XXHSUM=ON
    LOG_BUILD ON
    LOG_CONFIGURE ON
+   BUILD_COMMAND
+    ${CMAKE_COMMAND}
+    --build .
+    --config $<CONFIG>
+    $<$<VERSION_GREATER_EQUAL:${CMAKE_VERSION},3.12>:--parallel ${ep_procs}>
    INSTALL_COMMAND ""
    BUILD_BYPRODUCTS
       <BINARY_DIR>/libxxhash.a
+      <BINARY_DIR>/xxhsum
 )
 add_library(xxHash::xxhash STATIC IMPORTED GLOBAL)
 
