@@ -9,45 +9,10 @@ include(CheckCCompilerFlag)
 check_c_compiler_flag("-mavx512f" COMPILER_SUPPORTS_AVX512)
 option(ENABLE_AVX512 "Enable AVX512 instructions" ${COMPILER_SUPPORTS_AVX512})
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set(OPENSSL_PLATFORM "linux-x86_64")
-    if(ENABLE_AVX512 AND COMPILER_SUPPORTS_AVX512)
-        set(OPENSSL_CFLAGS "-mavx512f")
-    else()
-        set(OPENSSL_CFLAGS "")
-    endif()
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
-    set(OPENSSL_PLATFORM "darwin64-arm64-cc")
-  else()
-    set(OPENSSL_PLATFORM "darwin64-x86_64-cc")
-    if(ENABLE_AVX512 AND COMPILER_SUPPORTS_AVX512)
-        set(OPENSSL_CFLAGS "-mavx512f")
-    else()
-        set(OPENSSL_CFLAGS "")
-    endif()
-  endif()
-elseif(WIN32)
-    # For Windows, assuming MSVC
-    # OpenSSL requires Perl and NASM for building
-    find_program(PERL perl)
-    if(NOT PERL)
-        message(FATAL_ERROR "Perl not found. Perl is required to build OpenSSL on Windows.")
-    endif()
-    find_program(NASM nasm)
-    if(NOT NASM)
-        message(FATAL_ERROR "NASM not found. NASM is required to build OpenSSL on Windows.")
-    endif()
-
-    if(ENABLE_AVX512 AND COMPILER_SUPPORTS_AVX512)
-        set(OPENSSL_CL "/arch:AVX512")
-    else()
-        set(OPENSSL_CL "")
-    endif()
-
-    set(OPENSSL_PLATFORM "VC-WIN64A")
+if(ENABLE_AVX512 AND COMPILER_SUPPORTS_AVX512)
+    set(OPENSSL_CFLAGS "-mavx512f")
 else()
-    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
+    set(OPENSSL_CFLAGS "")
 endif()
 
 ExternalProject_Add(openssl_src
@@ -60,7 +25,6 @@ ExternalProject_Add(openssl_src
       -DBUILD_STATIC_LIBS=ON
       enable-rmd160
       no-ssl2
-      ${OPENSSL_PLATFORM}
     LOG_BUILD ON
     LOG_CONFIGURE ON
     LOG_DOWNLOAD ON
@@ -69,56 +33,40 @@ ExternalProject_Add(openssl_src
     TEST_COMMAND ""
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS
-      <BINARY_DIR>/libcrypto.a
       <BINARY_DIR>/libssl.a
+      <BINARY_DIR>/libcrypto.a
 )
 
 ExternalProject_Get_Property (openssl_src BINARY_DIR)
 set (openssl_src_BINARY_DIR "${BINARY_DIR}")
 
-add_library (OpenSSL::Crypto STATIC IMPORTED GLOBAL)
 add_library (OpenSSL::SSL STATIC IMPORTED GLOBAL)
+add_library (OpenSSL::Crypto STATIC IMPORTED GLOBAL)
 
-add_dependencies(OpenSSL::Crypto openssl_src)
 add_dependencies(OpenSSL::SSL openssl_src)
+add_dependencies(OpenSSL::Crypto openssl_src)
+execute_process(
+    COMMAND
+        mkdir -p "${openssl_src_BINARY_DIR}/include"
+)
 
-if(MSVC)
-    # On Linux/macOS, .a or .so file extensions
-    set_target_properties(OpenSSL::Crypto PROPERTIES
-        IMPORTED_LOCATION_DEBUG
-          "${openssl_src_BINARY_DIR}/libcrypto.lib"
-        IMPORTED_LOCATION_RELEASE
-          "${openssl_src_BINARY_DIR}/libcrypto.lib"
-        INTERFACE_INCLUDE_DIRECTORIES
-          "${openssl_src_BINARY_DIR}/include"
-    )
-    set_target_properties(OpenSSL::SSL PROPERTIES
-        IMPORTED_LOCATION_DEBUG
-          "${openssl_src_BINARY_DIR}/libssl.lib"
-        IMPORTED_LOCATION_RELEASE
-          "${openssl_src_BINARY_DIR}/libssl.lib"
-        INTERFACE_INCLUDE_DIRECTORIES
-          "${openssl_src_BINARY_DIR}/include"
-    )
-else()
-    # On Linux/macOS, .a or .so file extensions
-    set_target_properties(OpenSSL::Crypto PROPERTIES
-        IMPORTED_LOCATION_DEBUG
-          "${openssl_src_BINARY_DIR}/libcrypto.a"
-        IMPORTED_LOCATION_RELEASE
-          "${openssl_src_BINARY_DIR}/libcrypto.a"
-        INTERFACE_INCLUDE_DIRECTORIES
-          "${openssl_src_BINARY_DIR}/include"
-    )
-    set_target_properties(OpenSSL::SSL PROPERTIES
-        IMPORTED_LOCATION_DEBUG
-          "${openssl_src_BINARY_DIR}/libssl.a"
-        IMPORTED_LOCATION_RELEASE
-          "${openssl_src_BINARY_DIR}/libssl.a"
-        INTERFACE_INCLUDE_DIRECTORIES
-          "${openssl_src_BINARY_DIR}/include"
-    )
-endif()
+set_target_properties(OpenSSL::SSL PROPERTIES
+    IMPORTED_LOCATION_DEBUG
+      "${openssl_src_BINARY_DIR}/libssl.a"
+    IMPORTED_LOCATION_RELEASE
+      "${openssl_src_BINARY_DIR}/libssl.a"
+    INTERFACE_INCLUDE_DIRECTORIES
+      "${openssl_src_BINARY_DIR}/include"
+)
+
+set_target_properties(OpenSSL::Crypto PROPERTIES
+    IMPORTED_LOCATION_DEBUG
+      "${openssl_src_BINARY_DIR}/libcrypto.a"
+    IMPORTED_LOCATION_RELEASE
+      "${openssl_src_BINARY_DIR}/libcrypto.a"
+    INTERFACE_INCLUDE_DIRECTORIES
+      "${openssl_src_BINARY_DIR}/include"
+)
 
 target_link_libraries (ripple_libs
   INTERFACE
@@ -140,3 +88,10 @@ if (TARGET ZLIB::ZLIB)
     INTERFACE_LINK_LIBRARIES ZLIB::ZLIB)
   set (has_zlib TRUE)
 endif ()
+
+# Compiler flags for your application
+if(ENABLE_AVX512 AND COMPILER_SUPPORTS_AVX512)
+  # Allow the compiler to use AVX512 instructions where appropriate
+  add_compile_options(-mavx512f)
+endif()
+add_link_options(-lssl -lcrypto)
