@@ -578,12 +578,12 @@ template <std::size_t Bits, class Tag>
 operator<=>(base_uint<Bits, Tag> const& lhs, base_uint<Bits, Tag> const& rhs)
 {
     return std::lexicographical_compare_three_way(
-        lhs.cbegin(), lhs.cend(),
-        rhs.cbegin(), rhs.cend(),
-        std::compare_three_way{}
-    );
+        lhs.cbegin(),
+        lhs.cend(),
+        rhs.cbegin(),
+        rhs.cend(),
+        std::compare_three_way{});
 }
-
 
 template <std::size_t Bits, typename Tag>
 [[nodiscard]] inline constexpr bool
