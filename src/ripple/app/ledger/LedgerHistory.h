@@ -27,6 +27,7 @@
 #include <ripple/protocol/RippleLedgerHash.h>
 
 #include <optional>
+#include <shared_mutex>
 
 namespace ripple {
 
@@ -150,6 +151,7 @@ private:
 
     // Maps ledger indexes to the corresponding hash.
     std::map<LedgerIndex, LedgerHash> mLedgersByIndex;  // validated ledgers
+    std::shared_mutex mLedgersByIndexMutex;
 
     beast::Journal j_;
 };

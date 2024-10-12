@@ -981,12 +981,9 @@ public:
         return caches[getCacheIndex(key)]->retrieve(key, data);
     }
 
-    mutex_type& peekMutex()
+    mutex_type& peekMutex(key_type const& key)
     {
-        // This is tricky as we have multiple mutexes now.
-        // For simplicity, we'll return the mutex of the first cache,
-        // but this might not be the best approach in all scenarios.
-        return caches[0]->peekMutex();
+        return caches[getCacheIndex(key)]->peekMutex();
     }
 
     std::vector<key_type> getKeys() const
