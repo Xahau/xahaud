@@ -79,7 +79,7 @@ LedgerHistory::getLedgerHash(LedgerIndex index)
 
     if (it != mLedgersByIndex.end())
         return it->second;
-    
+
     return uint256();
 }
 
@@ -110,9 +110,10 @@ LedgerHistory::getLedgerBySeq(LedgerIndex index)
         {
             std::unique_lock sl(m_ledgers_by_hash.peekMutex(ret->info().hash));
             assert(ret->isImmutable());
-            m_ledgers_by_hash.canonicalize_replace_client(ret->info().hash, ret);
+            m_ledgers_by_hash.canonicalize_replace_client(
+                ret->info().hash, ret);
         }
-    
+
         {
             std::unique_lock<std::shared_mutex> lock(mLedgersByIndexMutex);
             mLedgersByIndex[ret->info().seq] = ret->info().hash;

@@ -793,12 +793,11 @@ private:
     std::uint64_t m_misses;
 };
 
-
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <type_traits>
-#include <memory>
 
 template <
     class Key,
@@ -812,15 +811,17 @@ class TaggedCache
 private:
     static constexpr size_t NUM_CACHES = 16;
 
-    using CacheType = TaggedCacheSingle<Key, T, IsKeyCache, Hash, KeyEqual, Mutex>;
+    using CacheType =
+        TaggedCacheSingle<Key, T, IsKeyCache, Hash, KeyEqual, Mutex>;
     std::array<std::unique_ptr<CacheType>, NUM_CACHES> caches;
 
     // Helper function to get the index of the cache based on the key
-    size_t getCacheIndex(const Key& key) const
+    size_t
+    getCacheIndex(const Key& key) const
     {
         // Assuming Key can be hashed
         size_t hash = Hash{}(key);
-        return hash & 0xF; // Use the least significant nibble
+        return hash & 0xF;  // Use the least significant nibble
     }
 
 public:
@@ -842,23 +843,25 @@ public:
         {
             caches[i] = std::make_unique<CacheType>(
                 name + "_" + std::to_string(i),
-                size / NUM_CACHES, // Distribute size across caches
+                size / NUM_CACHES,  // Distribute size across caches
                 expiration,
                 clock,
                 journal,
-                collector
-            );
+                collector);
         }
     }
 
-    // Implement all public methods of TaggedCache, delegating to the appropriate cache instance
+    // Implement all public methods of TaggedCache, delegating to the
+    // appropriate cache instance
 
-    clock_type& clock()
+    clock_type&
+    clock()
     {
-        return caches[0]->clock(); // All caches share the same clock
+        return caches[0]->clock();  // All caches share the same clock
     }
 
-    std::size_t size() const
+    std::size_t
+    size() const
     {
         std::size_t total = 0;
         for (const auto& cache : caches)
@@ -866,25 +869,30 @@ public:
         return total;
     }
 
-    void setTargetSize(int s)
+    void
+    setTargetSize(int s)
     {
         int sizePerCache = s / NUM_CACHES;
         for (auto& cache : caches)
             cache->setTargetSize(sizePerCache);
     }
 
-    clock_type::duration getTargetAge() const
+    clock_type::duration
+    getTargetAge() const
     {
-        return caches[0]->getTargetAge(); // All caches share the same target age
+        return caches[0]
+            ->getTargetAge();  // All caches share the same target age
     }
 
-    void setTargetAge(clock_type::duration s)
+    void
+    setTargetAge(clock_type::duration s)
     {
         for (auto& cache : caches)
             cache->setTargetAge(s);
     }
 
-    int getCacheSize() const
+    int
+    getCacheSize() const
     {
         int total = 0;
         for (const auto& cache : caches)
@@ -892,7 +900,8 @@ public:
         return total;
     }
 
-    int getTrackSize() const
+    int
+    getTrackSize() const
     {
         int total = 0;
         for (const auto& cache : caches)
@@ -900,7 +909,8 @@ public:
         return total;
     }
 
-    float getHitRate()
+    float
+    getHitRate()
     {
         float totalHitRate = 0;
         for (const auto& cache : caches)
@@ -908,85 +918,101 @@ public:
         return totalHitRate / NUM_CACHES;
     }
 
-    void clear()
+    void
+    clear()
     {
         for (auto& cache : caches)
             cache->clear();
     }
 
-    void reset()
+    void
+    reset()
     {
         for (auto& cache : caches)
             cache->reset();
     }
 
     template <class KeyComparable>
-    bool touch_if_exists(KeyComparable const& key)
+    bool
+    touch_if_exists(KeyComparable const& key)
     {
         return caches[getCacheIndex(key)]->touch_if_exists(key);
     }
 
-    void sweep()
+    void
+    sweep()
     {
         for (auto& cache : caches)
             cache->sweep();
     }
 
-    bool del(const key_type& key, bool valid)
+    bool
+    del(const key_type& key, bool valid)
     {
         return caches[getCacheIndex(key)]->del(key, valid);
     }
 
-    bool canonicalize(
+    bool
+    canonicalize(
         const key_type& key,
         std::shared_ptr<T>& data,
         std::function<bool(std::shared_ptr<T> const&)>&& replace)
     {
-        return caches[getCacheIndex(key)]->canonicalize(key, data, std::move(replace));
+        return caches[getCacheIndex(key)]->canonicalize(
+            key, data, std::move(replace));
     }
 
-    bool canonicalize_replace_cache(
+    bool
+    canonicalize_replace_cache(
         const key_type& key,
         std::shared_ptr<T> const& data)
     {
-        return caches[getCacheIndex(key)]->canonicalize_replace_cache(key, data);
+        return caches[getCacheIndex(key)]->canonicalize_replace_cache(
+            key, data);
     }
 
-    bool canonicalize_replace_client(const key_type& key, std::shared_ptr<T>& data)
+    bool
+    canonicalize_replace_client(const key_type& key, std::shared_ptr<T>& data)
     {
-        return caches[getCacheIndex(key)]->canonicalize_replace_client(key, data);
+        return caches[getCacheIndex(key)]->canonicalize_replace_client(
+            key, data);
     }
 
-    std::shared_ptr<T> fetch(const key_type& key)
+    std::shared_ptr<T>
+    fetch(const key_type& key)
     {
         return caches[getCacheIndex(key)]->fetch(key);
     }
 
     template <class ReturnType = bool>
-    auto insert(key_type const& key, T const& value)
+    auto
+    insert(key_type const& key, T const& value)
         -> std::enable_if_t<!IsKeyCache, ReturnType>
     {
         return caches[getCacheIndex(key)]->insert(key, value);
     }
 
     template <class ReturnType = bool>
-    auto insert(key_type const& key)
-        -> std::enable_if_t<IsKeyCache, ReturnType>
+    auto
+    insert(key_type const& key) -> std::enable_if_t<IsKeyCache, ReturnType>
     {
         return caches[getCacheIndex(key)]->insert(key);
     }
 
-    bool retrieve(const key_type& key, T& data)
+    bool
+    retrieve(const key_type& key, T& data)
     {
         return caches[getCacheIndex(key)]->retrieve(key, data);
     }
 
-    mutex_type& peekMutex(key_type const& key)
+    mutex_type&
+    peekMutex(key_type const& key)
     {
         return caches[getCacheIndex(key)]->peekMutex();
     }
 
-    std::vector<key_type> getKeys() const
+    std::vector<key_type>
+    getKeys() const
     {
         std::vector<key_type> allKeys;
         for (const auto& cache : caches)
@@ -997,7 +1023,8 @@ public:
         return allKeys;
     }
 
-    double rate() const
+    double
+    rate() const
     {
         double totalRate = 0;
         for (const auto& cache : caches)
@@ -1006,7 +1033,8 @@ public:
     }
 
     template <class Handler>
-    std::shared_ptr<T> fetch(key_type const& digest, Handler const& h)
+    std::shared_ptr<T>
+    fetch(key_type const& digest, Handler const& h)
     {
         return caches[getCacheIndex(digest)]->fetch(digest, h);
     }
