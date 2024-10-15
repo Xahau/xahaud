@@ -1308,8 +1308,8 @@ Import::doApply()
             view().rules().enabled(featureXahauGenesis)
                 ? view().info().parentCloseTime.time_since_epoch().count()
                 : view().rules().enabled(featureDeletableAccounts)
-                    ? view().seq()
-                    : 1};
+                ? view().seq()
+                : 1};
 
         sle = std::make_shared<SLE>(keylet::account(id));
         sle->setAccountID(sfAccount, id);

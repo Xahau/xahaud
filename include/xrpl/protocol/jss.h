@@ -67,35 +67,35 @@ JSS(AuthAccount);    // in: AMM Auction Slot
 JSS(AuthAccounts);   // in: AMM Auction Slot
 JSS(BaseAsset);      // in: Oracle
 JSS(Blob);
-JSS(Bridge);             // ledger type.
-JSS(Check);              // ledger type.
-JSS(CheckCancel);        // transaction type.
-JSS(CheckCash);          // transaction type.
-JSS(CheckCreate);        // transaction type.
-JSS(Clawback);           // transaction type.
-JSS(ClaimReward);        // transaction type.
-JSS(ClearFlag);          // field.
-JSS(CreateCode);         // field.
-JSS(DID);                // ledger type.
-JSS(DIDDelete);          // transaction type.
-JSS(DIDSet);             // transaction type.
-JSS(DeliverMax);         // out: alias to Amount
-JSS(DeliverMin);         // in: TransactionSign
-JSS(DepositPreauth);     // transaction and ledger type.
-JSS(Destination);        // in: TransactionSign; field.
-JSS(DirectoryNode);      // ledger type.
-JSS(EnableAmendment);    // transaction type.
-JSS(EPrice);             // in: AMM Deposit option
-JSS(EmitFailure);        // transaction type. (cleanup emit)
-JSS(Escrow);             // ledger type.
-JSS(EscrowCancel);       // transaction type.
-JSS(EscrowCreate);       // transaction type.
-JSS(EscrowFinish);       // transaction type.
-JSS(Fee);                // in/out: TransactionSign; field.
-JSS(FeeSettings);        // ledger type.
-JSS(FIELDS);             // out: RPC server_definitions
-JSS(Flags);              // in/out: TransactionSign; field.
-JSS(GenesisMint);        // tt
+JSS(Bridge);           // ledger type.
+JSS(Check);            // ledger type.
+JSS(CheckCancel);      // transaction type.
+JSS(CheckCash);        // transaction type.
+JSS(CheckCreate);      // transaction type.
+JSS(Clawback);         // transaction type.
+JSS(ClaimReward);      // transaction type.
+JSS(ClearFlag);        // field.
+JSS(CreateCode);       // field.
+JSS(DID);              // ledger type.
+JSS(DIDDelete);        // transaction type.
+JSS(DIDSet);           // transaction type.
+JSS(DeliverMax);       // out: alias to Amount
+JSS(DeliverMin);       // in: TransactionSign
+JSS(DepositPreauth);   // transaction and ledger type.
+JSS(Destination);      // in: TransactionSign; field.
+JSS(DirectoryNode);    // ledger type.
+JSS(EnableAmendment);  // transaction type.
+JSS(EPrice);           // in: AMM Deposit option
+JSS(EmitFailure);      // transaction type. (cleanup emit)
+JSS(Escrow);           // ledger type.
+JSS(EscrowCancel);     // transaction type.
+JSS(EscrowCreate);     // transaction type.
+JSS(EscrowFinish);     // transaction type.
+JSS(Fee);              // in/out: TransactionSign; field.
+JSS(FeeSettings);      // ledger type.
+JSS(FIELDS);           // out: RPC server_definitions
+JSS(Flags);            // in/out: TransactionSign; field.
+JSS(GenesisMint);      // tt
 JSS(GenesisMints);
 JSS(GovernanceMarks);
 JSS(GovernanceFlags);
@@ -325,12 +325,12 @@ JSS(coins);
 JSS(children);
 JSS(ctid);  // in/out: Tx RPC
 JSS(cres);
-JSS(currency_a);         // out: BookChanges
-JSS(currency_b);         // out: BookChanges
-JSS(currency);           // in: paths/PathRequest, STAmount
-                         // out: STPathSet, STAmount,
-                         //      AccountLines
-JSS(current);            // out: OwnerInfo
+JSS(currency_a);  // out: BookChanges
+JSS(currency_b);  // out: BookChanges
+JSS(currency);    // in: paths/PathRequest, STAmount
+                  // out: STPathSet, STAmount,
+                  //      AccountLines
+JSS(current);     // out: OwnerInfo
 JSS(current_activities);
 JSS(current_ledger_size);  // out: TxQ
 JSS(current_ledger);

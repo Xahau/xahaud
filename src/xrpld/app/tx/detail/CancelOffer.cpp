@@ -34,8 +34,8 @@ CancelOffer::preflight(PreflightContext const& ctx)
 
     if (uTxFlags & tfUniversalMask)
     {
-        JLOG(ctx.j.trace()) << "Malformed transaction: "
-                            << "Invalid flags set.";
+        JLOG(ctx.j.trace())
+            << "Malformed transaction: " << "Invalid flags set.";
         return temINVALID_FLAG;
     }
 

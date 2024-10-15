@@ -250,8 +250,8 @@ applyCreate(
         ctx_.view().rules().enabled(featureXahauGenesis)
             ? ctx_.view().info().parentCloseTime.time_since_epoch().count()
             : ctx_.view().rules().enabled(featureDeletableAccounts)
-                ? ctx_.view().seq()
-                : 1};
+            ? ctx_.view().seq()
+            : 1};
     sleAMMRoot->setFieldU32(sfSequence, seqno);
     // Ignore reserves requirement, disable the master key, allow default
     // rippling (AMM LPToken can be used in payments and offer crossing but

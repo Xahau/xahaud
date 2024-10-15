@@ -345,8 +345,9 @@ struct SetRemarks_test : public beast::unit_test::suite
             env.close();
         }
         // tecCLAIM: SetRemarks: insane remarks accounting.
-        {}  // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
-            // remarks.
+        {
+        }  // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
+           // remarks.
         {
             std::vector<remarks::remark> _marks;
             unsigned int hexValue = 0xEFAC;

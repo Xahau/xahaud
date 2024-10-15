@@ -56,8 +56,7 @@ Payment::preflight(PreflightContext const& ctx)
 
     if (uTxFlags & tfPaymentMask)
     {
-        JLOG(j.trace()) << "Malformed transaction: "
-                        << "Invalid flags set.";
+        JLOG(j.trace()) << "Malformed transaction: " << "Invalid flags set.";
         return temINVALID_FLAG;
     }
 
@@ -102,20 +101,19 @@ Payment::preflight(PreflightContext const& ctx)
     }
     if (bMax && maxSourceAmount <= beast::zero)
     {
-        JLOG(j.trace()) << "Malformed transaction: "
-                        << "bad max amount: " << maxSourceAmount.getFullText();
+        JLOG(j.trace()) << "Malformed transaction: " << "bad max amount: "
+                        << maxSourceAmount.getFullText();
         return temBAD_AMOUNT;
     }
     if (saDstAmount <= beast::zero)
     {
-        JLOG(j.trace()) << "Malformed transaction: "
-                        << "bad dst amount: " << saDstAmount.getFullText();
+        JLOG(j.trace()) << "Malformed transaction: " << "bad dst amount: "
+                        << saDstAmount.getFullText();
         return temBAD_AMOUNT;
     }
     if (isBadCurrency(uSrcCurrency) || isBadCurrency(uDstCurrency))
     {
-        JLOG(j.trace()) << "Malformed transaction: "
-                        << "Bad currency.";
+        JLOG(j.trace()) << "Malformed transaction: " << "Bad currency.";
         return temBAD_CURRENCY;
     }
     if (account == uDstAccountID && uSrcCurrency == uDstCurrency && !bPaths)
@@ -327,8 +325,8 @@ Payment::doApply()
             view().rules().enabled(featureXahauGenesis)
                 ? view().info().parentCloseTime.time_since_epoch().count()
                 : view().rules().enabled(featureDeletableAccounts)
-                    ? view().seq()
-                    : 1};
+                ? view().seq()
+                : 1};
 
         // Create the account.
         sleDst = std::make_shared<SLE>(k);
@@ -460,8 +458,8 @@ Payment::doApply()
     {
         // Vote no. However the transaction might succeed, if applied in
         // a different order.
-        JLOG(j_.trace()) << "Delay transaction: Insufficient funds: "
-                         << " " << to_string(mPriorBalance) << " / "
+        JLOG(j_.trace()) << "Delay transaction: Insufficient funds: " << " "
+                         << to_string(mPriorBalance) << " / "
                          << to_string(saDstAmount.xrp() + mmm) << " ("
                          << to_string(reserve) << ")";
 

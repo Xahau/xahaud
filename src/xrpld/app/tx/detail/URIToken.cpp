@@ -756,10 +756,9 @@ URIToken::doApply()
                             true);
                     }
 
-                    initSellerBal = !sleDstLine
-                        ? purchaseAmount.zeroed()
-                        : sellerLow ? ((*sleDstLine)[sfBalance])
-                                    : -((*sleDstLine)[sfBalance]);
+                    initSellerBal = !sleDstLine ? purchaseAmount.zeroed()
+                        : sellerLow             ? ((*sleDstLine)[sfBalance])
+                                                : -((*sleDstLine)[sfBalance]);
 
                     finSellerBal = *initSellerBal + *dstAmt;
                 }
