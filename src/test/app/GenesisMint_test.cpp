@@ -15,8 +15,8 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/impl/XahauGenesis.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/jss.h>
 #include <optional>
 #include <test/jtx.h>
 
@@ -94,7 +94,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr};
+        Env env{*this, envconfig(), features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -133,11 +133,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr};
-        // Env env{*this, envconfig(), features, nullptr,
-        //     // beast::severities::kWarning
-        //     beast::severities::kTrace
-        // };
+        Env env{*this, envconfig(), features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -639,7 +635,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr};
+        Env env{*this, envconfig(), features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -661,7 +657,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features, nullptr};
+        Env env{*this, envconfig(), features};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
