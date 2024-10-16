@@ -190,6 +190,8 @@ public:
     }
 };
 
+using SignerListSet = SetSignerList;
+
 }  // namespace ripple
 
 #endif

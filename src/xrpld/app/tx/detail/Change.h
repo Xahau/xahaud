@@ -78,6 +78,12 @@ private:
     applyUNLReport();
 };
 
+using EnableAmendment = Change;
+using SetFee = Change;
+using UNLModify = Change;
+using EmitFailure = Change;
+using UNLReport = Change;
+
 }  // namespace ripple
 
 #endif

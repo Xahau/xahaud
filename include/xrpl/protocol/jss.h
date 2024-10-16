@@ -41,20 +41,13 @@ namespace jss {
    error: Common properties of RPC error responses.
 */
 
+// clang-format off
 JSS(AL_size);        // out: GetCounts
 JSS(AL_hit_rate);    // out: GetCounts
 JSS(Account);        // in: TransactionSign; field.
-JSS(AccountDelete);  // transaction type.
 JSS(AccountRoot);    // ledger type.
-JSS(AccountSet);     // transaction type.
 JSS(AMM);            // ledger type
-JSS(AMMBid);         // transaction type
 JSS(AMMID);          // field
-JSS(AMMCreate);      // transaction type
-JSS(AMMDeposit);     // transaction type
-JSS(AMMDelete);      // transaction type
-JSS(AMMVote);        // transaction type
-JSS(AMMWithdraw);    // transaction type
 JSS(Amendments);     // ledger type.
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
@@ -69,33 +62,19 @@ JSS(BaseAsset);      // in: Oracle
 JSS(Blob);
 JSS(Bridge);           // ledger type.
 JSS(Check);            // ledger type.
-JSS(CheckCancel);      // transaction type.
-JSS(CheckCash);        // transaction type.
-JSS(CheckCreate);      // transaction type.
-JSS(Clawback);         // transaction type.
-JSS(ClaimReward);      // transaction type.
 JSS(ClearFlag);        // field.
 JSS(CreateCode);       // field.
 JSS(DID);              // ledger type.
-JSS(DIDDelete);        // transaction type.
-JSS(DIDSet);           // transaction type.
 JSS(DeliverMax);       // out: alias to Amount
 JSS(DeliverMin);       // in: TransactionSign
-JSS(DepositPreauth);   // transaction and ledger type.
 JSS(Destination);      // in: TransactionSign; field.
 JSS(DirectoryNode);    // ledger type.
-JSS(EnableAmendment);  // transaction type.
 JSS(EPrice);           // in: AMM Deposit option
-JSS(EmitFailure);      // transaction type. (cleanup emit)
 JSS(Escrow);           // ledger type.
-JSS(EscrowCancel);     // transaction type.
-JSS(EscrowCreate);     // transaction type.
-JSS(EscrowFinish);     // transaction type.
 JSS(Fee);              // in/out: TransactionSign; field.
 JSS(FeeSettings);      // ledger type.
 JSS(FIELDS);           // out: RPC server_definitions
 JSS(Flags);            // in/out: TransactionSign; field.
-JSS(GenesisMint);      // tt
 JSS(GenesisMints);
 JSS(GovernanceMarks);
 JSS(GovernanceFlags);
@@ -117,10 +96,8 @@ JSS(isSigningField);      // out: RPC server_definitions
                           // matches definitions.json format
 JSS(isVLEncoded);         // out: RPC server_definitions
                           // matches definitions.json format
-JSS(Import);
 JSS(ImportVLSequence);
 JSS(Invalid);                  //
-JSS(Invoke);                   // transaction type
 JSS(InvoiceID);                // field
 JSS(LastLedgerSequence);       // in: TransactionSign; field
 JSS(LastUpdateTime);           // field.
@@ -129,50 +106,29 @@ JSS(LimitAmount);              // field.
 JSS(BidMax);                   // in: AMM Bid
 JSS(BidMin);                   // in: AMM Bid
 JSS(NetworkID);                // field.
-JSS(NFTokenBurn);              // transaction type.
-JSS(NFTokenMint);              // transaction type.
 JSS(NFTokenOffer);             // ledger type.
-JSS(NFTokenAcceptOffer);       // transaction type.
-JSS(NFTokenCancelOffer);       // transaction type.
-JSS(NFTokenCreateOffer);       // transaction type.
 JSS(NFTokenPage);              // ledger type.
-JSS(LedgerStateFix);           // transaction type.
 JSS(LPTokenOut);               // in: AMM Liquidity Provider deposit tokens
 JSS(LPTokenIn);                // in: AMM Liquidity Provider withdraw tokens
 JSS(LPToken);                  // out: AMM Liquidity Provider tokens info
 JSS(Offer);                    // ledger type.
-JSS(OfferCancel);              // transaction type.
-JSS(OfferCreate);              // transaction type.
 JSS(OfferSequence);            // field.
 JSS(Oracle);                   // ledger type.
-JSS(OracleDelete);             // transaction type.
 JSS(OracleDocumentID);         // field
-JSS(OracleSet);                // transaction type.
 JSS(Owner);                    // field
 JSS(Paths);                    // in/out: TransactionSign
 JSS(PayChannel);               // ledger type.
-JSS(Payment);                  // transaction type.
-JSS(PaymentChannelClaim);      // transaction type.
-JSS(PaymentChannelCreate);     // transaction type.
-JSS(PaymentChannelFund);       // transaction type.
 JSS(PriceDataSeries);          // field.
 JSS(PriceData);                // field.
 JSS(Provider);                 // field.
 JSS(QuoteAsset);               // in: Oracle.
-JSS(Remit);                    // transaction type.
 JSS(RippleState);              // ledger type.
 JSS(SLE_hit_rate);             // out: GetCounts.
-JSS(SetFee);                   // transaction type.
-JSS(SetRemarks);               // transaction type
-JSS(UNLModify);                // transaction type.
 JSS(Scale);                    // field.
-JSS(UNLReport);                // transaction type.
 JSS(SettleDelay);              // in: TransactionSign
 JSS(SendMax);                  // in: TransactionSign
 JSS(Sequence);                 // in/out: TransactionSign; field.
 JSS(SetFlag);                  // field.
-JSS(SetRegularKey);            // transaction type.
-JSS(SetHook);                  // transaction type.
 JSS(Hook);                     // ledger type.
 JSS(HookDefinition);           // ledger type.
 JSS(HookState);                // ledger type.
@@ -180,33 +136,17 @@ JSS(HookStateData);            // field.
 JSS(HookStateKey);             // field.
 JSS(EmittedTxn);               // ledger type.
 JSS(SignerList);               // ledger type.
-JSS(SignerListSet);            // transaction type.
 JSS(SigningPubKey);            // field.
 JSS(TakerGets);                // field.
 JSS(TakerPays);                // field.
 JSS(Ticket);                   // ledger type.
-JSS(TicketCreate);             // transaction type.
 JSS(TxnSignature);             // field.
 JSS(TradingFee);               // in/out: AMM trading fee
 JSS(TransactionType);          // in: TransactionSign.
 JSS(TransferRate);             // in: TransferRate.
-JSS(TrustSet);                 // transaction type.
 JSS(URI);                      // field.
 JSS(URIToken);                 // out: LedgerEntry
-JSS(URITokenMint);             // tx type
-JSS(URITokenBurn);             // tx type
-JSS(URITokenBuy);              // tx type
-JSS(URITokenCreateSellOffer);  // tx type
-JSS(URITokenCancelSellOffer);  // tx type
 JSS(VoteSlots);                // out: AMM Vote
-JSS(XChainAddAccountCreateAttestation);  // transaction type.
-JSS(XChainAddClaimAttestation);          // transaction type.
-JSS(XChainAccountCreateCommit);          // transaction type.
-JSS(XChainClaim);                        // transaction type.
-JSS(XChainCommit);                       // transaction type.
-JSS(XChainCreateBridge);                 // transaction type.
-JSS(XChainCreateClaimID);                // transaction type.
-JSS(XChainModifyBridge);                 // transaction type.
 JSS(XChainOwnedClaimID);                 // ledger type.
 JSS(XChainOwnedCreateAccountClaimID);    // ledger type.
 JSS(aborted);                            // out: InboundLedger
@@ -862,6 +802,18 @@ JSS(write_load);                            // out: GetCounts
 JSS(xchain_owned_claim_id);                 // in: LedgerEntry, AccountObjects
 JSS(xchain_owned_create_account_claim_id);  // in: LedgerEntry
 JSS(NegativeUNL);                           // out: ValidatorList; ledger type
+// clang-format on
+
+#pragma push_macro("TRANSACTION")
+#undef TRANSACTION
+
+#define TRANSACTION(tag, value, name, fields) JSS(name);
+
+#include <xrpl/protocol/detail/transactions.macro>
+
+#undef TRANSACTION
+#pragma pop_macro("TRANSACTION")
+
 #undef JSS
 
 }  // namespace jss

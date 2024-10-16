@@ -96,6 +96,12 @@ public:
     doApply() override;
 };
 
+using URITokenMint = URIToken;
+using URITokenBurn = URIToken;
+using URITokenBuy = URIToken;
+using URITokenCreateSellOffer = URIToken;
+using URITokenCancelSellOffer = URIToken;
+
 }  // namespace ripple
 
 #endif
