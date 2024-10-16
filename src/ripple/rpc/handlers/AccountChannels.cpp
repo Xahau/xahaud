@@ -38,7 +38,7 @@ addChannel(Json::Value& jsonLines, SLE const& line)
     jDst[jss::channel_id] = to_string(line.key());
     jDst[jss::account] = to_string(line[sfAccount]);
     jDst[jss::destination_account] = to_string(line[sfDestination]);
-    line[sfAmount].setJson(jDst[jss::amount]);
+    jDst[jss::amount] = line[sfAmount].getText();
     jDst[jss::balance] = line[sfBalance].getText();
     if (publicKeyType(line[sfPublicKey]))
     {
@@ -58,7 +58,7 @@ addChannel(Json::Value& jsonLines, SLE const& line)
 }
 
 // {
-//   account: <account>|<account_public_key>
+//   account: <account>
 //   ledger_hash : <ledger>
 //   ledger_index : <ledger_index>
 //   limit: integer                 // optional
@@ -76,11 +76,12 @@ doAccountChannels(RPC::JsonContext& context)
     if (!ledger)
         return result;
 
-    std::string strIdent(params[jss::account].asString());
-    AccountID accountID;
-
-    if (auto const err = RPC::accountFromString(accountID, strIdent))
-        return err;
+    auto id = parseBase58<AccountID>(params[jss::account].asString());
+    if (!id)
+    {
+        return rpcError(rpcACT_MALFORMED);
+    }
+    AccountID const accountID{std::move(id.value())};
 
     if (!ledger->exists(keylet::account(accountID)))
         return rpcError(rpcACT_NOT_FOUND);
@@ -88,14 +89,12 @@ doAccountChannels(RPC::JsonContext& context)
     std::string strDst;
     if (params.isMember(jss::destination_account))
         strDst = params[jss::destination_account].asString();
-    auto hasDst = !strDst.empty();
 
-    AccountID raDstAccount;
-    if (hasDst)
-    {
-        if (auto const err = RPC::accountFromString(raDstAccount, strDst))
-            return err;
-    }
+    auto const raDstAccount = [&]() -> std::optional<AccountID> {
+        return strDst.empty() ? std::nullopt : parseBase58<AccountID>(strDst);
+    }();
+    if (!strDst.empty() && !raDstAccount)
+        return rpcError(rpcACT_MALFORMED);
 
     unsigned int limit;
     if (auto err = readLimitField(limit, RPC::Tuning::accountChannels, context))
@@ -109,10 +108,9 @@ doAccountChannels(RPC::JsonContext& context)
     {
         std::vector<std::shared_ptr<SLE const>> items;
         AccountID const& accountID;
-        bool hasDst;
-        AccountID const& raDstAccount;
+        std::optional<AccountID> const& raDstAccount;
     };
-    VisitData visitData = {{}, accountID, hasDst, raDstAccount};
+    VisitData visitData = {{}, accountID, raDstAccount};
     visitData.items.reserve(limit);
     uint256 startAfter = beast::zero;
     std::uint64_t startHint = 0;
@@ -163,17 +161,12 @@ doAccountChannels(RPC::JsonContext& context)
             accountID,
             startAfter,
             startHint,
-            limit,
+            limit + 1,
             [&visitData, &accountID, &count, &limit, &marker, &nextHint](
                 std::shared_ptr<SLE const> const& sleCur) {
                 if (!sleCur)
                 {
                     assert(false);
-                    return false;
-                }
-
-                if (sleCur->getType() != ltPAYCHAN)
-                {
                     return false;
                 }
 
@@ -183,9 +176,10 @@ doAccountChannels(RPC::JsonContext& context)
                     nextHint = RPC::getStartHint(sleCur, visitData.accountID);
                 }
 
-                if (count <= limit && (*sleCur)[sfAccount] == accountID &&
-                    (!visitData.hasDst ||
-                     visitData.raDstAccount == (*sleCur)[sfDestination]))
+                if (count <= limit && sleCur->getType() == ltPAYCHAN &&
+                    (*sleCur)[sfAccount] == accountID &&
+                    (!visitData.raDstAccount ||
+                     *visitData.raDstAccount == (*sleCur)[sfDestination]))
                 {
                     visitData.items.emplace_back(sleCur);
                 }
@@ -199,7 +193,7 @@ doAccountChannels(RPC::JsonContext& context)
     // Both conditions need to be checked because marker is set on the limit-th
     // item, but if there is no item on the limit + 1 iteration, then there is
     // no need to return a marker.
-    if (count == limit && marker)
+    if (count == limit + 1 && marker)
     {
         result[jss::limit] = limit;
         result[jss::marker] =

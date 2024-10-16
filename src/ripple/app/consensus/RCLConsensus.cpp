@@ -186,7 +186,7 @@ RCLConsensus::Adaptor::share(RCLCxTx const& tx)
     if (app_.getHashRouter().shouldRelay(tx.id()))
     {
         JLOG(j_.debug()) << "Relaying disputed tx " << tx.id();
-        auto const slice = tx.tx_.slice();
+        auto const slice = tx.tx_->slice();
         protocol::TMTransaction msg;
         msg.set_rawtransaction(slice.data(), slice.size());
         msg.set_status(protocol::tsNEW);
@@ -330,7 +330,7 @@ RCLConsensus::Adaptor::onClose(
         tx.first->add(s);
         initialSet->addItem(
             SHAMapNodeType::tnTRANSACTION_NM,
-            SHAMapItem(tx.first->getTransactionID(), s.slice()));
+            make_shamapitem(tx.first->getTransactionID(), s.slice()));
     }
 
     // Add pseudo-transactions to the set
@@ -374,7 +374,8 @@ RCLConsensus::Adaptor::onClose(
         RCLCensorshipDetector<TxID, LedgerIndex>::TxIDSeqVec proposed;
 
         initialSet->visitLeaves(
-            [&proposed, seq](std::shared_ptr<SHAMapItem const> const& item) {
+            [&proposed,
+             seq](boost::intrusive_ptr<SHAMapItem const> const& item) {
                 proposed.emplace_back(item->key(), seq);
             });
 
@@ -539,7 +540,7 @@ RCLConsensus::Adaptor::doAccept(
         std::vector<TxID> accepted;
 
         result.txns.map_->visitLeaves(
-            [&accepted](std::shared_ptr<SHAMapItem const> const& item) {
+            [&accepted](boost::intrusive_ptr<SHAMapItem const> const& item) {
                 accepted.push_back(item->key());
             });
 
@@ -614,7 +615,7 @@ RCLConsensus::Adaptor::doAccept(
                         << "Test applying disputed transaction that did"
                         << " not get in " << dispute.tx().id();
 
-                    SerialIter sit(dispute.tx().tx_.slice());
+                    SerialIter sit(dispute.tx().tx_->slice());
                     auto txn = std::make_shared<STTx const>(sit);
 
                     // Disputed pseudo-transactions that were not accepted
