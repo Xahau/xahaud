@@ -529,7 +529,7 @@ public:
         };
 
         static constexpr std::
-            array<std::pair<std::string_view, std::uint32_t>, 7>
+            array<std::pair<std::string_view, std::uint32_t>, 8>
                 asFlags{
                     {{"defaultRipple", asfDefaultRipple},
                      {"depositAuth", asfDepositAuth},
@@ -537,6 +537,7 @@ public:
                      {"globalFreeze", asfGlobalFreeze},
                      {"noFreeze", asfNoFreeze},
                      {"requireAuthorization", asfRequireAuth},
+                     {"tshCollect", asfTshCollect},
                      {"requireDestinationTag", asfRequireDest}}};
 
         for (auto& asf : asFlags)

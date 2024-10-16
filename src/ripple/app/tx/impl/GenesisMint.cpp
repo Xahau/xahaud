@@ -23,6 +23,7 @@
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/st.h>
 
 namespace ripple {
 

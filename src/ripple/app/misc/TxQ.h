@@ -111,7 +111,7 @@ public:
         std::uint32_t minimumTxnInLedgerSA = 1000;
         /// Number of transactions per ledger that fee escalation "works
         /// towards".
-        std::uint32_t targetTxnInLedger = 256;
+        std::uint32_t targetTxnInLedger = 1000;
         /** Optional maximum allowed value of transactions per ledger before
             fee escalation kicks in. By default, the maximum is an emergent
             property of network, validator, and consensus performance. This

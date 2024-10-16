@@ -19,6 +19,7 @@
 
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/NetworkOPs.h>
+#include <ripple/app/reporting/P2pProxy.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/Context.h>
 #include <ripple/rpc/Role.h>

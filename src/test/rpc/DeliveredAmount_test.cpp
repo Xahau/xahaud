@@ -191,80 +191,73 @@ class DeliveredAmount_test : public beast::unit_test::suite
         auto const gw = Account("gateway");
         auto const USD = gw["USD"];
 
-        for (bool const afterSwitchTime : {true, false})
+        Env env{*this, features};
+        env.fund(XRP(10000), alice, bob, carol, gw);
+        env.trust(USD(1000), alice, bob, carol);
+        env.close();
+
+        CheckDeliveredAmount checkDeliveredAmount{true};
         {
-            Env env{*this, features};
-            env.fund(XRP(10000), alice, bob, carol, gw);
-            env.trust(USD(1000), alice, bob, carol);
-            if (afterSwitchTime)
-                env.close(NetClock::time_point{446000000s});
-            else
-                env.close();
+            // add payments, but do no close until subscribed
 
-            CheckDeliveredAmount checkDeliveredAmount{afterSwitchTime};
-            {
-                // add payments, but do no close until subscribed
+            // normal payments
+            env(pay(gw, alice, USD(50)));
+            checkDeliveredAmount.adjCountersSuccess();
+            env(pay(gw, alice, XRP(50)));
+            checkDeliveredAmount.adjCountersSuccess();
 
-                // normal payments
-                env(pay(gw, alice, USD(50)));
-                checkDeliveredAmount.adjCountersSuccess();
-                env(pay(gw, alice, XRP(50)));
-                checkDeliveredAmount.adjCountersSuccess();
+            // partial payment
+            env(pay(gw, bob, USD(9999999)), txflags(tfPartialPayment));
+            checkDeliveredAmount.adjCountersPartialPayment();
+            env.require(balance(bob, USD(1000)));
 
-                // partial payment
-                env(pay(gw, bob, USD(9999999)), txflags(tfPartialPayment));
-                checkDeliveredAmount.adjCountersPartialPayment();
-                env.require(balance(bob, USD(1000)));
-
-                // failed payment
-                env(pay(bob, carol, USD(9999999)), ter(tecPATH_PARTIAL));
-                checkDeliveredAmount.adjCountersFail();
-                env.require(balance(carol, USD(0)));
-            }
-
-            auto wsc = makeWSClient(env.app().config());
-
-            {
-                Json::Value stream;
-                // RPC subscribe to ledger stream
-                stream[jss::streams] = Json::arrayValue;
-                stream[jss::streams].append("ledger");
-                stream[jss::accounts] = Json::arrayValue;
-                stream[jss::accounts].append(toBase58(alice.id()));
-                stream[jss::accounts].append(toBase58(bob.id()));
-                stream[jss::accounts].append(toBase58(carol.id()));
-                auto jv = wsc->invoke("subscribe", stream);
-                if (wsc->version() == 2)
-                {
-                    BEAST_EXPECT(
-                        jv.isMember(jss::jsonrpc) && jv[jss::jsonrpc] == "2.0");
-                    BEAST_EXPECT(
-                        jv.isMember(jss::ripplerpc) &&
-                        jv[jss::ripplerpc] == "2.0");
-                    BEAST_EXPECT(jv.isMember(jss::id) && jv[jss::id] == 5);
-                }
-                BEAST_EXPECT(jv[jss::result][jss::ledger_index] == 3);
-            }
-            {
-                env.close();
-                // Check stream update
-                while (true)
-                {
-                    auto const r = wsc->findMsg(1s, [&](auto const& jv) {
-                        return jv[jss::ledger_index] == 4;
-                    });
-                    if (!r)
-                        break;
-
-                    if (!r->isMember(jss::transaction))
-                        continue;
-
-                    BEAST_EXPECT(checkDeliveredAmount.checkTxn(
-                        (*r)[jss::transaction], (*r)[jss::meta]));
-                }
-            }
-            BEAST_EXPECT(checkDeliveredAmount.checkExpectedCounters());
+            // failed payment
+            env(pay(bob, carol, USD(9999999)), ter(tecPATH_PARTIAL));
+            checkDeliveredAmount.adjCountersFail();
+            env.require(balance(carol, USD(0)));
         }
+
+        auto wsc = makeWSClient(env.app().config());
+
+        {
+            Json::Value stream;
+            // RPC subscribe to ledger stream
+            stream[jss::streams] = Json::arrayValue;
+            stream[jss::streams].append("ledger");
+            stream[jss::accounts] = Json::arrayValue;
+            stream[jss::accounts].append(toBase58(alice.id()));
+            stream[jss::accounts].append(toBase58(bob.id()));
+            stream[jss::accounts].append(toBase58(carol.id()));
+            auto jv = wsc->invoke("subscribe", stream);
+            if (wsc->version() == 2)
+            {
+                BEAST_EXPECT(
+                    jv.isMember(jss::jsonrpc) && jv[jss::jsonrpc] == "2.0");
+                BEAST_EXPECT(
+                    jv.isMember(jss::ripplerpc) && jv[jss::ripplerpc] == "2.0");
+                BEAST_EXPECT(jv.isMember(jss::id) && jv[jss::id] == 5);
+            }
+            BEAST_EXPECT(jv[jss::result][jss::ledger_index] == 3);
+        }
+        {
+            env.close();
+            // Check stream update
+            while (true)
+            {
+                auto const r = wsc->findMsg(1s, [&](auto const& jv) {
+                    return jv[jss::ledger_index] == 4;
+                });
+                if (!r)
+                    break;
+
+                if (!r->isMember(jss::transaction))
+                    continue;
+
+                BEAST_EXPECT(checkDeliveredAmount.checkTxn(
+                    (*r)[jss::transaction], (*r)[jss::meta]));
+            }
+        }
+        BEAST_EXPECT(checkDeliveredAmount.checkExpectedCounters());
     }
     void
     testTxDeliveredAmountRPC(FeatureBitset features)
@@ -280,49 +273,41 @@ class DeliveredAmount_test : public beast::unit_test::suite
         auto const gw = Account("gateway");
         auto const USD = gw["USD"];
 
-        for (bool const afterSwitchTime : {true, false})
-        {
-            Env env{*this, features};
-            env.fund(XRP(10000), alice, bob, carol, gw);
-            env.trust(USD(1000), alice, bob, carol);
-            if (afterSwitchTime)
-                env.close(NetClock::time_point{446000000s});
-            else
-                env.close();
+        Env env{*this, features};
+        env.fund(XRP(10000), alice, bob, carol, gw);
+        env.trust(USD(1000), alice, bob, carol);
+        env.close();
 
-            CheckDeliveredAmount checkDeliveredAmount{afterSwitchTime};
-            // normal payments
-            env(pay(gw, alice, USD(50)));
-            checkDeliveredAmount.adjCountersSuccess();
-            env(pay(gw, alice, XRP(50)));
-            checkDeliveredAmount.adjCountersSuccess();
+        CheckDeliveredAmount checkDeliveredAmount{true};
+        // normal payments
+        env(pay(gw, alice, USD(50)));
+        checkDeliveredAmount.adjCountersSuccess();
+        env(pay(gw, alice, XRP(50)));
+        checkDeliveredAmount.adjCountersSuccess();
 
-            // partial payment
-            env(pay(gw, bob, USD(9999999)), txflags(tfPartialPayment));
-            checkDeliveredAmount.adjCountersPartialPayment();
-            env.require(balance(bob, USD(1000)));
+        // partial payment
+        env(pay(gw, bob, USD(9999999)), txflags(tfPartialPayment));
+        checkDeliveredAmount.adjCountersPartialPayment();
+        env.require(balance(bob, USD(1000)));
 
-            // failed payment
-            env(pay(gw, carol, USD(9999999)), ter(tecPATH_PARTIAL));
-            checkDeliveredAmount.adjCountersFail();
-            env.require(balance(carol, USD(0)));
+        // failed payment
+        env(pay(gw, carol, USD(9999999)), ter(tecPATH_PARTIAL));
+        checkDeliveredAmount.adjCountersFail();
+        env.require(balance(carol, USD(0)));
 
-            env.close();
-            std::string index;
-            Json::Value jvParams;
-            jvParams[jss::ledger_index] = 4u;
-            jvParams[jss::transactions] = true;
-            jvParams[jss::expand] = true;
-            auto const jtxn = env.rpc(
-                "json",
-                "ledger",
-                to_string(
-                    jvParams))[jss::result][jss::ledger][jss::transactions];
-            for (auto const& t : jtxn)
-                BEAST_EXPECT(
-                    checkDeliveredAmount.checkTxn(t, t[jss::metaData]));
-            BEAST_EXPECT(checkDeliveredAmount.checkExpectedCounters());
-        }
+        env.close();
+        std::string index;
+        Json::Value jvParams;
+        jvParams[jss::ledger_index] = 4u;
+        jvParams[jss::transactions] = true;
+        jvParams[jss::expand] = true;
+        auto const jtxn = env.rpc(
+            "json",
+            "ledger",
+            to_string(jvParams))[jss::result][jss::ledger][jss::transactions];
+        for (auto const& t : jtxn)
+            BEAST_EXPECT(checkDeliveredAmount.checkTxn(t, t[jss::metaData]));
+        BEAST_EXPECT(checkDeliveredAmount.checkExpectedCounters());
     }
 
 public:

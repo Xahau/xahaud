@@ -17,6 +17,8 @@
 */
 //==============================================================================
 
+#define MAGIC_ENUM_NO_CHECK_REFLECTED_ENUM
+
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
@@ -26,6 +28,7 @@
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/LedgerFormats.h>
 #include <ripple/protocol/SField.h>
+#include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/impl/TransactionSign.h>
@@ -41,6 +44,21 @@
         static constexpr int max = 20000;       \
     };
 
+#define MAGIC_ENUM_16(x)                        \
+    template <>                                 \
+    struct magic_enum::customize::enum_range<x> \
+    {                                           \
+        static constexpr int min = -128;        \
+        static constexpr int max = 127;         \
+    };
+
+#define MAGIC_ENUM_FLAG(x)                      \
+    template <>                                 \
+    struct magic_enum::customize::enum_range<x> \
+    {                                           \
+        static constexpr bool is_flags = true;  \
+    };
+
 MAGIC_ENUM(ripple::SerializedTypeID);
 MAGIC_ENUM(ripple::LedgerEntryType);
 MAGIC_ENUM(ripple::TELcodes);
@@ -49,22 +67,45 @@ MAGIC_ENUM(ripple::TEFcodes);
 MAGIC_ENUM(ripple::TERcodes);
 MAGIC_ENUM(ripple::TEScodes);
 MAGIC_ENUM(ripple::TECcodes);
+MAGIC_ENUM_16(ripple::TxType);
+MAGIC_ENUM_FLAG(ripple::UniversalFlags);
+MAGIC_ENUM_FLAG(ripple::AccountSetFlags);
+MAGIC_ENUM_FLAG(ripple::OfferCreateFlags);
+MAGIC_ENUM_FLAG(ripple::PaymentFlags);
+MAGIC_ENUM_FLAG(ripple::TrustSetFlags);
+MAGIC_ENUM_FLAG(ripple::EnableAmendmentFlags);
+MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
+MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
+MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
+MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
+MAGIC_ENUM_16(ripple::AccountFlags);
 
 namespace ripple {
 
 class Definitions
 {
 private:
-    Json::Value
-    generate()
-    {
-        // RH TODO: probably a better way to do this?
 #define STR(x)                      \
     ([&] {                          \
         std::ostringstream ss;      \
         return ss << (x), ss.str(); \
     }())
 
+    template <typename EnumType>
+    void
+    addFlagsToJson(Json::Value& json, std::string const& key)
+    {
+        for (auto const& entry : magic_enum::enum_entries<EnumType>())
+        {
+            const auto name = entry.second;
+            json[jss::TRANSACTION_FLAGS][key][STR(name)] =
+                static_cast<uint32_t>(entry.first);
+        }
+    }
+
+    Json::Value
+    generate()
+    {
         Json::Value ret{Json::objectValue};
         ret[jss::TYPES] = Json::objectValue;
 
@@ -366,6 +407,39 @@ private:
             std::string type_name = translate_tt(translate(name.data() + 2));
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
+        }
+
+        // Transaction Flags:
+        ret[jss::TRANSACTION_FLAGS] = Json::objectValue;
+        addFlagsToJson<UniversalFlags>(ret, "Universal");
+        addFlagsToJson<AccountSetFlags>(ret, "AccountSet");
+        addFlagsToJson<OfferCreateFlags>(ret, "OfferCreate");
+        addFlagsToJson<PaymentFlags>(ret, "Payment");
+        addFlagsToJson<TrustSetFlags>(ret, "TrustSet");
+        addFlagsToJson<EnableAmendmentFlags>(ret, "EnableAmendment");
+        addFlagsToJson<PaymentChannelClaimFlags>(ret, "PaymentChannelClaim");
+        addFlagsToJson<NFTokenMintFlags>(ret, "NFTokenMint");
+        addFlagsToJson<NFTokenCreateOfferFlags>(ret, "NFTokenCreateOffer");
+        addFlagsToJson<ClaimRewardFlags>(ret, "ClaimReward");
+        struct FlagData
+        {
+            std::string name;
+            std::uint32_t value;
+        };
+        std::array<FlagData, 1> uriTokenMintFlags{{{"tfBurnable", tfBurnable}}};
+        for (auto const& entry : uriTokenMintFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["URITokenMint"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+
+        // Transaction Indicies Flags:
+        ret[jss::TRANSACTION_FLAGS_INDICES] = Json::objectValue;
+        for (auto const& entry : magic_enum::enum_entries<AccountFlags>())
+        {
+            const auto name = entry.second;
+            ret[jss::TRANSACTION_FLAGS_INDICES]["AccountSet"][STR(name)] =
+                static_cast<uint32_t>(entry.first);
         }
 
         ret[jss::native_currency_code] = systemCurrencyCode();
