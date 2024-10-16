@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <ripple/app/rdb/Download.h>
+#include <fstream>
 
 namespace ripple {
 
