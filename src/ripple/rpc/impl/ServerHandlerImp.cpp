@@ -247,11 +247,11 @@ build_map(boost::beast::http::fields const& h)
     std::map<std::string, std::string> c;
     for (auto const& e : h)
     {
-        auto key(e.name_string().to_string());
+        auto key(std::string(e.name_string()));
         std::transform(key.begin(), key.end(), key.begin(), [](auto kc) {
             return std::tolower(static_cast<unsigned char>(kc));
         });
-        c[key] = e.value().to_string();
+        c[key] = std::string(e.value());
     }
     return c;
 }
@@ -386,9 +386,9 @@ logDuration(
     beast::Journal& journal)
 {
     using namespace std::chrono_literals;
-    auto const level = (duration >= 10s)
-        ? journal.error()
-        : (duration >= 1s) ? journal.warn() : journal.debug();
+    auto const level = (duration >= 10s) ? journal.error()
+        : (duration >= 1s)               ? journal.warn()
+                                         : journal.debug();
 
     JLOG(level) << "RPC request processing duration = "
                 << std::chrono::duration_cast<std::chrono::microseconds>(
