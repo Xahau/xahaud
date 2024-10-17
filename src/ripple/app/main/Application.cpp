@@ -45,6 +45,7 @@
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorSite.h>
 #include <ripple/app/paths/PathRequests.h>
+#include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/app/rdb/Wallet.h>
 #include <ripple/app/rdb/backend/PostgresDatabase.h>
 #include <ripple/app/reporting/ReportingETL.h>
@@ -52,6 +53,7 @@
 #include <ripple/basics/ByteUtilities.h>
 #include <ripple/basics/PerfLog.h>
 #include <ripple/basics/ResolverAsio.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <ripple/basics/random.h>
 #include <ripple/basics/safe_cast.h>
 #include <ripple/beast/asio/io_latency_probe.h>
@@ -59,7 +61,6 @@
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/crypto/csprng.h>
 #include <ripple/json/json_reader.h>
-#include <ripple/nodestore/DatabaseShard.h>
 #include <ripple/nodestore/DummyScheduler.h>
 #include <ripple/overlay/Cluster.h>
 #include <ripple/overlay/PeerReservationTable.h>

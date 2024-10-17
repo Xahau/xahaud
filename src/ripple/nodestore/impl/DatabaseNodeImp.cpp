@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <ripple/nodestore/impl/DatabaseNodeImp.h>
 #include <ripple/protocol/HashPrefix.h>
 

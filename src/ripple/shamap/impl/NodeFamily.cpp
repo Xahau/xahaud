@@ -20,6 +20,7 @@
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/app/main/Tuning.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <ripple/shamap/NodeFamily.h>
 #include <sstream>
 

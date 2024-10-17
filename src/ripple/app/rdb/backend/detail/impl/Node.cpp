@@ -27,6 +27,7 @@
 #include <ripple/app/rdb/backend/detail/Node.h>
 #include <ripple/basics/BasicConfig.h>
 #include <ripple/basics/StringUtilities.h>
+#include <ripple/basics/TaggedCache.ipp>
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/core/SociDB.h>
 #include <ripple/json/to_string.h>

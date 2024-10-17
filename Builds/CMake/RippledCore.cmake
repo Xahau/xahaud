@@ -179,6 +179,8 @@ install (
     src/ripple/basics/contract.h
     src/ripple/basics/FeeUnits.h
     src/ripple/basics/hardened_hash.h
+    src/ripple/basics/IntrusivePointer.h
+    src/ripple/basics/SharedWeakCachePointer.h
     src/ripple/basics/strHex.h
   DESTINATION include/ripple/basics)
 install (
@@ -769,6 +771,7 @@ if (tests)
     src/test/basics/DetectCrash_test.cpp
     src/test/basics/Expected_test.cpp
     src/test/basics/FileUtilities_test.cpp
+    src/test/basics/IntrusiveShared_test.cpp
     src/test/basics/IOUAmount_test.cpp
     src/test/basics/KeyCache_test.cpp
     src/test/basics/Number_test.cpp
