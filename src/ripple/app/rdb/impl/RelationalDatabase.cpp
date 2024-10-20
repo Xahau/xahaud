@@ -21,6 +21,7 @@
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/nodestore/DatabaseShard.h>
+#include <ripple/app/rdb/backend/MemoryDatabase.h>
 
 namespace ripple {
 
@@ -38,6 +39,7 @@ RelationalDatabase::init(
 {
     bool use_sqlite = false;
     bool use_postgres = false;
+    bool use_memory = false;
 
     if (config.reporting())
     {
@@ -51,6 +53,10 @@ RelationalDatabase::init(
             if (boost::iequals(get(rdb_section, "backend"), "sqlite"))
             {
                 use_sqlite = true;
+            }
+            else if (boost::iequals(get(rdb_section, "backend"), "memory"))
+            {
+                use_memory = true;
             }
             else
             {
@@ -72,6 +78,10 @@ RelationalDatabase::init(
     else if (use_postgres)
     {
         return getPostgresDatabase(app, config, jobQueue);
+    }
+    else if (use_memory)
+    {
+        return getMemoryDatabase(app, config, jobQueue);
     }
 
     return std::unique_ptr<RelationalDatabase>();
