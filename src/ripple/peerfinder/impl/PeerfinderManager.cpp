@@ -17,18 +17,18 @@
 */
 //==============================================================================
 
+#include <ripple/core/ConfigSections.h>
 #include <ripple/peerfinder/PeerfinderManager.h>
 #include <ripple/peerfinder/impl/Checker.h>
+#include <ripple/peerfinder/impl/InMemoryStore.h>
 #include <ripple/peerfinder/impl/Logic.h>
 #include <ripple/peerfinder/impl/SourceStrings.h>
 #include <ripple/peerfinder/impl/StoreSqdb.h>
-#include <ripple/peerfinder/impl/InMemoryStore.h>
 #include <boost/asio/io_service.hpp>
 #include <boost/utility/in_place_factory.hpp>
 #include <memory>
 #include <optional>
 #include <thread>
-#include <ripple/core/ConfigSections.h>
 
 namespace ripple {
 namespace PeerFinder {
@@ -59,9 +59,9 @@ public:
         , work_(std::in_place, std::ref(io_service_))
         , m_clock(clock)
         , m_journal(journal)
-        , m_store(useSqLiteStore
-                      ? static_cast<Store*>(new StoreSqdb(journal))
-                      : static_cast<Store*>(new InMemoryStore()))          
+        , m_store(
+              useSqLiteStore ? static_cast<Store*>(new StoreSqdb(journal))
+                             : static_cast<Store*>(new InMemoryStore()))
         , checker_(io_service_)
         , m_logic(clock, *m_store, checker_, journal)
         , m_config(config)
@@ -222,7 +222,7 @@ public:
     {
         if (auto sqdb = dynamic_cast<StoreSqdb*>(m_store.get()))
             sqdb->open(m_config);
-        m_logic.load();        
+        m_logic.load();
     }
 
     //--------------------------------------------------------------------------

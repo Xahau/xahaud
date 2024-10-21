@@ -19,9 +19,9 @@
 
 #include <ripple/app/main/Application.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
+#include <ripple/app/rdb/backend/MemoryDatabase.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/nodestore/DatabaseShard.h>
-#include <ripple/app/rdb/backend/MemoryDatabase.h>
 
 namespace ripple {
 

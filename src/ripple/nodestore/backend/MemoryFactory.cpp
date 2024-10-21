@@ -32,9 +32,9 @@ struct MemoryDB
     boost::unordered::concurrent_flat_map<
         uint256,
         std::shared_ptr<NodeObject>,
-        base_uint_hasher> table;
+        base_uint_hasher>
+        table;
 };
-
 
 class MemoryFactory : public Factory
 {
@@ -183,9 +183,7 @@ public:
     for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override
     {
         assert(db_);
-        db_->table.visit_all([&f](const auto& entry) {
-            f(entry.second);
-        });
+        db_->table.visit_all([&f](const auto& entry) { f(entry.second); });
     }
 
     int
