@@ -29,6 +29,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/version.hpp>
@@ -574,7 +575,7 @@ private:
                 if (ec)
                     break;
 
-                auto path = req.target().to_string();
+                auto path = req.target();  //.to_string();
                 res.insert("Server", "TrustedPublisherServer");
                 res.version(req.version());
                 res.keep_alive(req.keep_alive());
@@ -677,7 +678,8 @@ private:
                     // unknown request
                     res.result(boost::beast::http::status::not_found);
                     res.insert("Content-Type", "text/html");
-                    res.body() = "The file '" + path + "' was not found";
+                    res.body() =
+                        "The file '" + std::string(path) + "' was not found";
                 }
 
                 if (prepare)
