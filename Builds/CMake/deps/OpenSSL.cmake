@@ -21,7 +21,6 @@ if(APPLE)
         message(FATAL_ERROR "Unsupported macOS architecture: ${CMAKE_SYSTEM_PROCESSOR}")
     endif()
 elseif(UNIX AND NOT APPLE)
-    message(STATUS "ARCH: ${CMAKE_SYSTEM_PROCESSOR}")
     set(OPENSSL_PLATFORM "linux-x86_64")
     set(OPENSSL_NISTP "enable-ec_nistp_64_gcc_128")
     set(OPENSSL_AVX512 "-march=skylake-avx512")
@@ -46,7 +45,7 @@ ExternalProject_Add(openssl_src
     LOG_CONFIGURE ON
     LOG_DOWNLOAD ON
     BUILD_IN_SOURCE 1
-    BUILD_COMMAND $(MAKE) CFLAGS=${OPENSSL_CFLAGS}
+    BUILD_COMMAND $(MAKE)
     TEST_COMMAND ""
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS
@@ -106,9 +105,7 @@ if (TARGET ZLIB::ZLIB)
   set (has_zlib TRUE)
 endif ()
 
-# Compiler flags for your application
-if(ENABLE_AVX512 AND COMPILER_SUPPORTS_AVX512)
-  # Allow the compiler to use AVX512 instructions where appropriate
+if(ENABLE_AVX512 AND COMPILER_SUPPORTS_AVX512 AND NOT APPLE)
   add_compile_options(-mavx512f)
   add_compile_options(-march=skylake-avx512)
 endif()
