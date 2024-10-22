@@ -467,6 +467,7 @@ REGISTER_FIX    (fixNSDelete,                   Supported::yes, VoteBehavior::De
 REGISTER_FIX    (fix240819,                     Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixPageCap,                    Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fix240911,                     Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(Touch,                         Supported::yes, VoteBehavior::DefaultNo);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

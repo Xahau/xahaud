@@ -183,6 +183,7 @@ CONSTRUCT_TYPED_SFIELD(sfEmitBurden,            "EmitBurden",           UINT64, 
 CONSTRUCT_TYPED_SFIELD(sfHookInstructionCount,  "HookInstructionCount", UINT64,    17);
 CONSTRUCT_TYPED_SFIELD(sfHookReturnCode,        "HookReturnCode",       UINT64,    18);
 CONSTRUCT_TYPED_SFIELD(sfReferenceCount,        "ReferenceCount",       UINT64,    19);
+CONSTRUCT_TYPED_SFIELD(sfTouchCount,            "TouchCount",           UINT64,    97);
 CONSTRUCT_TYPED_SFIELD(sfAccountIndex,          "AccountIndex",         UINT64,    98);
 CONSTRUCT_TYPED_SFIELD(sfAccountCount,          "AccountCount",         UINT64,    99);
 CONSTRUCT_TYPED_SFIELD(sfRewardAccumulator,     "RewardAccumulator",    UINT64,   100);

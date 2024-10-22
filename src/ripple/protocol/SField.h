@@ -433,6 +433,7 @@ extern SF_UINT64 const sfReferenceCount;
 extern SF_UINT64 const sfRewardAccumulator;
 extern SF_UINT64 const sfAccountCount;
 extern SF_UINT64 const sfAccountIndex;
+extern SF_UINT64 const sfTouchCount;
 
 // 128-bit
 extern SF_UINT128 const sfEmailHash;

@@ -60,6 +60,7 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account alice{"alice"};
@@ -113,7 +114,7 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, bob["USD"](0), tfSetFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -131,10 +132,10 @@ class Freeze_test : public beast::unit_test::suite
             env(offer(bob, G1["USD"](5), XRP(25)));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 5u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 6u : 5u)))
                 return;
-            auto ff =
-                affected[3u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+            auto ff = affected[withTouch ? 4u : 3u][sfModifiedNode.fieldName]
+                              [sfFinalFields.fieldName];
             BEAST_EXPECT(
                 ff[sfHighLimit.fieldName] ==
                 bob["USD"](100).value().getJson(JsonOptions::none));
@@ -199,7 +200,7 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, bob["USD"](0), tfClearFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -377,6 +378,7 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account A1{"A1"};
@@ -417,7 +419,7 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A1["USD"](0), tfSetFreeze));
         auto affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, 1u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 2u : 1u)))
             return;
 
         auto let =
@@ -432,6 +434,7 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account A2{"A2"};
@@ -475,7 +478,7 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A3["USD"](0), tfSetFreeze));
         auto affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
             return;
         auto ff =
             affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -505,9 +508,10 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A4["USD"](0), tfSetFreeze));
         affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
             return;
-        ff = affected[0u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+        ff = affected[withTouch ? 1u : 0u][sfModifiedNode.fieldName]
+                     [sfFinalFields.fieldName];
         BEAST_EXPECT(
             ff[sfLowLimit.fieldName] ==
             G1["USD"](0).value().getJson(JsonOptions::none));
@@ -521,7 +525,7 @@ class Freeze_test : public beast::unit_test::suite
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
         if (!BEAST_EXPECT(checkArraySize(affected, 8u)))
             return;
-        auto created = affected[0u][sfCreatedNode.fieldName];
+        auto created = affected[5u][sfCreatedNode.fieldName];
         BEAST_EXPECT(
             created[sfNewFields.fieldName][jss::Account] == A2.human());
         env.close();
@@ -543,8 +547,9 @@ public:
             testOffersWhenFrozen(features);
         };
         using namespace test::jtx;
-        auto const sa = supported_amendments() - featureXahauGenesis;
+        auto const sa = supported_amendments();
         testAll(sa - featureFlowCross);
+        testAll(sa - featureTouch);
         testAll(sa);
     }
 };
