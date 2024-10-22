@@ -259,8 +259,62 @@ public:
 
         ledgers_.emplace(ledger->info().seq, std::move(ledgerData));
         ledgerHashToSeq_.emplace(ledger->info().hash, ledger->info().seq);
+
+        // Only perform cleanup when saving the current ledger
+        if (current)
+        {
+            // Calculate the cutoff sequence for old ledgers
+            auto const cutoffSeq = ledger->info().seq > app_.config().LEDGER_HISTORY
+                ? ledger->info().seq - app_.config().LEDGER_HISTORY
+                : 0;
+
+            // Amortized deletion of old ledgers and their associated data
+            if (cutoffSeq > 0)
+            {
+                // We'll delete a batch of old ledgers at a time
+                const std::size_t BATCH_SIZE = 128;
+                std::size_t deleted = 0;
+
+                ledgers_.erase_if([&](auto const& item) {
+                    if (deleted >= BATCH_SIZE)
+                        return false;
+
+                    if (item.first < cutoffSeq)
+                    {
+                        // Delete associated transactions from the transaction map
+                        item.second.transactions.visit_all(
+                            [this](auto const& txPair) {
+                                transactionMap_.erase(txPair.first);
+                            });
+
+                        // Remove the ledger hash mapping
+                        ledgerHashToSeq_.erase(item.second.info.hash);
+
+                        deleted++;
+                        return true;
+                    }
+                    return false;
+                });
+
+                // Clean up associated account transactions
+                if (deleted > 0)
+                {
+                    accountTxMap_.visit_all([cutoffSeq](auto& item) {
+                        item.second.transactions.erase_if(
+                            [cutoffSeq](auto const& tx) {
+                                return tx.first.first < cutoffSeq;
+                            });
+                    });
+                }
+
+                // update ledger master
+                app_.getLedgerMaster().clearPriorLedgers(cutoffSeq);
+            }
+        }
+
         return true;
     }
+
 
     std::optional<LedgerInfo>
     getLedgerInfoByIndex(LedgerIndex ledgerSeq) override
