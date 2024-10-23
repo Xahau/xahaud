@@ -95,7 +95,7 @@ public:
     {
         boost::ignore_unused(journal_);  // Keep unused journal_ just in case.
         if (name_.empty())
-            Throw<std::runtime_error>("Missing path in Memory backend");
+            name_ = "node_db";
     }
 
     ~MemoryBackend() override
