@@ -29,7 +29,33 @@
  * @{
  */
 void quicksort_r(void*, size_t, size_t, int (*)(const void*, const void*, void*), void*);
+#if defined(__linux__)
 int strverscmp(const char*, const char*);
+#else
+#include <ctype.h>
+#include <string.h>
+int strverscmp(const char *s1, const char *s2) {
+    while (*s1 && *s2) {
+        if (isdigit(*s1) && isdigit(*s2)) {
+            char *end1, *end2;
+            long num1 = strtol(s1, &end1, 10);
+            long num2 = strtol(s2, &end2, 10);
+            if (num1 != num2) {
+                return num1 - num2;
+            }
+            s1 = end1;
+            s2 = end2;
+        } else {
+            if (*s1 != *s2) {
+                return *s1 - *s2;
+            }
+            s1++;
+            s2++;
+        }
+    }
+    return *s1 - *s2;
+}
+#endif
 
 #ifndef INFINITY
 #define INFINITY __builtin_inf()
