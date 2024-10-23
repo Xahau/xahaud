@@ -1,28 +1,8 @@
-//------------------------------------------------------------------------------
-/*
-    This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2014 Ripple Labs Inc.
-
-    Permission to use, copy, modify, and/or distribute this software for any
-    purpose  with  or without fee is hereby granted, provided that the above
-    copyright notice and this permission notice appear in all copies.
-
-    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
-    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
-    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-*/
-//==============================================================================
-
 #ifndef RIPPLE_BASICS_HARDENED_HASH_H_INCLUDED
 #define RIPPLE_BASICS_HARDENED_HASH_H_INCLUDED
 
 #include <ripple/beast/hash/hash_append.h>
 #include <ripple/beast/hash/xxhasher.h>
-
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -32,89 +12,117 @@
 #include <unordered_set>
 #include <utility>
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#include <cpuid.h>
+#endif
+
 namespace ripple {
 
 namespace detail {
 
+#if defined(__x86_64__) || defined(_M_X64)
+inline bool check_aesni_support() {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        return (ecx & bit_AES) != 0;
+    }
+    return false;
+}
+
+// Helper function to contain all AES-NI operations
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((__target__("aes")))
+#endif
+inline __m128i aesni_hash_block(__m128i state, __m128i key, const void* data, size_t len) {
+    const uint8_t* ptr = static_cast<const uint8_t*>(data);
+    while (len >= 16) {
+        __m128i block = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
+        state = _mm_xor_si128(state, block);
+        state = _mm_aesenc_si128(state, key);
+        ptr += 16;
+        len -= 16;
+    }
+    
+    if (len > 0) {
+        alignas(16) uint8_t last_block[16] = {0};
+        std::memcpy(last_block, ptr, len);
+        __m128i block = _mm_load_si128(reinterpret_cast<const __m128i*>(last_block));
+        state = _mm_xor_si128(state, block);
+        state = _mm_aesenc_si128(state, key);
+    }
+    
+    return state;
+}
+
+// Helper function for final AES round
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((__target__("aes")))
+#endif
+inline __m128i aesni_hash_final(__m128i state, __m128i key) {
+    return _mm_aesenclast_si128(state, key);
+}
+#endif
+
 using seed_pair = std::pair<std::uint64_t, std::uint64_t>;
 
 template <bool = true>
-seed_pair
-make_seed_pair() noexcept
-{
-    struct state_t
-    {
+seed_pair make_seed_pair() noexcept {
+    struct state_t {
         std::mutex mutex;
         std::random_device rng;
         std::mt19937_64 gen;
         std::uniform_int_distribution<std::uint64_t> dist;
-
-        state_t() : gen(rng())
-        {
-        }
-        // state_t(state_t const&) = delete;
-        // state_t& operator=(state_t const&) = delete;
+        state_t() : gen(rng()) {}
     };
     static state_t state;
     std::lock_guard lock(state.mutex);
     return {state.dist(state.gen), state.dist(state.gen)};
 }
 
-}  // namespace detail
-
-/**
- * Seed functor once per construction
-
-   A std compatible hash adapter that resists adversarial inputs.
-   For this to work, T must implement in its own namespace:
-
-   @code
-
-   template <class Hasher>
-   void
-   hash_append (Hasher& h, T const& t) noexcept
-   {
-       // hash_append each base and member that should
-       //  participate in forming the hash
-       using beast::hash_append;
-       hash_append (h, static_cast<T::base1 const&>(t));
-       hash_append (h, static_cast<T::base2 const&>(t));
-       // ...
-       hash_append (h, t.member1);
-       hash_append (h, t.member2);
-       // ...
-   }
-
-   @endcode
-
-   Do not use any version of Murmur or CityHash for the Hasher
-   template parameter (the hashing algorithm).  For details
-   see https://131002.net/siphash/#at
-*/
+} // namespace detail
 
 template <class HashAlgorithm = beast::xxhasher>
-class hardened_hash
-{
+class hardened_hash {
 private:
     detail::seed_pair m_seeds;
+#if defined(__x86_64__) || defined(_M_X64)
+    bool using_aesni_;
+#endif
 
 public:
     using result_type = typename HashAlgorithm::result_type;
 
-    hardened_hash() : m_seeds(detail::make_seed_pair<>())
-    {
-    }
+    hardened_hash() : 
+        m_seeds(detail::make_seed_pair<>())
+#if defined(__x86_64__) || defined(_M_X64)
+        , using_aesni_(detail::check_aesni_support())
+#endif
+    {}
 
     template <class T>
-    result_type
-    operator()(T const& t) const noexcept
-    {
+    result_type operator()(T const& t) const noexcept {
+#if defined(__x86_64__) || defined(_M_X64)
+        if (using_aesni_) {
+            alignas(16) __m128i key = _mm_set_epi64x(m_seeds.first, m_seeds.second);
+            alignas(16) __m128i state = _mm_setzero_si128();
+
+            // Hash the data using AES-NI
+            const char* data = reinterpret_cast<const char*>(&t);
+            state = detail::aesni_hash_block(state, key, data, sizeof(t));
+            state = detail::aesni_hash_final(state, key);
+            
+            return static_cast<result_type>(_mm_cvtsi128_si64(state));
+        }
+#endif
+        // Original implementation using xxhasher
         HashAlgorithm h(m_seeds.first, m_seeds.second);
+        using beast::hash_append;
         hash_append(h, t);
         return static_cast<result_type>(h);
     }
 };
 
-}  // namespace ripple
+} // namespace ripple
 
 #endif
