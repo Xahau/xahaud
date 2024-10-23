@@ -19,6 +19,7 @@
 
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/beast/unit_test.h>
+#include <ripple/json/json_reader.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx.h>
@@ -57,7 +58,6 @@ public:
         {
             Env env(*this);
             auto const result = env.rpc("server_definitions");
-            std::cout << "RESULT: " << result << "\n";
             BEAST_EXPECT(!result[jss::result].isMember(jss::error));
             BEAST_EXPECT(result[jss::result].isMember(jss::FIELDS));
             BEAST_EXPECT(result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));

@@ -1,4 +1,4 @@
-# Xahau
+# Xahau 
 
 **Note:** Throughout this README, references to "we" or "our" pertain to the community and contributors involved in the Xahau network. It does not imply a legal entity or a specific collection of individuals.
 

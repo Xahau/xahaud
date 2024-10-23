@@ -90,11 +90,11 @@ echo "-- Install Cmake 3.23.1 --" &&
 pwd &&
 ( wget -nc -q https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1-linux-x86_64.tar.gz; echo "" ) &&
 tar -xzf cmake-3.23.1-linux-x86_64.tar.gz -C /hbb/ &&
-echo "-- Install Boost 1.75.0 --" &&
+echo "-- Install Boost 1.86.0 --" &&
 pwd &&
-( wget -nc -q https://boostorg.jfrog.io/artifactory/main/release/1.75.0/source/boost_1_75_0.tar.gz; echo "" ) &&
-tar -xzf boost_1_75_0.tar.gz &&
-cd boost_1_75_0 && ./bootstrap.sh && ./b2  link=static -j$3 && ./b2 install &&
+( wget -nc -q https://boostorg.jfrog.io/artifactory/main/release/1.86.0/source/boost_1_86_0.tar.gz; echo "" ) &&
+tar -xzf boost_1_86_0.tar.gz &&
+cd boost_1_86_0 && ./bootstrap.sh && ./b2  link=static -j$3 && ./b2 install &&
 cd ../ &&
 echo "-- Install Protobuf 3.20.0 --" &&
 pwd &&
@@ -127,9 +127,9 @@ echo "-- Build WasmEdge --" &&
 cd WasmEdge-0.11.2 &&
 ( mkdir build; echo "" ) &&
 cd build &&
-export BOOST_ROOT="/usr/local/src/boost_1_75_0" &&
+export BOOST_ROOT="/usr/local/src/boost_1_86_0" &&
 export Boost_LIBRARY_DIRS="/usr/local/lib" &&
-export BOOST_INCLUDEDIR="/usr/local/src/boost_1_75_0" &&
+export BOOST_INCLUDEDIR="/usr/local/src/boost_1_86_0" &&
 export PATH=`echo $PATH | sed -E "s/devtoolset-7/devtoolset-9/g"` &&
 cmake .. \
     -DCMAKE_BUILD_TYPE=Release \

@@ -194,8 +194,14 @@ ETLSource::onResolve(
     {
         boost::beast::get_lowest_layer(*ws_).expires_after(
             std::chrono::seconds(30));
+
+        // Use async_connect with the entire results
         boost::beast::get_lowest_layer(*ws_).async_connect(
-            results, [this](auto ec, auto ep) { onConnect(ec, ep); });
+            results,
+            [this](
+                boost::beast::error_code ec,
+                boost::asio::ip::tcp::resolver::results_type::endpoint_type
+                    ep) { onConnect(ec, ep); });
     }
 }
 
