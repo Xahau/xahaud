@@ -11,27 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(Boost_NO_BOOST_CMAKE ON)
 
-# Configure CPU architecture flags
-# Option 1: Use x86-64-v4 microarchitecture level
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v4")
-# Option 2 (alternative): Explicitly specify AVX512 instruction sets
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx512f -mavx512bw -mavx512dq -mavx512vl")
-
-# Add CPU feature detection
-include(CheckCXXSourceRuns)
-check_cxx_source_runs("
-    #include <immintrin.h>
-    int main() {
-        __m512i a = _mm512_set1_epi32(1);
-        __m512i b = _mm512_set1_epi32(2);
-        __m512i c = _mm512_add_epi32(a, b);
-        return 0;
-    }
-" HAVE_AVX512)
-
-if(NOT HAVE_AVX512)
-    message(FATAL_ERROR "AVX512 support is required to build this project. Please ensure your CPU supports AVX512 instructions (x86-64-v4).")
-endif()
 
 # make GIT_COMMIT_HASH define available to all sources
 find_package(Git)
