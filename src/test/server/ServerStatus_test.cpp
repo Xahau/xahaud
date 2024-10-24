@@ -674,10 +674,10 @@ class ServerStatus_test : public beast::unit_test::suite,
             resp.result() == boost::beast::http::status::switching_protocols);
         BEAST_EXPECT(
             resp.find("Upgrade") != resp.end() &&
-            resp["Upgrade"] == "websocket");
+            std::string(resp["Upgrade"]) == "websocket");
         BEAST_EXPECT(
             resp.find("Connection") != resp.end() &&
-            resp["Connection"] == "upgrade");
+            std::string(resp["Connection"]) == "Upgrade");
     }
 
     void
