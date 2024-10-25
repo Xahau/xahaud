@@ -5455,7 +5455,7 @@ float_divide_internal(int64_t float1, int64_t float2)
     while (man2 > 0)
     {
         int i = 0;
-        for (; man1 > man2; man1 -= man2, ++i)
+        for (; man1 >= man2; man1 -= man2, ++i)
             ;
 
         man3 *= 10;
