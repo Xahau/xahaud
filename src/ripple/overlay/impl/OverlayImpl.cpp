@@ -38,6 +38,7 @@
 #include <ripple/rpc/json_body.h>
 #include <ripple/server/SimpleWriter.h>
 
+#include <ripple/core/ConfigSections.h>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/utility/in_place_factory.hpp>
 
@@ -136,7 +137,11 @@ OverlayImpl::OverlayImpl(
           stopwatch(),
           app_.journal("PeerFinder"),
           config,
-          collector))
+          collector,
+          app.config().section(SECTION_RELATIONAL_DB).empty() ||
+              !boost::iequals(
+                  get(app.config().section(SECTION_RELATIONAL_DB), "backend"),
+                  "memory")))
     , m_resolver(resolver)
     , next_id_(1)
     , timer_count_(0)

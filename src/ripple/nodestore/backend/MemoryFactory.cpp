@@ -1,32 +1,26 @@
-//------------------------------------------------------------------------------
-/*
-    This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
-
-    Permission to use, copy, modify, and/or distribute this software for any
-    purpose  with  or without fee is hereby granted, provided that the above
-    copyright notice and this permission notice appear in all copies.
-
-    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
-    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
-    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-*/
-//==============================================================================
-
 #include <ripple/basics/contract.h>
 #include <ripple/nodestore/Factory.h>
 #include <ripple/nodestore/Manager.h>
 #include <boost/beast/core/string.hpp>
 #include <boost/core/ignore_unused.hpp>
+#include <boost/unordered/concurrent_flat_map.hpp>
 #include <map>
 #include <memory>
 #include <mutex>
 
 namespace ripple {
+
+struct base_uint_hasher
+{
+    using result_type = std::size_t;
+
+    result_type
+    operator()(base_uint<256> const& value) const
+    {
+        return hardened_hash<>{}(value);
+    }
+};
+
 namespace NodeStore {
 
 struct MemoryDB
@@ -35,7 +29,11 @@ struct MemoryDB
 
     std::mutex mutex;
     bool open = false;
-    std::map<uint256 const, std::shared_ptr<NodeObject>> table;
+    boost::unordered::concurrent_flat_map<
+        uint256,
+        std::shared_ptr<NodeObject>,
+        base_uint_hasher>
+        table;
 };
 
 class MemoryFactory : public Factory
@@ -79,7 +77,10 @@ static MemoryFactory memoryFactory;
 class MemoryBackend : public Backend
 {
 private:
-    using Map = std::map<uint256 const, std::shared_ptr<NodeObject>>;
+    using Map = boost::unordered::concurrent_flat_map<
+        uint256,
+        std::shared_ptr<NodeObject>,
+        base_uint_hasher>;
 
     std::string name_;
     beast::Journal const journal_;
@@ -94,7 +95,7 @@ public:
     {
         boost::ignore_unused(journal_);  // Keep unused journal_ just in case.
         if (name_.empty())
-            Throw<std::runtime_error>("Missing path in Memory backend");
+            name_ = "node_db";
     }
 
     ~MemoryBackend() override
@@ -134,16 +135,11 @@ public:
         assert(db_);
         uint256 const hash(uint256::fromVoid(key));
 
-        std::lock_guard _(db_->mutex);
+        bool found = db_->table.visit(hash, [&](const auto& key_value_pair) {
+            *pObject = key_value_pair.second;
+        });
 
-        Map::iterator iter = db_->table.find(hash);
-        if (iter == db_->table.end())
-        {
-            pObject->reset();
-            return notFound;
-        }
-        *pObject = iter->second;
-        return ok;
+        return found ? ok : notFound;
     }
 
     std::pair<std::vector<std::shared_ptr<NodeObject>>, Status>
@@ -168,8 +164,7 @@ public:
     store(std::shared_ptr<NodeObject> const& object) override
     {
         assert(db_);
-        std::lock_guard _(db_->mutex);
-        db_->table.emplace(object->getHash(), object);
+        db_->table.insert_or_assign(object->getHash(), object);
     }
 
     void
@@ -188,8 +183,7 @@ public:
     for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override
     {
         assert(db_);
-        for (auto const& e : db_->table)
-            f(e.second);
+        db_->table.visit_all([&f](const auto& entry) { f(entry.second); });
     }
 
     int

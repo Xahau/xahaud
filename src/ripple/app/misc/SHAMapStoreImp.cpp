@@ -127,6 +127,16 @@ SHAMapStoreImp::SHAMapStoreImp(
                 "online_delete info from config");
         }
 
+        if ((!app_.config().section(SECTION_RELATIONAL_DB).empty() &&
+              boost::iequals(get(app.config().section(SECTION_RELATIONAL_DB), "backend"), "memory")) ||
+            (!app_.config().section("node_db").empty() &&
+              boost::iequals(get(app.config().section("node_db"), "type"), "memory")))
+        {
+            Throw<std::runtime_error>(
+                "Memory does not support online_delete. Remove "
+                "online_delete info from config. Use [ledger_history] to set a history limit.");
+        }
+
         // Configuration that affects the behavior of online delete
         get_if_exists(section, "delete_batch", deleteBatch_);
         std::uint32_t temp;
