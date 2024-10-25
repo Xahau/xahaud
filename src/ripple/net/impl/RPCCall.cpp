@@ -1894,7 +1894,9 @@ fromNetwork(
     constexpr auto RPC_REPLY_MAX_BYTES = megabytes(256);
 
     using namespace std::chrono_literals;
-    auto constexpr RPC_NOTIFY = 10min;
+    // auto constexpr RPC_NOTIFY = 10min; // Wietse: lolwut 10 minutes for one
+    // HTTP call?
+    auto constexpr RPC_NOTIFY = 30s;
 
     HTTPClient::request(
         bSSL,

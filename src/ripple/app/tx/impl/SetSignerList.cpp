@@ -153,8 +153,10 @@ SetSignerList::preCompute()
 // NOTE: This way of computing the OwnerCount associated with a SignerList
 // is valid until the featureMultiSignReserve amendment passes.  Once it
 // passes then just 1 OwnerCount is associated with a SignerList.
-static int
-signerCountBasedOwnerCountDelta(std::size_t entryCount, Rules const& rules)
+int
+SetSignerList::signerCountBasedOwnerCountDelta(
+    std::size_t entryCount,
+    Rules const& rules)
 {
     // We always compute the full change in OwnerCount, taking into account:
     //  o The fact that we're adding/removing a SignerList and
@@ -176,8 +178,8 @@ signerCountBasedOwnerCountDelta(std::size_t entryCount, Rules const& rules)
     return 2 + static_cast<int>(entryCount);
 }
 
-static TER
-removeSignersFromLedger(
+TER
+SetSignerList::removeSignersFromLedger(
     Application& app,
     ApplyView& view,
     Keylet const& accountKeylet,

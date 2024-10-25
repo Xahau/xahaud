@@ -464,6 +464,9 @@ REGISTER_FIX    (fixXahauV2,                    Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(Remit,                         Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(ZeroB2M,                       Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixNSDelete,                   Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fix240819,                     Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FIX    (fixPageCap,                    Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FIX    (fix240911,                     Supported::yes, VoteBehavior::DefaultYes);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

@@ -127,7 +127,7 @@ sizedItems
     {SizedItem::txnDBCache,         {{      4,      12,      24,      64,     128 }}},
     {SizedItem::lgrDBCache,         {{      4,       8,      16,      32,     128 }}},
     {SizedItem::openFinalLimit,     {{      8,      16,      32,      64,     128 }}},
-    {SizedItem::burstSize,          {{      4,       8,      16,      32,      48 }}},
+    {SizedItem::burstSize,          {{      4,       8,      16,      32,      64*1024*1024 }}},
     {SizedItem::ramSizeGB,          {{      8,      12,      16,      24,      32 }}},
     {SizedItem::accountIdCacheSize, {{  20047,   50053,   77081,  150061,  300007 }}}
 }};

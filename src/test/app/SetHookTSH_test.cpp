@@ -18,6 +18,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/Enum.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/tx/apply.h>
@@ -30,6 +31,13 @@
 
 namespace ripple {
 namespace test {
+
+#define BEAST_REQUIRE(x)     \
+    {                        \
+        BEAST_EXPECT(!!(x)); \
+        if (!(x))            \
+            return;          \
+    }
 
 struct SetHookTSH_test : public beast::unit_test::suite
 {
@@ -5466,6 +5474,7 @@ private:
             params[jss::transaction] = txIds[i];
             auto const jrr = env.rpc("json", "tx", to_string(params));
             auto const meta = jrr[jss::result][jss::meta];
+            BEAST_EXPECT(meta[jss::delivered_amount] == "1000000");
             for (auto const& node : meta[sfAffectedNodes.jsonName])
             {
                 auto const nodeType = node[sfLedgerEntryType.jsonName];
