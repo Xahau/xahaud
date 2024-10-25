@@ -1242,11 +1242,16 @@ Transactor::executeHookChain(
 
         bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
 
+        uint16_t hookApiVersion = hookDef->getFieldU16(sfHookApiVersion);
+
+        uint32_t fee = (uint32_t)(hookDef->getFieldAmount(sfFee).xrp().drops());
+
         try
         {
             results.push_back(hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 hookHash,
+                hookApiVersion,
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
                 parameters,
@@ -1259,7 +1264,8 @@ Transactor::executeHookChain(
                 strong,
                 (strong ? 0 : 1UL),  // 0 = strong, 1 = weak
                 hook_no - 1,
-                provisionalMeta));
+                provisionalMeta,
+                fee));
 
             executedHookCount_++;
 
@@ -1376,6 +1382,8 @@ Transactor::doHookCallback(
                  ? hookObj.getFieldH256(sfHookNamespace)
                  : hookDef->getFieldH256(sfHookNamespace));
 
+        uint64_t instructionLimit = hookDef->getFieldAmount(sfFee).xrp().drops();
+
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
@@ -1394,6 +1402,7 @@ Transactor::doHookCallback(
             hook::HookResult callbackResult = hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 callbackHookHash,
+                hookDef->getFieldU16(sfHookApiVersion),
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
                 parameters,
@@ -1409,7 +1418,8 @@ Transactor::doHookCallback(
                     ? 1UL
                     : 0UL,
                 hook_no - 1,
-                provisionalMeta);
+                provisionalMeta,
+                instructionLimit);
 
             executedHookCount_++;
 
@@ -1654,11 +1664,14 @@ Transactor::doAgainAsWeak(
             return;
         }
 
+        uint32_t instructionLimit = (uint32_t)(hookDef->getFieldAmount(sfFee).xrp().drops());
+
         try
         {
             hook::HookResult aawResult = hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 hookHash,
+                hookDef->getFieldU16(sfHookApiVersion),
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
                 parameters,
@@ -1671,7 +1684,8 @@ Transactor::doAgainAsWeak(
                 false,
                 2UL,  // param 2 = aaw
                 hook_no - 1,
-                provisionalMeta);
+                provisionalMeta,
+                instructionLimit);
 
             executedHookCount_++;
 

@@ -96,6 +96,7 @@ JSS(ImportVLSequence);
 JSS(Invalid);                  //
 JSS(Invoke);                   // transaction type
 JSS(InvoiceID);                // field
+JSS(FirstLedgerSequence);
 JSS(LastLedgerSequence);       // in: TransactionSign; field
 JSS(LedgerHashes);             // ledger type.
 JSS(LimitAmount);              // field.
@@ -134,6 +135,7 @@ JSS(HookDefinition);           // ledger type.
 JSS(HookState);                // ledger type.
 JSS(HookStateData);            // field.
 JSS(HookStateKey);             // field.
+JSS(EmitDetails);
 JSS(EmittedTxn);               // ledger type.
 JSS(SignerList);               // ledger type.
 JSS(SignerListSet);            // transaction type.

@@ -431,13 +431,21 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
+            if (!ctx.rules.enabled(featureJSHooks) && version == 1)
             {
-                // we currently only accept api version 0
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
-                       "sfHook->sfHookApiVersion invalid. (Try 0).";
+                       "sfHook->sfHookApiVersion invalid. (JSHooks not enabled).";
+                return false;
+            }
+            if (version > 1)
+            {
+                // we currently only accept api version 0 and 1
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
+                    << "]: Malformed transaction: SetHook "
+                       "sfHook->sfHookApiVersion invalid. (Try 0 or 1).";
                 return false;
             }
 
@@ -452,13 +460,63 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
-            // finally validate web assembly byte code
+            // finally validate byte code according to api version
+            if (!hookSetObj.isFieldPresent(sfCreateCode))
+                return {};
+
+            Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+
+
+            if (version == 1)
             {
-                if (!hookSetObj.isFieldPresent(sfCreateCode))
-                    return {};
+                // RHTODO: guard or other check for js, depending on design choices
+               
+                if (hookSetObj.isFieldPresent(sfFee) &&
+                    isXRP(hookSetObj.getFieldAmount(sfFee)))
+                {
+                    STAmount amt = hookSetObj.getFieldAmount(sfFee);
+                    uint64_t fee = amt.xrp().drops();
+                    if (amt < beast::zero || fee < 1 || fee > 1000000)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::JS_FEE_TOO_HIGH << ")["
+                            << HS_ACC()
+                            << "]: Malformed transaction: When creating a JS Hook "
+                            << "you must include a Fee <= 1000000.";
+                        return false;
 
-                Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+                    }
+                }
+                else
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::JS_FEE_MISSING << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: When creating a JS Hook "
+                        << "you must include a Fee field indicating the instruction limit.";
+                    return false;
+                }
 
+                std::optional<std::string> result =
+                    hook::HookExecutorJS::validate(
+                        hook.data(), (size_t)hook.size());
+
+                if (result)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::JS_TEST_FAILURE << ")["
+                        << HS_ACC()
+                        << "Tried to set a hook with invalid code. VM error: "
+                        << *result;
+                    return false;
+                }
+
+                // RHTODO: fix
+                return std::pair<uint64_t,uint64_t>{1,1};
+            }
+            
+            if (version == 0)
+            {
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
                 // As such the calling here is a bit convoluted.
@@ -522,7 +580,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     << "size = " << hook.size();
 
                 std::optional<std::string> result2 =
-                    hook::HookExecutor::validateWasm(
+                    hook::HookExecutorWasm::validate(
                         hook.data(), (size_t)hook.size());
 
                 if (result2)
@@ -537,6 +595,11 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                 return *result;
             }
+
+            JLOG(ctx.j.trace())
+                << "HookSet(" << hook::log::HASH_OR_CODE << ")[" << HS_ACC()
+                << "]: Malformed transaction: SetHook specified invalid HookApiVersion.";
+            return false;
         }
 
         case hsoINVALID:
@@ -720,7 +783,8 @@ SetHook::preflight(PreflightContext const& ctx)
             if (name != sfCreateCode && name != sfHookHash &&
                 name != sfHookNamespace && name != sfHookParameters &&
                 name != sfHookOn && name != sfHookGrants &&
-                name != sfHookApiVersion && name != sfFlags)
+                name != sfHookApiVersion && name != sfFlags &&
+                name != sfFee)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
@@ -741,6 +805,7 @@ SetHook::preflight(PreflightContext const& ctx)
         }
         catch (std::exception& e)
         {
+            std::cout << "Exception: " << e.what() << "\n";
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::WASM_VALIDATION << ")[" << HS_ACC()
                 << "]: Exception: " << e.what();
@@ -1495,6 +1560,17 @@ SetHook::setHook()
                     return tecREQUIRES_FLAG;
                 }
 
+                uint16_t hookApiVersion = hookSetObj->get().getFieldU16(sfHookApiVersion);
+
+                if (hookApiVersion == 1 && !hookSetObj->get().isFieldPresent(sfFee))
+                {
+                    JLOG(ctx.j.warn())
+                        << "HookSet(" << hook::log::JS_FEE_MISSING << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook operation for JS Hook missing fee.";
+                    return tecINTERNAL;
+                }
+
                 ripple::Blob wasmBytes =
                     hookSetObj->get().getFieldVL(sfCreateCode);
 
@@ -1567,7 +1643,7 @@ SetHook::setHook()
                             << "HookSet(" << hook::log::WASM_INVALID << ")["
                             << HS_ACC()
                             << "]: Malformed transaction: SetHook operation "
-                               "would create invalid hook wasm";
+                               "would create invalid hook wasm: " << e.what();
                         return tecINTERNAL;
                     }
 
@@ -1581,6 +1657,14 @@ SetHook::setHook()
                             slesToUpdate.emplace(*oldDefKeylet, oldDefSLE);
                     }
 
+                    // override instruction count with fee for js
+                    if (hookApiVersion == 1)
+                    {
+                        uint64_t fee = hookSetObj->get().getFieldAmount(sfFee).xrp().drops();
+                        maxInstrCountHook = fee;
+                        maxInstrCountCbak = fee; // RH TODO: add a second fee for cbak?
+                    }
+
                     auto newHookDef = std::make_shared<SLE>(keylet);
                     newHookDef->setFieldH256(sfHookHash, *createHookHash);
                     newHookDef->setFieldH256(sfHookOn, *newHookOn);
@@ -1590,9 +1674,7 @@ SetHook::setHook()
                         hookSetObj->get().isFieldPresent(sfHookParameters)
                             ? hookSetObj->get().getFieldArray(sfHookParameters)
                             : STArray{});
-                    newHookDef->setFieldU16(
-                        sfHookApiVersion,
-                        hookSetObj->get().getFieldU16(sfHookApiVersion));
+                    newHookDef->setFieldU16(sfHookApiVersion, hookApiVersion);
                     newHookDef->setFieldVL(sfCreateCode, wasmBytes);
                     newHookDef->setFieldH256(
                         sfHookSetTxnID, ctx.tx.getTransactionID());
