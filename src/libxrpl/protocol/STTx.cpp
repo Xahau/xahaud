@@ -593,6 +593,48 @@ isAccountFieldOkay(STObject const& st)
     return true;
 }
 
+static bool
+invalidMPTAmountInTx(STObject const& tx)
+{
+    auto const txType = tx[~sfTransactionType];
+    if (!txType)
+        return false;
+    if (auto const* item =
+            TxFormats::getInstance().findByType(safe_cast<TxType>(*txType)))
+    {
+        for (auto const& e : item->getSOTemplate())
+        {
+            if (tx.isFieldPresent(e.sField()) && e.supportMPT() != soeMPTNone)
+            {
+                auto const& field = tx.peekAtField(e.sField());
+                if (field.getSType() == STI_AMOUNT &&
+                    static_cast<STAmount const&>(field).holds<MPTIssue>())
+                {
+                    if (e.supportMPT() != soeMPTSupported)
+                        return true;
+                }
+                if (field.getSType() == STI_ARRAY)
+                {
+                    auto const& array = static_cast<STArray const&>(field);
+                    for (auto const& item : array)
+                    {
+                        // For ttRemit
+                        if (item.getFName() != sfAmountEntry)
+                            continue;
+                        auto const& amount = item.getFieldAmount(sfAmount);
+                        if (amount.holds<MPTIssue>())
+                        {
+                            if (e.supportMPT() != soeMPTSupported)
+                                return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool
 passesLocalChecks(STObject const& st, std::string& reason)
 {
@@ -610,6 +652,13 @@ passesLocalChecks(STObject const& st, std::string& reason)
         reason = "Cannot submit pseudo transactions.";
         return false;
     }
+
+    if (invalidMPTAmountInTx(st))
+    {
+        reason = "Amount can not be MPT.";
+        return false;
+    }
+
     return true;
 }
 

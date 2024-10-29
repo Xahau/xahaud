@@ -561,6 +561,7 @@ public:
 using uint128 = base_uint<128>;
 using uint160 = base_uint<160>;
 using uint256 = base_uint<256>;
+using uint192 = base_uint<192>;
 
 #ifdef __APPLE__
 template <std::size_t Bits, class Tag>
@@ -659,6 +660,7 @@ operator<<(std::ostream& out, base_uint<Bits, Tag> const& u)
 #ifndef __INTELLISENSE__
 static_assert(sizeof(uint128) == 128 / 8, "There should be no padding bytes");
 static_assert(sizeof(uint160) == 160 / 8, "There should be no padding bytes");
+static_assert(sizeof(uint192) == 192 / 8, "There should be no padding bytes");
 static_assert(sizeof(uint256) == 256 / 8, "There should be no padding bytes");
 #endif
 

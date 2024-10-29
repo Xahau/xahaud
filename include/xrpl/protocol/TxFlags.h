@@ -22,6 +22,8 @@
 
 #include <cstdint>
 
+#include <xrpl/protocol/LedgerFormats.h>
+
 namespace ripple {
 
 /** Transaction flags.
@@ -113,6 +115,7 @@ enum PaymentFlags : uint32_t {
 };
 constexpr std::uint32_t tfPaymentMask =
     ~(tfUniversal | tfPartialPayment | tfLimitQuality | tfNoRippleDirect);
+constexpr std::uint32_t tfMPTPaymentMask = ~(tfUniversal | tfPartialPayment);
 
 // TrustSet flags:
 enum TrustSetFlags : uint32_t {
@@ -151,6 +154,29 @@ enum NFTokenMintFlags : uint32_t {
 
 constexpr std::uint32_t const tfNFTokenMintOldMask =
     ~(tfUniversal | tfBurnable | tfOnlyXRP | tfTrustLine | tfTransferable | tfStrongTSH);
+
+// MPTokenIssuanceCreate flags:
+// NOTE - there is intentionally no flag here for lsfMPTLocked, which this transaction cannot mutate. 
+constexpr std::uint32_t const tfMPTCanLock                 = lsfMPTCanLock;
+constexpr std::uint32_t const tfMPTRequireAuth             = lsfMPTRequireAuth;
+constexpr std::uint32_t const tfMPTCanEscrow               = lsfMPTCanEscrow;
+constexpr std::uint32_t const tfMPTCanTrade                = lsfMPTCanTrade;
+constexpr std::uint32_t const tfMPTCanTransfer             = lsfMPTCanTransfer;
+constexpr std::uint32_t const tfMPTCanClawback             = lsfMPTCanClawback;
+constexpr std::uint32_t const tfMPTokenIssuanceCreateMask  =
+  ~(tfUniversal | tfMPTCanLock | tfMPTRequireAuth | tfMPTCanEscrow | tfMPTCanTrade | tfMPTCanTransfer | tfMPTCanClawback);
+
+// MPTokenAuthorize flags:
+constexpr std::uint32_t const tfMPTUnauthorize             = 0x00000001;
+constexpr std::uint32_t const tfMPTokenAuthorizeMask  = ~(tfUniversal | tfMPTUnauthorize);
+
+// MPTokenIssuanceSet flags:
+constexpr std::uint32_t const tfMPTLock                   = 0x00000001;
+constexpr std::uint32_t const tfMPTUnlock                 = 0x00000002;
+constexpr std::uint32_t const tfMPTokenIssuanceSetMask  = ~(tfUniversal | tfMPTLock | tfMPTUnlock);
+
+// MPTokenIssuanceDestroy flags:
+constexpr std::uint32_t const tfMPTokenIssuanceDestroyMask  = ~tfUniversal;
 
 // Prior to fixRemoveNFTokenAutoTrustLine, transfer of an NFToken between
 // accounts allowed a TrustLine to be added to the issuer of that token
@@ -219,7 +245,6 @@ constexpr std::uint32_t tfDepositMask = ~(tfUniversal | tfDepositSubTx);
 // BridgeModify flags:
 constexpr std::uint32_t tfClearAccountCreateAmount     = 0x00010000;
 constexpr std::uint32_t tfBridgeModifyMask = ~(tfUniversal | tfClearAccountCreateAmount);
-
 // clang-format on
 
 }  // namespace ripple

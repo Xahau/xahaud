@@ -49,7 +49,7 @@ serializePayChanAuthorization(
     msg.add32(HashPrefix::paymentChannelClaim);
     msg.addBitString(key);
     if (amt == beast::zero)
-        msg.add64(STAmount::cNotNative);
+        msg.add64(STAmount::cIssuedCurrency);
     else if (amt.signum() == -1)  // 512 = not native
         msg.add64(
             amt.mantissa() |
