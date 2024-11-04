@@ -80,6 +80,7 @@ JSS(Flags);            // in/out: TransactionSign; field.
 JSS(GenesisMints);
 JSS(GovernanceMarks);
 JSS(GovernanceFlags);
+JSS(Holder);              // field.
 JSS(HookApiVersion);      // field
 JSS(HookCanEmit);         // field
 JSS(HookHash);            // field
