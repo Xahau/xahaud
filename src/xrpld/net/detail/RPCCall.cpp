@@ -445,7 +445,8 @@ private:
         return jvRequest;
     }
 
-    // deposit_authorized <source_account> <destination_account> [<ledger>]
+    // deposit_authorized <source_account> <destination_account>
+    // [<ledger> [<credentials>, ...]]
     Json::Value
     parseDepositAuthorized(Json::Value const& jvParams)
     {
@@ -453,8 +454,16 @@ private:
         jvRequest[jss::source_account] = jvParams[0u].asString();
         jvRequest[jss::destination_account] = jvParams[1u].asString();
 
-        if (jvParams.size() == 3)
+        if (jvParams.size() >= 3)
             jvParseLedger(jvRequest, jvParams[2u].asString());
+
+        // 8 credentials max
+        if ((jvParams.size() >= 4) && (jvParams.size() <= 11))
+        {
+            jvRequest[jss::credentials] = Json::Value(Json::arrayValue);
+            for (uint32_t i = 3; i < jvParams.size(); ++i)
+                jvRequest[jss::credentials].append(jvParams[i].asString());
+        }
 
         return jvRequest;
     }
@@ -1381,7 +1390,7 @@ public:
             {"channel_verify", &RPCParser::parseChannelVerify, 4, 4},
             {"connect", &RPCParser::parseConnect, 1, 2},
             {"consensus_info", &RPCParser::parseAsIs, 0, 0},
-            {"deposit_authorized", &RPCParser::parseDepositAuthorized, 2, 3},
+            {"deposit_authorized", &RPCParser::parseDepositAuthorized, 2, 11},
             {"feature", &RPCParser::parseFeature, 0, 2},
             {"fee", &RPCParser::parseFee, 0, 1},
             {"fetch_info", &RPCParser::parseFetchInfo, 0, 1},

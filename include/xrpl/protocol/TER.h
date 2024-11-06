@@ -360,6 +360,7 @@ enum TECcodes : TERUnderlyingType {
     tecARRAY_EMPTY = 195,
     tecARRAY_TOO_LARGE = 196,
     tecLOCKED = 197,
+    tecBAD_CREDENTIALS = 198,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 

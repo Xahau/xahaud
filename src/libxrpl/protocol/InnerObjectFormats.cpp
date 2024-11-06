@@ -255,6 +255,13 @@ InnerObjectFormats::InnerObjectFormats()
             {sfAssetPrice, soeOPTIONAL},
             {sfScale, soeDEFAULT},
         });
+
+    add(sfCredential.jsonName.c_str(),
+        sfCredential.getCode(),
+        {
+            {sfIssuer, soeREQUIRED},
+            {sfCredentialType, soeREQUIRED},
+        });
 }
 
 InnerObjectFormats const&

@@ -63,6 +63,7 @@ enum class LedgerNameSpace : std::uint16_t {
     PAYMENT_CHANNEL = 'x',
     CHECK = 'C',
     DEPOSIT_PREAUTH = 'p',
+    DEPOSIT_PREAUTH_CREDENTIALS = 'P',
     NEGATIVE_UNL = 'N',
     HOOK = 'H',
     HOOK_STATE_DIR = 'J',
@@ -84,6 +85,7 @@ enum class LedgerNameSpace : std::uint16_t {
     ORACLE = 'R',
     MPTOKEN_ISSUANCE = '~',
     MPTOKEN = 't',
+    CREDENTIAL = 'D',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -375,6 +377,22 @@ depositPreauth(AccountID const& owner, AccountID const& preauthorized) noexcept
         indexHash(LedgerNameSpace::DEPOSIT_PREAUTH, owner, preauthorized)};
 }
 
+// Credentials should be sorted here, use credentials::makeSorted
+Keylet
+depositPreauth(
+    AccountID const& owner,
+    std::set<std::pair<AccountID, Slice>> const& authCreds) noexcept
+{
+    std::vector<uint256> hashes;
+    hashes.reserve(authCreds.size());
+    for (auto const& o : authCreds)
+        hashes.emplace_back(sha512Half(o.first, o.second));
+
+    return {
+        ltDEPOSIT_PREAUTH,
+        indexHash(LedgerNameSpace::DEPOSIT_PREAUTH_CREDENTIALS, owner, hashes)};
+}
+
 //------------------------------------------------------------------------------
 
 Keylet
@@ -562,6 +580,18 @@ mptoken(uint256 const& issuanceKey, AccountID const& holder) noexcept
     return {
         ltMPTOKEN, indexHash(LedgerNameSpace::MPTOKEN, issuanceKey, holder)};
 }
+
+Keylet
+credential(
+    AccountID const& subject,
+    AccountID const& issuer,
+    Slice const& credType) noexcept
+{
+    return {
+        ltCREDENTIAL,
+        indexHash(LedgerNameSpace::CREDENTIAL, subject, issuer, credType)};
+}
+
 }  // namespace keylet
 
 }  // namespace ripple
