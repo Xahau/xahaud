@@ -121,7 +121,7 @@ private:
 
             if (find("UINT"))
             {
-                if (find("256") || find("160") || find("128"))
+                if (find("256") || find("192") || find("160") || find("128"))
                     return replace("UINT", "Hash");
                 else
                     return replace("UINT", "UInt");
