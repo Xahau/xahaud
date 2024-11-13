@@ -24,6 +24,7 @@
 #include <ripple/core/JobQueue.h>
 #include <ripple/json/Output.h>
 #include <ripple/rpc/RPCHandler.h>
+#include <ripple/rpc/impl/UDPInfoSub.h>
 #include <ripple/rpc/impl/WSInfoSub.h>
 #include <ripple/server/Server.h>
 #include <ripple/server/Session.h>
@@ -165,6 +166,12 @@ public:
         std::vector<boost::asio::const_buffer> const& buffers);
 
     void
+    onUDPMessage(
+        std::string const& message,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+        std::function<void(std::string const&)> sendResponse);
+
+    void
     onClose(Session& session, boost::system::error_code const&);
 
     void
@@ -176,6 +183,14 @@ private:
         std::shared_ptr<WSSession> const& session,
         std::shared_ptr<JobQueue::Coro> const& coro,
         Json::Value const& jv);
+
+    Json::Value
+    processUDP(
+        Json::Value const& jv,
+        Role const& role,
+        std::shared_ptr<JobQueue::Coro> const& coro,
+        std::optional<std::function<void(std::string const&)>> sendResponse,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint);
 
     void
     processSession(

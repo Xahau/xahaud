@@ -244,6 +244,13 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
                      optResult->begin(), optResult->end()))
                 port.protocol.insert(s);
         }
+
+        if (port.protocol.count("udp") > 0 && port.protocol.size() > 1)
+        {
+            log << "Port " << section.name()
+                << " cannot mix UDP with other protocols";
+            Throw<std::exception>();
+        }
     }
 
     {

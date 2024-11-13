@@ -30,6 +30,7 @@
 #include <ripple/rpc/Context.h>
 #include <ripple/rpc/Role.h>
 #include <ripple/rpc/impl/RPCHelpers.h>
+#include <ripple/rpc/impl/UDPInfoSub.h>
 
 namespace ripple {
 
@@ -42,7 +43,7 @@ doSubscribe(RPC::JsonContext& context)
     if (!context.infoSub && !context.params.isMember(jss::url))
     {
         // Must be a JSON-RPC call.
-        JLOG(context.j.info()) << "doSubscribe: RPC subscribe requires a url";
+        JLOG(context.j.warn()) << "doSubscribe: RPC subscribe requires a url";
         return rpcError(rpcINVALID_PARAMS);
     }
 
@@ -371,6 +372,13 @@ doSubscribe(RPC::JsonContext& context)
                 }
             }
         }
+    }
+
+    if (ispSub)
+    {
+        if (std::shared_ptr<UDPInfoSub> udp =
+                std::dynamic_pointer_cast<UDPInfoSub>(ispSub))
+            udp->increment();
     }
 
     return jvResult;

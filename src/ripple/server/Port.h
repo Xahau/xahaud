@@ -86,6 +86,15 @@ struct Port
     // Returns a string containing the list of protocols
     std::string
     protocols() const;
+
+    bool
+    has_udp() const
+    {
+        return protocol.count("udp") > 0;
+    }
+
+    // Maximum UDP packet size (default 64KB)
+    std::size_t udp_packet_size = 65536;
 };
 
 std::ostream&
