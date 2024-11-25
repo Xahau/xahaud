@@ -210,6 +210,9 @@ TYPED_SFIELD(sfGovernanceMarks,          UINT256,   98)
 TYPED_SFIELD(sfEmittedTxnID,             UINT256,   97)
 TYPED_SFIELD(sfHookCanEmit,              UINT256,   96)
 
+// number (common)
+TYPED_SFIELD(sfNumber,                   NUMBER,     1)
+
 // currency amount (common)
 TYPED_SFIELD(sfAmount,                   AMOUNT,     1)
 TYPED_SFIELD(sfBalance,                  AMOUNT,     2)
