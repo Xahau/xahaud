@@ -184,6 +184,7 @@ enum TEFcodes : TERUnderlyingType {
     tefPAST_IMPORT_SEQ,
     tefPAST_IMPORT_VL_SEQ,
     tefNONDIR_EMIT,
+    tefIMPORT_BLACKHOLED,
 };
 
 //------------------------------------------------------------------------------
