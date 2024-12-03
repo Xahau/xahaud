@@ -192,7 +192,7 @@ Change::doApply()
         case ttUNL_REPORT:
             return applyUNLReport();
         default:
-            assert(0);
+            UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
     }
 }
@@ -287,7 +287,8 @@ Change::applyUNLReport()
 void
 Change::preCompute()
 {
-    assert(account_ == beast::zero);
+    ASSERT(
+        account_ == beast::zero, "ripple::Change::preCompute : zero account");
 }
 
 struct L2Table

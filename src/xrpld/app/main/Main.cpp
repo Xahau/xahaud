@@ -68,6 +68,10 @@
 #error Multiple supported platforms appear active at once
 #endif
 
+#ifdef ENABLE_VOIDSTAR
+#include "antithesis_instrumentation.h"
+#endif
+
 namespace po = boost::program_options;
 
 namespace ripple {

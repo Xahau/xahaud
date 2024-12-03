@@ -589,7 +589,10 @@ public:
     virtual ServerHandler&
     getServerHandler() override
     {
-        assert(serverHandler_);
+        ASSERT(
+            serverHandler_ != nullptr,
+            "ripple::ApplicationImp::getServerHandler : non-null server "
+            "handle");
         return *serverHandler_;
     }
 
@@ -795,28 +798,37 @@ public:
     Overlay&
     overlay() override
     {
-        assert(overlay_);
+        ASSERT(
+            overlay_ != nullptr,
+            "ripple::ApplicationImp::overlay : non-null overlay");
         return *overlay_;
     }
 
     TxQ&
     getTxQ() override
     {
-        assert(txQ_.get() != nullptr);
+        ASSERT(
+            txQ_.get() != nullptr,
+            "ripple::ApplicationImp::getTxQ : non-null transaction queue");
         return *txQ_;
     }
 
     RelationalDatabase&
     getRelationalDatabase() override
     {
-        assert(mRelationalDatabase.get() != nullptr);
+        ASSERT(
+            mRelationalDatabase.get() != nullptr,
+            "ripple::ApplicationImp::getRelationalDatabase : non-null "
+            "relational database");
         return *mRelationalDatabase;
     }
 
     DatabaseCon&
     getWalletDB() override
     {
-        assert(mWalletDB.get() != nullptr);
+        ASSERT(
+            mWalletDB.get() != nullptr,
+            "ripple::ApplicationImp::getWalletDB : non-null wallet database");
         return *mWalletDB;
     }
 
@@ -831,7 +843,10 @@ public:
     bool
     initRelationalDatabase()
     {
-        assert(mWalletDB.get() == nullptr);
+        ASSERT(
+            mWalletDB.get() == nullptr,
+            "ripple::ApplicationImp::initRelationalDatabase : null wallet "
+            "database");
 
         try
         {
@@ -1237,7 +1252,9 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             for (auto const& [a, vote] : amendments)
             {
                 auto const f = ripple::getRegisteredFeature(a);
-                assert(f);
+                ASSERT(
+                    f.has_value(),
+                    "ripple::ApplicationImp::setup : registered feature");
                 if (f)
                     supported.emplace_back(a, *f, vote);
             }
@@ -1716,7 +1733,7 @@ ApplicationImp::startGenesisLedger()
     auto const next =
         std::make_shared<Ledger>(*genesis, timeKeeper().closeTime());
     next->updateSkipList();
-    assert(next->read(keylet::fees()));
+    ASSERT(next->read(keylet::fees()), "ripple::ApplicationImp::startGenesisLedger : valid ledger fees");
     next->setImmutable();
     openLedger_.emplace(next, cachedSLEs_, logs_->journal("OpenLedger"));
     m_ledgerMaster->storeLedger(next);
@@ -1764,7 +1781,7 @@ ApplicationImp::getLastFullLedger()
         if (!ledger)
             return ledger;
 
-        assert(ledger->read(keylet::fees()));
+        ASSERT(ledger->read(keylet::fees()), "ripple::ApplicationImp::getLastFullLedger : valid ledger fees");
         ledger->setImmutable();
 
         if (getLedgerMaster().haveLedger(seq))
@@ -1916,7 +1933,7 @@ ApplicationImp::loadLedgerFromFile(std::string const& name)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        assert(loadLedger->read(keylet::fees()));
+        ASSERT(loadLedger->read(keylet::fees()), "ripple::ApplicationImp::loadLedgerFromFile : valid ledger fees");
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 
@@ -2044,7 +2061,7 @@ ApplicationImp::loadLedgerFromJson(std::string const& jsonValue)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        assert(loadLedger->read(keylet::fees()));
+        ASSERT(loadLedger->read(keylet::fees()), "ripple::ApplicationImp::loadLedgerFromFile : valid ledger fees");
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 
@@ -2148,7 +2165,9 @@ ApplicationImp::loadOldLedger(
                 if (!loadLedger)
                 {
                     JLOG(m_journal.fatal()) << "Replay ledger missing/damaged";
-                    assert(false);
+                    UNREACHABLE(
+                        "ripple::ApplicationImp::loadOldLedger : replay ledger "
+                        "missing/damaged");
                     return false;
                 }
             }
@@ -2177,21 +2196,26 @@ ApplicationImp::loadOldLedger(
         if (loadLedger->info().accountHash.isZero())
         {
             JLOG(m_journal.fatal()) << "Ledger is empty.";
-            assert(false);
+            UNREACHABLE(
+                "ripple::ApplicationImp::loadOldLedger : ledger is empty");
             return false;
         }
 
         if (!loadLedger->walkLedger(journal("Ledger"), true))
         {
             JLOG(m_journal.fatal()) << "Ledger is missing nodes.";
-            assert(false);
+            UNREACHABLE(
+                "ripple::ApplicationImp::loadOldLedger : ledger is missing "
+                "nodes");
             return false;
         }
 
         if (!loadLedger->assertSensible(journal("Ledger")))
         {
             JLOG(m_journal.fatal()) << "Ledger is not sensible.";
-            assert(false);
+            UNREACHABLE(
+                "ripple::ApplicationImp::loadOldLedger : ledger is not "
+                "sensible");
             return false;
         }
 

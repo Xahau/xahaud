@@ -128,7 +128,7 @@ SetSignerList::doApply()
         default:
             break;
     }
-    assert(false);  // Should not be possible to get here.
+    UNREACHABLE("ripple::SetSignerList::doApply : invalid operation");
     return temMALFORMED;
 }
 
@@ -137,8 +137,8 @@ SetSignerList::preCompute()
 {
     // Get the quorum and operation info.
     auto result = determineOperation(ctx_.tx, view().flags(), j_);
-    assert(isTesSuccess(std::get<0>(result)));
-    assert(std::get<3>(result) != unknown);
+    ASSERT(isTesSuccess(std::get<0>(result)), "ripple::SetSignerList::preCompute : result is tesSUCCESS");
+    ASSERT(std::get<3>(result) != unknown, "ripple::SetSignerList::preCompute : result is known operation");
 
     quorum_ = std::get<1>(result);
     signers_ = std::get<2>(result);
@@ -173,8 +173,12 @@ SetSignerList::signerCountBasedOwnerCountDelta(
     // The static_cast should always be safe since entryCount should always
     // be in the range from 1 to 8 (or 32 if ExpandedSignerList is enabled).
     // We've got a lot of room to grow.
-    assert(entryCount >= STTx::minMultiSigners);
-    assert(entryCount <= STTx::maxMultiSigners(&rules));
+    ASSERT(
+        entryCount >= STTx::minMultiSigners,
+        "ripple::signerCountBasedOwnerCountDelta : minimum signers");
+    ASSERT(
+        entryCount <= STTx::maxMultiSigners(&rules),
+        "ripple::signerCountBasedOwnerCountDelta : maximum signers");
     return 2 + static_cast<int>(entryCount);
 }
 
@@ -262,7 +266,10 @@ SetSignerList::validateQuorumAndSignerEntries(
     }
 
     // Make sure there are no duplicate signers.
-    assert(std::is_sorted(signers.begin(), signers.end()));
+    ASSERT(
+        std::is_sorted(signers.begin(), signers.end()),
+        "ripple::SetSignerList::validateQuorumAndSignerEntries : sorted "
+        "signers");
     if (std::adjacent_find(signers.begin(), signers.end()) != signers.end())
     {
         JLOG(j.trace()) << "Duplicate signers in signer list";
