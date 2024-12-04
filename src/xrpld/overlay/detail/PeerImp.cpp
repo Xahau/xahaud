@@ -1236,7 +1236,8 @@ PeerImp::handleTransaction(
     bool batch)
 {
     ASSERT(
-        eraseTxQueue != batch, "ripple::PeerImp::handleTransaction correct function params");
+        eraseTxQueue != batch,
+        "ripple::PeerImp::handleTransaction correct function params");
     if (tracking_.load() == Tracking::diverged)
         return;
 
@@ -2818,7 +2819,10 @@ PeerImp::checkTransaction(
             // TransactionMaster cache
             std::string reason;
             auto tx = std::make_shared<Transaction>(stx, reason, app_);
-            ASSERT(tx->getStatus() == NEW, "ripple::PeerImp::checkTransaction Transaction created correctly");
+            ASSERT(
+                tx->getStatus() == NEW,
+                "ripple::PeerImp::checkTransaction Transaction created "
+                "correctly");
             if (tx->getStatus() == NEW)
             {
                 JLOG(p_journal_.debug())

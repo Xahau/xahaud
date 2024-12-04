@@ -330,7 +330,9 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                     hookExecutionFee += toAdd;
             }
 
-            ASSERT(emitDetails.isFieldPresent(sfEmitBurden), "Transactor::calculateBaseFee : emit burden not present");
+            ASSERT(
+                emitDetails.isFieldPresent(sfEmitBurden),
+                "Transactor::calculateBaseFee : emit burden not present");
 
             burden = emitDetails.getFieldU64(sfEmitBurden);
         }
@@ -692,7 +694,8 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
 TER
 Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
 {
-    ASSERT(sleAccount, "ripple::Transactor::consumeSeqProxy : non-null account");
+    ASSERT(
+        sleAccount, "ripple::Transactor::consumeSeqProxy : non-null account");
 
     // do not update sequence of sfAccountTxnID for emitted tx
     if (ctx_.isEmittedTxn())
@@ -787,9 +790,10 @@ Transactor::apply()
     // that allow zero account. (and ttIMPORT)
     ASSERT(
         sle != nullptr || account_ == beast::zero ||
-        view().rules().enabled(featureImport) &&
-            ctx_.tx.getTxnType() == ttIMPORT &&
-            !ctx_.tx.isFieldPresent(sfIssuer), "ripple::Transactor::apply : non-null SLE or zero account");
+            view().rules().enabled(featureImport) &&
+                ctx_.tx.getTxnType() == ttIMPORT &&
+                !ctx_.tx.isFieldPresent(sfIssuer),
+        "ripple::Transactor::apply : non-null SLE or zero account");
 
     if (sle)
     {
@@ -1616,7 +1620,9 @@ Transactor::doTSH(
             if (tshFeeDrops == 0)
                 continue;
 
-            ASSERT(tshFeeDrops >= beast::zero, "Transactor::doTSH : tsh fee drops is negative");
+            ASSERT(
+                tshFeeDrops >= beast::zero,
+                "Transactor::doTSH : tsh fee drops is negative");
 
             STAmount priorBalance = tshAcc->getFieldAmount(sfBalance);
 
@@ -1657,8 +1663,13 @@ Transactor::doTSH(
             if (tshFeeDrops > beast::zero)
             {
                 STAmount finalBalance = priorBalance - tshFeeDrops;
-                ASSERT(finalBalance >= beast::zero, "Transactor::doTSH : final balance is negative");
-                ASSERT(finalBalance < priorBalance, "Transactor::doTSH : final balance is greater than prior balance");
+                ASSERT(
+                    finalBalance >= beast::zero,
+                    "Transactor::doTSH : final balance is negative");
+                ASSERT(
+                    finalBalance < priorBalance,
+                    "Transactor::doTSH : final balance is greater than prior "
+                    "balance");
 
                 tshAcc->setFieldAmount(sfBalance, finalBalance);
                 view.update(tshAcc);

@@ -1087,7 +1087,10 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
 
         // We expect the implementation of cross to succeed
         // or give a tec.
-        ASSERT(isTesSuccess(result) || isTecClaim(result), "ripple::CreateOffer::applyGuts : result is tesSUCCESS or tecCLAIM");
+        ASSERT(
+            isTesSuccess(result) || isTecClaim(result),
+            "ripple::CreateOffer::applyGuts : result is tesSUCCESS or "
+            "tecCLAIM");
 
         if (auto stream = j_.trace())
         {

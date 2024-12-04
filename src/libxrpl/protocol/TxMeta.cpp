@@ -254,8 +254,8 @@ TxMeta::addRaw(Serializer& s, TER result, std::uint32_t index)
     mResult = TERtoInt(result);
     mIndex = index;
     ASSERT(
-        (mResult == 0 || mResult == 1) ||
-        ((mResult > 100) && (mResult <= 255)),"ripple::TxMeta::addRaw : valid TER input");
+        (mResult == 0 || mResult == 1) || ((mResult > 100) && (mResult <= 255)),
+        "ripple::TxMeta::addRaw : valid TER input");
 
     mNodes.sort([](STObject const& o1, STObject const& o2) {
         return o1.getFieldH256(sfLedgerIndex) < o2.getFieldH256(sfLedgerIndex);

@@ -120,7 +120,9 @@ InboundLedger::init(ScopedLockType& collectionLock)
 
     JLOG(journal_.debug()) << "Acquiring ledger we already have in "
                            << " local store. " << hash_;
-    ASSERT(mLedger->read(keylet::fees()), "ripple::InboundLedger::init : valid ledger fees");
+    ASSERT(
+        mLedger->read(keylet::fees()),
+        "ripple::InboundLedger::init : valid ledger fees");
     mLedger->setImmutable();
 
     if (mReason == Reason::HISTORY)
@@ -349,7 +351,9 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
     {
         JLOG(journal_.debug()) << "Had everything locally";
         complete_ = true;
-        ASSERT(mLedger->read(keylet::fees()), "ripple::InboundLedger::tryDB : valid ledger fees");
+        ASSERT(
+            mLedger->read(keylet::fees()),
+            "ripple::InboundLedger::tryDB : valid ledger fees");
         mLedger->setImmutable();
     }
 }
@@ -449,7 +453,9 @@ InboundLedger::done()
 
     if (complete_ && !failed_ && mLedger)
     {
-        ASSERT(mLedger->read(keylet::fees()), "ripple::InboundLedger::done : valid ledger fees");
+        ASSERT(
+            mLedger->read(keylet::fees()),
+            "ripple::InboundLedger::done : valid ledger fees");
         mLedger->setImmutable();
         switch (mReason)
         {

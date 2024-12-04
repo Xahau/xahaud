@@ -161,7 +161,10 @@ ApplyStateTable::generateTxMeta(
         meta.setAffectedNode(item.first, *type, nodeType);
         if (type == &sfDeletedNode)
         {
-            ASSERT(origNode && curNode, "ripple::detail::ApplyStateTable::apply : valid nodes for deletion");
+            ASSERT(
+                origNode && curNode,
+                "ripple::detail::ApplyStateTable::apply : valid nodes for "
+                "deletion");
             threadOwners(to, meta, origNode, newMod, j);
 
             STObject prevs(sfPreviousFields);
@@ -192,7 +195,10 @@ ApplyStateTable::generateTxMeta(
         }
         else if (type == &sfModifiedNode)
         {
-            ASSERT(curNode && origNode, "ripple::detail::ApplyStateTable::apply : valid nodes for modification");
+            ASSERT(
+                curNode && origNode,
+                "ripple::detail::ApplyStateTable::apply : valid nodes for "
+                "modification");
 
             if (curNode->isThreadedType(to.rules()))  // thread transaction to
                                                       // node item modified
@@ -225,7 +231,10 @@ ApplyStateTable::generateTxMeta(
         }
         else if (type == &sfCreatedNode)  // if created, thread to owner(s)
         {
-            ASSERT(curNode && !origNode, "ripple::detail::ApplyStateTable::apply : valid nodes for creation");
+            ASSERT(
+                curNode && !origNode,
+                "ripple::detail::ApplyStateTable::apply : valid nodes for "
+                "creation");
             threadOwners(to, meta, curNode, newMod, j);
 
             if (curNode->isThreadedType(to.rules()))  // always thread to self
@@ -250,7 +259,9 @@ ApplyStateTable::generateTxMeta(
         }
         else
         {
-            UNREACHABLE("ripple::detail::ApplyStateTable::apply : unsupported operation type");
+            UNREACHABLE(
+                "ripple::detail::ApplyStateTable::apply : unsupported "
+                "operation type");
         }
     }
 

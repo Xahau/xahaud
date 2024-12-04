@@ -1136,7 +1136,9 @@ finishLoadByIndexOrHash(
     if (!ledger)
         return;
 
-    ASSERT(ledger->read(keylet::fees()), "ripple::finishLoadByIndexOrHash : valid ledger fees");
+    ASSERT(
+        ledger->read(keylet::fees()),
+        "ripple::finishLoadByIndexOrHash : valid ledger fees");
     ledger->setImmutable();
 
     JLOG(j.trace()) << "Loaded ledger: " << to_string(ledger->info().hash);

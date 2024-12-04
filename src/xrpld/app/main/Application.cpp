@@ -1733,7 +1733,9 @@ ApplicationImp::startGenesisLedger()
     auto const next =
         std::make_shared<Ledger>(*genesis, timeKeeper().closeTime());
     next->updateSkipList();
-    ASSERT(next->read(keylet::fees()), "ripple::ApplicationImp::startGenesisLedger : valid ledger fees");
+    ASSERT(
+        next->read(keylet::fees()),
+        "ripple::ApplicationImp::startGenesisLedger : valid ledger fees");
     next->setImmutable();
     openLedger_.emplace(next, cachedSLEs_, logs_->journal("OpenLedger"));
     m_ledgerMaster->storeLedger(next);
@@ -1781,7 +1783,9 @@ ApplicationImp::getLastFullLedger()
         if (!ledger)
             return ledger;
 
-        ASSERT(ledger->read(keylet::fees()), "ripple::ApplicationImp::getLastFullLedger : valid ledger fees");
+        ASSERT(
+            ledger->read(keylet::fees()),
+            "ripple::ApplicationImp::getLastFullLedger : valid ledger fees");
         ledger->setImmutable();
 
         if (getLedgerMaster().haveLedger(seq))
@@ -1933,7 +1937,9 @@ ApplicationImp::loadLedgerFromFile(std::string const& name)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        ASSERT(loadLedger->read(keylet::fees()), "ripple::ApplicationImp::loadLedgerFromFile : valid ledger fees");
+        ASSERT(
+            loadLedger->read(keylet::fees()),
+            "ripple::ApplicationImp::loadLedgerFromFile : valid ledger fees");
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 
@@ -2061,7 +2067,9 @@ ApplicationImp::loadLedgerFromJson(std::string const& jsonValue)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        ASSERT(loadLedger->read(keylet::fees()), "ripple::ApplicationImp::loadLedgerFromFile : valid ledger fees");
+        ASSERT(
+            loadLedger->read(keylet::fees()),
+            "ripple::ApplicationImp::loadLedgerFromFile : valid ledger fees");
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 

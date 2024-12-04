@@ -137,8 +137,12 @@ SetSignerList::preCompute()
 {
     // Get the quorum and operation info.
     auto result = determineOperation(ctx_.tx, view().flags(), j_);
-    ASSERT(isTesSuccess(std::get<0>(result)), "ripple::SetSignerList::preCompute : result is tesSUCCESS");
-    ASSERT(std::get<3>(result) != unknown, "ripple::SetSignerList::preCompute : result is known operation");
+    ASSERT(
+        isTesSuccess(std::get<0>(result)),
+        "ripple::SetSignerList::preCompute : result is tesSUCCESS");
+    ASSERT(
+        std::get<3>(result) != unknown,
+        "ripple::SetSignerList::preCompute : result is known operation");
 
     quorum_ = std::get<1>(result);
     signers_ = std::get<2>(result);

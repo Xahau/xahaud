@@ -254,7 +254,10 @@ ApplyViewBase::balanceChanges(ReadView const& view) const
         {
             // modify
             auto const at = after->getType();
-            ASSERT(at == before->getType(), "ripple::PaymentSandbox::balanceChanges : after and before types matching");
+            ASSERT(
+                at == before->getType(),
+                "ripple::PaymentSandbox::balanceChanges : after and before "
+                "types matching");
             switch (at)
             {
                 case ltACCOUNT_ROOT:

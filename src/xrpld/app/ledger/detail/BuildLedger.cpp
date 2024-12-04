@@ -75,7 +75,9 @@ buildLedgerImpl(
     built->unshare();
 
     // Accept ledger
-    ASSERT(built->read(keylet::fees()), "ripple::buildLedgerImpl : valid ledger fees");
+    ASSERT(
+        built->read(keylet::fees()),
+        "ripple::buildLedgerImpl : valid ledger fees");
     built->setAccepted(closeTime, closeResolution, closeTimeCorrect);
 
     return built;

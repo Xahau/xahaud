@@ -1604,7 +1604,8 @@ SetHook::setHook()
                                 return tecINTERNAL;
                             }
                             else
-                                UNREACHABLE("SetHook::hsoCREATE : should never happen");
+                                UNREACHABLE(
+                                    "SetHook::hsoCREATE : should never happen");
                         }
 
                         // otherwise assign instruction counts
