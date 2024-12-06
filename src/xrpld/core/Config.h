@@ -22,10 +22,10 @@
 
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/basics/BasicConfig.h>
-#include <xrpl/basics/FeeUnits.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/net/IPEndpoint.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/FeeUnits.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SystemParameters.h>  // VFALCO Breaks levelization
 
