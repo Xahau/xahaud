@@ -20,8 +20,10 @@
 #ifndef RIPPLE_APP_MISC_NETWORKOPS_H_INCLUDED
 #define RIPPLE_APP_MISC_NETWORKOPS_H_INCLUDED
 
+#include <ripple/app/consensus/RCLConsensus.h>
 #include <ripple/app/consensus/RCLCxPeerPos.h>
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/app/misc/StateAccounting.h>
 #include <ripple/core/JobQueue.h>
 #include <ripple/ledger/ReadView.h>
 #include <ripple/net/InfoSub.h>
@@ -41,35 +43,6 @@ class Peer;
 class LedgerMaster;
 class Transaction;
 class ValidatorKeys;
-
-// This is the primary interface into the "client" portion of the program.
-// Code that wants to do normal operations on the network such as
-// creating and monitoring accounts, creating transactions, and so on
-// should use this interface. The RPC code will primarily be a light wrapper
-// over this code.
-//
-// Eventually, it will check the node's operating mode (synched, unsynched,
-// etectera) and defer to the correct means of processing. The current
-// code assumes this node is synched (and will continue to do so until
-// there's a functional network.
-//
-
-/** Specifies the mode under which the server believes it's operating.
-
-    This has implications about how the server processes transactions and
-    how it responds to requests (e.g. account balance request).
-
-    @note Other code relies on the numerical values of these constants; do
-          not change them without verifying each use and ensuring that it is
-          not a breaking change.
-*/
-enum class OperatingMode {
-    DISCONNECTED = 0,  //!< not ready to process requests
-    CONNECTED = 1,     //!< convinced we are talking to the network
-    SYNCING = 2,       //!< fallen slightly behind
-    TRACKING = 3,      //!< convinced we agree with the network
-    FULL = 4           //!< we have the ledger and can even validate
-};
 
 /** Provides server functionality for clients.
 
@@ -221,12 +194,22 @@ public:
 
     virtual Json::Value
     getConsensusInfo() = 0;
+
+    virtual RCLConsensus&
+    getConsensus() = 0;
+
+    virtual LedgerMaster&
+    getLedgerMaster() = 0;
+
     virtual Json::Value
     getServerInfo(bool human, bool admin, bool counters) = 0;
     virtual void
     clearLedgerFetch() = 0;
     virtual Json::Value
     getLedgerFetchInfo() = 0;
+
+    virtual StateAccounting::CounterData
+    getStateAccountingData() = 0;
 
     /** Accepts the current transaction tree, return the new ledger's sequence
 

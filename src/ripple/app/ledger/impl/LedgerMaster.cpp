@@ -1714,6 +1714,13 @@ LedgerMaster::getCompleteLedgers()
     return to_string(mCompleteLedgers);
 }
 
+RangeSet<std::uint32_t>
+LedgerMaster::getCompleteLedgersRangeSet()
+{
+    std::lock_guard sl(mCompleteLock);
+    return mCompleteLedgers;
+}
+
 std::optional<NetClock::time_point>
 LedgerMaster::getCloseTimeBySeq(LedgerIndex ledgerIndex)
 {

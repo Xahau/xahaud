@@ -37,6 +37,7 @@
 #include <ripple/app/main/NodeStoreScheduler.h>
 #include <ripple/app/main/Tuning.h>
 #include <ripple/app/misc/AmendmentTable.h>
+#include <ripple/app/misc/DatagramMonitor.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NetworkOPs.h>
@@ -166,6 +167,8 @@ public:
     std::unique_ptr<Config> config_;
     std::unique_ptr<Logs> logs_;
     std::unique_ptr<TimeKeeper> timeKeeper_;
+
+    std::unique_ptr<DatagramMonitor> datagram_monitor_;
 
     std::uint64_t const instanceCookie_;
 
@@ -1522,6 +1525,14 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
 
     if (reportingETL_)
         reportingETL_->start();
+
+    // Datagram monitor if applicable
+    if (!config_->standalone() && config_->DATAGRAM_MONITOR != "")
+    {
+        datagram_monitor_ = std::make_unique<DatagramMonitor>(*this);
+        if (datagram_monitor_)
+            datagram_monitor_->start();
+    }
 
     return true;
 }
