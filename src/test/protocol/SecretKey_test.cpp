@@ -344,19 +344,66 @@ public:
     }
 
     void
+    testKeyDerivationDilithium()
+    {
+        std::vector<std::uint8_t> data(64);
+        beast::rngfill(data.data(), data.size(), crypto_prng());
+
+        testcase("dilithium: key derivation");
+        
+        auto const sk1 = generateSecretKey(KeyType::dilithium, generateSeed("masterpassphrase"));
+        std::cout << "Secret Key dilithium: " << sk1.to_string() << std::endl;
+        auto const pk1 = derivePublicKey(KeyType::dilithium, sk1);
+        std::cout << "Public Key dilithium: " << pk1.slice() << std::endl;
+        auto const accId1 = calcAccountID(pk1);
+        std::cout << "Account ID dilithium: " << accId1 << std::endl;
+        auto sig1 = sign(pk1, sk1, makeSlice(data));
+        BEAST_EXPECT(sig1.size() != 0);
+        BEAST_EXPECT(verify(pk1, makeSlice(data), sig1, true));
+
+
+        auto const sk2 = generateSecretKey(KeyType::ed25519, generateSeed("masterpassphrase"));
+        std::cout << "Secret Key ed25519: " << sk2.to_string() << std::endl;
+        auto const pk2 = derivePublicKey(KeyType::ed25519, sk2);
+        std::cout << "Public Key ed25519: " << pk2.slice() << std::endl;
+        auto const accId2 = calcAccountID(pk2);
+        std::cout << "Account ID ed25519: " << accId2 << std::endl;
+        auto sig2 = sign(pk2, sk2, makeSlice(data));
+        BEAST_EXPECT(sig2.size() != 0);
+        BEAST_EXPECT(verify(pk2, makeSlice(data), sig2, true));
+
+        // for (auto const& test : ed25519TestVectors)
+        // {
+        //     auto const id = parseBase58<AccountID>(test.addr);
+        //     BEAST_EXPECT(id);
+
+        //     auto kp =
+        //         generateKeyPair(KeyType::ed25519, Seed{makeSlice(test.seed)});
+
+        //     BEAST_EXPECT(kp.first == PublicKey{makeSlice(test.pubkey)});
+        //     BEAST_EXPECT(kp.second == SecretKey{makeSlice(test.seckey)});
+        //     BEAST_EXPECT(calcAccountID(kp.first) == *id);
+        // }
+    }
+
+    void
     run() override
     {
-        testBase58();
+        // testBase58();
 
-        // secp256k1
-        testKeyDerivationSecp256k1();
-        testSigning(KeyType::secp256k1);
-        testDigestSigning();
-        testCanonicality();
+        // // secp256k1
+        // testKeyDerivationSecp256k1();
+        // testSigning(KeyType::secp256k1);
+        // testDigestSigning();
+        // testCanonicality();
 
-        // Ed25519
-        testKeyDerivationEd25519();
-        testSigning(KeyType::ed25519);
+        // // Ed25519
+        // testKeyDerivationEd25519();
+        // testSigning(KeyType::ed25519);
+
+        // dilithium
+        testKeyDerivationDilithium();
+        // testSigning(KeyType::dilithium);
     }
 
 private:

@@ -25,6 +25,18 @@
 #include <boost/multiprecision/cpp_int.hpp>
 #include <ed25519-donna/ed25519.h>
 
+extern "C" {
+#include "api.h"
+}
+
+#ifndef CRYPTO_PUBLICKEYBYTES
+#define CRYPTO_PUBLICKEYBYTES pqcrystals_dilithium2_PUBLICKEYBYTES 
+#endif
+
+#ifndef crypto_sign_verify
+#define crypto_sign_verify pqcrystals_dilithium2_ref_verify 
+#endif
+
 namespace ripple {
 
 std::ostream&
@@ -212,6 +224,10 @@ publicKeyType(Slice const& slice)
 
         if (slice[0] == 0x02 || slice[0] == 0x03)
             return KeyType::secp256k1;
+    } 
+    else if (slice.size() == CRYPTO_PUBLICKEYBYTES)
+    {
+        return KeyType::dilithium;
     }
 
     return std::nullopt;
@@ -293,6 +309,13 @@ verify(
             return ed25519_sign_open(
                        m.data(), m.size(), publicKey.data() + 1, sig.data()) ==
                 0;
+        }
+        else if (*type == KeyType::dilithium)
+        {
+            std::cout << "Verifying message, public key type: Dilithium" << std::endl;
+            return crypto_sign_verify(
+                       sig.data(), sig.size(), m.data(), m.size(), publicKey.data()) == 0;
+            std::cout << "Verification of message succesfull using dilithium" << std::endl;
         }
     }
     return false;

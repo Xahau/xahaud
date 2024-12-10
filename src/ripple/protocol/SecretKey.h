@@ -36,7 +36,9 @@ namespace ripple {
 class SecretKey
 {
 private:
-    std::uint8_t buf_[32];
+    static constexpr std::size_t max_size = 2528;
+    std::uint8_t buf_[max_size];
+    std::size_t size_;
 
 public:
     using const_iterator = std::uint8_t const*;
@@ -49,6 +51,7 @@ public:
     ~SecretKey();
 
     SecretKey(std::array<std::uint8_t, 32> const& data);
+    SecretKey(std::array<std::uint8_t, 2528> const& data);
     SecretKey(Slice const& slice);
 
     std::uint8_t const*
