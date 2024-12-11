@@ -30,6 +30,11 @@ ExternalProject_Get_Property(dilithium_src SOURCE_DIR)
 set(dilithium_src_SOURCE_DIR "${SOURCE_DIR}")
 set(dilithium_src_BINARY_DIR "${BINARY_DIR}")
 
+execute_process(
+    COMMAND
+        mkdir -p "${dilithium_src_SOURCE_DIR}/ref"
+)
+
 # Check if the api.h file exists
 set(API_H_PATH "${dilithium_src_SOURCE_DIR}/ref/api.h")
 if(EXISTS "${API_H_PATH}")
