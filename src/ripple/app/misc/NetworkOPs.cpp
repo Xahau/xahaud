@@ -33,6 +33,7 @@
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NetworkOPs.h>
+#include <ripple/app/misc/StateAccounting.h>
 #include <ripple/app/misc/Transaction.h>
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/ValidatorKeys.h>
@@ -67,9 +68,9 @@
 #include <ripple/rpc/CTID.h>
 #include <ripple/rpc/DeliveredAmount.h>
 #include <ripple/rpc/impl/RPCHelpers.h>
+#include <ripple/rpc/impl/UDPInfoSub.h>
 #include <boost/asio/ip/host_name.hpp>
 #include <boost/asio/steady_timer.hpp>
-
 #include <exception>
 #include <mutex>
 #include <set>
@@ -114,81 +115,6 @@ class NetworkOPsImp final : public NetworkOPs
         none,
         scheduled,
         running,
-    };
-
-    static std::array<char const*, 5> const states_;
-
-    /**
-     * State accounting records two attributes for each possible server state:
-     * 1) Amount of time spent in each state (in microseconds). This value is
-     *    updated upon each state transition.
-     * 2) Number of transitions to each state.
-     *
-     * This data can be polled through server_info and represented by
-     * monitoring systems similarly to how bandwidth, CPU, and other
-     * counter-based metrics are managed.
-     *
-     * State accounting is more accurate than periodic sampling of server
-     * state. With periodic sampling, it is very likely that state transitions
-     * are missed, and accuracy of time spent in each state is very rough.
-     */
-    class StateAccounting
-    {
-        struct Counters
-        {
-            explicit Counters() = default;
-
-            std::uint64_t transitions = 0;
-            std::chrono::microseconds dur = std::chrono::microseconds(0);
-        };
-
-        OperatingMode mode_ = OperatingMode::DISCONNECTED;
-        std::array<Counters, 5> counters_;
-        mutable std::mutex mutex_;
-        std::chrono::steady_clock::time_point start_ =
-            std::chrono::steady_clock::now();
-        std::chrono::steady_clock::time_point const processStart_ = start_;
-        std::uint64_t initialSyncUs_{0};
-        static std::array<Json::StaticString const, 5> const states_;
-
-    public:
-        explicit StateAccounting()
-        {
-            counters_[static_cast<std::size_t>(OperatingMode::DISCONNECTED)]
-                .transitions = 1;
-        }
-
-        /**
-         * Record state transition. Update duration spent in previous
-         * state.
-         *
-         * @param om New state.
-         */
-        void
-        mode(OperatingMode om);
-
-        /**
-         * Output state counters in JSON format.
-         *
-         * @obj Json object to which to add state accounting data.
-         */
-        void
-        json(Json::Value& obj) const;
-
-        struct CounterData
-        {
-            decltype(counters_) counters;
-            decltype(mode_) mode;
-            decltype(start_) start;
-            decltype(initialSyncUs_) initialSyncUs;
-        };
-
-        CounterData
-        getCounterData() const
-        {
-            std::lock_guard lock(mutex_);
-            return {counters_, mode_, start_, initialSyncUs_};
-        }
     };
 
     //! Server fees published on `server` subscription
@@ -271,6 +197,9 @@ public:
 
     std::string
     strOperatingMode(bool const admin = false) const override;
+
+    StateAccounting::CounterData
+    getStateAccountingData();
 
     //
     // Transaction operations.
@@ -776,10 +705,16 @@ private:
     DispatchState mDispatchState = DispatchState::none;
     std::vector<TransactionStatus> mTransactions;
 
-    StateAccounting accounting_{};
+    StateAccounting accounting_;
 
     std::set<uint256> pendingValidations_;
     std::mutex validationsMutex_;
+
+    RCLConsensus&
+    getConsensus();
+
+    LedgerMaster&
+    getLedgerMaster();
 
 private:
     struct Stats
@@ -842,19 +777,6 @@ private:
 };
 
 //------------------------------------------------------------------------------
-
-static std::array<char const*, 5> const stateNames{
-    {"disconnected", "connected", "syncing", "tracking", "full"}};
-
-std::array<char const*, 5> const NetworkOPsImp::states_ = stateNames;
-
-std::array<Json::StaticString const, 5> const
-    NetworkOPsImp::StateAccounting::states_ = {
-        {Json::StaticString(stateNames[0]),
-         Json::StaticString(stateNames[1]),
-         Json::StaticString(stateNames[2]),
-         Json::StaticString(stateNames[3]),
-         Json::StaticString(stateNames[4])}};
 
 static auto const genesisAccountId = calcAccountID(
     generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
@@ -1130,7 +1052,7 @@ NetworkOPsImp::strOperatingMode(OperatingMode const mode, bool const admin)
         }
     }
 
-    return states_[static_cast<std::size_t>(mode)];
+    return {StateAccounting::states_[static_cast<std::size_t>(mode)].c_str()};
 }
 
 void
@@ -2394,6 +2316,19 @@ Json::Value
 NetworkOPsImp::getConsensusInfo()
 {
     return mConsensus.getJson(true);
+}
+
+// RHTODO: not threadsafe?
+RCLConsensus&
+NetworkOPsImp::getConsensus()
+{
+    return mConsensus;
+}
+
+LedgerMaster&
+NetworkOPsImp::getLedgerMaster()
+{
+    return m_ledgerMaster;
 }
 
 Json::Value
@@ -4193,6 +4128,12 @@ NetworkOPsImp::stateAccounting(Json::Value& obj)
     accounting_.json(obj);
 }
 
+StateAccounting::CounterData
+NetworkOPsImp::getStateAccountingData()
+{
+    return accounting_.getCounterData();
+}
+
 // <-- bool: true=erased, false=was not there
 bool
 NetworkOPsImp::unsubValidations(std::uint64_t uSeq)
@@ -4661,50 +4602,6 @@ NetworkOPsImp::collect_metrics()
             .transitions);
     m_stats.full_transitions.set(
         counters[static_cast<std::size_t>(OperatingMode::FULL)].transitions);
-}
-
-void
-NetworkOPsImp::StateAccounting::mode(OperatingMode om)
-{
-    auto now = std::chrono::steady_clock::now();
-
-    std::lock_guard lock(mutex_);
-    ++counters_[static_cast<std::size_t>(om)].transitions;
-    if (om == OperatingMode::FULL &&
-        counters_[static_cast<std::size_t>(om)].transitions == 1)
-    {
-        initialSyncUs_ = std::chrono::duration_cast<std::chrono::microseconds>(
-                             now - processStart_)
-                             .count();
-    }
-    counters_[static_cast<std::size_t>(mode_)].dur +=
-        std::chrono::duration_cast<std::chrono::microseconds>(now - start_);
-
-    mode_ = om;
-    start_ = now;
-}
-
-void
-NetworkOPsImp::StateAccounting::json(Json::Value& obj) const
-{
-    auto [counters, mode, start, initialSync] = getCounterData();
-    auto const current = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now() - start);
-    counters[static_cast<std::size_t>(mode)].dur += current;
-
-    obj[jss::state_accounting] = Json::objectValue;
-    for (std::size_t i = static_cast<std::size_t>(OperatingMode::DISCONNECTED);
-         i <= static_cast<std::size_t>(OperatingMode::FULL);
-         ++i)
-    {
-        obj[jss::state_accounting][states_[i]] = Json::objectValue;
-        auto& state = obj[jss::state_accounting][states_[i]];
-        state[jss::transitions] = std::to_string(counters[i].transitions);
-        state[jss::duration_us] = std::to_string(counters[i].dur.count());
-    }
-    obj[jss::server_state_duration_us] = std::to_string(current.count());
-    if (initialSync)
-        obj[jss::initial_sync_duration_us] = std::to_string(initialSync);
 }
 
 //------------------------------------------------------------------------------

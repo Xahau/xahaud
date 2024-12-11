@@ -79,7 +79,7 @@ class Import_test : public beast::unit_test::suite
     importVLSequence(jtx::Env const& env, PublicKey const& pk)
     {
         auto const sle = env.le(keylet::import_vlseq(pk));
-        if (sle->isFieldPresent(sfImportSequence))
+        if (sle && sle->isFieldPresent(sfImportSequence))
             return (*sle)[sfImportSequence];
         return 0;
     }
@@ -2672,6 +2672,134 @@ class Import_test : public beast::unit_test::suite
             env(import::import(alice, tmpXpop), ter(temMALFORMED));
         }
 
+        // tefIMPORT_BLACKHOLED - SetRegularKey (w/seed) AccountZero
+        {
+            test::jtx::Env env{
+                *this, network::makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // Set Regular Key
+            Json::Value jv;
+            jv[jss::Account] = alice.human();
+            const AccountID ACCOUNT_ZERO(0);
+            jv["RegularKey"] = to_string(ACCOUNT_ZERO);
+            jv[jss::TransactionType] = jss::SetRegularKey;
+            env(jv, alice);
+
+            // Disable Master Key
+            env(fset(alice, asfDisableMaster), sig(alice));
+            env.close();
+
+            // Import with Master Key
+            Json::Value tmpXpop =
+                import::loadXpop(ImportTCSetRegularKey::w_seed);
+            env(import::import(alice, tmpXpop),
+                ter(tefIMPORT_BLACKHOLED),
+                fee(feeDrops * 10),
+                sig(alice));
+            env.close();
+        }
+
+        // tefIMPORT_BLACKHOLED - SetRegularKey (w/seed) AccountOne
+        {
+            test::jtx::Env env{
+                *this, network::makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // Set Regular Key
+            Json::Value jv;
+            jv[jss::Account] = alice.human();
+            const AccountID ACCOUNT_ONE(1);
+            jv["RegularKey"] = to_string(ACCOUNT_ONE);
+            jv[jss::TransactionType] = jss::SetRegularKey;
+            env(jv, alice);
+
+            // Disable Master Key
+            env(fset(alice, asfDisableMaster), sig(alice));
+            env.close();
+
+            // Import with Master Key
+            Json::Value tmpXpop =
+                import::loadXpop(ImportTCSetRegularKey::w_seed);
+            env(import::import(alice, tmpXpop),
+                ter(tefIMPORT_BLACKHOLED),
+                fee(feeDrops * 10),
+                sig(alice));
+            env.close();
+        }
+
+        // tefIMPORT_BLACKHOLED - SetRegularKey (w/seed) AccountTwo
+        {
+            test::jtx::Env env{
+                *this, network::makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // Set Regular Key
+            Json::Value jv;
+            jv[jss::Account] = alice.human();
+            const AccountID ACCOUNT_TWO(2);
+            jv["RegularKey"] = to_string(ACCOUNT_TWO);
+            jv[jss::TransactionType] = jss::SetRegularKey;
+            env(jv, alice);
+
+            // Disable Master Key
+            env(fset(alice, asfDisableMaster), sig(alice));
+            env.close();
+
+            // Import with Master Key
+            Json::Value tmpXpop =
+                import::loadXpop(ImportTCSetRegularKey::w_seed);
+            env(import::import(alice, tmpXpop),
+                ter(tefIMPORT_BLACKHOLED),
+                fee(feeDrops * 10),
+                sig(alice));
+            env.close();
+        }
+
+        // tefIMPORT_BLACKHOLED - SignersListSet (w/seed)
+        {
+            test::jtx::Env env{
+                *this, network::makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // Set Regular Key
+            Json::Value jv;
+            jv[jss::Account] = alice.human();
+            const AccountID ACCOUNT_ZERO(0);
+            jv["RegularKey"] = to_string(ACCOUNT_ZERO);
+            jv[jss::TransactionType] = jss::SetRegularKey;
+            env(jv, alice);
+
+            // Disable Master Key
+            env(fset(alice, asfDisableMaster), sig(alice));
+            env.close();
+
+            // Import with Master Key
+            Json::Value tmpXpop =
+                import::loadXpop(ImportTCSignersListSet::w_seed);
+            env(import::import(alice, tmpXpop),
+                ter(tefIMPORT_BLACKHOLED),
+                fee(feeDrops * 10),
+                sig(alice));
+            env.close();
+        }
+
         // tefPAST_IMPORT_SEQ
         {
             test::jtx::Env env{
@@ -4580,14 +4708,22 @@ class Import_test : public beast::unit_test::suite
             // confirm signers set
             auto const [signers, signersSle] =
                 signersKeyAndSle(*env.current(), alice);
-            auto const signerEntries =
-                signersSle->getFieldArray(sfSignerEntries);
-            BEAST_EXPECT(signerEntries.size() == 2);
-            BEAST_EXPECT(signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
             BEAST_EXPECT(
-                signerEntries[0u].getAccountID(sfAccount) == carol.id());
-            BEAST_EXPECT(signerEntries[1u].getFieldU16(sfSignerWeight) == 1);
-            BEAST_EXPECT(signerEntries[1u].getAccountID(sfAccount) == bob.id());
+                signersSle && signersSle->isFieldPresent(sfSignerEntries));
+            if (signersSle && signersSle->isFieldPresent(sfSignerEntries))
+            {
+                auto const signerEntries =
+                    signersSle->getFieldArray(sfSignerEntries);
+                BEAST_EXPECT(signerEntries.size() == 2);
+                BEAST_EXPECT(
+                    signerEntries[0u].getFieldU16(sfSignerWeight) == 1);
+                BEAST_EXPECT(
+                    signerEntries[0u].getAccountID(sfAccount) == carol.id());
+                BEAST_EXPECT(
+                    signerEntries[1u].getFieldU16(sfSignerWeight) == 1);
+                BEAST_EXPECT(
+                    signerEntries[1u].getAccountID(sfAccount) == bob.id());
+            }
 
             // confirm multisign tx
             env.close();
@@ -5986,6 +6122,69 @@ class Import_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testBlackhole(FeatureBitset features)
+    {
+        testcase("blackhole");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto blackholeAccount = [&](Env& env, Account const& acct) {
+            // Set Regular Key
+            Json::Value jv;
+            jv[jss::Account] = acct.human();
+            const AccountID ACCOUNT_ZERO(0);
+            jv["RegularKey"] = to_string(ACCOUNT_ZERO);
+            jv[jss::TransactionType] = jss::SetRegularKey;
+            env(jv, acct);
+
+            // Disable Master Key
+            env(fset(acct, asfDisableMaster), sig(acct));
+            env.close();
+        };
+
+        auto burnHeader = [&](Env& env) {
+            // confirm total coins header
+            auto const initCoins = env.current()->info().drops;
+            BEAST_EXPECT(initCoins == 100'000'000'000'000'000);
+
+            // burn 10'000 xrp
+            auto const master = Account("masterpassphrase");
+            env(noop(master), fee(100'000'000'000'000), ter(tesSUCCESS));
+            env.close();
+
+            // confirm total coins header
+            auto const burnCoins = env.current()->info().drops;
+            BEAST_EXPECT(burnCoins == initCoins - 100'000'000'000'000);
+        };
+
+        // AccountSet (w/seed)
+        {
+            test::jtx::Env env{
+                *this, network::makeNetworkVLConfig(21337, keys)};
+            auto const feeDrops = env.current()->fees().base;
+
+            // Burn Header
+            burnHeader(env);
+
+            auto const alice = Account("alice");
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // Blackhole Account
+            blackholeAccount(env, alice);
+
+            // Import with Master Key
+            Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
+            env(import::import(alice, tmpXpop),
+                ter(tesSUCCESS),
+                fee(feeDrops * 10),
+                sig(alice));
+            env.close();
+        }
+    }
+
 public:
     void
     run() override
@@ -6026,6 +6225,7 @@ public:
         testMaxSupply(features);
         testMinMax(features);
         testHalving(features - featureOwnerPaysFee);
+        testBlackhole(features);
     }
 };
 

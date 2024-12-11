@@ -281,6 +281,9 @@ Config::setupControl(bool bQuiet, bool bSilent, bool bStandalone)
     // RAM and CPU resources. We default to "tiny" for standalone mode.
     if (!bStandalone)
     {
+        NODE_SIZE = 4;
+        return;
+
         // First, check against 'minimum' RAM requirements per node size:
         auto const& threshold =
             sizedItems[std::underlying_type_t<SizedItem>(SizedItem::ramSizeGB)];
@@ -465,26 +468,24 @@ Config::loadFromString(std::string const& fileContents)
         SNTP_SERVERS = *s;
 
     // if the user has specified ip:port then replace : with a space.
-    {
-        auto replaceColons = [](std::vector<std::string>& strVec) {
-            const static std::regex e(":([0-9]+)$");
-            for (auto& line : strVec)
-            {
-                // skip anything that might be an ipv6 address
-                if (std::count(line.begin(), line.end(), ':') != 1)
-                    continue;
+    auto replaceColons = [](std::vector<std::string>& strVec) {
+        const static std::regex e(":([0-9]+)$");
+        for (auto& line : strVec)
+        {
+            // skip anything that might be an ipv6 address
+            if (std::count(line.begin(), line.end(), ':') != 1)
+                continue;
 
-                std::string result = std::regex_replace(line, e, " $1");
-                // sanity check the result of the replace, should be same length
-                // as input
-                if (result.size() == line.size())
-                    line = result;
-            }
-        };
+            std::string result = std::regex_replace(line, e, " $1");
+            // sanity check the result of the replace, should be same length
+            // as input
+            if (result.size() == line.size())
+                line = result;
+        }
+    };
 
-        replaceColons(IPS_FIXED);
-        replaceColons(IPS);
-    }
+    replaceColons(IPS_FIXED);
+    replaceColons(IPS);
 
     {
         std::string dbPath;
@@ -507,6 +508,13 @@ Config::loadFromString(std::string const& fileContents)
             NETWORK_ID = 2;
         else
             NETWORK_ID = beast::lexicalCastThrow<uint32_t>(strTemp);
+    }
+
+    if (getSingleSection(secConfig, SECTION_DATAGRAM_MONITOR, strTemp, j_))
+    {
+        std::vector<std::string> vecTemp{strTemp};
+        replaceColons(vecTemp);
+        DATAGRAM_MONITOR = vecTemp[0];
     }
 
     if (getSingleSection(secConfig, SECTION_PEER_PRIVATE, strTemp, j_))

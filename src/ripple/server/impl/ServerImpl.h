@@ -24,6 +24,7 @@
 #include <ripple/beast/core/List.h>
 #include <ripple/server/Server.h>
 #include <ripple/server/impl/Door.h>
+#include <ripple/server/impl/UDPDoor.h>
 #include <ripple/server/impl/io_list.h>
 #include <boost/asio.hpp>
 #include <array>
@@ -162,18 +163,35 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
 {
     if (closed())
         Throw<std::logic_error>("ports() on closed Server");
+
     ports_.reserve(ports.size());
     Endpoints eps;
     eps.reserve(ports.size());
+
     for (auto const& port : ports)
     {
         ports_.push_back(port);
-        if (auto sp = ios_.emplace<Door<Handler>>(
-                handler_, io_service_, ports_.back(), j_))
+
+        if (port.has_udp())
         {
-            list_.push_back(sp);
-            eps.push_back(sp->get_endpoint());
-            sp->run();
+            // UDP-RPC door
+            if (auto sp = ios_.emplace<UDPDoor<Handler>>(
+                    handler_, io_service_, ports_.back(), j_))
+            {
+                eps.push_back(sp->get_endpoint());
+                sp->run();
+            }
+        }
+        else
+        {
+            // Standard TCP door
+            if (auto sp = ios_.emplace<Door<Handler>>(
+                    handler_, io_service_, ports_.back(), j_))
+            {
+                list_.push_back(sp);
+                eps.push_back(sp->get_endpoint());
+                sp->run();
+            }
         }
     }
     return eps;

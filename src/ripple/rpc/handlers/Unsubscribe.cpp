@@ -25,6 +25,7 @@
 #include <ripple/rpc/Context.h>
 #include <ripple/rpc/Role.h>
 #include <ripple/rpc/impl/RPCHelpers.h>
+#include <ripple/rpc/impl/UDPInfoSub.h>
 
 namespace ripple {
 
@@ -243,6 +244,12 @@ doUnsubscribe(RPC::JsonContext& context)
     if (removeUrl)
     {
         context.netOps.tryRemoveRpcSub(context.params[jss::url].asString());
+    }
+
+    if (ispSub)
+    {
+        if (auto udp = std::dynamic_pointer_cast<UDPInfoSub>(ispSub))
+            udp->destroy();
     }
 
     return jvResult;

@@ -145,6 +145,14 @@ public:
         }
 
         void
+        onUDPMessage(
+            std::string const& message,
+            boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+            std::function<void(std::string const&)> sendResponse)
+        {
+        }
+
+        void
         onClose(Session& session, boost::system::error_code const&)
         {
         }
@@ -346,6 +354,14 @@ public:
             onWSMessage(
                 std::shared_ptr<WSSession> session,
                 std::vector<boost::asio::const_buffer> const& buffers)
+            {
+            }
+
+            void
+            onUDPMessage(
+                std::string const& message,
+                boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+                std::function<void(std::string const&)> sendResponse)
             {
             }
 

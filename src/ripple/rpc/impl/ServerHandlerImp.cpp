@@ -362,6 +362,67 @@ ServerHandlerImp::onWSMessage(
 }
 
 void
+ServerHandlerImp::onUDPMessage(
+    std::string const& message,
+    boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+    std::function<void(std::string const&)> sendResponse)
+{
+    Json::Value jv;
+    if (message.size() > RPC::Tuning::maxRequestSize ||
+        !Json::Reader{}.parse(message, jv) || !jv.isObject())
+    {
+        Json::Value jvResult(Json::objectValue);
+        jvResult[jss::type] = jss::error;
+        jvResult[jss::error] = "jsonInvalid";
+        jvResult[jss::value] = message;
+
+        std::string const response = to_string(jvResult);
+        JLOG(m_journal.trace())
+            << "UDP sending error response: '" << jvResult << "'";
+        sendResponse(response);
+        return;
+    }
+
+    JLOG(m_journal.trace())
+        << "UDP received '" << jv << "' from " << remoteEndpoint;
+
+    auto const postResult = m_jobQueue.postCoro(
+        jtCLIENT_RPC,  // Using RPC job type since this is admin RPC
+        "UDP-RPC",
+        [this,
+         remoteEndpoint,
+         jv = std::move(jv),
+         sendResponse = std::move(sendResponse)](
+            std::shared_ptr<JobQueue::Coro> const& coro) {
+            // Process the request similar to WebSocket but with UDP context
+            Role const role = Role::ADMIN;  // UDP-RPC is admin-only
+            auto const jr =
+                this->processUDP(jv, role, coro, sendResponse, remoteEndpoint);
+
+            std::string const response = to_string(jr);
+            JLOG(m_journal.trace())
+                << "UDP sending '" << jr << "' to " << remoteEndpoint;
+
+            // Send response back via UDP
+            sendResponse(response);
+        });
+
+    if (postResult == nullptr)
+    {
+        // Request rejected, probably shutting down
+        Json::Value jvResult(Json::objectValue);
+        jvResult[jss::type] = jss::error;
+        jvResult[jss::error] = "serverShuttingDown";
+        jvResult[jss::value] = "Server is shutting down";
+
+        std::string const response = to_string(jvResult);
+        JLOG(m_journal.trace())
+            << "UDP sending shutdown response to " << remoteEndpoint;
+        sendResponse(response);
+    }
+}
+
+void
 ServerHandlerImp::onClose(Session& session, boost::system::error_code const&)
 {
     std::lock_guard lock(mutex_);
@@ -395,6 +456,145 @@ logDuration(
                        duration)
                        .count()
                 << " microseconds. request = " << request;
+}
+
+Json::Value
+ServerHandlerImp::processUDP(
+    Json::Value const& jv,
+    Role const& role,
+    std::shared_ptr<JobQueue::Coro> const& coro,
+    std::optional<std::function<void(std::string const&)>>
+        sendResponse /* used for subscriptions */,
+    boost::asio::ip::tcp::endpoint const& remoteEndpoint)
+{
+    std::shared_ptr<InfoSub> is;
+    // Requests without "command" are invalid.
+    Json::Value jr(Json::objectValue);
+    try
+    {
+        auto apiVersion =
+            RPC::getAPIVersionNumber(jv, app_.config().BETA_RPC_API);
+        if (apiVersion == RPC::apiInvalidVersion ||
+            (!jv.isMember(jss::command) && !jv.isMember(jss::method)) ||
+            (jv.isMember(jss::command) && !jv[jss::command].isString()) ||
+            (jv.isMember(jss::method) && !jv[jss::method].isString()) ||
+            (jv.isMember(jss::command) && jv.isMember(jss::method) &&
+             jv[jss::command].asString() != jv[jss::method].asString()))
+        {
+            jr[jss::type] = jss::response;
+            jr[jss::status] = jss::error;
+            jr[jss::error] = apiVersion == RPC::apiInvalidVersion
+                ? jss::invalid_API_version
+                : jss::missingCommand;
+            jr[jss::request] = jv;
+            if (jv.isMember(jss::id))
+                jr[jss::id] = jv[jss::id];
+            if (jv.isMember(jss::jsonrpc))
+                jr[jss::jsonrpc] = jv[jss::jsonrpc];
+            if (jv.isMember(jss::ripplerpc))
+                jr[jss::ripplerpc] = jv[jss::ripplerpc];
+            if (jv.isMember(jss::api_version))
+                jr[jss::api_version] = jv[jss::api_version];
+
+            return jr;
+        }
+
+        auto required = RPC::roleRequired(
+            apiVersion,
+            app_.config().BETA_RPC_API,
+            jv.isMember(jss::command) ? jv[jss::command].asString()
+                                      : jv[jss::method].asString());
+        if (Role::FORBID == role)
+        {
+            jr[jss::result] = rpcError(rpcFORBIDDEN);
+        }
+        else
+        {
+            Resource::Consumer c;
+            Resource::Charge loadType = Resource::feeReferenceRPC;
+
+            if (sendResponse.has_value())
+                is = UDPInfoSub::getInfoSub(
+                    m_networkOPs, *sendResponse, remoteEndpoint);
+
+            RPC::JsonContext context{
+                {app_.journal("RPCHandler"),
+                 app_,
+                 loadType,
+                 app_.getOPs(),
+                 app_.getLedgerMaster(),
+                 c,
+                 role,
+                 coro,
+                 is,
+                 apiVersion},
+                jv};
+
+            auto start = std::chrono::system_clock::now();
+            RPC::doCommand(context, jr[jss::result]);
+            auto end = std::chrono::system_clock::now();
+            logDuration(jv, end - start, m_journal);
+        }
+    }
+    catch (std::exception const& ex)
+    {
+        jr[jss::result] = RPC::make_error(rpcINTERNAL);
+        JLOG(m_journal.error())
+            << "Exception while processing WS: " << ex.what() << "\n"
+            << "Input JSON: " << Json::Compact{Json::Value{jv}};
+    }
+
+    if (is)
+    {
+        if (auto udp = std::dynamic_pointer_cast<UDPInfoSub>(is))
+            udp->destroy();
+    }
+
+    // Currently we will simply unwrap errors returned by the RPC
+    // API, in the future maybe we can make the responses
+    // consistent.
+    //
+    // Regularize result. This is duplicate code.
+    if (jr[jss::result].isMember(jss::error))
+    {
+        jr = jr[jss::result];
+        jr[jss::status] = jss::error;
+
+        auto rq = jv;
+
+        if (rq.isObject())
+        {
+            if (rq.isMember(jss::passphrase.c_str()))
+                rq[jss::passphrase.c_str()] = "<masked>";
+            if (rq.isMember(jss::secret.c_str()))
+                rq[jss::secret.c_str()] = "<masked>";
+            if (rq.isMember(jss::seed.c_str()))
+                rq[jss::seed.c_str()] = "<masked>";
+            if (rq.isMember(jss::seed_hex.c_str()))
+                rq[jss::seed_hex.c_str()] = "<masked>";
+        }
+
+        jr[jss::request] = rq;
+    }
+    else
+    {
+        if (jr[jss::result].isMember("forwarded") &&
+            jr[jss::result]["forwarded"])
+            jr = jr[jss::result];
+        jr[jss::status] = jss::success;
+    }
+
+    if (jv.isMember(jss::id))
+        jr[jss::id] = jv[jss::id];
+    if (jv.isMember(jss::jsonrpc))
+        jr[jss::jsonrpc] = jv[jss::jsonrpc];
+    if (jv.isMember(jss::ripplerpc))
+        jr[jss::ripplerpc] = jv[jss::ripplerpc];
+    if (jv.isMember(jss::api_version))
+        jr[jss::api_version] = jv[jss::api_version];
+
+    jr[jss::type] = jss::response;
+    return jr;
 }
 
 Json::Value

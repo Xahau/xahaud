@@ -152,6 +152,9 @@ public:
     std::string
     getCompleteLedgers();
 
+    RangeSet<std::uint32_t>
+    getCompleteLedgersRangeSet();
+
     /** Apply held transactions to the open ledger
         This is normally called as we close the ledger.
         The open ledger remains open to handle new transactions
