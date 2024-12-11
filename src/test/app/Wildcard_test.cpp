@@ -101,9 +101,37 @@ class Wildcard_test : public beast::unit_test::suite
     }
 
     void
+    testSimplePayment(FeatureBitset features)
+    {
+        using namespace test::jtx;
+
+        testcase("simple payment");
+
+        Env env{*this, envconfig(), features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        Account const carol{"carol"};
+        Account const dave{"dave", KeyType::dilithium};
+        env.fund(XRP(1000), alice, bob, carol, dave);
+        env.close();
+
+        env(fset(dave, asfForceQuantum));
+        env(pay(dave, bob, XRP(100)));
+        env.close();
+
+        Json::Value params;
+        params[jss::ledger_index] = env.current()->seq() - 1;
+        params[jss::transactions] = true;
+        params[jss::expand] = true;
+        auto const jrr = env.rpc("json", "ledger", to_string(params));
+        std::cout << jrr << std::endl;
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
-        testWildcardSign(features);
+        // testWildcardSign(features);
+        testSimplePayment(features);
     }
 
 public:

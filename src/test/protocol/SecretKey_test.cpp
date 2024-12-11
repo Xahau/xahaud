@@ -377,7 +377,7 @@ public:
             auto const sk = generateSecretKey(
                 KeyType::dilithium, generateSeed("masterpassphrase"));
             auto const pk = derivePublicKey(KeyType::dilithium, sk);
-            auto const accId = calcAccountID(pk);
+            // auto const accId = calcAccountID(pk);
             auto sig = sign(pk, sk, makeSlice(data));
             BEAST_EXPECT(sig.size() != 0);
             BEAST_EXPECT(verify(pk, makeSlice(data), sig, true) == 1);
@@ -388,7 +388,7 @@ public:
             auto const seed = randomSeed();
             auto const sk = generateSecretKey(KeyType::dilithium, seed);
             auto const pk = derivePublicKey(KeyType::dilithium, sk);
-            auto const accId = calcAccountID(pk);
+            // auto const accId = calcAccountID(pk);
             auto sig = sign(pk, sk, makeSlice(data));
             BEAST_EXPECT(sig.size() != 0);
             BEAST_EXPECT(verify(pk, makeSlice(data), sig, true) == 1);
@@ -398,7 +398,7 @@ public:
         {
             std::pair<PublicKey, SecretKey> const kp =
                 randomKeyPair(KeyType::dilithium);
-            auto const accId = calcAccountID(kp.first);
+            // auto const accId = calcAccountID(kp.first);
             auto sig = sign(kp.first, kp.second, makeSlice(data));
             BEAST_EXPECT(sig.size() != 0);
             BEAST_EXPECT(verify(kp.first, makeSlice(data), sig, true) == 1);
