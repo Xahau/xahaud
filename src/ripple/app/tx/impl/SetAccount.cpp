@@ -587,6 +587,23 @@ SetAccount::doApply()
         }
     }
 
+    //
+    // QuantumSignature
+    //
+    if (ctx_.view().rules().enabled(featureQuantumSigning))
+    {
+        if (uSetFlag == asfForceQuantum)
+        {
+            JLOG(j_.trace()) << "Set lsfForceQuantum.";
+            uFlagsOut |= lsfForceQuantum;
+        }
+        else if (uClearFlag == asfForceQuantum)
+        {
+            JLOG(j_.trace()) << "Clear lsfForceQuantum.";
+            uFlagsOut &= ~lsfForceQuantum;
+        }
+    }
+
     if (uFlagsIn != uFlagsOut)
         sle->setFieldU32(sfFlags, uFlagsOut);
 

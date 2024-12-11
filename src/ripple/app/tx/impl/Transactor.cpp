@@ -40,6 +40,13 @@
 #include <ripple/protocol/UintTypes.h>
 #include <limits>
 #include <set>
+extern "C" {
+#include "api.h"
+}
+
+#ifndef DILITHIUM_PK_SIZE
+#define DILITHIUM_PK_SIZE pqcrystals_dilithium2_PUBLICKEYBYTES 
+#endif
 
 namespace ripple {
 
@@ -857,12 +864,17 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     }
 
     // Look up the account.
-    auto const idSigner = calcAccountID(PublicKey(makeSlice(pkSigner)));
+    PublicKey pubKey = PublicKey(makeSlice(pkSigner));
+    auto const idSigner = calcAccountID(pubKey);
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
 
     if (!sleAccount)
         return terNO_ACCOUNT;
+
+    if (ctx.view.rules().enabled(featureQuantumSigning) &&
+        sleAccount->isFlag(lsfForceQuantum) && pubKey.size() != DILITHIUM_PK_SIZE)
+        return telBAD_PUBLIC_KEY;
 
     bool const isMasterDisabled = sleAccount->isFlag(lsfDisableMaster);
 
