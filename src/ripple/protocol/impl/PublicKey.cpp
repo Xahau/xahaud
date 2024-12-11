@@ -312,10 +312,8 @@ verify(
         }
         else if (*type == KeyType::dilithium)
         {
-            std::cout << "Verifying message, public key type: Dilithium" << std::endl;
             return crypto_sign_verify(
                        sig.data(), sig.size(), m.data(), m.size(), publicKey.data()) == 0;
-            std::cout << "Verification of message succesfull using dilithium" << std::endl;
         }
     }
     return false;
