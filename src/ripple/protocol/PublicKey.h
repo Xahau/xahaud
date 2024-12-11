@@ -62,8 +62,8 @@ namespace ripple {
 class PublicKey
 {
 protected:
+    std::uint8_t buf_[1312];
     std::size_t size_ = 0;
-    std::uint8_t buf_[33];
 
 public:
     using const_iterator = std::uint8_t const*;

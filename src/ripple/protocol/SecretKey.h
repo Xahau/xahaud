@@ -36,9 +36,8 @@ namespace ripple {
 class SecretKey
 {
 private:
-    static constexpr std::size_t max_size = 2528;
-    std::uint8_t buf_[max_size];
-    std::size_t size_;
+    std::uint8_t buf_[2528];
+    std::size_t size_ = 0;
 
 public:
     using const_iterator = std::uint8_t const*;
@@ -63,7 +62,7 @@ public:
     std::size_t
     size() const
     {
-        return sizeof(buf_);
+        return size_;
     }
 
     /** Convert the secret key to a hexadecimal string.
@@ -89,13 +88,13 @@ public:
     const_iterator
     end() const noexcept
     {
-        return buf_ + sizeof(buf_);
+        return buf_ + size_;
     }
 
     const_iterator
     cend() const noexcept
     {
-        return buf_ + sizeof(buf_);
+        return buf_ + size_;
     }
 };
 
@@ -128,6 +127,10 @@ toBase58(TokenType type, SecretKey const& sk)
 /** Create a secret key using secure random numbers. */
 SecretKey
 randomSecretKey();
+
+/** Create a secret key using secure random numbers. */
+SecretKey
+randomSecretKey(KeyType type);
 
 /** Generate a new secret key deterministically. */
 SecretKey
