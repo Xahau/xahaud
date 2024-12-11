@@ -30,21 +30,8 @@ ExternalProject_Get_Property(dilithium_src SOURCE_DIR)
 set(dilithium_src_SOURCE_DIR "${SOURCE_DIR}")
 set(dilithium_src_BINARY_DIR "${BINARY_DIR}")
 
-execute_process(
-    COMMAND
-        mkdir -p "${dilithium_src_SOURCE_DIR}/ref"
-)
-
 # Check if the api.h file exists
-set(API_H_PATH "${dilithium_src_SOURCE_DIR}/ref/api.h")
-if(EXISTS "${API_H_PATH}")
-    include_directories("${dilithium_src_SOURCE_DIR}/ref")
-    message(STATUS "Dilithium library detected and linked: dilithium::dilithium")
-    message(STATUS "api.h file detected and included.")
-    message(STATUS "Found api.h file at: ${API_H_PATH}")
-else()
-    message(FATAL_ERROR "api.h file not found. Please ensure it exists in the Dilithium source directory.")
-endif()
+include_directories("${dilithium_src_SOURCE_DIR}/ref")
 
 # Create imported targets for each static library
 add_library(dilithium::dilithium2_ref STATIC IMPORTED GLOBAL)
@@ -69,8 +56,15 @@ add_dependencies(dilithium::dilithium2_ref dilithium_src)
 add_dependencies(dilithium::dilithium2aes_ref dilithium_src)
 add_dependencies(dilithium::libfips202_ref dilithium_src)
 
+# Add a custom command to generate randombytes.c
+add_custom_command(
+  OUTPUT "${dilithium_src_BINARY_DIR}/ref/randombytes.c"
+  COMMAND ${CMAKE_COMMAND} -E copy "${dilithium_src_SOURCE_DIR}/ref/randombytes.c" "${dilithium_src_BINARY_DIR}/ref/randombytes.c"
+  DEPENDS dilithium_src
+)
+
 # Add the randombytes_ref library
-add_library(randombytes_ref STATIC "${dilithium_src_SOURCE_DIR}/ref/randombytes.c")
+add_library(randombytes_ref STATIC "${dilithium_src_BINARY_DIR}/ref/randombytes.c")
 
 # Include the Dilithium ref directory for headers
 target_include_directories(randombytes_ref PUBLIC "${dilithium_src_SOURCE_DIR}/ref")
