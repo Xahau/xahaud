@@ -1527,7 +1527,7 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         reportingETL_->start();
 
     // Datagram monitor if applicable
-    if (!config_->standalone() && config_->DATAGRAM_MONITOR != "")
+    if (!config_->standalone() && !config_->DATAGRAM_MONITOR.empty())
     {
         datagram_monitor_ = std::make_unique<DatagramMonitor>(*this);
         if (datagram_monitor_)

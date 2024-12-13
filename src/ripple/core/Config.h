@@ -155,7 +155,7 @@ public:
     std::map<std::string, PublicKey>
         IMPORT_VL_KEYS;  // hex string -> class PublicKey (for caching purposes)
 
-    std::string DATAGRAM_MONITOR;
+    std::vector<std::string> DATAGRAM_MONITOR;
 
     enum StartUpType {
         FRESH,

@@ -996,15 +996,24 @@ private:
     void
     monitorThread()
     {
-        auto endpoint = parseEndpoint(app_.config().DATAGRAM_MONITOR);
-        int sock = createSocket(endpoint);
+        std::vector<std::pair<EndpointInfo, int>> endpoints;
+
+        for (auto const& epStr : app_.config().DATAGRAM_MONITOR)
+        {
+            auto endpoint = parseEndpoint(epStr);
+            endpoints.push_back(
+                std::make_pair(endpoint, createSocket(endpoint)));
+        }
 
         while (running_)
         {
             try
             {
                 auto info = generateServerInfo();
-                sendPacket(sock, endpoint, info);
+                for (auto const& ep : endpoints)
+                {
+                    sendPacket(ep.second, ep.first, info);
+                }
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             catch (const std::exception& e)
@@ -1015,7 +1024,10 @@ private:
             }
         }
 
-        close(sock);
+        for (auto const& ep : endpoints)
+        {
+            close(ep.second);
+        }
     }
 
 public:

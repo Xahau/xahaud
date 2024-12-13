@@ -510,11 +510,10 @@ Config::loadFromString(std::string const& fileContents)
             NETWORK_ID = beast::lexicalCastThrow<uint32_t>(strTemp);
     }
 
-    if (getSingleSection(secConfig, SECTION_DATAGRAM_MONITOR, strTemp, j_))
+    if (auto s = getIniFileSection(secConfig, SECTION_DATAGRAM_MONITOR))
     {
-        std::vector<std::string> vecTemp{strTemp};
-        replaceColons(vecTemp);
-        DATAGRAM_MONITOR = vecTemp[0];
+        DATAGRAM_MONITOR = *s;
+        replaceColons(DATAGRAM_MONITOR);
     }
 
     if (getSingleSection(secConfig, SECTION_PEER_PRIVATE, strTemp, j_))
