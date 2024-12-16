@@ -732,7 +732,7 @@ public:
         beast::Journal const& j)
     {
         // HookExecutor can only execute once
-        ASSERT(
+        XRPL_ASSERT(
             !spent,
             "HookExecutor::executeWasm : HookExecutor can only execute once");
 

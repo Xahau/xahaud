@@ -567,7 +567,7 @@ PeerImp::hasRange(std::uint32_t uMin, std::uint32_t uMax)
 void
 PeerImp::close()
 {
-    ASSERT(
+    XRPL_ASSERT(
         strand_.running_in_this_thread(),
         "ripple::PeerImp::close : strand in this thread");
     if (socket_.is_open())
@@ -610,7 +610,7 @@ PeerImp::fail(std::string const& reason)
 void
 PeerImp::fail(std::string const& name, error_code ec)
 {
-    ASSERT(
+    XRPL_ASSERT(
         strand_.running_in_this_thread(),
         "ripple::PeerImp::fail : strand in this thread");
     if (socket_.is_open())
@@ -625,12 +625,12 @@ PeerImp::fail(std::string const& name, error_code ec)
 void
 PeerImp::gracefulClose()
 {
-    ASSERT(
+    XRPL_ASSERT(
         strand_.running_in_this_thread(),
         "ripple::PeerImp::gracefulClose : strand in this thread");
-    ASSERT(
+    XRPL_ASSERT(
         socket_.is_open(), "ripple::PeerImp::gracefulClose : socket is open");
-    ASSERT(
+    XRPL_ASSERT(
         !gracefulClose_,
         "ripple::PeerImp::gracefulClose : socket is not closing");
     gracefulClose_ = true;
@@ -758,7 +758,7 @@ PeerImp::onShutdown(error_code ec)
 void
 PeerImp::doAccept()
 {
-    ASSERT(
+    XRPL_ASSERT(
         read_buffer_.size() == 0,
         "ripple::PeerImp::doAccept : empty read buffer");
 
@@ -961,7 +961,7 @@ PeerImp::onWriteMessage(error_code ec, std::size_t bytes_transferred)
 
     metrics_.sent.add_message(bytes_transferred);
 
-    ASSERT(
+    XRPL_ASSERT(
         !send_queue_.empty(),
         "ripple::PeerImp::onWriteMessage : non-empty send buffer");
     send_queue_.pop();
@@ -1235,7 +1235,7 @@ PeerImp::handleTransaction(
     bool eraseTxQueue,
     bool batch)
 {
-    ASSERT(
+    XRPL_ASSERT(
         eraseTxQueue != batch,
         "ripple::PeerImp::handleTransaction correct function params");
     if (tracking_.load() == Tracking::diverged)
@@ -2042,8 +2042,8 @@ PeerImp::onValidatorListMessage(
         case ListDisposition::pending: {
             std::lock_guard<std::mutex> sl(recentLock_);
 
-            ASSERT(
-                applyResult.publisherKey.has_value(),
+            XRPL_ASSERT(
+                applyResult.publisherKey,
                 "ripple::PeerImp::onValidatorListMessage : publisher key is "
                 "set");
             auto const& pubKey = *applyResult.publisherKey;
@@ -2051,7 +2051,7 @@ PeerImp::onValidatorListMessage(
             if (auto const iter = publisherListSequences_.find(pubKey);
                 iter != publisherListSequences_.end())
             {
-                ASSERT(
+                XRPL_ASSERT(
                     iter->second < applyResult.sequence,
                     "ripple::PeerImp::onValidatorListMessage : lower sequence");
             }
@@ -2064,11 +2064,11 @@ PeerImp::onValidatorListMessage(
 #ifndef NDEBUG
         {
             std::lock_guard<std::mutex> sl(recentLock_);
-            ASSERT(
+            XRPL_ASSERT(
                 applyResult.sequence && applyResult.publisherKey,
                 "ripple::PeerImp::onValidatorListMessage : nonzero sequence "
                 "and set publisher key");
-            ASSERT(
+            XRPL_ASSERT(
                 publisherListSequences_[*applyResult.publisherKey] <=
                     applyResult.sequence,
                 "ripple::PeerImp::onValidatorListMessage : maximum sequence");
@@ -2819,7 +2819,7 @@ PeerImp::checkTransaction(
             // TransactionMaster cache
             std::string reason;
             auto tx = std::make_shared<Transaction>(stx, reason, app_);
-            ASSERT(
+            XRPL_ASSERT(
                 tx->getStatus() == NEW,
                 "ripple::PeerImp::checkTransaction Transaction created "
                 "correctly");
@@ -2920,8 +2920,7 @@ PeerImp::checkPropose(
     JLOG(p_journal_.trace())
         << "Checking " << (isTrusted ? "trusted" : "UNTRUSTED") << " proposal";
 
-    ASSERT(
-        packet != nullptr, "ripple::PeerImp::checkPropose : non-null packet");
+    XRPL_ASSERT(packet, "ripple::PeerImp::checkPropose : non-null packet");
 
     if (!cluster() && !peerPos.checkSign())
     {

@@ -228,7 +228,7 @@ CreateOffer::checkAcceptAsset(
     Issue const& issue)
 {
     // Only valid for custom currencies
-    ASSERT(
+    XRPL_ASSERT(
         !isXRP(issue.currency),
         "ripple::CreateOffer::checkAcceptAsset : input is not XRP");
 
@@ -303,7 +303,7 @@ CreateOffer::select_path(
     OfferStream const& leg2)
 {
     // If we don't have any viable path, why are we here?!
-    ASSERT(
+    XRPL_ASSERT(
         have_direct || have_bridge,
         "ripple::CreateOffer::select_path : valid inputs");
 
@@ -349,7 +349,7 @@ CreateOffer::bridged_cross(
 {
     auto const& takerAmount = taker.original_offer();
 
-    ASSERT(
+    XRPL_ASSERT(
         !isXRP(takerAmount.in) && !isXRP(takerAmount.out),
         "ripple::CreateOffer::bridged_cross : neither is XRP");
 
@@ -521,7 +521,7 @@ CreateOffer::bridged_cross(
 
         // Postcondition: If we aren't done, then we *must* have consumed at
         //                least one offer fully.
-        ASSERT(
+        XRPL_ASSERT(
             direct_consumed || leg1_consumed || leg2_consumed,
             "ripple::CreateOffer::bridged_cross : consumed an offer");
 
@@ -613,7 +613,7 @@ CreateOffer::direct_cross(
 
         // Postcondition: If we aren't done, then we *must* have consumed the
         //                offer on the books fully!
-        ASSERT(
+        XRPL_ASSERT(
             direct_consumed,
             "ripple::CreateOffer::direct_cross : consumed an offer");
 
@@ -877,7 +877,7 @@ CreateOffer::flowCross(
                     // remaining output.  This too preserves the offer
                     // Quality.
                     afterCross.out -= result.actualAmountOut;
-                    ASSERT(
+                    XRPL_ASSERT(
                         afterCross.out >= beast::zero,
                         "ripple::CreateOffer::flowCross : minimum offer");
                     if (afterCross.out < beast::zero)
@@ -1087,7 +1087,7 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
 
         // We expect the implementation of cross to succeed
         // or give a tec.
-        ASSERT(
+        XRPL_ASSERT(
             isTesSuccess(result) || isTecClaim(result),
             "ripple::CreateOffer::applyGuts : result is tesSUCCESS or "
             "tecCLAIM");
@@ -1108,10 +1108,10 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
             return {result, true};
         }
 
-        ASSERT(
+        XRPL_ASSERT(
             saTakerGets.issue() == place_offer.in.issue(),
             "ripple::CreateOffer::applyGuts : taker gets issue match");
-        ASSERT(
+        XRPL_ASSERT(
             saTakerPays.issue() == place_offer.out.issue(),
             "ripple::CreateOffer::applyGuts : taker pays issue match");
 
@@ -1141,7 +1141,7 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
         saTakerGets = place_offer.in;
     }
 
-    ASSERT(
+    XRPL_ASSERT(
         saTakerPays > zero && saTakerGets > zero,
         "ripple::CreateOffer::applyGuts : taker pays and gets positive");
 

@@ -287,7 +287,7 @@ Change::applyUNLReport()
 void
 Change::preCompute()
 {
-    ASSERT(
+    XRPL_ASSERT(
         account_ == beast::zero, "ripple::Change::preCompute : zero account");
 }
 

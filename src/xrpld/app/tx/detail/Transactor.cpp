@@ -330,7 +330,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                     hookExecutionFee += toAdd;
             }
 
-            ASSERT(
+            XRPL_ASSERT(
                 emitDetails.isFieldPresent(sfEmitBurden),
                 "Transactor::calculateBaseFee : emit burden not present");
 
@@ -694,7 +694,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
 TER
 Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
 {
-    ASSERT(
+    XRPL_ASSERT(
         sleAccount, "ripple::Transactor::consumeSeqProxy : non-null account");
 
     // do not update sequence of sfAccountTxnID for emitted tx
@@ -772,7 +772,7 @@ Transactor::ticketDelete(
 void
 Transactor::preCompute()
 {
-    ASSERT(
+    XRPL_ASSERT(
         account_ != beast::zero,
         "ripple::Transactor::preCompute : nonzero account");
 }
@@ -788,7 +788,7 @@ Transactor::apply()
 
     // sle must exist except for transactions
     // that allow zero account. (and ttIMPORT)
-    ASSERT(
+    XRPL_ASSERT(
         sle != nullptr || account_ == beast::zero ||
             view().rules().enabled(featureImport) &&
                 ctx_.tx.getTxnType() == ttIMPORT &&
@@ -943,10 +943,10 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
 
     // We have plans to support multiple SignerLists in the future.  The
     // presence and defaulted value of the SignerListID field will enable that.
-    ASSERT(
+    XRPL_ASSERT(
         sleAccountSigners->isFieldPresent(sfSignerListID),
         "ripple::Transactor::checkMultiSign : has signer list ID");
-    ASSERT(
+    XRPL_ASSERT(
         sleAccountSigners->getFieldU32(sfSignerListID) == 0,
         "ripple::Transactor::checkMultiSign : signer list ID is 0");
 
@@ -1208,7 +1208,7 @@ Transactor::reset(XRPAmount fee)
     auto const balance = txnAcct->getFieldAmount(sfBalance).xrp();
 
     // balance should have already been checked in checkFee / preFlight.
-    ASSERT(
+    XRPL_ASSERT(
         balance != beast::zero && (!view().open() || balance >= fee),
         "ripple::Transactor::reset : valid balance");
 
@@ -1225,7 +1225,7 @@ Transactor::reset(XRPAmount fee)
     // reject the transaction.
     txnAcct->setFieldAmount(sfBalance, balance - fee);
     TER const ter{consumeSeqProxy(txnAcct)};
-    ASSERT(
+    XRPL_ASSERT(
         isTesSuccess(ter), "ripple::Transactor::reset : result is tesSUCCESS");
 
     if (isTesSuccess(ter))
@@ -1620,7 +1620,7 @@ Transactor::doTSH(
             if (tshFeeDrops == 0)
                 continue;
 
-            ASSERT(
+            XRPL_ASSERT(
                 tshFeeDrops >= beast::zero,
                 "Transactor::doTSH : tsh fee drops is negative");
 
@@ -1663,10 +1663,10 @@ Transactor::doTSH(
             if (tshFeeDrops > beast::zero)
             {
                 STAmount finalBalance = priorBalance - tshFeeDrops;
-                ASSERT(
+                XRPL_ASSERT(
                     finalBalance >= beast::zero,
                     "Transactor::doTSH : final balance is negative");
-                ASSERT(
+                XRPL_ASSERT(
                     finalBalance < priorBalance,
                     "Transactor::doTSH : final balance is greater than prior "
                     "balance");
@@ -1909,7 +1909,7 @@ Transactor::operator()()
 
     // No transaction can return temUNKNOWN from apply,
     // and it can't be passed in from a preclaim.
-    ASSERT(
+    XRPL_ASSERT(
         result != temUNKNOWN,
         "ripple::Transactor::operator() : result is not temUNKNOWN");
 
@@ -1967,7 +1967,7 @@ Transactor::operator()()
                            std::shared_ptr<SLE const> const& after) {
                 if (isDelete)
                 {
-                    ASSERT(
+                    XRPL_ASSERT(
                         before && after,
                         "ripple::Transactor::operator()::visit : non-null SLE "
                         "inputs");

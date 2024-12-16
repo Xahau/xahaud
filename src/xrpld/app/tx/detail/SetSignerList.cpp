@@ -137,10 +137,10 @@ SetSignerList::preCompute()
 {
     // Get the quorum and operation info.
     auto result = determineOperation(ctx_.tx, view().flags(), j_);
-    ASSERT(
+    XRPL_ASSERT(
         isTesSuccess(std::get<0>(result)),
         "ripple::SetSignerList::preCompute : result is tesSUCCESS");
-    ASSERT(
+    XRPL_ASSERT(
         std::get<3>(result) != unknown,
         "ripple::SetSignerList::preCompute : result is known operation");
 
@@ -177,10 +177,10 @@ SetSignerList::signerCountBasedOwnerCountDelta(
     // The static_cast should always be safe since entryCount should always
     // be in the range from 1 to 8 (or 32 if ExpandedSignerList is enabled).
     // We've got a lot of room to grow.
-    ASSERT(
+    XRPL_ASSERT(
         entryCount >= STTx::minMultiSigners,
         "ripple::signerCountBasedOwnerCountDelta : minimum signers");
-    ASSERT(
+    XRPL_ASSERT(
         entryCount <= STTx::maxMultiSigners(&rules),
         "ripple::signerCountBasedOwnerCountDelta : maximum signers");
     return 2 + static_cast<int>(entryCount);
@@ -270,7 +270,7 @@ SetSignerList::validateQuorumAndSignerEntries(
     }
 
     // Make sure there are no duplicate signers.
-    ASSERT(
+    XRPL_ASSERT(
         std::is_sorted(signers.begin(), signers.end()),
         "ripple::SetSignerList::validateQuorumAndSignerEntries : sorted "
         "signers");

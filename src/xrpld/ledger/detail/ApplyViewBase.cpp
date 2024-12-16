@@ -254,7 +254,7 @@ ApplyViewBase::balanceChanges(ReadView const& view) const
         {
             // modify
             auto const at = after->getType();
-            ASSERT(
+            XRPL_ASSERT(
                 at == before->getType(),
                 "ripple::PaymentSandbox::balanceChanges : after and before "
                 "types matching");

@@ -630,7 +630,7 @@ SHAMap::setLedgerSeq(std::uint32_t lseq)
 inline void
 SHAMap::setImmutable()
 {
-    ASSERT(
+    XRPL_ASSERT(
         state_ != SHAMapState::Invalid,
         "ripple::SHAMap::setImmutable : state is valid");
     state_ = SHAMapState::Immutable;
@@ -713,8 +713,8 @@ private:
 
 inline SHAMap::const_iterator::const_iterator(SHAMap const* map) : map_(map)
 {
-    ASSERT(
-        map_ != nullptr,
+    XRPL_ASSERT(
+        map_,
         "ripple::SHAMap::const_iterator::const_iterator : non-null input");
 
     if (auto temp = map_->peekFirstItem(stack_))
@@ -767,7 +767,7 @@ SHAMap::const_iterator::operator++(int)
 inline bool
 operator==(SHAMap::const_iterator const& x, SHAMap::const_iterator const& y)
 {
-    ASSERT(
+    XRPL_ASSERT(
         x.map_ == y.map_,
         "ripple::operator==(SHAMap::const_iterator, SHAMap::const_iterator) : "
         "inputs map do match");

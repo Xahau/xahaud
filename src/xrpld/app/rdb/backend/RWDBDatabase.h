@@ -240,7 +240,7 @@ public:
                 "RWDBDatabase::saveValidatedLedger : account hash mismatch");
         }
 
-        ASSERT(
+        XRPL_ASSERT(
             ledger->info().txHash == ledger->txMap().getHash().as_uint256(),
             "RWDBDatabase::saveValidatedLedger : tx hash mismatch");
 
