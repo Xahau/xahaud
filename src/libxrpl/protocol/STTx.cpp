@@ -609,8 +609,10 @@ invalidMPTAmountInTx(STObject const& tx)
             if (tx.isFieldPresent(e.sField()) && e.supportMPT() != soeMPTNone)
             {
                 auto const& field = tx.peekAtField(e.sField());
-                if (field.getSType() == STI_AMOUNT &&
-                    static_cast<STAmount const&>(field).holds<MPTIssue>())
+                if ((field.getSType() == STI_AMOUNT &&
+                     static_cast<STAmount const&>(field).holds<MPTIssue>()) ||
+                    (field.getSType() == STI_ISSUE &&
+                     static_cast<STIssue const&>(field).holds<MPTIssue>()))
                 {
                     if (e.supportMPT() != soeMPTSupported)
                         return true;
