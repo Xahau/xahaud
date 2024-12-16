@@ -75,7 +75,7 @@ doAccountInfo(RPC::JsonContext& context)
     auto const accountID{std::move(id.value())};
 
     static constexpr std::
-        array<std::pair<std::string_view, LedgerSpecificFlags>, 10>
+        array<std::pair<std::string_view, LedgerSpecificFlags>, 11>
             lsFlags{
                 {{"defaultRipple", lsfDefaultRipple},
                  {"depositAuth", lsfDepositAuth},
@@ -86,7 +86,8 @@ doAccountInfo(RPC::JsonContext& context)
                  {"passwordSpent", lsfPasswordSpent},
                  {"requireAuthorization", lsfRequireAuth},
                  {"tshCollect", lsfTshCollect},
-                 {"requireDestinationTag", lsfRequireDestTag}}};
+                 {"requireDestinationTag", lsfRequireDestTag},
+                 {"uriTokenIssuer", lsfURITokenIssuer}}};
 
     static constexpr std::
         array<std::pair<std::string_view, LedgerSpecificFlags>, 5>
