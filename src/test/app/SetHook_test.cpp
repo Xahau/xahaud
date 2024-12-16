@@ -36,29 +36,6 @@ namespace test {
 
 using TestHook = std::vector<uint8_t> const&;
 
-class JSSHasher
-{
-public:
-    size_t
-    operator()(const Json::StaticString& n) const
-    {
-        return std::hash<std::string_view>{}(n.c_str());
-    }
-};
-
-class JSSEq
-{
-public:
-    bool
-    operator()(const Json::StaticString& a, const Json::StaticString& b) const
-    {
-        return a == b;
-    }
-};
-
-using JSSMap =
-    std::unordered_map<Json::StaticString, Json::Value, JSSHasher, JSSEq>;
-
 // Identical to BEAST_EXPECT except it returns from the function
 // if the condition isn't met (and would otherwise therefore cause a crash)
 #define BEAST_REQUIRE(x)     \

@@ -27,9 +27,6 @@
 #include <unordered_map>
 
 // DA TODO: Move duplicated functions to jtx
-// JSSMap
-// JSSHasher
-// JSSEq
 // overrideFlag
 
 namespace ripple {
@@ -39,9 +36,6 @@ namespace test {
 #define DEBUG_TESTS 1
 
 using TestHook = std::vector<uint8_t> const&;
-
-using JSSMap =
-    std::unordered_map<Json::StaticString, Json::Value, JSSHasher, JSSEq>;
 
 // Identical to BEAST_EXPECT except it returns from the function
 // if the condition isn't met (and would otherwise therefore cause a crash)

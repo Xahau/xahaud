@@ -570,7 +570,7 @@ operator<=>(base_uint<Bits, Tag> const& lhs, base_uint<Bits, Tag> const& rhs)
     return (*ret.first > *ret.second) ? std::strong_ordering::greater
                                         : std::strong_ordering::less;
 }
-
+#elif
 template <std::size_t Bits, class Tag>
 [[nodiscard]] inline constexpr std::strong_ordering
 operator<=>(base_uint<Bits, Tag> const& lhs, base_uint<Bits, Tag> const& rhs)

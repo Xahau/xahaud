@@ -5435,7 +5435,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
     
     std::cout << "sto_from_json, valid json\n";
-    std::cout << to_string(json);
+    std::cout << json.asString() << "\n";
 
     // turn the json into a stobject    
     STParsedJSONObject parsed(std::string(jss::tx_json), json);
@@ -8279,7 +8279,8 @@ DEFINE_JS_FUNCTION(
     if (any_missing(f1, f2))
         returnJS(INVALID_ARGUMENT);
 
-    int64_t const out = float_divide_internal(*f1, *f2);
+    bool const fixV3 = view.rules().enabled(fixFloatDivide);
+    int64_t const out = float_divide_internal(*f1, *f2, fixV3);
     if (out < 0)
         returnJS(out);
     
@@ -8334,7 +8335,8 @@ DEFINE_JS_FUNCTION(
     if (*f1 == float_one_internal)
         returnJSXFL(float_one_internal);
 
-    int64_t const out = float_divide_internal(float_one_internal, *f1);
+    bool const fixV3 = view.rules().enabled(fixFloatDivide);
+    int64_t const out = float_divide_internal(float_one_internal, *f1, fixV3);
     if (out < 0)
         returnJS(out);
 
