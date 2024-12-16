@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 echo "START INSIDE CONTAINER - FULL"
 
 echo "-- BUILD CORES:       $3"
