@@ -481,6 +481,13 @@ TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete, ({
     {sfCredentialType, soeREQUIRED},
 }))
 
+/** This transaction type modify a NFToken */
+TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify, ({
+    {sfNFTokenID, soeREQUIRED},
+    {sfOwner, soeOPTIONAL},
+    {sfURI, soeOPTIONAL},
+}))
+
 /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
 TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
     {sfObjectID, soeREQUIRED},
@@ -538,7 +545,6 @@ TRANSACTION(ttAMENDMENT, 100, EnableAmendment, ({
 }))
 
 /** This system-generated transaction type is used to update the network's fee settings.
-
     For details, see: https://xrpl.org/fee-voting.html
  */
 TRANSACTION(ttFEE, 101, SetFee, ({
