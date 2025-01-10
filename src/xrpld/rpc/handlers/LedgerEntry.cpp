@@ -68,7 +68,7 @@ parseAuthorizeCredentials(Json::Value const& jv)
     return arr;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseIndex(Json::Value const& params, Json::Value& jvResult)
 {
     uint256 uNodeIndex;
@@ -81,7 +81,7 @@ parseIndex(Json::Value const& params, Json::Value& jvResult)
     return uNodeIndex;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseAccountRoot(Json::Value const& params, Json::Value& jvResult)
 {
     auto const account = parseBase58<AccountID>(params.asString());
@@ -94,7 +94,7 @@ parseAccountRoot(Json::Value const& params, Json::Value& jvResult)
     return keylet::account(*account).key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseCheck(Json::Value const& params, Json::Value& jvResult)
 {
     uint256 uNodeIndex;
@@ -107,7 +107,7 @@ parseCheck(Json::Value const& params, Json::Value& jvResult)
     return uNodeIndex;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseDepositPreauth(Json::Value const& dp, Json::Value& jvResult)
 {
     if (!dp.isObject())
@@ -172,7 +172,7 @@ parseDepositPreauth(Json::Value const& dp, Json::Value& jvResult)
     return keylet::depositPreauth(*owner, sorted).key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseDirectory(Json::Value const& params, Json::Value& jvResult)
 {
     if (params.isNull())
@@ -238,7 +238,7 @@ parseDirectory(Json::Value const& params, Json::Value& jvResult)
     return std::nullopt;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseEscrow(Json::Value const& params, Json::Value& jvResult)
 {
     if (!params.isObject())
@@ -271,7 +271,7 @@ parseEscrow(Json::Value const& params, Json::Value& jvResult)
     return keylet::escrow(*id, params[jss::seq].asUInt()).key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseOffer(Json::Value const& params, Json::Value& jvResult)
 {
     if (!params.isObject())
@@ -302,7 +302,7 @@ parseOffer(Json::Value const& params, Json::Value& jvResult)
     return keylet::offer(*id, params[jss::seq].asUInt()).key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parsePaymentChannel(Json::Value const& params, Json::Value& jvResult)
 {
     uint256 uNodeIndex;
@@ -315,7 +315,7 @@ parsePaymentChannel(Json::Value const& params, Json::Value& jvResult)
     return uNodeIndex;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseRippleState(Json::Value const& jvRippleState, Json::Value& jvResult)
 {
     Currency uCurrency;
@@ -352,7 +352,7 @@ parseRippleState(Json::Value const& jvRippleState, Json::Value& jvResult)
     return keylet::line(*id1, *id2, uCurrency).key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseTicket(Json::Value const& params, Json::Value& jvResult)
 {
     if (!params.isObject())
@@ -383,7 +383,7 @@ parseTicket(Json::Value const& params, Json::Value& jvResult)
     return getTicketIndex(*id, params[jss::ticket_seq].asUInt());
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseNFTokenPage(Json::Value const& params, Json::Value& jvResult)
 {
     if (params.isString())
@@ -401,7 +401,7 @@ parseNFTokenPage(Json::Value const& params, Json::Value& jvResult)
     return std::nullopt;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseAMM(Json::Value const& params, Json::Value& jvResult)
 {
     if (!params.isObject())
@@ -434,7 +434,7 @@ parseAMM(Json::Value const& params, Json::Value& jvResult)
     }
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseBridge(Json::Value const& params, Json::Value& jvResult)
 {
     // return the keylet for the specified bridge or nullopt if the
@@ -485,7 +485,7 @@ parseBridge(Json::Value const& params, Json::Value& jvResult)
     return std::nullopt;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseXChainOwnedClaimID(Json::Value const& claim_id, Json::Value& jvResult)
 {
     if (claim_id.isString())
@@ -557,7 +557,7 @@ parseXChainOwnedClaimID(Json::Value const& claim_id, Json::Value& jvResult)
     return std::nullopt;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseXChainOwnedCreateAccountClaimID(
     Json::Value const& claim_id,
     Json::Value& jvResult)
@@ -633,7 +633,7 @@ parseXChainOwnedCreateAccountClaimID(
     return std::nullopt;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseDID(Json::Value const& params, Json::Value& jvResult)
 {
     auto const account = parseBase58<AccountID>(params.asString());
@@ -646,7 +646,7 @@ parseDID(Json::Value const& params, Json::Value& jvResult)
     return keylet::did(*account).key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseOracle(Json::Value const& params, Json::Value& jvResult)
 {
     if (!params.isObject())
@@ -700,7 +700,7 @@ parseOracle(Json::Value const& params, Json::Value& jvResult)
     return keylet::oracle(*account, *documentID).key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseCredential(Json::Value const& cred, Json::Value& jvResult)
 {
     if (cred.isString())
@@ -739,7 +739,7 @@ parseCredential(Json::Value const& cred, Json::Value& jvResult)
         .key;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseMPTokenIssuance(
     Json::Value const& unparsedMPTIssuanceID,
     Json::Value& jvResult)
@@ -760,7 +760,7 @@ parseMPTokenIssuance(
     return std::nullopt;
 }
 
-std::optional<uint256>
+static std::optional<uint256>
 parseMPToken(Json::Value const& mptJson, Json::Value& jvResult)
 {
     if (!mptJson.isObject())
@@ -993,8 +993,50 @@ parseUriToken(Json::Value const& uriTokenJson, Json::Value& jvResult)
     return std::nullopt;
 }
 
+static std::optional<uint256>
+parsePermissionedDomains(Json::Value const& pd, Json::Value& jvResult)
+{
+    if (pd.isString())
+    {
+        Json::Value result;
+        auto const index = parseIndex(pd, result);
+        if (!index)
+            jvResult[jss::error] = "malformedObjectId";
+        return index;
+    }
+
+    if (!pd.isObject())
+    {
+        jvResult[jss::error] = "malformedObject";
+        return std::nullopt;
+    }
+
+    if (!pd.isMember(jss::account) || !pd[jss::account].isString())
+    {
+        jvResult[jss::error] = "malformedAccount";
+        return std::nullopt;
+    }
+
+    if (!pd.isMember(jss::seq) ||
+        (pd[jss::seq].isInt() && pd[jss::seq].asInt() < 0) ||
+        (!pd[jss::seq].isInt() && !pd[jss::seq].isUInt()))
+    {
+        jvResult[jss::error] = "malformedSequence";
+        return std::nullopt;
+    }
+
+    auto const account = parseBase58<AccountID>(pd[jss::account].asString());
+    if (!account)
+    {
+        jvResult[jss::error] = "malformedAccount";
+        return std::nullopt;
+    }
+
+    return keylet::permissionedDomain(*account, pd[jss::seq].asUInt()).key;
+}
+
 using FunctionType =
-    std::optional<uint256> (*)(Json::Value const&, Json::Value&);
+    std::function<std::optional<uint256>(Json::Value const&, Json::Value&)>;
 
 struct LedgerEntry
 {
@@ -1043,6 +1085,9 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::offer, parseOffer, ltOFFER},
         {jss::oracle, parseOracle, ltORACLE},
         {jss::payment_channel, parsePaymentChannel, ltPAYCHAN},
+        {jss::permissioned_domain,
+         parsePermissionedDomains,
+         ltPERMISSIONED_DOMAIN},
         {jss::ripple_state, parseRippleState, ltRIPPLE_STATE},
         // This is an alias, since the `ledger_data` filter uses jss::state
         {jss::state, parseRippleState, ltRIPPLE_STATE},
@@ -1084,6 +1129,7 @@ doLedgerEntry(RPC::JsonContext& context)
                 break;
             }
         }
+
         if (!found)
         {
             if (context.apiVersion < 2u)
@@ -1158,7 +1204,7 @@ doLedgerEntryGrpc(
     grpc::Status status = grpc::Status::OK;
 
     std::shared_ptr<ReadView const> ledger;
-    if (auto status = RPC::ledgerFromRequest(ledger, context))
+    if (auto const status = RPC::ledgerFromRequest(ledger, context))
     {
         grpc::Status errorStatus;
         if (status.toErrorCode() == rpcINVALID_PARAMS)
@@ -1189,16 +1235,14 @@ doLedgerEntryGrpc(
             grpc::StatusCode::NOT_FOUND, "object not found"};
         return {response, errorStatus};
     }
-    else
-    {
-        Serializer s;
-        sleNode->add(s);
 
-        auto& stateObject = *response.mutable_ledger_object();
-        stateObject.set_data(s.peekData().data(), s.getLength());
-        stateObject.set_key(request.key());
-        *(response.mutable_ledger()) = request.ledger();
-        return {response, status};
-    }
+    Serializer s;
+    sleNode->add(s);
+
+    auto& stateObject = *response.mutable_ledger_object();
+    stateObject.set_data(s.peekData().data(), s.getLength());
+    stateObject.set_key(request.key());
+    *(response.mutable_ledger()) = request.ledger();
+    return {response, status};
 }
 }  // namespace ripple

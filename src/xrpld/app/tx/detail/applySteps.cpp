@@ -57,6 +57,8 @@
 #include <xrpld/app/tx/detail/NFTokenModify.h>
 #include <xrpld/app/tx/detail/PayChan.h>
 #include <xrpld/app/tx/detail/Payment.h>
+#include <xrpld/app/tx/detail/PermissionedDomainDelete.h>
+#include <xrpld/app/tx/detail/PermissionedDomainSet.h>
 #include <xrpld/app/tx/detail/Remit.h>
 #include <xrpld/app/tx/detail/SetAccount.h>
 #include <xrpld/app/tx/detail/SetHook.h>

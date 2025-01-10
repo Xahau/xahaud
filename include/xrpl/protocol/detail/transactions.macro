@@ -488,6 +488,17 @@ TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify, ({
     {sfURI, soeOPTIONAL},
 }))
 
+/** This transaction type creates or modifies a Permissioned Domain */
+TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet, ({
+    {sfDomainID, soeOPTIONAL},
+    {sfAcceptedCredentials, soeREQUIRED},
+}))
+
+/** This transaction type deletes a Permissioned Domain */
+TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
+    {sfDomainID, soeREQUIRED},
+}))
+
 /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
 TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
     {sfObjectID, soeREQUIRED},

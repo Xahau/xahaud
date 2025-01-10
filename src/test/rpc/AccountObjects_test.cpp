@@ -575,7 +575,8 @@ public:
         Account const gw{"gateway"};
         auto const USD = gw["USD"];
 
-        Env env(*this, features);
+        Env env(
+            *this, features | featureXChainBridge | featurePermissionedDomains);
 
         // Make a lambda we can use to get "account_objects" easily.
         auto acctObjs = [&env](
@@ -627,6 +628,7 @@ public:
         BEAST_EXPECT(acctObjsIsSize(acctObjs(gw, jss::hook), 0));
         BEAST_EXPECT(acctObjsIsSize(acctObjs(gw, jss::amm), 0));
         BEAST_EXPECT(acctObjsIsSize(acctObjs(gw, jss::did), 0));
+        BEAST_EXPECT(acctObjsIsSize(acctObjs(gw, jss::permissioned_domain), 0));
 
         // we expect invalid field type reported for the following types
         BEAST_EXPECT(acctObjsTypeIsInvalid(acctObjs(gw, jss::amendments)));
@@ -714,6 +716,47 @@ public:
             BEAST_EXPECT(escrow[sfDestination.jsonName] == gw.human());
             BEAST_EXPECT(escrow[sfAmount.jsonName].asUInt() == 100'000'000);
         }
+
+        {
+            std::string const credentialType1 = "credential1";
+            Account issuer("issuer");
+            env.fund(XRP(5000), issuer);
+
+            // gw creates an PermissionedDomain.
+            env(pdomain::setTx(gw, {{issuer, credentialType1}}));
+            env.close();
+
+            // Find the PermissionedDomain.
+            Json::Value const resp = acctObjs(gw, jss::permissioned_domain);
+            BEAST_EXPECT(acctObjsIsSize(resp, 1));
+
+            auto const& permissionedDomain =
+                resp[jss::result][jss::account_objects][0u];
+            BEAST_EXPECT(
+                permissionedDomain.isMember(jss::Owner) &&
+                (permissionedDomain[jss::Owner] == gw.human()));
+            bool const check1 = BEAST_EXPECT(
+                permissionedDomain.isMember(jss::AcceptedCredentials) &&
+                permissionedDomain[jss::AcceptedCredentials].isArray() &&
+                (permissionedDomain[jss::AcceptedCredentials].size() == 1) &&
+                (permissionedDomain[jss::AcceptedCredentials][0u].isMember(
+                    jss::Credential)));
+
+            if (check1)
+            {
+                auto const& credential =
+                    permissionedDomain[jss::AcceptedCredentials][0u]
+                                      [jss::Credential];
+                BEAST_EXPECT(
+                    credential.isMember(sfIssuer.jsonName) &&
+                    (credential[sfIssuer.jsonName] == issuer.human()));
+                BEAST_EXPECT(
+                    credential.isMember(sfCredentialType.jsonName) &&
+                    (credential[sfCredentialType.jsonName] ==
+                     strHex(credentialType1)));
+            }
+        }
+
         {
             // Create a bridge
             test::jtx::XChainBridgeObjects x;
@@ -934,10 +977,13 @@ public:
             BEAST_EXPECT(entry[sfAccount.jsonName] == alice.human());
             BEAST_EXPECT(entry[sfSignerWeight.jsonName].asUInt() == 7);
         }
-        // Create a Ticket for gw.
-        env(ticket::create(gw, 1));
-        env.close();
+
         {
+            auto const seq = env.seq(gw);
+            // Create a Ticket for gw.
+            env(ticket::create(gw, 1));
+            env.close();
+
             // Find the ticket.
             Json::Value const resp = acctObjs(gw, jss::ticket);
             BEAST_EXPECT(acctObjsIsSize(resp, 1));
@@ -945,7 +991,7 @@ public:
             auto const& ticket = resp[jss::result][jss::account_objects][0u];
             BEAST_EXPECT(ticket[sfAccount.jsonName] == gw.human());
             BEAST_EXPECT(ticket[sfLedgerEntryType.jsonName] == jss::Ticket);
-            BEAST_EXPECT(ticket[sfTicketSequence.jsonName].asUInt() == 11);
+            BEAST_EXPECT(ticket[sfTicketSequence.jsonName].asUInt() == seq + 1);
         }
         {
             // Create a uri token.
@@ -994,6 +1040,7 @@ public:
             auto const& hook = resp[jss::result][jss::account_objects][0u];
             BEAST_EXPECT(hook[sfAccount.jsonName] == gw.human());
         }
+
         {
             // See how "deletion_blockers_only" handles gw's directory.
             Json::Value params;
@@ -1009,7 +1056,8 @@ public:
                     jss::NFTokenPage.c_str(),
                     jss::RippleState.c_str(),
                     jss::PayChannel.c_str(),
-                    jss::URIToken.c_str()};
+                    jss::URIToken.c_str(),
+                    jss::PermissionedDomain.c_str()};
                 std::sort(v.begin(), v.end());
                 return v;
             }();
