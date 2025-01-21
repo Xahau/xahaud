@@ -92,7 +92,7 @@ pwd &&
 tar -xzf cmake-3.23.1-linux-x86_64.tar.gz -C /hbb/ &&
 echo "-- Install Boost 1.86.0 --" &&
 pwd &&
-( wget -nc -q https://boostorg.jfrog.io/artifactory/main/release/1.86.0/source/boost_1_86_0.tar.gz; echo "" ) &&
+( wget -nc -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz; echo "" ) &&
 tar -xzf boost_1_86_0.tar.gz &&
 cd boost_1_86_0 && ./bootstrap.sh && ./b2  link=static -j$3 && ./b2 install &&
 cd ../ &&
