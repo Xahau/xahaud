@@ -4790,7 +4790,7 @@ DEFINE_HOOK_FUNCTION(
 
     if (float1 == 0)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]:"
+        j.trace() << "HookTrace[" << HC_ACC() << "]: "
                   << (read_len == 0
                           ? ""
                           : std::string_view(
