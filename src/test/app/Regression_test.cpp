@@ -322,8 +322,9 @@ struct Regression_test : public beast::unit_test::suite
                     beforeCounts.at("CachedView::hit"s) ==
                     afterCounts.at("CachedView::hit"s));
                 BEAST_EXPECT(
-                    beforeCounts.at("CachedView::hitExpired"s) + 6 /* original:  1 */ ==
-                    afterCounts.at("CachedView::hitExpired"s));
+                    beforeCounts.at("CachedView::hitExpired"s) +
+                        6 /* original:  1 */
+                    == afterCounts.at("CachedView::hitExpired"s));
                 BEAST_EXPECT(
                     beforeCounts.at("CachedView::miss"s) ==
                     afterCounts.at("CachedView::miss"s));

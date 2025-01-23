@@ -746,6 +746,7 @@ JSS(validation_quorum);       // out: NetworkOPs
 JSS(validation_seed);         // out: ValidationCreate, ValidationSeed
 JSS(validation);
 JSS(validations);      // out: AmendmentTableImpl
+JSS(validator_list_threshold);  // out: ValidatorList
 JSS(validator_sites);  // out: ValidatorSites
 JSS(value);            // out: STAmount
 JSS(version);          // out: RPCVersion
