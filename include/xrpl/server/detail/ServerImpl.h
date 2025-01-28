@@ -22,19 +22,22 @@
 
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/core/List.h>
-#include <xrpl/server/Server.h>
 #include <xrpl/server/detail/Door.h>
 #include <xrpl/server/detail/UDPDoor.h>
 #include <xrpl/server/detail/io_list.h>
+
 #include <boost/asio.hpp>
+
 #include <array>
 #include <chrono>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 
 namespace ripple {
 
-using Endpoints = std::vector<boost::asio::ip::tcp::endpoint>;
+using Endpoints =
+    std::unordered_map<std::string, boost::asio::ip::tcp::endpoint>;
 
 /** A multi-protocol server.
 
@@ -171,14 +174,18 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
     for (auto const& port : ports)
     {
         ports_.push_back(port);
-
+        auto& internalPort = ports_.back();
         if (port.has_udp())
         {
             // UDP-RPC door
             if (auto sp = ios_.emplace<UDPDoor<Handler>>(
-                    handler_, io_service_, ports_.back(), j_))
+                    handler_, io_service_, internalPort, j_))
             {
-                eps.push_back(sp->get_endpoint());
+                auto ep = sp->get_endpoint();
+                if (!internalPort.port)
+                    internalPort.port = ep.port();
+                eps.emplace(port.name, std::move(ep));
+
                 sp->run();
             }
         }
@@ -186,10 +193,15 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
         {
             // Standard TCP door
             if (auto sp = ios_.emplace<Door<Handler>>(
-                    handler_, io_service_, ports_.back(), j_))
+                    handler_, io_service_, internalPort, j_))
             {
                 list_.push_back(sp);
-                eps.push_back(sp->get_endpoint());
+
+                auto ep = sp->get_endpoint();
+                if (!internalPort.port)
+                    internalPort.port = ep.port();
+                eps.emplace(port.name, std::move(ep));
+
                 sp->run();
             }
         }

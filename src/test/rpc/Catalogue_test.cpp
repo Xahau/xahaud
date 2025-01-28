@@ -316,7 +316,7 @@ class Catalogue_test : public beast::unit_test::suite
         // Create a new environment for loading with unique port
         Env loadEnv{
             *this,
-            test::jtx::envconfig(test::jtx::port_increment, 3),
+            test::jtx::envconfig(),
             features,
         };
 

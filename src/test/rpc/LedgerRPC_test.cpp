@@ -66,7 +66,7 @@ class LedgerRPC_XChain_test : public beast::unit_test::suite,
         using namespace test::jtx;
 
         Env mcEnv{*this, features};
-        Env scEnv(*this, envconfig(port_increment, 3), features);
+        Env scEnv(*this, envconfig(), features);
 
         createBridgeObjects(mcEnv, scEnv);
 
@@ -159,7 +159,7 @@ class LedgerRPC_XChain_test : public beast::unit_test::suite,
         using namespace test::jtx;
 
         Env mcEnv{*this, features};
-        Env scEnv(*this, envconfig(port_increment, 3), features);
+        Env scEnv(*this, envconfig(), features);
 
         createBridgeObjects(mcEnv, scEnv);
 
@@ -220,7 +220,7 @@ class LedgerRPC_XChain_test : public beast::unit_test::suite,
         using namespace test::jtx;
 
         Env mcEnv{*this, features};
-        Env scEnv(*this, envconfig(port_increment, 3), features);
+        Env scEnv(*this, envconfig(), features);
 
         // note: signers.size() and quorum are both 5 in createBridgeObjects
         createBridgeObjects(mcEnv, scEnv);

@@ -762,7 +762,7 @@ public:
             test::jtx::XChainBridgeObjects x;
             Env scEnv(
                 *this,
-                envconfig(port_increment, 3),
+                envconfig(),
                 features | FeatureBitset{featureXChainBridge});
             x.createScBridgeObjects(scEnv);
 
@@ -806,7 +806,7 @@ public:
             test::jtx::XChainBridgeObjects x;
             Env scEnv(
                 *this,
-                envconfig(port_increment, 3),
+                envconfig(),
                 features | FeatureBitset{featureXChainBridge});
             x.createScBridgeObjects(scEnv);
 
@@ -854,7 +854,7 @@ public:
             test::jtx::XChainBridgeObjects x;
             Env scEnv(
                 *this,
-                envconfig(port_increment, 3),
+                envconfig(),
                 features | FeatureBitset{featureXChainBridge});
             x.createScBridgeObjects(scEnv);
             auto const amt = XRP(1000);
