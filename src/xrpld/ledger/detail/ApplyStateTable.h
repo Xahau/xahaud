@@ -75,7 +75,7 @@ public:
         std::vector<STObject> const& hookEmission,
         beast::Journal j);
 
-    void
+    std::optional<TxMeta>
     apply(
         OpenView& to,
         STTx const& tx,
@@ -83,6 +83,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        bool isDryRun,
         beast::Journal j);
 
     bool

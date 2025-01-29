@@ -268,7 +268,7 @@ ApplyStateTable::generateTxMeta(
     return {meta, newMod};
 }
 
-void
+std::optional<TxMeta>
 ApplyStateTable::apply(
     OpenView& to,
     STTx const& tx,
@@ -276,21 +276,26 @@ ApplyStateTable::apply(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    bool isDryRun,
     beast::Journal j)
 {
     // Build metadata and insert
     auto const sTx = std::make_shared<Serializer>();
     tx.add(*sTx);
     std::shared_ptr<Serializer> sMeta;
-    if (!to.open())
+    std::optional<TxMeta> metadata;
+    if (!to.open() || isDryRun)
     {
         // generate meta
         auto [meta, newMod] =
             generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
 
-        // add any new modified nodes to the modification set
-        for (auto& mod : newMod)
-            to.rawReplace(mod.second);
+        if (!isDryRun)
+        {
+            // add any new modified nodes to the modification set
+            for (auto const& mod : newMod)
+                to.rawReplace(mod.second);
+        }
 
         sMeta = std::make_shared<Serializer>();
         meta.addRaw(*sMeta, ter, to.txCount());
@@ -298,9 +303,16 @@ ApplyStateTable::apply(
         // VFALCO For diagnostics do we want to show
         //        metadata even when the base view is open?
         JLOG(j.trace()) << "metadata " << meta.getJson(JsonOptions::none);
+
+        metadata = meta;
     }
-    to.rawTxInsert(tx.getTransactionID(), sTx, sMeta);
-    apply(to);
+
+    if (!isDryRun)
+    {
+        to.rawTxInsert(tx.getTransactionID(), sTx, sMeta);
+        apply(to);
+    }
+    return metadata;
 }
 
 //---

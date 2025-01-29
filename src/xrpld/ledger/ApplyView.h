@@ -43,6 +43,10 @@ enum ApplyFlags : std::uint32_t {
 
     // Transaction is being tested against preflight before emission
     tapPREFLIGHT_EMIT = 0x800,
+
+    // Transaction shouldn't be applied
+    // Signatures shouldn't be checked
+    tapDRY_RUN = 0x1000
 };
 
 constexpr ApplyFlags

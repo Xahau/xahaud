@@ -313,7 +313,7 @@ TxQ::MaybeTx::MaybeTx(
 {
 }
 
-std::pair<TER, bool>
+ApplyResult
 TxQ::MaybeTx::apply(Application& app, OpenView& view, beast::Journal j)
 {
     // If the rules or flags change, preflight again
@@ -533,7 +533,7 @@ TxQ::erase(
     return txQAccount.transactions.erase(begin, end);
 }
 
-std::pair<TER, bool>
+ApplyResult
 TxQ::tryClearAccountQueueUpThruTx(
     Application& app,
     OpenView& view,
@@ -587,7 +587,7 @@ TxQ::tryClearAccountQueueUpThruTx(
         // succeeds, the MaybeTx will be destructed, so it'll be
         // moot.
         --it->second.retriesRemaining;
-        it->second.lastResult = txResult.first;
+        it->second.lastResult = txResult.ter;
 
         // In TxQ::apply we note that it's possible for a transaction with
         // a ticket to both be in the queue and in the ledger.  And, while
@@ -605,20 +605,20 @@ TxQ::tryClearAccountQueueUpThruTx(
         // transactions in the account queue.  Then, if clearing the account
         // is successful, we will have removed any ticketed transactions
         // that can never succeed.
-        if (txResult.first == tefNO_TICKET)
+        if (txResult.ter == tefNO_TICKET)
             continue;
 
-        if (!txResult.second)
+        if (!txResult.applied)
         {
             // Transaction failed to apply. Fall back to the normal process.
-            return {txResult.first, false};
+            return {txResult.ter, false};
         }
     }
     // Apply the current tx. Because the state of the view has been changed
     // by the queued txs, we also need to preclaim again.
     auto const txResult = doApply(preclaim(pfresult, app, view), app, view);
 
-    if (txResult.second)
+    if (txResult.applied)
     {
         // All of the queued transactions applied, so remove them from the
         // queue.
@@ -745,7 +745,7 @@ TxQ::tryClearAccountQueueUpThruTx(
 //    b. The entire queue also has a (dynamic) maximum size.  Transactions
 //       beyond that limit are rejected.
 //
-std::pair<TER, bool>
+ApplyResult
 TxQ::apply(
     Application& app,
     OpenView& view,
@@ -1238,7 +1238,7 @@ TxQ::apply(
             flags,
             metricsSnapshot,
             j);
-        if (result.second)
+        if (result.applied)
         {
             sandbox.apply(view);
             /* Can't erase (*replacedTxIter) here because success
@@ -1677,7 +1677,7 @@ TxQ::accept(Application& app, OpenView& view)
             JLOG(j_.trace()) << "Applying queued transaction "
                              << candidateIter->txID << " to open ledger.";
 
-            auto const [txnResult, didApply] =
+            auto const [txnResult, didApply, _metadata] =
                 candidateIter->apply(app, view, j_);
 
             if (didApply)
@@ -1877,7 +1877,7 @@ TxQ::getRequiredFeeLevel(
     return FeeMetrics::scaleFeeLevel(metricsSnapshot, view);
 }
 
-std::optional<std::pair<TER, bool>>
+std::optional<ApplyResult>
 TxQ::tryDirectApply(
     Application& app,
     OpenView& view,
@@ -1927,7 +1927,7 @@ TxQ::tryDirectApply(
         JLOG(j_.trace()) << "Applying transaction " << transactionID
                          << " to open ledger.";
 
-        auto const [txnResult, didApply] =
+        auto const [txnResult, didApply, metadata] =
             ripple::apply(app, view, *tx, flags, j);
 
         JLOG(j_.trace()) << "New transaction " << transactionID
@@ -1954,7 +1954,7 @@ TxQ::tryDirectApply(
                 }
             }
         }
-        return {std::pair(txnResult, didApply)};
+        return ApplyResult{txnResult, didApply, metadata};
     }
     return {};
 }

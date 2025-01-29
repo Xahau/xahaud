@@ -4910,26 +4910,23 @@ private:
         auto const preDest = env.balance(dest);
         bool const withFix = env.current()->rules().enabled(fixXahauV2);
 
-        bool didApply;
-        TER terRes;
-
         env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
             auto const tx =
                 std::make_unique<STTx>(Slice{txBlob.data(), txBlob.size()});
-            std::tie(terRes, didApply) =
+            auto result =
                 ripple::apply(env.app(), view, *tx, tapNONE, env.journal);
 
             bool const applyResult = withFix ? false : true;
             if (withFix)
             {
-                BEAST_EXPECT(terRes == tefNONDIR_EMIT);
+                BEAST_EXPECT(result.ter == tefNONDIR_EMIT);
             }
             else
             {
-                BEAST_EXPECT(terRes == tesSUCCESS);
+                BEAST_EXPECT(result.ter == tesSUCCESS);
             }
-            BEAST_EXPECT(didApply == applyResult);
-            return didApply;
+            BEAST_EXPECT(result.applied == applyResult);
+            return result.applied;
         });
 
         env.close();

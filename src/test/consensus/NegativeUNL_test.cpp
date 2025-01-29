@@ -1882,6 +1882,33 @@ BEAST_DEFINE_TESTSUITE(NegativeUNLVoteFilterValidations, consensus, ripple);
 ///////////////////////////////////////////////////////////////////////
 
 bool
+negUnlSizeTest(
+    std::shared_ptr<Ledger const> const& l,
+    size_t size,
+    bool hasToDisable,
+    bool hasToReEnable)
+{
+    bool sameSize = l->negativeUNL().size() == size;
+    bool sameToDisable =
+        (l->validatorToDisable() != std::nullopt) == hasToDisable;
+    bool sameToReEnable =
+        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
+
+    return sameSize && sameToDisable && sameToReEnable;
+}
+
+bool
+applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
+{
+    auto const res =
+        apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
+    if (pass)
+        return res.ter == tesSUCCESS;
+    else
+        return res.ter == tefFAILURE || res.ter == temDISABLED;
+}
+
+bool
 VerifyPubKeyAndSeq(
     std::shared_ptr<Ledger const> const& l,
     hash_map<PublicKey, std::uint32_t> nUnlLedgerSeq)
