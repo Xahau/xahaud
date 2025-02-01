@@ -18,8 +18,7 @@ jobs:
         git diff --exit-code | tee "levelization.patch"
     - name: Upload patch
       if: failure() && steps.assert.outcome == 'failure'
-      uses: actions/upload-artifact@v3
-      continue-on-error: true
+      uses: actions/upload-artifact@v4
       with:
         name: levelization.patch
         if-no-files-found: ignore
