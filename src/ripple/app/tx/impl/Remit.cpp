@@ -72,6 +72,16 @@ Remit::preflight(PreflightContext const& ctx)
         return temREDUNDANT;
     }
 
+    if (ctx.rules.enabled(fix20250131))
+    {
+        if (!dstID || dstID == noAccount())
+        {
+            JLOG(ctx.j.warn())
+                << "Malformed transaction: Remit to invalid account.";
+            return temMALFORMED;
+        }
+    }
+
     if (ctx.tx.isFieldPresent(sfInform))
     {
         AccountID const infID = ctx.tx.getAccountID(sfInform);
