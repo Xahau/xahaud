@@ -223,7 +223,8 @@ doAccountTxHelp(RPC::Context& context, AccountTxArgs const& args)
         result.ledgerRange.max,
         result.marker,
         args.limit,
-        isUnlimited(context.role)};
+        isUnlimited(context.role),
+        args.strict};
 
     auto const db =
         dynamic_cast<SQLiteDatabase*>(&context.app.getRelationalDatabase());
@@ -368,6 +369,9 @@ doAccountTxJson(RPC::JsonContext& context)
     args.binary = params.isMember(jss::binary) && params[jss::binary].asBool();
     args.forward =
         params.isMember(jss::forward) && params[jss::forward].asBool();
+
+    args.strict =
+        params.isMember(jss::strict) ? params[jss::strict].asBool() : true;
 
     if (!params.isMember(jss::account))
         return rpcError(rpcINVALID_PARAMS);

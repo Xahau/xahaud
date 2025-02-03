@@ -27,6 +27,7 @@
 #include <ripple/app/rdb/backend/detail/Node.h>
 #include <ripple/basics/BasicConfig.h>
 #include <ripple/basics/StringUtilities.h>
+#include <ripple/basics/strHex.h>
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/core/SociDB.h>
 #include <ripple/json/to_string.h>
@@ -758,14 +759,34 @@ transactionsSQL(
             options.minLedger);
     }
 
+    // Convert account ID to hex string for binary search
+    std::string accountHex =
+        strHex(options.account.data(), options.account.size());
+
     std::string sql;
+
+    // For metadata search:
+    // 1. Look for account ID not preceded by 8814 (RegularKey field)
+    // 2. OR look for account in raw transaction
+    std::string filterClause = options.strict ? "AND (("
+                                                "hex(TxnMeta) LIKE '%" +
+            accountHex +
+            "%' AND "
+            "hex(TxnMeta) NOT LIKE '%8814" +
+            accountHex +
+            "%'"
+            ") OR hex(RawTxn) LIKE '%" +
+            accountHex + "%')"
+                                              : "";
 
     if (count)
         sql = boost::str(
             boost::format("SELECT %s FROM AccountTransactions "
-                          "WHERE Account = '%s' %s %s LIMIT %u, %u;") %
-            selection % toBase58(options.account) % maxClause % minClause %
-            beast::lexicalCastThrow<std::string>(options.offset) %
+                          "INNER JOIN Transactions ON Transactions.TransID = "
+                          "AccountTransactions.TransID "
+                          "WHERE Account = '%s' %s %s %s LIMIT %u, %u;") %
+            selection % toBase58(options.account) % filterClause % maxClause %
+            minClause % beast::lexicalCastThrow<std::string>(options.offset) %
             beast::lexicalCastThrow<std::string>(numberOfResults));
     else
         sql = boost::str(
@@ -773,15 +794,16 @@ transactionsSQL(
                 "SELECT %s FROM "
                 "AccountTransactions INNER JOIN Transactions "
                 "ON Transactions.TransID = AccountTransactions.TransID "
-                "WHERE Account = '%s' %s %s "
+                "WHERE Account = '%s' %s %s %s "
                 "ORDER BY AccountTransactions.LedgerSeq %s, "
                 "AccountTransactions.TxnSeq %s, AccountTransactions.TransID %s "
                 "LIMIT %u, %u;") %
-            selection % toBase58(options.account) % maxClause % minClause %
+            selection % toBase58(options.account) % filterClause % maxClause %
+            minClause % (descending ? "DESC" : "ASC") %
             (descending ? "DESC" : "ASC") % (descending ? "DESC" : "ASC") %
-            (descending ? "DESC" : "ASC") %
             beast::lexicalCastThrow<std::string>(options.offset) %
             beast::lexicalCastThrow<std::string>(numberOfResults));
+
     JLOG(j.trace()) << "txSQL query: " << sql;
     return sql;
 }
@@ -1114,6 +1136,21 @@ accountTxPage(
     if (limit_used > 0)
         newmarker = options.marker;
 
+    // Convert account ID to hex string for binary search
+    std::string accountHex =
+        strHex(options.account.data(), options.account.size());
+
+    // Add metadata search filter similar to transactionsSQL
+    std::string filterClause = options.strict
+        ? " AND ((hex(TxnMeta) LIKE '%" + accountHex +
+            "%' "
+            "AND hex(TxnMeta) NOT LIKE '%8814" +
+            accountHex +
+            "%') "
+            "OR hex(RawTxn) LIKE '%" +
+            accountHex + "%')"
+        : "";
+
     static std::string const prefix(
         R"(SELECT AccountTransactions.LedgerSeq,AccountTransactions.TxnSeq,
           Status,RawTxn,TxnMeta
@@ -1132,12 +1169,12 @@ accountTxPage(
     {
         sql = boost::str(
             boost::format(
-                prefix + (R"(AccountTransactions.LedgerSeq BETWEEN %u AND %u
+                prefix + (R"(AccountTransactions.LedgerSeq BETWEEN %u AND %u %s
              ORDER BY AccountTransactions.LedgerSeq %s,
              AccountTransactions.TxnSeq %s
              LIMIT %u;)")) %
             toBase58(options.account) % options.minLedger % options.maxLedger %
-            order % order % queryLimit);
+            filterClause % order % order % queryLimit);
     }
     else
     {
@@ -1150,25 +1187,25 @@ accountTxPage(
         auto b58acct = toBase58(options.account);
         sql = boost::str(
             boost::format((
-                R"(SELECT AccountTransactions.LedgerSeq,AccountTransactions.TxnSeq,
-            Status,RawTxn,TxnMeta
+                R"(SELECT AccountTransactions.LedgerSeq,AccountTransactions.TxnSeq,Status,RawTxn,TxnMeta
             FROM AccountTransactions, Transactions WHERE
             (AccountTransactions.TransID = Transactions.TransID AND
             AccountTransactions.Account = '%s' AND
-            AccountTransactions.LedgerSeq BETWEEN %u AND %u)
+            AccountTransactions.LedgerSeq BETWEEN %u AND %u) %s
             UNION
             SELECT AccountTransactions.LedgerSeq,AccountTransactions.TxnSeq,Status,RawTxn,TxnMeta
             FROM AccountTransactions, Transactions WHERE
             (AccountTransactions.TransID = Transactions.TransID AND
             AccountTransactions.Account = '%s' AND
             AccountTransactions.LedgerSeq = %u AND
-            AccountTransactions.TxnSeq %s %u)
+            AccountTransactions.TxnSeq %s %u) %s
             ORDER BY AccountTransactions.LedgerSeq %s,
             AccountTransactions.TxnSeq %s
             LIMIT %u;
             )")) %
-            b58acct % minLedger % maxLedger % b58acct % findLedger % compare %
-            findSeq % order % order % queryLimit);
+            b58acct % minLedger % maxLedger % filterClause % b58acct %
+            findLedger % compare % findSeq % filterClause % order % order %
+            queryLimit);
     }
 
     {

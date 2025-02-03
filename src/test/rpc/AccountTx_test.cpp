@@ -245,6 +245,68 @@ class AccountTx_test : public beast::unit_test::suite
             p[jss::ledger_hash] = to_string(env.closed()->info().parentHash);
             BEAST_EXPECT(noTxs(env.rpc("json", "account_tx", to_string(p))));
         }
+
+        // Strict
+        {
+            Account S1{"S1"};
+            Account S2{"S2"};
+            Account S3{"S3"};
+            env.fund(XRP(10000), S1);
+            env.fund(XRP(10000), S2);
+            env.fund(XRP(10000), S3);
+            env.close();
+
+            // Regular key set
+            env(regkey(S1, S2));
+            env.close();
+
+            // we'll make a payment between S1 and S3
+            env(pay(S1, S3, XRP(100)));
+            env.close();
+
+            auto hasTxs = [](Json::Value const& j, bool strict) {
+                if (!j.isMember(jss::result) ||
+                    j[jss::result][jss::status] != "success")
+                    return false;
+
+                if (strict)
+                {
+                    return (j[jss::result][jss::transactions].size() == 3) &&
+                        (j[jss::result][jss::transactions][0u][jss::tx]
+                          [jss::TransactionType] == jss::SetRegularKey) &&
+                        (j[jss::result][jss::transactions][1u][jss::tx]
+                          [jss::TransactionType] == jss::AccountSet) &&
+                        (j[jss::result][jss::transactions][2u][jss::tx]
+                          [jss::TransactionType] == jss::Payment);
+                }
+
+                return (j[jss::result][jss::transactions].size() == 4) &&
+                    (j[jss::result][jss::transactions][0u][jss::tx]
+                      [jss::TransactionType] == jss::Payment) &&
+                    (j[jss::result][jss::transactions][1u][jss::tx]
+                      [jss::TransactionType] == jss::SetRegularKey) &&
+                    (j[jss::result][jss::transactions][2u][jss::tx]
+                      [jss::TransactionType] == jss::AccountSet) &&
+                    (j[jss::result][jss::transactions][3u][jss::tx]
+                      [jss::TransactionType] == jss::Payment);
+            };
+
+            Json::Value p{jParms};
+            p[jss::account] = S2.human();
+
+            BEAST_EXPECT(
+                hasTxs(env.rpc("json", "account_tx", to_string(p)), true));
+
+            p[jss::strict] = true;
+
+            BEAST_EXPECT(
+                hasTxs(env.rpc("json", "account_tx", to_string(p)), true));
+
+            p[jss::strict] = false;
+
+            BEAST_EXPECT(
+                hasTxs(env.rpc("json", "account_tx", to_string(p)), false));
+        }
     }
 
     void
