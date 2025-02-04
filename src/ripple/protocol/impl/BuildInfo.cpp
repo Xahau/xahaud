@@ -33,7 +33,7 @@ namespace BuildInfo {
 //  and follow the format described at http://semver.org/
 //------------------------------------------------------------------------------
 // clang-format off
-char const* const versionString = "0.0.0"
+char const* const versionString = "2025.2.4-dev+"
 // clang-format on
 #ifdef DEBUG
     "+DEBUG"
