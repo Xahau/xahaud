@@ -269,6 +269,10 @@ class AccountTx_test : public beast::unit_test::suite
                     j[jss::result][jss::status] != "success")
                     return false;
 
+                std::cout << "hasTx " << (strict ? "strict" : "not strict")
+                          << ":\n"
+                          << to_string(j) << "\n";
+
                 if (strict)
                 {
                     return (j[jss::result][jss::transactions].size() == 3) &&
