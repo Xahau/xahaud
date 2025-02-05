@@ -69,7 +69,6 @@ public:
         std::uint32_t offset;
         std::uint32_t limit;
         bool bUnlimited;
-        bool strict;
     };
 
     struct AccountTxPageOptions
@@ -80,7 +79,6 @@ public:
         std::optional<AccountTxMarker> marker;
         std::uint32_t limit;
         bool bAdmin;
-        bool strict;
     };
 
     using AccountTx =
@@ -103,7 +101,6 @@ public:
         bool forward = false;
         uint32_t limit = 0;
         std::optional<AccountTxMarker> marker;
-        bool strict;
     };
 
     struct AccountTxResult

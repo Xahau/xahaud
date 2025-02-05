@@ -40,17 +40,6 @@ strHex(FwdIt begin, FwdIt end)
     return result;
 }
 
-template <class FwdIt>
-std::string
-strHex(FwdIt begin, std::size_t length)
-{
-    std::string result;
-    result.reserve(2 * length);
-    boost::algorithm::hex(
-        begin, std::next(begin, length), std::back_inserter(result));
-    return result;
-}
-
 template <class T, class = decltype(std::declval<T>().begin())>
 std::string
 strHex(T const& from)
