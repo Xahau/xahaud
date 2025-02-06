@@ -36,7 +36,8 @@ fi
 
 STATIC_CONTAINER=$(docker ps -a | grep $CONTAINER_NAME |wc -l)
 
-if [[ "$STATIC_CONTAINER" -gt "0" && "$GITHUB_REPOSITORY" != "" ]]; then
+#if [[ "$STATIC_CONTAINER" -gt "0" && "$GITHUB_REPOSITORY" != "" ]]; then
+if false; then
   echo "Static container, execute in static container to have max. cache"
   docker start $CONTAINER_NAME
   docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -x /io/build-core.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$BUILD_CORES" "$GITHUB_RUN_NUMBER"
