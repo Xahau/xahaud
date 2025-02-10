@@ -1059,6 +1059,38 @@ struct Credentials_test : public beast::unit_test::suite
     }
 
     void
+    testFlags(FeatureBitset features)
+    {
+        using namespace test::jtx;
+
+        testcase("Test flags");
+
+        const char credType[] = "abcde";
+        Account const issuer{"issuer"};
+        Account const subject{"subject"};
+
+        {
+            using namespace jtx;
+            Env env{*this, features};
+
+            env.fund(XRP(5000), subject, issuer);
+            env.close();
+
+            {
+                env(credentials::create(subject, issuer, credType),
+                    txflags(tfTransferable),
+                    ter(temINVALID_FLAG));
+                env(credentials::accept(subject, issuer, credType),
+                    txflags(tfSellNFToken),
+                    ter(temINVALID_FLAG));
+                env(credentials::deleteCred(subject, subject, issuer, credType),
+                    txflags(tfPassive),
+                    ter(temINVALID_FLAG));
+            }
+        }
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
@@ -1069,6 +1101,7 @@ struct Credentials_test : public beast::unit_test::suite
         testAcceptFailed(all);
         testDeleteFailed(all);
         testFeatureFailed(all - featureCredentials);
+        testFlags(all);
         testRPC();
     }
 };
