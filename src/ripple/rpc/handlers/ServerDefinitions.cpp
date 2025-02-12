@@ -36,12 +36,12 @@
 #include <magic/magic_enum.h>
 #include <sstream>
 
-#define MAGIC_ENUM(x, _min, _max)                 \
+#define MAGIC_ENUM(x, _min, _max)               \
     template <>                                 \
     struct magic_enum::customize::enum_range<x> \
     {                                           \
-        static constexpr int min = _min;         \
-        static constexpr int max = _max;         \
+        static constexpr int min = _min;        \
+        static constexpr int max = _max;        \
     };
 
 #define MAGIC_ENUM_16(x)                        \
