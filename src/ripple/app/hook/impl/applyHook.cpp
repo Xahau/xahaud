@@ -1714,7 +1714,31 @@ DEFINE_JS_FUNCTION(
     }
     else
     {
-        JSValue sdata = JS_JSONStringify(ctx, data, JS_UNDEFINED, JS_UNDEFINED);
+        // replacer function that converts BigInts to strings
+        JSValueConst replacer = JS_NewCFunction(
+            ctx,
+            [](JSContext* ctx,
+               JSValueConst this_val,
+               int argc,
+               JSValueConst* argv) -> JSValue {
+                if (argc < 2)
+                    return JS_DupValue(ctx, argv[1]);
+                if (JS_IsBigInt(ctx, argv[1]))
+                {
+                    size_t len;
+                    const char* str = JS_ToCStringLen(ctx, &len, argv[1]);
+                    JSValue ret = JS_NewStringLen(ctx, str, len);
+                    JS_FreeCString(ctx, str);
+                    return ret;
+                }
+                return JS_DupValue(ctx, argv[1]);
+            },
+            "replacer",
+            2);
+
+        JSValue sdata = JS_JSONStringify(ctx, data, replacer, JS_UNDEFINED);
+        JS_FreeValue(ctx, replacer);
+
         size_t len;
         const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
         if (len > 1023)
