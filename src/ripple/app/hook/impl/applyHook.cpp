@@ -30,6 +30,7 @@
 #include <ripple/json/json_value.h>
 #include <ripple/json/json_writer.h>
 #include <ripple/json/json_reader.h>
+#include <ripple/json/to_string.h>
 
 using namespace ripple;
 // check if any std::optionals are missing (any !has_value())
@@ -5435,7 +5436,7 @@ DEFINE_JS_FUNCTION(
         returnJS(INVALID_ARGUMENT);
     
     std::cout << "sto_from_json, valid json\n";
-    std::cout << json.asString() << "\n";
+    std::cout << to_string(json) << "\n";
 
     // turn the json into a stobject    
     STParsedJSONObject parsed(std::string(jss::tx_json), json);
