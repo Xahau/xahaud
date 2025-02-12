@@ -1467,6 +1467,10 @@ public:
                 retval.emplace(str);
                 JS_FreeCString(ctx, str);
             }
+            else
+            {
+                retval.emplace("invalid bytecode");
+            }
 
             JS_FreeValue(ctx, obj);
             return retval;
@@ -1479,6 +1483,10 @@ public:
             {
                 retval.emplace(str);
                 JS_FreeCString(ctx, str);
+            }
+            else
+            {
+                retval.emplace("bytecode eval failure");
             }
             JS_FreeValue(ctx, val);
             //JS_FreeValue(ctx, obj);
