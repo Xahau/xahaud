@@ -45,67 +45,84 @@ DatabaseRotatingImp::DatabaseRotatingImp(
 }
 
 void
-DatabaseRotatingImp::rotateWithLock(
-    std::function<std::unique_ptr<NodeStore::Backend>(
-        std::string const& writableBackendName)> const& f)
+DatabaseRotatingImp::rotate(
+    std::unique_ptr<NodeStore::Backend>&& newBackend,
+    std::function<void(
+        std::string const& writableName,
+        std::string const& archiveName)> const& f)
 {
-    std::lock_guard lock(mutex_);
+    // Pass these two names to the callback function
+    std::string const newWritableBackendName = newBackend->getName();
+    std::string newArchiveBackendName;
+    // Hold on to current archive backend pointer until after the
+    // callback finishes. Only then will the archive directory be
+    // deleted.
+    std::shared_ptr<NodeStore::Backend> oldArchiveBackend;
+    {
+        std::lock_guard lock(mutex_);
 
-    // Create the new backend
-    auto newBackend = f(writableBackend_->getName());
+        // Before rotating, ensure all pinned ledgers are in the writable
+        // backend
+        JLOG(j_.info())
+            << "Ensuring pinned ledgers are preserved before backend rotation";
 
-    // Before rotating, ensure all pinned ledgers are in the writable backend
-    JLOG(j_.info())
-        << "Ensuring pinned ledgers are preserved before backend rotation";
+        // Use a lambda to handle the preservation of pinned ledgers
+        auto ensurePinnedLedgersInWritable = [this]() {
+            // Get list of pinned ledgers
+            auto pinnedLedgers =
+                app_.getLedgerMaster().getPinnedLedgersRangeSet();
 
-    // Use a lambda to handle the preservation of pinned ledgers
-    auto ensurePinnedLedgersInWritable = [this]() {
-        // Get list of pinned ledgers
-        auto pinnedLedgers = app_.getLedgerMaster().getPinnedLedgersRangeSet();
-
-        for (auto const& range : pinnedLedgers)
-        {
-            for (auto seq = range.lower(); seq <= range.upper(); ++seq)
+            for (auto const& range : pinnedLedgers)
             {
-                uint256 hash = app_.getLedgerMaster().getHashBySeq(seq);
-                if (hash.isZero())
-                    continue;
+                for (auto seq = range.lower(); seq <= range.upper(); ++seq)
+                {
+                    uint256 hash = app_.getLedgerMaster().getHashBySeq(seq);
+                    if (hash.isZero())
+                        continue;
 
-                // Try to load the ledger
-                auto ledger = app_.getLedgerMaster().getLedgerByHash(hash);
-                if (ledger && ledger->isImmutable())
-                {
-                    // If we have the ledger, store it in the writable backend
-                    JLOG(j_.debug()) << "Ensuring pinned ledger " << seq
-                                     << " is in writable backend";
-                    // TQ: TODO: check this
-                    Database::storeLedger(*ledger, writableBackend_);
-                }
-                else
-                {
-                    // If we don't have the ledger in memory, try to fetch its
-                    // objects directly
-                    JLOG(j_.debug()) << "Attempting to copy pinned ledger "
-                                     << seq << " header to writable backend";
-                    std::shared_ptr<NodeObject> headerObj;
-                    Status status =
-                        archiveBackend_->fetch(hash.data(), &headerObj);
-                    if (status == ok && headerObj)
-                        writableBackend_->store(headerObj);
+                    // Try to load the ledger
+                    auto ledger = app_.getLedgerMaster().getLedgerByHash(hash);
+                    if (ledger && ledger->isImmutable())
+                    {
+                        // If we have the ledger, store it in the writable
+                        // backend
+                        JLOG(j_.debug()) << "Ensuring pinned ledger " << seq
+                                         << " is in writable backend";
+                        // TQ: TODO: check this
+                        Database::storeLedger(*ledger, writableBackend_);
+                    }
+                    else
+                    {
+                        // If we don't have the ledger in memory, try to fetch
+                        // its objects directly
+                        JLOG(j_.debug())
+                            << "Attempting to copy pinned ledger " << seq
+                            << " header to writable backend";
+                        std::shared_ptr<NodeObject> headerObj;
+                        Status status =
+                            archiveBackend_->fetch(hash.data(), &headerObj);
+                        if (status == ok && headerObj)
+                            writableBackend_->store(headerObj);
+                    }
                 }
             }
-        }
-    };
+        };
 
-    // Execute the lambda
-    ensurePinnedLedgersInWritable();
+        // Execute the lambda
+        ensurePinnedLedgersInWritable();
 
-    // Now it's safe to mark the archive backend for deletion
-    archiveBackend_->setDeletePath();
+        // Now it's safe to mark the archive backend for deletion
+        archiveBackend_->setDeletePath();
+        oldArchiveBackend = std::move(archiveBackend_);
 
-    // Complete the rotation
-    archiveBackend_ = std::move(writableBackend_);
-    writableBackend_ = std::move(newBackend);
+        // Complete the rotation
+        archiveBackend_ = std::move(writableBackend_);
+        newArchiveBackendName = archiveBackend_->getName();
+
+        writableBackend_ = std::move(newBackend);
+    }
+
+    f(newWritableBackendName, newArchiveBackendName);
 }
 
 std::string
