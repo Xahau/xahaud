@@ -114,3 +114,8 @@ pkg_out
 pkg
 CMakeUserPresets.json
 bld.rippled/
+
+# binary
+qjsc
+
+generated

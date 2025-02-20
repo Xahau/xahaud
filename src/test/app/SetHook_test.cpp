@@ -46,10 +46,10 @@ using TestHook = std::vector<uint8_t> const&;
     }
 
 #define HASH_WASM(x)                                                           \
-    uint256 const x##_hash =                                                   \
+    [[maybe_unused]] uint256 const x##_hash =                                  \
         ripple::sha512Half_s(ripple::Slice(x##_wasm.data(), x##_wasm.size())); \
-    std::string const x##_hash_str = to_string(x##_hash);                      \
-    Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
+    [[maybe_unused]] std::string const x##_hash_str = to_string(x##_hash);     \
+    [[maybe_unused]] Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
 
 class SetHook_test : public beast::unit_test::suite
 {
