@@ -5,6 +5,8 @@
 # debugging.
 set -ex
 
+set -e
+
 echo "START INSIDE CONTAINER - CORE"
 
 echo "-- BUILD CORES:       $3"

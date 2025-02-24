@@ -5,6 +5,8 @@
 # debugging.
 set -ex
 
+set -e
+
 echo "START BUILDING (HOST)"
 
 echo "Cleaning previously built binary"
