@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 echo "START BUILDING (HOST)"
 
 echo "Cleaning previously built binary"
