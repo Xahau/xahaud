@@ -36,12 +36,12 @@
 #include <magic/magic_enum.h>
 #include <sstream>
 
-#define MAGIC_ENUM(x)                           \
+#define MAGIC_ENUM(x, _min, _max)               \
     template <>                                 \
     struct magic_enum::customize::enum_range<x> \
     {                                           \
-        static constexpr int min = -20000;      \
-        static constexpr int max = 20000;       \
+        static constexpr int min = _min;        \
+        static constexpr int max = _max;        \
     };
 
 #define MAGIC_ENUM_16(x)                        \
@@ -59,14 +59,14 @@
         static constexpr bool is_flags = true;  \
     };
 
-MAGIC_ENUM(ripple::SerializedTypeID);
-MAGIC_ENUM(ripple::LedgerEntryType);
-MAGIC_ENUM(ripple::TELcodes);
-MAGIC_ENUM(ripple::TEMcodes);
-MAGIC_ENUM(ripple::TEFcodes);
-MAGIC_ENUM(ripple::TERcodes);
-MAGIC_ENUM(ripple::TEScodes);
-MAGIC_ENUM(ripple::TECcodes);
+MAGIC_ENUM(ripple::SerializedTypeID, -2, 10004);
+MAGIC_ENUM(ripple::LedgerEntryType, 0, 255);
+MAGIC_ENUM(ripple::TELcodes, -399, 300);
+MAGIC_ENUM(ripple::TEMcodes, -299, -200);
+MAGIC_ENUM(ripple::TEFcodes, -199, -100);
+MAGIC_ENUM(ripple::TERcodes, -99, -1);
+MAGIC_ENUM(ripple::TEScodes, 0, 1);
+MAGIC_ENUM(ripple::TECcodes, 100, 255);
 MAGIC_ENUM_16(ripple::TxType);
 MAGIC_ENUM_FLAG(ripple::UniversalFlags);
 MAGIC_ENUM_FLAG(ripple::AccountSetFlags);
