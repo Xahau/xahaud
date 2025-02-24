@@ -1139,6 +1139,54 @@ public:
     }
 
     void
+    testFillCopy(FeatureBitset features)
+    {
+        testcase("Test fill/copy");
+
+        // a hook containing memory.fill instruction
+        std::string hookFill =
+            "0061736d0100000001130360027f7f017f60037f7f7e017e60017f017e02"
+            "170203656e76025f67000003656e76066163636570740001030201020503"
+            "0100020621057f01418088040b7f004180080b7f004180080b7f00418088"
+            "040b7f004180080b07080104686f6f6b00020aa4800001a0800001017e23"
+            "01412a41e400fc0b004101410110001a41004100420010011a20010b";
+
+        // a hook containing memory.copy instruction
+        std::string hookCopy =
+            "0061736d0100000001130360027f7f017f60037f7f7e017e60017f017e02"
+            "170203656e76025f67000003656e76066163636570740001030201020503"
+            "0100020621057f01418088040b7f004180080b7f004180080b7f00418088"
+            "040b7f004180080b07080104686f6f6b00020aa5800001a1800001017e23"
+            "00230141e400fc0a00004101410110001a41004100420010011a20010b";
+
+        using namespace jtx;
+
+        for (int withFix = 0; withFix < 2; ++withFix)
+        {
+            auto f = withFix ? features : features - fix20250131;
+            Env env{*this, f};
+
+            auto const alice = Account{"alice"};
+            env.fund(XRP(10000), alice);
+
+            auto const bob = Account{"bob"};
+            env.fund(XRP(10000), bob);
+
+            env(ripple::test::jtx::hook(alice, {{hso(hookFill)}}, 0),
+                M(withFix ? "hookFill - with fix" : "hookFill - zonder fix"),
+                HSFEE,
+                withFix ? ter(temMALFORMED) : ter(tesSUCCESS));
+
+            env(ripple::test::jtx::hook(bob, {{hso(hookCopy)}}, 0),
+                M(withFix ? "hookCopy - with fix" : "hookCopy - zonder fix"),
+                HSFEE,
+                withFix ? ter(temMALFORMED) : ter(tesSUCCESS));
+
+            env.close();
+        }
+    }
+
+    void
     testCreate(FeatureBitset features)
     {
         testcase("Checks malformed create operation");
@@ -11972,6 +12020,8 @@ public:
         testNSDelete(features);
         testNSDeletePartial(features);
         testPageCap(features);
+
+        testFillCopy(features);
 
         testWasm(features);
         test_accept(features);

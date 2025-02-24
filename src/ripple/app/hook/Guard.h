@@ -3,6 +3,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <stack>
 #include <string>
@@ -271,7 +272,19 @@ check_guard(
     int guard_func_idx,
     int last_import_idx,
     GuardLog guardLog,
-    std::string guardLogAccStr)
+    std::string guardLogAccStr,
+    /* RH NOTE:
+     * rules version is a bit field, so rule update 1 is 0x01, update 2 is 0x02
+     * and update 3 is 0x04 ideally at rule version 3 all bits so far are set
+     * (0b111) so the ruleVersion = 7, however if a specific rule update must be
+     * rolled back due to unforeseen behaviour then this may no longer be the
+     * case. using a bit field here leaves us flexible to rollback changes that
+     * might have unforeseen consequences, without also rolling back further
+     * changes that are fine.
+     */
+    uint64_t rulesVersion = 0
+
+)
 {
 #define MAX_GUARD_CALLS 1024
     uint32_t guard_count = 0;
@@ -621,11 +634,17 @@ check_guard(
             }
             else if (fc_type == 10)  // memory.copy
             {
+                if (rulesVersion & 0x02U)
+                    GUARD_ERROR("Memory.copy instruction is not allowed.");
+
                 REQUIRE(2);
                 ADVANCE(2);
             }
             else if (fc_type == 11)  // memory.fill
             {
+                if (rulesVersion & 0x02U)
+                    GUARD_ERROR("Memory.fill instruction is not allowed.");
+
                 ADVANCE(1);
             }
             else if (fc_type <= 7)  // numeric instructions
@@ -807,6 +826,15 @@ validateGuards(
     std::vector<uint8_t> const& wasm,
     GuardLog guardLog,
     std::string guardLogAccStr,
+    /* RH NOTE:
+     * rules version is a bit field, so rule update 1 is 0x01, update 2 is 0x02
+     * and update 3 is 0x04 ideally at rule version 3 all bits so far are set
+     * (0b111) so the ruleVersion = 7, however if a specific rule update must be
+     * rolled back due to unforeseen behaviour then this may no longer be the
+     * case. using a bit field here leaves us flexible to rollback changes that
+     * might have unforeseen consequences, without also rolling back further
+     * changes that are fine.
+     */
     uint64_t rulesVersion = 0)
 {
     uint64_t byteCount = wasm.size();
@@ -1477,7 +1505,8 @@ validateGuards(
                     guard_import_number,
                     last_import_number,
                     guardLog,
-                    guardLogAccStr);
+                    guardLogAccStr,
+                    rulesVersion);
 
                 if (!valid)
                     return {};

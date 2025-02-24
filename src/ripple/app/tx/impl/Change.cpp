@@ -587,7 +587,8 @@ Change::activateXahauGenesis()
                 wasmBytes,  // wasm to verify
                 loggerStream,
                 "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-                ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0);
+                (ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0) +
+                    (ctx_.view().rules().enabled(fix20250131) ? 2 : 0));
 
             if (!result)
             {
