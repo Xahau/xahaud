@@ -9553,7 +9553,8 @@ var Hook = (arg) => {
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set sto_emplace"),
             HSFEE);
         env.close();
@@ -9660,7 +9661,7 @@ var Hook = (arg) => {
         // test_state_foreign_set_max(features);  // Not Version Specific
         test_state_set(features);  //
 
-        test_sto_emplace(features);   //
+        test_sto_emplace(features);  //
         // test_sto_erase(features);     //
         // test_sto_subarray(features);  //
         // test_sto_subfield(features);  //
