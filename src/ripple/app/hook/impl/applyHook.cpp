@@ -6655,9 +6655,9 @@ DEFINE_WASM_FUNCTION(
         hookCtx,
         applyCtx,
         j,
-        sread_ptr + memory,
+        memory + sread_ptr,
         sread_len,
-        fread_ptr + memory,
+        fread_ptr ?  memory + fread_ptr : nullptr,
         fread_len,
         field_id);
 
