@@ -4024,13 +4024,12 @@ DEFINE_JS_FUNCTION(JSValue, util_keylet, JSValue kt_raw)
                 kl_out = ToJSIntArray(
                     ctx,
                     serialize_keylet_vec(
-                        *kt == keylet_code::CHILD
-                            ? ripple::keylet::child(id)
+                        *kt == keylet_code::CHILD ? ripple::keylet::child(id)
                             : *kt == keylet_code::EMITTED_TXN
-                                ? ripple::keylet::emittedTxn(id)
-                                : *kt == keylet_code::HOOK_DEFINITION
-                                    ? ripple::keylet::hookDefinition(id)
-                                    : ripple::keylet::unchecked(id)));
+                            ? ripple::keylet::emittedTxn(id)
+                            : *kt == keylet_code::HOOK_DEFINITION
+                            ? ripple::keylet::hookDefinition(id)
+                            : ripple::keylet::unchecked(id)));
 
                 break;
             }
@@ -4053,11 +4052,11 @@ DEFINE_JS_FUNCTION(JSValue, util_keylet, JSValue kt_raw)
                     ctx,
                     serialize_keylet_vec(
                         *kt == keylet_code::HOOK ? ripple::keylet::hook(id)
-                                                 : *kt == keylet_code::SIGNERS
-                                ? ripple::keylet::signers(id)
-                                : *kt == keylet_code::OWNER_DIR
-                                    ? ripple::keylet::ownerDir(id)
-                                    : ripple::keylet::account(id)));
+                            : *kt == keylet_code::SIGNERS
+                            ? ripple::keylet::signers(id)
+                            : *kt == keylet_code::OWNER_DIR
+                            ? ripple::keylet::ownerDir(id)
+                            : ripple::keylet::account(id)));
 
                 break;
             }
@@ -4098,10 +4097,10 @@ DEFINE_JS_FUNCTION(JSValue, util_keylet, JSValue kt_raw)
                         *kt == keylet_code::CHECK
                             ? ripple::keylet::check(id, seq)
                             : *kt == keylet_code::ESCROW
-                                ? ripple::keylet::escrow(id, seq)
-                                : *kt == keylet_code::NFT_OFFER
-                                    ? ripple::keylet::nftoffer(id, seq)
-                                    : ripple::keylet::offer(id, seq)));
+                            ? ripple::keylet::escrow(id, seq)
+                            : *kt == keylet_code::NFT_OFFER
+                            ? ripple::keylet::nftoffer(id, seq)
+                            : ripple::keylet::offer(id, seq)));
                 break;
             }
 
@@ -4200,11 +4199,10 @@ DEFINE_JS_FUNCTION(JSValue, util_keylet, JSValue kt_raw)
                     serialize_keylet_vec(
                         *kt == keylet_code::AMENDMENTS
                             ? ripple::keylet::amendments()
-                            : *kt == keylet_code::FEES
-                                ? ripple::keylet::fees()
-                                : *kt == keylet_code::NEGATIVE_UNL
-                                    ? ripple::keylet::negativeUNL()
-                                    : ripple::keylet::emittedDir()));
+                            : *kt == keylet_code::FEES ? ripple::keylet::fees()
+                            : *kt == keylet_code::NEGATIVE_UNL
+                            ? ripple::keylet::negativeUNL()
+                            : ripple::keylet::emittedDir()));
 
                 break;
             }
@@ -4409,10 +4407,10 @@ DEFINE_WASM_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::CHILD
                     ? ripple::keylet::child(id)
                     : keylet_type == keylet_code::EMITTED_TXN
-                        ? ripple::keylet::emittedTxn(id)
-                        : keylet_type == keylet_code::HOOK_DEFINITION
-                            ? ripple::keylet::hookDefinition(id)
-                            : ripple::keylet::unchecked(id);
+                    ? ripple::keylet::emittedTxn(id)
+                    : keylet_type == keylet_code::HOOK_DEFINITION
+                    ? ripple::keylet::hookDefinition(id)
+                    : ripple::keylet::unchecked(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -4441,10 +4439,10 @@ DEFINE_WASM_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::HOOK
                     ? ripple::keylet::hook(id)
                     : keylet_type == keylet_code::SIGNERS
-                        ? ripple::keylet::signers(id)
-                        : keylet_type == keylet_code::OWNER_DIR
-                            ? ripple::keylet::ownerDir(id)
-                            : ripple::keylet::account(id);
+                    ? ripple::keylet::signers(id)
+                    : keylet_type == keylet_code::OWNER_DIR
+                    ? ripple::keylet::ownerDir(id)
+                    : ripple::keylet::account(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -4484,10 +4482,10 @@ DEFINE_WASM_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::CHECK
                     ? ripple::keylet::check(id, seq)
                     : keylet_type == keylet_code::ESCROW
-                        ? ripple::keylet::escrow(id, seq)
-                        : keylet_type == keylet_code::NFT_OFFER
-                            ? ripple::keylet::nftoffer(id, seq)
-                            : ripple::keylet::offer(id, seq);
+                    ? ripple::keylet::escrow(id, seq)
+                    : keylet_type == keylet_code::NFT_OFFER
+                    ? ripple::keylet::nftoffer(id, seq)
+                    : ripple::keylet::offer(id, seq);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -4605,13 +4603,11 @@ DEFINE_WASM_FUNCTION(
                 WRITE_WASM_MEMORY_AND_RETURN(
                     write_ptr,
                     write_len,
-                    keylet_type == keylet_code::AMENDMENTS
-                        ? cAmendments.data()
-                        : keylet_type == keylet_code::FEES
-                            ? cFees.data()
-                            : keylet_type == keylet_code::NEGATIVE_UNL
-                                ? cNegativeUNL.data()
-                                : cEmittedDir.data(),
+                    keylet_type == keylet_code::AMENDMENTS ? cAmendments.data()
+                        : keylet_type == keylet_code::FEES ? cFees.data()
+                        : keylet_type == keylet_code::NEGATIVE_UNL
+                        ? cNegativeUNL.data()
+                        : cEmittedDir.data(),
                     34,
                     memory,
                     memory_length);
@@ -6657,7 +6653,7 @@ DEFINE_WASM_FUNCTION(
         j,
         memory + sread_ptr,
         sread_len,
-        fread_ptr ?  memory + fread_ptr : nullptr,
+        fread_ptr ? memory + fread_ptr : nullptr,
         fread_len,
         field_id);
 
@@ -9031,9 +9027,9 @@ __xpop_slot(
 
     size_t free_count = hook_api::max_slots - hookCtx.slot.size();
 
-    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0
-        ? 2
-        : slot_into_tx != 0 && slot_into_meta != 0 ? 0 : 1;
+    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0 ? 2
+        : slot_into_tx != 0 && slot_into_meta != 0                 ? 0
+                                                                   : 1;
 
     if (free_count < needed_count)
         return NO_FREE_SLOTS;
