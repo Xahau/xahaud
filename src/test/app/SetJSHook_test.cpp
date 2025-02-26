@@ -9106,450 +9106,97 @@ public:
 
         TestHook hook = jswasm[R"[test.hook](
             var ASSERT = (x) => {
-  if (!x) {
-    rollback(x.toString(), 0);
-  }
-};
-var sto = [
-  17,
-  0,
-  97,
-  34,
-  0,
-  0,
-  0,
-  0,
-  36,
-  4,
-  31,
-  148,
-  217,
-  37,
-  4,
-  94,
-  132,
-  183,
-  45,
-  0,
-  0,
-  0,
-  0,
-  85,
-  19,
-  64,
-  179,
-  37,
-  134,
-  49,
-  150,
-  181,
-  111,
-  65,
-  245,
-  137,
-  235,
-  125,
-  47,
-  217,
-  76,
-  13,
-  125,
-  184,
-  14,
-  75,
-  44,
-  103,
-  167,
-  120,
-  42,
-  214,
-  194,
-  176,
-  119,
-  80,
-  98,
-  64,
-  0,
-  0,
-  0,
-  0,
-  164,
-  121,
-  148,
-  129,
-  20,
-  55,
-  223,
-  68,
-  7,
-  231,
-  170,
-  7,
-  241,
-  213,
-  201,
-  145,
-  242,
-  211,
-  111,
-  158,
-  184,
-  199,
-  52,
-  175,
-  108
-];
-var ins = [
-  86,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17
-];
-var ans = [
-  17,
-  0,
-  97,
-  34,
-  0,
-  0,
-  0,
-  0,
-  36,
-  4,
-  31,
-  148,
-  217,
-  37,
-  4,
-  94,
-  132,
-  183,
-  45,
-  0,
-  0,
-  0,
-  0,
-  85,
-  19,
-  64,
-  179,
-  37,
-  134,
-  49,
-  150,
-  181,
-  111,
-  65,
-  245,
-  137,
-  235,
-  125,
-  47,
-  217,
-  76,
-  13,
-  125,
-  184,
-  14,
-  75,
-  44,
-  103,
-  167,
-  120,
-  42,
-  214,
-  194,
-  176,
-  119,
-  80,
-  86,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  98,
-  64,
-  0,
-  0,
-  0,
-  0,
-  164,
-  121,
-  148,
-  129,
-  20,
-  55,
-  223,
-  68,
-  7,
-  231,
-  170,
-  7,
-  241,
-  213,
-  201,
-  145,
-  242,
-  211,
-  111,
-  158,
-  184,
-  199,
-  52,
-  175,
-  108
-];
-var ans2 = [
-  17,
-  0,
-  97,
-  34,
-  0,
-  0,
-  0,
-  0,
-  36,
-  4,
-  31,
-  148,
-  217,
-  37,
-  4,
-  94,
-  132,
-  183,
-  45,
-  0,
-  0,
-  0,
-  0,
-  84,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  17,
-  85,
-  19,
-  64,
-  179,
-  37,
-  134,
-  49,
-  150,
-  181,
-  111,
-  65,
-  245,
-  137,
-  235,
-  125,
-  47,
-  217,
-  76,
-  13,
-  125,
-  184,
-  14,
-  75,
-  44,
-  103,
-  167,
-  120,
-  42,
-  214,
-  194,
-  176,
-  119,
-  80,
-  98,
-  64,
-  0,
-  0,
-  0,
-  0,
-  164,
-  121,
-  148,
-  129,
-  20,
-  55,
-  223,
-  68,
-  7,
-  231,
-  170,
-  7,
-  241,
-  213,
-  201,
-  145,
-  242,
-  211,
-  111,
-  158,
-  184,
-  199,
-  52,
-  175,
-  108
-];
-var INVALID_ARGUMENT = -7;
-var TOO_SMALL = -4;
-var PARSE_ERROR = -18;
-var Hook = (arg) => {
-  ASSERT(sto_emplace(void 0, 1, 1) == INVALID_ARGUMENT);
-  ASSERT(sto_emplace(1, 1, void 0) == INVALID_ARGUMENT);
-  ASSERT(sto_emplace(1, 1, -1) == INVALID_ARGUMENT);
-  ASSERT(sto_emplace(1, 1, 4294967215) == INVALID_ARGUMENT);
-  ASSERT(sto_emplace(1, void 0, 1) == INVALID_ARGUMENT);
-  ASSERT(sto_emplace(1, false, 1) == INVALID_ARGUMENT);
-  ASSERT(sto_emplace([0, 1], [0, 1], 327686) == PARSE_ERROR);
-  {
-    ASSERT(sto_emplace([0], [0, 1], 327686) == TOO_SMALL);
-    ASSERT(sto_emplace([0, 1], [0], 327686) == TOO_SMALL);
-    ASSERT(
-      sto_emplace([0, 1], new Array(4097).fill(0), 327686) == INVALID_ARGUMENT
-    );
-    ASSERT(
-      sto_emplace(new Array(16385).fill(0), [0, 1], 327686) == INVALID_ARGUMENT
-    );
-  }
-  let buf = [];
-  {
-    buf = sto_emplace(sto, ins, 327686);
-    ASSERT(buf.length === sto.length + ins.length);
-    for (let i = 0; i < ans.length; ++i) ASSERT(ans[i] == buf[i]);
-    ins[0] = 84;
-    buf = sto_emplace(sto, ins, 327684);
-    ASSERT(buf.length == sto.length + ins.length);
-    for (let i = 0; i < ans2.length; ++i) ASSERT(ans2[i] == buf[i]);
-  }
-  {
-    const sto2 = [34, 0, 0, 0, 0];
-    const ins2 = [17, 17, 17];
-    const buf2 = sto_emplace(sto2, ins2, 65537);
-    ASSERT(buf2.length == sto2.length + ins2.length);
-    const ans3 = [17, 17, 17, 34, 0, 0, 0, 0];
-    for (let i = 0; i < ans3.length; ++i) ASSERT(ans3[i] == buf2[i]);
-  }
-  {
-    const sto2 = [34, 0, 0, 0, 0];
-    const ins2 = [49, 17, 17, 17, 17, 18, 34, 34, 34];
-    buf = sto_emplace(sto2, ins2, 196609);
-    ASSERT(buf.length == sto2.length + ins2.length);
-    const ans3 = [
-      34,
-      0,
-      0,
-      0,
-      0,
-      49,
-      17,
-      17,
-      17,
-      17,
-      18,
-      34,
-      34,
-      34
-    ];
-    for (let i = 0; i < ans3.length; ++i) ASSERT(ans3[i] == buf[i]);
-  }
-  {
-    const rep = [34, 16, 32, 48, 64];
-    buf = sto_emplace(sto, rep, 131074);
-    ASSERT(buf.length == sto.length);
-    ASSERT(buf[0] == sto[0] && buf[1] == sto[1] && buf[2] == sto[2]);
-    for (let i = 3; i < rep.length + 3; ++i) ASSERT(buf[i] == rep[i - 3]);
-    for (let i = rep.length + 3; i < sto.length; ++i) ASSERT(sto[i] == buf[i]);
-  }
-  return accept(0, 0);
-};
+              if (!x) {
+                rollback(x.toString(), 0)
+              }
+            }
+            var sto = [
+              17, 0, 97, 34, 0, 0, 0, 0, 36, 4, 31, 148, 217, 37, 4, 94, 132, 183, 45, 0, 0,
+              0, 0, 85, 19, 64, 179, 37, 134, 49, 150, 181, 111, 65, 245, 137, 235, 125, 47,
+              217, 76, 13, 125, 184, 14, 75, 44, 103, 167, 120, 42, 214, 194, 176, 119, 80,
+              98, 64, 0, 0, 0, 0, 164, 121, 148, 129, 20, 55, 223, 68, 7, 231, 170, 7, 241,
+              213, 201, 145, 242, 211, 111, 158, 184, 199, 52, 175, 108,
+            ]
+            var ins = [
+              86, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+              17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+            ]
+            var ans = [
+              17, 0, 97, 34, 0, 0, 0, 0, 36, 4, 31, 148, 217, 37, 4, 94, 132, 183, 45, 0, 0,
+              0, 0, 85, 19, 64, 179, 37, 134, 49, 150, 181, 111, 65, 245, 137, 235, 125, 47,
+              217, 76, 13, 125, 184, 14, 75, 44, 103, 167, 120, 42, 214, 194, 176, 119, 80,
+              86, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+              17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 98, 64, 0, 0, 0, 0,
+              164, 121, 148, 129, 20, 55, 223, 68, 7, 231, 170, 7, 241, 213, 201, 145, 242,
+              211, 111, 158, 184, 199, 52, 175, 108,
+            ]
+            var ans2 = [
+              17, 0, 97, 34, 0, 0, 0, 0, 36, 4, 31, 148, 217, 37, 4, 94, 132, 183, 45, 0, 0,
+              0, 0, 84, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+              17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 85, 19, 64, 179,
+              37, 134, 49, 150, 181, 111, 65, 245, 137, 235, 125, 47, 217, 76, 13, 125, 184,
+              14, 75, 44, 103, 167, 120, 42, 214, 194, 176, 119, 80, 98, 64, 0, 0, 0, 0,
+              164, 121, 148, 129, 20, 55, 223, 68, 7, 231, 170, 7, 241, 213, 201, 145, 242,
+              211, 111, 158, 184, 199, 52, 175, 108,
+            ]
+            var INVALID_ARGUMENT = -7
+            var TOO_SMALL = -4
+            var PARSE_ERROR = -18
+            var Hook = (arg) => {
+              ASSERT(sto_emplace(void 0, 1, 1) == INVALID_ARGUMENT)
+              ASSERT(sto_emplace(1, 1, void 0) == INVALID_ARGUMENT)
+              ASSERT(sto_emplace(1, 1, -1) == INVALID_ARGUMENT)
+              ASSERT(sto_emplace(1, 1, 4294967215) == INVALID_ARGUMENT)
+              ASSERT(sto_emplace(1, void 0, 1) == INVALID_ARGUMENT)
+              ASSERT(sto_emplace(1, false, 1) == INVALID_ARGUMENT)
+              ASSERT(sto_emplace([0, 1], [0, 1], 327686) == PARSE_ERROR)
+              {
+                ASSERT(sto_emplace([0], [0, 1], 327686) == TOO_SMALL)
+                ASSERT(sto_emplace([0, 1], [0], 327686) == TOO_SMALL)
+                ASSERT(
+                  sto_emplace([0, 1], new Array(4097).fill(0), 327686) == INVALID_ARGUMENT
+                )
+                ASSERT(
+                  sto_emplace(new Array(16385).fill(0), [0, 1], 327686) == INVALID_ARGUMENT
+                )
+              }
+              let buf = []
+              {
+                buf = sto_emplace(sto, ins, 327686)
+                ASSERT(buf.length === sto.length + ins.length)
+                for (let i = 0; i < ans.length; ++i) ASSERT(ans[i] == buf[i])
+                ins[0] = 84
+                buf = sto_emplace(sto, ins, 327684)
+                ASSERT(buf.length == sto.length + ins.length)
+                for (let i = 0; i < ans2.length; ++i) ASSERT(ans2[i] == buf[i])
+              }
+              {
+                const sto2 = [34, 0, 0, 0, 0]
+                const ins2 = [17, 17, 17]
+                const buf2 = sto_emplace(sto2, ins2, 65537)
+                ASSERT(buf2.length == sto2.length + ins2.length)
+                const ans3 = [17, 17, 17, 34, 0, 0, 0, 0]
+                for (let i = 0; i < ans3.length; ++i) ASSERT(ans3[i] == buf2[i])
+              }
+              {
+                const sto2 = [34, 0, 0, 0, 0]
+                const ins2 = [49, 17, 17, 17, 17, 18, 34, 34, 34]
+                buf = sto_emplace(sto2, ins2, 196609)
+                ASSERT(buf.length == sto2.length + ins2.length)
+                const ans3 = [34, 0, 0, 0, 0, 49, 17, 17, 17, 17, 18, 34, 34, 34]
+                for (let i = 0; i < ans3.length; ++i) ASSERT(ans3[i] == buf[i])
+              }
+              {
+                const rep = [34, 16, 32, 48, 64]
+                buf = sto_emplace(sto, rep, 131074)
+                ASSERT(buf.length == sto.length)
+                ASSERT(buf[0] == sto[0] && buf[1] == sto[1] && buf[2] == sto[2])
+                for (let i = 3; i < rep.length + 3; ++i) ASSERT(buf[i] == rep[i - 3])
+                for (let i = rep.length + 3; i < sto.length; ++i) ASSERT(sto[i] == buf[i])
+              }
+              return accept(0, 0)
+            }
+
         )[test.hook]"];
 
         // install the hook on alice
