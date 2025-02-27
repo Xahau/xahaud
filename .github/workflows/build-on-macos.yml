@@ -14,6 +14,9 @@ jobs:
       XAHAUD_DEPS: $HOME/xahaud_deps
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
       - name: Set up dependency directory
         run: mkdir -p "$XAHAUD_DEPS"
 
@@ -79,9 +82,6 @@ jobs:
         run: |
           chmod +x Builds/macos/wasm-edge.sh
           ./Builds/macos/wasm-edge.sh
-
-      - name: Check out repository
-        uses: actions/checkout@v3
 
       - name: Make scripts executable
         run: chmod +x Builds/macos/*.sh
