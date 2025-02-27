@@ -17,7 +17,7 @@ jobs:
         run: echo "XAHAUD_DEPS=$HOME/xahaud_deps" >> $GITHUB_ENV
 
       - name: Check environment
-        run:
+        run: |
           echo "XAHAUD_DEPS is set to: $XAHAUD_DEPS"
 
       # ----------------------------------------
