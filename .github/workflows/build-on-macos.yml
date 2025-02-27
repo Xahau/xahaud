@@ -1,4 +1,4 @@
-name: Build on macOS 15
+name: Build on macOS 15 1
 
 on:
   push:
@@ -9,17 +9,38 @@ on:
 jobs:
   build-macos:
     runs-on: macos-15
-
-    env:
-      XAHAUD_DEPS: $HOME/xahaud_deps
-
     steps:
+      # ----------------------------------------
+      # 1. Set Environment Variables
+      # ----------------------------------------
+      - name: Set up environment - testing 123
+        run: echo "XAHAUD_DEPS=$HOME/xahaud_deps" >> $GITHUB_ENV
+
+      - name: Check environment
+        run:
+          echo "XAHAUD_DEPS is set to: $XAHAUD_DEPS"
+
+      # ----------------------------------------
+      # 2. Check Out Repository
+      # ----------------------------------------
       - name: Check out repository
         uses: actions/checkout@v3
 
-      - name: Set up dependency directory
+      # ----------------------------------------
+      # 3. Make All Scripts Executable
+      # ----------------------------------------
+      - name: Make scripts executable
+        run: find Builds/macos -name "*.sh" -exec chmod +x {} \;
+
+      # ----------------------------------------
+      # 4. Set Up Dependency Directory
+      # ----------------------------------------
+      - name: Create XAHAUD_DEPS directory
         run: mkdir -p "$XAHAUD_DEPS"
 
+      # ----------------------------------------
+      # 5. Cache & Install Homebrew Dependencies
+      # ----------------------------------------
       - name: Cache Homebrew Dependencies
         id: cache-brew
         uses: actions/cache@v3
@@ -28,64 +49,77 @@ jobs:
             /usr/local/Homebrew
             /usr/local/Cellar
             /opt/homebrew
-          key: macos-15-brew-${{ runner.os }}-${{ runner.arch }}
+          key: macos-15-brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/brew-deps.sh', 'Builds/macos/env.sh') }}
           restore-keys: |
+            macos-15-brew-${{ runner.os }}-${{ runner.arch }}-
             macos-15-brew-${{ runner.os }}-
+            macos-15-brew-
 
       - name: Install brew dependencies
         if: steps.cache-brew.outputs.cache-hit != 'true'
         run: |
-          chmod +x Builds/macos/brew-deps.sh
           ./Builds/macos/brew-deps.sh
 
+      # ----------------------------------------
+      # 6. Cache & Build Boost
+      # ----------------------------------------
       - name: Cache Boost
         id: cache-boost
         uses: actions/cache@v3
         with:
           path: ${{ env.XAHAUD_DEPS }}/boost_*
-          key: macos-15-boost-${{ runner.os }}-${{ runner.arch }}
+          key: macos-15-boost-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/boost.sh', 'Builds/macos/env.sh') }}
           restore-keys: |
+            macos-15-boost-${{ runner.os }}-${{ runner.arch }}-
             macos-15-boost-${{ runner.os }}-
+            macos-15-boost-
 
       - name: Build Boost
         if: steps.cache-boost.outputs.cache-hit != 'true'
         run: |
-          chmod +x Builds/macos/boost.sh
           ./Builds/macos/boost.sh
 
+      # ----------------------------------------
+      # 7. Cache & Build Protobuf
+      # ----------------------------------------
       - name: Cache Protobuf
         id: cache-protobuf
         uses: actions/cache@v3
         with:
           path: ${{ env.XAHAUD_DEPS }}/protobuf-*
-          key: macos-15-protobuf-${{ runner.os }}-${{ runner.arch }}
+          key: macos-15-protobuf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/protobuf.sh', 'Builds/macos/env.sh') }}
           restore-keys: |
+            macos-15-protobuf-${{ runner.os }}-${{ runner.arch }}-
             macos-15-protobuf-${{ runner.os }}-
+            macos-15-protobuf-
 
       - name: Build Protobuf
         if: steps.cache-protobuf.outputs.cache-hit != 'true'
         run: |
-          chmod +x Builds/macos/protobuf.sh
           ./Builds/macos/protobuf.sh
 
+      # ----------------------------------------
+      # 8. Cache & Build WasmEdge
+      # ----------------------------------------
       - name: Cache WasmEdge
         id: cache-wasm-edge
         uses: actions/cache@v3
         with:
           path: ${{ env.XAHAUD_DEPS }}/WasmEdge-*
-          key: macos-15-wasm-edge-${{ runner.os }}-${{ runner.arch }}
+          key: macos-15-wasm-edge-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/wasm-edge.sh', 'Builds/macos/env.sh') }}
           restore-keys: |
+            macos-15-wasm-edge-${{ runner.os }}-${{ runner.arch }}-
             macos-15-wasm-edge-${{ runner.os }}-
+            macos-15-wasm-edge-
 
       - name: Build WasmEdge
         if: steps.cache-wasm-edge.outputs.cache-hit != 'true'
         run: |
-          chmod +x Builds/macos/wasm-edge.sh
           ./Builds/macos/wasm-edge.sh
 
-      - name: Make scripts executable
-        run: chmod +x Builds/macos/*.sh
-
+      # ----------------------------------------
+      # 9. Build Xahaud
+      # ----------------------------------------
       - name: Build Xahaud
         run: |
           ./Builds/macos/xahaud.sh
