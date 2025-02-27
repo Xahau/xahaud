@@ -20,8 +20,8 @@ assert_dir_exists "$BOOST_ROOT"
 assert_dir_exists "$BOOST_LIBRARY_DIRS"
 assert_dir_exists "$BOOST_INCLUDE_DIR"
 assert_dir_exists "$LLVM_PREFIX"
-assert_dir_exists "$PROTOBUF_FOLDER_NAME"
-assert_dir_exists "$WASMEDGE_FOLDER_NAME"
+assert_dir_exists "$XAHAUD_DEPS/$PROTOBUF_FOLDER_NAME"
+assert_dir_exists "$XAHAUD_DEPS/$WASMEDGE_FOLDER_NAME"
 
 mkdir -p build && cd build
 
