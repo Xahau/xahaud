@@ -30,8 +30,14 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_LIBRARY_DIR=$LLVM_LIBRARY_DIR \
     ..
 
-# TODO: less cpus if on CI, maybe minus 1 or 2?
+if [ -n "$CI" ]; then
+      CPUS=$(($(sysctl -n hw.logicalcpu) - 2))
+      [ $CPUS -lt 1 ] && CPUS=1
+else
+      CPUS=$(sysctl -n hw.logicalcpu)
+fi
+
 cmake --build . \
-      --target rippled \
-      --parallel \
-      -j$(sysctl -n hw.logicalcpu)
+                  --target rippled \
+                  --parallel \
+                  -j$CPUS
