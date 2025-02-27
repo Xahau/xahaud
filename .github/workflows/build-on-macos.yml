@@ -110,9 +110,13 @@ jobs:
         run: |
           ./Builds/macos/wasm-edge.sh
 
+      # TODO: cache Installing: .nih_c path for extra dependencies like rocksdb / gflags etc
+
       # ----------------------------------------
       # 9. Build Xahaud
       # ----------------------------------------
       - name: Build Xahaud
         run: |
           ./Builds/macos/xahaud.sh
+
+      # TODO: run the tests ? use cache somehow

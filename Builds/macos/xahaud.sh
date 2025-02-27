@@ -30,6 +30,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_LIBRARY_DIR=$LLVM_LIBRARY_DIR \
     ..
 
+# TODO: less cpus if on CI, maybe minus 1 or 2?
 cmake --build . \
       --target rippled \
       --parallel \
