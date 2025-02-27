@@ -1,0 +1,91 @@
+name: Build on macOS 15
+
+on:
+  push:
+    branches: [ "dev", "candidate", "release", "jshooks" ]
+  pull_request:
+    branches: [ "dev", "candidate", "release", "jshooks" ]
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+
+    env:
+      XAHAUD_DEPS: $HOME/xahaud_deps
+
+    steps:
+      - name: Set up dependency directory
+        run: mkdir -p "$XAHAUD_DEPS"
+
+      - name: Cache Homebrew Dependencies
+        id: cache-brew
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/local/Homebrew
+            /usr/local/Cellar
+            /opt/homebrew
+          key: macos-15-brew-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            macos-15-brew-${{ runner.os }}-
+
+      - name: Install brew dependencies
+        if: steps.cache-brew.outputs.cache-hit != 'true'
+        run: |
+          chmod +x Builds/macos/brew-deps.sh
+          ./Builds/macos/brew-deps.sh
+
+      - name: Cache Boost
+        id: cache-boost
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.XAHAUD_DEPS }}/boost_*
+          key: macos-15-boost-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            macos-15-boost-${{ runner.os }}-
+
+      - name: Build Boost
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          chmod +x Builds/macos/boost.sh
+          ./Builds/macos/boost.sh
+
+      - name: Cache Protobuf
+        id: cache-protobuf
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.XAHAUD_DEPS }}/protobuf-*
+          key: macos-15-protobuf-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            macos-15-protobuf-${{ runner.os }}-
+
+      - name: Build Protobuf
+        if: steps.cache-protobuf.outputs.cache-hit != 'true'
+        run: |
+          chmod +x Builds/macos/protobuf.sh
+          ./Builds/macos/protobuf.sh
+
+      - name: Cache WasmEdge
+        id: cache-wasm-edge
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.XAHAUD_DEPS }}/WasmEdge-*
+          key: macos-15-wasm-edge-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            macos-15-wasm-edge-${{ runner.os }}-
+
+      - name: Build WasmEdge
+        if: steps.cache-wasm-edge.outputs.cache-hit != 'true'
+        run: |
+          chmod +x Builds/macos/wasm-edge.sh
+          ./Builds/macos/wasm-edge.sh
+
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Make scripts executable
+        run: chmod +x Builds/macos/*.sh
+
+      - name: Build Xahaud
+        run: |
+          ./Builds/macos/xahaud.sh
