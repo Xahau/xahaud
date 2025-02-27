@@ -6488,9 +6488,9 @@ __sto_emplace(
     if (sread_len < 2)
         return TOO_SMALL;
 
-    // this is a delete operation
     if (fread_len == 0 && fread_ptr == 0)
     {
+        // this is a delete operation
     }
     else
     {
