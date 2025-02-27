@@ -7,13 +7,21 @@ set -ex
 
 source "$(dirname "$0")/env.sh"
 
+# Assert that the required directories exist
+assert_dir_exists() {
+  if [[ ! -d "$1" ]]; then
+    echo "ERROR: Directory $1 does not exist!" >&2
+    exit 1
+  fi
+}
+
 # Quick sanity check
-ls $BOOST_ROOT
-ls $BOOST_LIBRARY_DIRS
-ls $BOOST_INCLUDE_DIR
-ls $LLVM_PREFIX
-ls $PROTOBUF_FOLDER_NAME
-ls $WASMEDGE_FOLDER_NAME
+assert_dir_exists "$BOOST_ROOT"
+assert_dir_exists "$BOOST_LIBRARY_DIRS"
+assert_dir_exists "$BOOST_INCLUDE_DIR"
+assert_dir_exists "$LLVM_PREFIX"
+assert_dir_exists "$PROTOBUF_FOLDER_NAME"
+assert_dir_exists "$WASMEDGE_FOLDER_NAME"
 
 mkdir -p build && cd build
 
