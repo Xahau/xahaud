@@ -9,6 +9,12 @@ on:
 env:
   XAHAUD_DEPS: /Users/runner/xahaud_deps
 
+# This means that if you push a new commit to a branch or PR that previously running
+# jobs are canceled and re-run. This is useful for preventing duplicated work.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-macos:
     runs-on: macos-15
