@@ -12,17 +12,13 @@ runs:
     - name: Install Clang-Format
       run: |
         codename=$(lsb_release --codename --short)
-
-        # Use modern key management for Ubuntu 20.04+ compatibility
-        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /usr/share/keyrings/llvm-archive-keyring.gpg >/dev/null
-
-        # Update LLVM repository sources
-        echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${{ inputs.clang-version }} main" | sudo tee /etc/apt/sources.list.d/llvm.list
-        echo "deb-src [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${{ inputs.clang-version }} main" | sudo tee -a /etc/apt/sources.list.d/llvm.list
-
-        # Update and install Clang-Format
+        sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null <<EOF
+        deb http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${{ inputs.clang-version }} main
+        deb-src http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${{ inputs.clang-version }} main
+        EOF
+        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add
         sudo apt-get update
-        sudo apt-get install -y clang-format-${{ inputs.clang-version }}
+        sudo apt-get install clang-format-${{ inputs.clang-version }}
 
         # Verify installation
         clang-format-${{ inputs.clang-version }} --version
