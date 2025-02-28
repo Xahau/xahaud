@@ -38,6 +38,6 @@ else
 fi
 
 cmake --build . \
-                  --target rippled \
-                  --parallel \
-                  -j$CPUS
+      --target rippled \
+      --parallel \
+      -j$CPUS

@@ -42,7 +42,7 @@ jobs:
 #            /usr/local/Homebrew
 #            /usr/local/Cellar
 #            /opt/homebrew
-#          key: macos-15-brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/brew-deps.sh', 'Builds/macos/env.sh') }}
+#          key: macos-15-brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/install-brew-deps.sh', 'Builds/macos/env.sh') }}
 #          restore-keys: |
 #            macos-15-brew-${{ runner.os }}-${{ runner.arch }}-
 #            macos-15-brew-${{ runner.os }}-
@@ -51,7 +51,7 @@ jobs:
       - name: Install brew dependencies
 #        if: steps.cache-brew.outputs.cache-hit != 'true'
         run: |
-          ./Builds/macos/brew-deps.sh
+          ./Builds/macos/install-brew-deps.sh
 
       # ----------------------------------------
       # 6. Cache & Build Boost
@@ -61,7 +61,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.XAHAUD_DEPS }}/boost_*
-          key: macos-15-boost-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/boost.sh', 'Builds/macos/env.sh') }}
+          key: macos-15-boost-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/install-boost.sh', 'Builds/macos/env.sh') }}
           restore-keys: |
             macos-15-boost-${{ runner.os }}-${{ runner.arch }}-
             macos-15-boost-${{ runner.os }}-
@@ -70,7 +70,7 @@ jobs:
       - name: Build Boost
         if: steps.cache-boost.outputs.cache-hit != 'true'
         run: |
-          ./Builds/macos/boost.sh
+          ./Builds/macos/install-boost.sh
 
       # ----------------------------------------
       # 7. Cache & Build Protobuf
@@ -80,7 +80,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.XAHAUD_DEPS }}/protobuf-*
-          key: macos-15-protobuf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/protobuf.sh', 'Builds/macos/env.sh') }}
+          key: macos-15-protobuf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/install-protobuf.sh', 'Builds/macos/env.sh') }}
           restore-keys: |
             macos-15-protobuf-${{ runner.os }}-${{ runner.arch }}-
             macos-15-protobuf-${{ runner.os }}-
@@ -89,7 +89,7 @@ jobs:
       - name: Build Protobuf
         if: steps.cache-protobuf.outputs.cache-hit != 'true'
         run: |
-          ./Builds/macos/protobuf.sh
+          ./Builds/macos/install-protobuf.sh
 
       # ----------------------------------------
       # 8. Cache & Build WasmEdge
@@ -99,7 +99,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.XAHAUD_DEPS }}/WasmEdge-*
-          key: macos-15-wasm-edge-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/wasm-edge.sh', 'Builds/macos/env.sh') }}
+          key: macos-15-wasm-edge-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/install-wasm-edge.sh', 'Builds/macos/env.sh') }}
           restore-keys: |
             macos-15-wasm-edge-${{ runner.os }}-${{ runner.arch }}-
             macos-15-wasm-edge-${{ runner.os }}-
@@ -108,15 +108,35 @@ jobs:
       - name: Build WasmEdge
         if: steps.cache-wasm-edge.outputs.cache-hit != 'true'
         run: |
-          ./Builds/macos/wasm-edge.sh
+          ./Builds/macos/install-wasm-edge.sh
 
-      # TODO: cache Installing: .nih_c path for extra dependencies like rocksdb / gflags etc
+      # TODO: cache Installing: $workspace/.nih_c path for extra dependencies like rocksdb / gflags etc
+
+
+      # ----------------------------------------
+      # 8.5 Cache & Install .nih_c Dependencies
+      # ----------------------------------------
+      - name: Cache .nih_c Dependencies
+        id: cache-nih-c
+        uses: actions/cache@v3
+        with:
+          path: ${{ github.workspace }}/.nih_c
+          key: macos-15-nih-c-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            macos-15-nih-c-${{ runner.os }}-${{ runner.arch }}-
+            macos-15-nih-c-${{ runner.os }}-
+            macos-15-nih-c-
 
       # ----------------------------------------
       # 9. Build Xahaud
       # ----------------------------------------
       - name: Build Xahaud
         run: |
-          ./Builds/macos/xahaud.sh
+          ./Builds/macos/build-xahaud.sh
 
-      # TODO: run the tests ? use cache somehow
+      # ----------------------------------------
+      # 10. Run Tests
+      # ----------------------------------------
+      - name: Run Tests
+        run: |
+          ./build/rippled -u
