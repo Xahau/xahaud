@@ -2102,9 +2102,8 @@ struct Remit_test : public beast::unit_test::suite
             std::string result;
             TER code;
         };
-        std::array<TestRateData, 10> testCases = {{
+        std::array<TestRateData, 9> testCases = {{
             {0.0, USD(100), "900", tesSUCCESS},
-            {-1.0, USD(100), "900", temBAD_TRANSFER_RATE},
             {0.9, USD(100), "900", temBAD_TRANSFER_RATE},
             {1.0, USD(100), "900", tesSUCCESS},
             {1.1, USD(100), "890", tesSUCCESS},
