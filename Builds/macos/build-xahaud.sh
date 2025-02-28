@@ -32,7 +32,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 
 if [ -n "$CI" ]; then
       ACTUAL_CPUS=$(sysctl -n hw.logicalcpu)
-      CPUS=$(($ACTUAL_CPUS - 2))
+      CPUS=$(($ACTUAL_CPUS - 1)) # leave one
       [ $CPUS -lt 1 ] && CPUS=1
 else
       CPUS=$(sysctl -n hw.logicalcpu)
