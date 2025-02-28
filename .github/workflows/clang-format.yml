@@ -4,6 +4,7 @@ on: [push, pull_request]
 
 jobs:
   check:
+    if: (github.event_name == 'push' && github.event.pull_request == null) || github.event_name == 'pull_request'
     runs-on: ubuntu-20.04
     env:
       CLANG_VERSION: 10
