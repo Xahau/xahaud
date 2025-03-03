@@ -1,4 +1,4 @@
-name: Build on macOS 15 1
+name: Build on MacOS 15.2
 
 on:
   push:
@@ -20,47 +20,32 @@ jobs:
     runs-on: macos-15
     steps:
       # ----------------------------------------
-      # 2. Check Out Repository
+      # 1. Check Out Repository
       # ----------------------------------------
       - name: Check out repository
         uses: actions/checkout@v3
 
       # ----------------------------------------
-      # 3. Make All Scripts Executable
+      # 2. Make All Scripts Executable
       # ----------------------------------------
       - name: Make scripts executable
         run: find Builds/macos -name "*.sh" -exec chmod +x {} \;
 
       # ----------------------------------------
-      # 4. Set Up Dependency Directory
+      # 3. Set Up Dependency Directory
       # ----------------------------------------
       - name: Create XAHAUD_DEPS directory
         run: mkdir -p "$XAHAUD_DEPS"
 
-#      # ----------------------------------------
-#      # 5. Cache & Install Homebrew Dependencies
-#      # ----------------------------------------
-#      - name: Cache Homebrew Dependencies
-#        id: cache-brew
-#        uses: actions/cache@v3
-#        with:
-#          path: |
-#            /usr/local/Homebrew
-#            /usr/local/Cellar
-#            /opt/homebrew
-#          key: macos-15-brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Builds/macos/install-brew-deps.sh', 'Builds/macos/env.sh') }}
-#          restore-keys: |
-#            macos-15-brew-${{ runner.os }}-${{ runner.arch }}-
-#            macos-15-brew-${{ runner.os }}-
-#            macos-15-brew-
-#
+      # ----------------------------------------
+      # 4. Install Brew Dependencies
+      # ----------------------------------------
       - name: Install brew dependencies
-#        if: steps.cache-brew.outputs.cache-hit != 'true'
         run: |
           ./Builds/macos/install-brew-deps.sh
 
       # ----------------------------------------
-      # 6. Cache & Build Boost
+      # 5. Cache & Build Boost
       # ----------------------------------------
       - name: Cache Boost
         id: cache-boost
@@ -79,7 +64,7 @@ jobs:
           ./Builds/macos/install-boost.sh
 
       # ----------------------------------------
-      # 7. Cache & Build Protobuf
+      # 6. Cache & Build Protobuf
       # ----------------------------------------
       - name: Cache Protobuf
         id: cache-protobuf
@@ -98,7 +83,7 @@ jobs:
           ./Builds/macos/install-protobuf.sh
 
       # ----------------------------------------
-      # 8. Cache & Build WasmEdge
+      # 7. Cache & Build WasmEdge
       # ----------------------------------------
       - name: Cache WasmEdge
         id: cache-wasm-edge
@@ -116,11 +101,8 @@ jobs:
         run: |
           ./Builds/macos/install-wasm-edge.sh
 
-      # TODO: cache Installing: $workspace/.nih_c path for extra dependencies like rocksdb / gflags etc
-
-
       # ----------------------------------------
-      # 8.5 Cache & Install .nih_c Dependencies
+      # 8. Cache & Install .nih_c Dependencies
       # ----------------------------------------
       - name: Cache .nih_c Dependencies
         id: cache-nih-c
