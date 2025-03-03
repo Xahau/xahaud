@@ -7,7 +7,7 @@ on:
     branches: [ "dev", "candidate", "release", "jshooks" ]
 
 env:
-  XAHAUD_DEPS: ${{env.HOME}}/xahaud_deps
+  XAHAUD_DEPS: /Users/runner/xahaud_deps
 
 # This means that if you push a new commit to a branch or PR that previously running
 # jobs are canceled and re-run. This is useful for preventing duplicated work.
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build-macos:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-15
     steps:
       # ----------------------------------------
       # 1. Check Out Repository
