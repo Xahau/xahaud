@@ -2102,6 +2102,8 @@ struct Remit_test : public beast::unit_test::suite
             std::string result;
             TER code;
         };
+        // We test only rates that that can fit in a STI_UINT32.
+        // Negative rates can't be serdes so there is no need to test them.
         std::array<TestRateData, 9> testCases = {{
             {0.0, USD(100), "900", tesSUCCESS},
             {0.9, USD(100), "900", temBAD_TRANSFER_RATE},
