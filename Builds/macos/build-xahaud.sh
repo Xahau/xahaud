@@ -28,7 +28,7 @@ mkdir -p build && cd build
 cmake -DCMAKE_BUILD_TYPE=Debug \
     -DLLVM_DIR=$LLVM_DIR \
     -DLLVM_LIBRARY_DIR=$LLVM_LIBRARY_DIR \
-    -Dassert=ON
+    -Dassert=ON \
     ..
 
 if [ -n "$CI" ]; then
