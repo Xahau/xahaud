@@ -25,9 +25,10 @@ assert_dir_exists "$XAHAUD_DEPS/$WASMEDGE_FOLDER_NAME"
 
 mkdir -p build && cd build
 
-cmake -DCMAKE_BUILD_TYPE=Release \
+cmake -DCMAKE_BUILD_TYPE=Debug \
     -DLLVM_DIR=$LLVM_DIR \
     -DLLVM_LIBRARY_DIR=$LLVM_LIBRARY_DIR \
+    -Dassert=ON
     ..
 
 if [ -n "$CI" ]; then
