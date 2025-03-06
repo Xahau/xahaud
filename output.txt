@@ -1,0 +1,3239 @@
+/dev/stdin:12:15: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ hook_account(acc, 20);
+              ^~~
+/dev/stdin:7:39: note: passing argument to parameter here
+ extern int64_t hook_account (uint32_t, uint32_t);
+                                      ^
+1 warning generated.
+/dev/stdin:21:15: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ hook_account(acc, 20);
+              ^~~
+/dev/stdin:6:39: note: passing argument to parameter here
+ extern int64_t hook_account (uint32_t, uint32_t);
+                                      ^
+/dev/stdin:26:15: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ hook_account(acc, 20);
+              ^~~
+/dev/stdin:6:39: note: passing argument to parameter here
+ extern int64_t hook_account (uint32_t, uint32_t);
+                                      ^
+2 warnings generated.
+/dev/stdin:18:15: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ hook_account(acc, 20);
+              ^~~
+/dev/stdin:6:39: note: passing argument to parameter here
+ extern int64_t hook_account (uint32_t, uint32_t);
+                                      ^
+/dev/stdin:22:15: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ hook_account(acc, 20);
+              ^~~
+/dev/stdin:6:39: note: passing argument to parameter here
+ extern int64_t hook_account (uint32_t, uint32_t);
+                                      ^
+/dev/stdin:27:15: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ hook_account(acc, 20);
+              ^~~
+/dev/stdin:6:39: note: passing argument to parameter here
+ extern int64_t hook_account (uint32_t, uint32_t);
+                                      ^
+3 warnings generated.
+/dev/stdin:280:25: warning: incompatible pointer to integer conversion passing 'uint8_t [270]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ PREPARE_PAYMENT_SIMPLE(tx, 1000, bob, 0, 0);
+                        ^~
+/dev/stdin:234:30: note: expanded from macro 'PREPARE_PAYMENT_SIMPLE'
+ int64_t fee = etxn_fee_base(buf_out_master, PREPARE_PAYMENT_SIMPLE_SIZE); \
+                             ^~~~~~~~~~~~~~
+/dev/stdin:201:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:285:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(etxn_details(tx + 132, 138) == 138);
+                     ^~~~~~~~
+/dev/stdin:254:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:205:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:307:21: warning: comparison between pointer and integer ('int64_t (*)(void)' (aka 'long long (*)(void)') and 'int') [-Wpointer-integer-compare]
+ ASSERT(otxn_burden == 1);
+        ~~~~~~~~~~~ ^  ~
+/dev/stdin:254:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:310:31: warning: incompatible pointer to integer conversion passing 'char [4]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(otxn_param(SBUF(bob), "bob", 3) == 20);
+                              ^~~~~
+/dev/stdin:254:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:56: note: passing argument to parameter here
+ extern int64_t otxn_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                                       ^
+/dev/stdin:313:25: warning: incompatible pointer to integer conversion passing 'uint8_t [270]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ PREPARE_PAYMENT_SIMPLE(tx, 1000, bob, 0, 0);
+                        ^~
+/dev/stdin:234:30: note: expanded from macro 'PREPARE_PAYMENT_SIMPLE'
+ int64_t fee = etxn_fee_base(buf_out_master, PREPARE_PAYMENT_SIMPLE_SIZE); \
+                             ^~~~~~~~~~~~~~
+/dev/stdin:201:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+5 warnings generated.
+/dev/stdin:56:27: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_account(SBUF(iss)) == 20);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:39: note: passing argument to parameter here
+ extern int64_t hook_account (uint32_t, uint32_t);
+                                      ^
+/dev/stdin:64:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 1000000, 20, 1,20,0,0)) == OUT_OF_BOUNDS);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:65:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 1, 1000000, 1,20,0,0)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:66:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 1,20, 1000000, 20, 0,0)) == OUT_OF_BOUNDS);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:67:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 1,20, 1, 1000000, 0,0)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:70:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 0, 1, 0,0, 0,0)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:71:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 0, 0, 0,1, 0,0)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:74:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 1, 0, 0,0, 0,0)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:75:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 0, 0, 1,0, 0,0)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:78:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 0,0, SBUF(iss), 0, sfAmount)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:78:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), 0,0, SBUF(iss), 0, sfAmount)) == INVALID_ARGUMENT);
+                                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'iread_ptr' here
+ uint32_t iread_ptr,
+          ^
+/dev/stdin:81:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), 0,0, 0, sfAmount)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:81:38: warning: incompatible pointer to integer conversion passing 'uint8_t [3]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), 0,0, 0, sfAmount)) == INVALID_ARGUMENT);
+                                     ^~~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'cread_ptr' here
+ uint32_t cread_ptr,
+          ^
+/dev/stdin:84:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), SBUF(iss), 0, 0)) == INVALID_ARGUMENT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:84:38: warning: incompatible pointer to integer conversion passing 'uint8_t [3]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), SBUF(iss), 0, 0)) == INVALID_ARGUMENT);
+                                     ^~~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'cread_ptr' here
+ uint32_t cread_ptr,
+          ^
+/dev/stdin:84:50: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), SBUF(iss), 0, 0)) == INVALID_ARGUMENT);
+                                                 ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'iread_ptr' here
+ uint32_t iread_ptr,
+          ^
+/dev/stdin:87:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), -1, sfAmount)) == INVALID_FLOAT);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:87:38: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), -1, sfAmount)) == INVALID_FLOAT);
+                                     ^~~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'cread_ptr' here
+ uint32_t cread_ptr,
+          ^
+/dev/stdin:87:50: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), -1, sfAmount)) == INVALID_FLOAT);
+                                                 ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'iread_ptr' here
+ uint32_t iread_ptr,
+          ^
+/dev/stdin:93:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), SBUF(iss), 6198187654261802496ULL, sfAmount)) == 49);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:93:38: warning: incompatible pointer to integer conversion passing 'uint8_t [3]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), SBUF(iss), 6198187654261802496ULL, sfAmount)) == 49);
+                                     ^~~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'cread_ptr' here
+ uint32_t cread_ptr,
+          ^
+/dev/stdin:93:50: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur1), SBUF(iss), 6198187654261802496ULL, sfAmount)) == 49);
+                                                 ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'iread_ptr' here
+ uint32_t iread_ptr,
+          ^
+/dev/stdin:99:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 6198187654261802496ULL, sfAmount)) == 49);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:99:38: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 6198187654261802496ULL, sfAmount)) == 49);
+                                     ^~~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'cread_ptr' here
+ uint32_t cread_ptr,
+          ^
+/dev/stdin:99:50: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 6198187654261802496ULL, sfAmount)) == 49);
+                                                 ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'iread_ptr' here
+ uint32_t iread_ptr,
+          ^
+/dev/stdin:111:26: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(buf, 49)) == 6198187654261802496ULL);
+                         ^~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:114:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 0, sfAmount)) == 49);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:114:38: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 0, sfAmount)) == 49);
+                                     ^~~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'cread_ptr' here
+ uint32_t cread_ptr,
+          ^
+/dev/stdin:114:50: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 0, sfAmount)) == 49);
+                                                 ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'iread_ptr' here
+ uint32_t iread_ptr,
+          ^
+/dev/stdin:115:26: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(buf, 49)) == 0);
+                         ^~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:121:27: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 6198187654261802496ULL, sfDeliveredAmount)) == 50);
+                          ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:121:38: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 6198187654261802496ULL, sfDeliveredAmount)) == 50);
+                                     ^~~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'cread_ptr' here
+ uint32_t cread_ptr,
+          ^
+/dev/stdin:121:50: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(SBUF(buf), SBUF(cur2), SBUF(iss), 6198187654261802496ULL, sfDeliveredAmount)) == 50);
+                                                 ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'iread_ptr' here
+ uint32_t iread_ptr,
+          ^
+/dev/stdin:135:31: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(buf))) == 6198187654261802496ULL);
+                              ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:144:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(buf + 2, 8, 0,0,0,0, 6198187654261802496ULL, 0xFFFFFFFFUL)) == 8);
+                     ^~~~~~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:147:31: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(buf))) == 6198187654261802496ULL);
+                              ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:150:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(buf + 2, 8, 0,0,0,0, 1244912689067196128ULL, 0xFFFFFFFFUL)) == 8);
+                     ^~~~~~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:151:31: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(buf))) == 1244912689067196128ULL);
+                              ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:155:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(buf + 2, 8, 0,0,0,0, 0, 0xFFFFFFFFUL)) == 8);
+                     ^~~~~~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:156:31: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(buf))) == 0);
+                              ^~~
+/dev/stdin:31:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:165:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(buf + 1, 8, 0,0,0,0, 6198187654261802496ULL, 0)) == 8);
+                     ^~~~~~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:169:26: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(buf, 9)) == 6198187654261802496ULL);
+                         ^~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:172:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto(buf + 1, 8, 0,0,0,0, 0, 0)) == 8);
+                     ^~~~~~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:173:26: warning: incompatible pointer to integer conversion passing 'uint8_t [50]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(buf, 9)) == 0);
+                         ^~~
+/dev/stdin:28:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:19:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+44 warnings generated.
+/dev/stdin:106:31: warning: incompatible pointer to integer conversion passing 'uint8_t [49]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(iou))) == 6198187654261802496ULL);
+                              ^~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:107:31: warning: incompatible pointer to integer conversion passing 'uint8_t [9]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(xrp_short))) == 6198187654261802496ULL);
+                              ^~~~~~~~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:108:31: warning: incompatible pointer to integer conversion passing 'uint8_t [49]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(iou_neg))) == 1586501635834414592ULL);
+                              ^~~~~~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:109:31: warning: incompatible pointer to integer conversion passing 'uint8_t [9]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(xrp_neg))) == 1586501635834414592ULL);
+                              ^~~~~~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:110:31: warning: incompatible pointer to integer conversion passing 'uint8_t [9]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(xrp_pos_zero))) == 0);
+                              ^~~~~~~~~~~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:111:31: warning: incompatible pointer to integer conversion passing 'uint8_t [9]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(xrp_neg_zero))) == 0);
+                              ^~~~~~~~~~~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:112:31: warning: incompatible pointer to integer conversion passing 'uint8_t [49]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(iou_zero))) == 0);
+                              ^~~~~~~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:113:31: warning: incompatible pointer to integer conversion passing 'uint8_t [10]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=float_sto_set(SBUF(xrp_long))) == 6294584066823682416ULL);
+                              ^~~~~~~~
+/dev/stdin:18:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+8 warnings generated.
+/dev/stdin:26:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:25:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:25:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:16:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param0",
+ ^~~~~~~~
+/dev/stdin:17:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param1",
+ ^~~~~~~~
+/dev/stdin:18:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param2",
+ ^~~~~~~~
+/dev/stdin:19:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param3",
+ ^~~~~~~~
+/dev/stdin:20:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param4",
+ ^~~~~~~~
+/dev/stdin:21:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param5",
+ ^~~~~~~~
+/dev/stdin:22:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param6",
+ ^~~~~~~~
+/dev/stdin:23:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param7",
+ ^~~~~~~~
+/dev/stdin:24:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param8",
+ ^~~~~~~~
+/dev/stdin:25:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param9",
+ ^~~~~~~~
+/dev/stdin:26:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param10",
+ ^~~~~~~~~
+/dev/stdin:27:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param11",
+ ^~~~~~~~~
+/dev/stdin:28:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param12",
+ ^~~~~~~~~
+/dev/stdin:29:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param13",
+ ^~~~~~~~~
+/dev/stdin:30:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param14",
+ ^~~~~~~~~
+/dev/stdin:31:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param15"
+ ^~~~~~~~~
+/dev/stdin:35:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value0",
+ ^~~~~~~~
+/dev/stdin:36:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value1",
+ ^~~~~~~~
+/dev/stdin:37:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value2",
+ ^~~~~~~~
+/dev/stdin:38:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value3",
+ ^~~~~~~~
+/dev/stdin:39:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value4",
+ ^~~~~~~~
+/dev/stdin:40:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value5",
+ ^~~~~~~~
+/dev/stdin:41:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value6",
+ ^~~~~~~~
+/dev/stdin:42:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value7",
+ ^~~~~~~~
+/dev/stdin:43:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value8",
+ ^~~~~~~~
+/dev/stdin:44:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value9",
+ ^~~~~~~~
+/dev/stdin:45:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value10",
+ ^~~~~~~~~
+/dev/stdin:46:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value11",
+ ^~~~~~~~~
+/dev/stdin:47:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value12",
+ ^~~~~~~~~
+/dev/stdin:48:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value13",
+ ^~~~~~~~~
+/dev/stdin:49:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value14",
+ ^~~~~~~~~
+/dev/stdin:50:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value15"
+ ^~~~~~~~~
+/dev/stdin:71:30: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ int64_t v = hook_param(SBUF(buf), names[i], s);
+                             ^~~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:6:36: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:71:36: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ int64_t v = hook_param(SBUF(buf), names[i], s);
+                                   ^~~~~~~~
+/dev/stdin:6:56: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                                       ^
+/dev/stdin:80:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+35 warnings generated.
+/dev/stdin:18:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param0",
+ ^~~~~~~~
+/dev/stdin:19:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param1",
+ ^~~~~~~~
+/dev/stdin:20:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param2",
+ ^~~~~~~~
+/dev/stdin:21:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param3",
+ ^~~~~~~~
+/dev/stdin:31:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(checker_hash), "checker", 7) == DOESNT_EXIST);
+                        ^~~~~~~~~~~~
+/dev/stdin:23:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:36: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:31:40: warning: incompatible pointer to integer conversion passing 'char [8]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(checker_hash), "checker", 7) == DOESNT_EXIST);
+                                       ^~~~~~~~~
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:56: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                                       ^
+/dev/stdin:37:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(buf), "hello", 5) == 5);
+                        ^~~
+/dev/stdin:23:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:36: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:37:31: warning: incompatible pointer to integer conversion passing 'char [6]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(buf), "hello", 5) == 5);
+                              ^~~~~~~
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:56: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                                       ^
+/dev/stdin:43:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(buf), names[i], 6) == 6);
+                        ^~~
+/dev/stdin:23:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:36: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:43:31: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(buf), names[i], 6) == 6);
+                              ^~~~~~~~
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:56: note: passing argument to parameter here
+ extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                                       ^
+/dev/stdin:51:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+11 warnings generated.
+/dev/stdin:25:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param0",
+ ^~~~~~~~
+/dev/stdin:26:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param1",
+ ^~~~~~~~
+/dev/stdin:27:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param2",
+ ^~~~~~~~
+/dev/stdin:28:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param3",
+ ^~~~~~~~
+/dev/stdin:32:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value0",
+ ^~~~~~~~
+/dev/stdin:33:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value1",
+ ^~~~~~~~
+/dev/stdin:34:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value2",
+ ^~~~~~~~
+/dev/stdin:35:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value3",
+ ^~~~~~~~
+/dev/stdin:59:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(checker_hash), "checker", 7) == 32);
+                        ^~~~~~~~~~~~
+/dev/stdin:37:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:37: note: passing argument to parameter here
+ extern int64_t hook_param (uint32_t, uint32_t, uint32_t, uint32_t);
+                                    ^
+/dev/stdin:59:40: warning: incompatible pointer to integer conversion passing 'char [8]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(checker_hash), "checker", 7) == 32);
+                                       ^~~~~~~~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:57: note: passing argument to parameter here
+ extern int64_t hook_param (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:63:24: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set(values[i], 6, names[i], 6, SBUF(checker_hash)) == 6);
+                       ^~~~~~~~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:63:38: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set(values[i], 6, names[i], 6, SBUF(checker_hash)) == 6);
+                                     ^~~~~~~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'kread_ptr' here
+ uint32_t kread_ptr,
+          ^
+/dev/stdin:63:56: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set(values[i], 6, names[i], 6, SBUF(checker_hash)) == 6);
+                                                       ^~~~~~~~~~~~
+/dev/stdin:37:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:12:11: note: passing argument to parameter 'hread_ptr' here
+ uint32_t hread_ptr,
+          ^
+/dev/stdin:67:28: warning: incompatible pointer to integer conversion passing 'char [8]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set(0,0,"checker", 7, SBUF(checker_hash)) == 0);
+                           ^~~~~~~~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'kread_ptr' here
+ uint32_t kread_ptr,
+          ^
+/dev/stdin:67:47: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set(0,0,"checker", 7, SBUF(checker_hash)) == 0);
+                                              ^~~~~~~~~~~~
+/dev/stdin:37:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:12:11: note: passing argument to parameter 'hread_ptr' here
+ uint32_t hread_ptr,
+          ^
+/dev/stdin:70:24: warning: incompatible pointer to integer conversion passing 'char [6]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set("world", 5,"hello", 5, SBUF(checker_hash)) == 5);
+                       ^~~~~~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr,
+          ^
+/dev/stdin:70:35: warning: incompatible pointer to integer conversion passing 'char [6]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set("world", 5,"hello", 5, SBUF(checker_hash)) == 5);
+                                  ^~~~~~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'kread_ptr' here
+ uint32_t kread_ptr,
+          ^
+/dev/stdin:70:52: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param_set("world", 5,"hello", 5, SBUF(checker_hash)) == 5);
+                                                   ^~~~~~~~~~~~
+/dev/stdin:37:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:12:11: note: passing argument to parameter 'hread_ptr' here
+ uint32_t hread_ptr,
+          ^
+/dev/stdin:76:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(buf), names[i], 6) == 6);
+                        ^~~
+/dev/stdin:37:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:37: note: passing argument to parameter here
+ extern int64_t hook_param (uint32_t, uint32_t, uint32_t, uint32_t);
+                                    ^
+/dev/stdin:76:31: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_param(SBUF(buf), names[i], 6) == 6);
+                              ^~~~~~~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:57: note: passing argument to parameter here
+ extern int64_t hook_param (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:84:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+21 warnings generated.
+/dev/stdin:11:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:39:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(otxn_field(SBUF(skip), sfInvoiceID) == 32);
+                        ^~~~
+/dev/stdin:14:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:37: note: passing argument to parameter here
+ extern int64_t otxn_field (uint32_t, uint32_t, uint32_t);
+                                    ^
+/dev/stdin:43:24: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_hash(SBUF(hash), (uint32_t)hook_pos()) == 32);
+                       ^~~~
+/dev/stdin:14:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:36: note: passing argument to parameter here
+ extern int64_t hook_hash (uint32_t, uint32_t, int32_t);
+                                   ^
+/dev/stdin:48:24: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_skip(SBUF(hash), 1) == DOESNT_EXIST);
+                       ^~~~
+/dev/stdin:14:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:36: note: passing argument to parameter here
+ extern int64_t hook_skip (uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:49:24: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_skip(SBUF(hash), 0) == 1);
+                       ^~~~
+/dev/stdin:14:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:36: note: passing argument to parameter here
+ extern int64_t hook_skip (uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:50:24: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_skip(SBUF(hash), 1) == 1);
+                       ^~~~
+/dev/stdin:14:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:36: note: passing argument to parameter here
+ extern int64_t hook_skip (uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:53:24: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_skip(SBUF(skip), 0));
+                       ^~~~
+/dev/stdin:14:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:36: note: passing argument to parameter here
+ extern int64_t hook_skip (uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:56:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+7 warnings generated.
+/dev/stdin:11:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:44:17: warning: excess elements in array initializer
+ 1, 2, 3, 4, 5, 6, 7, 8, 9
+                ^
+/dev/stdin:52:17: warning: excess elements in array initializer
+ 1, 2, 3, 4, 5, 6, 7, 8, 10
+                ^
+/dev/stdin:56:35: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(0, 34, SBUF(trash2), SBUF(trash)) == DOESNT_EXIST);
+                                  ^~~~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:59: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:56:49: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(0, 34, SBUF(trash2), SBUF(trash)) == DOESNT_EXIST);
+                                                ^~~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:79: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                                              ^
+/dev/stdin:57:35: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(0, 34, SBUF(trash), SBUF(trash2)) == DOESNT_EXIST);
+                                  ^~~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:59: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:57:48: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(0, 34, SBUF(trash), SBUF(trash2)) == DOESNT_EXIST);
+                                               ^~~~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:79: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                                              ^
+/dev/stdin:70:28: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(SBUF(out), SBUF(first), SBUF(last)) == DOES_NOT_MATCH);
+                           ^~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:39: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                      ^
+/dev/stdin:70:39: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(SBUF(out), SBUF(first), SBUF(last)) == DOES_NOT_MATCH);
+                                      ^~~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:59: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:70:52: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(SBUF(out), SBUF(first), SBUF(last)) == DOES_NOT_MATCH);
+                                                   ^~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:79: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                                              ^
+/dev/stdin:72:28: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(SBUF(out), SBUF(first), SBUF(last)) == 34);
+                           ^~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:39: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                      ^
+/dev/stdin:72:39: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(SBUF(out), SBUF(first), SBUF(last)) == 34);
+                                      ^~~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:59: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:72:52: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(ledger_keylet(SBUF(out), SBUF(first), SBUF(last)) == 34);
+                                                   ^~~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:6:79: note: passing argument to parameter here
+ extern int64_t ledger_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                                                              ^
+/dev/stdin:74:23: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(slot_set(SBUF(out), 1) == 1);
+                      ^~~
+/dev/stdin:13:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:9:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:34: note: passing argument to parameter here
+ extern int64_t slot_set(uint32_t, uint32_t, uint32_t);
+                                 ^
+/dev/stdin:77:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+14 warnings generated.
+/dev/stdin:24:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:11:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:26:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:11:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:33:14: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(slot(buf, 1024, 1) > 200);
+             ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:30: note: passing argument to parameter here
+ extern int64_t slot(uint32_t, uint32_t, uint32_t);
+                             ^
+1 warning generated.
+/dev/stdin:34:20: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(otxn_field(acc, 19, sfAccount) == TOO_SMALL);
+                   ^~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:38: note: passing argument to parameter 'write_ptr' here
+ extern int64_t otxn_field (uint32_t write_ptr, uint32_t write_len, uint32_t sfcode);
+                                     ^
+/dev/stdin:36:20: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(otxn_field(acc, 20, sfAccount) == 20);
+                   ^~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:38: note: passing argument to parameter 'write_ptr' here
+ extern int64_t otxn_field (uint32_t write_ptr, uint32_t write_len, uint32_t sfcode);
+                                     ^
+/dev/stdin:38:20: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(otxn_field(acc, 20, 1) == INVALID_FIELD);
+                   ^~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:38: note: passing argument to parameter 'write_ptr' here
+ extern int64_t otxn_field (uint32_t write_ptr, uint32_t write_len, uint32_t sfcode);
+                                     ^
+/dev/stdin:40:22: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(hook_account(acc2, 20) == 20);
+                     ^~~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:38: note: passing argument to parameter here
+ extern int64_t hook_account(uint32_t, uint32_t);
+                                     ^
+/dev/stdin:46:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+5 warnings generated.
+/dev/stdin:39:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ int64_t size = slot(buf + 4, sizeof(buf) - 4, 1);
+                     ^~~~~~~
+/dev/stdin:7:32: note: passing argument to parameter 'write_ptr' here
+ extern int64_t slot (uint32_t write_ptr, uint32_t write_len, uint32_t slot_no);
+                               ^
+/dev/stdin:50:34: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(util_sha512h(SBUF(hash), buf, size+4) == 32);
+                                 ^~~
+/dev/stdin:17:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len );
+          ^
+/dev/stdin:59:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+3 warnings generated.
+/dev/stdin:35:22: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ int64_t size = slot(buf + 4, sizeof(buf) - 4, 1);
+                     ^~~~~~~
+/dev/stdin:7:32: note: passing argument to parameter 'write_ptr' here
+ extern int64_t slot (uint32_t write_ptr, uint32_t write_len, uint32_t slot_no);
+                               ^
+/dev/stdin:45:34: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(util_sha512h(SBUF(hash), buf, size+4) == 32);
+                                 ^~~
+/dev/stdin:17:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len );
+          ^
+/dev/stdin:58:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+3 warnings generated.
+/dev/stdin:36:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:16:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param0",
+ ^~~~~~~~
+/dev/stdin:17:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param1",
+ ^~~~~~~~
+/dev/stdin:18:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param2",
+ ^~~~~~~~
+/dev/stdin:19:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param3",
+ ^~~~~~~~
+/dev/stdin:20:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param4",
+ ^~~~~~~~
+/dev/stdin:21:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param5",
+ ^~~~~~~~
+/dev/stdin:22:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param6",
+ ^~~~~~~~
+/dev/stdin:23:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param7",
+ ^~~~~~~~
+/dev/stdin:24:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param8",
+ ^~~~~~~~
+/dev/stdin:25:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param9",
+ ^~~~~~~~
+/dev/stdin:26:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param10",
+ ^~~~~~~~~
+/dev/stdin:27:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param11",
+ ^~~~~~~~~
+/dev/stdin:28:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param12",
+ ^~~~~~~~~
+/dev/stdin:29:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param13",
+ ^~~~~~~~~
+/dev/stdin:30:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param14",
+ ^~~~~~~~~
+/dev/stdin:31:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "param15"
+ ^~~~~~~~~
+/dev/stdin:35:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value0",
+ ^~~~~~~~
+/dev/stdin:36:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value1",
+ ^~~~~~~~
+/dev/stdin:37:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value2",
+ ^~~~~~~~
+/dev/stdin:38:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value3",
+ ^~~~~~~~
+/dev/stdin:39:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value4",
+ ^~~~~~~~
+/dev/stdin:40:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value5",
+ ^~~~~~~~
+/dev/stdin:41:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value6",
+ ^~~~~~~~
+/dev/stdin:42:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value7",
+ ^~~~~~~~
+/dev/stdin:43:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value8",
+ ^~~~~~~~
+/dev/stdin:44:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [7]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value9",
+ ^~~~~~~~
+/dev/stdin:45:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value10",
+ ^~~~~~~~~
+/dev/stdin:46:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value11",
+ ^~~~~~~~~
+/dev/stdin:47:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value12",
+ ^~~~~~~~~
+/dev/stdin:48:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value13",
+ ^~~~~~~~~
+/dev/stdin:49:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value14",
+ ^~~~~~~~~
+/dev/stdin:50:2: warning: initializing 'uint8_t *' (aka 'unsigned char *') with an expression of type 'char [8]' converts between pointers to integer types with different sign [-Wpointer-sign]
+ "value15"
+ ^~~~~~~~~
+/dev/stdin:71:30: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ int64_t v = otxn_param(SBUF(buf), names[i], s);
+                             ^~~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:6:36: note: passing argument to parameter here
+ extern int64_t otxn_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                   ^
+/dev/stdin:71:36: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ int64_t v = otxn_param(SBUF(buf), names[i], s);
+                                   ^~~~~~~~
+/dev/stdin:6:56: note: passing argument to parameter here
+ extern int64_t otxn_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                                                       ^
+/dev/stdin:80:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+35 warnings generated.
+/dev/stdin:76:22: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_validate(buf, size) == 1);
+                     ^~~
+/dev/stdin:32:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:20:38: note: passing argument to parameter here
+ extern int64_t sto_validate(uint32_t, uint32_t);
+                                     ^
+/dev/stdin:79:22: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subfield(buf, size, sfBalance) > 0);
+                     ^~~
+/dev/stdin:32:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:18:38: note: passing argument to parameter here
+ extern int64_t sto_subfield(uint32_t, uint32_t, uint32_t);
+                                     ^
+/dev/stdin:89:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+3 warnings generated.
+/dev/stdin:34:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:41:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:51:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:86:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:51:22: warning: incompatible pointer to integer conversion passing 'uint8_t [4096]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_validate(buf, s) == 1);
+                     ^~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:38: note: passing argument to parameter here
+ extern int64_t sto_validate(uint32_t, uint32_t);
+                                     ^
+/dev/stdin:55:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+2 warnings generated.
+/dev/stdin:96:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:76:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:100:73: warning: incompatible pointer to integer conversion passing 'char [4]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(util_keylet(SBUF(kl_tr), KEYLET_LINE, SBUF(addra), SBUF(addrb), "USD", 3) == 34);
+                                                                        ^~~~~
+/dev/stdin:40:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:27:11: note: passing argument to parameter 'e' here
+ uint32_t e,
+          ^
+/dev/stdin:112:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+2 warnings generated.
+/dev/stdin:54:61: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(state_foreign_set(SBUF(txn), SBUF(one), SBUF(zero), grantor + 12, 20) == 32);
+                                                            ^~~~~~~~~~~~
+/dev/stdin:19:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:14:30: note: passing argument to parameter here
+ uint32_t, uint32_t, uint32_t, uint32_t
+                             ^
+1 warning generated.
+/dev/stdin:48:64: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT((y=state_foreign_set(SBUF(txn), SBUF(txn), SBUF(zero), grantor + 12, 20)) == 32);
+                                                               ^~~~~~~~~~~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:12:30: note: passing argument to parameter here
+ uint32_t, uint32_t, uint32_t, uint32_t
+                             ^
+1 warning generated.
+/dev/stdin:93:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:36:31: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(state_set(SBUF(data), &zero, 1) == sizeof(data));
+                              ^~~~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'kread_ptr' here
+ uint32_t kread_ptr,
+          ^
+/dev/stdin:49:24: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(state_set(0,0, key2, 32) == 0);
+                       ^~~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'kread_ptr' here
+ uint32_t kread_ptr,
+          ^
+/dev/stdin:54:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+3 warnings generated.
+/dev/stdin:35:32: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(state(SBUF(data_read), &zero, 1) == sizeof(data));
+                               ^~~~~
+/dev/stdin:15:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'kread_ptr' here
+ uint32_t kread_ptr,
+          ^
+/dev/stdin:43:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+2 warnings generated.
+/dev/stdin:59:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:38:31: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(state_set(SBUF(data), &ff, 1) == sizeof(data));
+                              ^~~
+/dev/stdin:16:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'kread_ptr' here
+ uint32_t kread_ptr,
+          ^
+/dev/stdin:43:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+2 warnings generated.
+/dev/stdin:93:21: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, 1024, buf+1, 512, 0, 32, 1) == MEM_OVERLAP);
+                    ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:93:32: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, 1024, buf+1, 512, 0, 32, 1) == MEM_OVERLAP);
+                               ^~~~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:94:21: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf+1, 1024, buf, 512, 0, 32, 1) == MEM_OVERLAP);
+                    ^~~~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:94:34: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf+1, 1024, buf, 512, 0, 32, 1) == MEM_OVERLAP);
+                                 ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:95:29: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(0, 700, buf, 512, buf+1, 32, 1) == MEM_OVERLAP);
+                            ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:95:39: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(0, 700, buf, 512, buf+1, 32, 1) == MEM_OVERLAP);
+                                      ^~~~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'fread_ptr' here
+ uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id );
+          ^
+/dev/stdin:102:2: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ buf, sizeof(buf),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:103:2: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ sto, sizeof(sto),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:104:2: warning: incompatible pointer to integer conversion passing 'uint8_t [33]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ins, sizeof(ins), 0x50006U) == 
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'fread_ptr' here
+ uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id );
+          ^
+/dev/stdin:113:2: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ buf, sizeof(buf),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:114:2: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ sto, sizeof(sto),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:115:2: warning: incompatible pointer to integer conversion passing 'uint8_t [33]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ins, sizeof(ins), 0x50004U) == 
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'fread_ptr' here
+ uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id );
+          ^
+/dev/stdin:129:21: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), 0x10001U) == 
+                    ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:129:39: warning: incompatible pointer to integer conversion passing 'uint8_t [5]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), 0x10001U) == 
+                                      ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:129:57: warning: incompatible pointer to integer conversion passing 'uint8_t [3]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), 0x10001U) == 
+                                                        ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'fread_ptr' here
+ uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id );
+          ^
+/dev/stdin:141:21: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), 0x30001U) == 
+                    ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:141:39: warning: incompatible pointer to integer conversion passing 'uint8_t [5]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), 0x30001U) == 
+                                      ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:141:57: warning: incompatible pointer to integer conversion passing 'uint8_t [9]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), 0x30001U) == 
+                                                        ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'fread_ptr' here
+ uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id );
+          ^
+/dev/stdin:152:21: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), rep, sizeof(rep), 0x20002U) == 
+                    ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:152:39: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), rep, sizeof(rep), 0x20002U) == 
+                                      ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:152:57: warning: incompatible pointer to integer conversion passing 'uint8_t [5]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), rep, sizeof(rep), 0x20002U) == 
+                                                        ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:10:11: note: passing argument to parameter 'fread_ptr' here
+ uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id );
+          ^
+/dev/stdin:169:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+22 warnings generated.
+/dev/stdin:54:19: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_erase(buf, 1024, buf+1, 512, 1) == MEM_OVERLAP);
+                  ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:54:30: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_erase(buf, 1024, buf+1, 512, 1) == MEM_OVERLAP);
+                             ^~~~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:55:19: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_erase(buf+1, 1024, buf, 512, 1) == MEM_OVERLAP);
+                  ^~~~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:55:32: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_erase(buf+1, 1024, buf, 512, 1) == MEM_OVERLAP);
+                               ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:61:2: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ buf, sizeof(buf),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:62:2: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ sto, sizeof(sto), 0x20002U) == 
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:73:2: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ buf, sizeof(buf),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:74:2: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ sto, sizeof(sto), 0x10001U) == 
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:84:2: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ buf, sizeof(buf),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:85:2: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ sto, sizeof(sto), 0x80001U) == 
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:95:2: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ buf, sizeof(buf),
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:96:2: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ sto, sizeof(sto), 0x80002U) == 
+ ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:106:19: warning: incompatible pointer to integer conversion passing 'uint8_t [1024]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_erase(buf, sizeof(buf), rep, sizeof(rep), 0x20002U) == 
+                  ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr, uint32_t write_len, 
+          ^
+/dev/stdin:106:37: warning: incompatible pointer to integer conversion passing 'uint8_t [5]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_erase(buf, sizeof(buf), rep, sizeof(rep), 0x20002U) == 
+                                    ^~~
+/dev/stdin:18:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:9:11: note: passing argument to parameter 'sread_ptr' here
+ uint32_t sread_ptr, uint32_t sread_len, 
+          ^
+/dev/stdin:112:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+15 warnings generated.
+/dev/stdin:38:22: warning: incompatible pointer to integer conversion passing 'uint8_t [56]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subarray(sto, sizeof(sto), 0) ==
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:42:22: warning: incompatible pointer to integer conversion passing 'uint8_t [56]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subarray(sto, sizeof(sto), 1) ==
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:46:22: warning: incompatible pointer to integer conversion passing 'uint8_t [56]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subarray(sto, sizeof(sto), 2) == DOESNT_EXIST);
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:49:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+4 warnings generated.
+/dev/stdin:39:22: warning: incompatible pointer to integer conversion passing 'uint8_t [67]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subfield(sto, sizeof(sto),
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:43:22: warning: incompatible pointer to integer conversion passing 'uint8_t [67]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subfield(sto, sizeof(sto),
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:47:22: warning: incompatible pointer to integer conversion passing 'uint8_t [67]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subfield(sto, sizeof(sto),
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:51:22: warning: incompatible pointer to integer conversion passing 'uint8_t [67]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subfield(sto, sizeof(sto),
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:55:22: warning: incompatible pointer to integer conversion passing 'uint8_t [67]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_subfield(sto, sizeof(sto),
+                     ^~~
+/dev/stdin:14:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+          ^
+/dev/stdin:59:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+6 warnings generated.
+/dev/stdin:38:22: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_validate(sto, sizeof(sto)) == 1);
+                     ^~~
+/dev/stdin:12:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len);
+          ^
+/dev/stdin:42:22: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_validate(sto, sizeof(sto)) == 0);
+                     ^~~
+/dev/stdin:12:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len);
+          ^
+/dev/stdin:49:22: warning: incompatible pointer to integer conversion passing 'uint8_t [87]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_validate(sto, sizeof(sto)) == 0);
+                     ^~~
+/dev/stdin:12:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len);
+          ^
+/dev/stdin:54:22: warning: incompatible pointer to integer conversion passing 'uint8_t [5]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(sto_validate(sto, sizeof(sto)) == 1);
+                     ^~~
+/dev/stdin:12:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'read_ptr' here
+ uint32_t read_ptr, uint32_t read_len);
+          ^
+/dev/stdin:58:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+5 warnings generated.
+/dev/stdin:245:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+1 warning generated.
+/dev/stdin:107:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:108:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:122:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK_STATE,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:123:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(b), key, 32, SBUF(ns)
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:123:11: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(b), key, 32, SBUF(ns)
+          ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:123:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(b), key, 32, SBUF(ns)
+                        ^~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:15:11: note: passing argument to parameter 'e' here
+ uint32_t e,
+          ^
+/dev/stdin:136:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_ACCOUNT,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:137:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(b),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:151:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_AMENDMENTS,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:166:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_CHILD,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:167:2: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ key, 32,
+ ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:178:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_SKIP,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:195:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_FEES,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:211:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_NEGATIVE_UNL,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:227:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_LINE,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:228:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:229:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(b),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:230:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(cur)
+      ^~~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:15:11: note: passing argument to parameter 'e' here
+ uint32_t e,
+          ^
+/dev/stdin:245:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_LINE,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:246:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:247:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(b),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:265:14: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_keylet(buf, 34, KEYLET_LINE, SBUF(a), SBUF(b), (uint32_t)"`SD", 3));
+             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:265:41: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_keylet(buf, 34, KEYLET_LINE, SBUF(a), SBUF(b), (uint32_t)"`SD", 3));
+                                        ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:265:50: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_keylet(buf, 34, KEYLET_LINE, SBUF(a), SBUF(b), (uint32_t)"`SD", 3));
+                                                 ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:267:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_OFFER,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:268:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), 
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:286:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_OFFER,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:287:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), 
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:288:7: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(ns),
+      ^~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:307:44: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_QUALITY,
+                                           ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:308:7: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(klkey),
+      ^~~~~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:315:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_QUALITY,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:316:7: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(klkey),
+      ^~~~~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:332:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_EMITTED_DIR,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:348:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_SIGNERS,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:349:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:363:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_CHECK,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:364:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), 1, 0,
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:379:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_CHECK,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:380:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(ns),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:380:16: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(ns),
+               ^~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:394:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_DEPOSIT_PREAUTH,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:395:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(b),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:395:16: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(b),
+               ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:412:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_UNCHECKED,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:413:2: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ key, 32,
+ ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:420:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_OWNER_DIR,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:421:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:437:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_PAGE,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:438:7: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(ns), 0, 1,
+      ^~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:454:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_ESCROW,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:455:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), 1, 0,
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:471:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_ESCROW,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:472:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), 
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:473:7: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(ns),
+      ^~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:488:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_PAYCHAN,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:489:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(b), 1, 0
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:489:16: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(b), 1, 0
+               ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:505:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_PAYCHAN,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:506:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(b), SBUF(ns)
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:506:16: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(b), SBUF(ns)
+               ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:506:25: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(b), SBUF(ns)
+                        ^~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:15:11: note: passing argument to parameter 'e' here
+ uint32_t e,
+          ^
+/dev/stdin:520:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_EMITTED_TXN,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:521:2: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ns, 32,
+ ^~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:536:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_NFT_OFFER,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:537:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), 1, 0,
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:542:30: warning: incompatible pointer to integer conversion passing 'uint8_t [34]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_NFT_OFFER,
+                             ^~~
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:8:11: note: passing argument to parameter 'write_ptr' here
+ uint32_t write_ptr,
+          ^
+/dev/stdin:543:7: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(ns),
+      ^
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:11:11: note: passing argument to parameter 'a' here
+ uint32_t a,
+          ^
+/dev/stdin:543:16: warning: incompatible pointer to integer conversion passing 'uint8_t [32]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ SBUF(a), SBUF(ns),
+               ^~
+/dev/stdin:52:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x,sizeof(x)
+                 ^
+/dev/stdin:44:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:13:11: note: passing argument to parameter 'c' here
+ uint32_t c,
+          ^
+/dev/stdin:548:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+70 warnings generated.
+/dev/stdin:25:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:45:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:65:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:85:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:105:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:125:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:145:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:165:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:185:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:205:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:225:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:245:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:265:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:285:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:305:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:325:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:345:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:365:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:385:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:405:43: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_raddr((uint32_t)addr, sizeof(addr), raw, 20));
+                                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:426:27: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(util_raddr(0, 30, raw, 20) == TOO_SMALL);
+                          ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:57: note: passing argument to parameter here
+ extern int64_t util_raddr (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                        ^
+/dev/stdin:429:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+22 warnings generated.
+/dev/stdin:25:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:41:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:57:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:73:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:89:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:105:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:121:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:137:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:153:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:169:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:185:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:201:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:217:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:233:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:249:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:265:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:281:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:297:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:313:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:329:45: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ util_sha512h((uint32_t)hash, sizeof(hash), raw, 20));
+                                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:346:29: warning: incompatible pointer to integer conversion passing 'uint8_t [20]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(util_sha512h(0, 30, raw, 20) == TOO_SMALL);
+                            ^~~
+/dev/stdin:11:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:59: note: passing argument to parameter here
+ extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+                                                          ^
+/dev/stdin:349:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+22 warnings generated.
+/dev/stdin:83:21: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(util_verify(msg + 1, sizeof(msg) - 1, SBUF(sig_sec), SBUF(pubkey_sec)) == 0);
+                    ^~~~~~~
+/dev/stdin:13:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:38: note: passing argument to parameter here
+ extern int64_t util_verify (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                     ^
+/dev/stdin:87:21: warning: incompatible pointer to integer conversion passing 'uint8_t *' (aka 'unsigned char *') to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ ASSERT(util_verify(msg + 1, sizeof(msg) - 1, SBUF(sig_ed), SBUF(pubkey_ed)) == 0);
+                    ^~~~~~~
+/dev/stdin:13:8: note: expanded from macro 'ASSERT'
+ if (!(x))\
+       ^
+/dev/stdin:7:38: note: passing argument to parameter here
+ extern int64_t util_verify (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+                                     ^
+/dev/stdin:90:2: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+3 warnings generated.
+/dev/stdin:12:36: warning: incompatible pointer to integer conversion passing 'uint8_t [6]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ return accept(0,0, state_set(SBUF(test_value), SBUF(test_key)));
+                                   ^~~~~~~~~~
+/dev/stdin:6:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:5:37: note: passing argument to parameter 'read_ptr' here
+ extern int64_t state_set (uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
+                                    ^
+/dev/stdin:12:54: warning: incompatible pointer to integer conversion passing 'uint8_t [4]' to parameter of type 'uint32_t' (aka 'unsigned int') [-Wint-conversion]
+ return accept(0,0, state_set(SBUF(test_value), SBUF(test_key)));
+                                                     ^~~~~~~~
+/dev/stdin:6:18: note: expanded from macro 'SBUF'
+ #define SBUF(x) x, sizeof(x)
+                 ^
+/dev/stdin:5:75: note: passing argument to parameter 'kread_ptr' here
+ extern int64_t state_set (uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
+                                                                          ^
+2 warnings generated.
