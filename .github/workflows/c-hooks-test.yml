@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: ["dev", "candidate", "release"]
 
+env:
+  CLANG_VERSION: 10
+
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-{{github.ref}}
+  cancel-in-progress: true
 
 jobs:
   chooks-test-sources:
@@ -21,7 +24,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang-format wabt xxd bc
+          sudo apt-get install -y build-essential wabt xxd bc
+
+      - name: Install clang-format
+        uses: ./.github/actions/install-clang-format-ubuntu
+        with:
+          clang-version: ${{ env.CLANG_VERSION }}
 
       - name: Export PATH
         run: |
