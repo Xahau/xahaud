@@ -1079,6 +1079,24 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
 
 //------------------------------------------------------------------------------
 
+// increment the touch counter on an account
+static void
+touchAccount(ApplyView& view, AccountID const& id)
+{
+    if (!view.rules().enabled(featureTouch))
+        return;
+
+    std::shared_ptr<SLE> sle = view.peek(keylet::account(id));
+    if (!sle)
+        return;
+
+    uint64_t tc =
+        sle->isFieldPresent(sfTouchCount) ? sle->getFieldU64(sfTouchCount) : 0;
+
+    sle->setFieldU64(sfTouchCount, tc + 1);
+    view.update(sle);
+}
+
 static void
 removeUnfundedOffers(
     ApplyView& view,
@@ -1518,6 +1536,8 @@ Transactor::doTSH(
         // only process the relevant ones
         if ((!canRollback && strong) || (canRollback && !strong))
             continue;
+
+        touchAccount(view, tshAccountID);
 
         auto klTshHook = keylet::hook(tshAccountID);
 
