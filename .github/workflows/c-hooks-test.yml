@@ -24,12 +24,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential wabt xxd bc
+          sudo apt-get install -y build-essential wabt xxd bc clang-format
 
-      - name: Install clang-format
-        uses: ./.github/actions/install-clang-format-ubuntu
-        with:
-          clang-version: ${{ env.CLANG_VERSION }}
+      - name: Check Clang Format version
+        run: |
+          clang-format --version
 
       - name: Export PATH
         run: |
