@@ -14,11 +14,19 @@
 #
 # - clang-format:
 #   Ubuntu: $sudo apt-get install clang-format
-#   macOS: $brew install clang-format
+#   macOS: $brew install r-lib/taps/clang-format@10 (Match the Github Actions workflow version)
 #
 # - (macOS Only) GNU sed, grep:
 #   $brew install gnu-sed grep
-#   add path: PATH="/opt/homebrew/opt/gnu-sed/libexec/gnubin:$PATH"
+
+# Adds MacOS Homebrew directories to the PATH so that the script
+# doesn't use BSD versions of sed and grep
+for dir in /opt/homebrew/opt/gnu-sed/libexec/gnubin \
+           /opt/homebrew/opt/grep/libexec/gnubin; do
+  if [[ -d "$dir" && ":$PATH:" != *":$dir:"* ]]; then
+    PATH="$dir:$PATH"
+  fi
+done
 
 set -e
 # Get the script directory (retrieving the correct path regardless of where it's executed from)
