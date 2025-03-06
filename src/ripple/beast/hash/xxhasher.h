@@ -67,7 +67,8 @@ public:
         detail::XXH64_update(&state_, key, len);
     }
 
-    explicit operator std::size_t() noexcept
+    explicit
+    operator std::size_t() noexcept
     {
         return detail::XXH64_digest(&state_);
     }

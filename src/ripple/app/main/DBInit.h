@@ -74,20 +74,20 @@ inline constexpr auto TxDBName{"transaction.db"};
 
 // In C++17 omitting the explicit template parameters caused
 // a crash
-inline constexpr std::array<char const*, 4> TxDBPragma
-{
-    "PRAGMA page_size=4096;", "PRAGMA journal_size_limit=1582080;",
-        "PRAGMA max_page_count=2147483646;",
+inline constexpr std::array<char const*, 4> TxDBPragma{
+    "PRAGMA page_size=4096;",
+    "PRAGMA journal_size_limit=1582080;",
+    "PRAGMA max_page_count=2147483646;",
 
 #if (ULONG_MAX > UINT_MAX) && !defined(NO_SQLITE_MMAP)
-        "PRAGMA mmap_size=17179869184;"
+    "PRAGMA mmap_size=17179869184;"
 #else
 
-        // Provide an explicit `no-op` SQL statement
-        // in order to keep the size of the array
-        // constant regardless of the preprocessor
-        // condition evaluation
-        "PRAGMA sqlite_noop_statement;"
+    // Provide an explicit `no-op` SQL statement
+    // in order to keep the size of the array
+    // constant regardless of the preprocessor
+    // condition evaluation
+    "PRAGMA sqlite_noop_statement;"
 #endif
 };
 
@@ -129,20 +129,20 @@ inline constexpr auto LgrMetaDBName{"ledger_meta.db"};
 
 // In C++17 omitting the explicit template parameters caused
 // a crash
-inline constexpr std::array<char const*, 4> LgrMetaDBPragma
-{
-    "PRAGMA page_size=4096;", "PRAGMA journal_size_limit=1582080;",
-        "PRAGMA max_page_count=2147483646;",
+inline constexpr std::array<char const*, 4> LgrMetaDBPragma{
+    "PRAGMA page_size=4096;",
+    "PRAGMA journal_size_limit=1582080;",
+    "PRAGMA max_page_count=2147483646;",
 
 #if (ULONG_MAX > UINT_MAX) && !defined(NO_SQLITE_MMAP)
-        "PRAGMA mmap_size=17179869184;"
+    "PRAGMA mmap_size=17179869184;"
 #else
 
-        // Provide an explicit `no-op` SQL statement
-        // in order to keep the size of the array
-        // constant regardless of the preprocessor
-        // condition evaluation
-        "PRAGMA sqlite_noop_statement;"
+    // Provide an explicit `no-op` SQL statement
+    // in order to keep the size of the array
+    // constant regardless of the preprocessor
+    // condition evaluation
+    "PRAGMA sqlite_noop_statement;"
 #endif
 };
 
@@ -163,20 +163,20 @@ inline constexpr auto TxMetaDBName{"transaction_meta.db"};
 
 // In C++17 omitting the explicit template parameters caused
 // a crash
-inline constexpr std::array<char const*, 4> TxMetaDBPragma
-{
-    "PRAGMA page_size=4096;", "PRAGMA journal_size_limit=1582080;",
-        "PRAGMA max_page_count=2147483646;",
+inline constexpr std::array<char const*, 4> TxMetaDBPragma{
+    "PRAGMA page_size=4096;",
+    "PRAGMA journal_size_limit=1582080;",
+    "PRAGMA max_page_count=2147483646;",
 
 #if (ULONG_MAX > UINT_MAX) && !defined(NO_SQLITE_MMAP)
-        "PRAGMA mmap_size=17179869184;"
+    "PRAGMA mmap_size=17179869184;"
 #else
 
-        // Provide an explicit `no-op` SQL statement
-        // in order to keep the size of the array
-        // constant regardless of the preprocessor
-        // condition evaluation
-        "PRAGMA sqlite_noop_statement;"
+    // Provide an explicit `no-op` SQL statement
+    // in order to keep the size of the array
+    // constant regardless of the preprocessor
+    // condition evaluation
+    "PRAGMA sqlite_noop_statement;"
 #endif
 };
 

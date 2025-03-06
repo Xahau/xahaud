@@ -443,7 +443,8 @@ struct RunType
 {
     // see:
     // http://alumni.media.mit.edu/~rahimi/compile-time-flags/
-    constexpr operator T() const
+    constexpr
+    operator T() const
     {
         static_assert(std::is_same<bool, T>::value);
         return V;

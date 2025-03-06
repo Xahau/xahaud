@@ -465,7 +465,6 @@ struct Remit_test : public beast::unit_test::suite
 
         // tefBAD_LEDGER - invalid owner directory
         {
-
         }
 
         // tecDIR_FULL - destination directory full

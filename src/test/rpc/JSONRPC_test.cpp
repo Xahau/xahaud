@@ -2424,14 +2424,14 @@ public:
             NetworkOPs::FailHard failType,
             Role role,
             std::chrono::seconds validatedLedgerAge,
-            Application & app);
+            Application& app);
 
         using submitFunc = Json::Value (*)(
             Json::Value params,
             NetworkOPs::FailHard failType,
             Role role,
             std::chrono::seconds validatedLedgerAge,
-            Application & app,
+            Application& app,
             ProcessTransactionFn const& processTransaction);
 
         using TestStuff =

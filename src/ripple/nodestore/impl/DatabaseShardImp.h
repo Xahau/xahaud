@@ -124,7 +124,7 @@ public:
         std::uint32_t ledgerSeq) override;
 
     void
-    sync() override{};
+    sync() override {};
 
     bool
     storeLedger(std::shared_ptr<Ledger const> const& srcLedger) override;

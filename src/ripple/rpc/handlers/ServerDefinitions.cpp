@@ -457,7 +457,7 @@ private:
     Json::Value defs;
 
 public:
-    Definitions() : defs(generate()){};
+    Definitions() : defs(generate()) {};
 
     uint256 const&
     getHash() const

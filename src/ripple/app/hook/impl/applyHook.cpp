@@ -2908,10 +2908,10 @@ DEFINE_HOOK_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::CHILD
                     ? ripple::keylet::child(id)
                     : keylet_type == keylet_code::EMITTED_TXN
-                        ? ripple::keylet::emittedTxn(id)
-                        : keylet_type == keylet_code::HOOK_DEFINITION
-                            ? ripple::keylet::hookDefinition(id)
-                            : ripple::keylet::unchecked(id);
+                    ? ripple::keylet::emittedTxn(id)
+                    : keylet_type == keylet_code::HOOK_DEFINITION
+                    ? ripple::keylet::hookDefinition(id)
+                    : ripple::keylet::unchecked(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -2940,10 +2940,10 @@ DEFINE_HOOK_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::HOOK
                     ? ripple::keylet::hook(id)
                     : keylet_type == keylet_code::SIGNERS
-                        ? ripple::keylet::signers(id)
-                        : keylet_type == keylet_code::OWNER_DIR
-                            ? ripple::keylet::ownerDir(id)
-                            : ripple::keylet::account(id);
+                    ? ripple::keylet::signers(id)
+                    : keylet_type == keylet_code::OWNER_DIR
+                    ? ripple::keylet::ownerDir(id)
+                    : ripple::keylet::account(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -2983,10 +2983,10 @@ DEFINE_HOOK_FUNCTION(
                 ripple::Keylet kl = keylet_type == keylet_code::CHECK
                     ? ripple::keylet::check(id, seq)
                     : keylet_type == keylet_code::ESCROW
-                        ? ripple::keylet::escrow(id, seq)
-                        : keylet_type == keylet_code::NFT_OFFER
-                            ? ripple::keylet::nftoffer(id, seq)
-                            : ripple::keylet::offer(id, seq);
+                    ? ripple::keylet::escrow(id, seq)
+                    : keylet_type == keylet_code::NFT_OFFER
+                    ? ripple::keylet::nftoffer(id, seq)
+                    : ripple::keylet::offer(id, seq);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -3104,13 +3104,11 @@ DEFINE_HOOK_FUNCTION(
                 WRITE_WASM_MEMORY_AND_RETURN(
                     write_ptr,
                     write_len,
-                    keylet_type == keylet_code::AMENDMENTS
-                        ? cAmendments.data()
-                        : keylet_type == keylet_code::FEES
-                            ? cFees.data()
-                            : keylet_type == keylet_code::NEGATIVE_UNL
-                                ? cNegativeUNL.data()
-                                : cEmittedDir.data(),
+                    keylet_type == keylet_code::AMENDMENTS ? cAmendments.data()
+                        : keylet_type == keylet_code::FEES ? cFees.data()
+                        : keylet_type == keylet_code::NEGATIVE_UNL
+                        ? cNegativeUNL.data()
+                        : cEmittedDir.data(),
                     34,
                     memory,
                     memory_length);
@@ -5961,9 +5959,9 @@ DEFINE_HOOK_FUNCTION(
 
     size_t free_count = hook_api::max_slots - hookCtx.slot.size();
 
-    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0
-        ? 2
-        : slot_into_tx != 0 && slot_into_meta != 0 ? 0 : 1;
+    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0 ? 2
+        : slot_into_tx != 0 && slot_into_meta != 0                 ? 0
+                                                                   : 1;
 
     if (free_count < needed_count)
         return NO_FREE_SLOTS;
