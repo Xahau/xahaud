@@ -18,6 +18,14 @@
 #
 # - (macOS Only) GNU sed, grep:
 #   $brew install gnu-sed grep
+set -e
+# Get the script directory (retrieving the correct path regardless of where it's executed from)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
+# Set the project root directory
+WASM_DIR="generated/hook/c"
+INPUT_FILE="SetHook_test.cpp"
+OUTPUT_FILE="SetHook_wasm.h"
 
 # Adds MacOS Homebrew directories to the PATH so that the script
 # doesn't use BSD versions of sed and grep
@@ -27,15 +35,6 @@ for dir in /opt/homebrew/opt/gnu-sed/libexec/gnubin \
     PATH="$dir:$PATH"
   fi
 done
-
-set -e
-# Get the script directory (retrieving the correct path regardless of where it's executed from)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "${SCRIPT_DIR}"
-# Set the project root directory
-WASM_DIR="generated/hook/c"
-INPUT_FILE="SetHook_test.cpp"
-OUTPUT_FILE="SetHook_wasm.h"
 
 mkdir -p $WASM_DIR
 echo '
