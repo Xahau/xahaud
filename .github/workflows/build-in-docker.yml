@@ -7,32 +7,40 @@ on:
     branches: [ "dev", "candidate", "release", "jshooks" ]
 
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   checkout:
     runs-on: [self-hosted, vanity]
     steps:
-    - uses: actions/checkout@v4
-      with:
-        clean: false
+      - uses: actions/checkout@v4
+        with:
+          clean: false
   checkpatterns:
     runs-on: [self-hosted, vanity]
     needs: checkout
     steps:
-    - name: Check for suspicious patterns
-      run: /bin/bash suspicious_patterns.sh
+      - name: Check for suspicious patterns
+        run: /bin/bash suspicious_patterns.sh
   build:
+    # This runner only runs one workflow at a time, and queues them
     runs-on: [self-hosted, vanity]
     needs: checkpatterns
     steps:
-    - name: Build using Docker
-      run: /bin/bash release-builder.sh
+      - name: Set Container Name Environment Variable
+        run: |
+          echo "CONTAINER_NAME=xahaud_cached_builder_$(echo "$GITHUB_ACTOR" | awk '{print tolower($0)}')" >> $GITHUB_ENV
+      - name: Build using Docker
+        run: /bin/bash release-builder.sh
+      - name: Stop Container
+        if: always()
+        run: |
+          echo "Stopping container: $CONTAINER_NAME"
+          docker stop "$CONTAINER_NAME" || true
   tests:
     runs-on: [self-hosted, vanity]
     needs: build
     steps:
-    - name: Unit tests
-      run: /bin/bash docker-unit-tests.sh
-
+      - name: Unit tests
+        run: /bin/bash docker-unit-tests.sh
