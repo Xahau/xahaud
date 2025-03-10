@@ -17,16 +17,25 @@ if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   BUILD_CORES=8
 fi
 
+EXIT_IF_CONTAINER_RUNNING=${EXIT_IF_CONTAINER_RUNNING:-1}
+
 # Caching is currently disabled, but in the future this may require a different namespacing strategy
 CONTAINER_NAME_DEFAULT="xahaud_cached_builder_$(echo "${GITHUB_ACTOR:-unknown}" | awk '{print tolower($0)}')"
 # Note that the CI can set this itself and does so so it can use an always() step to stop the container
 # at the end of the workflow, canceled or not.
 CONTAINER_NAME=${CONTAINER_NAME:-$CONTAINER_NAME_DEFAULT}
 
-# Ensure no container with CONTAINER_NAME is running
+# Check if the container is already running
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    echo "⚠️ A running container (${CONTAINER_NAME}) was detected. Exiting."
-    exit 1
+    echo "⚠️ A running container (${CONTAINER_NAME}) was detected."
+
+    if [[ "$EXIT_IF_CONTAINER_RUNNING" -eq 1 ]]; then
+        echo "❌ EXIT_IF_CONTAINER_RUNNING is set. Exiting."
+        exit 1
+    else
+        echo "🛑 Stopping the running container: ${CONTAINER_NAME}"
+        docker stop "${CONTAINER_NAME}"
+    fi
 fi
 
 echo "-- BUILD CORES:       $BUILD_CORES"
