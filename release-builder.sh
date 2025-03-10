@@ -18,13 +18,13 @@ if [[ "$GITHUB_REPOSITORY" == "" ]]; then
 fi
 
 # Caching is currently disabled, but in the future this may require a different namespacing strategy
-CONTAINER_NAME_TMP="xahaud_cached_builder_$(echo "${GITHUB_ACTOR:-unknown}" | awk '{print tolower($0)}')"
-CONTAINER_NAME=${CONTAINER_NAME:-$CONTAINER_NAME_TMP}
+CONTAINER_NAME_DEFAULT="xahaud_cached_builder_$(echo "${GITHUB_ACTOR:-unknown}" | awk '{print tolower($0)}')"
+CONTAINER_NAME=${CONTAINER_NAME:-$CONTAINER_NAME_DEFAULT}
 
 # Ensure no container with CONTAINER_NAME is running
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    echo "⚠️ A running container (${CONTAINER_NAME}) was detected."
-    docker stop "$CONTAINER_NAME"
+    echo "⚠️ A running container (${CONTAINER_NAME}) was detected. Exiting."
+    exit 1
 fi
 
 echo "-- BUILD CORES:       $BUILD_CORES"
