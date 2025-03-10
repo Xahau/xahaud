@@ -37,7 +37,7 @@ jobs:
         if: always()
         run: |
           echo "Stopping container: $CONTAINER_NAME"
-          docker stop "$CONTAINER_NAME" || true
+          docker stop --time=15 "$CONTAINER_NAME" || echo "failed to stop container or container not running"
   tests:
     runs-on: [self-hosted, vanity]
     needs: build
