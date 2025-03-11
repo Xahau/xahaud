@@ -18,16 +18,12 @@
 //==============================================================================
 
 #include <test/jtx.h>
-#include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/jss.h>
-
 #include <test/jtx/WSClient.h>
 #include <test/rpc/GRPCTestClientBase.h>
-#include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpl/hook/Misc.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/InnerObjectFormats.h>
-#include <xrpl/resource/Charge.h>
-#include <xrpl/resource/Fees.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {

@@ -35,7 +35,6 @@
 #include <xrpld/app/main/LoadManager.h>
 #include <xrpld/app/main/NodeIdentity.h>
 #include <xrpld/app/main/NodeStoreScheduler.h>
-#include <xrpld/app/main/Tuning.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DatagramMonitor.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -62,7 +61,6 @@
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/ResolverAsio.h>
 #include <xrpl/basics/random.h>
-#include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/asio/io_latency_probe.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/crypto/csprng.h>
@@ -76,7 +74,6 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/system/error_code.hpp>
-
 #include <date/date.h>
 
 #include <chrono>
@@ -87,7 +84,6 @@
 #include <mutex>
 #include <optional>
 #include <utility>
-#include <variant>
 
 namespace ripple {
 

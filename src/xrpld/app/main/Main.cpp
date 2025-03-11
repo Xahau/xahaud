@@ -17,7 +17,6 @@
 */
 //==============================================================================
 #include <xrpld/app/main/Application.h>
-#include <xrpld/app/main/DBInit.h>
 #include <xrpld/app/rdb/Vacuum.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/core/ConfigSections.h>
@@ -26,13 +25,8 @@
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/handlers/Handlers.h>
 #include <xrpl/basics/Log.h>
-#include <xrpl/basics/StringUtilities.h>
-#include <xrpl/basics/contract.h>
-#include <xrpl/beast/clock/basic_seconds_clock.h>
 #include <xrpl/beast/core/CurrentThreadName.h>
-#include <xrpl/json/to_string.h>
 #include <xrpl/protocol/BuildInfo.h>
-#include <xrpl/resource/Fees.h>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/process/v1/args.hpp>
@@ -46,11 +40,8 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/program_options.hpp>
 
-#include <google/protobuf/stubs/common.h>
-
-#include <boost/filesystem.hpp>
-#include <boost/predef.h>
 #include <boost/program_options.hpp>
+#include <google/protobuf/stubs/common.h>
 
 #include <cstdlib>
 #include <iostream>

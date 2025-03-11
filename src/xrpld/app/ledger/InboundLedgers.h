@@ -22,7 +22,6 @@
 
 #include <xrpld/app/ledger/InboundLedger.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
-#include <memory>
 
 namespace ripple {
 

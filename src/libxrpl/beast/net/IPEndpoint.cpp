@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpl/beast/net/IPAddress.h>
 #include <xrpl/beast/net/IPEndpoint.h>
 
 #include <boost/algorithm/string/trim.hpp>

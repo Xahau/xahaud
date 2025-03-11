@@ -31,8 +31,6 @@
 #include <boost/beast/http/read.hpp>
 #include <boost/beast/http/write.hpp>
 
-#include <vector>
-
 namespace ripple {
 
 namespace detail {

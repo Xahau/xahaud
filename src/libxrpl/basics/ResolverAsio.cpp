@@ -18,9 +18,11 @@
 //==============================================================================
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/Resolver.h>
 #include <xrpl/basics/ResolverAsio.h>
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/net/IPEndpoint.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/beast/utility/instrumentation.h>
 
 #include <boost/asio/bind_executor.hpp>
@@ -31,11 +33,17 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <condition_variable>
 #include <deque>
+#include <functional>
+#include <iterator>
 #include <locale>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 

@@ -26,7 +26,6 @@
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/FeeUnits.h>
 namespace ripple {
 

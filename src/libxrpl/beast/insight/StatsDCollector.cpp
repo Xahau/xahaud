@@ -21,10 +21,12 @@
 #include <xrpl/beast/insight/CounterImpl.h>
 #include <xrpl/beast/insight/EventImpl.h>
 #include <xrpl/beast/insight/GaugeImpl.h>
+#include <xrpl/beast/insight/Hook.h>
 #include <xrpl/beast/insight/HookImpl.h>
 #include <xrpl/beast/insight/MeterImpl.h>
 #include <xrpl/beast/insight/StatsDCollector.h>
-#include <xrpl/beast/net/IPAddressConversion.h>
+#include <xrpl/beast/net/IPEndpoint.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/beast/utility/instrumentation.h>
 
 #include <boost/asio/basic_waitable_timer.hpp>
@@ -46,9 +48,11 @@
 #include <iostream>
 #include <mutex>
 #include <optional>
-#include <set>
 #include <sstream>
+#include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #ifndef BEAST_STATSDCOLLECTOR_TRACING_ENABLED
 #define BEAST_STATSDCOLLECTOR_TRACING_ENABLED 0

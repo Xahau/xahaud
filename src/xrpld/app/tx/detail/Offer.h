@@ -28,7 +28,7 @@
 #include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STLedgerEntry.h>
-#include <ostream>
+
 #include <stdexcept>
 
 namespace ripple {

@@ -21,16 +21,16 @@
 #define RIPPLE_APP_MAIN_APPLICATION_H_INCLUDED
 #include <xrpld/core/Config.h>
 #include <xrpld/overlay/PeerReservationTable.h>
-#include <xrpld/shamap/FullBelowCache.h>
 #include <xrpld/shamap/TreeNodeCache.h>
 #include <xrpl/basics/TaggedCache.h>
 #include <xrpl/beast/utility/PropertyStream.h>
 #include <xrpl/protocol/Protocol.h>
+
 #include <boost/asio.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/program_options.hpp>
 #include <boost/system/error_code.hpp>
-#include <memory>
+
 #include <mutex>
 #include <optional>
 #include <string>

@@ -27,11 +27,9 @@
 
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/utility/in_place_factory.hpp>
 
 #include <memory>
 #include <optional>
-#include <thread>
 
 namespace ripple {
 namespace PeerFinder {

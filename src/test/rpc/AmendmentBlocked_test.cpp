@@ -32,7 +32,7 @@
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/BuildInfo.h>
-#include <xrpl/protocol/ErrorCodes.h>
+
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
