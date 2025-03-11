@@ -5,8 +5,6 @@
 # debugging.
 set -ex
 
-set -e
-
 echo "START BUILDING (HOST)"
 
 echo "Cleaning previously built binary"
@@ -19,7 +17,26 @@ if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   BUILD_CORES=8
 fi
 
-CONTAINER_NAME=xahaud_cached_builder_$(echo "$GITHUB_ACTOR" | awk '{print tolower($0)}')
+EXIT_IF_CONTAINER_RUNNING=${EXIT_IF_CONTAINER_RUNNING:-1}
+# Ensure still works outside of GH Actions by setting these to /dev/null
+# GA will run this script and then delete it at the end of the job
+JOB_CLEANUP_SCRIPT=${JOB_CLEANUP_SCRIPT:-/dev/null}
+NORMALIZED_WORKFLOW=$(echo "$GITHUB_WORKFLOW" | tr -c 'a-zA-Z0-9' '-')
+NORMALIZED_REF=$(echo "$GITHUB_REF" | tr -c 'a-zA-Z0-9' '-')
+CONTAINER_NAME="xahaud_cached_builder_${NORMALIZED_WORKFLOW}-${NORMALIZED_REF}"
+
+# Check if the container is already running
+if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "⚠️ A running container (${CONTAINER_NAME}) was detected."
+
+    if [[ "$EXIT_IF_CONTAINER_RUNNING" -eq 1 ]]; then
+        echo "❌ EXIT_IF_CONTAINER_RUNNING is set. Exiting."
+        exit 1
+    else
+        echo "🛑 Stopping the running container: ${CONTAINER_NAME}"
+        docker stop "${CONTAINER_NAME}"
+    fi
+fi
 
 echo "-- BUILD CORES:       $BUILD_CORES"
 echo "-- GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
@@ -62,6 +79,8 @@ else
     # GH Action, runner
     echo "GH Action, runner, clean & re-create create persistent container"
     docker rm -f $CONTAINER_NAME
+    echo "echo 'Stopping container: $CONTAINER_NAME'" >> "$JOB_CLEANUP_SCRIPT"
+    echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >> "$JOB_CLEANUP_SCRIPT"
     docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v `pwd`:/io --network host ghcr.io/foobarwidget/holy-build-box-x64 /hbb_exe/activate-exec bash
     docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -x /io/build-full.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$BUILD_CORES" "$GITHUB_RUN_NUMBER"
     docker stop $CONTAINER_NAME
