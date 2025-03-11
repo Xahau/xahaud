@@ -9210,7 +9210,8 @@ public:
         env(pay(bob, alice, XRP(1)), M("test sto_emplace"), fee(XRP(1)));
     }
 
-    void test_sto_erase(FeatureBitset features)
+    void
+    test_sto_erase(FeatureBitset features)
     {
         testcase("Test sto_erase");
         using namespace jtx;
@@ -9300,7 +9301,8 @@ public:
         env(pay(bob, alice, XRP(1)), M("test sto_erase"), fee(XRP(1)));
     }
 
-    void test_sto_subarray(FeatureBitset features)
+    void
+    test_sto_subarray(FeatureBitset features)
     {
         testcase("Test sto_subarray");
         using namespace jtx;
@@ -9360,7 +9362,8 @@ public:
         env(pay(bob, alice, XRP(1)), M("test sto_subarray"), fee(XRP(1)));
     }
 
-    void test_sto_subfield(FeatureBitset features)
+    void
+    test_sto_subfield(FeatureBitset features)
     {
         testcase("Test sto_subfield");
         using namespace jtx;
@@ -9431,7 +9434,8 @@ public:
         env(pay(bob, alice, XRP(1)), M("test sto_subfield"), fee(XRP(1)));
     }
 
-    void test_sto_validate(FeatureBitset features)
+    void
+    test_sto_validate(FeatureBitset features)
     {
         testcase("Test sto_validate");
         using namespace jtx;
@@ -9497,7 +9501,8 @@ public:
         env(pay(bob, alice, XRP(1)), M("test sto_validate"), fee(XRP(1)));
     }
 
-    void test_sto_to_json(FeatureBitset features)
+    void
+    test_sto_to_json(FeatureBitset features)
     {
         testcase("Test sto_to_json");
         using namespace jtx;
@@ -9581,7 +9586,8 @@ public:
         env(pay(bob, alice, XRP(1)), M("test sto_to_json"), fee(XRP(1)));
     }
 
-    void test_sto_from_json(FeatureBitset features)
+    void
+    test_sto_from_json(FeatureBitset features)
     {
         testcase("Test sto_from_json");
         using namespace jtx;
@@ -9759,12 +9765,12 @@ public:
         // test_state_foreign_set_max(features);  // Not Version Specific
         test_state_set(features);  //
 
-        test_sto_emplace(features);  //
-        test_sto_erase(features);     //
-        test_sto_subarray(features);  //
-        test_sto_subfield(features);  //
-        test_sto_validate(features);  //
-        test_sto_to_json(features);  // JS ONLY
+        test_sto_emplace(features);    //
+        test_sto_erase(features);      //
+        test_sto_subarray(features);   //
+        test_sto_subfield(features);   //
+        test_sto_validate(features);   //
+        test_sto_to_json(features);    // JS ONLY
         test_sto_from_json(features);  // JS ONLY
 
         test_trace(features);  //
