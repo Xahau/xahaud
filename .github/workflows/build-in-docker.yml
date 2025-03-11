@@ -29,6 +29,8 @@ jobs:
     needs: checkpatterns
     steps:
       - name: Set Cleanup Script Path
+        # This way we don't need to configure CONTAINER_NAME in multiple places,
+        # just configure it in the build script, and add cleanup steps to this script.
         run: echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
 
       - name: Build using Docker
