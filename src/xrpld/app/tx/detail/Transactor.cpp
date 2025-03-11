@@ -39,10 +39,8 @@
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/JSONTxSignatures.h>
 #include <xrpl/protocol/Protocol.h>
-#include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/UintTypes.h>
-#include <limits>
 #include <set>
 
 namespace ripple {

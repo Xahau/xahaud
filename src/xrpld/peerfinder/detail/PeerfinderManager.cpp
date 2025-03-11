@@ -28,13 +28,11 @@
 #include <xrpl/basics/random.h>
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/utility/in_place_factory.hpp>
 
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
-#include <thread>
 
 namespace ripple {
 namespace PeerFinder {

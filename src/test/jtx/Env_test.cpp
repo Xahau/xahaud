@@ -23,7 +23,6 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpl/beast/hash/uhash.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
@@ -35,6 +34,7 @@
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/http/write.hpp>
 #include <boost/lexical_cast.hpp>
+
 #include <chrono>
 #include <optional>
 #include <thread>

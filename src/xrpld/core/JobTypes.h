@@ -23,7 +23,6 @@
 #include <xrpld/core/Job.h>
 #include <array>
 #include <chrono>
-#include <string>
 
 namespace ripple {
 

@@ -21,9 +21,12 @@
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/core/SemanticVersion.h>
 #include <xrpl/protocol/BuildInfo.h>
-#include <boost/preprocessor/stringize.hpp>
+
 #include <algorithm>
+#include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace ripple {
 

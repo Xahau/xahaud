@@ -33,7 +33,6 @@
 
 #include <condition_variable>
 #include <functional>
-#include <memory>
 #include <optional>
 #include <thread>
 #include <utility>

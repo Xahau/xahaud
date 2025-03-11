@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <xrpld/ledger/detail/ApplyViewBase.h>
-#include <xrpl/basics/contract.h>
 #include <xrpl/protocol/STAccount.h>
 
 namespace ripple {

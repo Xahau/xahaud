@@ -24,7 +24,6 @@
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/beast/utility/instrumentation.h>
-#include <cerrno>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/io_context.hpp>

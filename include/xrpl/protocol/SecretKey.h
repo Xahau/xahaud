@@ -27,6 +27,7 @@
 #include <xrpl/protocol/Seed.h>
 #include <xrpl/protocol/detail/KeyBase.h>
 #include <xrpl/protocol/tokens.h>
+
 #include <array>
 #include <string>
 

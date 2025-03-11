@@ -36,6 +36,7 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/digest.h>
 #include <algorithm>
+
 #include <string_view>
 
 namespace ripple {

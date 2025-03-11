@@ -42,8 +42,6 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 
-#include <atomic>
-#include <condition_variable>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -51,11 +49,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <queue>
 #include <shared_mutex>
 #include <thread>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 

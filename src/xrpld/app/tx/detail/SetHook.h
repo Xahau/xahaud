@@ -33,9 +33,7 @@
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
-#include <algorithm>
 #include <cstdint>
-#include <vector>
 
 namespace ripple {
 
