@@ -9210,6 +9210,457 @@ public:
         env(pay(bob, alice, XRP(1)), M("test sto_emplace"), fee(XRP(1)));
     }
 
+    void test_sto_erase(FeatureBitset features)
+    {
+        testcase("Test sto_erase");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const ASSERT = (x) => {
+            if (!x) rollback(x.toString(), 0)
+            }
+
+            const DOESNT_EXIST = -5
+
+            const sto = [
+                0x11, 0x00, 0x61, 0x22, 0x00, 0x00, 0x00, 0x00, 0x24, 0x04, 0x1f, 0x94, 0xd9,
+                0x25, 0x04, 0x5e, 0x84, 0xb7, 0x2d, 0x00, 0x00, 0x00, 0x00, 0x55, 0x13, 0x40,
+                0xb3, 0x25, 0x86, 0x31, 0x96, 0xb5, 0x6f, 0x41, 0xf5, 0x89, 0xeb, 0x7d, 0x2f,
+                0xd9, 0x4c, 0x0d, 0x7d, 0xb8, 0x0e, 0x4b, 0x2c, 0x67, 0xa7, 0x78, 0x2a, 0xd6,
+                0xc2, 0xb0, 0x77, 0x50, 0x62, 0x40, 0x00, 0x00, 0x00, 0x00, 0xa4, 0x79, 0x94,
+                0x81, 0x14, 0x37, 0xdf, 0x44, 0x07, 0xe7, 0xaa, 0x07, 0xf1, 0xd5, 0xc9, 0x91,
+                0xf2, 0xd3, 0x6f, 0x9e, 0xb8, 0xc7, 0x34, 0xaf, 0x6c,
+            ]
+
+            // test_sto_erase
+            const Hook = (arg) => {
+                // erase field 22
+                {
+                    const buf = sto_erase(sto, 0x20002)
+                    ASSERT(buf.length === sto.length - 5)
+
+                    ASSERT(buf[0] === sto[0] && buf[1] === sto[1] && buf[2] === sto[2])
+                    for (let i = 3; i < sto.length - 5; i++) {
+                    ASSERT(sto[i + 5] === buf[i])
+                    }
+                }
+
+                // test front erasure
+                {
+                    const buf = sto_erase(sto, 0x10001)
+                    ASSERT(buf.length === sto.length - 3)
+
+                    for (let i = 3; i < sto.length - 3; i++) {
+                    ASSERT(sto[i] === buf[i - 3])
+                    }
+                }
+
+                // test back erasure
+                {
+                    const buf = sto_erase(sto, 0x80001)
+                    ASSERT(buf.length === sto.length - 22)
+
+                    for (let i = 0; i < sto.length - 22; i++) {
+                    ASSERT(sto[i] === buf[i])
+                    }
+                }
+
+                // test not found
+                {
+                    const buf = sto_erase(sto, 0x80002)
+                    // TODO: https://github.com/Xahau/xahaud/issues/459
+                    // ASSERT(buf === DOESNT_EXIST)
+                }
+
+                // test total erasure
+                {
+                    const rep = [0x22, 0x10, 0x20, 0x30, 0x40]
+                    const buf = sto_erase(rep, 0x20002)
+                    ASSERT(buf.length === 0)
+                }
+
+                accept('success', 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set sto_erase"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test sto_erase"), fee(XRP(1)));
+    }
+
+    void test_sto_subarray(FeatureBitset features)
+    {
+        testcase("Test sto_subarray");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const DOESNT_EXIST = -5
+            const INVALID_ARGUMENT = -7
+
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0)
+            }
+
+            const sto = [
+                0xf4, 0xeb, 0x13, 0x00, 0x01, 0x81, 0x14, 0x20, 0x42, 0x88, 0xd2, 0xe4, 0x7f,
+                0x8e, 0xf6, 0xc9, 0x9b, 0xcc, 0x45, 0x79, 0x66, 0x32, 0x0d, 0x12, 0x40, 0x97,
+                0x11, 0xe1, 0xeb, 0x13, 0x00, 0x01, 0x81, 0x14, 0x3e, 0x9d, 0x4a, 0x2b, 0x8a,
+                0xa0, 0x78, 0x0f, 0x68, 0x2d, 0x13, 0x6f, 0x7a, 0x56, 0xd6, 0x72, 0x4e, 0xf5,
+                0x37, 0x54, 0xe1, 0xf1,
+            ]
+
+            const Hook = (reserved) => {
+                // Test invalid arg
+                ASSERT(sto_subarray(undefined, 0) === INVALID_ARGUMENT)
+                ASSERT(sto_subarray(sto, undefined) === INVALID_ARGUMENT)
+                ASSERT(sto_subarray(sto, -1) === INVALID_ARGUMENT)
+                ASSERT(sto_subarray(sto, 0xffffffff + 1) === INVALID_ARGUMENT)
+
+                // Test index 0, should be position 1 length 27
+                // ASSERT(sto_subarray(sto, 0) === (1 << 32) + 27)
+                ASSERT(sto_subarray(sto, 0) === 2 ** 32 + 27)
+
+                // Test index 1, should be position 28 length 27
+                // ASSERT(sto_subarray(sto, 1) === (28 << 32) + 27)
+                ASSERT(sto_subarray(sto, 1) === 28 * 2 ** 32 + 27)
+
+                // Test index 2, doesn't exist
+                ASSERT(sto_subarray(sto, 2) === DOESNT_EXIST)
+
+                accept('success', 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set sto_subarray"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test sto_subarray"), fee(XRP(1)));
+    }
+
+    void test_sto_subfield(FeatureBitset features)
+    {
+        testcase("Test sto_subfield");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const DOESNT_EXIST = -5
+            const INVALID_ARGUMENT = -7
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0)
+            }
+
+            const sto = [
+                0x11, 0x00, 0x53, 0x22, 0x00, 0x00, 0x00, 0x00, 0x25, 0x01, 0x52, 0x70, 0x1a,
+                0x20, 0x23, 0x00, 0x00, 0x00, 0x02, 0x20, 0x26, 0x00, 0x00, 0x00, 0x00, 0x34,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x09, 0xa9, 0xc8, 0x6b,
+                0xf2, 0x06, 0x95, 0x73, 0x5a, 0xb0, 0x36, 0x20, 0xeb, 0x1c, 0x32, 0x60, 0x66,
+                0x35, 0xac, 0x3d, 0xa0, 0xb7, 0x02, 0x82, 0xf3, 0x7c, 0x67, 0x4f, 0xc8, 0x89,
+                0xef, 0xe7,
+            ]
+
+            const Hook = (reserved) => {
+                // Test invalid arg
+                ASSERT(sto_subfield(undefined, 0x10001) === INVALID_ARGUMENT)
+                ASSERT(sto_subfield(sto, undefined) === INVALID_ARGUMENT)
+                ASSERT(sto_subfield(sto, -1) === INVALID_ARGUMENT)
+                ASSERT(sto_subfield(sto, 0xffffffff + 1) === INVALID_ARGUMENT)
+
+                // ASSERT(sto_subfield(sto, 0x10001) === (1 << 32) + 2)
+                ASSERT(sto_subfield(sto, 0x10001) === 2 ** 32 + 2)
+
+                // Test subfield 0x11, should be position 0 length 3, payload pos 1, len 2
+                // ASSERT(sto_subfield(sto, 0x10001) === (1 << 32) + 2)
+                ASSERT(sto_subfield(sto, 0x10001) === 2 ** 32 + 2)
+
+                // Test subfield 0x22, should be position 3 length 5, payload pos 4, len 4
+                // ASSERT(sto_subfield(sto, 0x20002) === (4 << 32) + 4)
+                ASSERT(sto_subfield(sto, 0x20002) === 4 * 2 ** 32 + 4)
+
+                // Test subfield 0x34, should be at position 25, length = 9, payload pos 26, len 8
+                // ASSERT(sto_subfield(sto, 0x30004) === (26 << 32) + 8)
+                ASSERT(sto_subfield(sto, 0x30004) === 26 * 2 ** 32 + 8)
+
+                // Test final subfield, position 34, length 33, payload pos 35, len 32
+                // ASSERT(sto_subfield(sto, 0x50005) === (35 << 32) + 32)
+                ASSERT(sto_subfield(sto, 0x50005) === 35 * 2 ** 32 + 32)
+
+                // Test not found
+                ASSERT(sto_subfield(sto, 0x90009) === DOESNT_EXIST)
+
+                accept('success', 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set sto_subfield"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test sto_subfield"), fee(XRP(1)));
+    }
+
+    void test_sto_validate(FeatureBitset features)
+    {
+        testcase("Test sto_validate");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const INVALID_ARGUMENT = -7
+            const ASSERT = (x) => {
+              if (!x) rollback(x.toString(), 0)
+            }
+
+            const sto = [
+                0x11, 0x00, 0x61, 0x22, 0x00, 0x00, 0x00, 0x00, 0x24, 0x04, 0x1f, 0x94, 0xd9,
+                0x25, 0x04, 0x5e, 0x84, 0xb7, 0x2d, 0x00, 0x00, 0x00, 0x00, 0x55, 0x13, 0x40,
+                0xb3, 0x25, 0x86, 0x31, 0x96, 0xb5, 0x6f, 0x41, 0xf5, 0x89, 0xeb, 0x7d, 0x2f,
+                0xd9, 0x4c, 0x0d, 0x7d, 0xb8, 0x0e, 0x4b, 0x2c, 0x67, 0xa7, 0x78, 0x2a, 0xd6,
+                0xc2, 0xb0, 0x77, 0x50, 0x62, 0x40, 0x00, 0x00, 0x00, 0x00, 0xa4, 0x79, 0x94,
+                0x81, 0x14, 0x37, 0xdf, 0x44, 0x07, 0xe7, 0xaa, 0x07, 0xf1, 0xd5, 0xc9, 0x91,
+                0xf2, 0xd3, 0x6f, 0x9e, 0xb8, 0xc7, 0x34, 0xaf, 0x6c,
+            ]
+
+            const Hook = (reserved) => {
+                // Test arg check
+                ASSERT(sto_validate(undefined) === INVALID_ARGUMENT)
+
+                // Test validation
+                ASSERT(sto_validate(sto) === 1)
+
+                // Invalidate
+                sto[0] = 0x22
+                ASSERT(sto_validate(sto) === 0)
+
+                // Fix
+                sto[0] = 0x11
+
+                // Invalidate somewhere else
+                sto[3] = 0x40
+                ASSERT(sto_validate(sto) === 0)
+
+                // test small validation
+                {
+                    const sto = [0x22, 0x00, 0x00, 0x00, 0x00]
+                    ASSERT(sto_validate(sto) === 1)
+                }
+
+                accept('success', 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set sto_validate"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test sto_validate"), fee(XRP(1)));
+    }
+
+    void test_sto_to_json(FeatureBitset features)
+    {
+        testcase("Test sto_to_json");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const INVALID_ARGUMENT = -7
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0)
+            }
+
+            const sto = [
+                0x11, 0x00, 0x61, 0x22, 0x00, 0x00, 0x00, 0x00, 0x24, 0x04, 0x1f, 0x94, 0xd9,
+                0x25, 0x04, 0x5e, 0x84, 0xb7, 0x2d, 0x00, 0x00, 0x00, 0x00, 0x55, 0x13, 0x40,
+                0xb3, 0x25, 0x86, 0x31, 0x96, 0xb5, 0x6f, 0x41, 0xf5, 0x89, 0xeb, 0x7d, 0x2f,
+                0xd9, 0x4c, 0x0d, 0x7d, 0xb8, 0x0e, 0x4b, 0x2c, 0x67, 0xa7, 0x78, 0x2a, 0xd6,
+                0xc2, 0xb0, 0x77, 0x50, 0x62, 0x40, 0x00, 0x00, 0x00, 0x00, 0xa4, 0x79, 0x94,
+                0x81, 0x14, 0x37, 0xdf, 0x44, 0x07, 0xe7, 0xaa, 0x07, 0xf1, 0xd5, 0xc9, 0x91,
+                0xf2, 0xd3, 0x6f, 0x9e, 0xb8, 0xc7, 0x34, 0xaf, 0x6c,
+            ]
+
+            const sto_json = {
+                LedgerEntryType: 'AccountRoot',
+                Flags: 0,
+                Sequence: 69178585,
+                PreviousTxnLgrSeq: 73303223,
+                OwnerCount: 0,
+                PreviousTxnID:
+                    '1340B325863196B56F41F589EB7D2FD94C0D7DB80E4B2C67A7782AD6C2B07750',
+                Balance: '10779028',
+                Account: 'raaRdKAobgyv8VqpRV2UZRjT74FL9PHuei',
+            }
+
+            const Hook = (reserved) => {
+                // Test arg check
+                ASSERT(sto_to_json(undefined) === INVALID_ARGUMENT)
+
+                // Test ledger entry
+                const json = sto_to_json(sto)
+                ASSERT(typeof json === 'object')
+                trace('2', '', false)
+                trace('JSON.stringify(json)', json, false)
+                ASSERT(Object.keys(json).length === Object.keys(sto_json).length)
+                for (const key of Object.keys(json)) {
+                    ASSERT(sto_json[key] === json[key])
+                }
+
+                // test transaction
+                ASSERT(otxn_slot(1) === 1)
+                const otxn_sto = slot(1)
+                ASSERT(typeof sto_to_json(otxn_sto) === 'object')
+
+                // Invalid
+                sto[0] = 0x22
+                ASSERT(sto_to_json(sto) === INVALID_ARGUMENT)
+
+                // Fix
+                sto[0] = 0x11
+
+                // Invalid length
+                sto.push(0x00)
+                ASSERT(sto_to_json(sto) === INVALID_ARGUMENT)
+
+                accept('success', 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set sto_to_json"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test sto_to_json"), fee(XRP(1)));
+    }
+
+    void test_sto_from_json(FeatureBitset features)
+    {
+        testcase("Test sto_from_json");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const bob = Account{"bob"};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const INVALID_ARGUMENT = -7
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0)
+            }
+
+            const accRoot = {
+                LedgerEntryType: 'AccountRoot',
+                Flags: 0,
+                Sequence: 69178585,
+                PreviousTxnLgrSeq: 73303223,
+                OwnerCount: 0,
+                PreviousTxnID:
+                    '1340B325863196B56F41F589EB7D2FD94C0D7DB80E4B2C67A7782AD6C2B07750',
+                Balance: '10779028',
+                Account: 'raaRdKAobgyv8VqpRV2UZRjT74FL9PHuei',
+            }
+
+            const sto = [
+                0x11, 0x00, 0x61, 0x22, 0x00, 0x00, 0x00, 0x00, 0x24, 0x04, 0x1f, 0x94, 0xd9,
+                0x25, 0x04, 0x5e, 0x84, 0xb7, 0x2d, 0x00, 0x00, 0x00, 0x00, 0x55, 0x13, 0x40,
+                0xb3, 0x25, 0x86, 0x31, 0x96, 0xb5, 0x6f, 0x41, 0xf5, 0x89, 0xeb, 0x7d, 0x2f,
+                0xd9, 0x4c, 0x0d, 0x7d, 0xb8, 0x0e, 0x4b, 0x2c, 0x67, 0xa7, 0x78, 0x2a, 0xd6,
+                0xc2, 0xb0, 0x77, 0x50, 0x62, 0x40, 0x00, 0x00, 0x00, 0x00, 0xa4, 0x79, 0x94,
+                0x81, 0x14, 0x37, 0xdf, 0x44, 0x07, 0xe7, 0xaa, 0x07, 0xf1, 0xd5, 0xc9, 0x91,
+                0xf2, 0xd3, 0x6f, 0x9e, 0xb8, 0xc7, 0x34, 0xaf, 0x6c,
+            ]
+
+            const Hook = (reserved) => {
+                // Test arg check
+                ASSERT(sto_from_json(undefined) === INVALID_ARGUMENT)
+
+                // Test ledger entry
+                const accRootSto = sto_from_json(accRoot)
+                ASSERT(Array.isArray(accRootSto))
+                ASSERT(accRootSto.length === sto.length)
+                ASSERT(accRootSto.every((v, i) => v === sto[i]))
+
+                // test transaction
+                const txn_json = otxn_json()
+                ASSERT(otxn_slot(1) === 1)
+                const otxn_sto = slot(1)
+                ASSERT(sto_from_json(txn_json).length === otxn_sto.length)
+                ASSERT(sto_from_json(txn_json).every((v, i) => v === otxn_sto[i]))
+
+                // Invalid field
+                ASSERT(
+                    sto_from_json({ ...accRoot, SomeInvalidField: '123' }) === INVALID_ARGUMENT
+                )
+
+                // Invalid value type
+                // TODO: Should be invalid https://github.com/Xahau/xahaud/issues/458
+                // ASSERT(sto_from_json({ ...accRoot, Balance: 123 }) === INVALID_ARGUMENT)
+
+                accept('success', 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set sto_from_json"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test sto_from_json"), fee(XRP(1)));
+    }
+
     void
     testWithFeatures(FeatureBitset features)
     {
@@ -9309,12 +9760,12 @@ public:
         test_state_set(features);  //
 
         test_sto_emplace(features);  //
-        // test_sto_erase(features);     //
-        // test_sto_subarray(features);  //
-        // test_sto_subfield(features);  //
-        // test_sto_validate(features);  //
-        // test_sto_to_json(features);  // JS ONLY
-        // test_sto_from_json(features);  // JS ONLY
+        test_sto_erase(features);     //
+        test_sto_subarray(features);  //
+        test_sto_subfield(features);  //
+        test_sto_validate(features);  //
+        test_sto_to_json(features);  // JS ONLY
+        test_sto_from_json(features);  // JS ONLY
 
         test_trace(features);  //
         // test_trace_float(features);  // C ONLY
