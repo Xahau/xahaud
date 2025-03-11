@@ -26,6 +26,10 @@
 #include <cstring>
 #endif
 
+#include <ios>
+#include <ostream>
+#include <string>
+
 namespace beast {
 
 //------------------------------------------------------------------------------
