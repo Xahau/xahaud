@@ -10,6 +10,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DEBUG_BUILD_CONTAINERS_AFTER_CLEANUP: 1
+
 jobs:
   checkout:
     runs-on: [self-hosted, vanity]
@@ -31,7 +34,8 @@ jobs:
       - name: Set Cleanup Script Path
         # This way we don't need to configure CONTAINER_NAME in multiple places,
         # just configure it in the build script, and add cleanup steps to this script.
-        run: echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
+        run: |
+          echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
 
       - name: Build using Docker
         run: /bin/bash release-builder.sh
@@ -41,15 +45,27 @@ jobs:
         run: |
           echo "Running cleanup script: $JOB_CLEANUP_SCRIPT"
           # Run cleanup script and store exit status
-          /bin/bash "$JOB_CLEANUP_SCRIPT"
+          /bin/bash -e -x "$JOB_CLEANUP_SCRIPT"
           CLEANUP_EXIT_CODE=$?
-      
+          
           if [[ "$CLEANUP_EXIT_CODE" -eq 0 ]]; then
             echo "Cleanup script succeeded."
             rm -f "$JOB_CLEANUP_SCRIPT"
             echo "Cleanup script removed."
           else
             echo "⚠️ Cleanup script failed! Keeping for debugging: $JOB_CLEANUP_SCRIPT"
+          fi
+          
+          if [[ "${DEBUG_BUILD_CONTAINERS_AFTER_CLEANUP}" == "1" ]]; then
+            echo "🔍 Checking for leftover containers..."
+            BUILD_CONTAINERS=$(docker ps --format '{{.Names}}' | grep '^xahaud_cached_builder' || echo "")
+
+            if [[ -n "$BUILD_CONTAINERS" ]]; then
+              echo "⚠️ WARNING: Some build containers are still running"
+              echo "$BUILD_CONTAINERS"
+            else
+              echo "✅ No build containers found"
+            fi
           fi
 
   tests:
