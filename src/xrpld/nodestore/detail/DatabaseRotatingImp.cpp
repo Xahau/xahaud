@@ -20,7 +20,6 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
-#include <xrpl/protocol/HashPrefix.h>
 
 namespace ripple {
 namespace NodeStore {

@@ -22,7 +22,6 @@
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/AMMCore.h>
-#include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/STObject.h>
 
 namespace ripple {
@@ -150,8 +149,8 @@ ammLPHolds(
         }
         amount.setIssuer(ammAccount);
 
-        JLOG(j.trace()) << "ammLPHolds:"
-                        << " lpAccount=" << to_string(lpAccount)
+        JLOG(j.trace()) << "ammLPHolds:" << " lpAccount="
+                        << to_string(lpAccount)
                         << " amount=" << amount.getFullText();
     }
 

@@ -14,13 +14,15 @@
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
+
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
-#include <test/jtx/CaptureLogs.h>
-
+#include <test/jtx/AMMTest.h>
+#include <test/jtx/trust.h>
 #include <xrpld/app/misc/AMMUtils.h>
-
 #include <xrpl/protocol/Feature.h>
+
+#include <initializer_list>
 
 namespace ripple {
 namespace test {
