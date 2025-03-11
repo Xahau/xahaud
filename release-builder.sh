@@ -18,12 +18,12 @@ if [[ "$GITHUB_REPOSITORY" == "" ]]; then
 fi
 
 EXIT_IF_CONTAINER_RUNNING=${EXIT_IF_CONTAINER_RUNNING:-1}
-
-# Caching is currently disabled, but in the future this may require a different namespacing strategy
-CONTAINER_NAME_DEFAULT="xahaud_cached_builder_$(echo "${GITHUB_ACTOR:-unknown}" | awk '{print tolower($0)}')"
-# Note that the CI can set this itself and does so so it can use an always() step to stop the container
-# at the end of the workflow, canceled or not.
-CONTAINER_NAME=${CONTAINER_NAME:-$CONTAINER_NAME_DEFAULT}
+# Ensure still works outside of GH Actions by setting these to /dev/null
+# GA will run this script and then delete it at the end of the job
+JOB_CLEANUP_SCRIPT=${JOB_CLEANUP_SCRIPT:-/dev/null}
+NORMALIZED_WORKFLOW=$(echo "$GITHUB_WORKFLOW" | tr -c 'a-zA-Z0-9' '-')
+NORMALIZED_REF=$(echo "$GITHUB_REF" | tr -c 'a-zA-Z0-9' '-')
+CONTAINER_NAME="xahaud_cached_builder_${NORMALIZED_WORKFLOW}-${NORMALIZED_REF}"
 
 # Check if the container is already running
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
@@ -79,6 +79,8 @@ else
     # GH Action, runner
     echo "GH Action, runner, clean & re-create create persistent container"
     docker rm -f $CONTAINER_NAME
+    echo "echo 'Stopping container: $CONTAINER_NAME'" >> "$JOB_CLEANUP_SCRIPT"
+    echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >> "$JOB_CLEANUP_SCRIPT"
     docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v `pwd`:/io --network host ghcr.io/foobarwidget/holy-build-box-x64 /hbb_exe/activate-exec bash
     docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -x /io/build-full.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$BUILD_CORES" "$GITHUB_RUN_NUMBER"
     docker stop $CONTAINER_NAME

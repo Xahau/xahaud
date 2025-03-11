@@ -28,16 +28,19 @@ jobs:
     runs-on: [self-hosted, vanity]
     needs: checkpatterns
     steps:
-      - name: Set Container Name Environment Variable
-        run: |
-          echo "CONTAINER_NAME=xahaud_cached_builder_$(echo "$GITHUB_ACTOR" | awk '{print tolower($0)}')" >> $GITHUB_ENV
+      - name: Set Cleanup Script Path
+        run: echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
+
       - name: Build using Docker
         run: /bin/bash release-builder.sh
-      - name: Stop Container
+
+      - name: Stop Container (Cleanup)
         if: always()
         run: |
-          echo "Stopping container: $CONTAINER_NAME"
-          docker stop --time=15 "$CONTAINER_NAME" || echo "failed to stop container or container not running"
+          echo "Running cleanup script: $JOB_CLEANUP_SCRIPT"
+          /bin/bash "$JOB_CLEANUP_SCRIPT"
+          rm -f "$JOB_CLEANUP_SCRIPT"
+
   tests:
     runs-on: [self-hosted, vanity]
     needs: build
