@@ -38,8 +38,17 @@ jobs:
         if: always()
         run: |
           echo "Running cleanup script: $JOB_CLEANUP_SCRIPT"
+          # Run cleanup script and store exit status
           /bin/bash "$JOB_CLEANUP_SCRIPT"
-          rm -f "$JOB_CLEANUP_SCRIPT"
+          CLEANUP_EXIT_CODE=$?
+      
+          if [[ "$CLEANUP_EXIT_CODE" -eq 0 ]]; then
+            echo "Cleanup script succeeded."
+            rm -f "$JOB_CLEANUP_SCRIPT"
+            echo "Cleanup script removed."
+          else
+            echo "⚠️ Cleanup script failed! Keeping for debugging: $JOB_CLEANUP_SCRIPT"
+          fi
 
   tests:
     runs-on: [self-hosted, vanity]
