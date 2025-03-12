@@ -26,6 +26,7 @@
 #include <xrpld/app/tx/detail/SetManifest.h>  // makeSetManifestTx
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
+
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Feature.h>

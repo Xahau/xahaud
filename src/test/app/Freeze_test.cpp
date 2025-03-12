@@ -18,6 +18,8 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
+
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/SField.h>

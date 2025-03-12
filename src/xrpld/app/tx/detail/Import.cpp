@@ -22,6 +22,7 @@
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/core/TimeKeeper.h>
 #include <xrpld/ledger/View.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_reader.h>
@@ -34,6 +35,7 @@
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/st.h>
+
 #include <algorithm>
 #include <charconv>
 #include <iostream>

@@ -21,6 +21,7 @@
 #define TEST_UNIT_TEST_SUITE_JOURNAL_H
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/utility/Journal.h>
+
 #include <mutex>
 
 namespace ripple {

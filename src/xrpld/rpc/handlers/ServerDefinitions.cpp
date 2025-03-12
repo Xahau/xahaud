@@ -24,13 +24,17 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
+
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+
 #include <boost/algorithm/string.hpp>
+
 #include <magic_enum.hpp>
+
 #include <sstream>
 
 #define MAGIC_ENUM_16(x)                        \

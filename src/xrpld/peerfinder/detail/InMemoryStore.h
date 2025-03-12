@@ -2,7 +2,9 @@
 #define RIPPLE_PEERFINDER_INMEMORYSTORE_H_INCLUDED
 
 #include <xrpld/peerfinder/detail/Store.h>
+
 #include <xrpl/beast/net/IPEndpoint.h>
+
 #include <boost/functional/hash.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 

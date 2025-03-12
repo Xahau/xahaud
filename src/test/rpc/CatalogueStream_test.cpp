@@ -18,10 +18,12 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/rpc/detail/CatalogueStream.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapItem.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
+
 #include <xrpl/beast/unit_test.h>
 
 #include <boost/iostreams/device/array.hpp>

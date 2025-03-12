@@ -25,7 +25,9 @@
 #include <xrpld/nodestore/DatabaseRotating.h>
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
+
 #include <xrpl/basics/RangeSet.h>
+
 #include <atomic>
 #include <chrono>
 #include <memory>

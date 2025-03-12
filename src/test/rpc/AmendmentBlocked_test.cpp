@@ -20,6 +20,7 @@
 #include <test/jtx.h>
 #include <test/jtx/WSClient.h>
 #include <test/jtx/envconfig.h>
+
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
@@ -28,16 +29,18 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/core/ConfigSections.h>
+
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/BuildInfo.h>
-
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/path.hpp>
+
 #include <chrono>
 #include <cstring>
 #include <memory>

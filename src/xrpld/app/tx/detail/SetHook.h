@@ -24,6 +24,7 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
+
 #include <xrpl/basics/Blob.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Log.h>
@@ -33,6 +34,7 @@
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <vector>

@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/main/BasicApp.h>
+
 #include <xrpl/beast/core/CurrentThreadName.h>
 
 #include <boost/asio/executor_work_guard.hpp>

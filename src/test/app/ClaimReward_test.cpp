@@ -19,7 +19,9 @@
 
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
+
 #include <xrpld/app/ledger/LedgerMaster.h>
+
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
 

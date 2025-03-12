@@ -23,6 +23,7 @@
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+
 #include <xrpl/hook/Misc.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/ErrorCodes.h>
@@ -32,6 +33,7 @@
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/UintTypes.h>
 #include <xrpl/protocol/jss.h>
+
 #include <algorithm>
 #include <map>
 #include <optional>

@@ -1,7 +1,8 @@
 #ifndef IMPORT_JSON_INCLUDED
 #define IMPORT_JSON_INCLUDED
-#include <map>
 #include <stdint.h>
+
+#include <map>
 #include <string>
 #include <vector>
 namespace ripple {
