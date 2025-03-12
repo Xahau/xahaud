@@ -9760,8 +9760,7 @@ public:
                 // test not found
                 {
                     const buf = sto_erase(sto, 0x80002)
-                    // TODO: https://github.com/Xahau/xahaud/issues/459
-                    // ASSERT(buf === DOESNT_EXIST)
+                    ASSERT(buf === DOESNT_EXIST)
                 }
 
                 // test total erasure
