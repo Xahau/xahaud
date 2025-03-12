@@ -3,6 +3,7 @@
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
+
 #include <xrpl/basics/Blob.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/hook/Enum.h>
@@ -11,12 +12,14 @@
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/digest.h>
+
+#include <wasmedge/wasmedge.h>
+
 #include <any>
 #include <memory>
 #include <optional>
 #include <queue>
 #include <vector>
-#include <wasmedge/wasmedge.h>
 
 namespace hook {
 struct HookContext;

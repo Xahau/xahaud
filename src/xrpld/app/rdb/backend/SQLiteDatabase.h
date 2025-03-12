@@ -21,6 +21,7 @@
 #define RIPPLE_APP_RDB_BACKEND_SQLITEDATABASE_H_INCLUDED
 
 #include <xrpld/app/rdb/RelationalDatabase.h>
+
 #include <xrpl/basics/RangeSet.h>
 
 namespace ripple {

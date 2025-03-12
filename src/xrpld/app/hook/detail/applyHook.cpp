@@ -7,13 +7,18 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
+
 #include <boost/multiprecision/cpp_dec_float.hpp>
+
+#include <wasmedge/wasmedge.h>
+
 #include <any>
 #include <cfenv>
 #include <memory>
@@ -21,7 +26,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <wasmedge/wasmedge.h>
 
 using namespace ripple;
 

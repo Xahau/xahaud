@@ -19,10 +19,12 @@
 
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/Database.h>
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
+
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/digest.h>

@@ -1,4 +1,5 @@
 #include "Enum.h"
+
 #include <functional>
 #include <iostream>
 #include <map>

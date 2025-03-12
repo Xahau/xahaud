@@ -2,16 +2,15 @@
 #include "Enum.h"
 #include "Guard.h"
 #include <fcntl.h>
-#include <iostream>
-#include <optional>
-#include <ostream>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <string_view>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
 #include <unistd.h>
+
+#include <iostream>
+#include <optional>
+#include <ostream>
+#include <string_view>
 #include <vector>
 
 int

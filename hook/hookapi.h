@@ -45,8 +45,8 @@
 
 #include "error.h"
 #include "extern.h"
-#include "sfcodes.h"
 #include "macro.h"
+#include "sfcodes.h"
 #include "tts.h"
 
 #include "ls_flags.h"

@@ -2,6 +2,7 @@
 #define HOOK_API_INCLUDED 1
 
 #include <xrpld/app/misc/Transaction.h>
+
 #include <xrpl/hook/Enum.h>
 
 namespace hook {

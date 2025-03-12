@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <xrpld/app/tx/detail/SetHook.h>
-
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/ledger/ApplyView.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
@@ -34,6 +34,11 @@
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TxFlags.h>
+
+#include <wasmedge/wasmedge.h>
+
+#include <stdio.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <exception>
@@ -41,13 +46,11 @@
 #include <optional>
 #include <ostream>
 #include <stack>
-#include <stdio.h>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
-#include <wasmedge/wasmedge.h>
 
 #define DEBUG_GUARD_CHECK 1
 #define HS_ACC() \

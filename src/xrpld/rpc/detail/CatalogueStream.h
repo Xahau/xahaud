@@ -22,6 +22,7 @@
 
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/shamap/SHAMap.h>
+
 #include <xrpl/beast/utility/Journal.h>
 
 #include <boost/iostreams/filtering_stream.hpp>

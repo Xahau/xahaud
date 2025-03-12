@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/SignerEntries.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/STArray.h>
