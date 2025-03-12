@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <xrpl/basics/FileUtilities.h>
-#include <fstream>
 
 #include <boost/filesystem/fstream.hpp>
 #include <boost/filesystem/operations.hpp>
@@ -29,6 +28,7 @@
 
 #include <cerrno>
 #include <cstddef>
+#include <fstream>
 #include <ios>
 #include <iterator>
 #include <optional>

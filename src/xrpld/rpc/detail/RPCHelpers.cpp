@@ -28,6 +28,7 @@
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/DeliveredAmount.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/nftPageMask.h>
@@ -36,7 +37,6 @@
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
-#include <xrpl/resource/Fees.h>
 #include <regex>
 
 namespace ripple {

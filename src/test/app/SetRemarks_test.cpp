@@ -19,11 +19,14 @@
 
 #include <test/jtx.h>
 #include <test/jtx/Oracle.h>
+
 #include <xrpld/core/ConfigSections.h>
+
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
+
 #include <chrono>
 #include <sstream>
 

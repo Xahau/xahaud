@@ -19,7 +19,9 @@
 
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+
 #include <xrpld/app/misc/HashRouter.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>

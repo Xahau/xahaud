@@ -18,16 +18,21 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/core/ConfigSections.h>
+
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/jss.h>
+
 #include <boost/filesystem.hpp>
+
+#include <grpc/impl/codegen/compression_types.h>
+
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
-#include <grpc/impl/codegen/compression_types.h>
 #include <thread>
 
 namespace ripple {

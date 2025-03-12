@@ -19,9 +19,11 @@
 
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/beast/utility/instrumentation.h>
+
 #include <cassert>
 #ifdef BEAST_ENHANCED_LOGGING
 #include <xrpl/beast/utility/EnhancedLogging.h>
+
 #include <cstdlib>
 #include <cstring>
 #endif
