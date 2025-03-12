@@ -1,5 +1,6 @@
 #ifndef IMPORT_JSON_INCLUDED
 #define IMPORT_JSON_INCLUDED
+
 #include <string>
 namespace ripple {
 namespace test {

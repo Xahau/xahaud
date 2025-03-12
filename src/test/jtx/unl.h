@@ -22,6 +22,7 @@
 
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
+
 #include <xrpl/protocol/STAmount.h>
 
 namespace ripple {

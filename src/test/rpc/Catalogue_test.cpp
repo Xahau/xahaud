@@ -18,26 +18,30 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
+
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/jss.h>
+
 #include <boost/filesystem.hpp>
+
+#include <grpc/impl/codegen/compression_types.h>
+
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <grpc/impl/codegen/compression_types.h>
 #include <iterator>
 #include <optional>
 #include <thread>
 
 namespace ripple {
-
 namespace {
 
 // Parameters for polling ledger retrieval
@@ -70,8 +74,8 @@ getLedgerWithRetry(const LedgerRetryParams& params)
 
             if (ledger)
             {
-                // If we don't require validation, or if it's already validated,
-                // return it
+                // If we don't require validation, or if it's already
+                // validated, return it
                 if (!params.requireValidated || ledger->info().validated)
                 {
                     return ledger;
@@ -103,7 +107,8 @@ struct CatalogueEnvOpts
     // false → omit pinned_type entirely (drives the rejection path).
     bool withPinnedType = true;
 
-    // [node_db] online_delete value (lifetime of rotating store, in ledgers).
+    // [node_db] online_delete value (lifetime of rotating store, in
+    // ledgers).
     std::string onlineDelete = "256";
 };
 
@@ -325,9 +330,9 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
         Env env{*this, catalogueEnvconfig(), features};
 
-        // Missing [node_db] pinned_type — catalogue_load rejects up front so
-        // loaded data isn't lost on the next rotation. Use a separate Env
-        // because this guard fires before any input_file parsing.
+        // Missing [node_db] pinned_type — catalogue_load rejects up front
+        // so loaded data isn't lost on the next rotation. Use a separate
+        // Env because this guard fires before any input_file parsing.
         {
             Env envNoPin{
                 *this, catalogueEnvconfig({.withPinnedType = false}), features};
@@ -501,9 +506,9 @@ class Catalogue_test : public beast::unit_test::suite
 
         // Create a new environment for loading the catalogue
         // We use a separate environment with incremented ports to avoid
-        // conflicts Note: The default RWDB backend works fine - the key insight
-        // is that pinned ledgers bypass the cache, so we need to poll for
-        // availability as the async publishAcqLedger jobs complete
+        // conflicts Note: The default RWDB backend works fine - the key
+        // insight is that pinned ledgers bypass the cache, so we need to
+        // poll for availability as the async publishAcqLedger jobs complete
         Env loadEnv{
             *this,
             catalogueEnvconfig(),
@@ -764,7 +769,8 @@ class Catalogue_test : public beast::unit_test::suite
         }
 
         {
-            // Try to load catalogue in environment with different network ID
+            // Try to load catalogue in environment with different network
+            // ID
             Env env2{
                 *this,
                 [&]() {
@@ -840,7 +846,8 @@ class Catalogue_test : public beast::unit_test::suite
 
         // Test 2: Corrupt the file and test hash mismatch detection
         {
-            // Modify a byte in the middle of the file to cause hash mismatch
+            // Modify a byte in the middle of the file to cause hash
+            // mismatch
             std::fstream file(
                 cataloguePath, std::ios::in | std::ios::out | std::ios::binary);
             BEAST_EXPECT(file.good());
@@ -872,8 +879,8 @@ class Catalogue_test : public beast::unit_test::suite
 
             auto const result =
                 env.client().invoke("catalogue_load", params)[jss::result];
-            // This might still fail due to data corruption, but not because of
-            // hash verification The important part is that it didn't
+            // This might still fail due to data corruption, but not because
+            // of hash verification The important part is that it didn't
             // immediately reject due to hash
             if (result[jss::status] == "error")
             {
@@ -1026,8 +1033,8 @@ class Catalogue_test : public beast::unit_test::suite
                 env.client().invoke("catalogue_load", loadParams)[jss::result];
             BEAST_EXPECT(loadResult[jss::status] == jss::success);
 
-            // For levels > 0, verify size is smaller than uncompressed (or at
-            // least not larger)
+            // For levels > 0, verify size is smaller than uncompressed (or
+            // at least not larger)
             if (prevSize > 0 && compressionLevel.asUInt() > 0)
             {
                 BEAST_EXPECT(fileSize <= prevSize);
@@ -1080,14 +1087,15 @@ class Catalogue_test : public beast::unit_test::suite
             BEAST_EXPECT(result[jss::job_status] == "no_job_running");
         }
 
-        // TODO: add a parallel job test here... if anyone feels thats actually
-        // needed
+        // TODO: add a parallel job test here... if anyone feels thats
+        // actually needed
 
         boost::filesystem::remove_all(tempDir);
     }
 
 public:
-    // ---- Editing uncompressed catalogues -----------------------------------
+    // ---- Editing uncompressed catalogues
+    // -----------------------------------
     //
     // Ledger record: seq, hash, txHash, accountHash, parentHash, drops,
     // closeFlags, closeTimeResolution, closeTime, parentCloseTime; then the
@@ -1209,7 +1217,8 @@ public:
         boost::filesystem::create_directories(tempDir);
         auto const goodPath = (tempDir / "good.catl").string();
 
-        // An uncompressed catalogue of ledgers 3-6, so records can be edited.
+        // An uncompressed catalogue of ledgers 3-6, so records can be
+        // edited.
         {
             Env env{*this, catalogueEnvconfig(), features, nullptr, kDisabled};
             prepareLedgerData(env, 3);
@@ -1230,8 +1239,8 @@ public:
                 records.size() == 4 && records.back().end == good.size()))
             return;
 
-        // Write `bytes` to a new file, load it into a fresh server, and hand
-        // the result and the resulting pinned set to `check`.
+        // Write `bytes` to a new file, load it into a fresh server, and
+        // hand the result and the resulting pinned set to `check`.
         int fileNo = 0;
         auto loadEdited = [&](std::vector<std::uint8_t> const& bytes,
                               bool ignoreHash,
@@ -1341,7 +1350,8 @@ public:
                 });
         }
 
-        // An absurd leaf size in each kind of map is rejected while parsing.
+        // An absurd leaf size in each kind of map is rejected while
+        // parsing.
         auto withHugeLeaf = [&](std::size_t sizeField) {
             auto bytes = good;
             std::uint32_t const huge = 0xFFFFFFFF;

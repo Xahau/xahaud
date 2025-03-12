@@ -27,6 +27,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/Tuning.h>
 #include <xrpld/rpc/json_body.h>
+
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
@@ -57,10 +58,11 @@
 
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
-#include <fcntl.h>
 #include <netinet/in.h>
-#include <resolv.h>
 #include <sys/stat.h>
+
+#include <fcntl.h>
+#include <resolv.h>
 #include <unistd.h>
 
 #include <algorithm>

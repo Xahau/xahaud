@@ -21,7 +21,9 @@
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
 #include <test/jtx/xchain_bridge.h>
+
 #include <xrpld/app/tx/detail/SetHook.h>
+
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/protocol/Sign.h>

@@ -19,8 +19,10 @@
 
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
+
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/detail/PublishGap.h>
+
 #include <xrpl/basics/RangeSet.h>
 #include <xrpl/protocol/jss.h>
 

@@ -28,6 +28,7 @@
 #include <xrpld/app/ledger/LedgerReplay.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
+
 #include <xrpl/basics/RangeSet.h>
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/chrono.h>
@@ -35,9 +36,9 @@
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/messages.h>
+
 #include <deque>
 #include <functional>
-
 #include <mutex>
 #include <optional>
 

@@ -24,11 +24,12 @@
 #include <xrpld/app/ledger/detail/TimeoutCounter.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/overlay/PeerSet.h>
+
 #include <xrpl/basics/CountedObject.h>
 #include <xrpl/basics/UnorderedContainers.h>
 #include <xrpl/protocol/PublicKey.h>
-#include <atomic>
 
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <set>

@@ -18,8 +18,10 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/net/HTTPClient.h>
 #include <xrpld/net/RPCCall.h>
+
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/make_SSLContext.h>
 

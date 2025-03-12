@@ -20,8 +20,9 @@
 
 #if defined(__linux__)
 
-#include <cerrno>
 #include <pthread.h>
+
+#include <cerrno>
 #include <system_error>
 
 namespace ripple {

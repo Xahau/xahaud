@@ -28,12 +28,13 @@
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpld/shamap/SHAMapMissingNode.h>
+
 #include <xrpl/beast/core/CurrentThreadName.h>
+#include <xrpl/json/json_reader.h>
 
 #include <boost/algorithm/string/predicate.hpp>
-#include <iostream>
 
-#include <xrpl/json/json_reader.h>
+#include <iostream>
 
 namespace ripple {
 void

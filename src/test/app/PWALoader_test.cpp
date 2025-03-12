@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Feature.h>

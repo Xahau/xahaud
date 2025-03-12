@@ -24,12 +24,11 @@
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <utility>
-
-#include <cmath>
 
 namespace Json {
 

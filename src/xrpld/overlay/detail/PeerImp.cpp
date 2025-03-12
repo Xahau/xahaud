@@ -36,6 +36,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
+
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/random.h>

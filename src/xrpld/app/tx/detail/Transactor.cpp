@@ -31,6 +31,7 @@
 #include <xrpld/ledger/PaymentSandbox.h>
 #include <xrpld/ledger/View.h>
 #include <xrpld/ledger/detail/ApplyViewBase.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/hook/Enum.h>
@@ -41,6 +42,7 @@
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/UintTypes.h>
+
 #include <set>
 
 namespace ripple {

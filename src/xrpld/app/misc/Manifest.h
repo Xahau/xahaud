@@ -21,6 +21,7 @@
 #define RIPPLE_APP_MISC_MANIFEST_H_INCLUDED
 
 #include <xrpld/app/misc/RotatingBloomFilter.h>
+
 #include <xrpl/basics/UnorderedContainers.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/utility/Journal.h>

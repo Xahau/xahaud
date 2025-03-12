@@ -24,6 +24,7 @@
 #include <xrpld/shamap/SHAMapSyncFilter.h>
 #include <xrpld/shamap/SHAMapTxLeafNode.h>
 #include <xrpld/shamap/SHAMapTxPlusMetaLeafNode.h>
+
 #include <xrpl/basics/contract.h>
 
 #include <atomic>

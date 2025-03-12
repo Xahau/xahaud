@@ -29,11 +29,13 @@
 #include <xrpld/shamap/SHAMapLeafNode.h>
 #include <xrpld/shamap/SHAMapMissingNode.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
+
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/beast/utility/instrumentation.h>
-#include <boost/iostreams/filtering_stream.hpp>
-#include <functional>
 
+#include <boost/iostreams/filtering_stream.hpp>
+
+#include <functional>
 #include <stack>
 #include <vector>
 

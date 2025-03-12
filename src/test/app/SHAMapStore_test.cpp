@@ -19,6 +19,7 @@
 
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/NodeStoreScheduler.h>
 #include <xrpld/app/misc/SHAMapStore.h>
@@ -28,9 +29,11 @@
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
+
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+
 #include <boost/filesystem.hpp>
 
 #include <chrono>

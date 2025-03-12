@@ -23,9 +23,11 @@
 #include <test/jtx/CaptureLogs.h>
 #include <test/jtx/amount.h>
 #include <test/jtx/sendmax.h>
+
 #include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/app/tx/detail/AMMBid.h>
+
 #include <xrpl/basics/Number.h>
 #include <xrpl/protocol/AMMCore.h>
 #include <xrpl/protocol/Feature.h>

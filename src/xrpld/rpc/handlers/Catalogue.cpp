@@ -33,6 +33,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/Tuning.h>
 #include <xrpld/shamap/SHAMapItem.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/RangeSet.h>
 #include <xrpl/basics/Slice.h>
@@ -42,6 +43,12 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 
+#include <boost/iostreams/concepts.hpp>
+#include <boost/iostreams/filter/zlib.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/operations.hpp>
+
+#include <chrono>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -53,13 +60,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
-#include <boost/iostreams/concepts.hpp>
-#include <boost/iostreams/filter/zlib.hpp>
-#include <boost/iostreams/filtering_stream.hpp>
-#include <boost/iostreams/operations.hpp>
-
-#include <chrono>
 
 namespace ripple {
 

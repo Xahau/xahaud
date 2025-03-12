@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/overlay/Compression.h>
 #include <xrpld/overlay/Message.h>
@@ -25,6 +26,7 @@
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/shamap/SHAMapInnerNode.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
+
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/messages.h>

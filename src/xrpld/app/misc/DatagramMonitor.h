@@ -13,27 +13,30 @@
 #include <xrpld/ledger/CachedSLEs.h>
 #include <xrpld/nodestore/Database.h>
 #include <xrpld/overlay/Overlay.h>
+
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/mulDiv.h>
 #include <xrpl/protocol/BuildInfo.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/jss.h>
+
 #include <arpa/inet.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+
+#include <netdb.h>
+
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
 #include <fstream>
-#include <netdb.h>
 #include <sstream>
 #include <string>
-#include <sys/resource.h>
-#include <sys/socket.h>
 #if defined(__linux__)
 #include <sys/statvfs.h>
 #include <sys/sysinfo.h>
 #elif defined(__APPLE__)
-#include <ifaddrs.h>
 #include <mach/host_info.h>
 #include <mach/mach.h>
 #include <net/if.h>
@@ -41,6 +44,8 @@
 #include <sys/mount.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
+
+#include <ifaddrs.h>
 #endif
 #include <thread>
 #include <vector>

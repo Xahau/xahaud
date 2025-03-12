@@ -18,9 +18,11 @@
 //==============================================================================
 
 #include <test/unit_test/SuiteJournal.h>
+
 #include <xrpld/peerfinder/PeerfinderManager.h>
 #include <xrpld/peerfinder/detail/Tuning.h>
 #include <xrpld/peerfinder/make_Manager.h>
+
 #include <xrpl/basics/BasicConfig.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/insight/NullCollector.h>

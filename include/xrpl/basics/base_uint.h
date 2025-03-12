@@ -38,7 +38,6 @@
 #include <boost/functional/hash.hpp>
 
 #include <algorithm>
-
 #include <array>
 #include <bit>
 #include <compare>

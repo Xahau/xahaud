@@ -57,6 +57,7 @@
 #include <xrpld/rpc/MPTokenIssuanceID.h>
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/mulDiv.h>
@@ -77,9 +78,9 @@
 
 #include <boost/asio/ip/host_name.hpp>
 #include <boost/asio/steady_timer.hpp>
-#include <exception>
 
 #include <algorithm>
+#include <exception>
 #include <mutex>
 #include <optional>
 #include <set>

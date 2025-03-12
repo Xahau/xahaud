@@ -18,8 +18,9 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/app/tx/apply.h>
-#include <xrpl/basics/StringUtilities.h>
+
 #include <xrpl/protocol/AmountConversions.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Quality.h>
