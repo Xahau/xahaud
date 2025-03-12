@@ -3219,6 +3219,491 @@ public:
     }
 
     void
+    test_float_sto(FeatureBitset features)
+    {
+        testcase("Test float_sto");
+        using namespace jtx;
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        {
+            TestHook hook = jswasm[R"[test.hook](
+                const INVALID_FLOAT = -10024
+                const INVALID_ARGUMENT = -7
+                const ASSERT = (x) => {
+                    if (!x) rollback(x.toString(), 1)
+                }
+                const sfAmount = (6 << 16) + 1
+                const sfDeliveredAmount = (6 << 16) + 18
+                const cur1 = ['U'.charCodeAt(0), 'S'.charCodeAt(0), 'D'.charCodeAt(0)]
+                const cur1full = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...cur1, 0, 0, 0, 0, 0]
+
+                const BUFFER_EQUAL_20 = (buf1, buf2) => {
+                    if (buf1.length !== 20 || buf2.length !== 20) return false
+                    for (let i = 0; i < 20; i++) {
+                        if (buf1[i] !== buf2[i]) return false
+                    }
+                    return true
+                }
+
+                const Hook = (reserved) => {
+                    let y
+                    const cur2 = new Array(20).fill(0)
+
+                    const iss = hook_account()
+                    ASSERT(typeof iss !== 'number' && iss.length === 20)
+                    // zero issuer/currency pointers must be accompanied by 0 length
+                    // TODO: https://github.com/Xahau/xahaud/issues/461
+                    // ASSERT(float_sto([0], undefined, 0n, 0) === INVALID_ARGUMENT)
+                    // ASSERT(float_sto(undefined, [0], 0n, 0) === INVALID_ARGUMENT)
+
+                    // zero issuer/currency lengths must tbe accompanied by 0 pointers
+                    ASSERT(float_sto([], undefined, 0n, 0) === INVALID_ARGUMENT)
+                    ASSERT(float_sto(undefined, [], 0n, 0) === INVALID_ARGUMENT)
+
+                    // issuer without currency is invalid
+                    ASSERT(float_sto(undefined, iss, 0n, sfAmount) === INVALID_ARGUMENT)
+
+                    // currency without issuer is invalid
+                    ASSERT(float_sto(cur1, undefined, 0n, sfAmount) === INVALID_ARGUMENT)
+
+                    // currency and issuer with field code 0 = XRP is invalid
+                    ASSERT(float_sto(cur1, iss, 0n, 0) === INVALID_ARGUMENT)
+
+                    // invalid XFL
+                    ASSERT(float_sto(cur2, iss, -1n, sfAmount) === INVALID_FLOAT)
+
+                    // currency and issuer with field code not XRP is valid (XFL = 1234567.0)
+                    // try with a three letter currency
+                    y = float_sto(cur1, iss, 6198187654261802496n, sfAmount)
+                    ASSERT(typeof y !== 'number' && y.length === 49)
+
+                    // check the output contains the correct currency code
+                    ASSERT(BUFFER_EQUAL_20(y.slice(9, 29), cur1full))
+
+                    // again with a 20 byte currency
+                    y = float_sto(cur2, iss, 6198187654261802496n, sfAmount)
+                    ASSERT(typeof y !== 'number' && y.length === 49)
+
+                    // check the output contains the correct currency code
+                    ASSERT(BUFFER_EQUAL_20(y.slice(9, 29), cur2))
+
+                    // check the output contains the correct issuer
+                    ASSERT(BUFFER_EQUAL_20(y.slice(29, 49), iss))
+
+                    // check the field code is correct
+                    ASSERT(y[0] === 0x61) // sfAmount
+
+                    // reverse the operation and check the XFL amount is correct
+                    ASSERT(float_sto_set(y) === 6198187654261802496n)
+
+                    // test 0
+                    y = float_sto(cur2, iss, 0n, sfAmount)
+                    ASSERT(typeof y !== 'number' && y.length === 49)
+                    ASSERT(float_sto_set(y) === 0n)
+
+                    y = float_sto(cur2, iss, 6198187654261802496n, sfDeliveredAmount)
+                    ASSERT(typeof y !== 'number' && y.length === 50)
+
+                    // check the first 2 bytes
+                    ASSERT(y[0] === 0x60 && y[1] === 0x12)
+
+                    // same checks as above moved along one
+                    // check the output contains the correct currency code
+                    ASSERT(BUFFER_EQUAL_20(y.slice(10, 30), cur2))
+
+                    // check the output contains the correct issuer
+                    ASSERT(BUFFER_EQUAL_20(y.slice(30, 50), iss))
+
+                    // reverse the operation and check the XFL amount is correct
+                    ASSERT(float_sto_set(y) === 6198187654261802496n)
+
+                    // and the same again except use -1 as field code to supress field type bytes
+                    {
+                        // zero the serialized amount bytes
+                        for (let i = 0; i < 8; i++) y[2 + i] = 0
+                        let z
+                        // request fieldcode -1 = only serialize the number
+                        z = float_sto(undefined, undefined, 6198187654261802496n, 0xffffffff)
+                        ASSERT(typeof z !== 'number' && z.length === 8)
+                        for (let i = 0; i < 8; i++) y[2 + i] = z[i]
+
+                        // reverse the operation and check the XFL amount is correct
+                        ASSERT(float_sto_set(y) === 6198187654261802496n)
+
+                        // try again with some different xfls
+                        z = float_sto(undefined, undefined, 1244912689067196128n, 0xffffffff)
+
+                        ASSERT(typeof z !== 'number' && z.length === 8)
+                        for (let i = 0; i < 8; i++) y[2 + i] = z[i]
+
+                        ASSERT(float_sto_set(y) === 1244912689067196128n)
+
+                        // test 0
+                        z = float_sto(undefined, undefined, 0n, 0xffffffff)
+                        ASSERT(typeof z !== 'number' && z.length === 8)
+                        for (let i = 0; i < 8; i++) y[2 + i] = z[i]
+
+                        ASSERT(float_sto_set(y) === 0n)
+                    }
+
+                    // finally test xrp
+                    {
+                        // zero the serialized amount bytes
+                        for (let i = 0; i < 8; i++) y[2 + i] = 0
+
+                        // request fieldcode 0 = xrp amount serialized
+                        let z
+                        z = float_sto(undefined, undefined, 6198187654261802496n, 0)
+
+                        ASSERT(typeof z !== 'number' && z.length === 8)
+                        for (let i = 0; i < 8; i++) y[1 + i] = z[i]
+
+                        y[0] = 0x61
+
+                        ASSERT(float_sto_set(y.slice(0, 9)) === 6198187654261802496n)
+
+                        // test 0
+                        z = float_sto(undefined, undefined, 0n, 0)
+                        for (let i = 0; i < 8; i++) y[1 + i] = z[i]
+                        ASSERT(float_sto_set(y.slice(0, 9)) === 0n)
+                        //6198187654373024496
+                    }
+
+                    return accept('', 0)
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+                M("set float_sto"),
+                HSFEE);
+            env.close();
+
+            env(pay(bob, alice, XRP(1)), M("test float_sto"), fee(XRP(1)));
+            env.close();
+        }
+    }
+
+    void
+    test_float_sto_set(FeatureBitset features)
+    {
+        testcase("Test float_sto_set");
+        using namespace jtx;
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        {
+            TestHook hook = jswasm[R"[test.hook](
+                const NOT_AN_OBJECT = -23
+                const ASSERT = (x) => {
+                   if (!x) rollback(x.toString(), 1)
+                }
+
+                // 1234567000000000 * 10**-9, currency USD, issuer 7C4C8D5B2FDA1D16E9A4F5BB579AC2926C146235 (alice)
+                const iou =
+                    //6198187654261802496
+                    [
+                        0x61, 0xd6, 0x04, 0x62, 0xd5, 0x07, 0x7c, 0x86, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x53, 0x44,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x7c, 0x4c, 0x8d, 0x5b, 0x2f, 0xda, 0x1d,
+                        0x16, 0xe9, 0xa4, 0xf5, 0xbb, 0x57, 0x9a, 0xc2, 0x92, 0x6c, 0x14, 0x62,
+                        0x35,
+                    ]
+
+                // as above but value is negative
+                const iou_neg =
+                    //1586501635834414592
+                    [
+                        0x61, 0x96, 0x04, 0x62, 0xd5, 0x07, 0x7c, 0x86, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x53, 0x44,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x7c, 0x4c, 0x8d, 0x5b, 0x2f, 0xda, 0x1d,
+                        0x16, 0xe9, 0xa4, 0xf5, 0xbb, 0x57, 0x9a, 0xc2, 0x92, 0x6c, 0x14, 0x62,
+                        0x35,
+                    ]
+
+                // as above but value is 0
+                const iou_zero =
+                    // 0
+                    [
+                        0x61, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x53, 0x44,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x7c, 0x4c, 0x8d, 0x5b, 0x2f, 0xda, 0x1d,
+                        0x16, 0xe9, 0xa4, 0xf5, 0xbb, 0x57, 0x9a, 0xc2, 0x92, 0x6c, 0x14, 0x62,
+                        0x35,
+                    ]
+
+                // XRP short code 1234567 drops
+                const xrp_short =
+                    //6198187654261802496
+                    [0x61, 0x40, 0x00, 0x00, 0x00, 0x00, 0x12, 0xd6, 0x87]
+
+                // XRP long code 755898701447 drops
+                const xrp_long =
+                    //6294584066823682416
+                    [0x60, 0x11, 0x40, 0x00, 0x00, 0xaf, 0xff, 0x12, 0xd6, 0x87]
+
+                // XRP negative 1234567 drops
+                const xrp_neg =
+                    //1586501635834414592
+                    [0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0xd6, 0x87]
+
+                // XRP negative zero
+                const xrp_neg_zero =
+                    // 0
+                    [0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+                // XRP positive zero
+                const xrp_pos_zero =
+                    // 0
+                    [0x61, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+                const Hook = (reserved) => {
+                    // too small check
+                    ASSERT(float_sto_set(Array(7).fill(0)) === NOT_AN_OBJECT)
+
+                    // garbage check
+                    ASSERT(float_sto_set(Array(9).fill(0)) === NOT_AN_OBJECT)
+                    ASSERT(float_sto_set(Array(8).fill(0)) === 0n)
+
+                    ASSERT(float_sto_set(iou) === 6198187654261802496n)
+                    ASSERT(float_sto_set(xrp_short) === 6198187654261802496n)
+                    ASSERT(float_sto_set(iou_neg) === 1586501635834414592n)
+                    ASSERT(float_sto_set(xrp_neg) === 1586501635834414592n)
+                    ASSERT(float_sto_set(xrp_pos_zero) === 0n)
+                    ASSERT(float_sto_set(xrp_neg_zero) === 0n)
+                    ASSERT(float_sto_set(iou_zero) === 0n)
+                    ASSERT(float_sto_set(xrp_long) === 6294584066823682416n)
+
+                    return accept('', 0)
+                }
+
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+                M("set float_sto_set"),
+                HSFEE);
+            env.close();
+
+            env(pay(bob, alice, XRP(1)), M("test float_sto_set"), fee(XRP(1)));
+            env.close();
+        }
+    }
+
+    void
+    test_float_sum(FeatureBitset features)
+    {
+        testcase("Test float_sum");
+        using namespace jtx;
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        {
+            TestHook hook = jswasm[R"[test.hook](
+                const float_exponent = (f) => Number(((f >> 54n) & 0xffn) - 97n)
+                const ASSERT_EQUAL = (x, y) => {
+                    const px = x
+                    const py = y
+                    let mx = float_mantissa(px)
+                    let my = float_mantissa(py)
+                    let diffexp = float_exponent(px) - float_exponent(py)
+                    if (diffexp === 1) mx *= 10n
+                    if (diffexp === -1) my *= 10n
+                    let diffman = mx - my
+                    if (diffman < 0n) diffman *= -1n
+                    if (diffexp < 0) diffexp *= -1
+                    if (diffexp > 1 || diffman > 5000000n || mx < 0n || my < 0n) rollback('', 0)
+                }
+                const Hook = (reserved) => {
+                    // 1 + 1 = 2
+                    ASSERT_EQUAL(6090866696204910592n, float_sum(float_one(), float_one()))
+
+                    // 1 - 1 = 0
+                    ASSERT_EQUAL(0n, float_sum(float_one(), float_negate(float_one())))
+
+                    // 45678 + 0.345678 = 45678.345678
+                    ASSERT_EQUAL(
+                        6165492124810638528n,
+                        float_sum(6165492090242838528n, 6074309077695428608n)
+                    )
+
+                    // -151864512641 + 100000000000000000 = 99999848135487359
+                    ASSERT_EQUAL(
+                        6387097057170171072n,
+                        float_sum(1676857706508234512n, 6396111470866104320n)
+                    )
+
+                    // auto generated random sums
+                    ASSERT_EQUAL(
+                        float_sum(
+                        95785354843184473n /* -5.713362295774553e-77 */,
+                        7607324992379065667n /* 5.248821377668419e+84 */
+                        ),
+                        7607324992379065667n /* 5.248821377668419e+84 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        1011203427860697296n /* -2.397111329706192e-26 */,
+                        7715811566197737722n /* 5.64900413944857e+90 */
+                        ),
+                        7715811566197737722n /* 5.64900413944857e+90 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        6507979072644559603n /* 4.781210721563379e+23 */,
+                        422214339164556094n /* -7.883173446470462e-59 */
+                        ),
+                        6507979072644559603n /* 4.781210721563379e+23 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        129493221419941559n /* -3.392431853567671e-75 */,
+                        6742079437952459317n /* 4.694395406197301e+36 */
+                        ),
+                        6742079437952459317n /* 4.694395406197301e+36 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        5172806703808250354n /* 2.674331586920946e-51 */,
+                        3070396690523275533n /* -7.948943911338253e+88 */
+                        ),
+                        3070396690523275533n /* -7.948943911338253e+88 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        2440992231195047997n /* -9.048432414980156e+53 */,
+                        4937813945440933271n /* 1.868753842869655e-64 */
+                        ),
+                        2440992231195047996n /* -9.048432414980156e+53 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        7351918685453062372n /* 2.0440935844129e+70 */,
+                        6489541496844182832n /* 4.358033430668592e+22 */
+                        ),
+                        7351918685453062372n /* 2.0440935844129e+70 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        4960621423606196948n /* 6.661833498651348e-63 */,
+                        6036716382996689576n /* 0.001892882320224936 */
+                        ),
+                        6036716382996689576n /* 0.001892882320224936 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        1342689232407435206n /* -9.62374270576839e-8 */,
+                        5629833007898276923n /* 9.340672939897915e-26 */
+                        ),
+                        1342689232407435206n /* -9.62374270576839e-8 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        7557687707019793516n /* 9.65473154684222e+81 */,
+                        528084028396448719n /* -5.666471621471183e-53 */
+                        ),
+                        7557687707019793516n /* 9.65473154684222e+81 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        130151633377050812n /* -4.050843810676924e-75 */,
+                        2525286695563827336n /* -3.270904236349576e+58 */
+                        ),
+                        2525286695563827336n /* -3.270904236349576e+58 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        5051914485221832639n /* 7.88290256687712e-58 */,
+                        7518727241611221951n /* 6.723063157234623e+79 */
+                        ),
+                        7518727241611221951n /* 6.723063157234623e+79 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        3014788764095798870n /* -6.384213012307542e+85 */,
+                        7425019819707800346n /* 3.087633801222938e+74 */
+                        ),
+                        3014788764095767995n /* -6.384213012276667e+85 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        4918950856932792129n /* 1.020063844210497e-65 */,
+                        7173510242188034581n /* 3.779635414204949e+60 */
+                        ),
+                        7173510242188034581n /* 3.779635414204949e+60 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        20028000442705357n /* -2.013601933223373e-81 */,
+                        95248745393457140n /* -5.17675284604722e-77 */
+                        ),
+                        95248946753650462n /* -5.176954206240542e-77 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        5516870225060928024n /* 4.46428115944092e-32 */,
+                        7357202055584617194n /* 7.327463715967722e+70 */
+                        ),
+                        7357202055584617194n /* 7.327463715967722e+70 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        2326103538819088036n /* -2.2461310959121e+47 */,
+                        1749360946246242122n /* -1964290826489674 */
+                        ),
+                        2326103538819088036n /* -2.2461310959121e+47 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        1738010758208819410n /* -862850129854894.6 */,
+                        2224610859005732191n /* -8.83984233944816e+41 */
+                        ),
+                        2224610859005732192n /* -8.83984233944816e+41 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        4869534730307487904n /* 5.647132747352224e-68 */,
+                        2166841923565712115n /* -5.114102427874035e+38 */
+                        ),
+                        2166841923565712115n /* -5.114102427874035e+38 */
+                    )
+                    ASSERT_EQUAL(
+                        float_sum(
+                        1054339559322014937n /* -9.504445772059864e-24 */,
+                        1389511416678371338n /* -0.0000240273144825857 */
+                        ),
+                        1389511416678371338n /* -0.0000240273144825857 */
+                    )
+
+                    accept('', 0)
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+                M("set float_sum"),
+                HSFEE);
+            env.close();
+
+            env(pay(bob, alice, XRP(1)), M("test float_sum"), fee(XRP(1)));
+            env.close();
+        }
+    }
+
+    void
     test_hook_account(FeatureBitset features)
     {
         testcase("Test hook_account");
@@ -9262,9 +9747,9 @@ public:
         test_float_root(features);      //
         test_float_set(features);       //
         test_float_sign(features);      //
-        // test_float_sto(features);       //
-        // test_float_sto_set(features);   //
-        // test_float_sum(features);       //
+        test_float_sto(features);       //
+        test_float_sto_set(features);   //
+        test_float_sum(features);       //
 
         test_hook_account(features);    //
         test_hook_again(features);      //
