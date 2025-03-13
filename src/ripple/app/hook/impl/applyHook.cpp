@@ -3363,7 +3363,10 @@ DEFINE_JS_FUNCTION(JSValue, slot, JSValue raw_slot_no)
         returnJS(INTERNAL_ERROR);
 
     if (argc == 2 && !!JS_ToBool(ctx, argv[1]))
+    {
+        JS_FreeValue(ctx, *out);
         returnJS(data_as_int64(ptr, len));
+    }
 
     return *out;
 

@@ -4943,10 +4943,13 @@ public:
             }
             var sfTransactionType = 65538
             var Hook = (arg) => {
+            // Set originating transaction into slot 1
             ASSERT(otxn_slot(1) === 1, 1)
+            // Set field sfTransactionType of slot 1 into slot 2
             ASSERT(slot_subfield(1, sfTransactionType, 2) === 2, 2)
+            // Get the value of slot 2 into variable
             const tt = slot(2, true)
-            ASSERT(tt === otxn_type(), 3)
+            ASSERT(tt === otxn_type(), 0)
             accept('', 0)
             }
         )[test.hook]"];
@@ -10226,14 +10229,11 @@ public:
 
         test_otxn_id(features);    //
         test_otxn_slot(features);  //
-        // test_otxn_type(features);   // tequ: Assertion failed:
-        // (list_empty(&rt->gc_obj_list))
+        test_otxn_type(features);
         test_otxn_param(features);  //
-        // test_otxn_json(features);  // JS ONLY // tequ: Assertion failed:
-        // (list_empty(&rt->gc_obj_list))
+        test_otxn_json(features);  // JS ONLY
 
-        // test_slot(features);           // tequ: Assertion failed:
-        // (list_empty(&rt->gc_obj_list))
+        test_slot(features);
         test_slot_clear(features);     //
         test_slot_count(features);     //
         test_slot_float(features);     //
