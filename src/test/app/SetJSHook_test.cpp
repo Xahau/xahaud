@@ -10231,7 +10231,7 @@ public:
         test_otxn_slot(features);  //
         test_otxn_type(features);
         test_otxn_param(features);  //
-        test_otxn_json(features);  // JS ONLY
+        test_otxn_json(features);   // JS ONLY
 
         test_slot(features);
         test_slot_clear(features);     //
