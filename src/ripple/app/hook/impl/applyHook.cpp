@@ -966,10 +966,7 @@ ToJSIntArray(JSContext* ctx, T const& vec)
 
     JSValue out = JS_NewArray(ctx);
     if (JS_IsException(out))
-    {
-        JS_FreeValue(ctx, out);
         return {};
-    }
 
     int i = 0;
     for (auto& x : vec)
@@ -5119,10 +5116,7 @@ DEFINE_JS_FUNCTION(JSValue, emit, JSValue raw_tx)
         JSValue sdata =
             JS_JSONStringify(ctx, raw_tx, JS_UNDEFINED, JS_UNDEFINED);
         if (JS_IsException(sdata))
-        {
-            JS_FreeValue(ctx, sdata);
             returnJS(INVALID_ARGUMENT);
-        }
 
         size_t len;
         const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
@@ -5191,10 +5185,7 @@ DEFINE_JS_FUNCTION(JSValue, prepare, JSValue raw_tmpl)
     // stringify it
     JSValue sdata = JS_JSONStringify(ctx, raw_tmpl, JS_UNDEFINED, JS_UNDEFINED);
     if (JS_IsException(sdata))
-    {
-        JS_FreeValue(ctx, sdata);
         returnJS(INVALID_ARGUMENT);
-    }
     size_t len;
     const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
     if (len > 1024 * 1024)
@@ -5288,10 +5279,7 @@ DEFINE_JS_FUNCTION(JSValue, prepare, JSValue raw_tmpl)
     out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
 
     if (JS_IsException(out))
-    {
-        JS_FreeValue(ctx, out);
         returnJS(INTERNAL_ERROR);
-    }
 
     return out;
 
@@ -5314,10 +5302,7 @@ DEFINE_JS_FUNCNARG(JSValue, otxn_json)
     out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
 
     if (JS_IsException(out))
-    {
-        JS_FreeValue(ctx, out);
         returnJS(INTERNAL_ERROR);
-    }
 
     return out;
 
@@ -5345,10 +5330,7 @@ DEFINE_JS_FUNCTION(JSValue, slot_json, JSValue raw_slot_no)
     out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
 
     if (JS_IsException(out))
-    {
-        JS_FreeValue(ctx, out);
         returnJS(INTERNAL_ERROR);
-    }
 
     return out;
 
@@ -5377,11 +5359,8 @@ DEFINE_JS_FUNCTION(JSValue, sto_to_json, JSValue raw_sto_in)
         JSValue out;
         out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
 
-        if (JS_IsException(out))
-        {
-            JS_FreeValue(ctx, out);
+        if (JS_IsException(out)
             returnJS(INTERNAL_ERROR);
-        }
 
         return out;
     }
@@ -5407,10 +5386,7 @@ DEFINE_JS_FUNCTION(JSValue, sto_from_json, JSValue raw_json_in)
         JSValue sdata =
             JS_JSONStringify(ctx, raw_json_in, JS_UNDEFINED, JS_UNDEFINED);
         if (JS_IsException(sdata))
-        {
-            JS_FreeValue(ctx, sdata);
             returnJS(INVALID_ARGUMENT);
-        }
 
         const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
         if (len > 64 * 1024)
