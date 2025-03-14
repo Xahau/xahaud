@@ -5359,7 +5359,7 @@ DEFINE_JS_FUNCTION(JSValue, sto_to_json, JSValue raw_sto_in)
         JSValue out;
         out = JS_ParseJSON(ctx, flat.data(), flat.size(), "<json>");
 
-        if (JS_IsException(out)
+        if (JS_IsException(out))
             returnJS(INTERNAL_ERROR);
 
         return out;
