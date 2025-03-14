@@ -2834,7 +2834,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set fee_base"),
             HSFEE);
         env.close();
@@ -2964,7 +2965,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set ledger_keylet"),
             HSFEE);
         env.close();
@@ -4978,7 +4980,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set meta_slot"),
             HSFEE);
         env.close();
@@ -10368,7 +10371,7 @@ public:
         // test_etxn_nonce(features);     // C ONLY
         // test_etxn_reserve(features);   //
 
-        test_fee_base(features);       //
+        test_fee_base(features);    //
         test_otxn_field(features);  //
         test_ledger_keylet(features);  //
 
