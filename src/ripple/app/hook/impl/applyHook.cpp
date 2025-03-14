@@ -1749,7 +1749,8 @@ DEFINE_JS_FUNCTION(int64_t, trace, JSValue msg, JSValue data, JSValue as_hex)
             out += std::string(cstr, len);
             JS_FreeCString(ctx, cstr);
             JS_FreeValue(ctx, sdata);
-        } else
+        }
+        else
         {
             // No need to free value types
         }
