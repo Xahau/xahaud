@@ -5802,7 +5802,7 @@ std::map<std::string, std::vector<uint8_t>> jswasm = {
             // Set field sfTransactionType of slot 1 into slot 2
             ASSERT(slot_subfield(1, sfTransactionType, 2) === 2, 2)
             // Get the value of slot 2 into variable
-            const tt = slot(2, true) // <---- this is failing here
+            const tt = slot(2, true)
             ASSERT(tt === otxn_type(), 0)
             accept('', 0)
             }
