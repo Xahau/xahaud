@@ -5135,6 +5135,7 @@ DEFINE_JS_FUNCTION(JSValue, emit, JSValue raw_tx)
         }
         std::string const tmpl(cstr, len);
         JS_FreeCString(ctx, cstr);
+        JS_FreeValue(ctx, sdata);
 
         // parse it on rippled side
         Json::Value json;
@@ -5199,10 +5200,12 @@ DEFINE_JS_FUNCTION(JSValue, prepare, JSValue raw_tmpl)
     if (len > 1024 * 1024)
     {
         JS_FreeCString(ctx, cstr);
+        JS_FreeValue(ctx, sdata);
         returnJS(TOO_BIG);
     }
     std::string tmpl(cstr, len);
     JS_FreeCString(ctx, cstr);
+    JS_FreeValue(ctx, sdata);
 
     // parse it on rippled side
     Json::Value json;
