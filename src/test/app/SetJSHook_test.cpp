@@ -2811,6 +2811,39 @@ public:
     // test_emit(FeatureBitset features)
 
     void
+    test_fee_base(FeatureBitset features)
+    {
+        testcase("Test fee_base");
+        using namespace jtx;
+
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0)
+            }
+            const Hook = (arg) => {
+                ASSERT(fee_base() === 10)
+                return accept("", 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set fee_base"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test fee_base"), fee(XRP(1)));
+    }
+
+    void
     test_otxn_field(FeatureBitset features)
     {
         testcase("Test otxn_field");
@@ -2858,6 +2891,86 @@ public:
 
         // invoke the hook
         env(pay(alice, bob, XRP(1)), M("test otxn_field"), fee(XRP(1)));
+    }
+
+    void
+    test_ledger_keylet(FeatureBitset features)
+    {
+        testcase("Test ledger_keylet");
+        using namespace jtx;
+        Env env{*this, features};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0)
+            }
+            const INVALID_ARGUMENT = -7
+            const DOESNT_EXIST = -5
+            const DOES_NOT_MATCH = -40
+            const Hook = (reserved) => {
+                const arr33 = Array(33).fill(0)
+                const arr34 = Array(34).fill(0)
+                const arr35 = Array(35).fill(0)
+
+                ASSERT(ledger_keylet(undefined, arr34) === INVALID_ARGUMENT)
+                ASSERT(ledger_keylet(arr34, undefined) === INVALID_ARGUMENT)
+
+                ASSERT(ledger_keylet(arr33, arr34) === INVALID_ARGUMENT)
+                ASSERT(ledger_keylet(arr34, arr33) === INVALID_ARGUMENT)
+
+                ASSERT(ledger_keylet(arr35, arr34) === INVALID_ARGUMENT)
+                ASSERT(ledger_keylet(arr34, arr35) === INVALID_ARGUMENT)
+
+                const trash = [
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                    1, 2, 3, 4,
+                ]
+
+                const trash2 = [
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                    1, 2, 3, 5
+                ]
+
+                ASSERT(ledger_keylet(trash2, trash) === DOESNT_EXIST)
+                ASSERT(ledger_keylet(trash, trash2) === DOESNT_EXIST)
+
+                const first = Array(34).fill(0)
+                const last = [
+                    0x00, 0x01,
+                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
+                ]
+
+                ASSERT(ledger_keylet(first, last) === DOES_NOT_MATCH)
+                last[1] = 0x00
+                const out = ledger_keylet(first, last)
+                ASSERT(out.length === 34)
+
+                ASSERT(slot_set(out, 1) === 1)
+
+                accept("", 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set ledger_keylet"),
+            HSFEE);
+        env.close();
+
+        env(pay(bob, alice, XRP(1)), M("test ledger_keylet"), fee(XRP(1)));
+        env.close();
     }
 
     void
@@ -4818,6 +4931,74 @@ public:
                     rc);
             }
         }
+    }
+
+    void
+    test_meta_slot(FeatureBitset features)
+    {
+        testcase("Test meta_slot");
+        using namespace jtx;
+        Env env{*this, features};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const PREREQUISITE_NOT_MET = -9
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0)
+            }
+            const sfHookExecutions = (15 << 16) + 18
+            const sfTransactionResult = (16 << 16) + 3
+            const sfAffectedNodes = (15 << 16) + 8
+            const sfTransactionIndex = (2 << 16) + 28
+            const Hook = (r) => {
+                if (r > 0) {
+                    ASSERT(meta_slot(1) === 1)
+
+                    const buf = slot(1)
+                    ASSERT(buf.length > 200)
+
+                    ASSERT(slot_subfield(1, sfTransactionIndex, 2) === 2)
+                    ASSERT(slot_subfield(1, sfAffectedNodes, 3) === 3)
+                    ASSERT(slot_subfield(1, sfHookExecutions, 4) === 4)
+                    ASSERT(slot_subfield(1, sfTransactionResult, 5) === 5)
+
+                    return accept('', 1)
+                }
+
+                if (hook_again() !== 1) return rollback('', 254)
+
+                ASSERT(meta_slot(1) === PREREQUISITE_NOT_MET)
+
+                return accept('', 0)
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set meta_slot"),
+            HSFEE);
+        env.close();
+
+        env(pay(bob, alice, XRP(1)), M("test meta_slot"), fee(XRP(1)));
+        env.close();
+
+        auto meta = env.meta();
+
+        // ensure hook execution occured
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        // ensure there were two executions
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 2);
+
+        // get the data in the return code of the execution
+        BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
+        BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
     }
 
     void
@@ -10187,9 +10368,9 @@ public:
         // test_etxn_nonce(features);     // C ONLY
         // test_etxn_reserve(features);   //
 
-        // test_fee_base(features);       //
+        test_fee_base(features);       //
         test_otxn_field(features);  //
-        // test_ledger_keylet(features);  //
+        test_ledger_keylet(features);  //
 
         test_float_compare(features);   //
         test_float_divide(features);    //
@@ -10221,7 +10402,7 @@ public:
         test_ledger_nonce(features);      //
         test_ledger_seq(features);        //
 
-        // test_meta_slot(features);  //
+        test_meta_slot(features);  //
         // test_xpop_slot(features);  //
 
         test_otxn_id(features);    //
