@@ -1739,7 +1739,7 @@ DEFINE_JS_FUNCTION(int64_t, trace, JSValue msg, JSValue data, JSValue as_hex)
         JSValue sdata = JS_JSONStringify(ctx, data, replacer, JS_UNDEFINED);
         JS_FreeValue(ctx, replacer);
 
-        if (!(!JS_IsString(sdata)))
+        if (JS_IsString(sdata))
         {
             assert(JS_IsString(sdata));
             size_t len;
@@ -1752,7 +1752,7 @@ DEFINE_JS_FUNCTION(int64_t, trace, JSValue msg, JSValue data, JSValue as_hex)
         }
         else
         {
-            // No need to free value types
+            out += "<could not display data>";
         }
     }
 
