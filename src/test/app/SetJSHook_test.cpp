@@ -10371,8 +10371,8 @@ public:
         // test_etxn_nonce(features);     // C ONLY
         // test_etxn_reserve(features);   //
 
-        test_fee_base(features);    //
-        test_otxn_field(features);  //
+        test_fee_base(features);       //
+        test_otxn_field(features);     //
         test_ledger_keylet(features);  //
 
         test_float_compare(features);   //
