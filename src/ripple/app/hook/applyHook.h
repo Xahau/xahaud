@@ -1278,9 +1278,42 @@ public:
         }
     };
 
+
     /**
-     * Validate that a js blob can be loaded by quickjs
+     * Helper function to handle a JS exception by extracting its message
+     * and freeing any additional JSValues
      */
+    template <typename... JSValues>
+    static std::string
+    handleException(
+        JSContext* ctx,
+        const char* defaultMsg,
+        JSValues... valuesToFree)
+    {
+        // Get the actual exception object
+        JSValue exception = JS_GetException(ctx);
+
+        // Extract the error message property
+        JSValue msgProp = JS_GetPropertyStr(ctx, exception, "message");
+        const char* str = JS_ToCString(ctx, msgProp);
+
+        std::string result = (str != nullptr) ? str : defaultMsg;
+
+        if (str != nullptr)
+            JS_FreeCString(ctx, str);
+
+        JS_FreeValue(ctx, msgProp);
+        JS_FreeValue(ctx, exception);
+
+        // Free all additional values passed
+        (JS_FreeValue(ctx, valuesToFree), ...);
+
+        return result;
+    }
+
+    /**
+ * Validate that a js blob can be loaded by quickjs
+ */
     static std::optional<std::string>
     validate(const void* buf, size_t buf_len)
     {
@@ -1299,38 +1332,17 @@ public:
 
         JSValue obj = JS_ReadObject(
             ctx, (uint8_t const*)buf, buf_len, JS_READ_OBJ_BYTECODE);
-        if (JS_IsException(obj))
+        if (JS_IsException(obj) || JS_IsUndefined(obj))
         {
-            if (const char* str = JS_ToCString(ctx, obj); str)
-            {
-                retval.emplace(str);
-                JS_FreeCString(ctx, str);
-            }
-            else
-            {
-                retval.emplace("invalid bytecode");
-            }
-
-            JS_FreeValue(ctx, obj);
-            return retval;
+            std::string errMsg = handleException(ctx, "invalid bytecode");
+            return errMsg;
         }
 
         JSValue val = JS_EvalFunction(ctx, obj);
         if (JS_IsException(val))
         {
-            if (const char* str = JS_ToCString(ctx, val); str)
-            {
-                retval.emplace(str);
-                JS_FreeCString(ctx, str);
-            }
-            else
-            {
-                retval.emplace("bytecode eval failure");
-            }
-            JS_FreeValue(ctx, val);
-            // JS_FreeValue(ctx, obj);
-
-            return retval;
+            std::string errMsg = handleException(ctx, "bytecode eval failure", obj);
+            return errMsg;
         }
 
         JS_FreeValue(ctx, val);
@@ -1341,18 +1353,18 @@ public:
             "\"undefined\")) "
             "throw Error(\"Hook/Callback function required\")";
 
-        val = JS_Eval(vm.ctx, testCalls, sizeof(testCalls) - 1, "<qjsvm>", 0);
+        val = JS_Eval(vm.ctx, testCalls, strlen(testCalls), "<qjsvm>", 0);
 
         if (JS_IsException(val))
         {
-            if (const char* str = JS_ToCString(ctx, val); str)
-            {
-                retval.emplace(str);
-                JS_FreeCString(ctx, str);
-            }
+            std::string errMsg = handleException(
+                ctx, "Hook/Callback validation failure", obj);
+            return errMsg;
         }
 
         JS_FreeValue(ctx, val);
+        // Special rules for JS_TAG_FUNCTION_BYTECODE that need clarification
+        // If we try to free this object here it causes a crash
         // JS_FreeValue(ctx, obj);
 
         return retval;
