@@ -10173,6 +10173,12 @@ public:
                 const data = new Date()
                 ASSERT(data.getTime() === (ledger_last_time() + 946684800) * 1000)
                 ASSERT(Date.now() === (ledger_last_time() + 946684800) * 1000)
+                ASSERT(new Date().getTimezoneOffset() === 0)
+                const date = new Date(2025, 1, 1, 0, 0, 0, 0)
+                ASSERT(date.toLocaleString() === '02/01/2025, 12:00:00 AM')
+                ASSERT(date.toString() === 'Sat Feb 01 2025 00:00:00 GMT+0000')
+                ASSERT(date.toUTCString() === 'Sat, 01 Feb 2025 00:00:00 GMT')
+                ASSERT(date.toISOString() === '2025-02-01T00:00:00.000Z')
                 accept('', 0)
             }
         )[test.hook]"];

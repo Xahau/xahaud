@@ -43384,50 +43384,51 @@ static const JSCFunctionListEntry js_math_obj[] = {
 static int getTimezoneOffset(int64_t time)
 {
     time_t ti;
-    int res;
+    int res = 0;
 
-    time /= 1000; /* convert to seconds */
-    if (sizeof(time_t) == 4) {
-        /* on 32-bit systems, we need to clamp the time value to the
-           range of `time_t`. This is better than truncating values to
-           32 bits and hopefully provides the same result as 64-bit
-           implementation of localtime_r.
-         */
-        if ((time_t)-1 < 0) {
-            if (time < INT32_MIN) {
-                time = INT32_MIN;
-            } else if (time > INT32_MAX) {
-                time = INT32_MAX;
-            }
-        } else {
-            if (time < 0) {
-                time = 0;
-            } else if (time > UINT32_MAX) {
-                time = UINT32_MAX;
-            }
-        }
-    }
-    ti = time;
-#if defined(_WIN32)
-    {
-        struct tm *tm;
-        time_t gm_ti, loc_ti;
+    // The timezone offset is fixed at 0
+//     time /= 1000; /* convert to seconds */
+//     if (sizeof(time_t) == 4) {
+//         /* on 32-bit systems, we need to clamp the time value to the
+//            range of `time_t`. This is better than truncating values to
+//            32 bits and hopefully provides the same result as 64-bit
+//            implementation of localtime_r.
+//          */
+//         if ((time_t)-1 < 0) {
+//             if (time < INT32_MIN) {
+//                 time = INT32_MIN;
+//             } else if (time > INT32_MAX) {
+//                 time = INT32_MAX;
+//             }
+//         } else {
+//             if (time < 0) {
+//                 time = 0;
+//             } else if (time > UINT32_MAX) {
+//                 time = UINT32_MAX;
+//             }
+//         }
+//     }
+//     ti = time;
+// #if defined(_WIN32)
+//     {
+//         struct tm *tm;
+//         time_t gm_ti, loc_ti;
 
-        tm = gmtime(&ti);
-        gm_ti = mktime(tm);
+//         tm = gmtime(&ti);
+//         gm_ti = mktime(tm);
 
-        tm = localtime(&ti);
-        loc_ti = mktime(tm);
+//         tm = localtime(&ti);
+//         loc_ti = mktime(tm);
 
-        res = (gm_ti - loc_ti) / 60;
-    }
-#else
-    {
-        struct tm tm;
-        localtime_r(&ti, &tm);
-        res = -tm.tm_gmtoff / 60;
-    }
-#endif
+//         res = (gm_ti - loc_ti) / 60;
+//     }
+// #else
+//     {
+//         struct tm tm;
+//         localtime_r(&ti, &tm);
+//         res = -tm.tm_gmtoff / 60;
+//     }
+// #endif
     return res;
 }
 
