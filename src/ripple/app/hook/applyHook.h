@@ -1278,7 +1278,6 @@ public:
         }
     };
 
-
     /**
      * Helper function to handle a JS exception by extracting its message
      * and freeing any additional JSValues
@@ -1312,8 +1311,8 @@ public:
     }
 
     /**
- * Validate that a js blob can be loaded by quickjs
- */
+     * Validate that a js blob can be loaded by quickjs
+     */
     static std::optional<std::string>
     validate(const void* buf, size_t buf_len)
     {
@@ -1355,8 +1354,8 @@ public:
 
         if (JS_IsException(val))
         {
-            std::string errMsg = handleException(
-                ctx, "Hook/Callback validation failure", obj);
+            std::string errMsg =
+                handleException(ctx, "Hook/Callback validation failure", obj);
             return errMsg;
         }
 
