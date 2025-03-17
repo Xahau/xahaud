@@ -1360,8 +1360,9 @@ public:
         }
 
         JS_FreeValue(ctx, val);
-        // Special rules for JS_TAG_FUNCTION_BYTECODE that need clarification
-        // If we try to free this object here it causes a crash
+        // We don't manually free the bytecode object (obj) here because
+        // JS_EvalFunction internally transforms it into a closure and takes
+        // ownership of its internal structures.
         // JS_FreeValue(ctx, obj);
 
         return retval;
