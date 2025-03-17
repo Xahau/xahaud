@@ -1334,15 +1334,13 @@ public:
             ctx, (uint8_t const*)buf, buf_len, JS_READ_OBJ_BYTECODE);
         if (JS_IsException(obj) || JS_IsUndefined(obj))
         {
-            std::string errMsg = handleException(ctx, "invalid bytecode");
-            return errMsg;
+            return handleException(ctx, "invalid bytecode");
         }
 
         JSValue val = JS_EvalFunction(ctx, obj);
         if (JS_IsException(val))
         {
-            std::string errMsg = handleException(ctx, "bytecode eval failure", obj);
-            return errMsg;
+            return handleException(ctx, "bytecode eval failure", obj);
         }
 
         JS_FreeValue(ctx, val);
