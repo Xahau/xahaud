@@ -1301,7 +1301,13 @@ public:
             ctx, (uint8_t const*)buf, buf_len, JS_READ_OBJ_BYTECODE);
         if (JS_IsException(obj))
         {
-            if (const char* str = JS_ToCString(ctx, obj); str)
+            // Get the actual exception object
+            JSValue exception = JS_GetException(ctx);
+
+            // Extract the error message property
+            JSValue msgProp = JS_GetPropertyStr(ctx, exception, "message");
+            const char* str = JS_ToCString(ctx, msgProp);
+            if (str != NULL)
             {
                 retval.emplace(str);
                 JS_FreeCString(ctx, str);
@@ -1311,14 +1317,21 @@ public:
                 retval.emplace("invalid bytecode");
             }
 
-            JS_FreeValue(ctx, obj);
+            JS_FreeValue(ctx, msgProp);
+            JS_FreeValue(ctx, exception);
             return retval;
         }
 
         JSValue val = JS_EvalFunction(ctx, obj);
         if (JS_IsException(val))
         {
-            if (const char* str = JS_ToCString(ctx, val); str)
+            // Get the actual exception object
+            JSValue exception = JS_GetException(ctx);
+
+            // Extract the error message property
+            JSValue msgProp = JS_GetPropertyStr(ctx, exception, "message");
+            const char* str = JS_ToCString(ctx, msgProp);
+            if (str != NULL)
             {
                 retval.emplace(str);
                 JS_FreeCString(ctx, str);
@@ -1327,9 +1340,10 @@ public:
             {
                 retval.emplace("bytecode eval failure");
             }
-            JS_FreeValue(ctx, val);
-            // JS_FreeValue(ctx, obj);
 
+            JS_FreeValue(ctx, msgProp);
+            JS_FreeValue(ctx, exception);
+            JS_FreeValue(ctx, obj);  // Free obj before returning
             return retval;
         }
 
@@ -1345,15 +1359,31 @@ public:
 
         if (JS_IsException(val))
         {
-            if (const char* str = JS_ToCString(ctx, val); str)
+            // Get the actual exception object
+            JSValue exception = JS_GetException(ctx);
+
+            // Extract the error message property
+            JSValue msgProp = JS_GetPropertyStr(ctx, exception, "message");
+            const char* str = JS_ToCString(ctx, msgProp);
+            if (str != NULL)
             {
                 retval.emplace(str);
                 JS_FreeCString(ctx, str);
             }
+            else
+            {
+                retval.emplace("Hook/Callback validation failure");
+            }
+
+            JS_FreeValue(ctx, msgProp);
+            JS_FreeValue(ctx, exception);
+            JS_FreeValue(ctx, obj);  // Free obj before returning
+            JS_FreeValue(ctx, val);  // Free val before returning
+            return retval;
         }
 
         JS_FreeValue(ctx, val);
-        // JS_FreeValue(ctx, obj);
+        JS_FreeValue(ctx, obj);  // Always free obj before returning
 
         return retval;
     }
@@ -1397,7 +1427,6 @@ public:
 
         if (JS_IsException(obj))
         {
-            JS_FreeValue(ctx, obj);
             JLOG(j.warn())
                 << "HookError[" << HC_ACC()
                 << "]: Could not create QUICKJS instance (invalid bytecode).";
@@ -1409,7 +1438,6 @@ public:
 
         if (JS_IsException(val))
         {
-            JS_FreeValue(ctx, val);
             JS_FreeValue(ctx, obj);
 
             JLOG(j.warn()) << "HookError[" << HC_ACC()
