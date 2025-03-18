@@ -42,6 +42,8 @@ class Discrepancy_test : public beast::unit_test::suite
         using namespace test::jtx;
         Env env{*this, features};
 
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
+
         Account A1{"A1"};
         Account A2{"A2"};
         Account A3{"A3"};
@@ -107,7 +109,8 @@ class Discrepancy_test : public beast::unit_test::suite
         auto meta = jrr[jss::meta];
         uint64_t sumPrev{0};
         uint64_t sumFinal{0};
-        BEAST_EXPECT(meta[sfAffectedNodes.fieldName].size() == 9);
+        BEAST_EXPECT(
+            meta[sfAffectedNodes.fieldName].size() == withTouch ? 11 : 10);
         for (auto const& an : meta[sfAffectedNodes.fieldName])
         {
             Json::Value node;
@@ -127,12 +130,17 @@ class Discrepancy_test : public beast::unit_test::suite
                 Json::Value finalFields = node.isMember(sfFinalFields.fieldName)
                     ? node[sfFinalFields.fieldName]
                     : node[sfNewFields.fieldName];
-                if (prevFields)
-                    sumPrev += beast::lexicalCastThrow<std::uint64_t>(
-                        prevFields[sfBalance.fieldName].asString());
-                if (finalFields)
-                    sumFinal += beast::lexicalCastThrow<std::uint64_t>(
-                        finalFields[sfBalance.fieldName].asString());
+
+                // withTouch: "Touched" account does not update Balance
+                if (prevFields.isMember(sfBalance.fieldName))
+                {
+                    if (prevFields)
+                        sumPrev += beast::lexicalCastThrow<std::uint64_t>(
+                            prevFields[sfBalance.fieldName].asString());
+                    if (finalFields)
+                        sumFinal += beast::lexicalCastThrow<std::uint64_t>(
+                            finalFields[sfBalance.fieldName].asString());
+                }
             }
         }
         // the difference in balances (final and prev) should be the
@@ -147,6 +155,7 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testXRPDiscrepancy(sa - featureFlowCross);
+        testXRPDiscrepancy(sa - featureTouch);
         testXRPDiscrepancy(sa);
     }
 };
