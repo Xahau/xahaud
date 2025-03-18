@@ -756,6 +756,7 @@ if (tests)
     src/test/app/Taker_test.cpp
     src/test/app/TheoreticalQuality_test.cpp
     src/test/app/Ticket_test.cpp
+    src/test/app/Touch_test.cpp
     src/test/app/Transaction_ordering_test.cpp
     src/test/app/TrustAndBalance_test.cpp
     src/test/app/TxQ_test.cpp

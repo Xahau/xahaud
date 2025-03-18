@@ -362,6 +362,7 @@ extern uint256 const fix240819;
 extern uint256 const fixPageCap;
 extern uint256 const fix240911;
 extern uint256 const fixFloatDivide;
+extern uint256 const featureTouch;
 extern uint256 const fixReduceImport;
 extern uint256 const fixXahauV3;
 extern uint256 const fix20250131;

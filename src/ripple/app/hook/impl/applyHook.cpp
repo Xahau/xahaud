@@ -986,6 +986,18 @@ ToJSHash(JSContext* ctx, uint256 const hash_in)
     return *out;
 };
 
+inline int64_t
+GetLengthOfAlreadyValidatedJSIntArrayOrHexString(
+    JSContext* ctx,
+    JSValueConst& v)
+{
+    int64_t len = 0;
+    js_get_length64(ctx, &len, v);
+    if (JS_IsArray(ctx, v))
+        return len;
+    return (len / 2);
+}
+
 inline std::optional<std::vector<uint8_t>>
 FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
 {
@@ -1739,12 +1751,21 @@ DEFINE_JS_FUNCTION(int64_t, trace, JSValue msg, JSValue data, JSValue as_hex)
         JSValue sdata = JS_JSONStringify(ctx, data, replacer, JS_UNDEFINED);
         JS_FreeValue(ctx, replacer);
 
-        size_t len;
-        const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
-        if (len > 1023)
-            len = 1023;
-        out += std::string(cstr, len);
-        JS_FreeCString(ctx, cstr);
+        if (JS_IsString(sdata))
+        {
+            assert(JS_IsString(sdata));
+            size_t len;
+            const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
+            if (len > 1023)
+                len = 1023;
+            out += std::string(cstr, len);
+            JS_FreeCString(ctx, cstr);
+            JS_FreeValue(ctx, sdata);
+        }
+        else
+        {
+            out += "<could not display data>";
+        }
     }
 
     if (out.size() > 0)
@@ -3363,7 +3384,10 @@ DEFINE_JS_FUNCTION(JSValue, slot, JSValue raw_slot_no)
         returnJS(INTERNAL_ERROR);
 
     if (argc == 2 && !!JS_ToBool(ctx, argv[1]))
+    {
+        JS_FreeValue(ctx, *out);
         returnJS(data_as_int64(ptr, len));
+    }
 
     return *out;
 
@@ -5114,15 +5138,20 @@ DEFINE_JS_FUNCTION(JSValue, emit, JSValue raw_tx)
         // stringify it
         JSValue sdata =
             JS_JSONStringify(ctx, raw_tx, JS_UNDEFINED, JS_UNDEFINED);
-        if (JS_IsException(sdata))
+        if (!JS_IsString(sdata))
             returnJS(INVALID_ARGUMENT);
 
         size_t len;
         const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
         if (len > 1024 * 1024)
+        {
+            JS_FreeCString(ctx, cstr);
+            JS_FreeValue(ctx, sdata);
             returnJS(TOO_BIG);
+        }
         std::string const tmpl(cstr, len);
         JS_FreeCString(ctx, cstr);
+        JS_FreeValue(ctx, sdata);
 
         // parse it on rippled side
         Json::Value json;
@@ -5180,14 +5209,19 @@ DEFINE_JS_FUNCTION(JSValue, prepare, JSValue raw_tmpl)
 
     // stringify it
     JSValue sdata = JS_JSONStringify(ctx, raw_tmpl, JS_UNDEFINED, JS_UNDEFINED);
-    if (JS_IsException(sdata))
+    if (!JS_IsString(sdata))
         returnJS(INVALID_ARGUMENT);
     size_t len;
     const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
     if (len > 1024 * 1024)
+    {
+        JS_FreeCString(ctx, cstr);
+        JS_FreeValue(ctx, sdata);
         returnJS(TOO_BIG);
+    }
     std::string tmpl(cstr, len);
     JS_FreeCString(ctx, cstr);
+    JS_FreeValue(ctx, sdata);
 
     // parse it on rippled side
     Json::Value json;
@@ -5378,15 +5412,20 @@ DEFINE_JS_FUNCTION(JSValue, sto_from_json, JSValue raw_json_in)
         // stringify it
         JSValue sdata =
             JS_JSONStringify(ctx, raw_json_in, JS_UNDEFINED, JS_UNDEFINED);
-        if (JS_IsException(sdata))
+        if (!JS_IsString(sdata))
             returnJS(INVALID_ARGUMENT);
 
         const char* cstr = JS_ToCStringLen(ctx, &len, sdata);
         if (len > 64 * 1024)
+        {
+            JS_FreeCString(ctx, cstr);
+            JS_FreeValue(ctx, sdata);
             returnJS(TOO_BIG);
+        }
 
         in = std::string(cstr, len);
         JS_FreeCString(ctx, cstr);
+        JS_FreeValue(ctx, sdata);
     }
 
     if (!in.has_value() || len <= 0 || in->empty())
@@ -6757,10 +6796,23 @@ DEFINE_JS_FUNCTION(JSValue, sto_erase, JSValue raw_sto, JSValue raw_field)
 {
     JS_HOOK_SETUP();
 
+    // Forward deletion call to sto_emplace (field is undefined)
     JSValueConst argv2[] = {argv[0], JS_UNDEFINED, argv[1]};
+    auto ret = FORWARD_JS_FUNCTION_CALL(sto_emplace, 3, argv2);
 
-    return FORWARD_JS_FUNCTION_CALL(sto_emplace, 3, argv2);
-
+    if (JS_IsObject(ret))
+    {
+        int64_t raw_sto_len =
+            GetLengthOfAlreadyValidatedJSIntArrayOrHexString(ctx, argv[0]);
+        int64_t len;
+        js_get_length64(ctx, &len, ret);
+        if (len == raw_sto_len)
+        {
+            JS_FreeValue(ctx, ret);
+            returnJS(DOESNT_EXIST);
+        }
+    }
+    return ret;
     JS_HOOK_TEARDOWN();
 }
 
