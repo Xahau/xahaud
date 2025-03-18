@@ -5068,7 +5068,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set xpop_slot"),
             HSFEE);
         env.close();
