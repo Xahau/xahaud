@@ -21,6 +21,7 @@
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
+#include <test/app/Import_json.h>
 #include <test/app/SetJSHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
@@ -5487,6 +5488,106 @@ public:
     }
 
     void
+    test_xpop_slot(FeatureBitset features)
+    {
+        testcase("Test xpop_slot");
+        using namespace jtx;
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
+            "1"};
+        Env env{*this, network::makeNetworkVLConfig(21337, keys)};
+
+        auto const master = Account("masterpassphrase");
+        env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        env.close();
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const ttIMPORT = 97
+            const DOESNT_EXIST = -5
+            const NO_FREE_SLOTS = -6
+            const INVALID_ARGUMENT = -7
+            const ALREADY_SET = -8
+            const PREREQUISITE_NOT_MET = -9
+            const INVALID_TXN = -37
+            const ASSERT = (x) => {
+                if (!x) rollback(x.toString(), 0);
+            }
+            const sfBlob = (7 << 16) + 26
+            const sfAccount = (8 << 16) + 1
+            const sfTransactionType = (1 << 16) + 2
+            const sfHookExecutions = (15 << 16) + 18
+            const sfTransactionResult = (16 << 16) + 3
+            const sfAffectedNodes = (15 << 16) + 8
+            const sfTransactionIndex = (2 << 16) + 28
+            const Hook = (r) => {
+                // invalid tt
+                if (otxn_type() !== ttIMPORT)
+                {
+                    ASSERT(xpop_slot(1, 2) === PREREQUISITE_NOT_MET);
+                    return accept("",1);
+                }
+
+                // invalid slotno
+                ASSERT(xpop_slot(256, 1) === INVALID_ARGUMENT);
+                ASSERT(xpop_slot(1, 256) === INVALID_ARGUMENT);
+                ASSERT(xpop_slot(1, 1) === INVALID_ARGUMENT);
+
+                ASSERT(xpop_slot(1, 11) === ((1 << 16) + 11));
+
+                ASSERT(slot_subfield(1, sfTransactionType, 2) === 2);
+                ASSERT(slot_subfield(1, sfAccount, 3) === 3);
+
+                ASSERT(slot_subfield(11, sfTransactionIndex, 12) === 12);
+                ASSERT(slot_subfield(11, sfAffectedNodes, 13) === 13);
+                ASSERT(slot_subfield(11, sfTransactionResult, 14) === 14);
+
+                for(let i = 1; i <= 255; ++i) {
+                    otxn_slot(i);
+                }
+                ASSERT(xpop_slot(0, 0) === NO_FREE_SLOTS)
+                return accept("",2);
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set xpop_slot"),
+            HSFEE);
+        env.close();
+
+        auto checkResult =
+            [this](auto const& meta, uint64_t expectedCode) -> void {
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldU64(sfHookReturnCode) ==
+                expectedCode);
+        };
+
+        env(pay(bob, alice, XRP(1)), M("test xpop_slot"), fee(XRP(1)));
+        env.close();
+        auto meta = env.meta();
+        checkResult(meta, 1);
+
+        // sfBlob is required and validity check is done in the Import
+        // transaction.
+
+        auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
+        env(import::import(alice, xpopJson), M("test xpop_slot"), fee(XRP(1)));
+        env.close();
+        meta = env.meta();
+        checkResult(meta, 2);
+    }
+
+    void
     test_otxn_id(FeatureBitset features)
     {
         testcase("Test otxn_id");
@@ -10890,7 +10991,7 @@ public:
         test_ledger_seq(features);        //
 
         test_meta_slot(features);  //
-        // test_xpop_slot(features);  //
+        test_xpop_slot(features);  //
 
         test_otxn_id(features);    //
         test_otxn_slot(features);  //
