@@ -462,9 +462,13 @@ public:
     uint256 const&
     getHash() const
     {
-        static const uint256 fallbackHash(
-            "DF4220E93ADC6F5569063A01B4DC79F8DB9553B6A3222ADE23DEA0");
-        return defsHash ? *defsHash : fallbackHash;
+        if (!defsHash)
+        {
+            static const uint256 fallbackHash(
+                "DF4220E93ADC6F5569063A01B4DC79F8DB9553B6A3222ADE23DEA0");
+            return fallbackHash;
+        }
+        return *defsHash;
     }
 
     Json::Value const&
