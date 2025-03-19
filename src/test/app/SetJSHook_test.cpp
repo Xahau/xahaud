@@ -2815,9 +2815,11 @@ public:
         using namespace jtx;
         // Env env{*this, features};
         Env env{
-            *this, envconfig(), features, nullptr, //beast::severities::kWarning
-                       beast::severities::kTrace
-        };
+            *this,
+            envconfig(),
+            features,
+            nullptr,  // beast::severities::kWarning
+            beast::severities::kTrace};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3149,7 +3151,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set etxn_details"),
             HSFEE);
         env.close();
@@ -3193,7 +3196,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set etxn_fee_base"),
             HSFEE);
         env.close();
@@ -3241,7 +3245,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set etxn_nonce"),
             HSFEE);
         env.close();
@@ -3284,7 +3289,8 @@ public:
         )[test.hook]"];
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
             M("set etxn_reserve"),
             HSFEE);
         env.close();
