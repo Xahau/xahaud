@@ -21,6 +21,7 @@
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/jss.h>
+
 #include <test/app/Import_json.h>
 #include <test/app/SetJSHook_wasm.h>
 #include <test/jtx.h>
@@ -46,6 +47,20 @@ using TestHook = std::vector<uint8_t> const&;
         if (!(x))            \
             return;          \
     }
+
+#ifndef BEAST_EXPECT_EQ
+/** Check equality of two values and report a descriptive error if they're not equal.
+
+    Reports both the expected and actual values in the error message.
+
+    @param actual The actual value being tested
+    @param expected The expected value to compare against
+*/
+#define BEAST_EXPECT_EQ(actual, expected) \
+    BEAST_EXPECTS((actual) == (expected), \
+    std::string("Expected (") + #expected + ") = " + std::to_string(expected) + \
+    " but got (" + #actual + ") = " + std::to_string(actual))
+#endif
 
 #define HASH_WASM(x)                                                           \
     [[maybe_unused]] uint256 const x##_hash =                                  \
@@ -2808,8 +2823,796 @@ public:
         }
     }
 
-    // void
-    // test_emit(FeatureBitset features)
+    // Main test_emit function - acts as a dispatcher
+    void
+    test_emit(FeatureBitset features)
+    {
+        test_emit_api_invalid_arguments(features);
+        test_emit_basic_emission(features);
+        test_emit_metadata_fields(features);
+        test_emit_chained_emissions(features);
+        test_etxn_fee_base_api(features);
+    }
+
+    // Test for invalid arguments to emit and prepare
+    void
+    test_emit_api_invalid_arguments(FeatureBitset features)
+    {
+        testcase("Test emit - Invalid Arguments");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+
+        TestHook hook = jswasm[R"[test.hook](
+        const INVALID_ARGUMENT = -7
+        const EMISSION_FAILURE = -11
+        const ASSERT = (x) => { if (!x) rollback(x.toString(), 0) }
+        const Hook = (r) => {
+            etxn_reserve(1);
+            ASSERT(emit(undefined) === INVALID_ARGUMENT);
+            ASSERT(emit([]) === INVALID_ARGUMENT);
+            ASSERT(emit({}) === INVALID_ARGUMENT);
+            ASSERT(emit({ TransactionType: 'InvalidTransactionType' }) === INVALID_ARGUMENT);
+            ASSERT(emit({ TransactionType: 'AccountSet', InvalidField: 1 }) === INVALID_ARGUMENT);
+            ASSERT(emit({ TransactionType: 'AccountSet', Account: 1234 }) === INVALID_ARGUMENT); // Invalid Account Field
+            ASSERT(emit({ TransactionType: 'AccountSet' }) === EMISSION_FAILURE); // Missing required fields
+            ASSERT(prepare(undefined) === INVALID_ARGUMENT);
+            ASSERT(prepare([]) === INVALID_ARGUMENT);
+            ASSERT(prepare({}) === INVALID_ARGUMENT);
+            ASSERT(prepare({ TransactionType: 'InvalidTransactionType' }) === INVALID_ARGUMENT);
+            ASSERT(prepare({ TransactionType: 'AccountSet', InvalidField: 1 }) === INVALID_ARGUMENT);
+            return accept("", 0);
+        }
+    )[test.hook]"];
+
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set emit - Invalid Args"),
+            HSFEE);
+        env.close();
+        env(noop(alice),
+            M("test emit - Invalid Args"),
+            HSFEE);  // No-op tx to trigger hook
+        env.close();
+    }
+
+    // Tests basic emit functionality with a simple payment
+    void
+    test_emit_basic_emission(FeatureBitset features)
+    {
+        testcase("Test emit - Basic Emission");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+        const ASSERT = (x) => { if (!x) rollback(x.toString(), 0) }
+        const Hook = (r) => {
+            etxn_reserve(1);
+            const bobRadd = util_raddr(otxn_param(['b','o','b'].map(x => x.charCodeAt(0))))
+            let tx_json = {
+                TransactionType: "Payment",
+                Destination: bobRadd,
+                Amount: "1000"
+            };
+            tx_json = prepare(tx_json);
+            const hash = emit(tx_json);
+            ASSERT(hash.length === 32);
+            return accept("", 0);
+        }
+    )[test.hook]"];
+
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set emit - Basic"),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+
+        Json::Value params{Json::arrayValue};
+        params[0U][jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("bob"));
+        params[0U][jss::HookParameter][jss::HookParameterValue] =
+            strHex(bob.id());
+
+        invoke[jss::HookParameters] = params;
+
+        env(invoke, M("test emit - Basic"), fee(XRP(1)));
+        env.close();
+
+        // Check for metadata and transaction in the ledger
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);  // Single hook invocation
+        BEAST_EXPECT(hookExecutions[0].getFieldU16(sfHookEmitCount) == 1);
+
+        auto balbefore = env.balance(bob).value().xrp().drops();
+        env.close();
+        auto balafter = env.balance(bob).value().xrp().drops();
+        BEAST_EXPECT(balafter - balbefore == 1000);
+    }
+
+    // Tests metadata fields in emitted transactions
+    void
+    test_emit_metadata_fields(FeatureBitset features)
+    {
+        testcase("Test emit - Metadata Fields");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+        const PREREQUISITE_NOT_MET = -9
+        const ASSERT = (x) => {
+            if (!x) rollback(x.toString(), 0)
+        }
+        const sfHookExecutions = (15 << 16) + 18
+        const sfTransactionResult = (16 << 16) + 3
+        const sfAffectedNodes = (15 << 16) + 8
+        const sfTransactionIndex = (2 << 16) + 28
+        const Hook = (r) => {
+             if (r > 0) {
+                ASSERT(meta_slot(1) === 1)
+                const buf = slot(1)
+                ASSERT(buf.length > 200)
+                ASSERT(slot_subfield(1, sfTransactionIndex, 2) === 2)
+                ASSERT(slot_subfield(1, sfAffectedNodes, 3) === 3)
+                ASSERT(slot_subfield(1, sfHookExecutions, 4) === 4)
+                ASSERT(slot_subfield(1, sfTransactionResult, 5) === 5)
+                return accept('', 1)
+            }
+            if (hook_again() !== 1)
+                return rollback('', 254)
+            ASSERT(meta_slot(1) === PREREQUISITE_NOT_MET)
+            return accept('', 0)
+        }
+    )[test.hook]"];
+
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set meta_slot"),
+            HSFEE);
+        env.close();
+        env(pay(bob, alice, XRP(1)), M("test meta_slot"), fee(XRP(1)));
+        env.close();
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 2);
+        BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
+        BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
+    }
+
+    // Tests chained emissions where one emitted transaction triggers another
+    void
+    test_emit_chained_emissions(FeatureBitset features)
+    {
+        testcase("Test emit - Chained Emissions");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            features,
+            nullptr,  // beast::severities::kWarning
+            beast::severities::kWarning};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+
+        // Record bob's initial balance for easier verification later
+        auto bobInitialBalance = env.balance(bob).value().xrp().drops();
+
+
+        TestHook hook = jswasm[R"[test.hook](//
+          const PREREQUISITE_NOT_MET = -9
+          const sfDestination = ((8 << 16) + 3)
+          const BOB = 'rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK';
+          const ASSERT = (x, msg) => {
+            if (!x) {
+              rollback(`assertion: ${msg}`, -1)
+            }
+          }
+          const ASSERT_EQ = (actual, expected, ln) => {
+            if (actual !== expected) {
+              const msg= `assertion: ${ln} actual(${actual}) != expected(${expected})`
+              trace(msg)
+              rollback(msg, -1)
+            }
+          }
+          const TRC = (msg, data, hex) => {
+            trace('JSVM TRC: ' + msg, data, hex);
+            // TODO: seems like 2 successive trace calls don't work!? for some reason!?
+            try {
+              trace('current_ledger: ' + ledger_seq());
+            } catch (e) {
+              trace('can not execute ledger_seq(): ' + e.message)
+            }
+          }
+          const Callback = (reserves) => {
+            // on callback we emit 2 more txns
+            TRC('running in callback: ' + ledger_seq());
+            const bob = otxn_field(sfDestination)
+            ASSERT_EQ(bob.length, 20)
+            TRC('bob length = ' + bob.length)
+            ASSERT_EQ(util_raddr(bob),  BOB)
+            ASSERT_EQ(otxn_generation() + 1, etxn_generation())
+            // maybe this needed to be set first !?
+
+            TRC('otxn burden: ' +  otxn_burden())
+            ASSERT_EQ(etxn_burden(),  PREREQUISITE_NOT_MET)
+            ASSERT_EQ(etxn_reserve(2), 2)
+
+
+
+            let tx = prepare({
+              TransactionType: "Payment",
+              Destination: util_raddr(bob),
+              Amount: "1000"
+            })
+            const hash1 = emit(tx)
+            ASSERT_EQ(hash1.length, 32, 11)
+            tx = prepare({
+              TransactionType: "Payment",
+              Destination: util_raddr(bob),
+              Amount: "1000"
+            })
+            const hash2 = emit(tx)
+            ASSERT_EQ(etxn_burden(), otxn_burden() * 2, 10)
+            ASSERT_EQ(hash2.length, 32, 12);
+            TRC('hashes:' + JSON.stringify(hash1) + ':' + JSON.stringify(hash2));
+            ASSERT(JSON.stringify(hash1) !== JSON.stringify(hash2), 13);
+            TRC('Accepting Callback');
+            return accept("", 0);
+          }
+          const Hook = (r) => {
+            etxn_reserve(1);
+
+            const bobRadd = util_raddr(otxn_param(['b', 'o', 'b'].map(x => x.charCodeAt(0))))
+            trace('bob addr', bobRadd, false);
+            // Tested with Tx built manually and with prepare
+            // tx_json_1: prepare
+            let tx_json_1 = {
+              TransactionType: "Payment",
+              Destination: bobRadd,
+              Amount: "1000"
+            }
+            tx_json_1 = prepare(tx_json_1)
+
+            let emit_hash = emit(tx_json_1)
+            trace('Emit Hash', emit_hash, true);
+            ASSERT(emit_hash.length === 32)
+            TRC('Accepting Hook, ledger seq = ' + ledger_seq())
+            // trace('running in Hook, ledger=' + ledger_seq());
+            return accept("", 0);
+          }
+              )[test.hook]"];
+
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set emit"),
+            HSFEE);
+        env.close();
+
+        // Verify hook installation succeeded
+        {
+            auto const ledger = env.closed();
+            BEAST_REQUIRE(ledger->exists(keylet::account(alice.id())));
+            BEAST_REQUIRE(ledger->exists(keylet::hook(alice.id())));
+        }
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+
+        Json::Value params{Json::arrayValue};
+        params[0U][jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("bob"));
+        params[0U][jss::HookParameter][jss::HookParameterValue] =
+            strHex(bob.id());
+
+        invoke[jss::HookParameters] = params;
+
+        env(invoke, alice, M("test emit"), fee(XRP(1)));
+        env.close();
+
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+
+        std::optional<uint256> emithash;
+        // Generation 1: Initial emission from the Invoke transaction
+        {
+            auto meta = env.meta();
+            auto tx = env.tx();
+
+            BEAST_EXPECT_EQ(tx->getTxnType(), ttINVOKE);
+
+            // Verify the hook executed
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
+            // Ensure we have at least one emission
+            BEAST_REQUIRE(hookEmissions.size() >= 1);
+
+            BEAST_EXPECT(
+                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
+                                                                       : false);
+            BEAST_EXPECT(
+                hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
+
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            // Verify exactly one transaction was emitted by the hook
+            BEAST_EXPECT(hookExecutions[0].getFieldU16(sfHookEmitCount) == 1);
+
+            // Verify affected nodes
+            BEAST_REQUIRE(meta->isFieldPresent(sfAffectedNodes));
+            BEAST_REQUIRE(meta->getFieldArray(sfAffectedNodes).size() == 3);
+
+            bool foundEmittedTxn = false;
+            for (auto const& node : meta->getFieldArray(sfAffectedNodes))
+            {
+                SField const& metaType = node.getFName();
+                uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
+                if (metaType == sfCreatedNode && nodeType == ltEMITTED_TXN)
+                {
+                    foundEmittedTxn = true;
+                    BEAST_REQUIRE(node.isFieldPresent(sfNewFields));
+
+                    auto const& nf = const_cast<ripple::STObject&>(node)
+                                         .getField(sfNewFields)
+                                         .downcast<STObject>();
+
+                    auto const& et = const_cast<ripple::STObject&>(nf)
+                                         .getField(sfEmittedTxn)
+                                         .downcast<STObject>();
+
+                    auto const& em = const_cast<ripple::STObject&>(et)
+                                         .getField(sfEmitDetails)
+                                         .downcast<STObject>();
+
+                    // Verify correct generation and burden for first emission
+                    BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == 1);
+                    BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == 1);
+
+                    Blob txBlob = et.getSerializer().getData();
+                    auto const tx = std::make_unique<STTx>(
+                        Slice{txBlob.data(), txBlob.size()});
+                    emithash = tx->getTransactionID();
+
+                    break;
+                }
+            }
+
+            // Ensure we found the emitted transaction
+            BEAST_REQUIRE(foundEmittedTxn);
+            BEAST_REQUIRE(emithash);
+            BEAST_EXPECT(
+                emithash == hookEmissions[0u].getFieldH256(sfEmittedTxnID));
+        }
+
+        // Generation 2: First emitted transaction executes
+        {
+            auto balbefore = env.balance(bob).value().xrp().drops();
+            env.close();
+
+            // Ensure one ledger was closed
+            auto const ledger = env.closed();
+
+            // Verify exactly one transaction is in the ledger
+            int txcount = 0;
+            for (auto& i : ledger->txs)
+            {
+                auto const& hash = i.first->getTransactionID();
+                txcount++;
+                // Verify it's the transaction we emitted
+                BEAST_EXPECT(hash == *emithash);
+            }
+            BEAST_EXPECT(txcount == 1);
+
+            // Verify Bob's balance increased by exactly 1000 drops
+            auto balafter = env.balance(bob).value().xrp().drops();
+            BEAST_EXPECT(balafter - balbefore == 1000);
+            BEAST_EXPECT(balafter - bobInitialBalance == 1000);
+        }
+
+        // Track expected values for remaining generations
+        uint64_t burden_expected = 2;
+        uint64_t totalTxCount = 1;  // We've already processed 1 transaction
+        uint64_t expectedTxnsPerGeneration =
+            2;  // Starts with 2 (callback emits 2)
+
+        // Verify bob's balance increases by the expected amount
+        auto balanceBefore = env.balance(bob).value().xrp().drops();
+        env.close();
+
+        // Test generations 3-9
+        // 2, 4, 8, 16, 32, 64, 128, 256
+
+        for (int j = 0; j < 7; ++j)
+        {
+            auto const ledger = env.closed();
+
+            // Verify expected number of transactions in this generation
+            uint64_t genTxCount = std::ranges::distance(ledger->txs);
+
+            // Ensure the exact expected number of transactions are present
+            BEAST_EXPECT_EQ(genTxCount, expectedTxnsPerGeneration);
+            totalTxCount += genTxCount;
+
+            // Verify transaction metadata for all transactions in this
+            // generation
+            for (auto& i : ledger->txs)
+            {
+                BEAST_EXPECT_EQ(i.first->getTxnType(), ttPAYMENT);
+                auto const& em = const_cast<ripple::STTx&>(*(i.first))
+                                     .getField(sfEmitDetails)
+                                     .downcast<STObject>();
+
+                // Verify correct burden
+                BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == burden_expected);
+
+                // Verify correct generation number
+                BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == j + 2);
+
+                // Verify hook execution metadata
+                BEAST_REQUIRE(i.second->isFieldPresent(sfHookExecutions));
+                auto const hookExecutions =
+                    i.second->getFieldArray(sfHookExecutions);
+
+                // Verify one hook execution per transaction
+                BEAST_EXPECT(hookExecutions.size() == 1);
+
+                // Verify successful hook execution
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
+                BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+
+                // Verify each transaction emitted exactly 2 more
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
+
+                // Verify correct flags if fixV2 is enabled
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+            }
+
+            auto balanceAfter = env.balance(bob).value().xrp().drops();
+            // Each transaction pays 1000 drops to Bob
+            BEAST_EXPECT_EQ(balanceAfter - balanceBefore, genTxCount * 1000);
+
+            balanceBefore = balanceAfter;
+            env.close();
+
+            // Double expected transactions for next generation (each tx emits
+            // 2)
+            expectedTxnsPerGeneration *= 2;
+
+            // Burden doubles with each generation
+            burden_expected *= 2;
+        }
+
+        // Final generation - should be hitting the emission limit
+        {
+            auto const ledger = env.closed();
+            uint64_t txcount = 0;
+
+            // Expected transaction count for generation 9
+            BEAST_EXPECT(std::ranges::distance(ledger->txs) == 256);
+
+            for (auto& i : ledger->txs)
+            {
+                txcount++;
+                auto const& em = const_cast<ripple::STTx&>(*(i.first))
+                                     .getField(sfEmitDetails)
+                                     .downcast<STObject>();
+
+                // Verify maximum burden value
+                BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == 256);
+
+                // Verify final generation number
+                BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == 9);
+
+                BEAST_REQUIRE(i.second->isFieldPresent(sfHookExecutions));
+                auto const hookExecutions =
+                    i.second->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(hookExecutions.size() == 1);
+
+                // Verify emission failure on first emit due to reaching limit
+                // Our rollback is called with a return code of -1
+                // so it's most significant bit set plus abs(-1)
+                BEAST_EXPECT_EQ(
+                    hookExecutions[0].getFieldU64(sfHookReturnCode),
+                    0x8000000000000001);
+
+                BEAST_EXPECT_EQ(
+                    hookExecutions[0].getFieldU16(sfHookEmitCount), 0);
+
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+            }
+
+            // Verify exact transaction count (should be 256)
+            BEAST_EXPECT_EQ(txcount, 256);
+
+            totalTxCount += txcount;
+
+            // Verify total XRP transferred to Bob matches expectations
+            auto finalBalance = env.balance(bob).value().xrp().drops();
+            uint64_t expectedTransferred = totalTxCount * 1000;
+            BEAST_EXPECT_EQ(
+                finalBalance - bobInitialBalance, expectedTransferred);
+        }
+
+        // Verify no more transactions after final generation
+        env.close();
+        {
+            auto const ledger = env.closed();
+            int txcount = 0;
+            for ([[maybe_unused]] auto& i : ledger->txs)
+                txcount++;
+
+            // Verify no transactions were emitted
+            BEAST_EXPECT(txcount == 0);
+        }
+    }
+
+    // Tests the etxn_fee_base API for calculating transaction fees
+    void
+    test_etxn_fee_base_api(FeatureBitset features)
+    {
+        testcase("Test etxn_fee_base API");
+        using namespace jtx;
+        Env env{*this, features};
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+
+        TestHook hook = jswasm[R"[test.hook](
+        const ASSERT = (x) => { if (!x) rollback(x.toString(), 0) }
+        const ASSERT_EQ = (actual, expected, ln) => {
+          if (actual !== expected) {
+            const msg= `assertion: ${ln} actual(${actual}) != expected(${expected})`
+            trace(msg)
+            rollback(msg, -1)
+          }
+        }
+        const Hook = (r) => {
+            etxn_reserve(1);
+            const acc_id = hook_account()
+            const radd = util_raddr(acc_id)
+            const seq = ledger_seq()
+
+            const tx_json = {
+                TransactionType: "Payment",
+                Account: radd,
+                Destination: 'rf1BiGeXwwQoi8Z2ueFYTEXSwuJYfV2Jpn',
+                Amount: "1000",
+                Sequence: 0,
+                LastLedgerSequence: seq + 5,
+                FirstLedgerSequence: seq + 1,
+                SigningPubKey: "",
+                Fee: "0"
+            }
+
+            const fee = etxn_fee_base(sto_from_json(tx_json))
+            ASSERT_EQ(fee, 99_010); // Ensure the fee is calculated as > 0
+
+            return accept('', 0);
+        }
+    )[test.hook]"];
+
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set etxn_fee_base"),
+            HSFEE);
+        env.close();
+
+        env(noop(alice),
+            alice,
+            M("test etxn_fee_base"),
+            HSFEE);  // No-op transaction to trigger hook
+        env.close();
+        pass();
+    }
+
+    void
+    test_etxn_details(FeatureBitset features)
+    {
+        // mainly tested in test_emit
+        testcase("Test etxn_details");
+        using namespace jtx;
+
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const TOO_SMALL = -4
+            const OUT_OF_BOUNDS = -1
+            const PREREQUISITE_NOT_MET = -9
+            const ASSERT = (x) => {
+                if (!(x))
+                    rollback(x.toString(), 0);
+            }
+            const Hook = (reserved) => {
+                ASSERT(etxn_details() == PREREQUISITE_NOT_MET);
+
+                etxn_reserve(1);
+                // jshooks always has Callback
+                ASSERT(etxn_details().length === 138);
+
+                return accept("", 0);
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set etxn_details"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
+    }
+
+    void
+    test_etxn_fee_base(FeatureBitset features)
+    {
+        // mainly tested in test_emit
+        testcase("Test etxn_fee_base");
+        using namespace jtx;
+
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const TOO_SMALL = -4
+            const OUT_OF_BOUNDS = -1
+            const PREREQUISITE_NOT_MET = -9
+            const INVALID_TXN = -37
+            const ASSERT = (x) => {
+                if (!(x))
+                    rollback(x.toString(), 0);
+            }
+            const Hook = (reserved) => {
+                const tx = new Array(116).fill(0)
+                ASSERT(etxn_fee_base(tx) === PREREQUISITE_NOT_MET);
+
+                etxn_reserve(1);
+                ASSERT(etxn_fee_base(tx) === INVALID_TXN);
+
+                return accept("", 0);
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set etxn_fee_base"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test etxn_fee_base"), fee(XRP(1)));
+    }
+
+    void
+    test_etxn_nonce(FeatureBitset features)
+    {
+        // mainly tested in test_emit
+        testcase("Test etxn_nonce");
+        using namespace jtx;
+
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const TOO_SMALL = -4
+            const OUT_OF_BOUNDS = -1
+            const TOO_MANY_NONCES = -12
+            const ASSERT = (x) => {
+                if (!(x))
+                    rollback(x.toString(), 0);
+            }
+            const Hook = (reserved) => {
+                let nonces = [[], []];
+
+                for (let i = 0; i < 256; ++i)
+                {
+                    nonces[i % 2] = etxn_nonce();
+                    ASSERT(nonces[i % 2].length === 32);
+                    ASSERT(JSON.stringify(nonces[i % 2]) !== JSON.stringify(nonces[(i + 1) % 2]));
+                }
+
+                ASSERT(etxn_nonce() === TOO_MANY_NONCES);
+
+                return accept("",0);
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set etxn_nonce"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test etxn_nonce"), fee(XRP(1)));
+    }
+
+    void
+    test_etxn_reserve(FeatureBitset features)
+    {
+        // mainly tested in test_emit
+        testcase("Test etxn_reserve");
+        using namespace jtx;
+
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const TOO_BIG = -3
+            const TOO_SMALL = -4
+            const ALREADY_SET = -8
+            const ASSERT = (x) => {
+                if (!(x))
+                    rollback(x.toString(), 0);
+            }
+            const Hook = (reserved) => {
+                ASSERT(etxn_reserve(0) === TOO_SMALL);
+                ASSERT(etxn_reserve(256) === TOO_BIG);
+                ASSERT(etxn_reserve(255) === 255);
+                ASSERT(etxn_reserve(255) === ALREADY_SET);
+                ASSERT(etxn_reserve(1) === ALREADY_SET);
+
+                return accept("",0);
+            }
+        )[test.hook]"];
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, HSDROPS, overrideFlag)}}, 0),
+            M("set etxn_reserve"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test etxn_reserve"), fee(XRP(1)));
+    }
 
     void
     test_fee_base(FeatureBitset features)
@@ -10463,16 +11266,16 @@ public:
 
         // testGuards(features); // Not Used in JSHooks
 
-        // test_emit(features);  //
-        // test_prepare(features);  // JS ONLY
+        test_emit(features);  //
+        // test_prepare(features);  // JS ONLY tested above
         // test_etxn_burden(features);       // tested above
         // test_etxn_generation(features);   // tested above
         // test_otxn_burden(features);       // tested above
         // test_otxn_generation(features);   // tested above
-        // test_etxn_details(features);   // C ONLY
-        // test_etxn_fee_base(features);  //
-        // test_etxn_nonce(features);     // C ONLY
-        // test_etxn_reserve(features);   //
+        test_etxn_details(features);   //
+        test_etxn_fee_base(features);  //
+        test_etxn_nonce(features);     //
+        test_etxn_reserve(features);   //
 
         test_fee_base(features);       //
         test_otxn_field(features);     //

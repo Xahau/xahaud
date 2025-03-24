@@ -3057,7 +3057,7 @@ DEFINE_JS_FUNCNARG(JSValue, otxn_burden)
 {
     JS_HOOK_SETUP();
 
-    returnJS(__etxn_burden(hookCtx, applyCtx, j));
+    returnJS(__otxn_burden(hookCtx, applyCtx, j));
 
     JS_HOOK_TEARDOWN();
 }
@@ -5260,7 +5260,6 @@ DEFINE_JS_FUNCTION(JSValue, prepare, JSValue raw_tmpl)
         // truncate the head and tail (emit details object markers)
         Slice s(reinterpret_cast<void const*>(details + 1), (size_t)(ret - 2));
 
-        std::cout << "emitdets: " << strHex(s) << "\n";
         try
         {
             SerialIter sit{s};
@@ -5276,7 +5275,6 @@ DEFINE_JS_FUNCTION(JSValue, prepare, JSValue raw_tmpl)
 
     {
         const std::string flat = Json::FastWriter().write(json);
-        std::cout << "intermediate: `" << flat << "`\n";
     }
 
     STParsedJSONObject parsed(std::string(jss::tx_json), json);
@@ -5431,22 +5429,15 @@ DEFINE_JS_FUNCTION(JSValue, sto_from_json, JSValue raw_json_in)
     if (!in.has_value() || len <= 0 || in->empty())
         returnJS(INVALID_ARGUMENT);
 
-    std::cout << "sto_from_json, strlen = " << len << "\n";
-
     Json::Value json;
     Json::Reader reader;
     if (!reader.parse(*in, json) || !json || !json.isObject())
         returnJS(INVALID_ARGUMENT);
 
-    std::cout << "sto_from_json, valid json\n";
-    std::cout << to_string(json) << "\n";
-
     // turn the json into a stobject
     STParsedJSONObject parsed(std::string(jss::tx_json), json);
     if (!parsed.object.has_value())
         returnJS(INVALID_ARGUMENT);
-
-    std::cout << "sto_from_json valid STParsedJSONObject\n";
 
     // turn the stobject into a tx_blob
     STObject& obj = *(parsed.object);
@@ -5459,8 +5450,6 @@ DEFINE_JS_FUNCTION(JSValue, sto_from_json, JSValue raw_json_in)
 
     if (!out.has_value())
         returnJS(INTERNAL_ERROR);
-
-    std::cout << "sto_from_json returning len=" << b.size() << "\n";
 
     return *out;
 

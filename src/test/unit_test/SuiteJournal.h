@@ -32,6 +32,7 @@ class SuiteJournalSink : public beast::Journal::Sink
     std::string partition_;
     beast::unit_test::suite& suite_;
 
+
 public:
     SuiteJournalSink(
         std::string const& partition,
@@ -82,7 +83,11 @@ SuiteJournalSink::write(
 
     // Only write the string if the level at least equals the threshold.
     if (level >= threshold())
+    {
+        static std::mutex log_mutex_;
+        std::lock_guard lock(log_mutex_);
         suite_.log << s << partition_ << text << std::endl;
+    }
 }
 
 class SuiteJournal
