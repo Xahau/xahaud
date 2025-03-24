@@ -2134,7 +2134,7 @@ public:
                     ASSERT(float_mantissa(-1) === INVALID_FLOAT)
                     ASSERT(float_mantissa(-11010191919n) === INVALID_FLOAT)
                 }
-                ASSERT(float_mantissa(0) === 0)
+                ASSERT(float_mantissa(0) === 0n)
                 {
                     ASSERT(float_mantissa(float_one()) === 1000000000000000n)
                     ASSERT(float_mantissa(float_negate(float_one())) === 1000000000000000n)
@@ -3003,7 +3003,7 @@ public:
                     ASSERT(float_negate(-1) === INVALID_FLOAT)
                     ASSERT(float_negate(-11010191919n) === INVALID_FLOAT)
                 }
-                ASSERT(float_negate(0) === 0)
+                ASSERT(float_negate(0) === 0n)
                 {
                     ASSERT(float_negate(float_one()) !== float_one())
                     ASSERT(float_negate(float_negate(float_one())) === float_one())
@@ -3128,10 +3128,10 @@ public:
                 ASSERT(float_set(void 0, 0) === INVALID_ARGUMENT)
                 ASSERT(float_set(0, void 0) === INVALID_ARGUMENT)
                 ASSERT(float_set(2147483648, 0) === INVALID_ARGUMENT)
-                ASSERT(float_set(-5, 0) === 0)
-                ASSERT(float_set(50, 0) === 0)
-                ASSERT(float_set(-50, 0) === 0)
-                ASSERT(float_set(0, 0) === 0)
+                ASSERT(float_set(-5, 0) === 0n)
+                ASSERT(float_set(50, 0) === 0n)
+                ASSERT(float_set(-50, 0) === 0n)
+                ASSERT(float_set(0, 0) === 0n)
                 ASSERT(float_set(-97, 1) === INVALID_FLOAT)
                 ASSERT(float_set(97, 1) === INVALID_FLOAT)
                 ASSERT(float_set(-5, 6541432897943971n) === 6275552114197674403n)

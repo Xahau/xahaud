@@ -5574,7 +5574,7 @@ DEFINE_WASM_FUNCTION(
     WASM_HOOK_TEARDOWN();
 }
 
-DEFINE_JS_FUNCNARG(JSValue, hook_account);
+DEFINE_JS_FUNCNARG(JSValue, hook_account)
 {
     JS_HOOK_SETUP();
 
@@ -7330,7 +7330,7 @@ DEFINE_JS_FUNCTION(JSValue, float_set, JSValue raw_e, JSValue raw_m)
     int32_t exp = *e;
 
     if (mantissa == 0)
-        returnJS(0);
+        returnJSXFL(0);
 
     int64_t normalized = hook_float::normalize_xfl(mantissa, exp);
 
@@ -7624,7 +7624,7 @@ DEFINE_JS_FUNCTION(JSValue, float_negate, JSValue raw_f1)
         returnJS(INVALID_ARGUMENT);
 
     if (*float1 == 0)
-        returnJS(0);
+        returnJSXFL(0);
     RETURNJS_IF_INVALID_FLOAT(*float1);
     returnJSXFL(hook_float::invert_sign(*float1));
 
@@ -8356,7 +8356,7 @@ DEFINE_JS_FUNCTION(JSValue, float_mantissa, JSValue raw_f1)
     RETURNJS_IF_INVALID_FLOAT(*f1);
 
     if (*f1 == 0)
-        returnJS(0);
+        returnJSXFL(0);
 
     int64_t const out = get_mantissa(*f1);
     if (out < 0)
