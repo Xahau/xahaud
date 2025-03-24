@@ -3057,7 +3057,7 @@ DEFINE_JS_FUNCNARG(JSValue, otxn_burden)
 {
     JS_HOOK_SETUP();
 
-    returnJS(__etxn_burden(hookCtx, applyCtx, j));
+    returnJS(__otxn_burden(hookCtx, applyCtx, j));
 
     JS_HOOK_TEARDOWN();
 }
