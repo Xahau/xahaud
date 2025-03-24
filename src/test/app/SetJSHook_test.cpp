@@ -2813,13 +2813,7 @@ public:
     {
         testcase("Test emit");
         using namespace jtx;
-        // Env env{*this, features};
-        Env env{
-            *this,
-            envconfig(),
-            features,
-            nullptr,  // beast::severities::kWarning
-            beast::severities::kTrace};
+        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -2831,8 +2825,8 @@ public:
             const PREREQUISITE_NOT_MET = -9
             const EMISSION_FAILURE = -11
             const sfDestination = ((8 << 16) + 3)
-            const ASSERT = (x) => {
-               if (!x) rollback(x.toString(), 0)
+            const ASSERT = (x, code) => {
+               if (!x) rollback(x.toString(), code || 0)
             }
             const Callback = (reserves) => {
                 // on callback we emit 2 more txns
@@ -2848,17 +2842,16 @@ public:
                 ASSERT(otxn_burden() > 0)
                 ASSERT(etxn_burden() === otxn_burden() * 2)
 
-                let tx = prepare({
+                let tx = {
                     TransactionType: "Payment",
                     Destination: util_raddr(bob),
                     Amount: "1000"
-                })
+                }
 
-                const hash1 = emit(tx)
-                ASSERT(hash1.length === 32)
+                const hash1 = emit(prepare(tx))
+                ASSERT(hash1.length === 32, 123)
 
-                tx = prepare(tx)
-                const hash2 = emit(tx)
+                const hash2 = emit(prepare(tx))
                 ASSERT(hash2.length === 32)
 
                 ASSERT(JSON.stringify(hash1) !== JSON.stringify(hash2));
@@ -3098,11 +3091,10 @@ public:
                 BEAST_EXPECT(hookExecutions.size() == 1);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
-                    283);  // emission failure on first emit
+                    123);  // emission failure on first emit
                 if (fixV2)
                     BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
-            printf("txcount: %d\n", txcount);
             BEAST_EXPECT(txcount == 256);
         }
 
