@@ -191,7 +191,9 @@ class DeliveredAmount_test : public beast::unit_test::suite
         auto const gw = Account("gateway");
         auto const USD = gw["USD"];
 
-        Env env{*this, features};
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
+        Env env(*this, std::move(cfg), features);
         env.fund(XRP(10000), alice, bob, carol, gw);
         env.trust(USD(1000), alice, bob, carol);
         env.close();
@@ -273,7 +275,9 @@ class DeliveredAmount_test : public beast::unit_test::suite
         auto const gw = Account("gateway");
         auto const USD = gw["USD"];
 
-        Env env{*this, features};
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
+        Env env(*this, std::move(cfg), features);
         env.fund(XRP(10000), alice, bob, carol, gw);
         env.trust(USD(1000), alice, bob, carol);
         env.close();

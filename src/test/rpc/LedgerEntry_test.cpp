@@ -555,8 +555,12 @@ class LedgerEntry_test : public beast::unit_test::suite
     {
         testcase("AccountRoot");
         using namespace test::jtx;
+
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
         Env env{
             *this,
+            std::move(cfg),
             supported_amendments() - featureXahauGenesis - fixHookAPI20251128};
 
         Account const alice{"alice"};
@@ -925,7 +929,7 @@ class LedgerEntry_test : public beast::unit_test::suite
 
         {
             // Setup Bob with DepositAuth
-            env(fset(bob, asfDepositAuth), fee(drops(10)));
+            env(fset(bob, asfDepositAuth));
             env.close();
             env(deposit::authCredentials(bob, {{issuer, credType}}));
             env.close();
@@ -2327,7 +2331,10 @@ class LedgerEntry_test : public beast::unit_test::suite
         Env env(*this);
         Account const owner("owner");
         env.fund(XRP(1'000), owner);
-        Oracle oracle(env, {.owner = owner});
+        Oracle oracle(
+            env,
+            {.owner = owner,
+             .fee = static_cast<int>(env.current()->fees().base.drops())});
 
         {
             // test basic malformed scenarios
@@ -2349,6 +2356,8 @@ class LedgerEntry_test : public beast::unit_test::suite
         using namespace ripple::test::jtx::oracle;
 
         Env env(*this);
+        auto const baseFee =
+            static_cast<int>(env.current()->fees().base.drops());
         std::vector<AccountID> accounts;
         std::vector<std::uint32_t> oracles;
         for (int i = 0; i < 10; ++i)
@@ -2356,11 +2365,13 @@ class LedgerEntry_test : public beast::unit_test::suite
             Account const owner(std::string("owner") + std::to_string(i));
             env.fund(XRP(1'000), owner);
             // different accounts can have the same asset pair
-            Oracle oracle(env, {.owner = owner, .documentID = i});
+            Oracle oracle(
+                env, {.owner = owner, .documentID = i, .fee = baseFee});
             accounts.push_back(owner.id());
             oracles.push_back(oracle.documentID());
             // same account can have different asset pair
-            Oracle oracle1(env, {.owner = owner, .documentID = i + 10});
+            Oracle oracle1(
+                env, {.owner = owner, .documentID = i + 10, .fee = baseFee});
             accounts.push_back(owner.id());
             oracles.push_back(oracle1.documentID());
         }

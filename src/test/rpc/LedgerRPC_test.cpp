@@ -271,9 +271,12 @@ public:
     {
         testcase("Lookup ledger");
         using namespace test::jtx;
-        Env env{*this, FeatureBitset{}};  // hashes requested below assume
-                                          // no amendments
 
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
+        Env env{
+            *this, std::move(cfg), FeatureBitset{}};  // hashes requested below
+                                                      // assume no amendments
         env.fund(XRP(10000), "alice");
         env.close();
         env.fund(XRP(10000), "bob");
@@ -485,16 +488,19 @@ public:
     {
         testcase("Ledger with Queued Transactions");
         using namespace test::jtx;
-        Env env{
+        auto cfg = envconfig([](std::unique_ptr<Config> cfg) {
+            auto& section = cfg->section("transaction_queue");
+            section.set("minimum_txn_in_ledger_standalone", "3");
+            section.set("normal_consensus_increase_percent", "0");
+            return cfg;
+        });
+
+        cfg->FEES.reference_fee = 10;
+        Env env(
             *this,
-            envconfig([](std::unique_ptr<Config> cfg) {
-                auto& section = cfg->section("transaction_queue");
-                section.set("minimum_txn_in_ledger_standalone", "3");
-                section.set("normal_consensus_increase_percent", "0");
-                return cfg;
-            }),
+            std::move(cfg),
             supported_amendments() - featureXahauGenesis -
-                fixProvisionalDoubleThreading - fixHookAPI20251128};
+                fixProvisionalDoubleThreading - fixHookAPI20251128);
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";
