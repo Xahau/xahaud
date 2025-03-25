@@ -119,6 +119,10 @@ class AccountTx_test : public beast::unit_test::suite
 
         Env env(
             *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->FEES.reference_fee = 10;
+                return cfg;
+            }),
             supported_amendments() - featureXahauGenesis - fixHookAPI20251128);
         Account A1{"A1"};
         env.fund(XRP(10000), A1);

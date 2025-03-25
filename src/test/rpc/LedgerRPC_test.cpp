@@ -612,8 +612,12 @@ public:
     {
         testcase("ledger_entry Request AccountRoot");
         using namespace test::jtx;
+
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
         Env env{
             *this,
+            std::move(cfg),
             supported_amendments() - featureXahauGenesis - fixHookAPI20251128};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
@@ -1092,7 +1096,7 @@ public:
 
         {
             // Setup Bob with DepositAuth
-            env(fset(bob, asfDepositAuth), fee(drops(10)));
+            env(fset(bob, asfDepositAuth));
             env.close();
             env(deposit::authCredentials(bob, {{issuer, credType}}));
             env.close();
@@ -3168,9 +3172,12 @@ public:
     {
         testcase("Lookup ledger");
         using namespace test::jtx;
-        Env env{*this, FeatureBitset{}};  // hashes requested below assume
-                                          // no amendments
 
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
+        Env env{
+            *this, std::move(cfg), FeatureBitset{}};  // hashes requested below
+                                                      // assume no amendments
         env.fund(XRP(10000), "alice");
         env.close();
         env.fund(XRP(10000), "bob");
@@ -3382,16 +3389,19 @@ public:
     {
         testcase("Ledger with Queued Transactions");
         using namespace test::jtx;
-        Env env{
+        auto cfg = envconfig([](std::unique_ptr<Config> cfg) {
+            auto& section = cfg->section("transaction_queue");
+            section.set("minimum_txn_in_ledger_standalone", "3");
+            section.set("normal_consensus_increase_percent", "0");
+            return cfg;
+        });
+
+        cfg->FEES.reference_fee = 10;
+        Env env(
             *this,
-            envconfig([](std::unique_ptr<Config> cfg) {
-                auto& section = cfg->section("transaction_queue");
-                section.set("minimum_txn_in_ledger_standalone", "3");
-                section.set("normal_consensus_increase_percent", "0");
-                return cfg;
-            }),
+            std::move(cfg),
             supported_amendments() - featureXahauGenesis -
-                fixProvisionalDoubleThreading - fixHookAPI20251128};
+                fixProvisionalDoubleThreading - fixHookAPI20251128);
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";
@@ -3651,7 +3661,10 @@ public:
         Env env(*this);
         Account const owner("owner");
         env.fund(XRP(1'000), owner);
-        Oracle oracle(env, {.owner = owner});
+        Oracle oracle(
+            env,
+            {.owner = owner,
+             .fee = static_cast<int>(env.current()->fees().base.drops())});
 
         // Malformed document id
         auto res = Oracle::ledgerEntry(env, owner, NoneTag);
@@ -3685,6 +3698,8 @@ public:
         using namespace ripple::test::jtx::oracle;
 
         Env env(*this);
+        auto const baseFee =
+            static_cast<int>(env.current()->fees().base.drops());
         std::vector<AccountID> accounts;
         std::vector<std::uint32_t> oracles;
         for (int i = 0; i < 10; ++i)
@@ -3692,11 +3707,13 @@ public:
             Account const owner(std::string("owner") + std::to_string(i));
             env.fund(XRP(1'000), owner);
             // different accounts can have the same asset pair
-            Oracle oracle(env, {.owner = owner, .documentID = i});
+            Oracle oracle(
+                env, {.owner = owner, .documentID = i, .fee = baseFee});
             accounts.push_back(owner.id());
             oracles.push_back(oracle.documentID());
             // same account can have different asset pair
-            Oracle oracle1(env, {.owner = owner, .documentID = i + 10});
+            Oracle oracle1(
+                env, {.owner = owner, .documentID = i + 10, .fee = baseFee});
             accounts.push_back(owner.id());
             oracles.push_back(oracle1.documentID());
         }
