@@ -70,7 +70,7 @@ std::chrono::seconds constexpr peerTimerInterval{60};
 // the child links of resident ledgers. Uses resident-only lookups, since
 // seq and hash come from the peer and must not trigger SQL / node-store
 // loads or edit the complete-ledger set.
-std::shared_ptr<SHAMapTreeNode>
+intr_ptr::SharedPtr<SHAMapTreeNode>
 fetchLinkedTreeNode(
     Application& app,
     uint256 const& hash,
@@ -80,7 +80,8 @@ fetchLinkedTreeNode(
     if (!nodeId || !app.getNodeFamily().isNullBackend())
         return {};
 
-    auto findInMap = [&](SHAMap const& map) -> std::shared_ptr<SHAMapTreeNode> {
+    auto findInMap =
+        [&](SHAMap const& map) -> intr_ptr::SharedPtr<SHAMapTreeNode> {
         auto node = map.getLinkedNode(*nodeId);
         if (node && node->getHash().as_uint256() == hash)
             return node;
@@ -88,7 +89,7 @@ fetchLinkedTreeNode(
     };
 
     auto findInLedger = [&](std::shared_ptr<Ledger const> const& ledger)
-        -> std::shared_ptr<SHAMapTreeNode> {
+        -> intr_ptr::SharedPtr<SHAMapTreeNode> {
         if (!ledger)
             return {};
         if (auto node = findInMap(ledger->stateMap()))

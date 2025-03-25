@@ -235,7 +235,7 @@ public:
                 shell && shell->isInner() && shell->getHash() == rootHash))
             return;
 
-        auto innerShell = std::static_pointer_cast<SHAMapInnerNode>(shell);
+        auto innerShell = intr_ptr::static_pointer_cast<SHAMapInnerNode>(shell);
         int linkedBefore = 0;
         for (int b = 0; b < SHAMapInnerNode::branchFactor; ++b)
         {
