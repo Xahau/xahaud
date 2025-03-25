@@ -27,7 +27,6 @@
 #include <xrpld/app/ledger/detail/PublishGap.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
-#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/SHAMapStore.h>
@@ -36,15 +35,12 @@
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/paths/PathRequests.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
-#include <xrpld/app/tx/apply.h>
-#include <xrpld/core/DatabaseCon.h>
 #include <xrpld/core/TimeKeeper.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/Peer.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/MathUtilities.h>
-#include <xrpl/basics/TaggedCache.h>
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/safe_cast.h>
@@ -58,7 +54,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
-#include <limits>
 #include <memory>
 #include <vector>
 
