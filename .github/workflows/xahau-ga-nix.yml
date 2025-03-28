@@ -1,0 +1,183 @@
+name: Nix - GA Runner
+
+on:
+  # Use GA runners on pushes except for the branches which build by the sh runner
+  push:
+    branches-ignore: ["dev", "candidate", "release"]
+
+# Concurrency control: Cancels older in-progress runs for the same branch (github.ref)
+# when a new push occurs. This saves runner minutes on superseded commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 1. Initial Check Job (Optional Sanity Check)
+  checkpatterns:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for suspicious patterns
+        run: |
+          if [ -f "suspicious_patterns.sh" ]; then
+            bash suspicious_patterns.sh
+          else
+            echo "Warning: suspicious_patterns.sh not found, skipping check"
+            # Still exit with success for compatibility with dependent jobs
+            exit 0
+          fi
+
+  # 2. Main Build Job
+  build-job:
+    runs-on: ubuntu-latest
+    needs: checkpatterns # Depends on the initial check passing
+    outputs:
+      # Output artifact name for potential downstream use
+      artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
+    strategy:
+      fail-fast: false
+      # Matrix defines build variations. Keys are structured for this.
+      matrix:
+        compiler: [gcc] # Example: Add 'clang' here later
+        configuration: [Debug] # Example: Add 'Release' here later
+        include:
+          # Link compiler matrix variable to specific package names/paths
+          - compiler: gcc
+            cc: gcc-11
+            cxx: g++-11
+            compiler_id: gcc-11
+    #          - compiler: clang
+    #            cc: clang-14
+    #            cxx: clang++-14
+    #            compiler_id: clang-14
+    env:
+      # Build directory relative to the workspace root
+      build_dir: .build
+      # Manual cache version control. Bump this number to invalidate all caches globally.
+      CACHE_VERSION: 1
+      # Default branch name used for prioritizing ccache restores. Adjust if needed.
+      MAIN_BRANCH_NAME: jshooks
+    steps:
+      # 2.1. Checkout Code
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2.2. Install Build System Dependencies (apt)
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          # Install specific Conan version needed
+          pip install --upgrade "conan<2"
+
+      # 2.3. Configure ccache
+      - name: Configure ccache
+        uses: ./.github/actions/xahau-configure-ccache
+        with:
+          max_size: 2G
+          hash_dir: true
+          compiler_check: content
+
+      # 2.4. Configure Conan Profile
+      # Sets up the Conan profile specifically for the compiler specified in the matrix.
+      - name: Configure Conan
+        run: |
+          conan profile new default --detect || true # Ignore error if profile exists
+          conan profile update settings.compiler.cppstd=20 default
+          conan profile update settings.compiler=${{ matrix.compiler }} default
+          conan profile update settings.compiler.libcxx=libstdc++11 default
+          conan profile update env.CC=/usr/bin/${{ matrix.cc }} default
+          conan profile update env.CXX=/usr/bin/${{ matrix.cxx }} default
+          conan profile update conf.tools.build:compiler_executables='{"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}' default
+
+          # Set correct compiler version based on matrix.compiler
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            conan profile update settings.compiler.version=11 default
+          elif [ "${{ matrix.compiler }}" = "clang" ]; then
+            conan profile update settings.compiler.version=14 default
+          fi
+          # Display profile for verification
+          conan profile show default
+
+      # 2.5. Environment Verification (Optional but Recommended)
+      - name: Check environment
+        run: |
+          echo "PATH:"
+          echo "${PATH}" | tr ':' '\n'
+          which conan && conan --version || echo "Conan not found"
+          which cmake && cmake --version || echo "CMake not found"
+          which ${{ matrix.cc }} && ${{ matrix.cc }} --version || echo "${{ matrix.cc }} not found"
+          which ${{ matrix.cxx }} && ${{ matrix.cxx }} --version || echo "${{ matrix.cxx }} not found"
+          which ccache && ccache --version || echo "ccache not found"
+          echo "---- Full Environment ----"
+          env
+
+      # 2.6. Install Dependencies using the action
+      - name: Install dependencies
+        uses: ./.github/actions/xahau-ga-dependencies
+        with:
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          compiler-id: ${{ matrix.compiler_id }}
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      # 2.7. Build Project using the action
+      - name: Build
+        uses: ./.github/actions/xahau-ga-build
+        with:
+          generator: Ninja
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          cc: ${{ matrix.cc }}
+          cxx: ${{ matrix.cxx }}
+          compiler-id: ${{ matrix.compiler_id }}
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      # 2.8. Set Artifact Name (Based on Matrix)
+      - name: Set artifact name
+        id: set-artifact-name
+        run: |
+          ARTIFACT_NAME="build-output-nix-${{ github.run_id }}-${{ matrix.compiler }}-${{ matrix.configuration }}"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Using artifact name: ${ARTIFACT_NAME}"
+
+      # 2.9. Debug Build Directory Contents (Optional)
+      - name: Debug build directory
+        run: |
+          echo "Checking build directory contents: ${{ env.build_dir }}"
+          ls -la ${{ env.build_dir }} || echo "Build directory not found or empty"
+
+      # 2.10. Run Tests
+      - name: Run tests
+        run: |
+          # Ensure the binary exists before trying to run
+          if [ -f "${{ env.build_dir }}/rippled" ]; then
+            ${{ env.build_dir }}/rippled --unittest --unittest-jobs $(nproc)
+          else
+             echo "Error: rippled executable not found in ${{ env.build_dir }}"
+             exit 1
+          fi
+
+  # These are just here to conform with configured requirements
+
+  # 3. Dummy Downstream Job (Build)
+  build:
+    runs-on: ubuntu-latest
+    needs: build-job # Depends on the matrix build finishing
+    steps:
+      - name: Dummy Build
+        run: |
+          echo "Dummy build step - relies upon build-job matrix completion."
+
+  # 4. Dummy Downstream Job (Tests)
+  tests:
+    runs-on: ubuntu-latest
+    needs: build-job # Depends on the matrix build finishing
+    steps:
+      - name: Dummy Tests
+        run: |
+          echo "Dummy tests step - relies upon build-job matrix completion."

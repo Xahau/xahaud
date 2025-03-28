@@ -1,0 +1,106 @@
+name: Build using Docker - SH Runner
+
+on:
+  push:
+    branches: ["dev", "candidate", "release"]
+  pull_request:
+    # Don't build on feature branches that are targeting dev
+    branches: ["candidate", "release"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEBUG_BUILD_CONTAINERS_AFTER_CLEANUP: 1
+
+jobs:
+  checkout:
+    runs-on: [self-hosted, vanity]
+    outputs:
+      checkout_path: ${{ steps.vars.outputs.checkout_path }}
+    steps:
+      - name: Prepare checkout path
+        id: vars
+        run: |
+          SAFE_BRANCH=$(echo "${{ github.ref_name }}" | sed -e 's/[^a-zA-Z0-9._-]/-/g')
+          CHECKOUT_PATH="${SAFE_BRANCH}-${{ github.sha }}"
+          echo "checkout_path=${CHECKOUT_PATH}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ steps.vars.outputs.checkout_path }}
+          clean: true
+          fetch-depth: 2 # Only get the last 2 commits, to avoid fetching all history
+
+  checkpatterns:
+    runs-on: [self-hosted, vanity]
+    needs: checkout
+    defaults:
+      run:
+        working-directory: ${{ needs.checkout.outputs.checkout_path }}
+    steps:
+      - name: Check for suspicious patterns
+        run: /bin/bash suspicious_patterns.sh
+
+  build:
+    runs-on: [self-hosted, vanity]
+    needs: [checkpatterns, checkout]
+    defaults:
+      run:
+        working-directory: ${{ needs.checkout.outputs.checkout_path }}
+    steps:
+      - name: Set Cleanup Script Path
+        run: |
+          echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
+
+      - name: Build using Docker
+        run: /bin/bash release-builder.sh
+
+      - name: Stop Container (Cleanup)
+        if: always()
+        run: |
+          echo "Running cleanup script: $JOB_CLEANUP_SCRIPT"
+          /bin/bash -e -x "$JOB_CLEANUP_SCRIPT"
+          CLEANUP_EXIT_CODE=$?
+
+          if [[ "$CLEANUP_EXIT_CODE" -eq 0 ]]; then
+            echo "Cleanup script succeeded."
+            rm -f "$JOB_CLEANUP_SCRIPT"
+            echo "Cleanup script removed."
+          else
+            echo "⚠️ Cleanup script failed! Keeping for debugging: $JOB_CLEANUP_SCRIPT"
+          fi
+
+          if [[ "${DEBUG_BUILD_CONTAINERS_AFTER_CLEANUP}" == "1" ]]; then
+            echo "🔍 Checking for leftover containers..."
+            BUILD_CONTAINERS=$(docker ps --format '{{.Names}}' | grep '^xahaud_cached_builder' || echo "")
+
+            if [[ -n "$BUILD_CONTAINERS" ]]; then
+              echo "⚠️ WARNING: Some build containers are still running"
+              echo "$BUILD_CONTAINERS"
+            else
+              echo "✅ No build containers found"
+            fi
+          fi
+
+  tests:
+    runs-on: [self-hosted, vanity]
+    needs: [build, checkout]
+    defaults:
+      run:
+        working-directory: ${{ needs.checkout.outputs.checkout_path }}
+    steps:
+      - name: Unit tests
+        run: /bin/bash docker-unit-tests.sh
+
+  cleanup:
+    runs-on: [self-hosted, vanity]
+    needs: [tests, checkout]
+    if: always()
+    steps:
+      - name: Cleanup workspace
+        run: |
+          CHECKOUT_PATH="${{ needs.checkout.outputs.checkout_path }}"
+          echo "Cleaning workspace for ${CHECKOUT_PATH}"
+          rm -rf "${{ github.workspace }}/${CHECKOUT_PATH}"

@@ -1,0 +1,91 @@
+name: dependencies
+description: 'Installs build dependencies with caching'
+
+inputs:
+  configuration:
+    description: 'Build configuration (Debug, Release, etc.)'
+    required: true
+  build_dir:
+    description: 'Directory to build dependencies in'
+    required: false
+    default: '.build'
+  compiler-id:
+    description: 'Unique identifier for compiler/version combination used for cache keys'
+    required: false
+    default: ''
+  cache_version:
+    description: 'Cache version for invalidation'
+    required: false
+    default: '1'
+  cache_enabled:
+    description: 'Whether to use caching'
+    required: false
+    default: 'true'
+  main_branch:
+    description: 'Main branch name for restore keys'
+    required: false
+    default: 'dev'
+
+outputs:
+  cache-hit:
+    description: 'Whether there was a cache hit'
+    value: ${{ steps.cache-restore-conan.outputs.cache-hit }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Generate a safe branch name for cache keys
+    - name: Generate safe branch name
+      if: inputs.cache_enabled == 'true'
+      id: safe-branch
+      shell: bash
+      run: |
+        SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
+        echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
+
+    # Restore Conan cache
+    - name: Restore Conan cache
+      if: inputs.cache_enabled == 'true'
+      id: cache-restore-conan
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.conan
+          ~/.conan2
+        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
+        restore-keys: |
+          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
+          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-
+
+    # Export custom recipes
+    - name: Export custom recipes
+      shell: bash
+      run: |
+        conan export external/snappy snappy/1.1.9@
+        conan export external/soci soci/4.0.3@
+
+    # Install dependencies
+    - name: Install dependencies
+      shell: bash
+      run: |
+        # Create build directory
+        mkdir -p ${{ inputs.build_dir }}
+        cd ${{ inputs.build_dir }}
+        
+        # Install dependencies using conan
+        conan install \
+          --output-folder . \
+          --build missing \
+          --settings build_type=${{ inputs.configuration }} \
+          ..
+
+    # Save Conan cache if we installed dependencies
+    - name: Save Conan cache
+      if: inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ~/.conan
+          ~/.conan2
+        key: ${{ steps.cache-restore-conan.outputs.cache-primary-key }}

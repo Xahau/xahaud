@@ -1,0 +1,135 @@
+name: MacOS - GA Runner
+
+on:
+  # Use GA runners on pushes except for the branches which build by the sh runner
+  push:
+    branches-ignore: ["dev", "candidate", "release"]
+
+# Concurrency control: Cancels older in-progress runs for the same branch (github.ref)
+# when a new push occurs. This saves runner minutes on superseded commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      # Matrix allows defining variations (e.g., different compilers, configs).
+      # Keys below are structured to support future matrix expansion.
+      matrix:
+        generator:
+          - Ninja
+        configuration:
+          - Debug
+    # Use the specified macOS runner version
+    runs-on: macos-15
+    env:
+      # Build directory relative to the workspace root
+      build_dir: .build
+      # Manual cache version control. Bump this number to invalidate all caches globally.
+      CACHE_VERSION: 1
+      # Default branch name used for prioritizing ccache restores. Adjust if needed.
+      MAIN_BRANCH_NAME: jshooks
+    steps:
+      # 1. Checkout Code
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Install Build Dependencies via Homebrew
+      - name: Install Conan
+        run: |
+          brew install conan@1
+          # Add Conan 1 to the PATH for this job
+          echo "$(brew --prefix conan@1)/bin" >> $GITHUB_PATH
+
+      # 3. Install Coreutils (for 'nproc')
+      - name: Install Coreutils
+        run: |
+          brew install coreutils
+          echo "Num proc: $(nproc)"
+
+      # 4. Install Ninja (if needed by generator)
+      - name: Install Ninja
+        if: matrix.generator == 'Ninja'
+        run: brew install ninja
+
+      # 5. Install Python (if needed)
+      - name: Install Python
+        run: |
+          if which python3 > /dev/null 2>&1; then
+              echo "Python 3 executable exists"
+              python3 --version
+          else
+              brew install python@3.12
+          fi
+          # Create 'python' symlink if it doesn't exist (for tools expecting 'python')
+          if ! which python > /dev/null 2>&1; then
+              sudo ln -sf $(which python3) /usr/local/bin/python
+          fi
+
+      # 6. Install CMake (if needed)
+      - name: Install CMake
+        run: |
+          if which cmake > /dev/null 2>&1; then
+              echo "cmake executable exists"
+              cmake --version
+          else
+              brew install cmake
+          fi
+
+      # 7. Install ccache
+      - name: Install ccache
+        run: brew install ccache
+
+      # 8. Configure ccache (add this action)
+      - name: Configure ccache
+        uses: ./.github/actions/xahau-configure-ccache
+        with:
+          max_size: 2G
+          hash_dir: true
+          compiler_check: content
+
+      # 9. Environment Verification (Optional but Recommended)
+      - name: Check environment
+        run: |
+          echo "PATH:"
+          echo "${PATH}" | tr ':' '\n'
+          which python && python --version || echo "Python not found"
+          which conan && conan --version || echo "Conan not found"
+          which cmake && cmake --version || echo "CMake not found"
+          clang --version
+          ccache --version
+          echo "---- Full Environment ----"
+          env
+
+      # 10. Configure Conan Profile
+      - name: Configure Conan
+        run: |
+          conan profile new default --detect || true # Ignore error if profile exists
+          conan profile update settings.compiler.cppstd=20 default
+
+      # 11. Install dependencies using the action
+      - name: Install dependencies
+        uses: ./.github/actions/xahau-ga-dependencies
+        with:
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          compiler-id: clang
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      # 12. Build Project using the action
+      - name: Build
+        uses: ./.github/actions/xahau-ga-build
+        with:
+          generator: ${{ matrix.generator }}
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          compiler-id: clang
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      # 13. Run Tests
+      - name: Test
+        run: |
+          ${{ env.build_dir }}/rippled --unittest --unittest-jobs $(nproc)
