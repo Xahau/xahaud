@@ -549,9 +549,8 @@ doCatalogueCreate(RPC::JsonContext& context)
         UPDATE_CATALOGUE_STATUS(ledgerUpto, min_ledger);
 
         // Load the first ledger
-        auto status = RPC::getLedger(currLedger, min_ledger, context);
-        if (status.toErrorCode() != rpcSUCCESS)
-            return rpcError(status);
+        if (auto error = RPC::getLedger(currLedger, min_ledger, context))
+            return rpcError(error.toErrorCode(), error.message());
         if (!currLedger)
             return rpcError(rpcLEDGER_MISSING);
 
@@ -575,9 +574,8 @@ doCatalogueCreate(RPC::JsonContext& context)
 
         // Load the next ledger
         currLedger = nullptr;  // Release any previous current ledger
-        auto status = RPC::getLedger(currLedger, ledger_seq, context);
-        if (status.toErrorCode() != rpcSUCCESS)
-            return rpcError(status);
+        if (auto error = RPC::getLedger(currLedger, ledger_seq, context))
+            return rpcError(error.toErrorCode(), error.message());
         if (!currLedger)
             return rpcError(rpcLEDGER_MISSING);
 
