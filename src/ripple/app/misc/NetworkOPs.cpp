@@ -2493,6 +2493,8 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
         toBase58(TokenType::NodePublic, app_.nodeIdentity().first);
 
     info[jss::complete_ledgers] = app_.getLedgerMaster().getCompleteLedgers();
+    info[jss::complete_ledgers_pinned] =
+        app_.getLedgerMaster().getPinnedLedgers();
 
     if (amendmentBlocked_)
         info[jss::amendment_blocked] = true;

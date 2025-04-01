@@ -305,6 +305,20 @@ Ledger::Ledger(
     }
 }
 
+Ledger::Ledger(
+    LedgerInfo& info,
+    Config const& config,
+    Family& family,
+    SHAMap const& baseState)
+    : mImmutable(false)
+    , info_(info)
+    , txMap_(SHAMapType::TRANSACTION, family)
+    , stateMap_(baseState, true)
+    , rules_{config.features}
+    , j_(beast::Journal(beast::Journal::getNullSink()))
+{
+}
+
 // Create a new ledger that follows this one
 Ledger::Ledger(Ledger const& prevLedger, NetClock::time_point closeTime)
     : mImmutable(false)
@@ -383,6 +397,19 @@ Ledger::setImmutable(bool rehash)
     txMap_.setImmutable();
     stateMap_.setImmutable();
     setup();
+}
+
+// raw setters for catalogue
+void
+Ledger::setCloseFlags(int closeFlags)
+{
+    info_.closeFlags = closeFlags;
+}
+
+void
+Ledger::setDrops(uint64_t drops)
+{
+    info_.drops = drops;
 }
 
 void

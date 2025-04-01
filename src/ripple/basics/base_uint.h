@@ -129,6 +129,18 @@ public:
         return reinterpret_cast<const_pointer>(data_.data());
     }
 
+    char const*
+    cdata() const
+    {
+        return reinterpret_cast<char const*>(data_.data());
+    }
+
+    char*
+    cdata()
+    {
+        return reinterpret_cast<char*>(data_.data());
+    }
+
     iterator
     begin()
     {

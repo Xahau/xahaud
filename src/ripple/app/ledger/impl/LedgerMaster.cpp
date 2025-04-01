@@ -533,11 +533,20 @@ LedgerMaster::fixIndex(LedgerIndex ledgerIndex, LedgerHash const& ledgerHash)
 }
 
 bool
-LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger)
+LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
 {
     bool validated = ledger->info().validated;
     // Returns true if we already had the ledger
-    return mLedgerHistory.insert(std::move(ledger), validated);
+    if (!mLedgerHistory.insert(std::move(ledger), validated))
+        return false;
+
+    if (pin)
+    {
+        uint32_t seq = ledger->info().seq;
+        mPinnedLedgers.insert(range(seq, seq));
+        JLOG(m_journal.info()) << "Pinned ledger : " << seq;
+    }
+    return true;
 }
 
 /** Apply held transactions to the open ledger
@@ -595,6 +604,15 @@ void
 LedgerMaster::clearLedger(std::uint32_t seq)
 {
     std::lock_guard sl(mCompleteLock);
+
+    // Don't clear pinned ledgers
+    if (boost::icl::contains(mPinnedLedgers, seq))
+    {
+        JLOG(m_journal.trace())
+            << "Ledger " << seq << " is pinned, not clearing";
+        return;
+    }
+
     mCompleteLedgers.erase(seq);
 }
 
@@ -1714,11 +1732,25 @@ LedgerMaster::getCompleteLedgers()
     return to_string(mCompleteLedgers);
 }
 
+std::string
+LedgerMaster::getPinnedLedgers()
+{
+    std::lock_guard sl(mCompleteLock);
+    return to_string(mPinnedLedgers);
+}
+
 RangeSet<std::uint32_t>
 LedgerMaster::getCompleteLedgersRangeSet()
 {
     std::lock_guard sl(mCompleteLock);
     return mCompleteLedgers;
+}
+
+RangeSet<std::uint32_t>
+LedgerMaster::getPinnedLedgersRangeSet()
+{
+    std::lock_guard sl(mCompleteLock);
+    return mPinnedLedgers;
 }
 
 std::optional<NetClock::time_point>
@@ -1876,15 +1908,26 @@ LedgerMaster::getLedgerByHash(uint256 const& hash)
 }
 
 void
-LedgerMaster::setLedgerRangePresent(std::uint32_t minV, std::uint32_t maxV)
+LedgerMaster::setLedgerRangePresent(
+    std::uint32_t minV,
+    std::uint32_t maxV,
+    bool pin)
 {
     std::lock_guard sl(mCompleteLock);
     mCompleteLedgers.insert(range(minV, maxV));
+
+    if (pin)
+    {
+        mPinnedLedgers.insert(range(minV, maxV));
+        JLOG(m_journal.info())
+            << "Pinned ledger range: " << minV << " - " << maxV;
+    }
 }
 
 void
 LedgerMaster::sweep()
 {
+    std::lock_guard sl(mCompleteLock);
     mLedgerHistory.sweep();
     fetch_packs_.sweep();
 }
@@ -1899,8 +1942,24 @@ void
 LedgerMaster::clearPriorLedgers(LedgerIndex seq)
 {
     std::lock_guard sl(mCompleteLock);
-    if (seq > 0)
-        mCompleteLedgers.erase(range(0u, seq - 1));
+    if (seq <= 0)
+        return;
+
+    // First, save a copy of the pinned ledgers
+    auto pinnedCopy = mPinnedLedgers;
+
+    // Clear everything before seq
+    RangeSet<std::uint32_t> toClear;
+    toClear.insert(range(0u, seq - 1));
+    for (auto const& interval : toClear)
+        mCompleteLedgers.erase(interval);
+
+    // Re-add the pinned ledgers to ensure they're preserved
+    for (auto const& interval : pinnedCopy)
+        mCompleteLedgers.insert(interval);
+
+    JLOG(m_journal.debug()) << "clearPriorLedgers: after restoration, pinned="
+                            << to_string(mPinnedLedgers);
 }
 
 void

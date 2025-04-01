@@ -174,6 +174,9 @@ Handler const handlerArray[]{
     // Evented methods
     {"subscribe", byRef(&doSubscribe), Role::USER, NO_CONDITION},
     {"unsubscribe", byRef(&doUnsubscribe), Role::USER, NO_CONDITION},
+    {"catalogue_create", byRef(&doCatalogueCreate), Role::ADMIN, NO_CONDITION},
+    {"catalogue_status", byRef(&doCatalogueStatus), Role::ADMIN, NO_CONDITION},
+    {"catalogue_load", byRef(&doCatalogueLoad), Role::ADMIN, NO_CONDITION},
 };
 
 class HandlerTable

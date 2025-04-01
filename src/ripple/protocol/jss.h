@@ -199,20 +199,21 @@ JSS(balances);            // out: GatewayBalances
 JSS(base);                // out: LogLevel
 JSS(base_fee);            // out: NetworkOPs
 JSS(base_fee_no_hooks);
-JSS(base_fee_xrp);           // out: NetworkOPs
-JSS(base_fee_native);        // out: NetworkOPs
-JSS(bids);                   // out: Subscribe
-JSS(binary);                 // in: AccountTX, LedgerEntry,
-                             //     AccountTxOld, Tx LedgerData
-JSS(blob);                   // out: ValidatorList
-JSS(blobs_v2);               // out: ValidatorList
-                             // in: UNL
-JSS(books);                  // in: Subscribe, Unsubscribe
-JSS(both);                   // in: Subscribe, Unsubscribe
-JSS(both_sides);             // in: Subscribe, Unsubscribe
-JSS(broadcast);              // out: SubmitTransaction
-JSS(build_path);             // in: TransactionSign
-JSS(build_version);          // out: NetworkOPs
+JSS(base_fee_xrp);     // out: NetworkOPs
+JSS(base_fee_native);  // out: NetworkOPs
+JSS(bids);             // out: Subscribe
+JSS(binary);           // in: AccountTX, LedgerEntry,
+                       //     AccountTxOld, Tx LedgerData
+JSS(blob);             // out: ValidatorList
+JSS(blobs_v2);         // out: ValidatorList
+                       // in: UNL
+JSS(books);            // in: Subscribe, Unsubscribe
+JSS(both);             // in: Subscribe, Unsubscribe
+JSS(both_sides);       // in: Subscribe, Unsubscribe
+JSS(broadcast);        // out: SubmitTransaction
+JSS(build_path);       // in: TransactionSign
+JSS(build_version);    // out: NetworkOPs
+JSS(bytes_written);
 JSS(cancel_after);           // out: AccountChannels
 JSS(can_delete);             // out: CanDelete
 JSS(changes);                // out: BookChanges
@@ -237,13 +238,15 @@ JSS(code);                   // out: errors
 JSS(command);                // in: RPCHandler
 JSS(complete);               // out: NetworkOPs, InboundLedger
 JSS(complete_ledgers);       // out: NetworkOPs, PeerImp
-JSS(complete_shards);        // out: OverlayImpl, PeerImp
-JSS(consensus);              // out: NetworkOPs, LedgerConsensus
-JSS(converge_time);          // out: NetworkOPs
-JSS(converge_time_s);        // out: NetworkOPs
-JSS(cookie);                 // out: NetworkOPs
-JSS(count);                  // in: AccountTx*, ValidatorList
-JSS(counters);               // in/out: retrieve counters
+JSS(complete_ledgers_pinned);
+JSS(complete_shards);  // out: OverlayImpl, PeerImp
+JSS(compression_level);
+JSS(consensus);        // out: NetworkOPs, LedgerConsensus
+JSS(converge_time);    // out: NetworkOPs
+JSS(converge_time_s);  // out: NetworkOPs
+JSS(cookie);           // out: NetworkOPs
+JSS(count);            // in: AccountTx*, ValidatorList
+JSS(counters);         // in/out: retrieve counters
 JSS(coins);
 JSS(children);
 JSS(ctid);  // in/out: Tx RPC
@@ -257,7 +260,8 @@ JSS(currency);           // in: paths/PathRequest, STAmount
                          //      AccountLines
 JSS(current);            // out: OwnerInfo
 JSS(current_activities);
-JSS(current_ledger_size);     // out: TxQ
+JSS(current_ledger_size);  // out: TxQ
+JSS(current_ledger);
 JSS(current_queue_size);      // out: TxQ
 JSS(data);                    // out: LedgerData
 JSS(date);                    // out: tx/Transaction, NetworkOPs
@@ -289,18 +293,20 @@ JSS(drops);                   // out: TxQ
 JSS(duration_us);             // out: NetworkOPs
 JSS(effective);               // out: ValidatorList
                               // in: UNL
-JSS(enabled);                 // out: AmendmentTable
-JSS(engine_result);           // out: NetworkOPs, TransactionSign, Submit
-JSS(engine_result_code);      // out: NetworkOPs, TransactionSign, Submit
-JSS(engine_result_message);   // out: NetworkOPs, TransactionSign, Submit
-JSS(ephemeral_key);           // out: ValidatorInfo
-                              // in/out: Manifest
-JSS(error);                   // out: error
+JSS(elapsed_seconds);
+JSS(enabled);                // out: AmendmentTable
+JSS(engine_result);          // out: NetworkOPs, TransactionSign, Submit
+JSS(engine_result_code);     // out: NetworkOPs, TransactionSign, Submit
+JSS(engine_result_message);  // out: NetworkOPs, TransactionSign, Submit
+JSS(ephemeral_key);          // out: ValidatorInfo
+                             // in/out: Manifest
+JSS(error);                  // out: error
 JSS(errored);
-JSS(error_code);            // out: error
-JSS(error_exception);       // out: Submit
-JSS(error_message);         // out: error
-JSS(escrow);                // in: LedgerEntry
+JSS(error_code);       // out: error
+JSS(error_exception);  // out: Submit
+JSS(error_message);    // out: error
+JSS(escrow);           // in: LedgerEntry
+JSS(estimated_time_remaining);
 JSS(emitted_txn);           // in: LedgerEntry
 JSS(expand);                // in: handler/Ledger
 JSS(expected_date);         // out: any (warnings)
@@ -310,6 +316,7 @@ JSS(expiration);            // out: AccountOffers, AccountChannels,
                             //      ValidatorList
 JSS(fail_hard);             // in: Sign, Submit
 JSS(failed);                // out: InboundLedger
+JSS(failed_ledgers);        // out: catalogue
 JSS(feature);               // in: Feature
 JSS(features);              // out: Feature
 JSS(fee);                   // out: NetworkOPs, Peers
@@ -324,9 +331,12 @@ JSS(first);                 // out: rpc/Version
 JSS(firstSequence);         // out: NodeToShardStatus
 JSS(firstShardIndex);       // out: NodeToShardStatus
 JSS(finished);
-JSS(fix_txns);              // in: LedgerCleaner
+JSS(fix_txns);  // in: LedgerCleaner
+JSS(file);
+JSS(file_size);
 JSS(flags);                 // out: AccountOffers,
                             //      NetworkOPs
+JSS(force);                 // in: catalogue
 JSS(forward);               // in: AccountTx
 JSS(freeze);                // out: AccountLines
 JSS(freeze_peer);           // out: AccountLines
@@ -336,6 +346,7 @@ JSS(full_reply);            // out: PathFind
 JSS(fullbelow_size);        // out: GetCounts
 JSS(good);                  // out: RPCVersion
 JSS(hash);                  // out: NetworkOPs, InboundLedger,
+JSS(hash_mismatches);       // out: catalogue
                             //      LedgerToJson, STTx; field
 JSS(hashes);                // in: AccountObjects
 JSS(have_header);           // out: InboundLedger
@@ -354,8 +365,10 @@ JSS(id);                    // websocket.
 JSS(ident);                 // in: AccountCurrencies, AccountInfo,
                             //     OwnerInfo
 JSS(ignore_default);        // in: AccountLines
-JSS(import_vlseq);          // in: LedgerEntry
-JSS(inLedger);              // out: tx/Transaction
+JSS(ignore_hash);
+JSS(import_vlseq);  // in: LedgerEntry
+JSS(imported);      // out: catalogue
+JSS(inLedger);      // out: tx/Transaction
 JSS(in_queue);
 JSS(inbound);  // out: PeerImp
 JSS(index);    // in: LedgerEntry, DownloadShard
@@ -374,42 +387,48 @@ JSS(issuer);               // in: RipplePathFind, Subscribe,
                            // out: STPathSet, STAmount
 JSS(job);
 JSS(job_queue);
+JSS(job_type);
+JSS(job_status);
 JSS(jobs);
-JSS(jsonrpc);                     // json version
-JSS(jq_trans_overflow);           // JobQueue transaction limit overflow.
-JSS(kept);                        // out: SubmitTransaction
-JSS(key);                         // out
-JSS(key_type);                    // in/out: WalletPropose, TransactionSign
-JSS(latency);                     // out: PeerImp
-JSS(last);                        // out: RPCVersion
-JSS(lastSequence);                // out: NodeToShardStatus
-JSS(lastShardIndex);              // out: NodeToShardStatus
-JSS(last_close);                  // out: NetworkOPs
-JSS(last_refresh_time);           // out: ValidatorSite
-JSS(last_refresh_status);         // out: ValidatorSite
-JSS(last_refresh_message);        // out: ValidatorSite
-JSS(ledger);                      // in: NetworkOPs, LedgerCleaner,
-                                  //     RPCHelpers
-                                  // out: NetworkOPs, PeerImp
-JSS(ledger_current_index);        // out: NetworkOPs, RPCHelpers,
-                                  //      LedgerCurrent, LedgerAccept,
-                                  //      AccountLines
-JSS(ledger_data);                 // out: LedgerHeader
-JSS(ledger_hash);                 // in: RPCHelpers, LedgerRequest,
-                                  //     RipplePathFind, TransactionEntry,
-                                  //     handlers/Ledger
-                                  // out: NetworkOPs, RPCHelpers,
-                                  //      LedgerClosed, LedgerData,
-                                  //      AccountLines
-JSS(ledger_hit_rate);             // out: GetCounts
-JSS(ledger_index);                // in/out: many
-JSS(ledger_index_max);            // in, out: AccountTx*
-JSS(ledger_index_min);            // in, out: AccountTx*
-JSS(ledger_max);                  // in, out: AccountTx*
-JSS(ledger_min);                  // in, out: AccountTx*
-JSS(ledger_time);                 // out: NetworkOPs
-JSS(LEDGER_ENTRY_TYPES);          // out: RPC server_definitions
-JSS(levels);                      // LogLevels
+JSS(jsonrpc);               // json version
+JSS(jq_trans_overflow);     // JobQueue transaction limit overflow.
+JSS(kept);                  // out: SubmitTransaction
+JSS(key);                   // out
+JSS(key_type);              // in/out: WalletPropose, TransactionSign
+JSS(latency);               // out: PeerImp
+JSS(last);                  // out: RPCVersion
+JSS(lastSequence);          // out: NodeToShardStatus
+JSS(lastShardIndex);        // out: NodeToShardStatus
+JSS(last_close);            // out: NetworkOPs
+JSS(last_refresh_time);     // out: ValidatorSite
+JSS(last_refresh_status);   // out: ValidatorSite
+JSS(last_refresh_message);  // out: ValidatorSite
+JSS(ledger);                // in: NetworkOPs, LedgerCleaner,
+                            //     RPCHelpers
+                            // out: NetworkOPs, PeerImp
+JSS(ledger_count);
+JSS(ledgers_loaded);
+JSS(ledgers_written);
+JSS(ledger_current_index);  // out: NetworkOPs, RPCHelpers,
+                            //      LedgerCurrent, LedgerAccept,
+                            //      AccountLines
+JSS(ledger_data);           // out: LedgerHeader
+JSS(ledger_hash);           // in: RPCHelpers, LedgerRequest,
+                            //     RipplePathFind, TransactionEntry,
+                            //     handlers/Ledger
+                            // out: NetworkOPs, RPCHelpers,
+                            //      LedgerClosed, LedgerData,
+                            //      AccountLines
+JSS(ledger_hit_rate);       // out: GetCounts
+JSS(ledger_index);          // in/out: many
+JSS(ledger_index_max);      // in, out: AccountTx*
+JSS(ledger_index_min);      // in, out: AccountTx*
+JSS(ledger_max);            // in, out: AccountTx*
+JSS(ledger_min);            // in, out: AccountTx*
+JSS(ledger_time);           // out: NetworkOPs
+JSS(LEDGER_ENTRY_TYPES);    // out: RPC server_definitions
+JSS(levels);                // LogLevels
+JSS(level);
 JSS(limit);                       // in/out: AccountTx*, AccountOffers,
                                   //         AccountLines, AccountObjects
                                   // in: LedgerData, BookOffers
@@ -527,6 +546,8 @@ JSS(password);           // in: Subscribe
 JSS(paths);              // in: RipplePathFind
 JSS(paths_canonical);    // out: RipplePathFind
 JSS(paths_computed);     // out: PathRequest, RipplePathFind
+JSS(output_file);        // in: CatalogueCreate
+JSS(input_file);         // in: CatalogueLoad
 JSS(payment_channel);    // in: LedgerEntry
 JSS(pclose);
 JSS(peer);                        // in: AccountLines
@@ -536,6 +557,7 @@ JSS(peers);                       // out: InboundLedger, handlers/Peers, Overlay
 JSS(peer_disconnects);            // Severed peer connection counter.
 JSS(peer_disconnects_resources);  // Severed peer connections because of
                                   // excess resource consumption.
+JSS(percent_complete);
 JSS(phash);
 JSS(port);              // in: Connect
 JSS(previous);          // out: Reservations
@@ -618,6 +640,7 @@ JSS(signing_keys);              // out: ValidatorList
 JSS(signing_time);              // out: NetworkOPs
 JSS(signer_list);               // in: AccountObjects
 JSS(signer_lists);              // in/out: AccountInfo
+JSS(skipped);                   // out: catalogue
 JSS(snapshot);                  // in: Subscribe
 JSS(source_account);            // in: PathRequest, RipplePathFind
 JSS(source_amount);             // in: PathRequest, RipplePathFind
@@ -625,6 +648,7 @@ JSS(source_currencies);         // in: PathRequest, RipplePathFind
 JSS(source_tag);                // out: AccountChannels
 JSS(stand_alone);               // out: NetworkOPs
 JSS(start);                     // in: TxHistory
+JSS(start_time);
 JSS(started);
 JSS(state);                 // out: Logic.h, ServerState, LedgerData
 JSS(state_accounting);      // out: NetworkOPs

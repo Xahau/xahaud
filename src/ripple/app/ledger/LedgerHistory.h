@@ -70,8 +70,6 @@ public:
     LedgerHash
     getLedgerHash(LedgerIndex ledgerIndex);
 
-    /** Remove stale cache entries
-     */
     void
     sweep()
     {

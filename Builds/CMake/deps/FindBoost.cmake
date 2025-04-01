@@ -248,6 +248,7 @@ include(FindPackageHandleStandardArgs)
 # Save project's policies
 cmake_policy(PUSH)
 cmake_policy(SET CMP0057 NEW) # if IN_LIST
+#cmake_policy(SET CMP0144 NEW)
 
 #-------------------------------------------------------------------------------
 # Before we go searching, check whether a boost cmake package is available, unless
@@ -969,7 +970,24 @@ function(_Boost_COMPONENT_DEPENDENCIES component _ret)
       set(_Boost_WAVE_DEPENDENCIES filesystem serialization thread chrono date_time atomic)
       set(_Boost_WSERIALIZATION_DEPENDENCIES serialization)
     endif()
-    if(NOT Boost_VERSION_STRING VERSION_LESS 1.77.0)
+    
+    # Special handling for Boost 1.86.0 and higher
+    if(NOT Boost_VERSION_STRING VERSION_LESS 1.86.0)
+      # Explicitly set these for Boost 1.86
+      set(_Boost_IOSTREAMS_DEPENDENCIES "")  # No dependencies for iostreams in 1.86
+      
+      # Debug output to help diagnose the issue
+      if(Boost_DEBUG)
+        message(STATUS "Using special dependency settings for Boost 1.86.0+")
+        message(STATUS "Component: ${component}, uppercomponent: ${uppercomponent}")
+        message(STATUS "Boost_VERSION_STRING: ${Boost_VERSION_STRING}")
+        message(STATUS "BOOST_ROOT: $ENV{BOOST_ROOT}")
+        message(STATUS "BOOST_LIBRARYDIR: $ENV{BOOST_LIBRARYDIR}")
+      endif()
+    endif()
+    
+    # Only show warning for versions beyond what we've defined
+    if(NOT Boost_VERSION_STRING VERSION_LESS 1.87.0)
       message(WARNING "New Boost version may have incorrect or missing dependencies and imported targets")
     endif()
   endif()
@@ -1877,6 +1895,18 @@ foreach(COMPONENT ${Boost_FIND_COMPONENTS})
   # but Boost_LIBRARY_DIR_DEBUG is, look there first for RELEASE libs
   if(NOT Boost_LIBRARY_DIR_RELEASE AND Boost_LIBRARY_DIR_DEBUG)
     list(INSERT _boost_LIBRARY_SEARCH_DIRS_RELEASE 0 ${Boost_LIBRARY_DIR_DEBUG})
+  endif()
+
+  if(NOT Boost_VERSION_STRING VERSION_LESS 1.86.0)
+    if(BOOST_LIBRARYDIR AND EXISTS "${BOOST_LIBRARYDIR}")
+      # Clear existing search paths and use only BOOST_LIBRARYDIR 
+      set(_boost_LIBRARY_SEARCH_DIRS_RELEASE "${BOOST_LIBRARYDIR}" NO_DEFAULT_PATH)
+      set(_boost_LIBRARY_SEARCH_DIRS_DEBUG "${BOOST_LIBRARYDIR}" NO_DEFAULT_PATH)
+        
+      if(Boost_DEBUG)
+        message(STATUS "Boost 1.86: Setting library search dirs to BOOST_LIBRARYDIR: ${BOOST_LIBRARYDIR}")
+      endif()
+    endif()
   endif()
 
   # Avoid passing backslashes to _Boost_FIND_LIBRARY due to macro re-parsing.

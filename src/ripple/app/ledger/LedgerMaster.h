@@ -128,7 +128,7 @@ public:
     getEarliestFetch();
 
     bool
-    storeLedger(std::shared_ptr<Ledger const> ledger);
+    storeLedger(std::shared_ptr<Ledger const> ledger, bool pin = false);
 
     void
     setFullLedger(
@@ -152,8 +152,14 @@ public:
     std::string
     getCompleteLedgers();
 
+    std::string
+    getPinnedLedgers();
+
     RangeSet<std::uint32_t>
     getCompleteLedgersRangeSet();
+
+    RangeSet<std::uint32_t>
+    getPinnedLedgersRangeSet();
 
     /** Apply held transactions to the open ledger
         This is normally called as we close the ledger.
@@ -200,7 +206,10 @@ public:
     getLedgerByHash(uint256 const& hash);
 
     void
-    setLedgerRangePresent(std::uint32_t minV, std::uint32_t maxV);
+    setLedgerRangePresent(
+        std::uint32_t minV,
+        std::uint32_t maxV,
+        bool pin = false /* if true, do not let these leaders be removed */);
 
     std::optional<NetClock::time_point>
     getCloseTimeBySeq(LedgerIndex ledgerIndex);
@@ -373,6 +382,7 @@ private:
 
     std::recursive_mutex mCompleteLock;
     RangeSet<std::uint32_t> mCompleteLedgers;
+    RangeSet<std::uint32_t> mPinnedLedgers;  // Track pinned ledger ranges
 
     // Publish thread is running.
     bool mAdvanceThread{false};
