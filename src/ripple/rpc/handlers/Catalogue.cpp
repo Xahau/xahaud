@@ -18,7 +18,9 @@
 //==============================================================================
 
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/LedgerToJson.h>
+#include <ripple/app/main/Application.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>
