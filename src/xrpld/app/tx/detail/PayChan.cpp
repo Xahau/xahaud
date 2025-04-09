@@ -338,6 +338,13 @@ PayChanCreate::doApply()
     if (!sle)
         return tefINTERNAL;
 
+    if (ctx_.view().rules().enabled(fixPayChanCancelAfter))
+    {
+        auto const closeTime = ctx_.view().info().parentCloseTime;
+        if (ctx_.tx[~sfCancelAfter] && after(closeTime, ctx_.tx[sfCancelAfter]))
+            return tecEXPIRED;
+    }
+
     auto const dst = ctx_.tx[sfDestination];
 
     STAmount const amount{ctx_.tx[sfAmount]};
