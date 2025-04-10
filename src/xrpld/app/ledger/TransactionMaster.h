@@ -80,7 +80,7 @@ public:
         uint256 const& hash,
         std::uint32_t ledger,
         std::optional<uint32_t> tseq,
-        std::optional<uint16_t> netID);
+        std::optional<uint32_t> netID);
 
     void
     canonicalize(std::shared_ptr<Transaction>* pTransaction);
