@@ -1982,9 +1982,7 @@ fromNetwork(
         (strMethod == "event") ? megabytes(1) : megabytes(256);
 
     using namespace std::chrono_literals;
-    // auto constexpr RPC_NOTIFY = 10min; // Wietse: lolwut 10 minutes for one
-    // HTTP call?
-    auto constexpr RPC_NOTIFY = 30s;
+    auto constexpr RPC_WEBHOOK_TIMEOUT = 30s;
 
     //@@start async-request
     HTTPClient::request(
@@ -2002,7 +2000,7 @@ fromNetwork(
             std::placeholders::_2,
             j),
         RPC_REPLY_MAX_BYTES,
-        RPC_NOTIFY,
+        RPC_WEBHOOK_TIMEOUT,
         std::bind(
             &RPCCallImp::onResponse,
             callbackFuncP,
