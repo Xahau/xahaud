@@ -1760,13 +1760,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // Test AMMClawback for USD/XRP pool. Claw back USD, and XRP goes back
         // to the holder.
-        // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-        Env env(
-            *this,
-            envconfig(),
-            features,
-            nullptr,
-            beast::severities::kDisabled);
+        Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
         Account gw{"gateway"};
         Account alice{"alice"};
         env.fund(XRP(1000000000), gw, alice);
@@ -1852,13 +1846,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // IOU/XRP pool. AMMClawback almost last holder's USD balance
         {
-            // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-            Env env(
-                *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kDisabled);
+            Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
             Account gw{"gateway"}, alice{"alice"}, bob{"bob"};
             auto const USD = setupAccounts(env, gw, alice, bob);
 
@@ -1889,13 +1877,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // IOU/XRP pool. AMMClawback part of last holder's USD balance
         {
-            // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-            Env env(
-                *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kDisabled);
+            Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
             Account gw{"gateway"}, alice{"alice"}, bob{"bob"};
             auto const USD = setupAccounts(env, gw, alice, bob);
 
@@ -1926,13 +1908,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // IOU/XRP pool. AMMClawback all of last holder's USD balance
         {
-            // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-            Env env(
-                *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kDisabled);
+            Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
             Account gw{"gateway"}, alice{"alice"}, bob{"bob"};
             auto const USD = setupAccounts(env, gw, alice, bob);
 
@@ -1958,13 +1934,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // IOU/IOU pool, different issuers
         {
-            // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-            Env env(
-                *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kDisabled);
+            Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
             Account gw{"gateway"}, alice{"alice"}, bob{"bob"};
             auto const USD = setupAccounts(env, gw, alice, bob);
 
@@ -2000,13 +1970,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // IOU/IOU pool, same issuer
         {
-            // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-            Env env(
-                *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kDisabled);
+            Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
             Account gw{"gateway"}, alice{"alice"}, bob{"bob"};
             auto const USD = setupAccounts(env, gw, alice, bob);
 
@@ -2040,13 +2004,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // IOU/IOU pool, larger asset ratio
         {
-            // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-            Env env(
-                *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kDisabled);
+            Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
             Account gw{"gateway"}, alice{"alice"}, bob{"bob"};
             auto const USD = setupAccounts(env, gw, alice, bob);
 

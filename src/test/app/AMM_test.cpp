@@ -19,6 +19,7 @@
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
 #include <test/jtx/AMMTest.h>
+#include <test/jtx/CaptureLogs.h>
 #include <test/jtx/amount.h>
 #include <test/jtx/sendmax.h>
 #include <xrpld/app/misc/AMMHelpers.h>
@@ -5716,6 +5717,8 @@ private:
         testcase("Fix changeSpotPriceQuality");
         using namespace jtx;
 
+        std::string logs;
+
         enum class Status {
             SucceedShouldSucceedResize,  // Succeed in pre-fix because
                                          // error allowance, succeed post-fix
@@ -5798,12 +5801,7 @@ private:
         boost::smatch match;
         // tests that succeed should have the same amounts pre-fix and post-fix
         std::vector<std::pair<STAmount, STAmount>> successAmounts;
-        Env env(
-            *this,
-            envconfig(),
-            features,
-            nullptr,
-            beast::severities::kDisabled);
+        Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
         auto rules = env.current()->rules();
         CurrentTransactionRulesGuard rg(rules);
         for (auto const& t : tests)
@@ -5980,6 +5978,8 @@ private:
         using namespace jtx;
         using namespace std::chrono;
         FeatureBitset const all{featuresInitial};
+
+        std::string logs;
 
         Account const gatehub{"gatehub"};
         Account const bitstamp{"bitstamp"};
@@ -6210,14 +6210,7 @@ private:
             testcase(input.testCase);
             for (auto const& features : {all})
             {
-                // Env env(*this, features,
-                // std::make_unique<CaptureLogs>(&logs));
-                Env env(
-                    *this,
-                    envconfig(),
-                    features,
-                    nullptr,
-                    beast::severities::kDisabled);
+                Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
 
                 env.fund(XRP(5'000), gatehub, bitstamp, trader);
                 env.close();
@@ -6443,13 +6436,7 @@ private:
         // Last Liquidity Provider is the issuer of one token
         {
             std::string logs;
-            // Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
-            Env env(
-                *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kDisabled);
+            Env env(*this, features, std::make_unique<CaptureLogs>(&logs));
             fund(
                 env,
                 gw,
