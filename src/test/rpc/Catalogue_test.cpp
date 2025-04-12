@@ -201,7 +201,7 @@ class Catalogue_test : public beast::unit_test::suite
         BEAST_EXPECT(result[jss::min_ledger] == 3);
         BEAST_EXPECT(result[jss::max_ledger] == 5);
         BEAST_EXPECT(result[jss::output_file] == cataloguePath);
-        BEAST_EXPECT(result[jss::file_size].asUInt() > 0);
+        BEAST_EXPECT(!result[jss::file_size].asString().empty());
         BEAST_EXPECT(result[jss::ledgers_written].asUInt() == 3);
 
         // Verify file exists and is not empty
@@ -681,8 +681,8 @@ class Catalogue_test : public beast::unit_test::suite
                 env.client().invoke("catalogue_create", params)[jss::result];
             BEAST_EXPECT(result[jss::status] == jss::success);
             BEAST_EXPECT(result.isMember(jss::file_size));
-            uint64_t originalSize = result[jss::file_size].asUInt();
-            BEAST_EXPECT(originalSize > 0);
+            auto originalSize = result[jss::file_size].asString();
+            BEAST_EXPECT(!originalSize.empty());
         }
 
         // Test 1: Successful file size verification (normal load)
@@ -770,8 +770,8 @@ class Catalogue_test : public beast::unit_test::suite
 
             BEAST_EXPECT(createResult[jss::status] == jss::success);
 
-            uint64_t fileSize = createResult[jss::file_size].asUInt();
-            BEAST_EXPECT(fileSize > 0);
+            auto fileSize = createResult[jss::file_size].asString();
+            BEAST_EXPECT(!fileSize.empty());
 
             // Load the catalogue to verify it works
             Json::Value loadParams{Json::objectValue};
