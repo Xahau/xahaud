@@ -797,7 +797,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 " bytes), must be at least " +
                 std::to_string(sizeof(CATLHeader)) + " bytes");
 
-    JLOG(context.j.info()) << "Catalogue file size: " << file_size << "bytes";
+    JLOG(context.j.info()) << "Catalogue file size: " << file_size << " bytes";
 
     // Check if file exists and is readable
     std::ifstream infile(filepath.c_str(), std::ios::in | std::ios::binary);
