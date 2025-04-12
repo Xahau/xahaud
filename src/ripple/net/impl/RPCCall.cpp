@@ -859,6 +859,67 @@ private:
         return parseAccountRaw2(jvParams, jss::destination_account);
     }
 
+    // catalogue_create <min_ledger> <max_ledger> <output_file>
+    // [compression_level]
+    Json::Value
+    parseCatalogueCreate(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+
+        if (jvParams.size() >= 3)
+        {
+            jvRequest[jss::min_ledger] = jvParams[0u].asUInt();
+            jvRequest[jss::max_ledger] = jvParams[1u].asUInt();
+            jvRequest[jss::output_file] = jvParams[2u].asString();
+
+            if (jvParams.size() >= 4)
+            {
+                // Handle compression level parameter
+                if (jvParams[3u].isString())
+                {
+                    // If string parameter, convert to integer
+                    jvRequest[jss::compression_level] =
+                        beast::lexicalCast<std::uint32_t>(
+                            jvParams[3u].asString());
+                }
+                else
+                {
+                    jvRequest[jss::compression_level] = jvParams[3u].asUInt();
+                }
+            }
+        }
+
+        return jvRequest;
+    }
+
+    // catalogue_load <input_file> [ignore_hash]
+    Json::Value
+    parseCatalogueLoad(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+
+        if (jvParams.size() >= 1)
+        {
+            jvRequest[jss::input_file] = jvParams[0u].asString();
+
+            if (jvParams.size() >= 2 &&
+                boost::iequals(jvParams[1u].asString(), "ignore_hash"))
+            {
+                jvRequest[jss::ignore_hash] = true;
+            }
+        }
+
+        return jvRequest;
+    }
+
+    // catalogue_status - no parameters required
+    Json::Value
+    parseCatalogueStatus(Json::Value const& jvParams)
+    {
+        // No special parameters needed - just return an empty object
+        return {Json::objectValue};
+    }
+
     // channel_authorize: <private_key> [<key_type>] <channel_id> <drops |
     // amount>
     Json::Value
@@ -1400,6 +1461,9 @@ public:
             {"book_changes", &RPCParser::parseLedgerId, 1, 1},
             {"book_offers", &RPCParser::parseBookOffers, 2, 7},
             {"can_delete", &RPCParser::parseCanDelete, 0, 1},
+            {"catalogue_create", &RPCParser::parseCatalogueCreate, 3, 4},
+            {"catalogue_load", &RPCParser::parseCatalogueLoad, 1, 2},
+            {"catalogue_status", &RPCParser::parseCatalogueStatus, 0, 0},
             {"channel_authorize", &RPCParser::parseChannelAuthorize, 3, 4},
             {"channel_verify", &RPCParser::parseChannelVerify, 4, 4},
             {"connect", &RPCParser::parseConnect, 1, 2},

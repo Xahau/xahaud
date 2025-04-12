@@ -72,6 +72,25 @@ static constexpr uint16_t CATALOGUE_COMPRESS_LEVEL_MASK =
 static constexpr uint16_t CATALOGUE_RESERVED_MASK =
     0xF000;  // Bits 12-15: reserved
 
+std::string
+formatFileSize(uint64_t bytes)
+{
+    static const char* units[] = {"B", "KB", "MB", "GB", "TB", "PB"};
+    int unit_index = 0;
+    auto size = static_cast<double>(bytes);
+
+    while (size >= 1024.0 && unit_index < 5)
+    {
+        size /= 1024.0;
+        unit_index++;
+    }
+
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << size << " "
+        << units[unit_index];
+    return oss.str();
+}
+
 // Helper functions for version field manipulation
 inline uint8_t
 getCatalogueVersion(uint16_t versionField)
@@ -291,7 +310,8 @@ generateStatusJson(bool includeErrorInfo = false)
         // Add filesize if available
         if (catalogueRunStatus.filesize > 0)
         {
-            jvResult[jss::file_size] = Json::UInt(catalogueRunStatus.filesize);
+            jvResult[jss::file_size] =
+                formatFileSize(catalogueRunStatus.filesize);
         }
 
         if (includeErrorInfo)
@@ -699,7 +719,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     jvResult[jss::min_ledger] = min_ledger;
     jvResult[jss::max_ledger] = max_ledger;
     jvResult[jss::output_file] = filepath;
-    jvResult[jss::file_size] = Json::UInt(file_size);
+    jvResult[jss::file_size] = formatFileSize(file_size);
     jvResult[jss::ledgers_written] = static_cast<Json::UInt>(ledgers_written);
     jvResult[jss::status] = jss::success;
     jvResult[jss::compression_level] = compressionLevel;
@@ -777,7 +797,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 " bytes), must be at least " +
                 std::to_string(sizeof(CATLHeader)) + " bytes");
 
-    JLOG(context.j.info()) << "Catalogue file size: " << file_size << " bytes";
+    JLOG(context.j.info()) << "Catalogue file size: " << file_size << "bytes";
 
     // Check if file exists and is readable
     std::ifstream infile(filepath.c_str(), std::ios::in | std::ios::binary);
