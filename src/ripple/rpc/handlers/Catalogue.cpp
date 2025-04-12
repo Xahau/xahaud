@@ -310,8 +310,10 @@ generateStatusJson(bool includeErrorInfo = false)
         // Add filesize if available
         if (catalogueRunStatus.filesize > 0)
         {
-            jvResult[jss::file_size] =
+            jvResult[jss::file_size_human] =
                 formatFileSize(catalogueRunStatus.filesize);
+            jvResult[jss::file_size] =
+                std::to_string(catalogueRunStatus.filesize);
         }
 
         if (includeErrorInfo)
@@ -719,7 +721,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     jvResult[jss::min_ledger] = min_ledger;
     jvResult[jss::max_ledger] = max_ledger;
     jvResult[jss::output_file] = filepath;
-    jvResult[jss::file_size] = formatFileSize(file_size);
+    jvResult[jss::file_size_human] = formatFileSize(file_size);
+    jvResult[jss::file_size] = std::to_string(file_size);
     jvResult[jss::ledgers_written] = static_cast<Json::UInt>(ledgers_written);
     jvResult[jss::status] = jss::success;
     jvResult[jss::compression_level] = compressionLevel;
@@ -1149,7 +1152,8 @@ doCatalogueLoad(RPC::JsonContext& context)
     jvResult[jss::ledger_count] =
         static_cast<Json::UInt>(header.max_ledger - header.min_ledger + 1);
     jvResult[jss::ledgers_loaded] = static_cast<Json::UInt>(ledgersLoaded);
-    jvResult[jss::file_size] = Json::UInt(file_size);
+    jvResult[jss::file_size_human] = formatFileSize(file_size);
+    jvResult[jss::file_size] = std::to_string(file_size);
     jvResult[jss::status] = jss::success;
     jvResult[jss::compression_level] = compressionLevel;
     jvResult[jss::hash] = hash_hex;

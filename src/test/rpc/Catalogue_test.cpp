@@ -202,6 +202,7 @@ class Catalogue_test : public beast::unit_test::suite
         BEAST_EXPECT(result[jss::max_ledger] == 5);
         BEAST_EXPECT(result[jss::output_file] == cataloguePath);
         BEAST_EXPECT(!result[jss::file_size].asString().empty());
+        BEAST_EXPECT(!result[jss::file_size_human].asString().empty());
         BEAST_EXPECT(result[jss::ledgers_written].asUInt() == 3);
 
         // Verify file exists and is not empty
@@ -680,6 +681,8 @@ class Catalogue_test : public beast::unit_test::suite
             auto const result =
                 env.client().invoke("catalogue_create", params)[jss::result];
             BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result.isMember(jss::file_size_human));
+            BEAST_EXPECT(!result[jss::file_size_human].asString().empty());
             BEAST_EXPECT(result.isMember(jss::file_size));
             auto originalSize = result[jss::file_size].asString();
             BEAST_EXPECT(!originalSize.empty());
@@ -694,6 +697,7 @@ class Catalogue_test : public beast::unit_test::suite
                 env.client().invoke("catalogue_load", params)[jss::result];
             BEAST_EXPECT(result[jss::status] == jss::success);
             BEAST_EXPECT(result.isMember(jss::file_size));
+            BEAST_EXPECT(result.isMember(jss::file_size_human));
         }
 
         // Test 2: Modify file size in header to cause mismatch
@@ -770,8 +774,12 @@ class Catalogue_test : public beast::unit_test::suite
 
             BEAST_EXPECT(createResult[jss::status] == jss::success);
 
-            auto fileSize = createResult[jss::file_size].asString();
-            BEAST_EXPECT(!fileSize.empty());
+            BEAST_EXPECT(createResult.isMember(jss::file_size_human));
+            BEAST_EXPECT(
+                !createResult[jss::file_size_human].asString().empty());
+            auto fileSize =
+                std::stoull(createResult[jss::file_size].asString());
+            BEAST_EXPECT(fileSize > 0);
 
             // Load the catalogue to verify it works
             Json::Value loadParams{Json::objectValue};
