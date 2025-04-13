@@ -73,9 +73,9 @@ static constexpr uint16_t CATALOGUE_RESERVED_MASK =
     0xF000;  // Bits 12-15: reserved
 
 std::string
-formatFileSize(uint64_t bytes)
+formatBytesIEC(uint64_t bytes, int precision = 2)
 {
-    static const char* units[] = {"B", "KB", "MB", "GB", "TB", "PB"};
+    static const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB"};
     int unit_index = 0;
     auto size = static_cast<double>(bytes);
 
@@ -86,7 +86,7 @@ formatFileSize(uint64_t bytes)
     }
 
     std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << size << " "
+    oss << std::fixed << std::setprecision(precision) << size << " "
         << units[unit_index];
     return oss.str();
 }
@@ -311,7 +311,7 @@ generateStatusJson(bool includeErrorInfo = false)
         if (catalogueRunStatus.filesize > 0)
         {
             jvResult[jss::file_size_human] =
-                formatFileSize(catalogueRunStatus.filesize);
+                formatBytesIEC(catalogueRunStatus.filesize);
             jvResult[jss::file_size] =
                 std::to_string(catalogueRunStatus.filesize);
         }
@@ -721,7 +721,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     jvResult[jss::min_ledger] = min_ledger;
     jvResult[jss::max_ledger] = max_ledger;
     jvResult[jss::output_file] = filepath;
-    jvResult[jss::file_size_human] = formatFileSize(file_size);
+    jvResult[jss::file_size_human] = formatBytesIEC(file_size);
     jvResult[jss::file_size] = std::to_string(file_size);
     jvResult[jss::ledgers_written] = static_cast<Json::UInt>(ledgers_written);
     jvResult[jss::status] = jss::success;
@@ -1152,7 +1152,7 @@ doCatalogueLoad(RPC::JsonContext& context)
     jvResult[jss::ledger_count] =
         static_cast<Json::UInt>(header.max_ledger - header.min_ledger + 1);
     jvResult[jss::ledgers_loaded] = static_cast<Json::UInt>(ledgersLoaded);
-    jvResult[jss::file_size_human] = formatFileSize(file_size);
+    jvResult[jss::file_size_human] = formatBytesIEC(file_size);
     jvResult[jss::file_size] = std::to_string(file_size);
     jvResult[jss::status] = jss::success;
     jvResult[jss::compression_level] = compressionLevel;
