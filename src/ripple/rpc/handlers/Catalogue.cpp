@@ -166,7 +166,7 @@ struct CatalogueRunStatus
     uint8_t compressionLevel = 0;
     std::string hash;                           // Hex-encoded hash
     uint64_t filesize = 0;                      // File size in bytes
-    std::string fileSizeEstimated = "unknown";  // Estimated file size in bytes
+    std::string fileSizeEstimated = "unknown";  // Estimated file size
 };
 
 // Global status for catalogue operations
@@ -291,8 +291,7 @@ public:
             ? (totalLedgers - processedLedgers_)
             : 0;
 
-        return static_cast<uint64_t>(
-            (totalBytesWritten_ + (avgDelta * remainingLedgers)));
+        return totalBytesWritten_ + avgDelta * remainingLedgers;
     }
 
     std::string
