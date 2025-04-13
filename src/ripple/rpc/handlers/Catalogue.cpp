@@ -252,8 +252,7 @@ public:
     {
     }
 
-    // Add a ledger's compressed size
-    uint64_t
+    void
     addLedger(uint32_t seq, uint64_t bytes)
     {
         totalBytesWritten_ += bytes;
@@ -270,17 +269,6 @@ public:
             if (recentDeltas_.size() > MAX_DELTAS)
                 recentDeltas_.pop_front();
         }
-
-        return getEstimate();
-    }
-
-    std::string
-    getEstimateHuman() const
-    {
-        auto bytes = getEstimate();
-        if (bytes == 0)
-            return "unknown";
-        return formatBytesIEC(bytes);
     }
 
     // Get current size estimate
@@ -289,7 +277,7 @@ public:
     {
         if (recentDeltas_.empty())
         {
-            return 0;
+            return totalBytesWritten_;
         }
 
         uint64_t totalDeltaSize = 0;
@@ -305,6 +293,17 @@ public:
 
         return static_cast<uint64_t>(
             (totalBytesWritten_ + (avgDelta * remainingLedgers)));
+    }
+
+    std::string
+    getEstimateHuman() const
+    {
+        auto bytes = getEstimate();
+        if (bytes == totalBytesWritten_)
+            return totalBytesWritten_ == 0
+                ? "unknown"
+                : formatBytesIEC(totalBytesWritten_) + "+";
+        return formatBytesIEC(bytes);
     }
 };
 
@@ -445,7 +444,7 @@ generateStatusJson(bool includeErrorInfo = false)
         }
 
         // Add estimated filesize ("unknown" if not available)
-        jvResult[jss::file_size_estimated] =
+        jvResult[jss::file_size_estimated_human] =
             catalogueRunStatus.fileSizeEstimated;
 
         if (includeErrorInfo)

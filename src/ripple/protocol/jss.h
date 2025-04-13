@@ -334,7 +334,7 @@ JSS(finished);
 JSS(fix_txns);  // in: LedgerCleaner
 JSS(file);
 JSS(file_size);
-JSS(file_size_estimated);
+JSS(file_size_estimated_human);
 JSS(file_size_human);
 JSS(flags);                 // out: AccountOffers,
                             //      NetworkOPs
