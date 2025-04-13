@@ -164,8 +164,9 @@ struct CatalogueRunStatus
     CatalogueJobType jobType;
     std::string filename;
     uint8_t compressionLevel = 0;
-    std::string hash;       // Hex-encoded hash
-    uint64_t filesize = 0;  // File size in bytes
+    std::string hash;                           // Hex-encoded hash
+    uint64_t filesize = 0;                      // File size in bytes
+    std::string fileSizeEstimated = "unknown";  // Estimated file size in bytes
 };
 
 // Global status for catalogue operations
@@ -179,6 +180,133 @@ static CatalogueRunStatus catalogueRunStatus;  // Always in memory
         std::unique_lock<std::shared_mutex> writeLock(catalogueStatusMutex); \
         catalogueRunStatus.field = value;                                    \
     }
+
+class ByteCounterFilter : public boost::iostreams::output_filter
+{
+private:
+    uint64_t bytesWritten_;
+
+public:
+    ByteCounterFilter() : bytesWritten_(0)
+    {
+    }
+
+    template <typename Sink>
+    bool
+    put(Sink& sink, char c)
+    {
+        bool result = boost::iostreams::put(sink, c);
+        if (result)
+            bytesWritten_++;
+        return result;
+    }
+
+    template <typename Sink>
+    std::streamsize
+    write(Sink& sink, const char* data, std::streamsize n)
+    {
+        std::streamsize result = boost::iostreams::write(sink, data, n);
+        if (result > 0)
+            bytesWritten_ += result;
+        return result;
+    }
+
+    uint64_t
+    getBytesWritten() const
+    {
+        return bytesWritten_;
+    }
+    void
+    resetCounter()
+    {
+        bytesWritten_ = 0;
+    }
+};
+
+// Simple size predictor class
+class CatalogueSizePredictor
+{
+private:
+    uint32_t minLedger_;
+    uint32_t maxLedger_;
+    uint64_t headerSize_;
+
+    // Keep track of actual bytes
+    uint64_t totalBytesWritten_;
+    uint64_t firstLedgerSize_;
+    uint64_t processedLedgers_;
+    std::deque<uint64_t> recentDeltas_;
+    static constexpr size_t MAX_DELTAS = 10;
+
+public:
+    CatalogueSizePredictor(
+        uint32_t minLedger,
+        uint32_t maxLedger,
+        uint64_t headerSize)
+        : minLedger_(minLedger)
+        , maxLedger_(maxLedger)
+        , headerSize_(headerSize)
+        , processedLedgers_(0)
+        , totalBytesWritten_(headerSize)
+        , firstLedgerSize_(0)
+    {
+    }
+
+    // Add a ledger's compressed size
+    uint64_t
+    addLedger(uint32_t seq, uint64_t bytes)
+    {
+        totalBytesWritten_ += bytes;
+        processedLedgers_++;
+
+        if (seq == minLedger_)
+        {
+            firstLedgerSize_ = bytes;
+        }
+        else
+        {
+            // Track recent deltas
+            recentDeltas_.push_back(bytes);
+            if (recentDeltas_.size() > MAX_DELTAS)
+                recentDeltas_.pop_front();
+        }
+
+        return getEstimate();
+    }
+
+    std::string
+    getEstimateHuman() const
+    {
+        auto bytes = getEstimate();
+        if (bytes == 0)
+            return "unknown";
+        return formatBytesIEC(bytes);
+    }
+
+    // Get current size estimate
+    uint64_t
+    getEstimate() const
+    {
+        if (recentDeltas_.empty())
+        {
+            return 0;
+        }
+
+        uint64_t totalDeltaSize = 0;
+        for (auto size : recentDeltas_)
+            totalDeltaSize += size;
+
+        uint64_t avgDelta = totalDeltaSize / recentDeltas_.size();
+
+        uint32_t totalLedgers = maxLedger_ - minLedger_ + 1;
+        uint32_t remainingLedgers = (totalLedgers >= processedLedgers_)
+            ? (totalLedgers - processedLedgers_)
+            : 0;
+
+        return static_cast<uint64_t>(
+            (totalBytesWritten_ + (avgDelta * remainingLedgers)));
+    }
+};
 
 // Helper function to generate status JSON
 // IMPORTANT: Caller must hold at least a shared (read) lock on
@@ -315,6 +443,10 @@ generateStatusJson(bool includeErrorInfo = false)
             jvResult[jss::file_size] =
                 std::to_string(catalogueRunStatus.filesize);
         }
+
+        // Add estimated filesize ("unknown" if not available)
+        jvResult[jss::file_size_estimated] =
+            catalogueRunStatus.fileSizeEstimated;
 
         if (includeErrorInfo)
         {
@@ -494,6 +626,10 @@ doCatalogueCreate(RPC::JsonContext& context)
         JLOG(context.j.info())
             << "No compression (level 0), using direct output";
     }
+
+    ByteCounterFilter byteCounter;
+    compStream->push(boost::ref(byteCounter));
+
     compStream->push(boost::ref(outfile));
 
     // Process ledgers with local processor implementation
@@ -508,14 +644,18 @@ doCatalogueCreate(RPC::JsonContext& context)
         return true;
     };
 
+    CatalogueSizePredictor predictor(
+        header.min_ledger, header.max_ledger, sizeof(CATLHeader));
+
     // Modified outputLedger to work with individual ledgers instead of a vector
     auto outputLedger =
-        [&writeToFile, &context, &compStream](
+        [&writeToFile, &context, &compStream, &predictor, &byteCounter](
             std::shared_ptr<Ledger const> ledger,
             std::optional<std::reference_wrapper<const SHAMap>> prevStateMap =
                 std::nullopt) -> bool {
         try
         {
+            byteCounter.resetCounter();
             auto const& info = ledger->info();
 
             uint64_t closeTime = info.closeTime.time_since_epoch().count();
@@ -544,6 +684,8 @@ doCatalogueCreate(RPC::JsonContext& context)
                 ledger->stateMap().serializeToStream(*compStream, prevStateMap);
             size_t txNodesWritten =
                 ledger->txMap().serializeToStream(*compStream);
+
+            predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
             JLOG(context.j.info()) << "Ledger " << info.seq << ": Wrote "
                                    << stateNodesWritten << " state nodes, "
@@ -607,6 +749,9 @@ doCatalogueCreate(RPC::JsonContext& context)
         if (!outputLedger(currLedger, prevLedger->stateMap()))
             return rpcError(
                 rpcINTERNAL, "Error occurred while processing ledgers");
+
+        UPDATE_CATALOGUE_STATUS(
+            fileSizeEstimated, predictor.getEstimateHuman());
 
         ledgers_written++;
 
