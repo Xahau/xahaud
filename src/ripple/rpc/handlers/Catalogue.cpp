@@ -72,6 +72,25 @@ static constexpr uint16_t CATALOGUE_COMPRESS_LEVEL_MASK =
 static constexpr uint16_t CATALOGUE_RESERVED_MASK =
     0xF000;  // Bits 12-15: reserved
 
+std::string
+formatBytesIEC(uint64_t bytes, int precision = 2)
+{
+    static const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB"};
+    int unit_index = 0;
+    auto size = static_cast<double>(bytes);
+
+    while (size >= 1024.0 && unit_index < 5)
+    {
+        size /= 1024.0;
+        unit_index++;
+    }
+
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(precision) << size << " "
+        << units[unit_index];
+    return oss.str();
+}
+
 // Helper functions for version field manipulation
 inline uint8_t
 getCatalogueVersion(uint16_t versionField)
@@ -145,8 +164,9 @@ struct CatalogueRunStatus
     CatalogueJobType jobType;
     std::string filename;
     uint8_t compressionLevel = 0;
-    std::string hash;       // Hex-encoded hash
-    uint64_t filesize = 0;  // File size in bytes
+    std::string hash;                           // Hex-encoded hash
+    uint64_t filesize = 0;                      // File size in bytes
+    std::string fileSizeEstimated = "unknown";  // Estimated file size
 };
 
 // Global status for catalogue operations
@@ -160,6 +180,131 @@ static CatalogueRunStatus catalogueRunStatus;  // Always in memory
         std::unique_lock<std::shared_mutex> writeLock(catalogueStatusMutex); \
         catalogueRunStatus.field = value;                                    \
     }
+
+class ByteCounterFilter : public boost::iostreams::output_filter
+{
+private:
+    uint64_t bytesWritten_;
+
+public:
+    ByteCounterFilter() : bytesWritten_(0)
+    {
+    }
+
+    template <typename Sink>
+    bool
+    put(Sink& sink, char c)
+    {
+        bool result = boost::iostreams::put(sink, c);
+        if (result)
+            bytesWritten_++;
+        return result;
+    }
+
+    template <typename Sink>
+    std::streamsize
+    write(Sink& sink, const char* data, std::streamsize n)
+    {
+        std::streamsize result = boost::iostreams::write(sink, data, n);
+        if (result > 0)
+            bytesWritten_ += result;
+        return result;
+    }
+
+    uint64_t
+    getBytesWritten() const
+    {
+        return bytesWritten_;
+    }
+    void
+    resetCounter()
+    {
+        bytesWritten_ = 0;
+    }
+};
+
+// Simple size predictor class
+class CatalogueSizePredictor
+{
+private:
+    uint32_t minLedger_;
+    uint32_t maxLedger_;
+    uint64_t headerSize_;
+
+    // Keep track of actual bytes
+    uint64_t totalBytesWritten_;
+    uint64_t firstLedgerSize_;
+    uint64_t processedLedgers_;
+    std::deque<uint64_t> recentDeltas_;
+    static constexpr size_t MAX_DELTAS = 10;
+
+public:
+    CatalogueSizePredictor(
+        uint32_t minLedger,
+        uint32_t maxLedger,
+        uint64_t headerSize)
+        : minLedger_(minLedger)
+        , maxLedger_(maxLedger)
+        , headerSize_(headerSize)
+        , processedLedgers_(0)
+        , totalBytesWritten_(headerSize)
+        , firstLedgerSize_(0)
+    {
+    }
+
+    void
+    addLedger(uint32_t seq, uint64_t bytes)
+    {
+        totalBytesWritten_ += bytes;
+        processedLedgers_++;
+
+        if (seq == minLedger_)
+        {
+            firstLedgerSize_ = bytes;
+        }
+        else
+        {
+            // Track recent deltas
+            recentDeltas_.push_back(bytes);
+            if (recentDeltas_.size() > MAX_DELTAS)
+                recentDeltas_.pop_front();
+        }
+    }
+
+    // Get current size estimate
+    uint64_t
+    getEstimate() const
+    {
+        if (recentDeltas_.empty())
+        {
+            return totalBytesWritten_;
+        }
+
+        uint64_t totalDeltaSize = 0;
+        for (auto size : recentDeltas_)
+            totalDeltaSize += size;
+
+        uint64_t avgDelta = totalDeltaSize / recentDeltas_.size();
+
+        uint32_t totalLedgers = maxLedger_ - minLedger_ + 1;
+        uint32_t remainingLedgers = (totalLedgers >= processedLedgers_)
+            ? (totalLedgers - processedLedgers_)
+            : 0;
+
+        return totalBytesWritten_ + avgDelta * remainingLedgers;
+    }
+
+    std::string
+    getEstimateHuman() const
+    {
+        auto bytes = getEstimate();
+        if (bytes == totalBytesWritten_)
+            return totalBytesWritten_ == 0
+                ? "unknown"
+                : formatBytesIEC(totalBytesWritten_) + "+";
+        return formatBytesIEC(bytes);
+    }
+};
 
 // Helper function to generate status JSON
 // IMPORTANT: Caller must hold at least a shared (read) lock on
@@ -291,8 +436,15 @@ generateStatusJson(bool includeErrorInfo = false)
         // Add filesize if available
         if (catalogueRunStatus.filesize > 0)
         {
-            jvResult[jss::file_size] = Json::UInt(catalogueRunStatus.filesize);
+            jvResult[jss::file_size_human] =
+                formatBytesIEC(catalogueRunStatus.filesize);
+            jvResult[jss::file_size] =
+                std::to_string(catalogueRunStatus.filesize);
         }
+
+        // Add estimated filesize ("unknown" if not available)
+        jvResult[jss::file_size_estimated_human] =
+            catalogueRunStatus.fileSizeEstimated;
 
         if (includeErrorInfo)
         {
@@ -472,6 +624,10 @@ doCatalogueCreate(RPC::JsonContext& context)
         JLOG(context.j.info())
             << "No compression (level 0), using direct output";
     }
+
+    ByteCounterFilter byteCounter;
+    compStream->push(boost::ref(byteCounter));
+
     compStream->push(boost::ref(outfile));
 
     // Process ledgers with local processor implementation
@@ -486,14 +642,18 @@ doCatalogueCreate(RPC::JsonContext& context)
         return true;
     };
 
+    CatalogueSizePredictor predictor(
+        header.min_ledger, header.max_ledger, sizeof(CATLHeader));
+
     // Modified outputLedger to work with individual ledgers instead of a vector
     auto outputLedger =
-        [&writeToFile, &context, &compStream](
+        [&writeToFile, &context, &compStream, &predictor, &byteCounter](
             std::shared_ptr<Ledger const> ledger,
             std::optional<std::reference_wrapper<const SHAMap>> prevStateMap =
                 std::nullopt) -> bool {
         try
         {
+            byteCounter.resetCounter();
             auto const& info = ledger->info();
 
             uint64_t closeTime = info.closeTime.time_since_epoch().count();
@@ -522,6 +682,8 @@ doCatalogueCreate(RPC::JsonContext& context)
                 ledger->stateMap().serializeToStream(*compStream, prevStateMap);
             size_t txNodesWritten =
                 ledger->txMap().serializeToStream(*compStream);
+
+            predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
             JLOG(context.j.info()) << "Ledger " << info.seq << ": Wrote "
                                    << stateNodesWritten << " state nodes, "
@@ -585,6 +747,9 @@ doCatalogueCreate(RPC::JsonContext& context)
         if (!outputLedger(currLedger, prevLedger->stateMap()))
             return rpcError(
                 rpcINTERNAL, "Error occurred while processing ledgers");
+
+        UPDATE_CATALOGUE_STATUS(
+            fileSizeEstimated, predictor.getEstimateHuman());
 
         ledgers_written++;
 
@@ -699,7 +864,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     jvResult[jss::min_ledger] = min_ledger;
     jvResult[jss::max_ledger] = max_ledger;
     jvResult[jss::output_file] = filepath;
-    jvResult[jss::file_size] = Json::UInt(file_size);
+    jvResult[jss::file_size_human] = formatBytesIEC(file_size);
+    jvResult[jss::file_size] = std::to_string(file_size);
     jvResult[jss::ledgers_written] = static_cast<Json::UInt>(ledgers_written);
     jvResult[jss::status] = jss::success;
     jvResult[jss::compression_level] = compressionLevel;
@@ -1129,7 +1295,8 @@ doCatalogueLoad(RPC::JsonContext& context)
     jvResult[jss::ledger_count] =
         static_cast<Json::UInt>(header.max_ledger - header.min_ledger + 1);
     jvResult[jss::ledgers_loaded] = static_cast<Json::UInt>(ledgersLoaded);
-    jvResult[jss::file_size] = Json::UInt(file_size);
+    jvResult[jss::file_size_human] = formatBytesIEC(file_size);
+    jvResult[jss::file_size] = std::to_string(file_size);
     jvResult[jss::status] = jss::success;
     jvResult[jss::compression_level] = compressionLevel;
     jvResult[jss::hash] = hash_hex;
