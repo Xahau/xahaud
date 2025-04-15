@@ -189,6 +189,7 @@ constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
 enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };
+constexpr std::uint32_t const tfClaimRewardMask = ~(tfUniversal | tfOptOut);
 
 // clang-format on
 

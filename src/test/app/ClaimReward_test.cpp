@@ -186,6 +186,27 @@ struct ClaimReward_test : public beast::unit_test::suite
                 ter(temINVALID_FLAG));
             env.close();
         }
+        {
+            for (bool const withFixFlags : {false, true})
+            {
+                auto const amend =
+                    withFixFlags ? features : features - fixRewardClaimFlags;
+                Env env{*this, amend};
+
+                auto const alice = Account("alice");
+                auto const issuer = Account("issuer");
+
+                env.fund(XRP(1000), alice, issuer);
+                env.close();
+
+                auto tx = reward::claim(alice);
+                env(tx,
+                    reward::issuer(issuer),
+                    txflags(tfFullyCanonicalSig),
+                    withFixFlags ? ter(tesSUCCESS) : ter(temINVALID_FLAG));
+                env.close();
+            }
+        }
 
         // temMALFORMED
         // Issuer cannot be the source account.

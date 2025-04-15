@@ -45,8 +45,11 @@ ClaimReward::preflight(PreflightContext const& ctx)
         return ret;
 
     // can have flag 1 set to opt-out of rewards
-    if (ctx.tx.isFieldPresent(sfFlags) &&
-        ctx.tx.getFieldU32(sfFlags) > tfOptOut)
+    auto const invalidFlags = ctx.rules.enabled(fixRewardClaimFlags)
+        ? (ctx.tx.getFlags() & tfClaimRewardMask)
+        : (ctx.tx.isFieldPresent(sfFlags) &&
+           ctx.tx.getFieldU32(sfFlags) > tfOptOut);
+    if (invalidFlags)
         return temINVALID_FLAG;
 
     if (ctx.tx.isFieldPresent(sfIssuer) &&
