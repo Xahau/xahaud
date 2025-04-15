@@ -1028,6 +1028,29 @@ hook::canHook(ripple::TxType txType, ripple::uint256 hookOn)
     return (hookOn & UINT256_BIT[txType]) != beast::zero;
 }
 
+bool
+hook::canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit)
+{
+    return hook::canHook(txType, hookCanEmit);
+}
+
+ripple::uint256
+hook::getHookCanEmit(
+    ripple::STObject const& hookObj,
+    SLE::pointer const& hookDef)
+{
+    // default allows all transaction types
+    uint256 defaultHookCanEmit = UINT256_BIT[ttHOOK_SET];
+
+    uint256 hookCanEmit =
+        (hookObj.isFieldPresent(sfHookCanEmit)
+             ? hookObj.getFieldH256(sfHookCanEmit)
+             : hookDef->isFieldPresent(sfHookCanEmit)
+                 ? hookDef->getFieldH256(sfHookCanEmit)
+                 : defaultHookCanEmit);
+    return hookCanEmit;
+}
+
 // Update HookState ledger objects for the hook... only called after accept()
 // assumes the specified acc has already been checked for authoriation (hook
 // grants)
@@ -1179,6 +1202,7 @@ hook::apply(
                                             used for caching (one day) */
     ripple::uint256 const&
         hookHash, /* hash of the actual hook byte code, used for metadata */
+    ripple::uint256 const& hookCanEmit,
     ripple::uint256 const& hookNamespace,
     ripple::Blob const& wasm,
     std::map<
@@ -1206,6 +1230,7 @@ hook::apply(
         .result =
             {.hookSetTxnID = hookSetTxnID,
              .hookHash = hookHash,
+             .hookCanEmit = hookCanEmit,
              .accountKeylet = keylet::account(account),
              .ownerDirKeylet = keylet::ownerDir(account),
              .hookKeylet = keylet::hook(account),
@@ -3267,6 +3292,16 @@ DEFINE_HOOK_FUNCTION(
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: Attempted to emit pseudo txn.";
+        return EMISSION_FAILURE;
+    }
+
+    ripple::TxType txType = stpTrans->getTxnType();
+
+    ripple::uint256 const& hookCanEmit = hookCtx.result.hookCanEmit;
+    if (!hook::canEmit(txType, hookCanEmit))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Hook cannot emit this txn.";
         return EMISSION_FAILURE;
     }
 

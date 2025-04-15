@@ -88,6 +88,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookNamespace, soeREQUIRED},
          {sfHookParameters, soeREQUIRED},
          {sfHookOn, soeREQUIRED},
+         {sfHookCanEmit, soeOPTIONAL},
          {sfHookApiVersion, soeREQUIRED},
          {sfFlags, soeREQUIRED},
          {sfFee, soeREQUIRED}});
@@ -100,6 +101,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookNamespace, soeOPTIONAL},
          {sfHookParameters, soeOPTIONAL},
          {sfHookOn, soeOPTIONAL},
+         {sfHookCanEmit, soeOPTIONAL},
          {sfHookApiVersion, soeOPTIONAL},
          {sfFlags, soeOPTIONAL}});
 

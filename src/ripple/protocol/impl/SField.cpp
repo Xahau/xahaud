@@ -237,6 +237,7 @@ CONSTRUCT_TYPED_SFIELD(sfURITokenID,            "URITokenID",           UINT256,
 CONSTRUCT_TYPED_SFIELD(sfGovernanceFlags,       "GovernanceFlags",      UINT256,   99);
 CONSTRUCT_TYPED_SFIELD(sfGovernanceMarks,       "GovernanceMarks",      UINT256,   98);
 CONSTRUCT_TYPED_SFIELD(sfEmittedTxnID,          "EmittedTxnID",         UINT256,   97);
+CONSTRUCT_TYPED_SFIELD(sfHookCanEmit,           "HookCanEmit",          UINT256,   96);
 
 // currency amount (common)
 CONSTRUCT_TYPED_SFIELD(sfAmount,                "Amount",               AMOUNT,     1);
