@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
+    Copyright (c) 2024 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,38 +17,48 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_REMIT_H_INCLUDED
-#define RIPPLE_TX_REMIT_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_REMARKS_H_INCLUDED
+#define RIPPLE_TEST_JTX_REMARKS_H_INCLUDED
 
-#include <ripple/app/tx/impl/Transactor.h>
-#include <ripple/basics/Log.h>
-#include <ripple/core/Config.h>
-#include <ripple/protocol/Indexes.h>
+#include <test/jtx/Account.h>
+#include <test/jtx/Env.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
 
-class Remit : public Transactor
+namespace remarks {
+
+struct remark
 {
-public:
-    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
-
-    explicit Remit(ApplyContext& ctx) : Transactor(ctx)
+    std::string name;
+    std::optional<std::string> value;
+    std::optional<std::uint32_t> flags;
+    remark(
+        std::string name_,
+        std::optional<std::string> value_ = std::nullopt,
+        std::optional<std::uint32_t> flags_ = std::nullopt)
+        : name(name_), value(value_), flags(flags_)
     {
+        if (value_)
+            value = *value_;
+
+        if (flags_)
+            flags = *flags_;
     }
-
-    static XRPAmount
-    calculateBaseFee(ReadView const& view, STTx const& tx);
-
-    static TxConsequences
-    makeTxConsequences(PreflightContext const& ctx);
-
-    static NotTEC
-    preflight(PreflightContext const& ctx);
-
-    TER
-    doApply() override;
 };
 
+Json::Value
+setRemarks(
+    jtx::Account const& account,
+    uint256 const& id,
+    std::vector<remark> const& marks);
+
+}  // namespace remarks
+
+}  // namespace jtx
+
+}  // namespace test
 }  // namespace ripple
 
-#endif
+#endif  // RIPPLE_TEST_JTX_REMARKS_H_INCLUDED

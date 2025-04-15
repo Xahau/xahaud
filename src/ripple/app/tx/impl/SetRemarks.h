@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
+    Copyright (c) 2024 XRPL-Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_REMIT_H_INCLUDED
-#define RIPPLE_TX_REMIT_H_INCLUDED
+#ifndef RIPPLE_TX_SETREMARKS_H_INCLUDED
+#define RIPPLE_TX_SETREMARKS_H_INCLUDED
 
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
@@ -27,12 +27,12 @@
 
 namespace ripple {
 
-class Remit : public Transactor
+class SetRemarks : public Transactor
 {
 public:
     static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    explicit Remit(ApplyContext& ctx) : Transactor(ctx)
+    explicit SetRemarks(ApplyContext& ctx) : Transactor(ctx)
     {
     }
 
@@ -45,8 +45,14 @@ public:
     static NotTEC
     preflight(PreflightContext const& ctx);
 
+    static TER
+    preclaim(PreclaimContext const&);
+
     TER
     doApply() override;
+
+    static NotTEC
+    validateRemarks(STArray const& remarks, beast::Journal const& j);
 };
 
 }  // namespace ripple

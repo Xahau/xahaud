@@ -191,6 +191,9 @@ enum ClaimRewardFlags : uint32_t {
 };
 constexpr std::uint32_t const tfClaimRewardMask = ~(tfUniversal | tfOptOut);
 
+// Remarks flags:
+constexpr std::uint32_t const tfImmutable = 1;
+
 // clang-format on
 
 }  // namespace ripple

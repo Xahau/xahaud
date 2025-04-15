@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,38 +17,40 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_REMIT_H_INCLUDED
-#define RIPPLE_TX_REMIT_H_INCLUDED
-
-#include <ripple/app/tx/impl/Transactor.h>
-#include <ripple/basics/Log.h>
-#include <ripple/core/Config.h>
-#include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/remarks.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
+namespace remarks {
 
-class Remit : public Transactor
+Json::Value
+setRemarks(
+    jtx::Account const& account,
+    uint256 const& id,
+    std::vector<remark> const& marks)
 {
-public:
-    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
-
-    explicit Remit(ApplyContext& ctx) : Transactor(ctx)
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::SetRemarks;
+    jv[jss::Account] = account.human();
+    jv[sfObjectID.jsonName] = strHex(id);
+    auto& ja = jv[sfRemarks.getJsonName()];
+    for (std::size_t i = 0; i < marks.size(); ++i)
     {
+        ja[i][sfRemark.jsonName] = Json::Value{};
+        ja[i][sfRemark.jsonName][sfRemarkName.jsonName] = marks[i].name;
+        if (marks[i].value)
+            ja[i][sfRemark.jsonName][sfRemarkValue.jsonName] = *marks[i].value;
+        if (marks[i].flags)
+            ja[i][sfRemark.jsonName][sfFlags.jsonName] = *marks[i].flags;
     }
+    jv[sfRemarks.jsonName] = ja;
+    return jv;
+}
 
-    static XRPAmount
-    calculateBaseFee(ReadView const& view, STTx const& tx);
-
-    static TxConsequences
-    makeTxConsequences(PreflightContext const& ctx);
-
-    static NotTEC
-    preflight(PreflightContext const& ctx);
-
-    TER
-    doApply() override;
-};
-
+}  // namespace remarks
+}  // namespace jtx
+}  // namespace test
 }  // namespace ripple
-
-#endif

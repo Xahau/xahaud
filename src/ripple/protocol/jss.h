@@ -122,6 +122,7 @@ JSS(Remit);                    // transaction type.
 JSS(RippleState);              // ledger type.
 JSS(SLE_hit_rate);             // out: GetCounts.
 JSS(SetFee);                   // transaction type.
+JSS(SetRemarks);               // transaction type
 JSS(UNLModify);                // transaction type.
 JSS(UNLReport);                // transaction type.
 JSS(SettleDelay);              // in: TransactionSign
