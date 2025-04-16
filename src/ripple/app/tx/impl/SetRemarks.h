@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
+    Copyright (c) 2024 XRPL-Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,31 +17,44 @@
 */
 //==============================================================================
 
-#include <ripple/net/RPCErr.h>
-#include <ripple/protocol/ErrorCodes.h>
+#ifndef RIPPLE_TX_SETREMARKS_H_INCLUDED
+#define RIPPLE_TX_SETREMARKS_H_INCLUDED
+
+#include <ripple/app/tx/impl/Transactor.h>
+#include <ripple/basics/Log.h>
+#include <ripple/core/Config.h>
+#include <ripple/protocol/Indexes.h>
 
 namespace ripple {
 
-struct RPCErr;
-
-// VFALCO NOTE Deprecated function
-Json::Value
-rpcError(int iError, std::string msg)
+class SetRemarks : public Transactor
 {
-    Json::Value jvResult(Json::objectValue);
-    if (msg != "")
-        RPC::inject_error(static_cast<error_code_i>(iError), msg, jvResult);
-    else
-        RPC::inject_error(iError, jvResult);
+public:
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    return jvResult;
-}
+    explicit SetRemarks(ApplyContext& ctx) : Transactor(ctx)
+    {
+    }
 
-// VFALCO NOTE Deprecated function
-bool
-isRpcError(Json::Value jvResult)
-{
-    return jvResult.isObject() && jvResult.isMember(jss::error);
-}
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
+
+    static TxConsequences
+    makeTxConsequences(PreflightContext const& ctx);
+
+    static NotTEC
+    preflight(PreflightContext const& ctx);
+
+    static TER
+    preclaim(PreclaimContext const&);
+
+    TER
+    doApply() override;
+
+    static NotTEC
+    validateRemarks(STArray const& remarks, beast::Journal const& j);
+};
 
 }  // namespace ripple
+
+#endif

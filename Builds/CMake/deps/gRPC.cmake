@@ -74,7 +74,11 @@ else ()
       if (NOT _location)
         message (FATAL_ERROR "using pkg-config for grpc, can't find c-ares")
       endif ()
-      add_library (c-ares::cares ${_static} IMPORTED GLOBAL)
+      if(${_location} MATCHES "\\.a$")
+        add_library(c-ares::cares STATIC IMPORTED GLOBAL)
+      else()
+        add_library(c-ares::cares SHARED IMPORTED GLOBAL)
+      endif()      
       set_target_properties (c-ares::cares PROPERTIES
         IMPORTED_LOCATION ${_location}
         INTERFACE_INCLUDE_DIRECTORIES "${${_prefix}_INCLUDE_DIRS}"
@@ -204,6 +208,7 @@ else ()
       CMAKE_ARGS
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_STANDARD=17
         $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:-DCMAKE_VERBOSE_MAKEFILE=ON>
         $<$<BOOL:${CMAKE_TOOLCHAIN_FILE}>:-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}>
         $<$<BOOL:${VCPKG_TARGET_TRIPLET}>:-DVCPKG_TARGET_TRIPLET=${VCPKG_TARGET_TRIPLET}>

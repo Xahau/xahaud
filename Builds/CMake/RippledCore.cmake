@@ -456,6 +456,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/Remit.cpp
   src/ripple/app/tx/impl/SetAccount.cpp
   src/ripple/app/tx/impl/SetHook.cpp
+  src/ripple/app/tx/impl/SetRemarks.cpp
   src/ripple/app/tx/impl/SetRegularKey.cpp
   src/ripple/app/tx/impl/SetSignerList.cpp
   src/ripple/app/tx/impl/SetTrust.cpp
@@ -606,6 +607,7 @@ target_sources (rippled PRIVATE
   src/ripple/rpc/handlers/BlackList.cpp
   src/ripple/rpc/handlers/BookOffers.cpp
   src/ripple/rpc/handlers/CanDelete.cpp
+  src/ripple/rpc/handlers/Catalogue.cpp
   src/ripple/rpc/handlers/Connect.cpp
   src/ripple/rpc/handlers/ConsensusInfo.cpp
   src/ripple/rpc/handlers/CrawlShards.cpp
@@ -661,6 +663,7 @@ target_sources (rippled PRIVATE
   src/ripple/rpc/handlers/ValidatorListSites.cpp
   src/ripple/rpc/handlers/Validators.cpp
   src/ripple/rpc/handlers/WalletPropose.cpp
+  src/ripple/rpc/handlers/Catalogue.cpp
   src/ripple/rpc/impl/DeliveredAmount.cpp
   src/ripple/rpc/impl/Handler.cpp
   src/ripple/rpc/impl/LegacyPathFind.cpp
@@ -750,7 +753,10 @@ if (tests)
     src/test/app/Remit_test.cpp
     src/test/app/SHAMapStore_test.cpp
     src/test/app/SetAuth_test.cpp
+    src/test/app/SetHook_test.cpp
+    src/test/app/SetHookTSH_test.cpp
     src/test/app/SetRegularKey_test.cpp
+    src/test/app/SetRemarks_test.cpp
     src/test/app/SetTrust_test.cpp
     src/test/app/Taker_test.cpp
     src/test/app/TheoreticalQuality_test.cpp
@@ -763,8 +769,6 @@ if (tests)
     src/test/app/ValidatorKeys_test.cpp
     src/test/app/ValidatorList_test.cpp
     src/test/app/ValidatorSite_test.cpp
-    src/test/app/SetHook_test.cpp
-    src/test/app/SetHookTSH_test.cpp
     src/test/app/Wildcard_test.cpp
     src/test/app/XahauGenesis_test.cpp
     src/test/app/tx/apply_test.cpp
@@ -898,6 +902,7 @@ if (tests)
     src/test/jtx/impl/rate.cpp
     src/test/jtx/impl/regkey.cpp
     src/test/jtx/impl/reward.cpp
+    src/test/jtx/impl/remarks.cpp
     src/test/jtx/impl/remit.cpp
     src/test/jtx/impl/sendmax.cpp
     src/test/jtx/impl/seq.cpp
@@ -995,6 +1000,7 @@ if (tests)
     src/test/rpc/AccountTx_test.cpp
     src/test/rpc/AmendmentBlocked_test.cpp
     src/test/rpc/Book_test.cpp
+    src/test/rpc/Catalogue_test.cpp
     src/test/rpc/DepositAuthorized_test.cpp
     src/test/rpc/DeliveredAmount_test.cpp
     src/test/rpc/Feature_test.cpp

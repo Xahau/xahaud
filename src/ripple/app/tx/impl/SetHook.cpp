@@ -225,6 +225,7 @@ SetHook::inferOperation(STObject const& hookSetObj)
         !hookSetObj.isFieldPresent(sfHookNamespace) &&
         !hookSetObj.isFieldPresent(sfHookParameters) &&
         !hookSetObj.isFieldPresent(sfHookOn) &&
+        !hookSetObj.isFieldPresent(sfHookCanEmit) &&
         !hookSetObj.isFieldPresent(sfHookApiVersion) &&
         !hookSetObj.isFieldPresent(sfFlags))
         return hsoNOOP;
@@ -259,6 +260,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             if (hookSetObj.isFieldPresent(sfHookGrants) ||
                 hookSetObj.isFieldPresent(sfHookParameters) ||
                 hookSetObj.isFieldPresent(sfHookOn) ||
+                hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 !hookSetObj.isFieldPresent(sfFlags) ||
                 !hookSetObj.isFieldPresent(sfHookNamespace))
@@ -288,6 +290,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             if (hookSetObj.isFieldPresent(sfHookGrants) ||
                 hookSetObj.isFieldPresent(sfHookParameters) ||
                 hookSetObj.isFieldPresent(sfHookOn) ||
+                hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookNamespace) ||
                 !hookSetObj.isFieldPresent(sfFlags))
@@ -450,6 +453,13 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     << "]: Malformed transaction: SetHook must include "
                        "sfHookOn when creating a new hook.";
                 return false;
+            }
+
+            // validate sfHookCanEmit
+            // HookCanEmit field is an optional field for backward compatibility
+            if (!hookSetObj.isFieldPresent(sfHookCanEmit))
+            {
+                // pass
             }
 
             // finally validate web assembly byte code
@@ -714,6 +724,10 @@ SetHook::preflight(PreflightContext const& ctx)
 
         allBlank = false;
 
+        if (!ctx.rules.enabled(featureHookCanEmit) &&
+            hookSetObj.isFieldPresent(sfHookCanEmit))
+            return temDISABLED;
+
         for (auto const& hookSetElement : hookSetObj)
         {
             auto const& name = hookSetElement.getFName();
@@ -721,7 +735,8 @@ SetHook::preflight(PreflightContext const& ctx)
             if (name != sfCreateCode && name != sfHookHash &&
                 name != sfHookNamespace && name != sfHookParameters &&
                 name != sfHookOn && name != sfHookGrants &&
-                name != sfHookApiVersion && name != sfFlags)
+                name != sfHookApiVersion && name != sfFlags &&
+                name != sfHookCanEmit)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
@@ -1222,6 +1237,10 @@ SetHook::setHook()
         std::optional<uint256> newHookOn;
         std::optional<uint256> defHookOn;
 
+        std::optional<uint256> oldHookCanEmit;
+        std::optional<uint256> newHookCanEmit;
+        std::optional<uint256> defHookCanEmit;
+
         // when hsoCREATE is invoked it populates this variable in case the hook
         // definition already exists and the operation falls through into a
         // hsoINSTALL operation instead
@@ -1282,6 +1301,14 @@ SetHook::setHook()
                 oldHookOn = oldHook->get().getFieldH256(sfHookOn);
             else if (defHookOn)
                 oldHookOn = *defHookOn;
+
+            if (oldDefSLE && oldDefSLE->isFieldPresent(sfHookCanEmit))
+                defHookCanEmit = oldDefSLE->getFieldH256(sfHookCanEmit);
+
+            if (oldHook && oldHook->get().isFieldPresent(sfHookCanEmit))
+                oldHookCanEmit = oldHook->get().getFieldH256(sfHookCanEmit);
+            else if (defHookCanEmit)
+                oldHookCanEmit = *defHookCanEmit;
         }
 
         // in preparation for three way merge populate fields if they are
@@ -1297,6 +1324,9 @@ SetHook::setHook()
 
             if (hookSetObj->get().isFieldPresent(sfHookOn))
                 newHookOn = hookSetObj->get().getFieldH256(sfHookOn);
+
+            if (hookSetObj->get().isFieldPresent(sfHookCanEmit))
+                newHookCanEmit = hookSetObj->get().getFieldH256(sfHookCanEmit);
 
             if (hookSetObj->get().isFieldPresent(sfHookNamespace))
             {
@@ -1315,13 +1345,14 @@ SetHook::setHook()
             }
             else if (op == hsoNSDELETE && newDirKeylet)
             {
-                printf("Marking a namespace for destruction.... NSDELETE\n");
+                JLOG(ctx.j.trace())
+                    << "Marking a namespace for destruction.... NSDELETE";
                 namespacesToDestroy.emplace(*newNamespace);
             }
             else if (oldDirKeylet)
             {
-                printf(
-                    "Marking a namespace for destruction.... non-NSDELETE\n");
+                JLOG(ctx.j.trace())
+                    << "Marking a namespace for destruction.... non-NSDELETE";
                 namespacesToDestroy.emplace(*oldNamespace);
             }
             else
@@ -1407,6 +1438,10 @@ SetHook::setHook()
                 if (oldHook->get().isFieldPresent(sfHookOn))
                     newHook.setFieldH256(
                         sfHookOn, oldHook->get().getFieldH256(sfHookOn));
+                if (oldHook->get().isFieldPresent(sfHookCanEmit))
+                    newHook.setFieldH256(
+                        sfHookCanEmit,
+                        oldHook->get().getFieldH256(sfHookCanEmit));
                 if (oldHook->get().isFieldPresent(sfHookNamespace))
                     newHook.setFieldH256(
                         sfHookNamespace,
@@ -1434,6 +1469,19 @@ SetHook::setHook()
                     }
                     else
                         newHook.setFieldH256(sfHookOn, *newHookOn);
+                }
+
+                // set the hookcanemit field if it differs from definition
+                if (newHookCanEmit)
+                {
+                    if (defHookCanEmit.has_value() &&
+                        *defHookCanEmit == *newHookCanEmit)
+                    {
+                        if (newHook.isFieldPresent(sfHookCanEmit))
+                            newHook.makeFieldAbsent(sfHookCanEmit);
+                    }
+                    else
+                        newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
                 }
 
                 // parameters
@@ -1585,6 +1633,9 @@ SetHook::setHook()
                     auto newHookDef = std::make_shared<SLE>(keylet);
                     newHookDef->setFieldH256(sfHookHash, *createHookHash);
                     newHookDef->setFieldH256(sfHookOn, *newHookOn);
+                    if (newHookCanEmit)
+                        newHookDef->setFieldH256(
+                            sfHookCanEmit, *newHookCanEmit);
                     newHookDef->setFieldH256(sfHookNamespace, *newNamespace);
                     newHookDef->setFieldArray(
                         sfHookParameters,
@@ -1678,6 +1729,8 @@ SetHook::setHook()
                 // change which definition we're using to the new target
                 defNamespace = newDefSLE->getFieldH256(sfHookNamespace);
                 defHookOn = newDefSLE->getFieldH256(sfHookOn);
+                if (newDefSLE->isFieldPresent(sfHookCanEmit))
+                    defHookCanEmit = newDefSLE->getFieldH256(sfHookCanEmit);
 
                 // set the namespace if it differs from the definition namespace
                 if (newNamespace && *defNamespace != *newNamespace)
@@ -1686,6 +1739,12 @@ SetHook::setHook()
                 // set the hookon field if it differs from definition
                 if (newHookOn && *defHookOn != *newHookOn)
                     newHook.setFieldH256(sfHookOn, *newHookOn);
+
+                // set the hookcanemit field if it differs from definition
+                if (newHookCanEmit &&
+                    !(defHookCanEmit.has_value() &&
+                      *defHookCanEmit == *newHookCanEmit))
+                    newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
 
                 // parameters
                 TER result = updateHookParameters(
@@ -1735,8 +1794,8 @@ SetHook::setHook()
         // sfHook: 1 reserve PER non-blank entry
         // sfParameters: 1 reserve PER entry
         // sfGrants are: 1 reserve PER entry
-        // sfHookHash, sfHookNamespace, sfHookOn, sfHookApiVersion, sfFlags:
-        // free
+        // sfHookHash, sfHookNamespace, sfHookOn, sfHookCanEmit,
+        // sfHookApiVersion, sfFlags: free
 
         // sfHookDefinition is not reserved because it is an unowned object,
         // rather the uploader is billed via fee according to the following:

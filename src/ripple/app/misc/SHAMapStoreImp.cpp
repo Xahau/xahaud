@@ -209,6 +209,7 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
         // Create NodeStore with two backends to allow online deletion of
         // data
         auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
+            app_,
             scheduler_,
             readThreads,
             std::move(writableBackend),

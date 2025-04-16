@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
+    Copyright (c) 2023 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,31 +17,40 @@
 */
 //==============================================================================
 
-#include <ripple/net/RPCErr.h>
-#include <ripple/protocol/ErrorCodes.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/remarks.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
+namespace remarks {
 
-struct RPCErr;
-
-// VFALCO NOTE Deprecated function
 Json::Value
-rpcError(int iError, std::string msg)
+setRemarks(
+    jtx::Account const& account,
+    uint256 const& id,
+    std::vector<remark> const& marks)
 {
-    Json::Value jvResult(Json::objectValue);
-    if (msg != "")
-        RPC::inject_error(static_cast<error_code_i>(iError), msg, jvResult);
-    else
-        RPC::inject_error(iError, jvResult);
-
-    return jvResult;
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::SetRemarks;
+    jv[jss::Account] = account.human();
+    jv[sfObjectID.jsonName] = strHex(id);
+    auto& ja = jv[sfRemarks.getJsonName()];
+    for (std::size_t i = 0; i < marks.size(); ++i)
+    {
+        ja[i][sfRemark.jsonName] = Json::Value{};
+        ja[i][sfRemark.jsonName][sfRemarkName.jsonName] = marks[i].name;
+        if (marks[i].value)
+            ja[i][sfRemark.jsonName][sfRemarkValue.jsonName] = *marks[i].value;
+        if (marks[i].flags)
+            ja[i][sfRemark.jsonName][sfFlags.jsonName] = *marks[i].flags;
+    }
+    jv[sfRemarks.jsonName] = ja;
+    return jv;
 }
 
-// VFALCO NOTE Deprecated function
-bool
-isRpcError(Json::Value jvResult)
-{
-    return jvResult.isObject() && jvResult.isMember(jss::error);
-}
-
+}  // namespace remarks
+}  // namespace jtx
+}  // namespace test
 }  // namespace ripple

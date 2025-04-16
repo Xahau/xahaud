@@ -1242,4 +1242,399 @@ SHAMap::invariants() const
     node->invariants(true);
 }
 
+template <typename StreamType>
+std::size_t
+SHAMap::serializeToStream(
+    StreamType& stream,
+    std::optional<std::reference_wrapper<const SHAMap>> baseSHAMap) const
+{
+    // Static map to track bytes written to streams
+    static std::mutex streamMapMutex;
+    static std::unordered_map<
+        void*,
+        std::pair<uint64_t, std::chrono::steady_clock::time_point>>
+        streamBytesWritten;
+
+    // Flush threshold: 256 MiB
+    constexpr uint64_t flushThreshold = 256 * 1024 * 1024;
+
+    // Local byte counter for this stream
+    uint64_t localBytesWritten = 0;
+
+    // Single lambda that uses compile-time check for flush method existence
+    auto tryFlush = [](auto& s) {
+        if constexpr (requires(decltype(s) str) { str.flush(); })
+        {
+            s.flush();
+        }
+        // No-op if flush doesn't exist - compiler will optimize this branch out
+    };
+
+    // Get the current bytes written from the global map (with lock)
+    {
+        std::lock_guard<std::mutex> lock(streamMapMutex);
+        auto it = streamBytesWritten.find(static_cast<void*>(&stream));
+        if (it != streamBytesWritten.end())
+        {
+            localBytesWritten = it->second.first;
+        }
+
+        // Random cleanup of old entries (while we have the lock)
+        if (!streamBytesWritten.empty())
+        {
+            auto now = std::chrono::steady_clock::now();
+            size_t randomIndex = std::rand() % streamBytesWritten.size();
+            auto cleanupIt = std::next(streamBytesWritten.begin(), randomIndex);
+
+            // If entry is older than 5 minutes, remove it
+            if (now - cleanupIt->second.second > std::chrono::minutes(5))
+            {
+                streamBytesWritten.erase(cleanupIt);
+            }
+        }
+    }
+
+    std::unordered_set<SHAMapHash, beast::uhash<>> writtenNodes;
+
+    if (!root_)
+        return 0;
+
+    std::size_t nodeCount = 0;
+
+    auto serializeLeaf = [&stream,
+                          &localBytesWritten,
+                          flushThreshold,
+                          &tryFlush](SHAMapLeafNode const& node) -> bool {
+        // write the node type
+        auto t = node.getType();
+        stream.write(reinterpret_cast<char const*>(&t), 1);
+        localBytesWritten += 1;
+
+        // write the key
+        auto const key = node.peekItem()->key();
+        stream.write(reinterpret_cast<char const*>(key.data()), 32);
+        localBytesWritten += 32;
+
+        // write the data size
+        auto data = node.peekItem()->slice();
+        uint32_t size = data.size();
+        stream.write(reinterpret_cast<char const*>(&size), 4);
+        localBytesWritten += 4;
+
+        // write the data
+        stream.write(reinterpret_cast<char const*>(data.data()), size);
+        localBytesWritten += size;
+
+        // Check if we should flush without locking
+        if (localBytesWritten >= flushThreshold)
+        {
+            tryFlush(stream);
+            localBytesWritten = 0;
+        }
+
+        return !stream.fail();
+    };
+
+    auto serializeRemovedLeaf = [&stream,
+                                 &localBytesWritten,
+                                 flushThreshold,
+                                 &tryFlush](uint256 const& key) -> bool {
+        // to indicate a node is removed it is written with a removal type
+        auto t = SHAMapNodeType::tnREMOVE;
+        stream.write(reinterpret_cast<char const*>(&t), 1);
+        localBytesWritten += 1;
+
+        // write the key
+        stream.write(reinterpret_cast<char const*>(key.data()), 32);
+        localBytesWritten += 32;
+
+        // Check if we should flush without locking
+        if (localBytesWritten >= flushThreshold)
+        {
+            tryFlush(stream);
+            localBytesWritten = 0;
+        }
+
+        return !stream.fail();
+    };
+
+    // If we're creating a delta, first compute the differences
+    if (baseSHAMap && baseSHAMap->get().root_)
+    {
+        const SHAMap& baseMap = baseSHAMap->get();
+
+        // Only compute delta if the maps are different
+        if (getHash() != baseMap.getHash())
+        {
+            Delta differences;
+
+            if (compare(baseMap, differences, std::numeric_limits<int>::max()))
+            {
+                // Process each difference
+                for (auto const& [key, deltaItem] : differences)
+                {
+                    auto const& newItem = deltaItem.first;
+                    auto const& oldItem = deltaItem.second;
+
+                    if (!oldItem && newItem)
+                    {
+                        // Added item
+                        SHAMapLeafNode* leaf = findKey(key);
+                        if (leaf && serializeLeaf(*leaf))
+                            ++nodeCount;
+                    }
+                    else if (oldItem && !newItem)
+                    {
+                        // Removed item
+                        if (serializeRemovedLeaf(key))
+                            ++nodeCount;
+                    }
+                    else if (
+                        oldItem && newItem &&
+                        oldItem->slice() != newItem->slice())
+                    {
+                        // Modified item
+                        SHAMapLeafNode* leaf = findKey(key);
+                        if (leaf && serializeLeaf(*leaf))
+                            ++nodeCount;
+                    }
+                }
+
+                // write a terminal symbol to indicate the map stream has ended
+                auto t = SHAMapNodeType::tnTERMINAL;
+                stream.write(reinterpret_cast<char const*>(&t), 1);
+                localBytesWritten += 1;
+
+                // Check if we should flush without locking
+                if (localBytesWritten >= flushThreshold)
+                {
+                    tryFlush(stream);
+                    localBytesWritten = 0;
+                }
+
+                // Update the global counter at the end (with lock)
+                {
+                    std::lock_guard<std::mutex> lock(streamMapMutex);
+                    auto& streamData =
+                        streamBytesWritten[static_cast<void*>(&stream)];
+                    streamData.first = localBytesWritten;
+                    streamData.second = std::chrono::steady_clock::now();
+                }
+
+                return nodeCount;
+            }
+        }
+        else
+        {
+            // Maps are identical, nothing to write
+            return 0;
+        }
+    }
+
+    // Otherwise walk the entire tree and serialize all leaf nodes
+    std::function<void(SHAMapTreeNode const&, SHAMapNodeID const&)> walkTree =
+        [&](SHAMapTreeNode const& node, SHAMapNodeID const& nodeID) {
+            if (node.isLeaf())
+            {
+                auto const& leaf = static_cast<SHAMapLeafNode const&>(node);
+                auto const& hash = leaf.getHash();
+
+                // Avoid duplicates
+                if (writtenNodes.insert(hash).second)
+                {
+                    if (serializeLeaf(leaf))
+                        ++nodeCount;
+                }
+                return;
+            }
+
+            // It's an inner node, process its children
+            auto const& inner = static_cast<SHAMapInnerNode const&>(node);
+            for (int i = 0; i < branchFactor; ++i)
+            {
+                if (!inner.isEmptyBranch(i))
+                {
+                    auto const& childHash = inner.getChildHash(i);
+
+                    // Skip already written nodes
+                    if (writtenNodes.find(childHash) != writtenNodes.end())
+                        continue;
+
+                    auto childNode =
+                        descendThrow(const_cast<SHAMapInnerNode*>(&inner), i);
+                    if (childNode)
+                    {
+                        SHAMapNodeID childID = nodeID.getChildNodeID(i);
+                        walkTree(*childNode, childID);
+                    }
+                }
+            }
+        };
+
+    // Start walking from root
+    walkTree(*root_, SHAMapNodeID());
+
+    // write a terminal symbol to indicate the map stream has ended
+    auto t = SHAMapNodeType::tnTERMINAL;
+    stream.write(reinterpret_cast<char const*>(&t), 1);
+    localBytesWritten += 1;
+
+    // Check if we should flush one last time without locking
+    if (localBytesWritten >= flushThreshold)
+    {
+        tryFlush(stream);
+        localBytesWritten = 0;
+    }
+
+    // Update the global counter at the end (with lock)
+    {
+        std::lock_guard<std::mutex> lock(streamMapMutex);
+        auto& streamData = streamBytesWritten[static_cast<void*>(&stream)];
+        streamData.first = localBytesWritten;
+        streamData.second = std::chrono::steady_clock::now();
+    }
+
+    return nodeCount;
+}
+
+template <typename StreamType>
+bool
+SHAMap::deserializeFromStream(StreamType& stream)
+{
+    try
+    {
+        JLOG(journal_.info()) << "Deserialization: Starting to deserialize "
+                                 "from stream";
+
+        if (state_ != SHAMapState::Modifying && state_ != SHAMapState::Synching)
+            return false;
+
+        if (!root_)
+            root_ = std::make_shared<SHAMapInnerNode>(cowid_);
+
+        // Define a lambda to deserialize a leaf node
+        auto deserializeLeaf =
+            [this, &stream](SHAMapNodeType& nodeType /* out */) -> bool {
+            stream.read(reinterpret_cast<char*>(&nodeType), 1);
+
+            if (nodeType == SHAMapNodeType::tnTERMINAL)
+            {
+                // end of map
+                return false;
+            }
+
+            uint256 key;
+            uint32_t size{0};
+
+            stream.read(reinterpret_cast<char*>(key.data()), 32);
+
+            if (stream.fail())
+            {
+                JLOG(journal_.error())
+                    << "Deserialization: stream stopped unexpectedly "
+                    << "while trying to read key of next entry";
+                return false;
+            }
+
+            if (nodeType == SHAMapNodeType::tnREMOVE)
+            {
+                // deletion
+                if (!hasItem(key))
+                {
+                    JLOG(journal_.error())
+                        << "Deserialization: removal of key " << to_string(key)
+                        << " but key is already absent.";
+                    return false;
+                }
+                delItem(key);
+                return true;
+            }
+
+            stream.read(reinterpret_cast<char*>(&size), 4);
+
+            if (stream.fail())
+            {
+                JLOG(journal_.error())
+                    << "Deserialization: stream stopped unexpectedly"
+                    << " while trying to read size of data for key "
+                    << to_string(key);
+                return false;
+            }
+
+            if (size > 1024 * 1024 * 1024)
+            {
+                JLOG(journal_.error())
+                    << "Deserialization: size of " << to_string(key)
+                    << " is suspiciously large (" << size
+                    << " bytes), bailing.";
+                return false;
+            }
+
+            std::vector<uint8_t> data;
+            data.resize(size);
+
+            stream.read(reinterpret_cast<char*>(data.data()), size);
+            if (stream.fail())
+            {
+                JLOG(journal_.error())
+                    << "Deserialization: Unexpected EOF while reading data for "
+                    << to_string(key);
+                return false;
+            }
+
+            auto item = make_shamapitem(key, makeSlice(data));
+            if (hasItem(key))
+                return updateGiveItem(nodeType, std::move(item));
+
+            return addGiveItem(nodeType, std::move(item));
+        };
+
+        SHAMapNodeType lastParsed;
+        while (!stream.eof() && deserializeLeaf(lastParsed))
+            ;
+
+        if (lastParsed != SHAMapNodeType::tnTERMINAL)
+        {
+            JLOG(journal_.error())
+                << "Deserialization: Unexpected EOF, terminal node not found.";
+            return false;
+        }
+
+        // Flush any dirty nodes and update hashes
+        flushDirty(hotUNKNOWN);
+
+        return true;
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(journal_.error())
+            << "Exception during deserialization: " << e.what();
+        return false;
+    }
+}
+
+// explicit instantiation of templates for rpc::Catalogue
+
+using FilteringInputStream = boost::iostreams::filtering_stream<
+    boost::iostreams::input,
+    char,
+    std::char_traits<char>,
+    std::allocator<char>,
+    boost::iostreams::public_>;
+
+template bool
+SHAMap::deserializeFromStream<FilteringInputStream>(FilteringInputStream&);
+
+using FilteringOutputStream = boost::iostreams::filtering_stream<
+    boost::iostreams::output,
+    char,
+    std::char_traits<char>,
+    std::allocator<char>,
+    boost::iostreams::public_>;
+
+template std::size_t
+SHAMap::serializeToStream<FilteringOutputStream>(
+    FilteringOutputStream&,
+    std::optional<std::reference_wrapper<const SHAMap>> baseSHAMap) const;
+
 }  // namespace ripple

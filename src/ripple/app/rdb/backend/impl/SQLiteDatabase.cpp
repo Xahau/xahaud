@@ -601,11 +601,44 @@ SQLiteDatabaseImp::deleteTransactionByLedgerSeq(LedgerIndex ledgerSeq)
 void
 SQLiteDatabaseImp::deleteBeforeLedgerSeq(LedgerIndex ledgerSeq)
 {
+    // Get a reference to the pinned ledgers set for quick lookups
+    RangeSet<std::uint32_t> pinnedLedgers;
+    {
+        auto& ledgerMaster = app_.getLedgerMaster();
+        // Use public API to get the pinned ledgers
+        pinnedLedgers = ledgerMaster.getPinnedLedgersRangeSet();
+    }
+
     if (existsLedger())
     {
         auto db = checkoutLedger();
-        detail::deleteBeforeLedgerSeq(
-            *db, detail::TableType::Ledgers, ledgerSeq);
+
+        // Check if any ledgers in the range to be deleted are pinned
+        bool hasPinnedLedgers = false;
+        for (LedgerIndex seq = 1; seq < ledgerSeq && !hasPinnedLedgers; ++seq)
+        {
+            if (boost::icl::contains(pinnedLedgers, seq))
+                hasPinnedLedgers = true;
+        }
+
+        if (!hasPinnedLedgers)
+        {
+            // No pinned ledgers in the range, proceed with normal delete
+            detail::deleteBeforeLedgerSeq(
+                *db, detail::TableType::Ledgers, ledgerSeq);
+        }
+        else
+        {
+            // Delete ledgers individually, skipping pinned ones
+            for (LedgerIndex seq = 1; seq < ledgerSeq; ++seq)
+            {
+                if (!boost::icl::contains(pinnedLedgers, seq))
+                {
+                    detail::deleteByLedgerSeq(
+                        *db, detail::TableType::Ledgers, seq);
+                }
+            }
+        }
         return;
     }
 
@@ -614,8 +647,39 @@ SQLiteDatabaseImp::deleteBeforeLedgerSeq(LedgerIndex ledgerSeq)
         iterateLedgerBack(
             seqToShardIndex(ledgerSeq),
             [&](soci::session& session, std::uint32_t shardIndex) {
-                detail::deleteBeforeLedgerSeq(
-                    session, detail::TableType::Ledgers, ledgerSeq);
+                LedgerIndex firstSeq = firstLedgerSeq(shardIndex);
+                LedgerIndex lastSeq =
+                    std::min(lastLedgerSeq(shardIndex), ledgerSeq - 1);
+
+                // Check if any ledgers in this shard's range are pinned
+                bool hasPinnedLedgers = false;
+                for (LedgerIndex seq = firstSeq;
+                     seq <= lastSeq && !hasPinnedLedgers;
+                     ++seq)
+                {
+                    if (boost::icl::contains(pinnedLedgers, seq))
+                        hasPinnedLedgers = true;
+                }
+
+                if (!hasPinnedLedgers)
+                {
+                    // No pinned ledgers in this shard range, proceed with
+                    // normal delete
+                    detail::deleteBeforeLedgerSeq(
+                        session, detail::TableType::Ledgers, ledgerSeq);
+                }
+                else
+                {
+                    // Delete ledgers individually, skipping pinned ones
+                    for (LedgerIndex seq = firstSeq; seq <= lastSeq; ++seq)
+                    {
+                        if (!boost::icl::contains(pinnedLedgers, seq))
+                        {
+                            detail::deleteByLedgerSeq(
+                                session, detail::TableType::Ledgers, seq);
+                        }
+                    }
+                }
                 return true;
             });
     }
@@ -627,11 +691,43 @@ SQLiteDatabaseImp::deleteTransactionsBeforeLedgerSeq(LedgerIndex ledgerSeq)
     if (!useTxTables_)
         return;
 
+    // Get a reference to the pinned ledgers set for quick lookups
+    RangeSet<std::uint32_t> pinnedLedgers;
+    {
+        auto& ledgerMaster = app_.getLedgerMaster();
+        pinnedLedgers = ledgerMaster.getPinnedLedgersRangeSet();
+    }
+
     if (existsTransaction())
     {
         auto db = checkoutTransaction();
-        detail::deleteBeforeLedgerSeq(
-            *db, detail::TableType::Transactions, ledgerSeq);
+
+        // Check if any ledgers in the range to be deleted are pinned
+        bool hasPinnedLedgers = false;
+        for (LedgerIndex seq = 1; seq < ledgerSeq && !hasPinnedLedgers; ++seq)
+        {
+            if (boost::icl::contains(pinnedLedgers, seq))
+                hasPinnedLedgers = true;
+        }
+
+        if (!hasPinnedLedgers)
+        {
+            // No pinned ledgers in the range, proceed with normal delete
+            detail::deleteBeforeLedgerSeq(
+                *db, detail::TableType::Transactions, ledgerSeq);
+        }
+        else
+        {
+            // Delete transaction data individually, skipping pinned ledgers
+            for (LedgerIndex seq = 1; seq < ledgerSeq; ++seq)
+            {
+                if (!boost::icl::contains(pinnedLedgers, seq))
+                {
+                    detail::deleteByLedgerSeq(
+                        *db, detail::TableType::Transactions, seq);
+                }
+            }
+        }
         return;
     }
 
@@ -640,8 +736,40 @@ SQLiteDatabaseImp::deleteTransactionsBeforeLedgerSeq(LedgerIndex ledgerSeq)
         iterateTransactionBack(
             seqToShardIndex(ledgerSeq),
             [&](soci::session& session, std::uint32_t shardIndex) {
-                detail::deleteBeforeLedgerSeq(
-                    session, detail::TableType::Transactions, ledgerSeq);
+                LedgerIndex firstSeq = firstLedgerSeq(shardIndex);
+                LedgerIndex lastSeq =
+                    std::min(lastLedgerSeq(shardIndex), ledgerSeq - 1);
+
+                // Check if any ledgers in this shard's range are pinned
+                bool hasPinnedLedgers = false;
+                for (LedgerIndex seq = firstSeq;
+                     seq <= lastSeq && !hasPinnedLedgers;
+                     ++seq)
+                {
+                    if (boost::icl::contains(pinnedLedgers, seq))
+                        hasPinnedLedgers = true;
+                }
+
+                if (!hasPinnedLedgers)
+                {
+                    // No pinned ledgers in this shard range, proceed with
+                    // normal delete
+                    detail::deleteBeforeLedgerSeq(
+                        session, detail::TableType::Transactions, ledgerSeq);
+                }
+                else
+                {
+                    // Delete transaction data individually, skipping pinned
+                    // ledgers
+                    for (LedgerIndex seq = firstSeq; seq <= lastSeq; ++seq)
+                    {
+                        if (!boost::icl::contains(pinnedLedgers, seq))
+                        {
+                            detail::deleteByLedgerSeq(
+                                session, detail::TableType::Transactions, seq);
+                        }
+                    }
+                }
                 return true;
             });
     }
@@ -654,11 +782,44 @@ SQLiteDatabaseImp::deleteAccountTransactionsBeforeLedgerSeq(
     if (!useTxTables_)
         return;
 
+    // Get a reference to the pinned ledgers set for quick lookups
+    RangeSet<std::uint32_t> pinnedLedgers;
+    {
+        auto& ledgerMaster = app_.getLedgerMaster();
+        pinnedLedgers = ledgerMaster.getPinnedLedgersRangeSet();
+    }
+
     if (existsTransaction())
     {
         auto db = checkoutTransaction();
-        detail::deleteBeforeLedgerSeq(
-            *db, detail::TableType::AccountTransactions, ledgerSeq);
+
+        // Check if any ledgers in the range to be deleted are pinned
+        bool hasPinnedLedgers = false;
+        for (LedgerIndex seq = 1; seq < ledgerSeq && !hasPinnedLedgers; ++seq)
+        {
+            if (boost::icl::contains(pinnedLedgers, seq))
+                hasPinnedLedgers = true;
+        }
+
+        if (!hasPinnedLedgers)
+        {
+            // No pinned ledgers in the range, proceed with normal delete
+            detail::deleteBeforeLedgerSeq(
+                *db, detail::TableType::AccountTransactions, ledgerSeq);
+        }
+        else
+        {
+            // Delete account transaction data individually, skipping pinned
+            // ledgers
+            for (LedgerIndex seq = 1; seq < ledgerSeq; ++seq)
+            {
+                if (!boost::icl::contains(pinnedLedgers, seq))
+                {
+                    detail::deleteByLedgerSeq(
+                        *db, detail::TableType::AccountTransactions, seq);
+                }
+            }
+        }
         return;
     }
 
@@ -667,8 +828,44 @@ SQLiteDatabaseImp::deleteAccountTransactionsBeforeLedgerSeq(
         iterateTransactionBack(
             seqToShardIndex(ledgerSeq),
             [&](soci::session& session, std::uint32_t shardIndex) {
-                detail::deleteBeforeLedgerSeq(
-                    session, detail::TableType::AccountTransactions, ledgerSeq);
+                LedgerIndex firstSeq = firstLedgerSeq(shardIndex);
+                LedgerIndex lastSeq =
+                    std::min(lastLedgerSeq(shardIndex), ledgerSeq - 1);
+
+                // Check if any ledgers in this shard's range are pinned
+                bool hasPinnedLedgers = false;
+                for (LedgerIndex seq = firstSeq;
+                     seq <= lastSeq && !hasPinnedLedgers;
+                     ++seq)
+                {
+                    if (boost::icl::contains(pinnedLedgers, seq))
+                        hasPinnedLedgers = true;
+                }
+
+                if (!hasPinnedLedgers)
+                {
+                    // No pinned ledgers in this shard range, proceed with
+                    // normal delete
+                    detail::deleteBeforeLedgerSeq(
+                        session,
+                        detail::TableType::AccountTransactions,
+                        ledgerSeq);
+                }
+                else
+                {
+                    // Delete account transaction data individually, skipping
+                    // pinned ledgers
+                    for (LedgerIndex seq = firstSeq; seq <= lastSeq; ++seq)
+                    {
+                        if (!boost::icl::contains(pinnedLedgers, seq))
+                        {
+                            detail::deleteByLedgerSeq(
+                                session,
+                                detail::TableType::AccountTransactions,
+                                seq);
+                        }
+                    }
+                }
                 return true;
             });
     }

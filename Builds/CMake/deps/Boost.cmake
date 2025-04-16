@@ -1,14 +1,16 @@
 #[===================================================================[
    NIH dep: boost
 #]===================================================================]
-
 if((NOT DEFINED BOOST_ROOT) AND(DEFINED ENV{BOOST_ROOT}))
   set(BOOST_ROOT $ENV{BOOST_ROOT})
+endif()
+if((NOT DEFINED BOOST_LIBRARYDIR) AND(DEFINED ENV{BOOST_LIBRARYDIR}))
+  set(BOOST_LIBRARYDIR $ENV{BOOST_LIBRARYDIR})
 endif()
 file(TO_CMAKE_PATH "${BOOST_ROOT}" BOOST_ROOT)
 if(WIN32 OR CYGWIN)
   # Workaround for MSVC having two boost versions - x86 and x64 on same PC in stage folders
-  if(DEFINED BOOST_ROOT)
+  if((NOT DEFINED BOOST_LIBRARYDIR) AND (DEFINED BOOST_ROOT))
     if(IS_DIRECTORY ${BOOST_ROOT}/stage64/lib)
       set(BOOST_LIBRARYDIR ${BOOST_ROOT}/stage64/lib)
     elseif(IS_DIRECTORY ${BOOST_ROOT}/stage/lib)
@@ -55,6 +57,7 @@ find_package(Boost 1.86 REQUIRED
     program_options
     regex
     system
+    iostreams
     thread)
 
 add_library(ripple_boost INTERFACE)
@@ -74,6 +77,7 @@ target_link_libraries(ripple_boost
     Boost::coroutine
     Boost::date_time
     Boost::filesystem
+    Boost::iostreams
     Boost::program_options
     Boost::regex
     Boost::system

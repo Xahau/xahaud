@@ -468,10 +468,13 @@ REGISTER_FIX    (fix240819,                     Supported::yes, VoteBehavior::De
 REGISTER_FIX    (fixPageCap,                    Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fix240911,                     Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixFloatDivide,                Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(Remarks,                       Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(Touch,                         Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixReduceImport,               Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixXahauV3,                    Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fix20250131,                   Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(HookCanEmit,                   Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixRewardClaimFlags,           Supported::yes, VoteBehavior::DefaultYes);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

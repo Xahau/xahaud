@@ -570,6 +570,19 @@ getLedger(T& ledger, uint256 const& ledgerHash, Context& context)
     return Status::OK;
 }
 
+// Helper function to determine if the types are compatible for assignment
+template <typename T, typename U>
+struct is_assignable_shared_ptr : std::false_type
+{
+};
+
+template <typename T>
+struct is_assignable_shared_ptr<
+    std::shared_ptr<T>&,
+    std::shared_ptr<ReadView const>> : std::is_convertible<ReadView const*, T*>
+{
+};
+
 template <class T>
 Status
 getLedger(T& ledger, uint32_t ledgerIndex, Context& context)
@@ -579,10 +592,16 @@ getLedger(T& ledger, uint32_t ledgerIndex, Context& context)
     {
         if (context.app.config().reporting())
             return {rpcLGR_NOT_FOUND, "ledgerNotFound"};
+
         auto cur = context.ledgerMaster.getCurrentLedger();
         if (cur->info().seq == ledgerIndex)
         {
-            ledger = cur;
+            if constexpr (is_assignable_shared_ptr<
+                              decltype(ledger),
+                              decltype(cur)>::value)
+            {
+                ledger = cur;
+            }
         }
     }
 
@@ -600,6 +619,9 @@ getLedger(T& ledger, uint32_t ledgerIndex, Context& context)
 
     return Status::OK;
 }
+
+#include <iostream>
+#include <typeinfo>
 
 template <class T>
 Status
@@ -635,7 +657,15 @@ getLedger(T& ledger, LedgerShortcut shortcut, Context& context)
                 return {
                     rpcLGR_NOT_FOUND,
                     "Reporting does not track current ledger"};
-            ledger = context.ledgerMaster.getCurrentLedger();
+            auto cur = context.ledgerMaster.getCurrentLedger();
+
+            if constexpr (is_assignable_shared_ptr<
+                              decltype(ledger),
+                              decltype(cur)>::value)
+            {
+                ledger = cur;
+            }
+
             assert(ledger->open());
         }
         else if (shortcut == LedgerShortcut::CLOSED)
@@ -684,6 +714,15 @@ getLedger<>(
 
 template Status
 getLedger<>(std::shared_ptr<ReadView const>&, uint256 const&, Context&);
+
+template Status
+getLedger<>(std::shared_ptr<Ledger const>&, uint32_t, Context&);
+
+template Status
+getLedger<>(std::shared_ptr<Ledger const>&, LedgerShortcut shortcut, Context&);
+
+template Status
+getLedger<>(std::shared_ptr<Ledger const>&, uint256 const&, Context&);
 
 bool
 isValidated(

@@ -43,11 +43,13 @@ static constexpr unsigned char const wireTypeInner = 2;
 static constexpr unsigned char const wireTypeCompressedInner = 3;
 static constexpr unsigned char const wireTypeTransactionWithMeta = 4;
 
-enum class SHAMapNodeType {
+enum SHAMapNodeType : uint8_t {
     tnINNER = 1,
     tnTRANSACTION_NM = 2,  // transaction, no metadata
     tnTRANSACTION_MD = 3,  // transaction, with metadata
-    tnACCOUNT_STATE = 4
+    tnACCOUNT_STATE = 4,
+    tnREMOVE = 254,   // special type to mark deleted nodes in serialization
+    tnTERMINAL = 255  // special type to mark the end of a serialization stream
 };
 
 class SHAMapTreeNode

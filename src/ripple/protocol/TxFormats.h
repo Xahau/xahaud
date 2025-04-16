@@ -146,6 +146,9 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
+    /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
+    ttREMARKS_SET = 94,
+
     /* A payment transactor that delivers only the exact amounts specified, creating accounts and TLs as needed 
      * that the sender pays for. */
     ttREMIT = 95,

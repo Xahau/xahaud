@@ -57,6 +57,7 @@
 #include <test/jtx/quality.h>
 #include <test/jtx/rate.h>
 #include <test/jtx/regkey.h>
+#include <test/jtx/remarks.h>
 #include <test/jtx/remit.h>
 #include <test/jtx/require.h>
 #include <test/jtx/requires.h>

@@ -121,6 +121,13 @@ public:
         Family& family,
         beast::Journal j);
 
+    // used when loading ledgers from catalogue files
+    Ledger(
+        LedgerInfo& info,
+        Config const& config,
+        Family& family,
+        SHAMap const& baseState);
+
     /** Create a new ledger following a previous ledger
 
         The ledger will have the sequence number that
@@ -274,6 +281,12 @@ public:
 
     void
     setImmutable(bool rehash = true);
+
+    void
+    setCloseFlags(int closeFlags);
+
+    void
+    setDrops(uint64_t drops);
 
     bool
     isImmutable() const
