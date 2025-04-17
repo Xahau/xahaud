@@ -25,6 +25,7 @@
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/Quality.h>
+#include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/st.h>
 
 namespace ripple {
@@ -313,22 +314,21 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 TER
 SetRemarks::doApply()
 {
-    auto j = ctx_.journal;
     Sandbox sb(&ctx_.view());
 
     auto const sle = sb.read(keylet::account(account_));
     if (!sle)
-        return terNO_ACCOUNT;
+        return tefINTERNAL;
 
     auto const objID = ctx_.tx[sfObjectID];
     auto sleO = sb.peek(keylet::unchecked(objID));
     if (!sleO)
-        return terNO_ACCOUNT;
+        return tefINTERNAL;
 
     std::optional<AccountID> issuer = getRemarksIssuer(sleO);
 
     if (!issuer || *issuer != account_)
-        return tecNO_PERMISSION;
+        return tefINTERNAL;
 
     auto const& remarksTxn = ctx_.tx.getFieldArray(sfRemarks);
 
@@ -400,7 +400,7 @@ SetRemarks::doApply()
     }
 
     if (newRemarks.size() > 32)
-        return tecTOO_MANY_REMARKS;
+        return tefINTERNAL;
 
     if (newRemarks.empty() && sleO->isFieldPresent(sfRemarks))
         sleO->makeFieldAbsent(sfRemarks);

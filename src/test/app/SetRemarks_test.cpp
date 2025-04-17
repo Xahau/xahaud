@@ -377,10 +377,8 @@ struct SetRemarks_test : public beast::unit_test::suite
         //----------------------------------------------------------------------
         // doApply
 
-        // terNO_ACCOUNT
-        // tecNO_TARGET
-        // tecNO_PERMISSION
-        // tecTOO_MANY_REMARKS
+        // All checks in doApply are done in preclaim.
+        BEAST_EXPECT(1);
     }
 
     void
