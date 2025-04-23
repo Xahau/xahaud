@@ -821,7 +821,7 @@ class Transaction_test : public beast::unit_test::suite
         std::shared_ptr<STTx const> const txn = env.tx();
         BEAST_EXPECT(
             to_string(txn->getTransactionID()) ==
-            "3F8BDE5A5F82C4F4708E5E9255B713E303E6E1A371FD5C7A704AFD1387C23981");
+            "93334A06F509A0E04E908F2E9BA3BD1A00C7B11A91D5EAF20BEF25CE36FCC358");
         env.close();
         std::shared_ptr<STObject const> meta =
             env.closed()->txRead(txn->getTransactionID()).second;
@@ -855,8 +855,8 @@ class Transaction_test : public beast::unit_test::suite
                     result[jss::result][jss::meta_blob] == expected_meta_blob);
                 BEAST_EXPECT(
                     result[jss::result][jss::ledger_hash] ==
-                    "2D5150E5A5AA436736A732291E437ABF01BC9E206C2DF3C77C4F856915"
-                    "7905AA");
+                    "BC720494ECE70EF8EF078043E71845D9BAC4D1C079181127AF309CC72B"
+                    "ABB1EA");
                 BEAST_EXPECT(
                     result[jss::result][jss::close_time_iso] ==
                     "2000-01-01T00:00:10Z");

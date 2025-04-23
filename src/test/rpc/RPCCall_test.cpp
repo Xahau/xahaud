@@ -1965,7 +1965,7 @@ static RPCCallTestData const rpcCallTestArray[] = {
     "method" : "channel_authorize",
     "params" : [
       {
-         "api_version" : %MAX_API_VER%,
+         "api_version" : %API_VER%,
          "amount" : {
             "currency" : "USD",
             "issuer" : "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
@@ -2151,7 +2151,7 @@ static RPCCallTestData const rpcCallTestArray[] = {
     "method" : "channel_verify",
     "params" : [
       {
-         "api_version" : %MAX_API_VER%,
+         "api_version" : %API_VER%,
          "amount" : {
             "currency" : "USD",
             "issuer" : "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
@@ -6257,6 +6257,8 @@ public:
             }
             else
             {
+                printf("got: %s\n", got.toStyledString().c_str());
+                printf("exp: %s\n", exp.toStyledString().c_str());
                 fail(rpcCallTest.description, __FILE__, rpcCallTest.line);
             }
         }
