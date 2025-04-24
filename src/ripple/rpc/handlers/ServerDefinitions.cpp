@@ -396,6 +396,8 @@ private:
                 return "SetRegularKey";
             if (inp == "HookSet")
                 return "SetHook";
+            if (inp == "RemarksSet")
+                return "SetRemarks";
             return inp;
         };
 
