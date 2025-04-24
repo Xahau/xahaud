@@ -101,8 +101,7 @@ class Catalogue_test : public beast::unit_test::suite
     {
         testcase("catalogue_create: Invalid parameters");
         using namespace test::jtx;
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
 
         // No parameters
         {
@@ -177,8 +176,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and some test ledgers
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
         prepareLedgerData(env, 5);
 
         boost::filesystem::path tempDir =
@@ -217,8 +215,7 @@ class Catalogue_test : public beast::unit_test::suite
     {
         testcase("catalogue_load: Invalid parameters");
         using namespace test::jtx;
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
 
         // No parameters
         {
@@ -265,8 +262,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
         prepareLedgerData(env, 5);
 
         // Store some key state information before catalogue creation
@@ -322,8 +318,7 @@ class Catalogue_test : public beast::unit_test::suite
             *this,
             test::jtx::envconfig(test::jtx::port_increment, 3),
             features,
-            nullptr,
-            beast::severities::kInfo};
+        };
 
         // Now load the catalogue
         Json::Value params{Json::objectValue};
@@ -518,8 +513,7 @@ class Catalogue_test : public beast::unit_test::suite
                     return cfg;
                 }),
                 features,
-                nullptr,
-                beast::severities::kInfo};
+            };
             prepareLedgerData(env1, 5);
 
             // Create catalogue with network ID 123
@@ -544,8 +538,7 @@ class Catalogue_test : public beast::unit_test::suite
                     return cfg;
                 }),
                 features,
-                nullptr,
-                beast::severities::kInfo};
+            };
 
             {
                 Json::Value params{Json::objectValue};
@@ -568,8 +561,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
         prepareLedgerData(env, 3);
 
         boost::filesystem::path tempDir =
@@ -660,8 +652,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
         prepareLedgerData(env, 3);
 
         boost::filesystem::path tempDir =
@@ -736,8 +727,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
         prepareLedgerData(env, 5);
 
         boost::filesystem::path tempDir =
@@ -826,8 +816,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment
-        Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+        Env env{*this, envconfig(), features};
 
         boost::filesystem::path tempDir =
             boost::filesystem::temp_directory_path() /
