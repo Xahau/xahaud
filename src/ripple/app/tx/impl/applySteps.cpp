@@ -591,19 +591,15 @@ preflight(
 {
     PreflightContext const pfctx(app, tx, rules, flags, j);
 
-#ifndef DEBUG
     try
     {
-#endif
         return {pfctx, invoke_preflight(pfctx)};
-#ifndef DEBUG
     }
     catch (std::exception const& e)
     {
         JLOG(j.fatal()) << "apply: " << e.what();
         return {pfctx, {tefEXCEPTION, TxConsequences{tx}}};
     }
-#endif
 }
 
 PreclaimResult
@@ -640,21 +636,17 @@ preclaim(
             preflightResult.j);
     }
 
-#ifndef DEBUG
     try
     {
-#endif
         if (!isTesSuccess(ctx->preflightResult))
             return {*ctx, ctx->preflightResult};
         return {*ctx, invoke_preclaim(*ctx)};
-#ifndef DEBUG
     }
     catch (std::exception const& e)
     {
         JLOG(ctx->j.fatal()) << "apply: " << e.what();
         return {*ctx, tefEXCEPTION};
     }
-#endif
 }
 
 XRPAmount
@@ -678,10 +670,8 @@ doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view)
         // info to recover.
         return {tefEXCEPTION, false};
     }
-#ifndef DEBUG
     try
     {
-#endif
         if (!preclaimResult.likelyToClaimFee)
             return {preclaimResult.ter, false};
 
@@ -694,14 +684,12 @@ doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view)
             preclaimResult.flags,
             preclaimResult.j);
         return invoke_apply(ctx);
-#ifndef DEBUG
     }
     catch (std::exception const& e)
     {
         JLOG(preclaimResult.j.fatal()) << "apply: " << e.what();
         return {tefEXCEPTION, false};
     }
-#endif
 }
 
 }  // namespace ripple

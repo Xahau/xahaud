@@ -168,10 +168,8 @@ applyTransaction(
     JLOG(j.debug()) << "TXN " << txn.getTransactionID()
                     << (retryAssured ? "/retry" : "/final");
 
-#ifndef DEBUG
     try
     {
-#endif
         auto const result = apply(app, view, txn, flags, j);
         if (result.second)
         {
@@ -191,14 +189,12 @@ applyTransaction(
 
         JLOG(j.debug()) << "Transaction retry: " << transHuman(result.first);
         return ApplyResult::Retry;
-#ifndef DEBUG
     }
     catch (std::exception const& ex)
     {
         JLOG(j.warn()) << "Throws: " << ex.what();
         return ApplyResult::Fail;
     }
-#endif
 }
 
 }  // namespace ripple
