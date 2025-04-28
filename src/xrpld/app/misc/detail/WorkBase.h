@@ -98,6 +98,9 @@ public:
     onResolve(error_code const& ec, results_type results);
 
     void
+    onConnect(error_code const& ec, endpoint_type const& endpoint);
+
+    void
     onStart();
 
     void
@@ -246,6 +249,18 @@ WorkBase<Impl>::onResolve(error_code const& ec, results_type results)
                 &Impl::onConnect,
                 impl().shared_from_this(),
                 std::placeholders::_1)));
+}
+
+template <class Impl>
+void
+WorkBase<Impl>::onConnect(error_code const& ec, endpoint_type const& endpoint)
+{
+    lastEndpoint_ = endpoint;
+
+    if (ec)
+        return fail(ec);
+
+    impl().onConnect(ec);
 }
 
 template <class Impl>
