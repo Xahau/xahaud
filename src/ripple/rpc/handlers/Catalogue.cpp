@@ -69,7 +69,7 @@ static constexpr uint16_t CATALOGUE_VERSION_MASK =
     0x00FF;  // Lower 8 bits for version
 static constexpr uint16_t CATALOGUE_COMPRESS_LEVEL_MASK =
     0x0F00;  // Bits 8-11: compression level
-static constexpr uint16_t CATALOGUE_RESERVED_MASK =
+[[maybe_unused]] static constexpr uint16_t CATALOGUE_RESERVED_MASK =
     0xF000;  // Bits 12-15: reserved
 
 std::string
@@ -229,7 +229,7 @@ class CatalogueSizePredictor
 private:
     uint32_t minLedger_;
     uint32_t maxLedger_;
-    uint64_t headerSize_;
+    [[maybe_unused]] uint64_t headerSize_;
 
     // Keep track of actual bytes
     uint64_t totalBytesWritten_;
@@ -246,9 +246,9 @@ public:
         : minLedger_(minLedger)
         , maxLedger_(maxLedger)
         , headerSize_(headerSize)
-        , processedLedgers_(0)
         , totalBytesWritten_(headerSize)
         , firstLedgerSize_(0)
+        , processedLedgers_(0)
     {
     }
 

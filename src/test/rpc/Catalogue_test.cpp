@@ -401,18 +401,8 @@ class Catalogue_test : public beast::unit_test::suite
                 sourceLedger->info().accepted == loadedLedger->info().accepted);
 
             // Check SLE counts
-            std::size_t sourceCount = 0;
-            std::size_t loadedCount = 0;
-
-            for (auto const& sle : sourceLedger->sles)
-            {
-                sourceCount++;
-            }
-
-            for (auto const& sle : loadedLedger->sles)
-            {
-                loadedCount++;
-            }
+            std::size_t sourceCount = std::ranges::distance(sourceLedger->sles);
+            std::size_t loadedCount = std::ranges::distance(loadedLedger->sles);
 
             BEAST_EXPECT(sourceCount == loadedCount);
 
@@ -561,7 +551,13 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{*this, envconfig(), features};
+        Env env{
+            *this,
+            envconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
         prepareLedgerData(env, 3);
 
         boost::filesystem::path tempDir =
@@ -652,7 +648,13 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{*this, envconfig(), features};
+        Env env{
+            *this,
+            envconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
         prepareLedgerData(env, 3);
 
         boost::filesystem::path tempDir =
@@ -829,7 +831,7 @@ class Catalogue_test : public beast::unit_test::suite
         {
             auto result = env.client().invoke(
                 "catalogue_status", Json::objectValue)[jss::result];
-            std::cout << to_string(result) << "\n";
+            // std::cout << to_string(result) << "\n";
             BEAST_EXPECT(result[jss::job_status] == "no_job_running");
         }
 

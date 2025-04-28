@@ -1301,10 +1301,8 @@ SHAMap::serializeToStream(
 
     std::size_t nodeCount = 0;
 
-    auto serializeLeaf = [&stream,
-                          &localBytesWritten,
-                          flushThreshold,
-                          &tryFlush](SHAMapLeafNode const& node) -> bool {
+    auto serializeLeaf = [&stream, &localBytesWritten, &tryFlush](
+                             SHAMapLeafNode const& node) -> bool {
         // write the node type
         auto t = node.getType();
         stream.write(reinterpret_cast<char const*>(&t), 1);
@@ -1335,10 +1333,8 @@ SHAMap::serializeToStream(
         return !stream.fail();
     };
 
-    auto serializeRemovedLeaf = [&stream,
-                                 &localBytesWritten,
-                                 flushThreshold,
-                                 &tryFlush](uint256 const& key) -> bool {
+    auto serializeRemovedLeaf =
+        [&stream, &localBytesWritten, &tryFlush](uint256 const& key) -> bool {
         // to indicate a node is removed it is written with a removal type
         auto t = SHAMapNodeType::tnREMOVE;
         stream.write(reinterpret_cast<char const*>(&t), 1);

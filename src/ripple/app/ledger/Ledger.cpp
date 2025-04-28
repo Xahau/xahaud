@@ -311,10 +311,10 @@ Ledger::Ledger(
     Family& family,
     SHAMap const& baseState)
     : mImmutable(false)
-    , info_(info)
     , txMap_(SHAMapType::TRANSACTION, family)
     , stateMap_(baseState, true)
     , rules_{config.features}
+    , info_(info)
     , j_(beast::Journal(beast::Journal::getNullSink()))
 {
 }
