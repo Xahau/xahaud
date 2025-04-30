@@ -199,7 +199,7 @@ public:
     strOperatingMode(bool const admin = false) const override;
 
     StateAccounting::CounterData
-    getStateAccountingData();
+    getStateAccountingData() override;
 
     //
     // Transaction operations.
@@ -711,10 +711,10 @@ private:
     std::mutex validationsMutex_;
 
     RCLConsensus&
-    getConsensus();
+    getConsensus() override;
 
     LedgerMaster&
-    getLedgerMaster();
+    getLedgerMaster() override;
 
 private:
     struct Stats

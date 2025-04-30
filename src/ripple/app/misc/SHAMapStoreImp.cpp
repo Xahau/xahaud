@@ -296,8 +296,6 @@ SHAMapStoreImp::run()
     fullBelowCache_ = &(*app_.getNodeFamily().getFullBelowCache(0));
     treeNodeCache_ = &(*app_.getNodeFamily().getTreeNodeCache(0));
 
-    bool const isMem = app_.config().mem_backend();
-
     if (advisoryDelete_)
         canDelete_ = state_db_.getCanDelete();
 

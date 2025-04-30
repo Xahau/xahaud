@@ -1110,7 +1110,6 @@ public:
         env.fund(XRP(10000000), bob);
 
         auto const preHookCount = (*env.le(alice))[sfHookStateCount];
-        auto const preOwnerCount = (*env.le(alice))[sfOwnerCount];
 
         std::string hook =
             "0061736D01000000012A0660057F7F7F7F7F017E60027F7F017E60027F7F017F60"

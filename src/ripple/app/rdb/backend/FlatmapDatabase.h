@@ -52,8 +52,6 @@ private:
     };
 
     Application& app_;
-    Config const& config_;
-    JobQueue& jobQueue_;
 
     boost::unordered::concurrent_flat_map<LedgerIndex, LedgerData> ledgers_;
     boost::unordered::
@@ -67,7 +65,7 @@ private:
 
 public:
     FlatmapDatabase(Application& app, Config const& config, JobQueue& jobQueue)
-        : app_(app), config_(config), jobQueue_(jobQueue)
+        : app_(app)
     {
     }
 

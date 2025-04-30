@@ -499,11 +499,6 @@ ServerHandlerImp::processUDP(
             return jr;
         }
 
-        auto required = RPC::roleRequired(
-            apiVersion,
-            app_.config().BETA_RPC_API,
-            jv.isMember(jss::command) ? jv[jss::command].asString()
-                                      : jv[jss::method].asString());
         if (Role::FORBID == role)
         {
             jr[jss::result] = rpcError(rpcFORBIDDEN);

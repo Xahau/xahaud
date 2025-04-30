@@ -794,7 +794,6 @@ public:
         // reached before the result set has been exhausted (we always query for
         // one more than the limit), then we return an opaque marker that can be
         // supplied in a subsequent query.
-        std::uint32_t queryLimit = numberOfResults + 1;
         std::uint32_t findLedger = 0, findSeq = 0;
 
         if (lookingForMarker)
