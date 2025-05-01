@@ -44,6 +44,7 @@ class Peer;
 class LedgerMaster;
 class Transaction;
 class ValidatorKeys;
+class CanonicalTXSet;
 
 /** Provides server functionality for clients.
 
@@ -112,6 +113,15 @@ public:
         bool bUnlimited,
         bool bLocal,
         FailHard failType) = 0;
+
+    /**
+     * Process a set of transactions synchronously, and ensuring that they are
+     * processed in one batch.
+     *
+     * @param set Transaction object set
+     */
+    virtual void
+    processTransactionSet(CanonicalTXSet const& set) = 0;
 
     //--------------------------------------------------------------------------
     //
