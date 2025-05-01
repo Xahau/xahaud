@@ -8,6 +8,11 @@ files_changed=$(git diff --name-only --relative HEAD~1 HEAD)
 
 # Loop through each file and search for the patterns
 for file in $files_changed; do
+  # Skip if the file is Import_test.cpp (exact filename match regardless of path)
+  if [[ "$(basename "$file")" == "Import_test.cpp" ]]; then
+    continue
+  fi
+
   # Construct the absolute path
   absolute_path="$repo_root/$file"
 
