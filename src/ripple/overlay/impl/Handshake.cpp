@@ -241,18 +241,12 @@ verifyHandshake(
 
     if (auto const iter = headers.find("Network-ID"); iter != headers.end())
     {
-        uint32_t peer_nid = 0;
-        if (auto const iter = headers.find("Network-ID"); iter != headers.end())
-        {
-            if (!beast::lexicalCastChecked(
-                    peer_nid, std::string(iter->value())))
-                throw std::runtime_error("Invalid peer network identifier");
-        }
+        std::uint32_t nid;
 
-        if (!beast::lexicalCastChecked(peer_nid, std::string(iter->value())))
+        if (!beast::lexicalCastChecked(nid, iter->value()))
             throw std::runtime_error("Invalid peer network identifier");
 
-        if (networkID && peer_nid != *networkID)
+        if (networkID && nid != *networkID)
             throw std::runtime_error("Peer is on a different network");
     }
 
