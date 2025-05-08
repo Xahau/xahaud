@@ -27,6 +27,7 @@
 #include <xrpld/ledger/detail/ApplyViewBase.h>
 
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/Permissions.h>
 #include <xrpl/protocol/XRPAmount.h>
 
 #include <variant>
@@ -164,6 +165,9 @@ public:
         // after checkSeq/Fee/Sign.
         return tesSUCCESS;
     }
+
+    static TER
+    checkPermission(ReadView const& view, STTx const& tx);
     /////////////////////////////////////////////////////
 
     // Interface used by DeleteAccount
