@@ -107,6 +107,7 @@ enum class LedgerNameSpace : std::uint16_t {
     MANIFEST = 'M',
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
+    DELEGATE = 'E',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -579,6 +580,14 @@ Keylet
 amm(uint256 const& id) noexcept
 {
     return {ltAMM, id};
+}
+
+Keylet
+delegate(AccountID const& account, AccountID const& authorizedAccount) noexcept
+{
+    return {
+        ltDELEGATE,
+        indexHash(LedgerNameSpace::DELEGATE, account, authorizedAccount)};
 }
 
 Keylet

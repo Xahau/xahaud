@@ -7613,6 +7613,14 @@ private:
     }
 
     void
+    testDelegateSetTSH(FeatureBitset features)
+    {
+        testcase("delegate set tsh");
+
+        BEAST_EXPECT(!features[featurePermissionDelegation]);
+    }
+
+    void
     testEmittedTxnReliability(FeatureBitset features)
     {
         testcase("emitted txn reliability");
@@ -8515,7 +8523,7 @@ private:
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, fields) test##name##TSH(features);
+#define TRANSACTION(tag, value, name, ...) test##name##TSH(features);
 
 #include <xrpl/protocol/detail/transactions.macro>
 

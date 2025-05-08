@@ -509,23 +509,11 @@ public:
     /** Create a JTx from parameters. */
     template <class JsonValue, class... FN>
     JTx
-    jt(JsonValue&& jv, Account account, FN const&... fN)
+    jtnofill(JsonValue&& jv, FN const&... fN)
     {
         JTx jt(std::forward<JsonValue>(jv));
         invoke(jt, fN...);
-        acct_autofill(jt, account);
-        jt.stx = st(jt);
-        return jt;
-    }
-
-    /** Create a JTx from parameters. */
-    template <class JsonValue, class Account, class... FN>
-    JTx
-    jtnofill(JsonValue&& jv, Account account, FN const&... fN)
-    {
-        JTx jt(std::forward<JsonValue>(jv));
-        invoke(jt, fN...);
-        autofill_sig(jt, account);
+        autofill_sig(jt);
         jt.stx = st(jt);
         return jt;
     }
@@ -771,10 +759,10 @@ protected:
         std::unordered_map<std::string, std::string> const& headers = {});
 
     void
-    autofill_sig(JTx& jt, Account const& account);
+    autofill_sig(JTx& jt);
 
     virtual void
-    acct_autofill(JTx& jt, Account const& account);
+    acct_autofill(JTx& jt);
 
     virtual void
     autofill(JTx& jt);

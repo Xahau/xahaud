@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_APP_MISC_AMMUTILS_H_INLCUDED
-#define RIPPLE_APP_MISC_AMMUTILS_H_INLCUDED
+#ifndef RIPPLE_APP_MISC_AMMUTILS_H_INCLUDED
+#define RIPPLE_APP_MISC_AMMUTILS_H_INCLUDED
 
 #include <xrpld/ledger/View.h>
 
@@ -138,4 +138,4 @@ verifyAndAdjustLPTokenBalance(
 
 }  // namespace ripple
 
-#endif  // RIPPLE_APP_MISC_AMMUTILS_H_INLCUDED
+#endif  // RIPPLE_APP_MISC_AMMUTILS_H_INCLUDED

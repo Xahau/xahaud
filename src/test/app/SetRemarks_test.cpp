@@ -299,7 +299,7 @@ struct SetRemarks_test : public beast::unit_test::suite
             auto tx =
                 remarks::setRemarks(carol, keylet::account(carol).key, marks);
             tx[jss::Sequence] = 0;
-            env(tx, carol, fee(XRP(1)), ter(terNO_ACCOUNT));
+            env(tx, fee(XRP(1)), ter(terNO_ACCOUNT));
             env.close();
         }
 

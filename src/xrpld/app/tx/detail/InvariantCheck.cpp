@@ -503,6 +503,7 @@ AccountRootsDeletedClean::finalize(
         view.rules().enabled(featureInvariantsV1_1);
 
     auto const objectExists = [&view, enforce, &j](auto const& keylet) {
+        (void)enforce;
         if (auto const sle = view.read(keylet))
         {
             // Finding the object is bad
@@ -579,6 +580,7 @@ LedgerEntryTypesMatch::visitEntry(
         switch (after->getType())
         {
             case ltACCOUNT_ROOT:
+            case ltDELEGATE:
             case ltDIR_NODE:
             case ltRIPPLE_STATE:
             case ltTICKET:

@@ -130,7 +130,7 @@ public:
                 jvn[jss::Fee] = to_string(env.current()->fees().base);
                 jvn[jss::Sequence] = env.seq(alice);
                 jvn[jss::LastLedgerSequence] = env.current()->info().seq + 2;
-                auto jt = env.jtnofill(jvn, alice);
+                auto jt = env.jtnofill(jvn);
                 Serializer s;
                 jt.stx->add(s);
                 BEAST_EXPECT(

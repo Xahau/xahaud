@@ -50,6 +50,7 @@ TxFormats::TxFormats()
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
         {sfHookName, soeOPTIONAL},
+        {sfDelegate, soeOPTIONAL},
     };
 
 #pragma push_macro("UNWRAP")
@@ -58,7 +59,7 @@ TxFormats::TxFormats()
 #undef TRANSACTION
 
 #define UNWRAP(...) __VA_ARGS__
-#define TRANSACTION(tag, value, name, fields) \
+#define TRANSACTION(tag, value, name, delegatable, fields) \
     add(jss::name, tag, UNWRAP fields, commonFields);
 
 #include <xrpl/protocol/detail/transactions.macro>
