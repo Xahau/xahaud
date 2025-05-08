@@ -628,7 +628,7 @@ void
 ApplyStateTable::threadItem(
     TxMeta& meta,
     std::shared_ptr<SLE> const& sle,
-    const Rules& rules)
+    Rules const& rules)
 {
     if (rules.enabled(fixProvisionalDoubleThreading))
     {

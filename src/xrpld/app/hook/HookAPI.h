@@ -290,7 +290,7 @@ normalize_xfl(T& man, int32_t& exp, bool neg = false)
     return ret;
 }
 
-const int64_t float_one_internal =
+int64_t const float_one_internal =
     make_float(1000000000000000ull, -15, false).value();
 
 }  // namespace hook_float
@@ -437,7 +437,7 @@ public:
     uint32_t
     otxn_generation() const;
 
-    Expected<const STBase*, HookReturnCode>
+    Expected<STBase const*, HookReturnCode>
     otxn_field(uint32_t field_id) const;
 
     Expected<uint256, HookReturnCode>
@@ -516,7 +516,7 @@ public:
         Bytes& data) const;
 
     /// slot APIs
-    Expected<const STBase*, HookReturnCode>
+    Expected<STBase const*, HookReturnCode>
     slot(uint32_t slot_no) const;
 
     Expected<uint64_t, HookReturnCode>

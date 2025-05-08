@@ -386,7 +386,7 @@ public:
     }
 
     base_uint&
-    operator^=(const base_uint& b)
+    operator^=(base_uint const& b)
     {
         for (int i = 0; i < WIDTH; i++)
             data_[i] ^= b.data_[i];
@@ -395,7 +395,7 @@ public:
     }
 
     base_uint&
-    operator&=(const base_uint& b)
+    operator&=(base_uint const& b)
     {
         for (int i = 0; i < WIDTH; i++)
             data_[i] &= b.data_[i];
@@ -404,7 +404,7 @@ public:
     }
 
     base_uint&
-    operator|=(const base_uint& b)
+    operator|=(base_uint const& b)
     {
         for (int i = 0; i < WIDTH; i++)
             data_[i] |= b.data_[i];
@@ -427,11 +427,11 @@ public:
         return *this;
     }
 
-    const base_uint
+    base_uint const
     operator++(int)
     {
         // postfix operator
-        const base_uint ret = *this;
+        base_uint const ret = *this;
         ++(*this);
 
         return ret;
@@ -453,11 +453,11 @@ public:
         return *this;
     }
 
-    const base_uint
+    base_uint const
     operator--(int)
     {
         // postfix operator
-        const base_uint ret = *this;
+        base_uint const ret = *this;
         --(*this);
 
         return ret;
@@ -478,7 +478,7 @@ public:
     }
 
     base_uint&
-    operator+=(const base_uint& b)
+    operator+=(base_uint const& b)
     {
         std::uint64_t carry = 0;
 
@@ -523,7 +523,7 @@ public:
     }
 
     [[nodiscard]] constexpr bool
-    parseHex(const char* str)
+    parseHex(char const* str)
     {
         return parseHex(std::string_view{str});
     }

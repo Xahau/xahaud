@@ -2760,7 +2760,7 @@ class Import_test : public beast::unit_test::suite
             // Set Regular Key
             Json::Value jv;
             jv[jss::Account] = alice.human();
-            const AccountID ACCOUNT_ZERO(0);
+            AccountID const ACCOUNT_ZERO(0);
             jv["RegularKey"] = to_string(ACCOUNT_ZERO);
             jv[jss::TransactionType] = jss::SetRegularKey;
             env(jv);
@@ -2792,7 +2792,7 @@ class Import_test : public beast::unit_test::suite
             // Set Regular Key
             Json::Value jv;
             jv[jss::Account] = alice.human();
-            const AccountID ACCOUNT_ONE(1);
+            AccountID const ACCOUNT_ONE(1);
             jv["RegularKey"] = to_string(ACCOUNT_ONE);
             jv[jss::TransactionType] = jss::SetRegularKey;
             env(jv);
@@ -2824,7 +2824,7 @@ class Import_test : public beast::unit_test::suite
             // Set Regular Key
             Json::Value jv;
             jv[jss::Account] = alice.human();
-            const AccountID ACCOUNT_TWO(2);
+            AccountID const ACCOUNT_TWO(2);
             jv["RegularKey"] = to_string(ACCOUNT_TWO);
             jv[jss::TransactionType] = jss::SetRegularKey;
             env(jv);
@@ -2856,7 +2856,7 @@ class Import_test : public beast::unit_test::suite
             // Set Regular Key
             Json::Value jv;
             jv[jss::Account] = alice.human();
-            const AccountID ACCOUNT_ZERO(0);
+            AccountID const ACCOUNT_ZERO(0);
             jv["RegularKey"] = to_string(ACCOUNT_ZERO);
             jv[jss::TransactionType] = jss::SetRegularKey;
             env(jv);
@@ -6220,7 +6220,7 @@ class Import_test : public beast::unit_test::suite
             // Set Regular Key
             Json::Value jv;
             jv[jss::Account] = acct.human();
-            const AccountID ACCOUNT_ZERO(0);
+            AccountID const ACCOUNT_ZERO(0);
             jv["RegularKey"] = to_string(ACCOUNT_ZERO);
             jv[jss::TransactionType] = jss::SetRegularKey;
             env(jv);

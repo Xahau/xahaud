@@ -50,7 +50,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
     int upto = 0;
 
     auto const ADD_TSH = [&otxnAcc, &tshEntries, &upto](
-                             const AccountID& acc_r, bool rb) {
+                             AccountID const& acc_r, bool rb) {
         if (acc_r != *otxnAcc)
         {
             if (tshEntries.find(acc_r) != tshEntries.end())
@@ -739,7 +739,7 @@ data_as_int64(void const* ptr_raw, uint32_t len)
 /* returns true iff every even char is ascii and every odd char is 00
  * only a hueristic, may be inaccurate in edgecases */
 inline bool
-is_UTF16LE(const uint8_t* buffer, size_t len)
+is_UTF16LE(uint8_t const* buffer, size_t len)
 {
     if (len % 2 != 0 || len == 0)
         return false;
@@ -1128,14 +1128,14 @@ DEFINE_HOOK_FUNCTION(
     if (read_len > 0)
     {
         // skip \0 if present at the end
-        if (*((const char*)memory + read_ptr + read_len - 1) == '\0')
+        if (*((char const*)memory + read_ptr + read_len - 1) == '\0')
             read_len--;
 
         if (read_len > 0)
         {
             j.trace() << "HookTrace[" << HC_ACC() << "]: "
                       << std::string_view(
-                             (const char*)memory + read_ptr, read_len)
+                             (char const*)memory + read_ptr, read_len)
                       << ": " << number;
 
             return 0ULL;
@@ -1223,7 +1223,7 @@ DEFINE_HOOK_FUNCTION(
     if (out_len > 0)
     {
         j.trace() << "HookTrace[" << HC_ACC() << "]: "
-                  << std::string_view((const char*)output_storage, out_len);
+                  << std::string_view((char const*)output_storage, out_len);
     }
 
     return 0ULL;
@@ -1246,7 +1246,7 @@ std::optional<ripple::uint256> inline make_state_key(std::string_view source)
     for (; i < pad; ++i)
         key_buffer[i] = 0;
 
-    const char* data = source.data();
+    char const* data = source.data();
 
     for (; i < 32; ++i)
         key_buffer[i] = data[i - pad];
@@ -1350,7 +1350,7 @@ DEFINE_HOOK_FUNCTION(
         : hookCtx.result.account;
 
     auto const key = make_state_key(
-        std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
+        std::string_view{(char const*)(memory + kread_ptr), (size_t)kread_len});
 
     if (view.rules().enabled(fixXahauV1))
     {
@@ -1383,17 +1383,17 @@ hook::finalizeHookState(
     uint16_t changeCount = 0;
 
     // write all changes to state, if in "apply" mode
-    for (const auto& accEntry : stateMap)
+    for (auto const& accEntry : stateMap)
     {
-        const auto& acc = accEntry.first;
-        for (const auto& nsEntry : std::get<3>(accEntry.second))
+        auto const& acc = accEntry.first;
+        for (auto const& nsEntry : std::get<3>(accEntry.second))
         {
-            const auto& ns = nsEntry.first;
-            for (const auto& cacheEntry : nsEntry.second)
+            auto const& ns = nsEntry.first;
+            for (auto const& cacheEntry : nsEntry.second)
             {
                 bool is_modified = cacheEntry.second.first;
-                const auto& key = cacheEntry.first;
-                const auto& blob = cacheEntry.second.second;
+                auto const& key = cacheEntry.first;
+                auto const& blob = cacheEntry.second.second;
                 if (is_modified)
                 {
                     changeCount++;
@@ -1523,7 +1523,7 @@ hook::finalizeHookResult(
 
             applyCtx.app.getHashRouter().setFlags(id, SF_EMITTED);
 
-            std::shared_ptr<const ripple::STTx> ptr =
+            std::shared_ptr<ripple::STTx const> ptr =
                 tpTrans->getSTransaction();
 
             auto emittedId = keylet::emittedTxn(id);
@@ -1716,7 +1716,7 @@ DEFINE_HOOK_FUNCTION(
                                        : hookCtx.result.account;
 
     auto const key = make_state_key(
-        std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
+        std::string_view{(char const*)(memory + kread_ptr), (size_t)kread_len});
 
     if (!key)
         return INVALID_ARGUMENT;
@@ -2634,7 +2634,7 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     ripple::Slice txBlob{
-        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+        reinterpret_cast<void const*>(memory + read_ptr), read_len};
 
     auto const res = api.prepare(txBlob);
     if (!res)
@@ -2678,7 +2678,7 @@ DEFINE_HOOK_FUNCTION(
 
     // Delegate to decoupled HookAPI for emit logic
     ripple::Slice txBlob{
-        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+        reinterpret_cast<void const*>(memory + read_ptr), read_len};
 
     auto const res = api.emit(txBlob);
 
@@ -3268,11 +3268,11 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     ripple::Slice key{
-        reinterpret_cast<const void*>(kread_ptr + memory), kread_len};
+        reinterpret_cast<void const*>(kread_ptr + memory), kread_len};
     ripple::Slice data{
-        reinterpret_cast<const void*>(dread_ptr + memory), dread_len};
+        reinterpret_cast<void const*>(dread_ptr + memory), dread_len};
     ripple::Slice sig{
-        reinterpret_cast<const void*>(sread_ptr + memory), sread_len};
+        reinterpret_cast<void const*>(sread_ptr + memory), sread_len};
 
     auto const result = api.util_verify(data, sig, key);
     if (!result)
@@ -3305,7 +3305,7 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
     ripple::Slice tx{
-        reinterpret_cast<const void*>(read_ptr + memory), read_len};
+        reinterpret_cast<void const*>(read_ptr + memory), read_len};
     auto const fee_base = api.etxn_fee_base(tx);
     if (!fee_base)
         return fee_base.error();
@@ -3419,12 +3419,12 @@ DEFINE_HOOK_FUNCTION(
 
     // omit \0 if present
     if (read_len > 0 &&
-        *((const char*)memory + read_ptr + read_len - 1) == '\0')
+        *((char const*)memory + read_ptr + read_len - 1) == '\0')
         read_len--;
 
     auto const messageKey = (read_len == 0)
         ? ""
-        : std::string_view((const char*)memory + read_ptr, read_len);
+        : std::string_view((char const*)memory + read_ptr, read_len);
 
     if (float1 == 0)
     {

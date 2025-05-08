@@ -44,7 +44,7 @@ class JSSHasher
 {
 public:
     size_t
-    operator()(const Json::StaticString& n) const
+    operator()(Json::StaticString const& n) const
     {
         return std::hash<std::string_view>{}(n.c_str());
     }
@@ -54,7 +54,7 @@ class JSSEq
 {
 public:
     bool
-    operator()(const Json::StaticString& a, const Json::StaticString& b) const
+    operator()(Json::StaticString const& a, Json::StaticString const& b) const
     {
         return a == b;
     }
@@ -1156,7 +1156,7 @@ public:
         testcase("Checks partial nsdelete operation");
         using namespace jtx;
 
-        static const std::vector<uint8_t> hook = {
+        static std::vector<uint8_t> const hook = {
             0x00U, 0x61U, 0x73U, 0x6dU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
             0x21U, 0x05U, 0x60U, 0x02U, 0x7fU, 0x7fU, 0x01U, 0x7fU, 0x60U,
             0x02U, 0x7fU, 0x7fU, 0x01U, 0x7eU, 0x60U, 0x03U, 0x7fU, 0x7fU,
@@ -2533,21 +2533,21 @@ public:
             BEAST_EXPECT(hooks[0].getFieldH256(sfHookNamespace) == ns);
 
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookParameters));
-            const auto& p = hooks[0].getFieldArray(sfHookParameters);
+            auto const& p = hooks[0].getFieldArray(sfHookParameters);
             BEAST_REQUIRE(p.size() == 1);
             BEAST_REQUIRE(p[0].isFieldPresent(sfHookParameterName));
             BEAST_REQUIRE(p[0].isFieldPresent(sfHookParameterValue));
 
-            const auto pn = p[0].getFieldVL(sfHookParameterName);
+            auto const pn = p[0].getFieldVL(sfHookParameterName);
             BEAST_REQUIRE(pn.size() == 2);
             BEAST_REQUIRE(pn[0] == 0xCAU && pn[1] == 0xFEU);
 
-            const auto pv = p[0].getFieldVL(sfHookParameterValue);
+            auto const pv = p[0].getFieldVL(sfHookParameterValue);
             BEAST_REQUIRE(pv.size() == 2);
             BEAST_REQUIRE(pv[0] == 0xBAU && pv[1] == 0xBEU);
 
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookGrants));
-            const auto& g = hooks[0].getFieldArray(sfHookGrants);
+            auto const& g = hooks[0].getFieldArray(sfHookGrants);
             BEAST_REQUIRE(g.size() == 1);
             BEAST_REQUIRE(g[0].isFieldPresent(sfHookHash));
             BEAST_REQUIRE(g[0].getFieldH256(sfHookHash) == accept_hash);
@@ -2643,15 +2643,15 @@ public:
 
             // check all the previous parameters plus the new ones
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookParameters));
-            const auto& p = hooks[0].getFieldArray(sfHookParameters);
+            auto const& p = hooks[0].getFieldArray(sfHookParameters);
             BEAST_REQUIRE(p.size() == params.size());
 
             std::set<ripple::Blob> already;
 
             for (uint8_t i = 0; i < params.size(); ++i)
             {
-                const auto pn = p[i].getFieldVL(sfHookParameterName);
-                const auto pv = p[i].getFieldVL(sfHookParameterValue);
+                auto const pn = p[i].getFieldVL(sfHookParameterName);
+                auto const pv = p[i].getFieldVL(sfHookParameterValue);
 
                 // make sure it's not a duplicate entry
                 BEAST_EXPECT(already.find(pn) == already.end());
@@ -2695,7 +2695,7 @@ public:
 
             // check there right number of parameters exist
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookParameters));
-            const auto& p = hooks[0].getFieldArray(sfHookParameters);
+            auto const& p = hooks[0].getFieldArray(sfHookParameters);
             BEAST_REQUIRE(p.size() == params.size());
 
             // and that they still have the expected values and that there are
@@ -2703,8 +2703,8 @@ public:
             std::set<ripple::Blob> already;
             for (uint8_t i = 0; i < params.size(); ++i)
             {
-                const auto pn = p[i].getFieldVL(sfHookParameterName);
-                const auto pv = p[i].getFieldVL(sfHookParameterValue);
+                auto const pn = p[i].getFieldVL(sfHookParameterName);
+                auto const pv = p[i].getFieldVL(sfHookParameterValue);
 
                 // make sure it's not a duplicate entry
                 BEAST_EXPECT(already.find(pn) == already.end());
@@ -2751,7 +2751,7 @@ public:
 
             // check there right number of parameters exist
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookParameters));
-            const auto& p = hooks[0].getFieldArray(sfHookParameters);
+            auto const& p = hooks[0].getFieldArray(sfHookParameters);
             BEAST_REQUIRE(p.size() == params.size());
 
             // and that they still have the expected values and that there are
@@ -2759,8 +2759,8 @@ public:
             std::set<ripple::Blob> already;
             for (uint8_t i = 0; i < params.size(); ++i)
             {
-                const auto pn = p[i].getFieldVL(sfHookParameterName);
-                const auto pv = p[i].getFieldVL(sfHookParameterValue);
+                auto const pn = p[i].getFieldVL(sfHookParameterName);
+                auto const pv = p[i].getFieldVL(sfHookParameterValue);
 
                 // make sure it's not a duplicate entry
                 BEAST_EXPECT(already.find(pn) == already.end());
@@ -9961,7 +9961,7 @@ public:
         testcase("Test state_foreign_set max");
         using namespace jtx;
 
-        static const std::vector<uint8_t> ns_maxHook_wasm = {
+        static std::vector<uint8_t> const ns_maxHook_wasm = {
             0x00U, 0x61U, 0x73U, 0x6dU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
             0x36U, 0x07U, 0x60U, 0x02U, 0x7fU, 0x7fU, 0x01U, 0x7fU, 0x60U,
             0x02U, 0x7fU, 0x7fU, 0x01U, 0x7eU, 0x60U, 0x03U, 0x7fU, 0x7fU,

@@ -95,7 +95,7 @@ increase(FeeLevel64 level, std::uint32_t increasePercent)
 void
 TxQ::debugTxInject(STTx const& txn)
 {
-    const std::lock_guard<std::mutex> _(debugTxInjectMutex);
+    std::lock_guard<std::mutex> const _(debugTxInjectMutex);
     debugTxInjectQueue.push_back(txn);
 }
 
@@ -343,7 +343,7 @@ TxQ::TxQAccount::TxQAccount(std::shared_ptr<STTx const> const& txn)
 {
 }
 
-TxQ::TxQAccount::TxQAccount(const AccountID& account_) : account(account_)
+TxQ::TxQAccount::TxQAccount(AccountID const& account_) : account(account_)
 {
 }
 
@@ -1769,11 +1769,11 @@ TxQ::accept(Application& app, OpenView& view)
             }
             else
             {
-                JLOG(j_.debug())
-                    << "Queued transaction " << candidateIter->txID
-                    << " failed with " << transToken(txnResult)
-                    << ". Leave in queue." << " Applied: " << didApply
-                    << ". Flags: " << candidateIter->flags;
+                JLOG(j_.debug()) << "Queued transaction " << candidateIter->txID
+                                 << " failed with " << transToken(txnResult)
+                                 << ". Leave in queue."
+                                 << " Applied: " << didApply
+                                 << ". Flags: " << candidateIter->flags;
                 if (account.retryPenalty && candidateIter->retriesRemaining > 2)
                     candidateIter->retriesRemaining = 1;
                 else
@@ -1951,7 +1951,7 @@ TxQ::tryDirectApply(
     auto const account = (*tx)[sfAccount];
     auto const sleAccount = view.read(keylet::account(account));
 
-    const bool isFirstImport = !sleAccount &&
+    bool const isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
     // Don't attempt to direct apply if the account is not in the ledger.

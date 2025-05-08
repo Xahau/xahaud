@@ -327,7 +327,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         {
             for (auto const& [rn, x] : ngdist)
             {
-                const char first = rn.c_str()[0];
+                char const first = rn.c_str()[0];
                 BEAST_EXPECT(
                     (first == 'r' && !!parseBase58<AccountID>(rn)) ||
                     first == 'n' &&
@@ -363,7 +363,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 params = XahauGenesis::GovernanceParameters;
             for (auto const& [rn, x] : l1membership)
             {
-                const char first = rn.c_str()[0];
+                char const first = rn.c_str()[0];
                 BEAST_EXPECT(
                     (first == 'r' && !!parseBase58<AccountID>(rn)) ||
                     first == 'n' &&

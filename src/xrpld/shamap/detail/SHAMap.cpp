@@ -565,7 +565,7 @@ SHAMap::firstBelow(
 
     return belowHelper(node, stack, branch, {init, cmp, incr});
 }
-static const boost::intrusive_ptr<SHAMapItem const> no_item;
+static boost::intrusive_ptr<SHAMapItem const> const no_item;
 
 boost::intrusive_ptr<SHAMapItem const> const&
 SHAMap::onlyBelow(SHAMapTreeNode* node) const
@@ -801,7 +801,7 @@ SHAMap::delItem(uint256 const& id)
         {
             // we may have made this a node with 1 or 0 children
             // And, if so, we need to remove this branch
-            const int bc = node->getBranchCount();
+            int const bc = node->getBranchCount();
             if (bc == 0)
             {
                 // no children below this branch

@@ -214,12 +214,12 @@ private:
 
     double
     calculateRate(
-        const SystemMetrics& current,
-        const std::vector<SystemMetrics>& samples,
+        SystemMetrics const& current,
+        std::vector<SystemMetrics> const& samples,
         size_t current_index,
         size_t max_samples,
         bool is_24h_window,
-        std::function<uint64_t(const SystemMetrics&)> metric_getter)
+        std::function<uint64_t(SystemMetrics const&)> metric_getter)
     {
         // If we don't have at least 2 samples, the rate is 0
         if (current_index < 2)
@@ -252,7 +252,7 @@ private:
         size_t oldest_index = (current_index >= max_samples)
             ? ((current_index + 1) % max_samples)
             : 0;
-        const auto& oldest = samples[oldest_index];
+        auto const& oldest = samples[oldest_index];
 
         double elapsed = actual_window_micros /
             1000000.0;  // Convert microseconds to seconds
@@ -278,8 +278,8 @@ private:
 
     MetricRates
     calculateMetricRates(
-        const SystemMetrics& current,
-        std::function<uint64_t(const SystemMetrics&)> metric_getter)
+        SystemMetrics const& current,
+        std::function<uint64_t(SystemMetrics const&)> metric_getter)
     {
         MetricRates rates;
         rates.rate_1m = calculateRate(
@@ -295,7 +295,7 @@ private:
 
 public:
     void
-    addSample(const SystemMetrics& metrics)
+    addSample(SystemMetrics const& metrics)
     {
         auto now = std::chrono::system_clock::now();
 
@@ -317,19 +317,19 @@ public:
     }
 
     AllRates
-    getRates(const SystemMetrics& current)
+    getRates(SystemMetrics const& current)
     {
         AllRates rates;
         rates.network_in = calculateMetricRates(
-            current, [](const SystemMetrics& m) { return m.network_bytes_in; });
+            current, [](SystemMetrics const& m) { return m.network_bytes_in; });
         rates.network_out = calculateMetricRates(
             current,
-            [](const SystemMetrics& m) { return m.network_bytes_out; });
+            [](SystemMetrics const& m) { return m.network_bytes_out; });
         rates.disk_read = calculateMetricRates(
-            current, [](const SystemMetrics& m) { return m.disk_bytes_read; });
+            current, [](SystemMetrics const& m) { return m.disk_bytes_read; });
         rates.disk_write = calculateMetricRates(
             current,
-            [](const SystemMetrics& m) { return m.disk_bytes_written; });
+            [](SystemMetrics const& m) { return m.disk_bytes_written; });
         return rates;
     }
 };
@@ -501,7 +501,7 @@ private:
 
             count = physical_ids.size();
         }
-        catch (const std::exception& e)
+        catch (std::exception const& e)
         {
             JLOG(app_.journal("DatagramMonitor").error())
                 << "Error getting CPU count: " << e.what();
@@ -574,7 +574,7 @@ private:
             metrics.network_bytes_in = total_bytes_in;
             metrics.network_bytes_out = total_bytes_out;
         }
-        catch (const std::exception& e)
+        catch (std::exception const& e)
         {
             JLOG(app_.journal("DatagramMonitor").error())
                 << "Error collecting network stats: " << e.what();
@@ -635,7 +635,7 @@ private:
             metrics.disk_bytes_read = total_bytes_read;
             metrics.disk_bytes_written = total_bytes_written;
         }
-        catch (const std::exception& e)
+        catch (std::exception const& e)
         {
             JLOG(app_.journal("DatagramMonitor").error())
                 << "Error collecting disk stats: " << e.what();
@@ -671,7 +671,7 @@ private:
                 metrics.network_bytes_out = total_bytes_out;
             }
         }
-        catch (const std::exception& e)
+        catch (std::exception const& e)
         {
             JLOG(app_.journal("DatagramMonitor").error())
                 << "Error collecting network stats: " << e.what();
@@ -983,7 +983,7 @@ private:
                 }
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
-            catch (const std::exception& e)
+            catch (std::exception const& e)
             {
                 // Log error but continue monitoring
                 JLOG(app_.journal("DatagramMonitor").error())

@@ -100,7 +100,7 @@ private:
     {
         for (auto const& entry : magic_enum::enum_entries<EnumType>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             json[jss::TRANSACTION_FLAGS][key][STR(name)] =
                 static_cast<uint32_t>(entry.first);
         }
@@ -113,13 +113,13 @@ private:
         ret[jss::TYPES] = Json::objectValue;
 
         auto const translate = [](std::string inp) -> std::string {
-            auto replace = [&](const char* f, const char* r) -> std::string {
+            auto replace = [&](char const* f, char const* r) -> std::string {
                 std::string out = inp;
                 boost::replace_all(out, f, r);
                 return out;
             };
 
-            auto find = [&](const char* s) -> bool {
+            auto find = [&](char const* s) -> bool {
                 return inp.find(s) != std::string::npos;
             };
 
@@ -155,7 +155,7 @@ private:
             if (inp == "IMPORT_VLSEQ")
                 return "ImportVLSequence";
 
-            static const std::map<std::string, std::string>
+            static std::map<std::string, std::string> const
                 capitalization_exceptions = {
                     {"NFTOKEN", "NFToken"},
                     {"UNL", "UNL"},
@@ -198,7 +198,7 @@ private:
         std::map<int32_t, std::string> type_map{{-1, "Done"}};
         for (auto const& entry : magic_enum::enum_entries<SerializedTypeID>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             std::string type_name =
                 translate(name.data() + 4 /* remove STI_ */);
             int32_t type_value = static_cast<int32_t>(entry.first);
@@ -210,7 +210,7 @@ private:
         ret[jss::LEDGER_ENTRY_TYPES][jss::Invalid] = -1;
         for (auto const& entry : magic_enum::enum_entries<LedgerEntryType>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             std::string type_name = translate(name.data() + 2 /* remove lt_ */);
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::LEDGER_ENTRY_TYPES][type_name] = type_value;
@@ -332,37 +332,37 @@ private:
         ret[jss::TRANSACTION_RESULTS] = Json::objectValue;
         for (auto const& entry : magic_enum::enum_entries<TELcodes>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             ret[jss::TRANSACTION_RESULTS][STR(name)] =
                 static_cast<int32_t>(entry.first);
         }
         for (auto const& entry : magic_enum::enum_entries<TEMcodes>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             ret[jss::TRANSACTION_RESULTS][STR(name)] =
                 static_cast<int32_t>(entry.first);
         }
         for (auto const& entry : magic_enum::enum_entries<TEFcodes>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             ret[jss::TRANSACTION_RESULTS][STR(name)] =
                 static_cast<int32_t>(entry.first);
         }
         for (auto const& entry : magic_enum::enum_entries<TERcodes>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             ret[jss::TRANSACTION_RESULTS][STR(name)] =
                 static_cast<int32_t>(entry.first);
         }
         for (auto const& entry : magic_enum::enum_entries<TEScodes>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             ret[jss::TRANSACTION_RESULTS][STR(name)] =
                 static_cast<int32_t>(entry.first);
         }
         for (auto const& entry : magic_enum::enum_entries<TECcodes>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             ret[jss::TRANSACTION_RESULTS][STR(name)] =
                 static_cast<int32_t>(entry.first);
         }
@@ -391,7 +391,7 @@ private:
         ret[jss::TRANSACTION_TYPES][jss::Invalid] = -1;
         for (auto const& entry : magic_enum::enum_entries<TxType>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             std::string type_name = translate_tt(translate(name.data() + 2));
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::TRANSACTION_TYPES][type_name] = type_value;
@@ -461,7 +461,7 @@ private:
         ret[jss::TRANSACTION_FLAGS_INDICES] = Json::objectValue;
         for (auto const& entry : magic_enum::enum_entries<AccountFlags>())
         {
-            const auto name = entry.second;
+            auto const name = entry.second;
             ret[jss::TRANSACTION_FLAGS_INDICES]["AccountSet"][STR(name)] =
                 static_cast<uint32_t>(entry.first);
         }
@@ -470,7 +470,7 @@ private:
 
         // generate hash
         {
-            const std::string out = Json::FastWriter().write(ret);
+            std::string const out = Json::FastWriter().write(ret);
             defsHash =
                 ripple::sha512Half(ripple::Slice{out.data(), out.size()});
         }
@@ -488,7 +488,7 @@ public:
     {
         if (!defsHash)
         {
-            static const uint256 fallbackHash(
+            static uint256 const fallbackHash(
                 "DF4220E93ADC6F5569063A01B4DC79F8DB9553B6A3222ADE23DEA0");
             return fallbackHash;
         }
@@ -505,7 +505,7 @@ public:
 Json::Value
 getStaticServerDefinitions()
 {
-    static const Definitions defs{};
+    static Definitions const defs{};
     Json::Value ret = defs();
     ret[jss::hash] = to_string(defs.getHash());
     return ret;
@@ -551,13 +551,13 @@ doServerDefinitions(RPC::JsonContext& context)
 
         lastFeatures = features;
         {
-            const std::string out = Json::FastWriter().write(features);
+            std::string const out = Json::FastWriter().write(features);
             lastFeatureHash =
                 ripple::sha512Half(ripple::Slice{out.data(), out.size()});
         }
     }
 
-    static const Definitions defs{};
+    static Definitions const defs{};
 
     // the hash is the xor of the two parts
     uint256 retHash = lastFeatureHash ^ defs.getHash();

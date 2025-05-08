@@ -348,14 +348,14 @@ Logs::format(
     // 1. Logging starts before config parsing (needed to debug config issues)
     // 2. This is a developer feature - devs can easily set env vars
     // 3. Allows per-run overrides without editing config files
-    static const char* fmt = []() {
-        const char* env = std::getenv("LOG_DATE_FORMAT");
+    static char const* fmt = []() {
+        char const* env = std::getenv("LOG_DATE_FORMAT");
         return env ? env : "%Y-%b-%d %T %Z";  // Default format
     }();
 
     // Check if we should use local time
-    static const bool useLocalTime = []() {
-        const char* env = std::getenv("LOG_DATE_LOCAL");
+    static bool const useLocalTime = []() {
+        char const* env = std::getenv("LOG_DATE_LOCAL");
         return env && std::strcmp(env, "1") == 0;
     }();
 

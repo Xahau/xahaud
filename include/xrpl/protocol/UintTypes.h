@@ -85,7 +85,7 @@ isXRP(Currency const& c)
 inline bool
 isBadCurrency(Currency const& c)
 {
-    static const std::set<Currency> badCurrencies{
+    static std::set<Currency> const badCurrencies{
         Currency(0x7861680000000000),  // xah
         Currency(0x7861480000000000),  // xaH
         Currency(0x7841680000000000),  // xAh
