@@ -2762,7 +2762,7 @@ class Import_test : public beast::unit_test::suite
             const AccountID ACCOUNT_ZERO(0);
             jv["RegularKey"] = to_string(ACCOUNT_ZERO);
             jv[jss::TransactionType] = jss::SetRegularKey;
-            env(jv, alice);
+            env(jv);
 
             // Disable Master Key
             env(fset(alice, asfDisableMaster), sig(alice));
@@ -2794,7 +2794,7 @@ class Import_test : public beast::unit_test::suite
             const AccountID ACCOUNT_ONE(1);
             jv["RegularKey"] = to_string(ACCOUNT_ONE);
             jv[jss::TransactionType] = jss::SetRegularKey;
-            env(jv, alice);
+            env(jv);
 
             // Disable Master Key
             env(fset(alice, asfDisableMaster), sig(alice));
@@ -2826,7 +2826,7 @@ class Import_test : public beast::unit_test::suite
             const AccountID ACCOUNT_TWO(2);
             jv["RegularKey"] = to_string(ACCOUNT_TWO);
             jv[jss::TransactionType] = jss::SetRegularKey;
-            env(jv, alice);
+            env(jv);
 
             // Disable Master Key
             env(fset(alice, asfDisableMaster), sig(alice));
@@ -2858,7 +2858,7 @@ class Import_test : public beast::unit_test::suite
             const AccountID ACCOUNT_ZERO(0);
             jv["RegularKey"] = to_string(ACCOUNT_ZERO);
             jv[jss::TransactionType] = jss::SetRegularKey;
-            env(jv, alice);
+            env(jv);
 
             // Disable Master Key
             env(fset(alice, asfDisableMaster), sig(alice));
@@ -3122,7 +3122,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(bob, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, bob, ter(temMALFORMED));
+            env(tx, ter(temMALFORMED));
             env.close();
 
             // confirm fee was minted
@@ -3176,7 +3176,7 @@ class Import_test : public beast::unit_test::suite
                 alice, import::loadXpop(ImportTCAccountSet::w_seed));
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
@@ -3237,7 +3237,7 @@ class Import_test : public beast::unit_test::suite
                 alice, import::loadXpop(ImportTCAccountSet::w_regular_key));
             txBad[jss::Sequence] = 0;
             txBad[jss::Fee] = 0;
-            env(txBad, alice, sig(carol), ter(temMALFORMED));
+            env(txBad, sig(carol), ter(temMALFORMED));
             env.close();
 
             // confirm fee was not minted
@@ -3289,7 +3289,7 @@ class Import_test : public beast::unit_test::suite
                 alice, import::loadXpop(ImportTCAccountSet::w_regular_key));
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env(tx, sig(bob), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
@@ -3358,7 +3358,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, msig(bob, carol), ter(tesSUCCESS));
+            env(tx, msig(bob, carol), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
@@ -3483,7 +3483,7 @@ class Import_test : public beast::unit_test::suite
             auto const xpopJson =
                 import::loadXpop(ImportTCAccountSet::w_regular_key);
             Json::Value const tx = import::import(alice, xpopJson);
-            env(tx, alice, sig(bob), fee(10 * 10), ter(tesSUCCESS));
+            env(tx, sig(bob), fee(10 * 10), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - feeDrops
@@ -3546,7 +3546,6 @@ class Import_test : public beast::unit_test::suite
                 import::loadXpop(ImportTCAccountSet::w_signers);
             Json::Value const tx = import::import(alice, xpopJson);
             env(tx,
-                alice,
                 msig(bob, carol),
                 fee((3 * feeDrops) * 10),
                 ter(tesSUCCESS));
@@ -3691,7 +3690,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + reward amount
@@ -3753,7 +3752,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env(tx, sig(bob), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops - initial value
@@ -3817,7 +3816,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, msig(bob, carol), ter(tesSUCCESS));
+            env(tx, msig(bob, carol), ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + reward amount
@@ -4380,7 +4379,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // confirm lsfPasswordSpent is set
@@ -4472,7 +4471,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             // tx[jss::Fee] = 0;
-            env(tx, alice, ter(temBAD_FEE));
+            env(tx, ter(temBAD_FEE));
             env.close();
         }
 
@@ -4516,7 +4515,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = (burn drops + burn fee drops) - reward
@@ -4601,7 +4600,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, sig(bob), ter(tesSUCCESS));
+            env(tx, sig(bob), ter(tesSUCCESS));
             env.close();
 
             // total burn = (burn drops + burn fee drops) - fee drops
@@ -4692,7 +4691,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, msig(bob, carol), ter(tesSUCCESS));
+            env(tx, msig(bob, carol), ter(tesSUCCESS));
             env.close();
 
             // confirm signers set
@@ -5575,7 +5574,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             auto const postAlice = env.balance(alice);
@@ -5619,7 +5618,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             auto const postAlice = env.balance(alice);
@@ -5656,7 +5655,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tefINTERNAL));
+            env(tx, ter(tefINTERNAL));
             env.close();
 
             auto const postAlice = env.balance(alice);
@@ -5707,7 +5706,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + reward amount
@@ -5766,7 +5765,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + reward amount
@@ -5822,7 +5821,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + reward amount
@@ -5882,7 +5881,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -5927,7 +5926,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -5973,7 +5972,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -6017,7 +6016,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -6061,7 +6060,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -6105,7 +6104,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -6150,7 +6149,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -6192,7 +6191,7 @@ class Import_test : public beast::unit_test::suite
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
-            env(tx, alice, ter(tesSUCCESS));
+            env(tx, ter(tesSUCCESS));
             env.close();
 
             // total burn = burn drops + Init Reward
@@ -6223,7 +6222,7 @@ class Import_test : public beast::unit_test::suite
             const AccountID ACCOUNT_ZERO(0);
             jv["RegularKey"] = to_string(ACCOUNT_ZERO);
             jv[jss::TransactionType] = jss::SetRegularKey;
-            env(jv, acct);
+            env(jv);
 
             // Disable Master Key
             env(fset(acct, asfDisableMaster), sig(acct));

@@ -254,23 +254,9 @@ InnerObjectFormats::InnerObjectFormats()
             {sfCredentialType, soeREQUIRED},
         });
 
-    add(sfHighReward.jsonName,
-        sfHighReward.getCode(),
-        {
-            {sfRewardLgrFirst, soeREQUIRED},
-            {sfRewardLgrLast, soeREQUIRED},
-            {sfRewardTime, soeREQUIRED},
-            {sfTrustLineRewardAccumulator, soeREQUIRED},
-        });
-
-    add(sfLowReward.jsonName,
-        sfLowReward.getCode(),
-        {
-            {sfRewardLgrFirst, soeREQUIRED},
-            {sfRewardLgrLast, soeREQUIRED},
-            {sfRewardTime, soeREQUIRED},
-            {sfTrustLineRewardAccumulator, soeREQUIRED},
-        });
+    add(sfPermission.jsonName.c_str(),
+        sfPermission.getCode(),
+        {{sfPermissionValue, soeREQUIRED}});
 }
 
 InnerObjectFormats const&

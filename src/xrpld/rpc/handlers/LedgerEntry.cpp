@@ -261,6 +261,46 @@ parseAuthorizeCredentials(Json::Value const& jv)
 }
 
 static std::optional<uint256>
+parseDelegate(Json::Value const& params, Json::Value& jvResult)
+{
+    if (!params.isObject())
+    {
+        uint256 uNodeIndex;
+        if (!params.isString() || !uNodeIndex.parseHex(params.asString()))
+        {
+            jvResult[jss::error] = "malformedRequest";
+            return std::nullopt;
+        }
+        return uNodeIndex;
+    }
+    if (!params.isMember(jss::account) || !params.isMember(jss::authorize))
+    {
+        jvResult[jss::error] = "malformedRequest";
+        return std::nullopt;
+    }
+    if (!params[jss::account].isString() || !params[jss::authorize].isString())
+    {
+        jvResult[jss::error] = "malformedAddress";
+        return std::nullopt;
+    }
+    auto const account =
+        parseBase58<AccountID>(params[jss::account].asString());
+    if (!account)
+    {
+        jvResult[jss::error] = "malformedAddress";
+        return std::nullopt;
+    }
+    auto const authorize =
+        parseBase58<AccountID>(params[jss::authorize].asString());
+    if (!authorize)
+    {
+        jvResult[jss::error] = "malformedAddress";
+        return std::nullopt;
+    }
+    return keylet::delegate(*account, *authorize).key;
+}
+
+static std::optional<uint256>
 parseDepositPreauth(Json::Value const& dp, Json::Value& jvResult)
 {
     if (!dp.isObject())
@@ -1101,6 +1141,7 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::check, parseCheck, ltCHECK},
         {jss::credential, parseCredential, ltCREDENTIAL},
         {jss::cron, parseCron, ltCRON},
+        {jss::delegate, parseDelegate, ltDELEGATE},
         {jss::deposit_preauth, parseDepositPreauth, ltDEPOSIT_PREAUTH},
         {jss::did, parseDID, ltDID},
         {jss::directory, parseDirectory, ltDIR_NODE},

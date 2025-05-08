@@ -131,6 +131,13 @@ constexpr std::uint32_t tfTrustSetMask =
     ~(tfUniversal | tfSetfAuth | tfSetNoRipple | tfClearNoRipple | tfSetFreeze |
       tfClearFreeze | tfSetDeepFreeze | tfClearDeepFreeze);
 
+// valid flags for granular permission
+constexpr std::uint32_t tfTrustSetGranularMask = tfSetfAuth | tfSetFreeze | tfClearFreeze;
+
+// bits representing supportedGranularMask are set to 0 and the bits
+// representing other flags are set to 1 in tfPermissionMask.
+constexpr std::uint32_t tfTrustSetPermissionMask = (~tfTrustSetMask) & (~tfTrustSetGranularMask);
+
 // EnableAmendment flags:
 enum EnableAmendmentFlags : uint32_t {
     tfGotMajority = 0x00010000,
@@ -180,6 +187,8 @@ enum MPTokenIssuanceSetFlags : uint32_t {
     tfMPTUnlock = 0x00000002,
 };
 constexpr std::uint32_t const tfMPTokenIssuanceSetMask  = ~(tfUniversal | tfMPTLock | tfMPTUnlock);
+constexpr std::uint32_t const tfMPTokenIssuanceSetGranularMask = tfMPTLock | tfMPTUnlock;
+constexpr std::uint32_t const tfMPTokenIssuanceSetPermissionMask = (~tfMPTokenIssuanceSetMask) & (~tfMPTokenIssuanceSetGranularMask);
 
 // MPTokenIssuanceDestroy flags:
 constexpr std::uint32_t const tfMPTokenIssuanceDestroyMask  = ~tfUniversal;
