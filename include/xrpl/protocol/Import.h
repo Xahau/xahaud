@@ -88,7 +88,7 @@ syntaxCheckProof(
                 << "XPOP.transaction.proof list should be exactly 16 entries";
             return false;
         }
-        for (const auto& entry : proof)
+        for (auto const& entry : proof)
         {
             if (entry.isString())
             {
@@ -134,7 +134,7 @@ syntaxCheckProof(
             return syntaxCheckProof(proof["children"], j, depth + 1);
         }
 
-        for (const auto& branch : proof.getMemberNames())
+        for (auto const& branch : proof.getMemberNames())
         {
             // Upper case only: the txroot computation only looks up "0"-"F",
             // so any other key would be silently ignored.
@@ -148,7 +148,7 @@ syntaxCheckProof(
                 return false;
             }
 
-            const auto& node = proof[branch];
+            auto const& node = proof[branch];
             if (!node.isObject() || !node["hash"].isString() ||
                 node["hash"].asString().size() != 64 ||
                 !isHex(node["hash"].asString()) || !node["key"].isString() ||
@@ -342,9 +342,9 @@ syntaxCheckXPOP(Blob const& blob, beast::Journal const& j)
             return {};
         }
 
-        for (const auto& key : xpop["validation"]["data"].getMemberNames())
+        for (auto const& key : xpop["validation"]["data"].getMemberNames())
         {
-            const auto& value = xpop["validation"]["data"][key];
+            auto const& value = xpop["validation"]["data"][key];
             if (!isBase58(key) || !value.isString() || !isHex(value.asString()))
             {
                 JLOG(j.warn()) << "XPOP.validation.data entry has wrong format "
@@ -355,9 +355,9 @@ syntaxCheckXPOP(Blob const& blob, beast::Journal const& j)
         }
 
         uint32_t found = 0;
-        for (const auto& key : xpop["validation"]["unl"].getMemberNames())
+        for (auto const& key : xpop["validation"]["unl"].getMemberNames())
         {
-            const auto& value = xpop["validation"]["unl"][key];
+            auto const& value = xpop["validation"]["unl"][key];
             if (key == "public_key")
             {
                 if (!value.isString() || !isHex(value.asString()))

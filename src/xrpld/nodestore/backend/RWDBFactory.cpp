@@ -146,8 +146,8 @@ public:
             nodeobject_compress(encoded.getData(), encoded.getSize(), bf);
 
         std::vector<std::uint8_t> compressed(
-            static_cast<const std::uint8_t*>(result.first),
-            static_cast<const std::uint8_t*>(result.first) + result.second);
+            static_cast<std::uint8_t const*>(result.first),
+            static_cast<std::uint8_t const*>(result.first) + result.second);
 
         std::unique_lock lock(mutex_);
         if (!isOpen_)
@@ -180,7 +180,7 @@ public:
         std::shared_lock lock(mutex_);
         if (!isOpen_)
             return;
-        for (const auto& entry : table_)
+        for (auto const& entry : table_)
         {
             nudb::detail::buffer bf;
             auto const result = nodeobject_decompress(

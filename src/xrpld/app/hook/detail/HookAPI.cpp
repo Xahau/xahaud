@@ -1570,7 +1570,7 @@ HookAPI::otxn_generation() const
     return hookCtx.generation;
 }
 
-Expected<const STBase*, HookReturnCode>
+Expected<STBase const*, HookReturnCode>
 HookAPI::otxn_field(uint32_t field_id) const
 {
     SField const& fieldType = ripple::SField::getField(field_id);
@@ -2243,7 +2243,7 @@ HookAPI::state_foreign_set(
 
 /// slot APIs
 
-Expected<const STBase*, HookReturnCode>
+Expected<STBase const*, HookReturnCode>
 HookAPI::slot(uint32_t slot_no) const
 {
     if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
@@ -2291,7 +2291,7 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
     if (slot_no == 0 && no_free_slots())
         return Unexpected(NO_FREE_SLOTS);
 
-    std::optional<std::shared_ptr<const ripple::STObject>> slot_value =
+    std::optional<std::shared_ptr<ripple::STObject const>> slot_value =
         std::nullopt;
 
     if (data.size() == 34)
@@ -2421,7 +2421,7 @@ HookAPI::slot_subarray(
         hookCtx.slot[new_slot].entry = &(parent_obj[array_id]);
         return new_slot;
     }
-    catch (const std::bad_cast& e)
+    catch (std::bad_cast const& e)
     {
         if (copied)
         {
@@ -2486,7 +2486,7 @@ HookAPI::slot_subfield(
         hookCtx.slot[new_slot].entry = &(parent_obj.getField(fieldCode));
         return new_slot;
     }
-    catch (const std::bad_cast& e)
+    catch (std::bad_cast const& e)
     {
         if (copied)
         {
@@ -2524,7 +2524,7 @@ HookAPI::slot_type(uint32_t slot_no, uint32_t flags) const
 
         return Unexpected(INVALID_ARGUMENT);
     }
-    catch (const std::bad_cast& e)
+    catch (std::bad_cast const& e)
     {
         return Unexpected(INTERNAL_ERROR);
     }
@@ -2579,7 +2579,7 @@ HookAPI::slot_float(uint32_t slot_no) const
             return 0;  // return 0 in this case
         return normalized;
     }
-    catch (const std::bad_cast& e)
+    catch (std::bad_cast const& e)
     {
         return Unexpected(NOT_AN_AMOUNT);
     }

@@ -157,7 +157,7 @@ public:
         ScopedStream(Sink& sink, Severity level);
 
 #ifdef BEAST_ENHANCED_LOGGING
-        ScopedStream(Sink& sink, Severity level, const char* file, int line);
+        ScopedStream(Sink& sink, Severity level, char const* file, int line);
 #endif
 
         template <typename T>
@@ -188,7 +188,7 @@ public:
         Severity const m_level;
         std::ostringstream mutable m_ostream;
 #ifdef BEAST_ENHANCED_LOGGING
-        const char* file_ = nullptr;
+        char const* file_ = nullptr;
         int line_ = 0;
 #endif
     };
@@ -216,7 +216,7 @@ public:
     class StreamWithLocation
     {
     public:
-        StreamWithLocation(Stream const& stream, const char* file, int line)
+        StreamWithLocation(Stream const& stream, char const* file, int line)
             : file_(file), line_(line), stream_(stream)
         {
         }
@@ -230,9 +230,9 @@ public:
         operator<<(std::ostream& manip(std::ostream&)) const;
 
     private:
-        const char* file_;
+        char const* file_;
         int line_;
-        const Stream& stream_;
+        Stream const& stream_;
     };
 #endif
 
@@ -306,7 +306,7 @@ public:
 #ifdef BEAST_ENHANCED_LOGGING
         /** Create a StreamWithLocation that prepends file:line info */
         StreamWithLocation
-        withLocation(const char* file, int line) const
+        withLocation(char const* file, int line) const
         {
             return StreamWithLocation(*this, file, line);
         }

@@ -141,7 +141,7 @@ public:
     getPinnedLedgersRangeSet();
 
     void
-    setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set);
+    setPinnedLedgersRangeSet(RangeSet<std::uint32_t> const& range_set);
 
     /** Apply held transactions to the open ledger
         This is normally called as we close the ledger.
@@ -365,7 +365,7 @@ private:
     // Returns true if work started.  Always called with m_mutex locked.
     // The passed lock is a reminder to callers.
     bool
-    newPFWork(const char* name, std::unique_lock<std::recursive_mutex>&);
+    newPFWork(char const* name, std::unique_lock<std::recursive_mutex>&);
 
     Application& app_;
     beast::Journal m_journal;

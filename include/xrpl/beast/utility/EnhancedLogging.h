@@ -32,14 +32,14 @@ should_log_use_colors();
 
 // Get the log highlight color - can be overridden via
 // LOG_HIGHLIGHT_COLOR
-const char*
+char const*
 get_log_highlight_color();
 
 // Strip source root path from __FILE__ at compile time
 // IMPORTANT: This MUST stay in the header as constexpr for compile-time
 // evaluation!
-constexpr const char*
-strip_source_root(const char* file)
+constexpr char const*
+strip_source_root(char const* file)
 {
     // Handle relative paths from build/ directory (common with ccache)
     // e.g., "../src/ripple/..." -> "ripple/..."
@@ -50,15 +50,15 @@ strip_source_root(const char* file)
     }
 
 #ifdef SOURCE_ROOT_PATH
-    constexpr const char* sourceRoot = SOURCE_ROOT_PATH;
-    constexpr auto strlen_constexpr = [](const char* s) constexpr {
-        const char* p = s;
+    constexpr char const* sourceRoot = SOURCE_ROOT_PATH;
+    constexpr auto strlen_constexpr = [](char const* s) constexpr {
+        char const* p = s;
         while (*p)
             ++p;
         return p - s;
     };
     constexpr auto strncmp_constexpr =
-        [](const char* a, const char* b, size_t n) constexpr {
+        [](char const* a, char const* b, size_t n) constexpr {
             for (size_t i = 0; i < n; ++i)
             {
                 if (a[i] != b[i])
@@ -83,7 +83,7 @@ should_show_location();
 
 // Helper to write location string (no leading/trailing space)
 void
-log_write_location_string(std::ostream& os, const char* file, int line);
+log_write_location_string(std::ostream& os, char const* file, int line);
 
 }  // namespace detail
 }  // namespace beast

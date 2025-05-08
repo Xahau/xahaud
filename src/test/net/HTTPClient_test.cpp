@@ -451,7 +451,7 @@ class HTTPClient_test : public beast::unit_test::suite
             megabytes(1),
             timeout,
             [&completed](
-                const boost::system::error_code&, int, std::string const&) {
+                boost::system::error_code const&, int, std::string const&) {
                 ++completed;
                 return false;
             },
@@ -941,7 +941,7 @@ class HTTPClient_test : public beast::unit_test::suite
                 megabytes(1),
                 std::chrono::seconds{2},
                 [&completed, &sawError](
-                    const boost::system::error_code& ecResult,
+                    boost::system::error_code const& ecResult,
                     int,
                     std::string const&) {
                     sawError = static_cast<bool>(ecResult);
@@ -992,7 +992,7 @@ class HTTPClient_test : public beast::unit_test::suite
                 megabytes(1),
                 std::chrono::seconds{2},
                 [&completed, &sawError, &data](
-                    const boost::system::error_code& ecResult,
+                    boost::system::error_code const& ecResult,
                     int,
                     std::string const& strData) {
                     sawError = static_cast<bool>(ecResult);
@@ -1154,7 +1154,7 @@ class HTTPClient_test : public beast::unit_test::suite
             megabytes(1),
             std::chrono::seconds{5},
             [&completed](
-                const boost::system::error_code&, int, std::string const&) {
+                boost::system::error_code const&, int, std::string const&) {
                 ++completed;
                 return false;
             },
@@ -1226,7 +1226,7 @@ class HTTPClient_test : public beast::unit_test::suite
                 megabytes(1),
                 std::chrono::seconds{5},
                 [&completed](
-                    const boost::system::error_code&, int, std::string const&) {
+                    boost::system::error_code const&, int, std::string const&) {
                     ++completed;
                     return false;
                 },
@@ -1289,7 +1289,7 @@ class HTTPClient_test : public beast::unit_test::suite
                 megabytes(1),
                 std::chrono::seconds{5},
                 [&completed](
-                    const boost::system::error_code&, int, std::string const&) {
+                    boost::system::error_code const&, int, std::string const&) {
                     ++completed;
                     return false;
                 },

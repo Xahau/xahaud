@@ -151,8 +151,7 @@ public:
         @return bool Whether the peer changed its vote. (A new vote counts as a
        change.)
     */
-    [[nodiscard]]
-    bool
+    [[nodiscard]] bool
     setVote(NodeID_t const& peer, bool votesYes);
 
     /** Remove a peer's vote

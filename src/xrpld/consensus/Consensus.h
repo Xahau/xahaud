@@ -649,7 +649,7 @@ private:
     Ledger_t previousLedger_;
 
     // Transaction Sets, indexed by hash of transaction tree
-    hash_map<typename TxSet_t::ID, const TxSet_t> acquired_;
+    hash_map<typename TxSet_t::ID, TxSet_t const> acquired_;
 
     std::optional<Result> result_;
     ConsensusCloseTimes rawCloseTimes_;
@@ -918,7 +918,7 @@ Consensus<Adaptor>::timerEntry(
     CLOG(clog) << "Set network adjusted time to " << to_string(now) << ". ";
 
     // Check we are on the proper ledger (this may change phase_)
-    const auto phaseOrig = phase_;
+    auto const phaseOrig = phase_;
     CLOG(clog) << "Phase " << to_string(phaseOrig) << ". ";
     checkLedger(clog);
     if (phaseOrig != phase_)
@@ -1167,8 +1167,8 @@ Consensus<Adaptor>::checkLedger(std::unique_ptr<std::stringstream> const& clog)
 
     auto netLgr =
         adaptor_.getPrevLedger(prevLedgerID_, previousLedger_, mode_.get());
-    CLOG(clog) << "network ledgerid " << netLgr << ",  " << "previous ledger "
-               << prevLedgerID_ << ". ";
+    CLOG(clog) << "network ledgerid " << netLgr << ",  "
+               << "previous ledger " << prevLedgerID_ << ". ";
 
     if (netLgr != prevLedgerID_)
     {
@@ -1259,7 +1259,8 @@ Consensus<Adaptor>::phaseOpen(std::unique_ptr<std::stringstream> const& clog)
         adaptor_.parms().ledgerIDLE_INTERVAL,
         2 * previousLedger_.closeTimeResolution());
     CLOG(clog) << "idle interval set to " << idleInterval.count()
-               << "ms based on " << "ledgerIDLE_INTERVAL: "
+               << "ms based on "
+               << "ledgerIDLE_INTERVAL: "
                << adaptor_.parms().ledgerIDLE_INTERVAL.count()
                << ", previous ledger close time resolution: "
                << previousLedger_.closeTimeResolution().count() << "ms. ";
@@ -1307,7 +1308,8 @@ Consensus<Adaptor>::shouldPause(
          << "roundTime: " << result_->roundTime.read().count() << ", "
          << "max consensus time: " << parms.ledgerMAX_CONSENSUS.count() << ", "
          << "validators: " << totalValidators << ", "
-         << "laggards: " << laggards << ", " << "offline: " << offline << ", "
+         << "laggards: " << laggards << ", "
+         << "offline: " << offline << ", "
          << "quorum: " << quorum << ")";
 
     if (!ahead || !laggards || !totalValidators || !adaptor_.validator() ||
@@ -1497,7 +1499,7 @@ Consensus<Adaptor>::closeLedger(std::unique_ptr<std::stringstream> const& clog)
     if (acquired_.emplace(result_->txns.id(), result_->txns).second)
         adaptor_.share(result_->txns);
 
-    const auto mode = mode_.get();
+    auto const mode = mode_.get();
     CLOG(clog)
         << "closeLedger transitioned to ConsensusPhase::establish, mode: "
         << to_string(mode)
@@ -1676,8 +1678,8 @@ Consensus<Adaptor>::updateOurPositions(
         if (!haveCloseTimeConsensus_)
         {
             JLOG(j_.debug())
-                << "No CT consensus:" << " Proposers:"
-                << currPeerPositions_.size()
+                << "No CT consensus:"
+                << " Proposers:" << currPeerPositions_.size()
                 << " Mode:" << to_string(mode_.get())
                 << " Thresh:" << threshConsensus
                 << " Pos:" << consensusCloseTime.time_since_epoch().count();

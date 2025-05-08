@@ -34,7 +34,7 @@ namespace detail {
 bool
 should_log_use_colors()
 {
-    static const bool use_colors = []() {
+    static bool const use_colors = []() {
         // Honor NO_COLOR environment variable (standard)
         if (std::getenv("NO_COLOR"))
             return false;
@@ -51,11 +51,11 @@ should_log_use_colors()
 
 // Get the log highlight color - can be overridden via
 // LOG_HIGHLIGHT_COLOR
-const char*
+char const*
 get_log_highlight_color()
 {
-    static const char* escape = []() {
-        const char* env = std::getenv("LOG_HIGHLIGHT_COLOR");
+    static char const* escape = []() {
+        char const* env = std::getenv("LOG_HIGHLIGHT_COLOR");
         if (!env)
             return "\033[36m";  // Default: cyan
 
@@ -91,8 +91,8 @@ get_log_highlight_color()
 bool
 should_show_location()
 {
-    static const bool show = []() {
-        const char* env = std::getenv("LOG_DISABLE");
+    static bool const show = []() {
+        char const* env = std::getenv("LOG_DISABLE");
         // Show location by default, hide if LOG_DISABLE=1
         return !env || std::strcmp(env, "1") != 0;
     }();
@@ -101,7 +101,7 @@ should_show_location()
 
 // Helper to write location string (no leading/trailing space)
 void
-log_write_location_string(std::ostream& os, const char* file, int line)
+log_write_location_string(std::ostream& os, char const* file, int line)
 {
     if (detail::should_log_use_colors())
     {

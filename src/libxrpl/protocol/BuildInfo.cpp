@@ -206,7 +206,7 @@ encodeSoftwareVersion(char const* versionStr)
 
     // extract and append build number as the final two bytes
     auto extractBuildNumber =
-        [](const std::string& str) noexcept -> std::optional<uint16_t> {
+        [](std::string const& str) noexcept -> std::optional<uint16_t> {
         size_t plusPos = str.find('+');
         if (plusPos == std::string::npos || plusPos == str.length() - 1)
             return std::nullopt;

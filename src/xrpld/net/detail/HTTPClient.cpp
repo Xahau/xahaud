@@ -96,7 +96,7 @@ public:
             void(boost::asio::streambuf& sb, std::string const& strHost)> build,
         std::chrono::seconds timeout,
         std::function<bool(
-            const boost::system::error_code& ecResult,
+            boost::system::error_code const& ecResult,
             int iStatus,
             std::string const& strData)> complete)
     {
@@ -117,7 +117,7 @@ public:
         std::string const& strPath,
         std::chrono::seconds timeout,
         std::function<bool(
-            const boost::system::error_code& ecResult,
+            boost::system::error_code const& ecResult,
             int iStatus,
             std::string const& strData)> complete)
     {
@@ -206,7 +206,7 @@ public:
     }
 
     void
-    handleDeadline(const boost::system::error_code& ecResult)
+    handleDeadline(boost::system::error_code const& ecResult)
     {
         if (ecResult == boost::asio::error::operation_aborted)
         {
@@ -280,7 +280,7 @@ public:
     }
 
     void
-    handleConnect(const boost::system::error_code& ecResult)
+    handleConnect(boost::system::error_code const& ecResult)
     {
         if (!mShutdown)
             mShutdown = ecResult;
@@ -324,7 +324,7 @@ public:
     }
 
     void
-    handleRequest(const boost::system::error_code& ecResult)
+    handleRequest(boost::system::error_code const& ecResult)
     {
         if (!mShutdown)
             mShutdown = ecResult;
@@ -353,7 +353,7 @@ public:
 
     void
     handleWrite(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         std::size_t bytes_transferred)
     {
         if (!mShutdown)
@@ -382,7 +382,7 @@ public:
 
     void
     handleHeader(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         std::size_t bytes_transferred)
     {
         // Preserve the deadline error instead of parsing a partial header
@@ -463,7 +463,7 @@ public:
 
     void
     handleData(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         std::size_t bytes_transferred)
     {
         if (!mShutdown)
@@ -497,7 +497,7 @@ public:
     // Call cancel the deadline timer and invoke the completion routine.
     void
     invokeComplete(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         int iStatus = 0,
         std::string const& strData = "")
     {
@@ -558,13 +558,13 @@ private:
     boost::asio::streambuf mResponse;
     std::string mBody;
     bool mReceivedContentLength = false;
-    const unsigned short mPort;
+    unsigned short const mPort;
     std::size_t const maxResponseSize_;
     int mStatus;
     std::function<void(boost::asio::streambuf& sb, std::string const& strHost)>
         mBuild;
     std::function<bool(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         int iStatus,
         std::string const& strData)>
         mComplete;
@@ -586,12 +586,12 @@ HTTPClient::get(
     bool bSSL,
     boost::asio::io_context& io_context,
     std::deque<std::string> deqSites,
-    const unsigned short port,
+    unsigned short const port,
     std::string const& strPath,
     std::size_t responseMax,
     std::chrono::seconds timeout,
     std::function<bool(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         int iStatus,
         std::string const& strData)> complete,
     beast::Journal& j)
@@ -606,12 +606,12 @@ HTTPClient::get(
     bool bSSL,
     boost::asio::io_context& io_context,
     std::string strSite,
-    const unsigned short port,
+    unsigned short const port,
     std::string const& strPath,
     std::size_t responseMax,
     std::chrono::seconds timeout,
     std::function<bool(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         int iStatus,
         std::string const& strData)> complete,
     beast::Journal& j)
@@ -628,13 +628,13 @@ HTTPClient::request(
     bool bSSL,
     boost::asio::io_context& io_context,
     std::string strSite,
-    const unsigned short port,
+    unsigned short const port,
     std::function<void(boost::asio::streambuf& sb, std::string const& strHost)>
         setRequest,
     std::size_t responseMax,
     std::chrono::seconds timeout,
     std::function<bool(
-        const boost::system::error_code& ecResult,
+        boost::system::error_code const& ecResult,
         int iStatus,
         std::string const& strData)> complete,
     beast::Journal& j)
