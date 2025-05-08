@@ -1702,7 +1702,7 @@ LedgerMaster::newOrderBookDB()
  */
 bool
 LedgerMaster::newPFWork(
-    const char* name,
+    char const* name,
     std::unique_lock<std::recursive_mutex>&)
 {
     if (!app_.isStopping() && mPathFindThread < 2 &&
@@ -1792,7 +1792,7 @@ LedgerMaster::getPinnedLedgersRangeSet()
 }
 
 void
-LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
+LedgerMaster::setPinnedLedgersRangeSet(RangeSet<std::uint32_t> const& range_set)
 {
     std::scoped_lock lock(mCompleteLock, mPinnedLock);
     if (!mPinnedLedgers.empty())

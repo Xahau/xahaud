@@ -52,7 +52,7 @@ struct LedgerRetryParams
 // Poll for ledger availability with retry logic
 // Returns nullptr if ledger cannot be retrieved within the timeout period
 std::shared_ptr<Ledger const>
-getLedgerWithRetry(const LedgerRetryParams& params)
+getLedgerWithRetry(LedgerRetryParams const& params)
 {
     auto start = std::chrono::steady_clock::now();
 
@@ -933,7 +933,7 @@ class Catalogue_test : public beast::unit_test::suite
             file.seekp(offsetof(TestCATLHeader, filesize), std::ios::beg);
             uint64_t wrongSize = 12345;  // Some arbitrary wrong size
             file.write(
-                reinterpret_cast<const char*>(&wrongSize), sizeof(wrongSize));
+                reinterpret_cast<char const*>(&wrongSize), sizeof(wrongSize));
             file.close();
 
             // Try to load the modified file
@@ -977,7 +977,7 @@ class Catalogue_test : public beast::unit_test::suite
         };
 
         uint64_t prevSize = 0;
-        for (const auto& test : compressionTests)
+        for (auto const& test : compressionTests)
         {
             std::string testName = test.first;
             Json::Value compressionLevel = test.second;

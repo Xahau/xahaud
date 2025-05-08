@@ -1182,7 +1182,7 @@ doLedgerEntry(RPC::JsonContext& context)
     try
     {
         bool found = false;
-        for (const auto& ledgerEntry : ledgerEntryParsers)
+        for (auto const& ledgerEntry : ledgerEntryParsers)
         {
             if (context.params.isMember(ledgerEntry.fieldName))
             {

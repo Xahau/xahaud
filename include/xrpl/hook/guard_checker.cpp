@@ -16,7 +16,7 @@
 int
 main(int argc, char** argv)
 {
-    const char* fin = 0;
+    char const* fin = 0;
 
     if (argc > 2)
         return fprintf(

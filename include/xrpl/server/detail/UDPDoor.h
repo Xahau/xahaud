@@ -187,10 +187,10 @@ private:
             return;
         }
 
-        const size_t HEADER_SIZE = 16;
-        const size_t MAX_DATAGRAM_SIZE =
+        size_t const HEADER_SIZE = 16;
+        size_t const MAX_DATAGRAM_SIZE =
             65487;  // Allow for ipv6 header 40 bytes + 8 bytes of udp header
-        const size_t MAX_PAYLOAD_SIZE = MAX_DATAGRAM_SIZE - HEADER_SIZE;
+        size_t const MAX_PAYLOAD_SIZE = MAX_DATAGRAM_SIZE - HEADER_SIZE;
 
         // Convert TCP endpoint back to UDP for sending
         boost::asio::ip::udp::endpoint udp_endpoint(
@@ -216,8 +216,8 @@ private:
         }
 
         // Calculate number of packets needed
-        const size_t payload_size = MAX_PAYLOAD_SIZE;
-        const uint16_t total_packets =
+        size_t const payload_size = MAX_PAYLOAD_SIZE;
+        uint16_t const total_packets =
             (response.length() + payload_size - 1) / payload_size;
 
         // Get current timestamp in microseconds

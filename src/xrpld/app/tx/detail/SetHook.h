@@ -107,7 +107,7 @@ private:
     destroyNamespace(
         SetHookCtx& ctx,
         ApplyView& view,
-        const AccountID& account,
+        AccountID const& account,
         uint256 ns);
 
     TER

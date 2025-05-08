@@ -36,7 +36,7 @@ RelationalDatabase::init(
     bool use_sqlite = false;
     bool use_rwdb = false;
 
-    const Section& rdb_section{config.section(SECTION_RELATIONAL_DB)};
+    Section const& rdb_section{config.section(SECTION_RELATIONAL_DB)};
     if (!rdb_section.empty())
     {
         if (!rdb_section.empty())

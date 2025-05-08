@@ -393,6 +393,7 @@ accountHolds(
     {
         amount.clear(Issue{currency, issuer});
     }
+
     JLOG(j.trace()) << "accountHolds:"
                     << " account=" << to_string(account)
                     << " amount=" << amount.getFullText();
@@ -543,7 +544,8 @@ xrpLiquid(
     STAmount const amount =
         (balance < reserve) ? STAmount{0} : balance - reserve;
 
-    JLOG(j.trace()) << "accountHolds:" << " account=" << to_string(id)
+    JLOG(j.trace()) << "accountHolds:"
+                    << " account=" << to_string(id)
                     << " amount=" << amount.getFullText()
                     << " fullBalance=" << fullBalance.getFullText()
                     << " balance=" << balance.getFullText()
@@ -688,7 +690,7 @@ areCompatible(
     ReadView const& validLedger,
     ReadView const& testLedger,
     beast::Journal::Stream& s,
-    const char* reason)
+    char const* reason)
 {
     bool ret = true;
 
@@ -752,7 +754,7 @@ areCompatible(
     LedgerIndex validIndex,
     ReadView const& testLedger,
     beast::Journal::Stream& s,
-    const char* reason)
+    char const* reason)
 {
     bool ret = true;
 
@@ -945,15 +947,15 @@ describeOwnerDir(AccountID const& account)
 TER
 trustCreate(
     ApplyView& view,
-    const bool bSrcHigh,
+    bool const bSrcHigh,
     AccountID const& uSrcAccountID,
     AccountID const& uDstAccountID,
     uint256 const& uIndex,      // --> ripple state entry
     SLE::ref sleAccount,        // --> the account being set.
-    const bool bAuth,           // --> authorize account.
-    const bool bNoRipple,       // --> others cannot ripple through
-    const bool bFreeze,         // --> funds cannot leave
-    const bool bDeepFreeze,     // --> can neither receive nor send funds
+    bool const bAuth,           // --> authorize account.
+    bool const bNoRipple,       // --> others cannot ripple through
+    bool const bFreeze,         // --> funds cannot leave
+    bool bDeepFreeze,           // --> can neither receive nor send funds
     STAmount const& saBalance,  // --> balance of account being set.
                                 // Issuer should be noAccount()
     STAmount const& saLimit,    // --> limit for account being set.
@@ -988,8 +990,8 @@ trustCreate(
     if (!highNode)
         return tecDIR_FULL;
 
-    const bool bSetDst = saLimit.getIssuer() == uDstAccountID;
-    const bool bSetHigh = bSrcHigh ^ bSetDst;
+    bool const bSetDst = saLimit.getIssuer() == uDstAccountID;
+    bool const bSetHigh = bSrcHigh ^ bSetDst;
 
     XRPL_ASSERT(sleAccount, "ripple::trustCreate : non-null SLE");
     if (!sleAccount)
@@ -1125,8 +1127,8 @@ isTrustDefault(
 
     uint32_t const acFlags = line->getFieldU32(sfFlags);
 
-    const auto fNoRipple{high ? lsfHighNoRipple : lsfLowNoRipple};
-    const auto fFreeze{high ? lsfHighFreeze : lsfLowFreeze};
+    auto const fNoRipple{high ? lsfHighNoRipple : lsfLowNoRipple};
+    auto const fFreeze{high ? lsfHighFreeze : lsfLowFreeze};
 
     if (tlFlags & fFreeze)
         return false;

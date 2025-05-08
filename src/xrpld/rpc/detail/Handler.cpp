@@ -229,7 +229,7 @@ private:
     }
 
     template <std::size_t N>
-    explicit HandlerTable(const Handler (&entries)[N])
+    explicit HandlerTable(Handler const (&entries)[N])
     {
         for (auto const& entry : entries)
         {

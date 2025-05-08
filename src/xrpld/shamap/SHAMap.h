@@ -515,9 +515,9 @@ private:
     struct MissingNodes
     {
         MissingNodes() = delete;
-        MissingNodes(const MissingNodes&) = delete;
+        MissingNodes(MissingNodes const&) = delete;
         MissingNodes&
-        operator=(const MissingNodes&) = delete;
+        operator=(MissingNodes const&) = delete;
 
         // basic parameters
         int max_;
