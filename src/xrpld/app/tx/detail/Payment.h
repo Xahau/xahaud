@@ -52,6 +52,9 @@ public:
     preflight(PreflightContext const& ctx);
 
     static TER
+    checkPermission(ReadView const& view, STTx const& tx);
+
+    static TER
     preclaim(PreclaimContext const& ctx);
 
     TER

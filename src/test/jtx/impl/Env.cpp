@@ -474,7 +474,7 @@ Env::txid() const
 }
 
 void
-Env::autofill_sig(JTx& jt, Account const& account)
+Env::autofill_sig(JTx& jt)
 {
     auto& jv = jt.jv;
     if (jt.signer)
@@ -482,6 +482,9 @@ Env::autofill_sig(JTx& jt, Account const& account)
     if (!jt.fill_sig)
         return;
 
+    auto const account = jv.isMember(sfDelegate.jsonName)
+        ? lookup(jv[sfDelegate.jsonName].asString())
+        : lookup(jv[jss::Account].asString());
     if (!app().checkSigs())
     {
         jv[jss::SigningPubKey] = strHex(account.pk().slice());
@@ -497,7 +500,7 @@ Env::autofill_sig(JTx& jt, Account const& account)
 }
 
 void
-Env::acct_autofill(JTx& jt, Account const& account)
+Env::acct_autofill(JTx& jt)
 {
     auto& jv = jt.jv;
     if (jt.fill_fee)
@@ -512,7 +515,7 @@ Env::acct_autofill(JTx& jt, Account const& account)
     // Must come last
     try
     {
-        autofill_sig(jt, account);
+        autofill_sig(jt);
     }
     catch (parse_error const&)
     {
@@ -540,8 +543,7 @@ Env::autofill(JTx& jt)
     // Must come last
     try
     {
-        auto const account = lookup(jv[jss::Account].asString());
-        autofill_sig(jt, account);
+        autofill_sig(jt);
     }
     catch (parse_error const&)
     {

@@ -19,6 +19,7 @@
 
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
+#include <test/jtx/delegate.h>
 #include <test/jtx/hook.h>
 #include <test/jtx/xchain_bridge.h>
 
@@ -824,6 +825,21 @@ private:
             ter(tecHOOK_REJECTED));
         env.close();
         BEAST_EXPECT(!env.le(keylet::manifest(alice.pk())));
+    }
+
+    void
+    testDelegate(FeatureBitset const& features)
+    {
+        testcase("DelegateSet");
+        using namespace jtx;
+        Env env{*this, features | featurePermissionDelegation};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(
+            env, alice, delegate::set(alice, bob, {"Payment"}), ltDELEGATE);
     }
 
     void

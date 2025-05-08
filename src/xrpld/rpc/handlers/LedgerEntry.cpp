@@ -253,6 +253,27 @@ parseAuthorizeCredentials(Json::Value const& jv)
 }
 
 static Expected<uint256, Json::Value>
+parseDelegate(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const account = LedgerEntryHelpers::requiredAccountID(
+        params, jss::account, "malformedAddress");
+    if (!account)
+        return Unexpected(account.error());
+
+    auto const authorize = LedgerEntryHelpers::requiredAccountID(
+        params, jss::authorize, "malformedAddress");
+    if (!authorize)
+        return Unexpected(authorize.error());
+
+    return keylet::delegate(*account, *authorize).key;
+}
+
+static Expected<uint256, Json::Value>
 parseDepositPreauth(Json::Value const& dp, Json::StaticString const fieldName)
 {
     if (!dp.isObject())

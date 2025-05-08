@@ -21,6 +21,7 @@
 #include <test/jtx.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/attester.h>
+#include <test/jtx/delegate.h>
 #include <test/jtx/multisign.h>
 #include <test/jtx/xchain_bridge.h>
 
@@ -60,6 +61,7 @@ enum class FieldType {
 std::vector<std::pair<Json::StaticString, FieldType>> mappings{
     {jss::account, FieldType::AccountField},
     {jss::accounts, FieldType::TwoAccountArrayField},
+    {jss::authorize, FieldType::AccountField},
     {jss::authorized, FieldType::AccountField},
     {jss::credential_type, FieldType::BlobField},
     {jss::currency, FieldType::CurrencyField},
@@ -847,6 +849,61 @@ class LedgerEntry_test : public beast::unit_test::suite
                 jss::cron,
                 {{jss::time, "malformedRequest"},
                  {jss::owner, "malformedAddress"}});
+        }
+    }
+
+    void
+    testLedgerEntryDelegate()
+    {
+        testcase("Delegate");
+
+        using namespace test::jtx;
+
+        Env env{*this, supported_amendments() | featurePermissionDelegation};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        env(delegate::set(alice, bob, {"Payment", "CheckCreate"}));
+        env.close();
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+        std::string delegateIndex;
+        {
+            // Request by account and authorize
+            Json::Value jvParams;
+            jvParams[jss::delegate][jss::account] = alice.human();
+            jvParams[jss::delegate][jss::authorize] = bob.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(
+                jrr[jss::node][sfLedgerEntryType.jsonName] == jss::Delegate);
+            BEAST_EXPECT(jrr[jss::node][sfAccount.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfAuthorize.jsonName] == bob.human());
+            delegateIndex = jrr[jss::node][jss::index].asString();
+        }
+        {
+            // Request by index.
+            Json::Value jvParams;
+            jvParams[jss::delegate] = delegateIndex;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(
+                jrr[jss::node][sfLedgerEntryType.jsonName] == jss::Delegate);
+            BEAST_EXPECT(jrr[jss::node][sfAccount.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfAuthorize.jsonName] == bob.human());
+        }
+
+        {
+            // Check all malformed cases
+            runLedgerEntryTest(
+                env,
+                jss::delegate,
+                {
+                    {jss::account, "malformedAddress"},
+                    {jss::authorize, "malformedAddress"},
+                });
         }
     }
 
@@ -2889,6 +2946,7 @@ public:
         testLedgerEntryCheck();
         testLedgerEntryCredentials();
         testLedgerEntryCron();
+        testLedgerEntryDelegate();
         testLedgerEntryDepositPreauth();
         testLedgerEntryDepositPreauthCred();
         testLedgerEntryDirectory();

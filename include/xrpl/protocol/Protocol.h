@@ -211,6 +211,10 @@ std::size_t constexpr maxTrim = 25;
 std::uint64_t constexpr txTimeMaxAgeMs = 300'000;
 std::uint64_t constexpr txTimeMaxFutureMs = 120'000;
 
+/** The maximum number of delegate permissions an account can grant
+ */
+std::size_t constexpr permissionMaxSize = 10;
+
 }  // namespace ripple
 
 #endif

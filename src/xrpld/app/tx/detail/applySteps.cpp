@@ -60,8 +60,8 @@ with_txn_type(TxType txnType, F&& f)
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, amendment, fields) \
-    case tag:                                            \
+#define TRANSACTION(tag, value, name, delegatable, amendment, fields) \
+    case tag:                                                         \
         return f.template operator()<name>();
 
 #include <xrpl/protocol/detail/transactions.macro>
@@ -165,6 +165,11 @@ invoke_preclaim(PreclaimContext const& ctx)
                 result = T::checkFee(ctx, calculateBaseFee(ctx.view, ctx.tx));
 
                 if (!isTesSuccess(result))
+                    return result;
+
+                result = T::checkPermission(ctx.view, ctx.tx);
+
+                if (result != tesSUCCESS)
                     return result;
 
                 result = T::checkSign(ctx);
