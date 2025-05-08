@@ -6,7 +6,7 @@ namespace ripple {
 // RH TODO: there's definitely a mucher nicer way to do this, but it involves
 // modifying the base_uint class and we don't want to do that yet.
 
-static const std::array<ripple::uint256, 256> UINT256_BIT = {
+static std::array<ripple::uint256, 256> const UINT256_BIT = {
     ripple::uint256(
         "0000000000000000000000000000000000000000000000000000000000000001"),
     ripple::uint256(

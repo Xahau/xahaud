@@ -3166,7 +3166,7 @@ public:
             StubHookContext stubCtx{};
             stubCtx.slot[3] = {
                 .storage =
-                    std::reinterpret_pointer_cast<const STObject>(storage),
+                    std::reinterpret_pointer_cast<STObject const>(storage),
                 .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
@@ -3320,7 +3320,7 @@ public:
             StubHookContext stubCtx{};
             stubCtx.slot[1] = {
                 .storage =
-                    std::reinterpret_pointer_cast<const STObject>(storage),
+                    std::reinterpret_pointer_cast<STObject const>(storage),
                 .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);

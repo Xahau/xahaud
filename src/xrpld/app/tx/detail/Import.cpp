@@ -337,7 +337,7 @@ Import::preflight(PreflightContext const& ctx)
     // check inner txns signature
     // we do this with a custom ruleset which should be kept up to date with
     // network 0's signing rules
-    const std::unordered_set<uint256, beast::uhash<>> rulesFeatures{
+    std::unordered_set<uint256, beast::uhash<>> const rulesFeatures{
         featureExpandedSignerList};
     if (!stpTrans->checkSign(
             STTx::RequireFullyCanonicalSig::yes, Rules(rulesFeatures)))
@@ -534,7 +534,7 @@ Import::preflight(PreflightContext const& ctx)
         auto hashProof = [](Json::Value const& proof,
                             int depth = 0,
                             auto const& hashProof = nullptr) -> uint256 {
-            const uint256 nullhash;
+            uint256 const nullhash;
 
             if (depth > 32)
                 return nullhash;
@@ -548,7 +548,7 @@ Import::preflight(PreflightContext const& ctx)
 
             if (proof.isArray())
             {
-                for (const auto& entry : proof)
+                for (auto const& entry : proof)
                 {
                     if (entry.isString())
                     {
@@ -717,7 +717,7 @@ Import::preflight(PreflightContext const& ctx)
     {
         auto const& data = (*xpop)[jss::validation][jss::data];
         std::set<std::string> used_key;
-        for (const auto& key : data.getMemberNames())
+        for (auto const& key : data.getMemberNames())
         {
             auto nodepub = key;
             auto const datakey = nodepub;
@@ -921,9 +921,9 @@ Import::preclaim(PreclaimContext const& ctx)
             if (sle->isFieldPresent(sfRegularKey))
             {
                 AccountID rk = sle->getAccountID(sfRegularKey);
-                static const AccountID ACCOUNT_ZERO(0);
-                static const AccountID ACCOUNT_ONE(1);
-                static const AccountID ACCOUNT_TWO(2);
+                static AccountID const ACCOUNT_ZERO(0);
+                static AccountID const ACCOUNT_ONE(1);
+                static AccountID const ACCOUNT_TWO(2);
 
                 if (rk != ACCOUNT_ZERO && rk != ACCOUNT_ONE &&
                     rk != ACCOUNT_TWO)

@@ -20,7 +20,7 @@ namespace hook_api {
 struct Rules
 {
     constexpr bool
-    enabled(const uint256& feature) const
+    enabled(uint256 const& feature) const
     {
         return true;
     }
@@ -393,12 +393,12 @@ enum ExitType : uint8_t {
     ACCEPT = 3,
 };
 
-const uint16_t max_state_modifications = 256;
-const uint8_t max_slots = 255;
-const uint8_t max_nonce = 255;
-const uint8_t max_emit = 255;
-const uint8_t max_params = 16;
-const double fee_base_multiplier = 1.1f;
+uint16_t const max_state_modifications = 256;
+uint8_t const max_slots = 255;
+uint8_t const max_nonce = 255;
+uint8_t const max_emit = 255;
+uint8_t const max_params = 16;
+double const fee_base_multiplier = 1.1f;
 
 using APIWhitelist = std::map<std::string, std::vector<uint8_t>>;
 

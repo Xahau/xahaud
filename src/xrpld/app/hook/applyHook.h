@@ -183,8 +183,8 @@ class HookExecutor;
 
 struct SlotEntry
 {
-    std::shared_ptr<const ripple::STObject> storage;
-    const ripple::STBase* entry;  // raw pointer into the storage, that can be
+    std::shared_ptr<ripple::STObject const> storage;
+    ripple::STBase const* entry;  // raw pointer into the storage, that can be
                                   // freely pointed around inside
 };
 
@@ -217,7 +217,7 @@ struct HookContext
         emitFailure;  // if this is a callback from a failed
                       // emitted txn then this optional becomes
                       // populated with the SLE
-    const HookExecutor* module = 0;
+    HookExecutor const* module = 0;
 
     // Lazy-initialized HookAPI member
     mutable std::unique_ptr<HookAPI> api_;
@@ -360,7 +360,7 @@ public:
         if (WasmEdge_ResultOK(res))
             return {};
 
-        const char* msg = WasmEdge_ResultGetMessage(res);
+        char const* msg = WasmEdge_ResultGetMessage(res);
         return prefix + ": " + (msg ? msg : "unknown error");
     }
 
@@ -368,7 +368,7 @@ public:
      * Validate that a web assembly blob can be loaded by wasmedge
      */
     static std::optional<std::string>
-    validateWasm(const void* wasm, size_t len)
+    validateWasm(void const* wasm, size_t len)
     {
         WasmEdgeVM vm;
 
@@ -376,7 +376,7 @@ public:
             return "Could not create WASMEDGE instance";
 
         WasmEdge_Result res = WasmEdge_VMLoadWasmFromBuffer(
-            vm.ctx, reinterpret_cast<const uint8_t*>(wasm), len);
+            vm.ctx, reinterpret_cast<uint8_t const*>(wasm), len);
 
         if (auto err = getWasmError("VMLoadWasmFromBuffer failed", res); err)
             return *err;
@@ -397,7 +397,7 @@ public:
      */
     void
     executeWasm(
-        const void* wasm,
+        void const* wasm,
         size_t len,
         bool callback,
         uint32_t wasmParam,
@@ -441,7 +441,7 @@ public:
 
         res = WasmEdge_VMRunWasmFromBuffer(
             vm.ctx,
-            reinterpret_cast<const uint8_t*>(wasm),
+            reinterpret_cast<uint8_t const*>(wasm),
             len,
             callback ? cbakFunctionName : hookFunctionName,
             params,

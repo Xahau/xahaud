@@ -78,7 +78,7 @@ static constexpr uint16_t CATALOGUE_COMPRESS_LEVEL_MASK =
 std::string
 formatBytesIEC(uint64_t bytes, int precision = 2)
 {
-    static const char* units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB"};
+    static char const* units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB"};
     int unit_index = 0;
     auto size = static_cast<double>(bytes);
 
@@ -206,7 +206,7 @@ public:
 
     template <typename Sink>
     std::streamsize
-    write(Sink& sink, const char* data, std::streamsize n)
+    write(Sink& sink, char const* data, std::streamsize n)
     {
         std::streamsize result = boost::iostreams::write(sink, data, n);
         if (result > 0)
@@ -605,7 +605,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     header.network_id = context.app.config().NETWORK_ID;
     // hash is already zero-initialized
 
-    outfile.write(reinterpret_cast<const char*>(&header), sizeof(CATLHeader));
+    outfile.write(reinterpret_cast<char const*>(&header), sizeof(CATLHeader));
     if (outfile.fail())
         return rpcError(
             rpcINTERNAL,
@@ -634,8 +634,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     compStream->push(boost::ref(outfile));
 
     // Process ledgers with local processor implementation
-    auto writeToFile = [&compStream, &context](const void* data, size_t size) {
-        compStream->write(reinterpret_cast<const char*>(data), size);
+    auto writeToFile = [&compStream, &context](void const* data, size_t size) {
+        compStream->write(reinterpret_cast<char const*>(data), size);
         if (compStream->fail())
         {
             JLOG(context.j.error())
@@ -652,7 +652,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     auto outputLedger =
         [&writeToFile, &context, &compStream, &predictor, &byteCounter](
             std::shared_ptr<Ledger const> ledger,
-            std::optional<std::reference_wrapper<const SHAMap>> prevStateMap =
+            std::optional<std::reference_wrapper<SHAMap const>> prevStateMap =
                 std::nullopt) -> bool {
         try
         {
@@ -797,7 +797,7 @@ doCatalogueCreate(RPC::JsonContext& context)
 
     updateFileSizeFile.seekp(0, std::ios::beg);
     updateFileSizeFile.write(
-        reinterpret_cast<const char*>(&header), sizeof(CATLHeader));
+        reinterpret_cast<char const*>(&header), sizeof(CATLHeader));
     updateFileSizeFile.close();
 
     // Now compute the hash over the entire file
@@ -853,7 +853,7 @@ doCatalogueCreate(RPC::JsonContext& context)
 
     updateFile.seekp(offsetof(CATLHeader, hash), std::ios::beg);
     updateFile.write(
-        reinterpret_cast<const char*>(hash_result.data()), hash_result.size());
+        reinterpret_cast<char const*>(hash_result.data()), hash_result.size());
     updateFile.close();
 
     // Convert hash to hex string

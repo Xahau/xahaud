@@ -149,7 +149,7 @@ public:
     uint32_t
     otxn_generation() const;
 
-    Expected<const STBase*, HookReturnCode>
+    Expected<STBase const*, HookReturnCode>
     otxn_field(uint32_t field_id) const;
 
     Expected<uint256, HookReturnCode>
@@ -228,7 +228,7 @@ public:
         Bytes& data) const;
 
     /// slot APIs
-    Expected<const STBase*, HookReturnCode>
+    Expected<STBase const*, HookReturnCode>
     slot(uint32_t slot_no) const;
 
     Expected<uint64_t, HookReturnCode>

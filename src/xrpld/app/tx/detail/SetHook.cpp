@@ -117,8 +117,8 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
 bool
 validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
 {
-    const int paramKeyMax = hook::maxHookParameterKeySize();
-    const int paramValueMax = hook::maxHookParameterValueSize();
+    int const paramKeyMax = hook::maxHookParameterKeySize();
+    int const paramValueMax = hook::maxHookParameterValueSize();
 
     int paramCount = (int)(hookParams.size());
     if (paramCount > 16)
@@ -852,7 +852,7 @@ TER
 SetHook::destroyNamespace(
     SetHookCtx& ctx,
     ApplyView& view,
-    const AccountID& account,
+    AccountID const& account,
     uint256 ns)
 {
     JLOG(ctx.j.trace()) << "HookSet(" << hook::log::NSDELETE << ")[" << HS_ACC()
@@ -1079,8 +1079,8 @@ updateHookParameters(
     ripple::STArray const& oldParameters,
     ripple::STObject& newHook)
 {
-    const int paramKeyMax = hook::maxHookParameterKeySize();
-    const int paramValueMax = hook::maxHookParameterValueSize();
+    int const paramKeyMax = hook::maxHookParameterKeySize();
+    int const paramValueMax = hook::maxHookParameterValueSize();
 
     std::map<ripple::Blob, std::optional<ripple::Blob>> parameters;
 
@@ -1194,7 +1194,7 @@ updateHookParameters(
 
     STArray newParameters{
         sfHookParameters, static_cast<std::size_t>(parameterCount)};
-    for (const auto& [parameterName, parameterValue] : parameters)
+    for (auto const& [parameterName, parameterValue] : parameters)
     {
         if (!parameterValue)
         {
@@ -1251,7 +1251,7 @@ SetHook::computeHookReserve(STObject const& hookObj)
 struct KeyletComparator
 {
     bool
-    operator()(const Keylet& lhs, const Keylet& rhs) const
+    operator()(Keylet const& lhs, Keylet const& rhs) const
     {
         return lhs.type < rhs.type ||
             (lhs.type == rhs.type && lhs.key < rhs.key);
@@ -1277,7 +1277,7 @@ SetHook::setHook()
         .app = ctx_.app,
         .rules = ctx_.view().rules()};
 
-    const int blobMax = hook::maxHookWasmSize();
+    int const blobMax = hook::maxHookWasmSize();
     auto const accountKeylet = keylet::account(account_);
     auto const hookKeylet = keylet::hook(account_);
 

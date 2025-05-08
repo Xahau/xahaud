@@ -205,7 +205,7 @@ struct WasmBlkInf
     }
 // compute worst case execution time
 inline uint64_t
-compute_wce(const WasmBlkInf* blk, int level, bool* recursion_limit_reached)
+compute_wce(WasmBlkInf const* blk, int level, bool* recursion_limit_reached)
 {
     if (level > 16)
     {
@@ -972,7 +972,7 @@ validateGuards(
                 }
 
                 if (std::string_view(
-                        (const char*)(wasm.data() + i), (size_t)mod_length) !=
+                        (char const*)(wasm.data() + i), (size_t)mod_length) !=
                     "env")
                 {
                     GUARDLOG(hook::log::IMPORT_MODULE_ENV)
@@ -1000,7 +1000,7 @@ validateGuards(
                 }
 
                 std::string import_name{
-                    (const char*)(wasm.data() + i), (size_t)name_length};
+                    (char const*)(wasm.data() + i), (size_t)name_length};
 
                 i += name_length;
                 CHECK_SHORT_HOOK();
