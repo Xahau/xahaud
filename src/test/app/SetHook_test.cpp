@@ -14963,6 +14963,125 @@ public:
     }
 
     void
+    test_util_verify_p256(FeatureBitset features)
+    {
+        testcase("Test util_verify_p256");
+        using namespace jtx;
+        Env env{*this, features - featureHooksUpdate2};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t util_verify_p256(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+            #define TOO_BIG -3
+            #define INVALID_ARGUMENT -7
+            #define OUT_OF_BOUNDS -1
+            #define INVALID_KEY -41
+            #define SBUF(x) ((uint32_t)(x)), sizeof(x)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+                    
+            uint8_t hash[32] = {
+                0xA4,0x1A,0x41,0xA1, 0x2A,0x79,0x95,0x48,
+                0x21,0x1C,0x41,0x0C, 0x65,0xD8,0x13,0x3A,
+                0xFD,0xE3,0x4D,0x28, 0xBD,0xD5,0x42,0xE4,
+                0xB6,0x80,0xCF,0x28, 0x99,0xC8,0xA8,0xC4
+            };
+
+            uint8_t r[32] = {
+                0x2B,0x42,0xF5,0x76, 0xD0,0x7F,0x41,0x65,
+                0xFF,0x65,0xD1,0xF3, 0xB1,0x50,0x0F,0x81,
+                0xE4,0x4C,0x31,0x6F, 0x1F,0x0B,0x3E,0xF5,
+                0x73,0x25,0xB6,0x9A, 0xCA,0x46,0x10,0x4F
+            };
+
+            uint8_t s[32] = {
+                0xDC,0x42,0xC2,0x12, 0x2D,0x63,0x92,0xCD,
+                0x3E,0x3A,0x99,0x3A, 0x89,0x50,0x2A,0x81,
+                0x98,0xC1,0x88,0x6F, 0xE6,0x9D,0x26,0x2C,
+                0x4B,0x32,0x9B,0xDB, 0x6B,0x63,0xFA,0xF1
+            };
+
+            uint8_t x[32] = {
+                0xB7,0xE0,0x8A,0xFD, 0xFE,0x94,0xBA,0xD3,
+                0xF1,0xDC,0x8C,0x73, 0x47,0x98,0xBA,0x1C,
+                0x62,0xB3,0xA0,0xAD, 0x1E,0x9E,0xA2,0xA3,
+                0x82,0x01,0xCD,0x08, 0x89,0xBC,0x7A,0x19
+            };
+
+            uint8_t y[32] = {
+                0x36,0x03,0xF7,0x47, 0x95,0x9D,0xBF,0x7A,
+                0x4B,0xB2,0x26,0xE4, 0x19,0x28,0x72,0x90,
+                0x63,0xAD,0xC7,0xAE, 0x43,0x52,0x9E,0x61,
+                0xB5,0x63,0xBB,0xC6, 0x06,0xCC,0x5E,0x09
+            };
+
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+
+                // Test out of bounds check
+                ASSERT(util_verify_p256(1000000, 32, 0, 32, 0, 32, 0, 32, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 10000000, 32, 0, 32, 0, 32, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 0, 32, 10000000, 32, 0, 32, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 0, 32, 0, 32, 10000000, 32, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 0, 32, 0, 32, 0, 32, 10000000, 32) == OUT_OF_BOUNDS);
+                
+                ASSERT(util_verify_p256(0, 1000000, 0, 32, 0, 32, 0, 32, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 0, 10000000, 0, 32, 0, 32, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 0, 32, 0, 10000000, 0, 32, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 0, 32, 0, 32, 0, 10000000, 0, 32) == OUT_OF_BOUNDS);
+                ASSERT(util_verify_p256(0, 32, 0, 32, 0, 32, 0, 32, 0, 10000000) == OUT_OF_BOUNDS);
+
+                ASSERT(util_verify_p256(hash, 33, SBUF(r), SBUF(s), SBUF(x), SBUF(y)) == INVALID_ARGUMENT);
+
+                ASSERT(util_verify_p256(SBUF(hash), r, 33, SBUF(s), SBUF(x), SBUF(y)) == TOO_BIG);
+                ASSERT(util_verify_p256(SBUF(hash), SBUF(r), s, 33, SBUF(x), SBUF(y)) == TOO_BIG);
+                ASSERT(util_verify_p256(SBUF(hash), SBUF(r), SBUF(s), x, 33, SBUF(y)) == TOO_BIG);
+                ASSERT(util_verify_p256(SBUF(hash), SBUF(r), SBUF(s), SBUF(x), y, 33) == TOO_BIG);
+
+                // test secp256r1 verification
+                ASSERT(util_verify_p256(SBUF(hash), SBUF(r), SBUF(s), SBUF(x), SBUF(y)) == 1);
+                ASSERT(util_verify_p256(hash + 1, 32, SBUF(r), SBUF(s), SBUF(x), SBUF(y)) == 0);
+                ASSERT(util_verify_p256(SBUF(hash), r + 1, 32, SBUF(s), SBUF(x), SBUF(y)) == 0);
+                ASSERT(util_verify_p256(SBUF(hash), SBUF(r), s + 1, 32, SBUF(x), SBUF(y)) == 0);
+                ASSERT(util_verify_p256(SBUF(hash), SBUF(r), SBUF(s), x + 1, 32, SBUF(y)) == 0);
+                ASSERT(util_verify_p256(SBUF(hash), SBUF(r), SBUF(s), SBUF(x), y + 1, 32) == 0);
+
+                accept(0,0,0);
+            }
+        )[test.hook]"];
+
+        // before featureHooksUpdate2
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set util_verify_p256 (disabled)"),
+            HSFEE,
+            ter(temMALFORMED));
+        env.close();
+
+        env.enableFeature(featureHooksUpdate2);
+        env.close();
+
+        // install the hook on alice
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set util_verify_p256"),
+            HSFEE);
+        env.close();
+
+        // invoke the hook
+        env(pay(bob, alice, XRP(1)), M("test util_verify_p256"), fee(XRP(1)));
+    }
+
+    void
     testHookCanEmit(FeatureBitset features)
     {
         testcase("test HookCanEmit");
@@ -15630,6 +15749,7 @@ public:
         test_util_raddr(features);    //
         test_util_sha512h(features);  //
         test_util_verify(features);   //
+        test_util_verify_p256(features);
     }
 
 public:

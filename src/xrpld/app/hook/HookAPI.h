@@ -321,6 +321,14 @@ public:
     Expected<bool, HookReturnCode>
     util_verify(Slice const& data, Slice const& sig, Slice const& key) const;
 
+    Expected<bool, HookReturnCode>
+    util_verify_p256(
+        Slice const& hash,
+        Slice const& r,
+        Slice const& s,
+        Slice const& x,
+        Slice const& y) const;
+
     uint256
     util_sha512h(Slice const& data) const;
 

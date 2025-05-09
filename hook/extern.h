@@ -39,6 +39,19 @@ util_verify(
     uint32_t kread_len);
 
 extern int64_t
+util_verify_p256(
+    uint32_t hread_ptr,
+    uint32_t hread_len,
+    uint32_t rread_ptr,
+    uint32_t rread_len,
+    uint32_t sread_ptr,
+    uint32_t sread_len,
+    uint32_t xread_ptr,
+    uint32_t xread_len,
+    uint32_t yread_ptr,
+    uint32_t yread_len);
+
+extern int64_t
 util_sha512h(
     uint32_t write_ptr,
     uint32_t write_len,
