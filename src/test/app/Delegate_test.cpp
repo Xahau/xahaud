@@ -215,9 +215,7 @@ class Delegate_test : public beast::unit_test::suite
                 ter(terNO_ACCOUNT));
         }
 
-        // for security reasons, AccountSet, SetRegularKey, SignerListSet,
-        // AccountDelete, DelegateSet are prohibited to be delegated to
-        // other accounts.
+        // non-delegatable transaction
         {
             env(delegate::set(gw, alice, {"SetRegularKey"}),
                 ter(tecNO_PERMISSION));
@@ -229,6 +227,20 @@ class Delegate_test : public beast::unit_test::suite
                 ter(tecNO_PERMISSION));
             env(delegate::set(gw, alice, {"SetRegularKey"}),
                 ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"Entropy"}), ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"SetManifest"}),
+                ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"Cron"}), ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"GenesisMint"}),
+                ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"Import"}), ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"EnableAmendment"}),
+                ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"UNLModify"}), ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"SetFee"}), ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"EmitFailure"}),
+                ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"UNLReport"}), ter(tecNO_PERMISSION));
         }
     }
 

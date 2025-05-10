@@ -699,7 +699,7 @@ TRANSACTION(ttORACLE_DELETE, 61, OracleDelete,
 #   include <xrpld/app/tx/detail/LedgerStateFix.h>
 #endif
 TRANSACTION(ttLEDGER_STATE_FIX, 62, LedgerStateFix,
-    Delegation::notDelegatable,
+    Delegation::delegatable,
     fixNFTokenPageLinks,
     ({
     {sfLedgerFixType, soeREQUIRED},
