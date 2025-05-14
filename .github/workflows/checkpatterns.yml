@@ -1,0 +1,20 @@
+name: checkpatterns
+
+on: [push, pull_request]
+
+jobs:
+  checkpatterns:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for suspicious patterns
+        run: |
+          if [ -f "suspicious_patterns.sh" ]; then
+            bash suspicious_patterns.sh
+          else
+            echo "Warning: suspicious_patterns.sh not found, skipping check"
+            # Still exit with success for compatibility with dependent jobs
+            exit 0
+          fi

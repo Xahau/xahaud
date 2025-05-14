@@ -17,26 +17,12 @@ if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   BUILD_CORES=8
 fi
 
-EXIT_IF_CONTAINER_RUNNING=${EXIT_IF_CONTAINER_RUNNING:-1}
 # Ensure still works outside of GH Actions by setting these to /dev/null
 # GA will run this script and then delete it at the end of the job
 JOB_CLEANUP_SCRIPT=${JOB_CLEANUP_SCRIPT:-/dev/null}
 NORMALIZED_WORKFLOW=$(echo "$GITHUB_WORKFLOW" | tr -c 'a-zA-Z0-9' '-')
 NORMALIZED_REF=$(echo "$GITHUB_REF" | tr -c 'a-zA-Z0-9' '-')
 CONTAINER_NAME="xahaud_cached_builder_${NORMALIZED_WORKFLOW}-${NORMALIZED_REF}"
-
-# Check if the container is already running
-if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-    echo "⚠️ A running container (${CONTAINER_NAME}) was detected."
-
-    if [[ "$EXIT_IF_CONTAINER_RUNNING" -eq 1 ]]; then
-        echo "❌ EXIT_IF_CONTAINER_RUNNING is set. Exiting."
-        exit 1
-    else
-        echo "🛑 Stopping the running container: ${CONTAINER_NAME}"
-        docker stop "${CONTAINER_NAME}"
-    fi
-fi
 
 echo "-- BUILD CORES:       $BUILD_CORES"
 echo "-- GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
@@ -60,7 +46,7 @@ fi
 
 STATIC_CONTAINER=$(docker ps -a | grep $CONTAINER_NAME |wc -l)
 
-#if [[ "$STATIC_CONTAINER" -gt "0" && "$GITHUB_REPOSITORY" != "" ]]; then
+# if [[ "$STATIC_CONTAINER" -gt "0" && "$GITHUB_REPOSITORY" != "" ]]; then
 if false; then
   echo "Static container, execute in static container to have max. cache"
   docker start $CONTAINER_NAME

@@ -1,0 +1,31 @@
+name: 'Configure ccache'
+description: 'Sets up ccache with consistent configuration'
+
+inputs:
+  max_size:
+    description: 'Maximum cache size'
+    required: false
+    default: '2G'
+  hash_dir:
+    description: 'Whether to include directory paths in hash'
+    required: false
+    default: 'true'
+  compiler_check:
+    description: 'How to check compiler for changes'
+    required: false
+    default: 'content'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure ccache
+      shell: bash
+      run: |
+        mkdir -p ~/.ccache
+        export CONF_PATH="${CCACHE_CONFIGPATH:-${CCACHE_DIR:-$HOME/.ccache}/ccache.conf}"
+        mkdir -p $(dirname "$CONF_PATH")
+        echo "max_size = ${{ inputs.max_size }}" > "$CONF_PATH"
+        echo "hash_dir = ${{ inputs.hash_dir }}" >> "$CONF_PATH"
+        echo "compiler_check = ${{ inputs.compiler_check }}" >> "$CONF_PATH"
+        ccache -p # Print config for verification
+        ccache -z # Zero statistics before the build

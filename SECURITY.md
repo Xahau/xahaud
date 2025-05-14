@@ -61,13 +61,12 @@ For these complaints or reports, please [contact our support team](mailto:bugs@x
 
 ### The following type of security problems are excluded
 
-- (D)DOS attacks
-- Error messages or error pages without sensitive data
-- Tests & sample data as publicly available in our repositories at Github
-- Common issues like browser header warnings or DNS configuration, identified by vulnerability scans
-- Vulnerability scan reports for software we publicly use
-- Security issues related to outdated OS's, browsers or plugins
-- Reports for security problems that we have been notified of before
+1. **In scope**. Only bugs in software under the scope of the program qualify. Currently, that means `xahaud` and `xahau-lib`.
+2. **Relevant**. A security issue, posing a danger to user funds, privacy or the operation of the Xahau Ledger.
+3. **Original and previously unknown**. Bugs that are already known and discussed in public do not qualify. Previously reported bugs, even if publicly unknown, are not eligible.
+4. **Specific**. We welcome general security advice or recommendations, but we cannot pay bounties for that.
+5. **Fixable**. There has to be something we can do to permanently fix the problem. Note that bugs in other people’s software may still qualify in some cases. For example, if you find a bug in a library that we use which can compromise the security of software that is in scope and we can get it fixed, you may qualify for a bounty.
+6. **Unused**. If you use the exploit to attack the Xahau Ledger, you do not qualify for a bounty. If you report a vulnerability used in an ongoing or past attack and there is specific, concrete evidence that suggests you are the attacker we reserve the right not to pay a bounty.
 
 Please note: Reports that are lacking any proof (such as screenshots or other data), detailed information or details on how to reproduce any unexpected result will be investigated but will not be eligible for any reward.
 

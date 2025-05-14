@@ -1,0 +1,108 @@
+name: build
+description: 'Builds the project with ccache integration'
+
+inputs:
+  generator:
+    description: 'CMake generator to use'
+    required: true
+  configuration:
+    description: 'Build configuration (Debug, Release, etc.)'
+    required: true
+  build_dir:
+    description: 'Directory to build in'
+    required: false
+    default: '.build'
+  cc:
+    description: 'C compiler to use'
+    required: false
+    default: ''
+  cxx:
+    description: 'C++ compiler to use'
+    required: false
+    default: ''
+  compiler-id:
+    description: 'Unique identifier for compiler/version combination used for cache keys'
+    required: false
+    default: ''
+  cache_version:
+    description: 'Cache version for invalidation'
+    required: false
+    default: '1'
+  ccache_enabled:
+    description: 'Whether to use ccache'
+    required: false
+    default: 'true'
+  main_branch:
+    description: 'Main branch name for restore keys'
+    required: false
+    default: 'dev'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate safe branch name
+      if: inputs.ccache_enabled == 'true'
+      id: safe-branch
+      shell: bash
+      run: |
+        SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
+        echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
+
+    - name: Restore ccache directory
+      if: inputs.ccache_enabled == 'true'
+      id: ccache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-
+
+    - name: Configure project
+      shell: bash
+      run: |
+        mkdir -p ${{ inputs.build_dir }}
+        cd ${{ inputs.build_dir }}
+        
+        # Set compiler environment variables if provided
+        if [ -n "${{ inputs.cc }}" ]; then
+          export CC="${{ inputs.cc }}"
+        fi
+        
+        if [ -n "${{ inputs.cxx }}" ]; then
+          export CXX="${{ inputs.cxx }}"
+        fi
+        
+        # Configure ccache launcher args
+        CCACHE_ARGS=""
+        if [ "${{ inputs.ccache_enabled }}" = "true" ]; then
+          CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+        fi
+        
+        # Run CMake configure
+        cmake .. \
+          -G "${{ inputs.generator }}" \
+          $CCACHE_ARGS \
+          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
+          -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
+
+    - name: Build project
+      shell: bash
+      run: |
+        cd ${{ inputs.build_dir }}
+        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc)
+
+    - name: Show ccache statistics
+      if: inputs.ccache_enabled == 'true'
+      shell: bash
+      run: ccache -s
+
+    - name: Save ccache directory
+      if: inputs.ccache_enabled == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.ccache
+        key: ${{ steps.ccache-restore.outputs.cache-primary-key }}

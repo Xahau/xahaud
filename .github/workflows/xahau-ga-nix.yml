@@ -1,0 +1,123 @@
+name: Nix - GA Runner
+
+on:
+  push:
+    branches: ["dev", "candidate", "release"]
+  pull_request:
+    branches: ["dev", "candidate", "release"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-job:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc]
+        configuration: [Debug]
+        include:
+          - compiler: gcc
+            cc: gcc-11
+            cxx: g++-11
+            compiler_id: gcc-11
+    env:
+      build_dir: .build
+      # Bump this number to invalidate all caches globally.
+      CACHE_VERSION: 1
+      MAIN_BRANCH_NAME: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          # Install specific Conan version needed
+          pip install --upgrade "conan<2"
+
+      - name: Configure ccache
+        uses: ./.github/actions/xahau-configure-ccache
+        with:
+          max_size: 2G
+          hash_dir: true
+          compiler_check: content
+
+      - name: Configure Conan
+        run: |
+          conan profile new default --detect || true # Ignore error if profile exists
+          conan profile update settings.compiler.cppstd=20 default
+          conan profile update settings.compiler=${{ matrix.compiler }} default
+          conan profile update settings.compiler.libcxx=libstdc++11 default
+          conan profile update env.CC=/usr/bin/${{ matrix.cc }} default
+          conan profile update env.CXX=/usr/bin/${{ matrix.cxx }} default
+          conan profile update conf.tools.build:compiler_executables='{"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}' default
+
+          # Set correct compiler version based on matrix.compiler
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            conan profile update settings.compiler.version=11 default
+          elif [ "${{ matrix.compiler }}" = "clang" ]; then
+            conan profile update settings.compiler.version=14 default
+          fi
+          # Display profile for verification
+          conan profile show default
+
+      - name: Check environment
+        run: |
+          echo "PATH:"
+          echo "${PATH}" | tr ':' '\n'
+          which conan && conan --version || echo "Conan not found"
+          which cmake && cmake --version || echo "CMake not found"
+          which ${{ matrix.cc }} && ${{ matrix.cc }} --version || echo "${{ matrix.cc }} not found"
+          which ${{ matrix.cxx }} && ${{ matrix.cxx }} --version || echo "${{ matrix.cxx }} not found"
+          which ccache && ccache --version || echo "ccache not found"
+          echo "---- Full Environment ----"
+          env
+
+      - name: Install dependencies
+        uses: ./.github/actions/xahau-ga-dependencies
+        with:
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          compiler-id: ${{ matrix.compiler_id }}
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      - name: Build
+        uses: ./.github/actions/xahau-ga-build
+        with:
+          generator: Ninja
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          cc: ${{ matrix.cc }}
+          cxx: ${{ matrix.cxx }}
+          compiler-id: ${{ matrix.compiler_id }}
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      - name: Set artifact name
+        id: set-artifact-name
+        run: |
+          ARTIFACT_NAME="build-output-nix-${{ github.run_id }}-${{ matrix.compiler }}-${{ matrix.configuration }}"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Using artifact name: ${ARTIFACT_NAME}"
+
+      - name: Debug build directory
+        run: |
+          echo "Checking build directory contents: ${{ env.build_dir }}"
+          ls -la ${{ env.build_dir }} || echo "Build directory not found or empty"
+
+      - name: Run tests
+        run: |
+          # Ensure the binary exists before trying to run
+          if [ -f "${{ env.build_dir }}/rippled" ]; then
+            ${{ env.build_dir }}/rippled --unittest --unittest-jobs $(nproc)
+          else
+             echo "Error: rippled executable not found in ${{ env.build_dir }}"
+             exit 1
+          fi

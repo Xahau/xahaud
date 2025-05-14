@@ -23,6 +23,7 @@
 #include <ripple/protocol/BuildInfo.h>
 #include <boost/preprocessor/stringize.hpp>
 #include <algorithm>
+#include <optional>
 
 namespace ripple {
 
