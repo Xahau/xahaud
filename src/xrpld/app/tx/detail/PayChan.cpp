@@ -323,7 +323,13 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
             ((*sled)[sfFlags] & lsfDisallowXRP))
             return tecNO_TARGET;
 
-        if (sled->isFieldPresent(sfAMMID))
+        // Pseudo-accounts cannot receive payment channels, other than native
+        // to their underlying ledger object - implemented in their respective
+        // transaction types. Note, this is not amendment-gated because all
+        // writes to pseudo-account discriminator fields **are** amendment
+        // gated, hence the behaviour of this check will always match the
+        // currently active amendments.
+        if (isPseudoAccount(sled))
             return tecNO_PERMISSION;
     }
 
@@ -354,9 +360,7 @@ PayChanCreate::doApply()
     //
     // Note that we we use the value from the sequence or ticket as the
     // payChan sequence.  For more explanation see comments in SeqProxy.h.
-
     Keylet const payChanKeylet = keylet::payChan(account, dst, seqID(ctx_));
-
     auto const slep = std::make_shared<SLE>(payChanKeylet);
 
     // Funds held in this channel

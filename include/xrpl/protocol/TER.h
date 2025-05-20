@@ -233,8 +233,10 @@ enum TERcodes : TERUnderlyingType {
     terQUEUED,       // Transaction is being held in TxQ until fee drops
     terPRE_TICKET,   // Ticket is not yet in ledger but might be on its way
     terNO_AMM,       // AMM doesn't exist for the asset pair
-    terNO_HOOK       // Transaction requires a non-existent hook definition
+    terNO_HOOK,      // Transaction requires a non-existent hook definition
                      // (referenced by sfHookHash)
+    terADDRESS_COLLISION,  // Failed to allocate AccountID when trying to
+                           // create a pseudo-account
 };
 
 //------------------------------------------------------------------------------
@@ -276,6 +278,17 @@ enum TECcodes : TERUnderlyingType {
     // Otherwise, treated as terRETRY.
     //
     // DO NOT CHANGE THESE NUMBERS: They appear in ledger meta data.
+    //
+    // Note:
+    //   tecNO_ENTRY is often used interchangeably with tecOBJECT_NOT_FOUND.
+    //   While there does not seem to be a clear rule which to use when, the
+    //   following guidance will help to keep errors consistent with the
+    //   majority of (but not all) transaction types:
+    // - tecNO_ENTRY : cannot find the primary ledger object on which the
+    //   transaction is being attempted
+    // - tecOBJECT_NOT_FOUND : cannot find the additional object(s) needed to
+    //   complete the transaction
+
     tecCLAIM = 100,
     tecPATH_PARTIAL = 101,
     tecUNFUNDED_ADD = 102,  // Unused legacy code
@@ -362,6 +375,9 @@ enum TECcodes : TERUnderlyingType {
     tecARRAY_TOO_LARGE = 197,
     tecLOCKED = 198,
     tecBAD_CREDENTIALS = 199,
+    tecWRONG_ASSET = 200,
+    tecLIMIT_EXCEEDED = 201,
+    tecPSEUDO_ACCOUNT = 202,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 

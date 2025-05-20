@@ -584,6 +584,14 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             // TODO: Implement if needed
             break;
         }
+        case ttVAULT_CLAWBACK:
+        case ttVAULT_CREATE:
+        case ttVAULT_DELETE:
+        case ttVAULT_DEPOSIT:
+        case ttVAULT_SET:
+        case ttVAULT_WITHDRAW: {
+            // TODO: Implement if needed
+        }
         // pseudo transactions
         case ttAMENDMENT:
         case ttFEE:

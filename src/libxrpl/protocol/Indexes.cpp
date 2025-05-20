@@ -107,6 +107,7 @@ enum class LedgerNameSpace : std::uint16_t {
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
     DELEGATE = 'E',
+    VAULT = 'V',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -678,6 +679,12 @@ credential(
     return {
         ltCREDENTIAL,
         indexHash(LedgerNameSpace::CREDENTIAL, subject, issuer, credType)};
+}
+
+Keylet
+vault(AccountID const& owner, std::uint32_t seq) noexcept
+{
+    return vault(indexHash(LedgerNameSpace::VAULT, owner, seq));
 }
 
 Keylet

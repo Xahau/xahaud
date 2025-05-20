@@ -7696,6 +7696,53 @@ private:
     }
 
     void
+    testVaultCreateTSH(FeatureBitset features)
+    {
+        testcase("vault create tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultSetTSH(FeatureBitset features)
+    {
+        testcase("vault set tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+    void
+    testVaultDeleteTSH(FeatureBitset features)
+    {
+        testcase("vault delete tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultDepositTSH(FeatureBitset features)
+    {
+        testcase("vault deposit tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultWithdrawTSH(FeatureBitset features)
+    {
+        testcase("vault withdraw tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultClawbackTSH(FeatureBitset features)
+    {
+        testcase("vault clawback tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
     testEmittedTxnReliability(FeatureBitset features)
     {
         testcase("emitted txn reliability");

@@ -506,6 +506,49 @@ TRANSACTION(ttDELEGATE_SET, 73, DelegateSet, Delegation::notDelegatable, ({
     {sfPermissions, soeREQUIRED},
 }))
 
+/** This transaction creates a single asset vault. */
+TRANSACTION(ttVAULT_CREATE, 74, VaultCreate, Delegation::delegatable, ({
+    {sfAsset, soeREQUIRED, soeMPTSupported},
+    {sfAssetsMaximum, soeOPTIONAL},
+    {sfMPTokenMetadata, soeOPTIONAL},
+    {sfDomainID, soeOPTIONAL}, // PermissionedDomainID
+    {sfWithdrawalPolicy, soeOPTIONAL},
+    {sfData, soeOPTIONAL},
+}))
+
+/** This transaction updates a single asset vault. */
+TRANSACTION(ttVAULT_SET, 75, VaultSet, Delegation::delegatable, ({
+    {sfVaultID, soeREQUIRED},
+    {sfAssetsMaximum, soeOPTIONAL},
+    {sfDomainID, soeOPTIONAL}, // PermissionedDomainID
+    {sfData, soeOPTIONAL},
+}))
+
+/** This transaction deletes a single asset vault. */
+TRANSACTION(ttVAULT_DELETE, 76, VaultDelete, Delegation::delegatable, ({
+    {sfVaultID, soeREQUIRED},
+}))
+
+/** This transaction trades assets for shares with a vault. */
+TRANSACTION(ttVAULT_DEPOSIT, 77, VaultDeposit, Delegation::delegatable, ({
+    {sfVaultID, soeREQUIRED},
+    {sfAmount, soeREQUIRED, soeMPTSupported},
+}))
+
+/** This transaction trades shares for assets with a vault. */
+TRANSACTION(ttVAULT_WITHDRAW, 78, VaultWithdraw, Delegation::delegatable, ({
+    {sfVaultID, soeREQUIRED},
+    {sfAmount, soeREQUIRED, soeMPTSupported},
+    {sfDestination, soeOPTIONAL},
+}))
+
+/** This transaction claws back tokens from a vault. */
+TRANSACTION(ttVAULT_CLAWBACK, 79, VaultClawback, Delegation::delegatable, ({
+    {sfVaultID, soeREQUIRED},
+    {sfHolder, soeREQUIRED},
+    {sfAmount, soeOPTIONAL, soeMPTSupported},
+}))
+
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
 TRANSACTION(ttCRON, 92, Cron, Delegation::notDelegatable, ({
     {sfOwner, soeREQUIRED},
