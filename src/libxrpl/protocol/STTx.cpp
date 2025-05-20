@@ -234,6 +234,12 @@ STTx::isTimeSequenced() const
         !isFieldPresent(sfTicketSequence);
 }
 
+std::uint32_t
+STTx::getSeqValue() const
+{
+    return getSeqProxy().value();
+}
+
 void
 STTx::sign(PublicKey const& publicKey, SecretKey const& secretKey)
 {

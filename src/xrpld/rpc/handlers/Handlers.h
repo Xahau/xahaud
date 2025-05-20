@@ -188,6 +188,8 @@ Json::Value
 doCatalogueLoad(RPC::JsonContext&);
 Json::Value
 doCatalogueUnpin(RPC::JsonContext&);
+Json::Value
+doVaultInfo(RPC::JsonContext&);
 }  // namespace ripple
 
 #endif

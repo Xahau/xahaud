@@ -64,7 +64,7 @@ Invoke::preclaim(PreclaimContext const& ctx)
         if (!sleDest)
             return tecNO_TARGET;
 
-        if (sleDest->isFieldPresent(sfAMMID))
+        if (isPseudoAccount(sleDest))
             return tecNO_PERMISSION;
     }
 

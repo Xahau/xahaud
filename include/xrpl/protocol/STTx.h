@@ -114,6 +114,10 @@ public:
     bool
     isTimeSequenced() const;
 
+    /** Returns the first non-zero value of (Sequence, TicketSequence). */
+    std::uint32_t
+    getSeqValue() const;
+
     boost::container::flat_set<AccountID>
     getMentionedAccounts() const;
 

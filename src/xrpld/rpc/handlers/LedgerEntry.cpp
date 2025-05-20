@@ -30,6 +30,7 @@
 #include <xrpl/json/json_errors.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/LedgerFormats.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/STXChainBridge.h>
@@ -772,6 +773,27 @@ static Expected<uint256, Json::Value>
 parseUNLReport(Json::Value const& params, Json::StaticString const fieldName)
 {
     return parseObjectID(params, fieldName, "hex string");
+}
+
+static Expected<uint256, Json::Value>
+parseVault(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const id = LedgerEntryHelpers::requiredAccountID(
+        params, jss::owner, "malformedOwner");
+    if (!id)
+        return Unexpected(id.error());
+
+    auto const seq = LedgerEntryHelpers::requiredUInt32(
+        params, jss::seq, "malformedRequest");
+    if (!seq)
+        return Unexpected(seq.error());
+
+    return keylet::vault(*id, *seq).key;
 }
 
 static Expected<uint256, Json::Value>

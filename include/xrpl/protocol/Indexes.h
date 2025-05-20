@@ -402,6 +402,15 @@ manifest(PublicKey const& pk) noexcept;
 Keylet const&
 manifestDir() noexcept;
 
+Keylet
+vault(AccountID const& owner, UInt32or256 const& seq) noexcept;
+
+inline Keylet
+vault(uint256 const& vaultKey)
+{
+    return {ltVAULT, vaultKey};
+}
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:

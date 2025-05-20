@@ -412,6 +412,9 @@ class MPToken_test : public beast::unit_test::suite
             // bob creates a mptoken
             mptAlice.authorize({.account = bob, .holderCount = 1});
 
+            mptAlice.authorize(
+                {.account = bob, .holderCount = 1, .err = tecDUPLICATE});
+
             // bob deletes his mptoken
             mptAlice.authorize(
                 {.account = bob, .holderCount = 0, .flags = tfMPTUnauthorize});
@@ -621,6 +624,25 @@ class MPToken_test : public beast::unit_test::suite
 
         // locks up bob's mptoken again
         mptAlice.set({.account = alice, .holder = bob, .flags = tfMPTLock});
+        if (!features[featureSingleAssetVault])
+        {
+            // Delete bobs' mptoken even though it is locked
+            mptAlice.authorize({.account = bob, .flags = tfMPTUnauthorize});
+
+            mptAlice.set(
+                {.account = alice,
+                 .holder = bob,
+                 .flags = tfMPTUnlock,
+                 .err = tecOBJECT_NOT_FOUND});
+
+            return;
+        }
+
+        // Cannot delete locked MPToken
+        mptAlice.authorize(
+            {.account = bob,
+             .flags = tfMPTUnauthorize,
+             .err = tecNO_PERMISSION});
 
         // alice unlocks mptissuance
         mptAlice.set({.account = alice, .flags = tfMPTUnlock});
@@ -1140,7 +1162,7 @@ class MPToken_test : public beast::unit_test::suite
             jv[jss::secret] = alice.name();
             jv[jss::tx_json] = pay(alice, bob, mpt);
             jv[jss::tx_json][jss::Amount][jss::value] =
-                to_string(maxMPTokenAmount + 1);
+                to_string(Number(maxMPTokenAmount + 1));
             auto const jrr = env.rpc("json", "submit", to_string(jv));
             BEAST_EXPECT(jrr[jss::result][jss::error] == "invalidParams");
         }
@@ -2066,7 +2088,8 @@ class MPToken_test : public beast::unit_test::suite
                 alice.name(), makeMptID(env.seq(alice), alice));
 
             Json::Value jv = claw(alice, mpt(1), bob);
-            jv[jss::Amount][jss::value] = to_string(maxMPTokenAmount + 1);
+            jv[jss::Amount][jss::value] =
+                to_string(Number(maxMPTokenAmount + 1));
             Json::Value jv1;
             jv1[jss::secret] = alice.name();
             jv1[jss::tx_json] = jv;
@@ -2322,20 +2345,27 @@ public:
             supported_amendments() | featureMPTokensV1 | featureCredentials};
 
         // MPTokenIssuanceCreate
-        testCreateValidation(all);
-        testCreateEnabled(all);
+        testCreateValidation(all - featureSingleAssetVault);
+        testCreateValidation(all | featureSingleAssetVault);
+        testCreateEnabled(all - featureSingleAssetVault);
+        testCreateEnabled(all | featureSingleAssetVault);
 
         // MPTokenIssuanceDestroy
-        testDestroyValidation(all);
-        testDestroyEnabled(all);
+        testDestroyValidation(all - featureSingleAssetVault);
+        testDestroyValidation(all | featureSingleAssetVault);
+        testDestroyEnabled(all - featureSingleAssetVault);
+        testDestroyEnabled(all | featureSingleAssetVault);
 
         // MPTokenAuthorize
-        testAuthorizeValidation(all);
-        testAuthorizeEnabled(all);
+        testAuthorizeValidation(all - featureSingleAssetVault);
+        testAuthorizeValidation(all | featureSingleAssetVault);
+        testAuthorizeEnabled(all - featureSingleAssetVault);
+        testAuthorizeEnabled(all | featureSingleAssetVault);
 
         // MPTokenIssuanceSet
         testSetValidation(all);
-        testSetEnabled(all);
+        testSetEnabled(all - featureSingleAssetVault);
+        testSetEnabled(all | featureSingleAssetVault);
 
         // MPT clawback
         testClawbackValidation(all);

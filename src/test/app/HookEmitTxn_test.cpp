@@ -843,6 +843,25 @@ private:
     }
 
     void
+    testVault(FeatureBitset const& features)
+    {
+        testcase("Vault");
+        using namespace jtx;
+        Env env{*this, features | featureMPTokensV1 | featureSingleAssetVault};
+        Account const alice{"alice"};
+        Account const issuer{"issuer"};
+        PrettyAsset const asset = alice["IOU"];
+        env.fund(XRP(10000), alice, issuer);
+        env.close();
+        installEmitHook(env, alice);
+
+        Vault vault{env};
+        auto const [tx, keylet] =
+            vault.create({.owner = alice, .asset = asset});
+        expectCreatedTwice(env, alice, tx, ltVAULT);
+    }
+
+    void
     testCreateLedgerEntry(FeatureBitset const& features)
     {
 #pragma push_macro("LEDGER_ENTRY")

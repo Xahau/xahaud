@@ -142,7 +142,7 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
         if (!sleIssuer)
             return tecNO_ISSUER;
 
-        if (sleIssuer->isFieldPresent(sfAMMID))
+        if (isPseudoAccount(sleIssuer))
             return tecNO_PERMISSION;
 
         if (ctx.view.rules().enabled(featureIOURewardClaim))

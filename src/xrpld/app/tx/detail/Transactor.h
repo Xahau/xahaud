@@ -457,23 +457,26 @@ Transactor::validNumericRange(std::optional<T> value, T max, T min)
     return value >= min && value <= max;
 }
 
-template <class C>
 inline static std::variant<uint32_t, uint256>
-seqID(C const& ctx_)
+seqID(ReadView const& view, STTx const& tx)
 {
-    if (ctx_.view().rules().enabled(featureHooks) &&
-        ctx_.tx.isFieldPresent(sfEmitDetails))
-        return ctx_.tx.getTransactionID();
+    if (view.rules().enabled(featureHooks) && tx.isFieldPresent(sfEmitDetails))
+        return tx.getTransactionID();
 
     // Every time-sequenced transaction has Sequence 0, so its SeqProxy
     // cannot tell one object from the next. Its transaction id can: sfTime
     // is strictly increasing per account, so no two ever share an id.
-    if (ctx_.view().rules().enabled(featureJsonTx) && ctx_.tx.isTimeSequenced())
-        return ctx_.tx.getTransactionID();
+    if (view.rules().enabled(featureJsonTx) && tx.isTimeSequenced())
+        return tx.getTransactionID();
 
-    return ctx_.tx.getSeqProxy().value();
+    return tx.getSeqValue();
 }
 
+inline static std::variant<uint32_t, uint256>
+seqID(ApplyContext const& ctx)
+{
+    return seqID(ctx.view(), ctx.tx);
+}
 }  // namespace ripple
 
 #endif

@@ -111,6 +111,7 @@ enum class LedgerNameSpace : std::uint16_t {
     PERMISSIONED_DOMAIN = 'm',
     RANDOM = 0x526E,  // Rn
     DELEGATE = LEDGER_NAMESPACE2(0x01, 'E'),
+    VAULT = LEDGER_NAMESPACE2(0x01, 'V'),
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -723,6 +724,12 @@ manifestDir() noexcept
     static Keylet const ret{
         ltDIR_NODE, indexHash(LedgerNameSpace::MANIFEST_DIR)};
     return ret;
+}
+
+Keylet
+vault(AccountID const& owner, UInt32or256 const& seq) noexcept
+{
+    return vault(indexHash(LedgerNameSpace::VAULT, owner, seq));
 }
 
 }  // namespace keylet
