@@ -290,6 +290,7 @@ keypairForSignature(
     unsigned int apiVersion = apiVersionIfUnspecified);
 
 }  // namespace RPC
+
 }  // namespace ripple
 
 #endif

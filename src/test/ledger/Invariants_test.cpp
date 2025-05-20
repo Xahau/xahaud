@@ -78,8 +78,8 @@ class Invariants_test : public beast::unit_test::suite
         Preclose const& preclose = {})
     {
         using namespace test::jtx;
-        FeatureBitset amendments =
-            supported_amendments() | featureInvariantsV1_1 | featureAMM;
+        FeatureBitset amendments = supported_amendments() |
+            featureInvariantsV1_1 | featureAMM | featureSingleAssetVault;
         Env env{*this, amendments};
 
         Account const A1{"A1"};
@@ -789,7 +789,7 @@ class Invariants_test : public beast::unit_test::suite
         testcase << "valid new account root";
 
         doInvariantCheck(
-            {{"account root created by a non-Payment"}},
+            {{"account root created illegally"}},
             [](Account const&, Account const&, ApplyContext& ac) {
                 // Insert a new account root created by a non-payment into
                 // the view.
@@ -832,6 +832,74 @@ class Invariants_test : public beast::unit_test::suite
             },
             XRPAmount{},
             STTx{ttPAYMENT, [](STObject& tx) {}});
+
+        doInvariantCheck(
+            {{"pseudo-account created by a wrong transaction type"}},
+            [](Account const&, Account const&, ApplyContext& ac) {
+                Account const A3{"A3"};
+                Keylet const acctKeylet = keylet::account(A3);
+                auto const sleNew = std::make_shared<SLE>(acctKeylet);
+                sleNew->setFieldU32(sfSequence, 0);
+                sleNew->setFieldH256(sfAMMID, uint256(1));
+                sleNew->setFieldU32(
+                    sfFlags,
+                    lsfDisableMaster | lsfDefaultRipple | lsfDefaultRipple);
+                ac.view().insert(sleNew);
+                return true;
+            },
+            XRPAmount{},
+            STTx{ttPAYMENT, [](STObject& tx) {}});
+
+        doInvariantCheck(
+            {{"account created with wrong starting sequence number"}},
+            [](Account const&, Account const&, ApplyContext& ac) {
+                Account const A3{"A3"};
+                Keylet const acctKeylet = keylet::account(A3);
+                auto const sleNew = std::make_shared<SLE>(acctKeylet);
+                sleNew->setFieldU32(sfSequence, ac.view().seq());
+                sleNew->setFieldH256(sfAMMID, uint256(1));
+                sleNew->setFieldU32(
+                    sfFlags,
+                    lsfDisableMaster | lsfDefaultRipple | lsfDepositAuth);
+                ac.view().insert(sleNew);
+                return true;
+            },
+            XRPAmount{},
+            STTx{ttAMM_CREATE, [](STObject& tx) {}});
+
+        doInvariantCheck(
+            {{"pseudo-account created with wrong flags"}},
+            [](Account const&, Account const&, ApplyContext& ac) {
+                Account const A3{"A3"};
+                Keylet const acctKeylet = keylet::account(A3);
+                auto const sleNew = std::make_shared<SLE>(acctKeylet);
+                sleNew->setFieldU32(sfSequence, 0);
+                sleNew->setFieldH256(sfAMMID, uint256(1));
+                sleNew->setFieldU32(
+                    sfFlags, lsfDisableMaster | lsfDefaultRipple);
+                ac.view().insert(sleNew);
+                return true;
+            },
+            XRPAmount{},
+            STTx{ttVAULT_CREATE, [](STObject& tx) {}});
+
+        doInvariantCheck(
+            {{"pseudo-account created with wrong flags"}},
+            [](Account const&, Account const&, ApplyContext& ac) {
+                Account const A3{"A3"};
+                Keylet const acctKeylet = keylet::account(A3);
+                auto const sleNew = std::make_shared<SLE>(acctKeylet);
+                sleNew->setFieldU32(sfSequence, 0);
+                sleNew->setFieldH256(sfAMMID, uint256(1));
+                sleNew->setFieldU32(
+                    sfFlags,
+                    lsfDisableMaster | lsfDefaultRipple | lsfDepositAuth |
+                        lsfRequireDestTag);
+                ac.view().insert(sleNew);
+                return true;
+            },
+            XRPAmount{},
+            STTx{ttAMM_CREATE, [](STObject& tx) {}});
     }
 
     void

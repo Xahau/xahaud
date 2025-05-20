@@ -299,7 +299,7 @@ seqID(C const& ctx_)
         ctx_.tx.isFieldPresent(sfEmitDetails))
         return ctx_.tx.getTransactionID();
 
-    return ctx_.tx.getSeqProxy().value();
+    return ctx_.tx.getSeqValue();
 }
 
 }  // namespace ripple

@@ -62,6 +62,12 @@
 #define ttPERMISSIONED_DOMAIN_SET 71
 #define ttPERMISSIONED_DOMAIN_DELETE 72
 #define ttDELEGATE_SET 73
+#define ttVAULT_CREATE 74
+#define ttVAULT_SET 75
+#define ttVAULT_DELETE 76
+#define ttVAULT_DEPOSIT 77
+#define ttVAULT_WITHDRAW 78
+#define ttVAULT_CLAWBACK 79
 #define ttCRON 92
 #define ttCRON_SET 93
 #define ttREMARKS_SET 94
