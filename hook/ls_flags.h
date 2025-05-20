@@ -71,5 +71,8 @@ enum ltMPTOKEN {
 enum ltCREDENTIAL {
     lsfAccepted = 0x00010000,
 };
+enum ltVAULT {
+    lsfVaultPrivate = 0x00010000,
+};
 
 #endif // HOOKLSFLAGS_INCLUDED

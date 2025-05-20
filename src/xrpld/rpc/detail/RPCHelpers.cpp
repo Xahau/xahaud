@@ -1263,5 +1263,6 @@ getLedgerByContext(RPC::JsonContext& context)
     return RPC::make_error(
         rpcNOT_READY, "findCreate failed to return an inbound ledger");
 }
+
 }  // namespace RPC
 }  // namespace ripple
