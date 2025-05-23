@@ -549,6 +549,12 @@ TRANSACTION(ttVAULT_CLAWBACK, 79, VaultClawback, Delegation::delegatable, ({
     {sfAmount, soeOPTIONAL, soeMPTSupported},
 }))
 
+/** This transaction type batches together transactions. */
+TRANSACTION(ttBATCH, 80, Batch, Delegation::notDelegatable, ({
+    {sfRawTransactions, soeREQUIRED},
+    {sfBatchSigners, soeOPTIONAL},
+}))
+
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
 TRANSACTION(ttCRON, 92, Cron, Delegation::notDelegatable, ({
     {sfOwner, soeREQUIRED},
