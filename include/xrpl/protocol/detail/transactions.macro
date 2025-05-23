@@ -915,6 +915,18 @@ TRANSACTION(ttVAULT_CLAWBACK, 79, VaultClawback,
     {sfAmount, soeOPTIONAL, soeMPTSupported},
 }))
 
+/** This transaction type batches together transactions. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Batch.h>
+#endif
+TRANSACTION(ttBATCH, 80, Batch,
+    Delegation::notDelegatable,
+    featureBatch,
+    ({
+    {sfRawTransactions, soeREQUIRED},
+    {sfBatchSigners, soeOPTIONAL},
+}))
+
 /** featureRNG: a validator's entropy contribution for one ledger.
 
     Each proposing UNLReport validator places exactly one of these in its own

@@ -88,6 +88,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        std::optional<uint256 const> const& parentBatchId,
         beast::Journal j,
         bool isProvisional = false);
 
@@ -100,6 +101,7 @@ public:
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
         std::optional<uint256> const& randomData,
+        std::optional<uint256 const> const& parentBatchId,
         bool isDryRun,
         beast::Journal j);
 

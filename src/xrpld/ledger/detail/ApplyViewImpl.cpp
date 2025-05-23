@@ -31,6 +31,7 @@ ApplyViewImpl::apply(
     OpenView& to,
     STTx const& tx,
     TER ter,
+    std::optional<uint256> parentBatchId,
     bool isDryRun,
     beast::Journal j)
 {
@@ -42,6 +43,7 @@ ApplyViewImpl::apply(
         hookExecution_,
         hookEmission_,
         randomData_,
+        parentBatchId,
         isDryRun,
         j);
 }
@@ -50,6 +52,7 @@ TxMeta
 ApplyViewImpl::generateProvisionalMeta(
     OpenView const& to,
     STTx const& tx,
+    std::optional<uint256> parentBatchId,
     beast::Journal j)
 {
     auto [meta, _] = items_.generateTxMeta(
@@ -58,6 +61,7 @@ ApplyViewImpl::generateProvisionalMeta(
         deliver_,
         hookExecution_,
         hookEmission_,
+        parentBatchId,
         j,
         true);  // isProvisional = true
     return meta;

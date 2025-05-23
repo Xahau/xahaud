@@ -225,6 +225,9 @@ std::uint64_t constexpr txTimeMaxFutureMs = 120'000;
  */
 std::size_t constexpr permissionMaxSize = 10;
 
+/** The maximum number of transactions that can be in a batch. */
+std::size_t constexpr maxBatchTxCount = 8;
+
 }  // namespace ripple
 
 #endif

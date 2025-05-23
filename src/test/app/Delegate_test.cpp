@@ -241,6 +241,7 @@ class Delegate_test : public beast::unit_test::suite
             env(delegate::set(gw, alice, {"EmitFailure"}),
                 ter(tecNO_PERMISSION));
             env(delegate::set(gw, alice, {"UNLReport"}), ter(tecNO_PERMISSION));
+            env(delegate::set(gw, alice, {"Batch"}), ter(tecNO_PERMISSION));
         }
     }
 

@@ -1159,6 +1159,14 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
         return;
     }
 
+    // Enforce Network bar for batch txn
+    if (iTrans->isFlag(tfInnerBatchTxn) && view->rules().enabled(featureBatch))
+    {
+        JLOG(m_journal.error())
+            << "Submitted transaction invalid: tfInnerBatchTxn flag present.";
+        return;
+    }
+
     // this is an asynchronous interface
     auto const trans = sterilize(*iTrans);
 
@@ -1410,13 +1418,24 @@ NetworkOPsImp::preProcessTransaction(std::shared_ptr<Transaction>& transaction)
         return false;
     }
 
+    // This function is called by several different parts of the codebase
+    // under no circumstances will we ever accept an inner txn within a batch
+    // txn from the network.
+    auto const sttx = *transaction->getSTransaction();
+    if (sttx.isFlag(tfInnerBatchTxn) && view->rules().enabled(featureBatch))
+    {
+        transaction->setStatus(INVALID);
+        transaction->setResult(temINVALID_FLAG);
+        app_.getHashRouter().setFlags(transaction->getID(), SF_BAD);
+        return false;
+    }
+
     // NOTE eahennis - I think this check is redundant,
     // but I'm not 100% sure yet.
     // If so, only cost is looking up HashRouter flags.
     // Before checkValidity(), which verifies the manifest: a fee miss is local
     // and must not mark the transaction bad.
-    if (auto const [fee, feeReason] =
-            checkManifestIngressFee(app_, *transaction->getSTransaction());
+    if (auto const [fee, feeReason] = checkManifestIngressFee(app_, sttx);
         fee == ManifestIngressFee::Refused)
     {
         JLOG(m_journal.debug())
@@ -1426,11 +1445,8 @@ NetworkOPsImp::preProcessTransaction(std::shared_ptr<Transaction>& transaction)
         return false;
     }
 
-    auto const [validity, reason] = checkValidity(
-        app_.getHashRouter(),
-        *transaction->getSTransaction(),
-        view->rules(),
-        app_.config());
+    auto const [validity, reason] =
+        checkValidity(app_.getHashRouter(), sttx, view->rules(), app_.config());
     if (validity == Validity::Refused)
     {
         JLOG(m_journal.debug()) << "Transaction refused: " << reason;
@@ -1869,12 +1885,17 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 bool const isEmitted =
                     hook::isEmittedTxn(*(e.transaction->getSTransaction()));
 
-                if (toSkip && !isEmitted)
+                if (auto const sttx = *(e.transaction->getSTransaction());
+                    toSkip && !isEmitted &&
+                    // Skip relaying if it's an inner batch txn and batch
+                    // feature is enabled
+                    !(sttx.isFlag(tfInnerBatchTxn) &&
+                      newOL->rules().enabled(featureBatch)))
                 {
                     protocol::TMTransaction tx;
                     Serializer s;
 
-                    e.transaction->getSTransaction()->add(s);
+                    sttx.add(s);
                     tx.set_rawtransaction(s.data(), s.size());
                     tx.set_status(protocol::tsCURRENT);
                     tx.set_receivetimestamp(
@@ -1892,7 +1913,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 }
             }
 
-            if (validatedLedgerIndex)
+            if (!isTemMalformed(e.result) && validatedLedgerIndex)
             {
                 auto [fee, accountSeq, availableSeq] =
                     app_.getTxQ().getTxRequiredFeeAndSeq(
@@ -3387,6 +3408,11 @@ NetworkOPsImp::pubProposedTransaction(
 {
     // never publish emitted txns
     if (hook::isEmittedTxn(*transaction))
+        return;
+
+    // never publish an inner txn inside a batch txn
+    if (transaction->isFlag(tfInnerBatchTxn) &&
+        ledger->rules().enabled(featureBatch))
         return;
 
     MultiApiJson jvObj =

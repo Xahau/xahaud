@@ -49,7 +49,7 @@ getHookFees(RPC::JsonContext const& context)
         if (!stpTrans->isFieldPresent(sfAccount))
             throw std::invalid_argument("No sfAccount specified");
 
-        return invoke_calculateBaseFee(
+        return calculateBaseFee(
             *(context.app.openLedger().current()), *stpTrans);
     }
 
