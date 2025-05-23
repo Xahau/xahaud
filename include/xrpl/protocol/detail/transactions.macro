@@ -499,6 +499,12 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
+/** This transaction type batches together transactions. */
+TRANSACTION(ttBATCH, 73, Batch, ({
+    {sfRawTransactions, soeREQUIRED},
+    {sfBatchSigners, soeOPTIONAL},
+}))
+
 /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
 TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
     {sfObjectID, soeREQUIRED},

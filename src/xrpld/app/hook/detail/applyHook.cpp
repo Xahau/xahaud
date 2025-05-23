@@ -570,6 +570,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttREMARKS_SET: {
             break;
         }
+        case ttBATCH: {
+            break;
+        }
         // pseudo transactions
         case ttAMENDMENT:
         case ttFEE:

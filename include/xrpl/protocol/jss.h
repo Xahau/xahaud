@@ -109,6 +109,8 @@ JSS(PriceDataSeries);          // field.
 JSS(PriceData);                // field.
 JSS(Provider);                 // field.
 JSS(QuoteAsset);               // in: Oracle.
+JSS(RawTransaction);           // in: Batch
+JSS(RawTransactions);          // in: BatchJSS(RawTransactions);
 JSS(SLE_hit_rate);             // out: GetCounts.
 JSS(Scale);                    // field.
 JSS(SettleDelay);              // in: TransactionSign
