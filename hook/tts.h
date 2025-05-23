@@ -68,6 +68,7 @@
 #define ttVAULT_DEPOSIT 77
 #define ttVAULT_WITHDRAW 78
 #define ttVAULT_CLAWBACK 79
+#define ttBATCH 80
 #define ttMANIFEST_SET 91
 #define ttCRON 92
 #define ttCRON_SET 93

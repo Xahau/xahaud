@@ -63,6 +63,7 @@ public:
         OpenView& to,
         STTx const& tx,
         TER ter,
+        std::optional<uint256> parentBatchId,
         bool isDryRun,
         beast::Journal j);
 
@@ -83,6 +84,7 @@ public:
     generateProvisionalMeta(
         OpenView const& to,
         STTx const& tx,
+        std::optional<uint256> parentBatchId,
         beast::Journal j);
 
     /* Set hook metadata for a hook execution

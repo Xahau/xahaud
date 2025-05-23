@@ -884,7 +884,7 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
             return Transactor::calculateBaseFee(*feeView, *stpTrans).drops();
 
-        return invoke_calculateBaseFee(*feeView, *stpTrans).drops();
+        return calculateBaseFee(*feeView, *stpTrans).drops();
     }
     catch (std::exception const& e)
     {

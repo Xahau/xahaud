@@ -4,6 +4,7 @@
 
 enum UniversalFlags : uint32_t {
     tfFullyCanonicalSig = 0x80000000,
+    tfInnerBatchTxn = 0x40000000,
 };
 
 enum AccountSetFlags : uint32_t {
@@ -114,4 +115,11 @@ enum AMMClawbackFlags : uint32_t {
 
 enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
+};
+
+enum BatchFlags : uint32_t {
+    tfAllOrNothing = 0x00010000,
+    tfOnlyOne = 0x00020000,
+    tfUntilFailure = 0x00040000,
+    tfIndependent = 0x00080000,
 };
