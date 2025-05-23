@@ -46,7 +46,10 @@ private:
         CtorHelper);
 
 public:
-    TxMeta(uint256 const& transactionID, std::uint32_t ledger);
+    TxMeta(
+        uint256 const& transactionID,
+        std::uint32_t ledger,
+        std::optional<uint256> parentBatchId = std::nullopt);
     TxMeta(uint256 const& txID, std::uint32_t ledger, Blob const&);
     TxMeta(uint256 const& txID, std::uint32_t ledger, std::string const&);
     TxMeta(uint256 const& txID, std::uint32_t ledger, STObject const&);
@@ -169,6 +172,27 @@ public:
         return static_cast<bool>(mDelivered);
     }
 
+    void
+    setParentBatchId(uint256 const& parentBatchId)
+    {
+        mParentBatchId = parentBatchId;
+    }
+
+    uint256
+    getParentBatchId() const
+    {
+        XRPL_ASSERT(
+            hasParentBatchId(),
+            "ripple::TxMeta::getParentBatchId : non-null batch id");
+        return *mParentBatchId;
+    }
+
+    bool
+    hasParentBatchId() const
+    {
+        return static_cast<bool>(mParentBatchId);
+    }
+
 private:
     uint256 mTransactionID;
     std::uint32_t mLedger;
@@ -178,6 +202,7 @@ private:
     std::optional<STAmount> mDelivered;
     std::optional<STArray> mHookExecutions;
     std::optional<STArray> mHookEmissions;
+    std::optional<uint256> mParentBatchId;
 
     STArray mNodes;
 };

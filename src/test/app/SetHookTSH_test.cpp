@@ -7743,6 +7743,14 @@ private:
     }
 
     void
+    testBatchTSH(FeatureBitset features)
+    {
+        testcase("batch tsh");
+
+        BEAST_EXPECT(!features[featureBatch]);
+    }
+
+    void
     testEmittedTxnReliability(FeatureBitset features)
     {
         testcase("emitted txn reliability");

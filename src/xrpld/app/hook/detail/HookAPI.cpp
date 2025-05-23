@@ -844,7 +844,7 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
                        *(applyCtx.app.openLedger().current()), *stpTrans)
                 .drops();
 
-        return invoke_calculateBaseFee(
+        return calculateBaseFee(
                    *(applyCtx.app.openLedger().current()), *stpTrans)
             .drops();
     }
