@@ -301,7 +301,7 @@ It fixes some source files to add missing `#include`s.
    Single-config generators:
 
    ```
-   cmake --build .
+   cmake --build . -j $(nproc)
    ```
 
    Multi-config generators:
