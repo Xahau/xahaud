@@ -1,0 +1,116 @@
+name: MacOS - GA Runner
+
+on:
+  push:
+    branches: ["dev", "candidate", "release"]
+  pull_request:
+    branches: ["dev", "candidate", "release"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        generator:
+          - Ninja
+        configuration:
+          - Debug
+    runs-on: macos-15
+    env:
+      build_dir: .build
+      # Bump this number to invalidate all caches globally.
+      CACHE_VERSION: 1
+      MAIN_BRANCH_NAME: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Conan
+        run: |
+          brew install conan@1
+          # Add Conan 1 to the PATH for this job
+          echo "$(brew --prefix conan@1)/bin" >> $GITHUB_PATH
+
+      - name: Install Coreutils
+        run: |
+          brew install coreutils
+          echo "Num proc: $(nproc)"
+
+      - name: Install Ninja
+        if: matrix.generator == 'Ninja'
+        run: brew install ninja
+
+      - name: Install Python
+        run: |
+          if which python3 > /dev/null 2>&1; then
+              echo "Python 3 executable exists"
+              python3 --version
+          else
+              brew install python@3.12
+          fi
+          # Create 'python' symlink if it doesn't exist (for tools expecting 'python')
+          if ! which python > /dev/null 2>&1; then
+              sudo ln -sf $(which python3) /usr/local/bin/python
+          fi
+
+      - name: Install CMake
+        run: |
+          if which cmake > /dev/null 2>&1; then
+              echo "cmake executable exists"
+              cmake --version
+          else
+              brew install cmake
+          fi
+
+      - name: Install ccache
+        run: brew install ccache
+
+      - name: Configure ccache
+        uses: ./.github/actions/xahau-configure-ccache
+        with:
+          max_size: 2G
+          hash_dir: true
+          compiler_check: content
+
+      - name: Check environment
+        run: |
+          echo "PATH:"
+          echo "${PATH}" | tr ':' '\n'
+          which python && python --version || echo "Python not found"
+          which conan && conan --version || echo "Conan not found"
+          which cmake && cmake --version || echo "CMake not found"
+          clang --version
+          ccache --version
+          echo "---- Full Environment ----"
+          env
+
+      - name: Configure Conan
+        run: |
+          conan profile new default --detect || true # Ignore error if profile exists
+          conan profile update settings.compiler.cppstd=20 default
+
+      - name: Install dependencies
+        uses: ./.github/actions/xahau-ga-dependencies
+        with:
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          compiler-id: clang
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      - name: Build
+        uses: ./.github/actions/xahau-ga-build
+        with:
+          generator: ${{ matrix.generator }}
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          compiler-id: clang
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+
+      - name: Test
+        run: |
+          ${{ env.build_dir }}/rippled --unittest --unittest-jobs $(nproc)
