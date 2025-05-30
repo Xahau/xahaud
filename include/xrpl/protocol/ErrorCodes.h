@@ -157,7 +157,10 @@ enum error_code_i {
     // Simulate
     rpcTX_SIGNED = 97,
 
-    rpcLAST = rpcTX_SIGNED  // rpcLAST should always equal the last code.
+    // Pathfinding
+    rpcDOMAIN_MALFORMED = 98,
+
+    rpcLAST = rpcDOMAIN_MALFORMED  // rpcLAST should always equal the last code.
 };
 
 /** Codes returned in the `warnings` array of certain RPC commands.
