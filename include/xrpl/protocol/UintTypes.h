@@ -119,6 +119,8 @@ inline constexpr Currency badCurrencyCodeMask =
     isoMaskBits | Currency{0xDFDFDF0000000000};
 
 }  // namespace detail
+/** Domain is a 256-bit hash representing a specific domain. */
+using Domain = base_uint<256>;
 
 /** XRP currency. */
 [[nodiscard]] constexpr Currency const&

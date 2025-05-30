@@ -1933,10 +1933,11 @@ public:
         };
         using namespace test::jtx;
         auto const sa = supported_amendments();
-        testAll(sa - featureFlowCross - featureDeepFreeze);
-        testAll(sa - featureFlowCross);
-        testAll(sa - featureTouch);
-        testAll(sa - featureDeepFreeze);
+        testAll(
+            sa - featureFlowCross - featureDeepFreeze - featurePermissionedDEX);
+        testAll(sa - featureFlowCross - featurePermissionedDEX);
+        testAll(sa - featureTouch - featurePermissionedDEX);
+        testAll(sa - featureDeepFreeze - featurePermissionedDEX);
         testAll(sa);
     }
 };

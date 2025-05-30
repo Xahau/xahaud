@@ -121,6 +121,7 @@ constexpr static ErrorInfo unorderedErrorInfos[]{
     {rpcTX_SIGNED,              "transactionSigned",    "Transaction should not be signed.", 400},
     {rpcENTRY_NOT_FOUND,        "entryNotFound",        "Entry not found.", 400},
     {rpcUNEXPECTED_LEDGER_TYPE, "unexpectedLedgerType", "Unexpected ledger type.", 400},
+    {rpcDOMAIN_MALFORMED,       "domainMalformed",      "Domain is malformed.", 400},
 };
 // clang-format on
 

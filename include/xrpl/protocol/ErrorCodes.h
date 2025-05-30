@@ -160,9 +160,10 @@ enum error_code_i {
     // ledger_entry
     rpcENTRY_NOT_FOUND = 98,
     rpcUNEXPECTED_LEDGER_TYPE = 99,
+    // Pathfinding
+    rpcDOMAIN_MALFORMED = 100,
 
-    rpcLAST =
-        rpcUNEXPECTED_LEDGER_TYPE  // rpcLAST should always equal the last code.
+    rpcLAST = rpcDOMAIN_MALFORMED  // rpcLAST should always equal the last code.
 };
 
 /** Codes returned in the `warnings` array of certain RPC commands.

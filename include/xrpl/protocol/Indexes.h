@@ -387,6 +387,9 @@ Keylet
 permissionedDomain(AccountID const& account, UInt32or256 const& seq) noexcept;
 
 Keylet
+permissionedDomain(AccountID const& account, uint32_t seq) noexcept;
+
+Keylet
 permissionedDomain(uint256 const& domainID) noexcept;
 
 Keylet

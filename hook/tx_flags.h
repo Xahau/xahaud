@@ -41,6 +41,7 @@ enum OfferCreateFlags : uint32_t {
     tfImmediateOrCancel = 0x00020000,
     tfFillOrKill = 0x00040000,
     tfSell = 0x00080000,
+    tfHybrid = 0x00100000,
 };
 
 enum PaymentFlags : uint32_t {

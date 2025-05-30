@@ -55,6 +55,7 @@ TRANSACTION(ttPAYMENT, 0, Payment,
     {sfDestinationTag, soeOPTIONAL},
     {sfDeliverMin, soeOPTIONAL, soeMPTSupported},
     {sfCredentialIDs, soeOPTIONAL},
+    {sfDomainID, soeOPTIONAL},
 }))
 
 /** This transaction type creates an escrow object. */
@@ -145,6 +146,7 @@ TRANSACTION(ttOFFER_CREATE, 7, OfferCreate,
     {sfExpiration, soeOPTIONAL},
     {sfOfferSequence, soeOPTIONAL},
     {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
+    {sfDomainID, soeOPTIONAL},
 }))
 
 /** This transaction type cancels existing offers to trade one asset for another. */

@@ -50,6 +50,7 @@ public:
         std::optional<AccountID> const& uSrcIssuer,
         STAmount const& dstAmount,
         std::optional<STAmount> const& srcAmount,
+        std::optional<uint256> const& domain,
         Application& app);
     Pathfinder(Pathfinder const&) = delete;
     Pathfinder&
@@ -207,6 +208,7 @@ private:
         been removed. */
     STAmount mRemainingAmount;
     bool convert_all_;
+    std::optional<uint256> mDomain;
 
     std::shared_ptr<ReadView const> mLedger;
     std::optional<LoadEvent> m_loadEvent;

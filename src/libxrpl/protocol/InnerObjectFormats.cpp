@@ -273,6 +273,13 @@ InnerObjectFormats::InnerObjectFormats()
          {sfSigningPubKey, soeOPTIONAL},
          {sfTxnSignature, soeOPTIONAL},
          {sfSigners, soeOPTIONAL}});
+
+    add(sfBook.jsonName,
+        sfBook.getCode(),
+        {
+            {sfBookDirectory, soeREQUIRED},
+            {sfBookNode, soeREQUIRED},
+        });
 }
 
 InnerObjectFormats const&
