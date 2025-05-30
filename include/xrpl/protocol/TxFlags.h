@@ -104,9 +104,10 @@ enum OfferCreateFlags : uint32_t {
     tfImmediateOrCancel = 0x00020000,
     tfFillOrKill = 0x00040000,
     tfSell = 0x00080000,
+    tfHybrid = 0x00100000,
 };
 constexpr std::uint32_t tfOfferCreateMask =
-    ~(tfUniversal | tfPassive | tfImmediateOrCancel | tfFillOrKill | tfSell);
+    ~(tfUniversal | tfPassive | tfImmediateOrCancel | tfFillOrKill | tfSell | tfHybrid);
 
 // Payment flags:
 enum PaymentFlags : uint32_t {

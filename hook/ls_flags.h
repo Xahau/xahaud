@@ -25,6 +25,7 @@ enum ltACCOUNT_ROOT {
 enum ltOFFER {
     lsfPassive = 0x00010000,
     lsfSell = 0x00020000,
+    lsfHybrid = 0x00040000,
 };
 enum ltRIPPLE_STATE {
     lsfLowReserve = 0x00010000,
