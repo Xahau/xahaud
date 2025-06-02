@@ -634,6 +634,8 @@ adjustLPTokensOut(
     STAmount const& lptAMMBalance,
     STAmount const& lpTokensDeposit)
 {
+    if (!rules.enabled(fixAMMv1_3))
+        return lpTokensDeposit;
     return adjustLPTokens(lptAMMBalance, lpTokensDeposit, IsDeposit::Yes);
 }
 
@@ -656,7 +658,7 @@ AMMDeposit::equalDepositTokens(
     {
         auto const tokensAdj =
             adjustLPTokensOut(view.rules(), lptAMMBalance, lpTokensDeposit);
-        if (tokensAdj == beast::zero)
+        if (view.rules().enabled(fixAMMv1_3) && tokensAdj == beast::zero)
             return {tecAMM_INVALID_TOKENS, STAmount{}};
         auto const frac =
             divide(tokensAdj, lptAMMBalance, lptAMMBalance.issue());
@@ -733,7 +735,10 @@ AMMDeposit::equalDepositLimit(
         getRoundedLPTokens(view.rules(), lptAMMBalance, frac, IsDeposit::Yes);
     if (tokensAdj == beast::zero)
     {
-        return {tecAMM_INVALID_TOKENS, STAmount{}};
+        if (!view.rules().enabled(fixAMMv1_3))
+            return {tecAMM_FAILED, STAmount{}};  // LCOV_EXCL_LINE
+        else
+            return {tecAMM_INVALID_TOKENS, STAmount{}};
     }
     // factor in the adjusted tokens
     frac = adjustFracByTokens(view.rules(), lptAMMBalance, tokensAdj, frac);
@@ -757,7 +762,10 @@ AMMDeposit::equalDepositLimit(
         getRoundedLPTokens(view.rules(), lptAMMBalance, frac, IsDeposit::Yes);
     if (tokensAdj == beast::zero)
     {
-        return {tecAMM_INVALID_TOKENS, STAmount{}};  // LCOV_EXCL_LINE
+        if (!view.rules().enabled(fixAMMv1_3))
+            return {tecAMM_FAILED, STAmount{}};  // LCOV_EXCL_LINE
+        else
+            return {tecAMM_INVALID_TOKENS, STAmount{}};  // LCOV_EXCL_LINE
     }
     // factor in the adjusted tokens
     frac = adjustFracByTokens(view.rules(), lptAMMBalance, tokensAdj, frac);
@@ -803,12 +811,15 @@ AMMDeposit::singleDeposit(
         lpTokensOut(amountBalance, amount, lptAMMBalance, tfee));
     if (tokens == beast::zero)
     {
-        return {tecAMM_INVALID_TOKENS, STAmount{}};
+        if (!view.rules().enabled(fixAMMv1_3))
+            return {tecAMM_FAILED, STAmount{}};  // LCOV_EXCL_LINE
+        else
+            return {tecAMM_INVALID_TOKENS, STAmount{}};
     }
     // factor in the adjusted tokens
     auto const [tokensAdj, amountDepositAdj] = adjustAssetInByTokens(
         view.rules(), amountBalance, amount, lptAMMBalance, tokens, tfee);
-    if (tokensAdj == beast::zero)
+    if (view.rules().enabled(fixAMMv1_3) && tokensAdj == beast::zero)
         return {tecAMM_INVALID_TOKENS, STAmount{}};  // LCOV_EXCL_LINE
     return deposit(
         view,
@@ -843,7 +854,7 @@ AMMDeposit::singleDepositTokens(
 {
     auto const tokensAdj =
         adjustLPTokensOut(view.rules(), lptAMMBalance, lpTokensDeposit);
-    if (tokensAdj == beast::zero)
+    if (view.rules().enabled(fixAMMv1_3) && tokensAdj == beast::zero)
         return {tecAMM_INVALID_TOKENS, STAmount{}};
     // the adjusted tokens are factored in
     auto const amountDeposit =
@@ -907,12 +918,15 @@ AMMDeposit::singleDepositEPrice(
             lpTokensOut(amountBalance, amount, lptAMMBalance, tfee));
         if (tokens <= beast::zero)
         {
-            return {tecAMM_INVALID_TOKENS, STAmount{}};
+            if (!view.rules().enabled(fixAMMv1_3))
+                return {tecAMM_FAILED, STAmount{}};  // LCOV_EXCL_LINE
+            else
+                return {tecAMM_INVALID_TOKENS, STAmount{}};
         }
         // factor in the adjusted tokens
         auto const [tokensAdj, amountDepositAdj] = adjustAssetInByTokens(
             view.rules(), amountBalance, amount, lptAMMBalance, tokens, tfee);
-        if (tokensAdj == beast::zero)
+        if (view.rules().enabled(fixAMMv1_3) && tokensAdj == beast::zero)
             return {tecAMM_INVALID_TOKENS, STAmount{}};  // LCOV_EXCL_LINE
         auto const ep = Number{amountDepositAdj} / tokensAdj;
         if (ep <= ePrice)
@@ -974,7 +988,7 @@ AMMDeposit::singleDepositEPrice(
         lptAMMBalance,
         tokens,
         tfee);
-    if (tokensAdj == beast::zero)
+    if (view.rules().enabled(fixAMMv1_3) && tokensAdj == beast::zero)
         return {tecAMM_INVALID_TOKENS, STAmount{}};  // LCOV_EXCL_LINE
 
     return deposit(

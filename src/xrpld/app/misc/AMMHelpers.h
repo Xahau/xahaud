@@ -590,6 +590,13 @@ getRoundedAsset(
     A const& frac,
     IsDeposit isDeposit)
 {
+    if (!rules.enabled(fixAMMv1_3))
+    {
+        if constexpr (std::is_same_v<A, STAmount>)
+            return multiply(balance, frac, balance.issue());
+        else
+            return toSTAmount(balance.issue(), balance * frac);
+    }
     auto const rm = detail::getAssetRounding(isDeposit);
     return multiply(balance, frac, rm);
 }
