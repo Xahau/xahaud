@@ -173,6 +173,9 @@ public:
     bool
     checkInvariant(TAmounts<TIn, TOut> const& consumed, beast::Journal j) const
     {
+        if (!isFeatureEnabled(fixAMMv1_3))
+            return true;
+
         if (consumed.in > m_amounts.in || consumed.out > m_amounts.out)
         {
             // LCOV_EXCL_START

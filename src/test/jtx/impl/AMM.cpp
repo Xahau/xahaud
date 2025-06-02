@@ -31,7 +31,7 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-[[maybe_unused]] static Number
+static Number
 number(STAmount const& a)
 {
     if (isXRP(a))
@@ -42,6 +42,12 @@ number(STAmount const& a)
 IOUAmount
 AMM::initialTokens()
 {
+    if (!env_.enabled(fixAMMv1_3))
+    {
+        auto const product = number(asset1_) * number(asset2_);
+        return (IOUAmount)(product.mantissa() >= 0 ? root2(product)
+                                                   : root2(-product));
+    }
     return getLPTokensBalance();
 }
 
