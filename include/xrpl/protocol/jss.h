@@ -461,6 +461,7 @@ JSS(local);                   // out: resource/Logic.h
 JSS(local_txs);               // out: GetCounts
 JSS(local_static_keys);       // out: ValidatorList
 JSS(locked_balance);          // out: AccountLines
+JSS(locked);                  // out: GatewayBalances
 JSS(log);                     // out: HookValidate
 JSS(low);                     // out: BookChanges
 JSS(lock_count);              // out: AccountLines

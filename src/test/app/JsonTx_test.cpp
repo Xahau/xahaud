@@ -870,13 +870,13 @@ struct JsonTx_test : public beast::unit_test::suite
 
         // two escrows, and one of them finished by EscrowID
         auto const e1 = env.jt(
-            withTime(escrow(alice, bob, XRP(10)), t + 2),
+            withTime(escrow::create(alice, bob, XRP(10)), t + 2),
             seq(0),
-            finish_time(env.now() + 10s));
+            escrow::finish_time(env.now() + 10s));
         auto const e2 = env.jt(
-            withTime(escrow(alice, bob, XRP(10)), t + 3),
+            withTime(escrow::create(alice, bob, XRP(10)), t + 3),
             seq(0),
-            finish_time(env.now() + 10s));
+            escrow::finish_time(env.now() + 10s));
         BEAST_EXPECT(engine(submitBlob(env, stx(e1))) == "tesSUCCESS");
         BEAST_EXPECT(engine(submitBlob(env, stx(e2))) == "tesSUCCESS");
         env.close();

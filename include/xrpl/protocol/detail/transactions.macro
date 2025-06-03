@@ -67,7 +67,7 @@ TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate,
     uint256{},
     ({
     {sfDestination, soeREQUIRED},
-    {sfAmount, soeREQUIRED},
+    {sfAmount, soeREQUIRED, soeMPTSupported},
     {sfCondition, soeOPTIONAL},
     {sfCancelAfter, soeOPTIONAL},
     {sfFinishAfter, soeOPTIONAL},
