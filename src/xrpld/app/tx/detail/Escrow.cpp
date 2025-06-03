@@ -20,6 +20,7 @@
 #include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/tx/detail/Escrow.h>
+#include <xrpld/app/tx/detail/MPTokenAuthorize.h>
 #include <xrpld/conditions/Condition.h>
 #include <xrpld/conditions/Fulfillment.h>
 #include <xrpld/ledger/ApplyView.h>
@@ -29,6 +30,7 @@
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/MPTAmount.h>
 #include <xrpl/protocol/Rate.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/XRPAmount.h>
@@ -84,6 +86,39 @@ EscrowCreate::makeTxConsequences(PreflightContext const& ctx)
         ctx.tx, isXRP(ctx.tx[sfAmount]) ? ctx.tx[sfAmount].xrp() : beast::zero};
 }
 
+template <ValidIssueType T>
+static NotTEC
+escrowCreatePreflightHelper(PreflightContext const& ctx);
+
+template <>
+NotTEC
+escrowCreatePreflightHelper<Issue>(PreflightContext const& ctx)
+{
+    STAmount const amount = ctx.tx[sfAmount];
+    if (amount.native() || amount <= beast::zero)
+        return temBAD_AMOUNT;
+
+    if (isBadCurrency(amount))
+        return temBAD_CURRENCY;
+
+    return tesSUCCESS;
+}
+
+template <>
+NotTEC
+escrowCreatePreflightHelper<MPTIssue>(PreflightContext const& ctx)
+{
+    if (!ctx.rules.enabled(featureMPTokensV1))
+        return temDISABLED;
+
+    auto const amount = ctx.tx[sfAmount];
+    if (amount.native() || amount.mpt() > MPTAmount{maxMPTokenAmount} ||
+        amount <= beast::zero)
+        return temBAD_AMOUNT;
+
+    return tesSUCCESS;
+}
+
 NotTEC
 EscrowCreate::preflight(PreflightContext const& ctx)
 {
@@ -99,15 +134,19 @@ EscrowCreate::preflight(PreflightContext const& ctx)
         if (!ctx.rules.enabled(featurePaychanAndEscrowForTokens))
             return temBAD_AMOUNT;
 
-        if (!isLegalNet(amount))
-            return temBAD_AMOUNT;
-
-        if (isBadCurrency(amount))
-            return temBAD_CURRENCY;
+        if (auto const ret = std::visit(
+                [&]<typename T>(T const&) {
+                    return escrowCreatePreflightHelper<T>(ctx);
+                },
+                amount.asset().value());
+            !isTesSuccess(ret))
+            return ret;
     }
-
-    if (ctx.tx[sfAmount] <= beast::zero)
-        return temBAD_AMOUNT;
+    else
+    {
+        if (amount <= beast::zero)
+            return temBAD_AMOUNT;
+    }
 
     // We must specify at least one timeout value
     if (!ctx.tx[~sfCancelAfter] && !ctx.tx[~sfFinishAfter])
@@ -154,10 +193,179 @@ EscrowCreate::preflight(PreflightContext const& ctx)
     return preflight2(ctx);
 }
 
+template <ValidIssueType T>
+static TER
+escrowCreatePreclaimHelper(
+    PreclaimContext const& ctx,
+    AccountID const& account,
+    AccountID const& dest,
+    STAmount const& amount);
+
+template <>
+TER
+escrowCreatePreclaimHelper<Issue>(
+    PreclaimContext const& ctx,
+    AccountID const& account,
+    AccountID const& dest,
+    STAmount const& amount)
+{
+    AccountID issuer = amount.getIssuer();
+    // If the issuer is the same as the account, return tecNO_PERMISSION
+    if (issuer == account)
+        return tecNO_PERMISSION;
+
+    // If the lsfAllowTrustLineLocking is not enabled, return tecNO_PERMISSION
+    auto const sleIssuer = ctx.view.read(keylet::account(issuer));
+    if (!sleIssuer)
+        return tecNO_ISSUER;
+
+    // If the account does not have a trustline to the issuer, return tecNO_LINE
+    auto const sleRippleState =
+        ctx.view.read(keylet::line(account, issuer, amount.getCurrency()));
+    if (!sleRippleState)
+        return tecNO_LINE;
+
+    STAmount const balance = (*sleRippleState)[sfBalance];
+
+    // If balance is positive, issuer must have higher address than account
+    if (balance > beast::zero && issuer < account)
+        return tecNO_PERMISSION;  // LCOV_EXCL_LINE
+
+    // If balance is negative, issuer must have lower address than account
+    if (balance < beast::zero && issuer > account)
+        return tecNO_PERMISSION;  // LCOV_EXCL_LINE
+
+    // If the issuer has requireAuth set, check if the account is authorized
+    if (auto const ter = requireAuth(ctx.view, amount.issue(), account);
+        ter != tesSUCCESS)
+        return ter;
+
+    // If the issuer has requireAuth set, check if the destination is authorized
+    if (auto const ter = requireAuth(ctx.view, amount.issue(), dest);
+        ter != tesSUCCESS)
+        return ter;
+
+    // If the issuer has frozen the account, return tecFROZEN
+    if (isFrozen(ctx.view, account, amount.issue()))
+        return tecFROZEN;
+
+    // If the issuer has frozen the destination, return tecFROZEN
+    if (isFrozen(ctx.view, dest, amount.issue()))
+        return tecFROZEN;
+
+    STAmount const spendableAmount = accountHolds(
+        ctx.view,
+        account,
+        amount.getCurrency(),
+        issuer,
+        fhIGNORE_FREEZE,
+        ctx.j);
+
+    // If the balance is less than or equal to 0, return tecINSUFFICIENT_FUNDS
+    if (spendableAmount <= beast::zero)
+        return tecINSUFFICIENT_FUNDS;
+
+    // If the spendable amount is less than the amount, return
+    // tecINSUFFICIENT_FUNDS
+    if (spendableAmount < amount)
+        return tecINSUFFICIENT_FUNDS;
+
+    // If the amount is not addable to the balance, return tecPRECISION_LOSS
+    if (!canAdd(spendableAmount, amount))
+        return tecPRECISION_LOSS;
+
+    return tesSUCCESS;
+}
+
+template <>
+TER
+escrowCreatePreclaimHelper<MPTIssue>(
+    PreclaimContext const& ctx,
+    AccountID const& account,
+    AccountID const& dest,
+    STAmount const& amount)
+{
+    AccountID issuer = amount.getIssuer();
+    // If the issuer is the same as the account, return tecNO_PERMISSION
+    if (issuer == account)
+        return tecNO_PERMISSION;
+
+    // If the mpt does not exist, return tecOBJECT_NOT_FOUND
+    auto const issuanceKey =
+        keylet::mptIssuance(amount.get<MPTIssue>().getMptID());
+    auto const sleIssuance = ctx.view.read(issuanceKey);
+    if (!sleIssuance)
+        return tecOBJECT_NOT_FOUND;
+
+    // If the lsfMPTCanEscrow is not enabled, return tecNO_PERMISSION
+    if (!sleIssuance->isFlag(lsfMPTCanEscrow))
+        return tecNO_PERMISSION;
+
+    // If the issuer is not the same as the issuer of the mpt, return
+    // tecNO_PERMISSION
+    if (sleIssuance->getAccountID(sfIssuer) != issuer)
+        return tecNO_PERMISSION;  // LCOV_EXCL_LINE
+
+    // If the account does not have the mpt, return tecOBJECT_NOT_FOUND
+    if (!ctx.view.exists(keylet::mptoken(issuanceKey.key, account)))
+        return tecOBJECT_NOT_FOUND;
+
+    // If the issuer has requireAuth set, check if the account is
+    // authorized
+    auto const& mptIssue = amount.get<MPTIssue>();
+    if (auto const ter =
+            requireAuth(ctx.view, mptIssue, account, MPTAuthType::WeakAuth);
+        ter != tesSUCCESS)
+        return ter;
+
+    // If the issuer has requireAuth set, check if the destination is
+    // authorized
+    if (auto const ter =
+            requireAuth(ctx.view, mptIssue, dest, MPTAuthType::WeakAuth);
+        ter != tesSUCCESS)
+        return ter;
+
+    // If the issuer has frozen the account, return tecLOCKED
+    if (isFrozen(ctx.view, account, mptIssue))
+        return tecLOCKED;
+
+    // If the issuer has frozen the destination, return tecLOCKED
+    if (isFrozen(ctx.view, dest, mptIssue))
+        return tecLOCKED;
+
+    // If the mpt cannot be transferred, return tecNO_AUTH
+    if (auto const ter = canTransfer(ctx.view, mptIssue, account, dest);
+        ter != tesSUCCESS)
+        return ter;
+
+    STAmount const spendableAmount = accountHolds(
+        ctx.view,
+        account,
+        amount.get<MPTIssue>(),
+        fhIGNORE_FREEZE,
+        ahIGNORE_AUTH,
+        ctx.j);
+
+    // If the balance is less than or equal to 0, return tecINSUFFICIENT_FUNDS
+    if (spendableAmount <= beast::zero)
+        return tecINSUFFICIENT_FUNDS;
+
+    // If the spendable amount is less than the amount, return
+    // tecINSUFFICIENT_FUNDS
+    if (spendableAmount < amount)
+        return tecINSUFFICIENT_FUNDS;
+
+    return tesSUCCESS;
+}
+
 TER
 EscrowCreate::preclaim(PreclaimContext const& ctx)
 {
-    auto const sled = ctx.view.read(keylet::account(ctx.tx[sfDestination]));
+    STAmount const amount{ctx.tx[sfAmount]};
+    AccountID const account{ctx.tx[sfAccount]};
+    AccountID const dest{ctx.tx[sfDestination]};
+
+    auto const sled = ctx.view.read(keylet::account(dest));
     if (!sled)
         return tecNO_DST;
 
@@ -168,6 +376,74 @@ EscrowCreate::preclaim(PreclaimContext const& ctx)
     if (isPseudoAccount(sled))
         return tecNO_PERMISSION;
 
+    if (!isXRP(amount) && ctx.view.rules().enabled(featureIOUEscrowV2))
+    {
+        if (auto const ret = std::visit(
+                [&]<typename T>(T const&) {
+                    return escrowCreatePreclaimHelper<T>(
+                        ctx, account, dest, amount);
+                },
+                amount.asset().value());
+            !isTesSuccess(ret))
+            return ret;
+    }
+    return tesSUCCESS;
+}
+
+template <ValidIssueType T>
+static TER
+escrowLockApplyHelper(
+    ApplyView& view,
+    AccountID const& issuer,
+    AccountID const& sender,
+    STAmount const& amount,
+    beast::Journal journal);
+
+template <>
+TER
+escrowLockApplyHelper<Issue>(
+    ApplyView& view,
+    AccountID const& issuer,
+    AccountID const& sender,
+    STAmount const& amount,
+    beast::Journal journal)
+{
+    // Defensive: Issuer cannot create an escrow
+    // LCOV_EXCL_START
+    if (issuer == sender)
+        return tecINTERNAL;
+    // LCOV_EXCL_STOP
+
+    auto const ter = rippleCredit(
+        view,
+        sender,
+        issuer,
+        amount,
+        amount.holds<MPTIssue>() ? false : true,
+        journal);
+    if (ter != tesSUCCESS)
+        return ter;  // LCOV_EXCL_LINE
+    return tesSUCCESS;
+}
+
+template <>
+TER
+escrowLockApplyHelper<MPTIssue>(
+    ApplyView& view,
+    AccountID const& issuer,
+    AccountID const& sender,
+    STAmount const& amount,
+    beast::Journal journal)
+{
+    // Defensive: Issuer cannot create an escrow
+    // LCOV_EXCL_START
+    if (issuer == sender)
+        return tecINTERNAL;
+    // LCOV_EXCL_STOP
+
+    auto const ter = rippleLockEscrowMPT(view, sender, amount, journal);
+    if (ter != tesSUCCESS)
+        return ter;  // LCOV_EXCL_LINE
     return tesSUCCESS;
 }
 
@@ -208,27 +484,25 @@ EscrowCreate::doApply()
         }
     }
 
-    auto const account = ctx_.tx[sfAccount];
-    auto const sle = ctx_.view().peek(keylet::account(account));
+    auto const sle = ctx_.view().peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
-
-    STAmount const amount{ctx_.tx[sfAmount]};
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     std::shared_ptr<SLE> sleLine;
 
-    auto const balance = STAmount((*sle)[sfBalance]).xrp();
+    STAmount const amount{ctx_.tx[sfAmount]};
+    bool const isIssuer = amount.getIssuer() == account_;
+
     auto const reserve =
         ctx_.view().fees().accountReserve((*sle)[sfOwnerCount] + 1);
-    bool const isIssuer = amount.getIssuer() == account;
 
-    if (balance < reserve)
+    if (mSourceBalance < reserve)
         return tecINSUFFICIENT_RESERVE;
 
     // Check reserve and funds availability
     if (isXRP(amount))
     {
-        if (balance < reserve + STAmount(ctx_.tx[sfAmount]).xrp())
+        if (mSourceBalance < reserve + STAmount(amount).xrp())
             return tecUNFUNDED;
         // pass
     }
@@ -241,7 +515,7 @@ EscrowCreate::doApply()
 
         TER const result = trustTransferAllowed(
             ctx_.view(),
-            {account, ctx_.tx[sfDestination]},
+            {account_, ctx_.tx[sfDestination]},
             amount.issue(),
             ctx_.journal,
             lhLOCKING);
@@ -258,7 +532,7 @@ EscrowCreate::doApply()
             // perform the lock as a dry run before
             // we modify anything on-ledger
             sleLine = ctx_.view().peek(keylet::line(
-                account, amount.getIssuer(), amount.getCurrency()));
+                account_, amount.getIssuer(), amount.getCurrency()));
 
             // check if the escrow is capable of being
             // finished before we allow it to be created
@@ -299,10 +573,10 @@ EscrowCreate::doApply()
 
     // Create escrow in ledger.  Note that we we use the value from the
     // sequence or ticket.  For more explanation see comments in SeqProxy.h.
-    Keylet const escrowKeylet = keylet::escrow(account, seqID(ctx_));
+    Keylet const escrowKeylet = keylet::escrow(account_, seqID(ctx_));
     auto const slep = std::make_shared<SLE>(escrowKeylet);
-    (*slep)[sfAmount] = ctx_.tx[sfAmount];
-    (*slep)[sfAccount] = account;
+    (*slep)[sfAmount] = amount;
+    (*slep)[sfAccount] = account_;
     (*slep)[~sfCondition] = ctx_.tx[~sfCondition];
     (*slep)[~sfSourceTag] = ctx_.tx[~sfSourceTag];
     (*slep)[sfDestination] = ctx_.tx[sfDestination];
@@ -321,53 +595,84 @@ EscrowCreate::doApply()
     // Add escrow to sender's owner directory
     {
         auto page = ctx_.view().dirInsert(
-            keylet::ownerDir(account), escrowKeylet, describeOwnerDir(account));
+            keylet::ownerDir(account_),
+            escrowKeylet,
+            describeOwnerDir(account_));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfOwnerNode] = *page;
     }
 
     // If it's not a self-send, add escrow to recipient's owner directory.
-    if (auto const dest = ctx_.tx[sfDestination]; dest != ctx_.tx[sfAccount])
+    AccountID const dest = ctx_.tx[sfDestination];
+    if (dest != account_)
     {
         auto page = ctx_.view().dirInsert(
             keylet::ownerDir(dest), escrowKeylet, describeOwnerDir(dest));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfDestinationNode] = *page;
     }
 
-    // Deduct owner's balance, increment owner count
+    // IOU escrow objects are added to the issuer's owner directory to help
+    // track the total locked balance. For MPT, this isn't necessary because the
+    // locked balance is already stored directly in the MPTokenIssuance object.
+    AccountID const issuer = amount.getIssuer();
+    if (ctx_.view().rules().enabled(featureIOUEscrowV2) && !isXRP(amount) &&
+        issuer != account_ && issuer != dest && !amount.holds<MPTIssue>())
+    {
+        auto page = ctx_.view().dirInsert(
+            keylet::ownerDir(issuer), escrowKeylet, describeOwnerDir(issuer));
+        if (!page)
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
+        (*slep)[sfIssuerNode] = *page;
+    }
+
+    // Deduct owner's balance
     if (isXRP(amount))
-        (*sle)[sfBalance] = (*sle)[sfBalance] - ctx_.tx[sfAmount];
+        (*sle)[sfBalance] = (*sle)[sfBalance] - amount;
     else
     {
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        // issuer does not need to lock anything
-        if (!isIssuer)
+        if (!ctx_.view().rules().enabled(featureIOUEscrowV2))
         {
-            if (!sleLine)
-                return tecNO_LINE;
+            // issuer does not need to lock anything
+            if (!isIssuer)
+            {
+                if (!sleLine)
+                    return tecNO_LINE;
 
-            // do the lock-up for real now
-            TER const result = trustAdjustLockedBalance(
-                ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
+                // do the lock-up for real now
+                TER const result = trustAdjustLockedBalance(
+                    ctx_.view(), sleLine, amount, 1, ctx_.journal, WetRun);
 
-            JLOG(ctx_.journal.trace())
-                << "EscrowCreate::doApply trustAdjustLockedBalance (wet) "
-                   "result="
-                << result;
+                JLOG(ctx_.journal.trace())
+                    << "EscrowCreate::doApply trustAdjustLockedBalance (wet) "
+                       "result="
+                    << result;
 
-            if (!isTesSuccess(result))
-                return result;
+                if (!isTesSuccess(result))
+                    return result;
+            }
+        }
+        else
+        {
+            if (auto const ret = std::visit(
+                    [&]<typename T>(T const&) {
+                        return escrowLockApplyHelper<T>(
+                            ctx_.view(), issuer, account_, amount, j_);
+                    },
+                    amount.asset().value());
+                !isTesSuccess(ret))
+                return ret;
         }
     }
 
+    // increment owner count
     adjustOwnerCount(ctx_.view(), sle, 1, ctx_.journal);
     ctx_.view().update(sle);
-
     return tesSUCCESS;
 }
 
@@ -442,8 +747,8 @@ EscrowFinish::preflight(PreflightContext const& ctx)
     if (auto const err = credentials::checkFields(ctx); !isTesSuccess(err))
         return err;
 
-    // sfOfferSequence was changed to optional, so ensure the behaviour is the
-    // same until amendment passes
+    // sfOfferSequence was changed to optional, so ensure the behaviour is
+    // the same until amendment passes
     if (!ctx.rules.enabled(fixXahauV1))
     {
         if (!ctx.tx.isFieldPresent(sfOfferSequence))
@@ -478,17 +783,324 @@ EscrowFinish::calculateBaseFee(ReadView const& view, STTx const& tx)
     return Transactor::calculateBaseFee(view, tx) + extraFee;
 }
 
+template <ValidIssueType T>
+static TER
+escrowFinishPreclaimHelper(
+    PreclaimContext const& ctx,
+    AccountID const& dest,
+    STAmount const& amount);
+
+template <>
+TER
+escrowFinishPreclaimHelper<Issue>(
+    PreclaimContext const& ctx,
+    AccountID const& dest,
+    STAmount const& amount)
+{
+    AccountID issuer = amount.getIssuer();
+    // If the issuer is the same as the account, return tesSUCCESS
+    if (issuer == dest)
+        return tesSUCCESS;
+
+    // If the issuer has requireAuth set, check if the destination is
+    // authorized
+    if (auto const ter = requireAuth(ctx.view, amount.issue(), dest);
+        ter != tesSUCCESS)
+        return ter;
+
+    // If the issuer has deep frozen the destination, return tecFROZEN
+    if (isDeepFrozen(ctx.view, dest, amount.getCurrency(), amount.getIssuer()))
+        return tecFROZEN;
+
+    return tesSUCCESS;
+}
+
+template <>
+TER
+escrowFinishPreclaimHelper<MPTIssue>(
+    PreclaimContext const& ctx,
+    AccountID const& dest,
+    STAmount const& amount)
+{
+    AccountID issuer = amount.getIssuer();
+    // If the issuer is the same as the dest, return tesSUCCESS
+    if (issuer == dest)
+        return tesSUCCESS;
+
+    // If the mpt does not exist, return tecOBJECT_NOT_FOUND
+    auto const issuanceKey =
+        keylet::mptIssuance(amount.get<MPTIssue>().getMptID());
+    auto const sleIssuance = ctx.view.read(issuanceKey);
+    if (!sleIssuance)
+        return tecOBJECT_NOT_FOUND;
+
+    // If the issuer has requireAuth set, check if the destination is
+    // authorized
+    auto const& mptIssue = amount.get<MPTIssue>();
+    if (auto const ter =
+            requireAuth(ctx.view, mptIssue, dest, MPTAuthType::WeakAuth);
+        ter != tesSUCCESS)
+        return ter;
+
+    // If the issuer has frozen the destination, return tecLOCKED
+    if (isFrozen(ctx.view, dest, mptIssue))
+        return tecLOCKED;
+
+    return tesSUCCESS;
+}
+
 TER
 EscrowFinish::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureCredentials))
-        return Transactor::preclaim(ctx);
+    if (ctx.view.rules().enabled(featureCredentials))
+    {
+        if (auto const err = credentials::valid(ctx, ctx.tx[sfAccount]);
+            !isTesSuccess(err))
+            return err;
+    }
 
-    if (auto const err = credentials::valid(ctx, ctx.tx[sfAccount]);
-        !isTesSuccess(err))
-        return err;
+    auto const k = keylet::escrow(ctx.tx[sfOwner], ctx.tx[sfOfferSequence]);
+    auto const slep = ctx.view.read(k);
+    if (!slep)
+        return tecNO_TARGET;
 
+    AccountID const dest = (*slep)[sfDestination];
+    STAmount const amount = (*slep)[sfAmount];
+
+    if (!isXRP(amount))
+    {
+        if (!ctx.view.rules().enabled(featureIOUEscrowV2))
+            return temDISABLED;  // LCOV_EXCL_LINE
+
+        if (auto const ret = std::visit(
+                [&]<typename T>(T const&) {
+                    return escrowFinishPreclaimHelper<T>(ctx, dest, amount);
+                },
+                amount.asset().value());
+            !isTesSuccess(ret))
+            return ret;
+    }
     return tesSUCCESS;
+}
+
+template <ValidIssueType T>
+static TER
+escrowUnlockApplyHelper(
+    ApplyView& view,
+    Rate lockedRate,
+    std::shared_ptr<SLE> const& sleDest,
+    STAmount const& xrpBalance,
+    STAmount const& amount,
+    AccountID const& issuer,
+    AccountID const& sender,
+    AccountID const& receiver,
+    bool createAsset,
+    beast::Journal journal);
+
+template <>
+TER
+escrowUnlockApplyHelper<Issue>(
+    ApplyView& view,
+    Rate lockedRate,
+    std::shared_ptr<SLE> const& sleDest,
+    STAmount const& xrpBalance,
+    STAmount const& amount,
+    AccountID const& issuer,
+    AccountID const& sender,
+    AccountID const& receiver,
+    bool createAsset,
+    beast::Journal journal)
+{
+    Keylet const trustLineKey = keylet::line(receiver, amount.issue());
+    bool const recvLow = issuer > receiver;
+    bool const senderIssuer = issuer == sender;
+    bool const receiverIssuer = issuer == receiver;
+    bool const issuerHigh = issuer > receiver;
+
+    // LCOV_EXCL_START
+    if (senderIssuer)
+        return tecINTERNAL;
+    // LCOV_EXCL_STOP
+
+    if (receiverIssuer)
+        return tesSUCCESS;
+
+    if (!view.exists(trustLineKey) && createAsset && !receiverIssuer)
+    {
+        // Can the account cover the trust line's reserve?
+        if (std::uint32_t const ownerCount = {sleDest->at(sfOwnerCount)};
+            xrpBalance < view.fees().accountReserve(ownerCount + 1))
+        {
+            JLOG(journal.trace()) << "Trust line does not exist. "
+                                     "Insufficent reserve to create line.";
+
+            return tecNO_LINE_INSUF_RESERVE;
+        }
+
+        Currency const currency = amount.getCurrency();
+        STAmount initialBalance(amount.issue());
+        initialBalance.setIssuer(noAccount());
+
+        // clang-format off
+        if (TER const ter = trustCreate(
+                view,                           // payment sandbox
+                recvLow,                        // is dest low?
+                issuer,                         // source
+                receiver,                       // destination
+                trustLineKey.key,               // ledger index
+                sleDest,                        // Account to add to
+                false,                          // authorize account
+                (sleDest->getFlags() & lsfDefaultRipple) == 0,
+                false,                          // freeze trust line
+                false,                          // deep freeze trust line
+                initialBalance,                 // zero initial balance
+                Issue(currency, receiver),      // limit of zero
+                0,                              // quality in
+                0,                              // quality out
+                journal);                       // journal
+            !isTesSuccess(ter))
+        {
+            return ter; // LCOV_EXCL_LINE
+        }
+        // clang-format on
+
+        view.update(sleDest);
+    }
+
+    if (!view.exists(trustLineKey) && !receiverIssuer)
+        return tecNO_LINE;
+
+    auto const xferRate = transferRate(view, amount);
+    // update if issuer rate is less than locked rate
+    if (xferRate < lockedRate)
+        lockedRate = xferRate;
+
+    // Transfer Rate only applies when:
+    // 1. Issuer is not involved in the transfer (senderIssuer or
+    // receiverIssuer)
+    // 2. The locked rate is different from the parity rate
+
+    // NOTE: Transfer fee in escrow works a bit differently from a normal
+    // payment. In escrow, the fee is deducted from the locked/sending
+    // amount, whereas in a normal payment, the transfer fee is taken on top
+    // of the sending amount.
+    auto finalAmt = amount;
+    if ((!senderIssuer && !receiverIssuer) && lockedRate != parityRate)
+    {
+        // compute transfer fee, if any
+        auto const xferFee = amount.value() -
+            divideRound(amount, lockedRate, amount.issue(), true);
+        // compute balance to transfer
+        finalAmt = amount.value() - xferFee;
+    }
+
+    // validate the line limit if the account submitting txn is not the
+    // receiver of the funds
+    if (!createAsset)
+    {
+        auto const sleRippleState = view.peek(trustLineKey);
+        if (!sleRippleState)
+            return tecINTERNAL;  // LCOV_EXCL_LINE
+
+        // if the issuer is the high, then we use the low limit
+        // otherwise we use the high limit
+        STAmount const lineLimit = sleRippleState->getFieldAmount(
+            issuerHigh ? sfLowLimit : sfHighLimit);
+
+        STAmount lineBalance = sleRippleState->getFieldAmount(sfBalance);
+
+        // flip the sign of the line balance if the issuer is not high
+        if (!issuerHigh)
+            lineBalance.negate();
+
+        // add the final amount to the line balance
+        lineBalance += finalAmt;
+
+        // if the transfer would exceed the line limit return
+        // tecLIMIT_EXCEEDED
+        if (lineLimit < lineBalance)
+            return tecLIMIT_EXCEEDED;
+    }
+
+    // if destination is not the issuer then transfer funds
+    if (!receiverIssuer)
+    {
+        auto const ter =
+            rippleCredit(view, issuer, receiver, finalAmt, true, journal);
+        if (ter != tesSUCCESS)
+            return ter;  // LCOV_EXCL_LINE
+    }
+    return tesSUCCESS;
+}
+
+template <>
+TER
+escrowUnlockApplyHelper<MPTIssue>(
+    ApplyView& view,
+    Rate lockedRate,
+    std::shared_ptr<SLE> const& sleDest,
+    STAmount const& xrpBalance,
+    STAmount const& amount,
+    AccountID const& issuer,
+    AccountID const& sender,
+    AccountID const& receiver,
+    bool createAsset,
+    beast::Journal journal)
+{
+    bool const senderIssuer = issuer == sender;
+    bool const receiverIssuer = issuer == receiver;
+
+    auto const mptID = amount.get<MPTIssue>().getMptID();
+    auto const issuanceKey = keylet::mptIssuance(mptID);
+    if (!view.exists(keylet::mptoken(issuanceKey.key, receiver)) &&
+        createAsset && !receiverIssuer)
+    {
+        if (std::uint32_t const ownerCount = {sleDest->at(sfOwnerCount)};
+            xrpBalance < view.fees().accountReserve(ownerCount + 1))
+        {
+            return tecINSUFFICIENT_RESERVE;
+        }
+
+        if (auto const ter =
+                MPTokenAuthorize::createMPToken(view, mptID, receiver, 0);
+            !isTesSuccess(ter))
+        {
+            return ter;  // LCOV_EXCL_LINE
+        }
+
+        // update owner count.
+        adjustOwnerCount(view, sleDest, 1, journal);
+    }
+
+    if (!view.exists(keylet::mptoken(issuanceKey.key, receiver)) &&
+        !receiverIssuer)
+        return tecNO_PERMISSION;
+
+    auto const xferRate = transferRate(view, amount);
+    // update if issuer rate is less than locked rate
+    if (xferRate < lockedRate)
+        lockedRate = xferRate;
+
+    // Transfer Rate only applies when:
+    // 1. Issuer is not involved in the transfer (senderIssuer or
+    // receiverIssuer)
+    // 2. The locked rate is different from the parity rate
+
+    // NOTE: Transfer fee in escrow works a bit differently from a normal
+    // payment. In escrow, the fee is deducted from the locked/sending
+    // amount, whereas in a normal payment, the transfer fee is taken on top
+    // of the sending amount.
+    auto finalAmt = amount;
+    if ((!senderIssuer && !receiverIssuer) && lockedRate != parityRate)
+    {
+        // compute transfer fee, if any
+        auto const xferFee = amount.value() -
+            divideRound(amount, lockedRate, amount.asset(), true);
+        // compute balance to transfer
+        finalAmt = amount.value() - xferFee;
+    }
+
+    return rippleUnlockEscrowMPT(view, sender, receiver, finalAmt, journal);
 }
 
 TER
@@ -518,9 +1130,9 @@ EscrowFinish::doApply()
     auto const sle = ctx_.view().peek(keylet::account(account));
     auto const amount = slep->getFieldAmount(sfAmount);
 
-    // If a cancel time is present, a finish operation should only succeed prior
-    // to that time. fix1571 corrects a logic error in the check that would make
-    // a finish only succeed strictly after the cancel time.
+    // If a cancel time is present, a finish operation should only succeed
+    // prior to that time. fix1571 corrects a logic error in the check that
+    // would make a finish only succeed strictly after the cancel time.
     if (ctx_.view().rules().enabled(fix1571))
     {
         auto const now = ctx_.view().info().parentCloseTime;
@@ -637,9 +1249,9 @@ EscrowFinish::doApply()
             DryRun  // dry run
         );
 
-        JLOG(j_.trace())
-            << "EscrowFinish::doApply trustTransferLockedBalance (dry) result="
-            << result;
+        JLOG(j_.trace()) << "EscrowFinish::doApply "
+                            "trustTransferLockedBalance (dry) result="
+                         << result;
 
         if (!isTesSuccess(result))
             return result;
@@ -667,8 +1279,9 @@ EscrowFinish::doApply()
         }
     }
 
+    // Transfer amount to destination
     if (isXRP(amount))
-        (*sled)[sfBalance] = (*sled)[sfBalance] + (*slep)[sfAmount];
+        (*sled)[sfBalance] = (*sled)[sfBalance] + amount;
     else
     {
         // compute transfer fee, if any
@@ -676,33 +1289,69 @@ EscrowFinish::doApply()
             return tecINTERNAL;
 
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
-        auto const issuerAccID = amount.getIssuer();
-        auto const xferRate = transferRate(view(), issuerAccID);
+        auto const issuer = amount.getIssuer();
+        auto const xferRate = transferRate(view(), issuer);
         // update if issuer rate is less than locked rate
         if (xferRate < lockedRate)
             lockedRate = xferRate;
 
-        // all the significant complexity of checking the validity of this
-        // transfer and ensuring the lines exist etc is hidden away in this
-        // function, all we need to do is call it and return if unsuccessful.
-        TER const result = trustTransferLockedBalance(
-            ctx_.view(),
-            account_,  // txn signing account
-            sle,       // src account
-            sled,      // dst account
-            amount,    // xfer amount
-            -1,
-            lockedRate,
-            j_,
-            WetRun  // wet run;
-        );
+        if (!ctx_.view().rules().enabled(featureIOUEscrowV2))
+        {
+            // all the significant complexity of checking the validity of this
+            // transfer and ensuring the lines exist etc is hidden away in this
+            // function, all we need to do is call it and return if
+            // unsuccessful.
+            TER const result = trustTransferLockedBalance(
+                ctx_.view(),
+                account_,  // txn signing account
+                sle,       // src account
+                sled,      // dst account
+                amount,    // xfer amount
+                -1,
+                lockedRate,
+                j_,
+                WetRun  // wet run;
+            );
 
-        JLOG(j_.trace())
-            << "EscrowFinish::doApply trustTransferLockedBalance (wet) result="
-            << result;
+            JLOG(j_.trace()) << "EscrowFinish::doApply "
+                                "trustTransferLockedBalance (wet) result="
+                             << result;
 
-        if (!isTesSuccess(result))
-            return result;
+            if (!isTesSuccess(result))
+                return result;
+        }
+        else
+        {
+            bool const createAsset = destID == account_;
+            if (auto const ret = std::visit(
+                    [&]<typename T>(T const&) {
+                        return escrowUnlockApplyHelper<T>(
+                            ctx_.view(),
+                            lockedRate,
+                            sled,
+                            mPriorBalance,
+                            amount,
+                            issuer,
+                            account,
+                            destID,
+                            createAsset,
+                            j_);
+                    },
+                    amount.asset().value());
+                !isTesSuccess(ret))
+                return ret;
+        }
+
+        // Remove escrow from issuers owner directory, if present.
+        if (auto const optPage = (*slep)[~sfIssuerNode]; optPage)
+        {
+            if (!ctx_.view().dirRemove(
+                    keylet::ownerDir(issuer), *optPage, k.key, true))
+            {
+                JLOG(j_.fatal()) << "Unable to delete Escrow from recipient.";
+                return tefBAD_LEDGER;  // LCOV_EXCL_LINE
+            }
+        }
     }
 
     ctx_.view().update(sled);
@@ -713,7 +1362,6 @@ EscrowFinish::doApply()
 
     // Remove escrow from ledger
     ctx_.view().erase(slep);
-
     return tesSUCCESS;
 }
 
@@ -728,8 +1376,8 @@ EscrowCancel::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
-    // sfOfferSequence was changed to optional, so ensure the behaviour is the
-    // same until amendment passes
+    // sfOfferSequence was changed to optional, so ensure the behaviour is
+    // the same until amendment passes
     if (!ctx.rules.enabled(fixXahauV1))
     {
         if (!ctx.tx.isFieldPresent(sfOfferSequence))
@@ -749,6 +1397,93 @@ EscrowCancel::preflight(PreflightContext const& ctx)
     }
 
     return preflight2(ctx);
+}
+
+template <ValidIssueType T>
+static TER
+escrowCancelPreclaimHelper(
+    PreclaimContext const& ctx,
+    AccountID const& account,
+    STAmount const& amount);
+
+template <>
+TER
+escrowCancelPreclaimHelper<Issue>(
+    PreclaimContext const& ctx,
+    AccountID const& account,
+    STAmount const& amount)
+{
+    AccountID issuer = amount.getIssuer();
+    // If the issuer is the same as the account, return tecINTERNAL
+    if (issuer == account)
+        return tecINTERNAL;  // LCOV_EXCL_LINE
+
+    // If the issuer has requireAuth set, check if the account is authorized
+    if (auto const ter = requireAuth(ctx.view, amount.issue(), account);
+        ter != tesSUCCESS)
+        return ter;
+
+    return tesSUCCESS;
+}
+
+template <>
+TER
+escrowCancelPreclaimHelper<MPTIssue>(
+    PreclaimContext const& ctx,
+    AccountID const& account,
+    STAmount const& amount)
+{
+    AccountID issuer = amount.getIssuer();
+    // If the issuer is the same as the account, return tecINTERNAL
+    if (issuer == account)
+        return tecINTERNAL;  // LCOV_EXCL_LINE
+
+    // If the mpt does not exist, return tecOBJECT_NOT_FOUND
+    auto const issuanceKey =
+        keylet::mptIssuance(amount.get<MPTIssue>().getMptID());
+    auto const sleIssuance = ctx.view.read(issuanceKey);
+    if (!sleIssuance)
+        return tecOBJECT_NOT_FOUND;  // LCOV_EXCL_LINE
+
+    // If the issuer has requireAuth set, check if the account is
+    // authorized
+    auto const& mptIssue = amount.get<MPTIssue>();
+    if (auto const ter =
+            requireAuth(ctx.view, mptIssue, account, MPTAuthType::WeakAuth);
+        ter != tesSUCCESS)
+        return ter;
+
+    return tesSUCCESS;
+}
+
+TER
+EscrowCancel::preclaim(PreclaimContext const& ctx)
+{
+    if (!ctx.view.rules().enabled(featureIOUEscrowV2))
+        return tesSUCCESS;
+
+    auto const k = keylet::escrow(ctx.tx[sfOwner], ctx.tx[sfOfferSequence]);
+    auto const slep = ctx.view.read(k);
+    if (!slep)
+        return tecNO_TARGET;
+
+    AccountID const account = (*slep)[sfAccount];
+    STAmount const amount = (*slep)[sfAmount];
+
+    if (!isXRP(amount))
+    {
+        if (!ctx.view.rules().enabled(featurePaychanAndEscrowForTokens))
+            return temDISABLED;  // LCOV_EXCL_LINE
+
+        if (auto const ret = std::visit(
+                [&]<typename T>(T const&) {
+                    return escrowCancelPreclaimHelper<T>(ctx, account, amount);
+                },
+                amount.asset().value());
+            !isTesSuccess(ret))
+            return ret;
+    }
+    return tesSUCCESS;
 }
 
 TER
@@ -798,7 +1533,8 @@ EscrowCancel::doApply()
     AccountID const account = (*slep)[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
     auto const amount = slep->getFieldAmount(sfAmount);
-    bool const isIssuer = amount.getIssuer() == account;
+    auto const issuer = amount.getIssuer();
+    bool const isIssuer = issuer == account;
 
     std::shared_ptr<SLE> sleLine;
 
@@ -846,28 +1582,62 @@ EscrowCancel::doApply()
         }
     }
 
-    // Transfer amount back to the owner (or unlock it in TL case)
+    // Transfer amount back to the owner
     if (isXRP(amount))
-        (*sle)[sfBalance] = (*sle)[sfBalance] + (*slep)[sfAmount];
+        (*sle)[sfBalance] = (*sle)[sfBalance] + amount;
     else
     {
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        // issuer does not need to lock anything
-        if (!isIssuer)
+        if (!ctx_.view().rules().enabled(featureIOUEscrowV2))
         {
-            // unlock previously locked tokens from source line
-            TER const result = trustAdjustLockedBalance(
-                ctx_.view(), sleLine, -amount, -1, ctx_.journal, WetRun);
+            // issuer does not need to lock anything
+            if (!isIssuer)
+            {
+                // unlock previously locked tokens from source line
+                TER const result = trustAdjustLockedBalance(
+                    ctx_.view(), sleLine, -amount, -1, ctx_.journal, WetRun);
 
-            JLOG(ctx_.journal.trace())
-                << "EscrowCancel::doApply trustAdjustLockedBalance (wet) "
-                   "result="
-                << result;
+                JLOG(ctx_.journal.trace())
+                    << "EscrowCancel::doApply trustAdjustLockedBalance (wet) "
+                       "result="
+                    << result;
 
-            if (!isTesSuccess(result))
-                return result;
+                if (!isTesSuccess(result))
+                    return result;
+            }
+        }
+        else
+        {
+            bool const createAsset = account == account_;
+            if (auto const ret = std::visit(
+                    [&]<typename T>(T const&) {
+                        return escrowUnlockApplyHelper<T>(
+                            ctx_.view(),
+                            parityRate,
+                            slep,
+                            mPriorBalance,
+                            amount,
+                            issuer,
+                            account,  // sender and receiver are the same
+                            account,
+                            createAsset,
+                            j_);
+                    },
+                    amount.asset().value());
+                !isTesSuccess(ret))
+                return ret;  // LCOV_EXCL_LINE
+        }
+        // Remove escrow from issuers owner directory, if present.
+        if (auto const optPage = (*slep)[~sfIssuerNode]; optPage)
+        {
+            if (!ctx_.view().dirRemove(
+                    keylet::ownerDir(issuer), *optPage, k.key, true))
+            {
+                JLOG(j_.fatal()) << "Unable to delete Escrow from recipient.";
+                return tefBAD_LEDGER;  // LCOV_EXCL_LINE
+            }
         }
     }
 

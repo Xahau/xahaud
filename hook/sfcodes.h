@@ -107,6 +107,7 @@
 #define sfMPTAmount ((3U << 16U) + 26U)
 #define sfIssuerNode ((3U << 16U) + 27U)
 #define sfSubjectNode ((3U << 16U) + 28U)
+#define sfLockedAmount ((3U << 16U) + 29U)
 #define sfTouchCount ((3U << 16U) + 97U)
 #define sfAccountIndex ((3U << 16U) + 98U)
 #define sfAccountCount ((3U << 16U) + 99U)
