@@ -20,9 +20,20 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/reporting/P2pProxy.h>
+#include <ripple/json/json_value.h>
+#include <ripple/net/RPCErr.h>
+#include <ripple/protocol/LedgerFormats.h>
+#include <ripple/protocol/SField.h>
+#include <ripple/protocol/TER.h>
+#include <ripple/protocol/TxFormats.h>
+#include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/Context.h>
 #include <ripple/rpc/Role.h>
+
+#include <boost/algorithm/string.hpp>
+
+#include <unordered_map>
 
 namespace ripple {
 
