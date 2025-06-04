@@ -67,11 +67,16 @@ preflight0(PreflightContext const& ctx)
         else
         {
             // new networks both require the field to be present and require it
-            // to match
-            if (!txNID)
-                return telREQUIRES_NETWORK_ID;
+            // to match, except for some special networks
 
-            if (*txNID != nodeNID)
+            if (nodeNID == 65534 /* replay network */)
+            {
+                // on the replay network any other network's transactions can be
+                // replayed last ledger sequence is also ignored on this network
+            }
+            else if (!txNID)
+                return telREQUIRES_NETWORK_ID;
+            else if (*txNID != nodeNID)
                 return telWRONG_NETWORK;
         }
     }
@@ -641,9 +646,18 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
             return tefWRONG_PRIOR;
     }
 
+    uint32_t nodeNID = ctx.app.config().NETWORK_ID;
+
     if (ctx.tx.isFieldPresent(sfLastLedgerSequence) &&
         (ctx.view.seq() > ctx.tx.getFieldU32(sfLastLedgerSequence)))
-        return tefMAX_LEDGER;
+    {
+        if (ctx.app.config().NETWORK_ID == 65534)
+        {
+            // on the replay network lls is ignored to allow txns to be replayed
+        }
+        else
+            return tefMAX_LEDGER;
+    }
 
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
