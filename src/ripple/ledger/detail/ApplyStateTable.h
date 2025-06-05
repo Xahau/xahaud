@@ -53,6 +53,16 @@ private:
     items_t items_;
     XRPAmount dropsDestroyed_{0};
 
+    // Track original PreviousTxnID/LgrSeq values to restore after provisional
+    // metadata
+    struct ThreadingState
+    {
+        uint256 prevTxnID;
+        uint32_t prevTxnLgrSeq;
+        bool hasPrevTxnID;
+    };
+    mutable std::map<key_type, ThreadingState> originalThreadingState_;
+
 public:
     ApplyStateTable() = default;
     ApplyStateTable(ApplyStateTable&&) = default;
@@ -73,6 +83,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        bool threadOwners,
         beast::Journal j);
 
     void
@@ -138,7 +149,7 @@ public:
     }
 
 private:
-    static void
+    void
     threadItem(TxMeta& meta, std::shared_ptr<SLE> const& to);
 
     std::shared_ptr<SLE>

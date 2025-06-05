@@ -118,6 +118,7 @@ ApplyStateTable::generateTxMeta(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    bool doThreading,
     beast::Journal j)
 {
     TxMeta meta(tx.getTransactionID(), to.seq());
@@ -162,7 +163,10 @@ ApplyStateTable::generateTxMeta(
         if (type == &sfDeletedNode)
         {
             assert(origNode && curNode);
-            threadOwners(to, meta, origNode, newMod, j);
+            if (doThreading)
+            {
+                threadOwners(to, meta, origNode, newMod, j);
+            }
 
             STObject prevs(sfPreviousFields);
             for (auto const& obj : *origNode)
@@ -194,8 +198,9 @@ ApplyStateTable::generateTxMeta(
         {
             assert(curNode && origNode);
 
-            if (curNode->isThreadedType())  // thread transaction to node
-                                            // item modified
+            if (curNode->isThreadedType() &&
+                doThreading)  // thread transaction to node
+                              // item modified
                 threadItem(meta, curNode);
 
             STObject prevs(sfPreviousFields);
@@ -226,9 +231,11 @@ ApplyStateTable::generateTxMeta(
         else if (type == &sfCreatedNode)  // if created, thread to owner(s)
         {
             assert(curNode && !origNode);
-            threadOwners(to, meta, curNode, newMod, j);
+            if (doThreading)
+                threadOwners(to, meta, curNode, newMod, j);
 
-            if (curNode->isThreadedType())  // always thread to self
+            if (curNode->isThreadedType() &&
+                doThreading)  // always thread to self
                 threadItem(meta, curNode);
 
             STObject news(sfNewFields);
@@ -274,8 +281,8 @@ ApplyStateTable::apply(
     if (!to.open())
     {
         // generate meta
-        auto [meta, newMod] =
-            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
+        auto [meta, newMod] = generateTxMeta(
+            to, tx, deliver, hookExecution, hookEmission, true, j);
 
         // add any new modified nodes to the modification set
         for (auto& mod : newMod)
@@ -552,6 +559,33 @@ ApplyStateTable::destroyXRP(XRPAmount const& fee)
 void
 ApplyStateTable::threadItem(TxMeta& meta, std::shared_ptr<SLE> const& sle)
 {
+    // Save the original threading state if we haven't already
+    auto const key = sle->key();
+    if (originalThreadingState_.find(key) == originalThreadingState_.end())
+    {
+        ThreadingState state;
+        state.hasPrevTxnID = sle->isFieldPresent(sfPreviousTxnID);
+        if (state.hasPrevTxnID)
+        {
+            state.prevTxnID = sle->getFieldH256(sfPreviousTxnID);
+            state.prevTxnLgrSeq = sle->getFieldU32(sfPreviousTxnLgrSeq);
+        }
+        originalThreadingState_[key] = state;
+    }
+
+    // Restore the original state before threading
+    auto const& origState = originalThreadingState_[key];
+    if (origState.hasPrevTxnID)
+    {
+        sle->setFieldH256(sfPreviousTxnID, origState.prevTxnID);
+        sle->setFieldU32(sfPreviousTxnLgrSeq, origState.prevTxnLgrSeq);
+    }
+    else
+    {
+        sle->makeFieldAbsent(sfPreviousTxnID);
+        sle->makeFieldAbsent(sfPreviousTxnLgrSeq);
+    }
+
     key_type prevTxID;
     LedgerIndex prevLgrID;
 

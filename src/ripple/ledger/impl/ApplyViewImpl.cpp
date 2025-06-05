@@ -41,8 +41,7 @@ ApplyViewImpl::generateProvisionalMeta(
     beast::Journal j)
 {
     auto [meta, _] = items_.generateTxMeta(
-        to, tx, deliver_, hookExecution_, hookEmission_, j);
-
+        to, tx, deliver_, hookExecution_, hookEmission_, true, j);
     return meta;
 }
 
