@@ -25,6 +25,7 @@
 #include <ripple/ledger/OpenView.h>
 #include <ripple/ledger/RawView.h>
 #include <ripple/ledger/ReadView.h>
+#include <ripple/protocol/Rules.h>
 #include <ripple/protocol/TER.h>
 #include <ripple/protocol/TxMeta.h>
 #include <memory>
@@ -83,7 +84,6 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
-        bool threadOwners,
         beast::Journal j);
 
     void
@@ -150,7 +150,10 @@ public:
 
 private:
     void
-    threadItem(TxMeta& meta, std::shared_ptr<SLE> const& to);
+    threadItem(
+        TxMeta& meta,
+        std::shared_ptr<SLE> const& to,
+        Rules const& rules);
 
     std::shared_ptr<SLE>
     getForMod(
@@ -165,7 +168,8 @@ private:
         TxMeta& meta,
         AccountID const& to,
         Mods& mods,
-        beast::Journal j);
+        beast::Journal j,
+        Rules const& rules);
 
     void
     threadOwners(

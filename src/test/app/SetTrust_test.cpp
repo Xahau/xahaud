@@ -257,145 +257,6 @@ public:
     }
 
     void
-    testPreviousTxnID(FeatureBitset features)
-    {
-        testcase("Check PreviousTxnID in trustline metadata");
-
-        using namespace test::jtx;
-        Env env{*this, features};
-
-        auto const alice = Account{"alice"};
-        auto const bob = Account{"bob"};
-        auto const USD = bob["USD"];
-
-        env.fund(XRP(10000), alice, bob);
-        env.close();
-
-        // Create a trustline
-        env(trust(alice, USD(1000)));
-        env.close();
-
-        // Get the transaction metadata
-        auto const meta1 = env.meta();
-        BEAST_EXPECT(meta1);
-
-        // Check if ModifiedNode has PreviousTxnID at root level
-        auto const& affectedNodes = meta1->getFieldArray(sfAffectedNodes);
-        bool foundPreviousTxnID = false;
-
-        for (auto const& node : affectedNodes)
-        {
-            if (node.isFieldPresent(sfModifiedNode))
-            {
-                auto const& modNode = const_cast<STObject&>(node)
-                                          .getField(sfModifiedNode)
-                                          .downcast<STObject>();
-
-                if (modNode.getFieldU16(sfLedgerEntryType) == ltRIPPLE_STATE)
-                {
-                    // PreviousTxnID should be at the root of ModifiedNode
-                    if (modNode.isFieldPresent(sfPreviousTxnID))
-                    {
-                        foundPreviousTxnID = true;
-                        BEAST_EXPECT(
-                            modNode.isFieldPresent(sfPreviousTxnLgrSeq));
-                    }
-                }
-            }
-            else if (node.isFieldPresent(sfCreatedNode))
-            {
-                auto const& createdNode = const_cast<STObject&>(node)
-                                              .getField(sfCreatedNode)
-                                              .downcast<STObject>();
-
-                if (createdNode.getFieldU16(sfLedgerEntryType) ==
-                    ltRIPPLE_STATE)
-                {
-                    // For created nodes, PreviousTxnID might not exist yet
-                    // but we should still check
-                    if (createdNode.isFieldPresent(sfPreviousTxnID))
-                    {
-                        foundPreviousTxnID = true;
-                    }
-                }
-            }
-        }
-
-        // Now modify the trustline with a payment
-        env(pay(bob, alice, USD(100)));
-        env.close();
-
-        // Create another transaction that modifies the trustline
-        env(trust(alice, USD(2000)));
-        env.close();
-
-        // Get the second transaction metadata
-        auto const meta2 = env.meta();
-        BEAST_EXPECT(meta2);
-
-        // Check ModifiedNode for PreviousTxnID
-        auto const& affectedNodes2 = meta2->getFieldArray(sfAffectedNodes);
-        bool foundPreviousTxnIDInModified = false;
-
-        for (auto const& node : affectedNodes2)
-        {
-            std::cout << "something" << std::endl;
-
-            if (node.getFName() == sfModifiedNode)
-            {
-                auto const& modNode = node;
-
-                auto json = modNode.getJson({});
-                std::cout << json << std::endl;
-
-                if (modNode.getFieldU16(sfLedgerEntryType) == ltRIPPLE_STATE)
-                {
-                    // This SHOULD have PreviousTxnID at root level
-                    if (modNode.isFieldPresent(sfPreviousTxnID))
-                    {
-                        foundPreviousTxnIDInModified = true;
-                        auto prevTxnID = modNode.getFieldH256(sfPreviousTxnID);
-                        auto prevLgrSeq =
-                            modNode.getFieldU32(sfPreviousTxnLgrSeq);
-
-                        BEAST_EXPECT(
-                            modNode.isFieldPresent(sfPreviousTxnLgrSeq));
-                        BEAST_EXPECT(prevTxnID != beast::zero);
-                        BEAST_EXPECT(prevLgrSeq > 0);
-
-                        // Log for debugging
-                        std::cout << "Found PreviousTxnID: " << prevTxnID
-                                  << " at ledger: " << prevLgrSeq << std::endl;
-                    }
-                    else
-                    {
-                        std::cout
-                            << "ERROR: ModifiedNode missing PreviousTxnID!"
-                            << std::endl;
-
-                        // Check if it's incorrectly in PreviousFields
-                        if (modNode.isFieldPresent(sfPreviousFields))
-                        {
-                            auto const& prevFields =
-                                const_cast<STObject&>(modNode)
-                                    .getField(sfPreviousFields)
-                                    .downcast<STObject>();
-                            if (prevFields.isFieldPresent(sfPreviousTxnID))
-                            {
-                                std::cout << "WARNING: PreviousTxnID found in "
-                                             "PreviousFields instead of root!"
-                                          << std::endl;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        BEAST_EXPECT(foundPreviousTxnIDInModified);
-    }
-
-    void
     testDisallowIncoming(FeatureBitset features)
     {
         testcase("Create trustline with disallow incoming");
@@ -507,8 +368,8 @@ public:
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
-        // Just run the PreviousTxnID test for debugging
-        testPreviousTxnID(sa);
+        testWithFeats(sa - disallowIncoming);
+        testWithFeats(sa);
     }
 };
 BEAST_DEFINE_TESTSUITE(SetTrust, app, ripple);

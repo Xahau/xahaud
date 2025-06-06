@@ -118,7 +118,6 @@ ApplyStateTable::generateTxMeta(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
-    bool doThreading,
     beast::Journal j)
 {
     TxMeta meta(tx.getTransactionID(), to.seq());
@@ -163,10 +162,7 @@ ApplyStateTable::generateTxMeta(
         if (type == &sfDeletedNode)
         {
             assert(origNode && curNode);
-            if (doThreading)
-            {
-                threadOwners(to, meta, origNode, newMod, j);
-            }
+            threadOwners(to, meta, origNode, newMod, j);
 
             STObject prevs(sfPreviousFields);
             for (auto const& obj : *origNode)
@@ -198,10 +194,9 @@ ApplyStateTable::generateTxMeta(
         {
             assert(curNode && origNode);
 
-            if (curNode->isThreadedType() &&
-                doThreading)  // thread transaction to node
-                              // item modified
-                threadItem(meta, curNode);
+            if (curNode->isThreadedType())  // thread transaction to node
+                                            // item modified
+                threadItem(meta, curNode, to.rules());
 
             STObject prevs(sfPreviousFields);
             for (auto const& obj : *origNode)
@@ -231,12 +226,10 @@ ApplyStateTable::generateTxMeta(
         else if (type == &sfCreatedNode)  // if created, thread to owner(s)
         {
             assert(curNode && !origNode);
-            if (doThreading)
-                threadOwners(to, meta, curNode, newMod, j);
+            threadOwners(to, meta, curNode, newMod, j);
 
-            if (curNode->isThreadedType() &&
-                doThreading)  // always thread to self
-                threadItem(meta, curNode);
+            if (curNode->isThreadedType())  // always thread to self
+                threadItem(meta, curNode, to.rules());
 
             STObject news(sfNewFields);
             for (auto const& obj : *curNode)
@@ -281,8 +274,8 @@ ApplyStateTable::apply(
     if (!to.open())
     {
         // generate meta
-        auto [meta, newMod] = generateTxMeta(
-            to, tx, deliver, hookExecution, hookEmission, true, j);
+        auto [meta, newMod] =
+            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
 
         // add any new modified nodes to the modification set
         for (auto& mod : newMod)
@@ -557,33 +550,44 @@ ApplyStateTable::destroyXRP(XRPAmount const& fee)
 
 // Insert this transaction to the SLE's threading list
 void
-ApplyStateTable::threadItem(TxMeta& meta, std::shared_ptr<SLE> const& sle)
+ApplyStateTable::threadItem(
+    TxMeta& meta,
+    std::shared_ptr<SLE> const& sle,
+    const Rules& rules)
 {
-    // Save the original threading state if we haven't already
-    auto const key = sle->key();
-    if (originalThreadingState_.find(key) == originalThreadingState_.end())
+    if (rules.enabled(fixPreviousTxnID))
     {
-        ThreadingState state;
-        state.hasPrevTxnID = sle->isFieldPresent(sfPreviousTxnID);
-        if (state.hasPrevTxnID)
-        {
-            state.prevTxnID = sle->getFieldH256(sfPreviousTxnID);
-            state.prevTxnLgrSeq = sle->getFieldU32(sfPreviousTxnLgrSeq);
-        }
-        originalThreadingState_[key] = state;
-    }
+        auto const key = sle->key();
+        auto iter = originalThreadingState_.find(key);
 
-    // Restore the original state before threading
-    auto const& origState = originalThreadingState_[key];
-    if (origState.hasPrevTxnID)
-    {
-        sle->setFieldH256(sfPreviousTxnID, origState.prevTxnID);
-        sle->setFieldU32(sfPreviousTxnLgrSeq, origState.prevTxnLgrSeq);
-    }
-    else
-    {
-        sle->makeFieldAbsent(sfPreviousTxnID);
-        sle->makeFieldAbsent(sfPreviousTxnLgrSeq);
+        if (iter == originalThreadingState_.end())
+        {
+            // First time (provisional metadata) - save the original state
+            ThreadingState state;
+            state.hasPrevTxnID = sle->isFieldPresent(sfPreviousTxnID);
+            if (state.hasPrevTxnID)
+            {
+                state.prevTxnID = sle->getFieldH256(sfPreviousTxnID);
+                state.prevTxnLgrSeq = sle->getFieldU32(sfPreviousTxnLgrSeq);
+            }
+            originalThreadingState_[key] = state;
+        }
+        else
+        {
+            // Subsequent call (final metadata) - restore to pristine state
+            // before threading
+            auto const& origState = iter->second;
+            if (origState.hasPrevTxnID)
+            {
+                sle->setFieldH256(sfPreviousTxnID, origState.prevTxnID);
+                sle->setFieldU32(sfPreviousTxnLgrSeq, origState.prevTxnLgrSeq);
+            }
+            else
+            {
+                sle->makeFieldAbsent(sfPreviousTxnID);
+                sle->makeFieldAbsent(sfPreviousTxnLgrSeq);
+            }
+        }
     }
 
     key_type prevTxID;
@@ -663,7 +667,8 @@ ApplyStateTable::threadTx(
     TxMeta& meta,
     AccountID const& to,
     Mods& mods,
-    beast::Journal j)
+    beast::Journal j,
+    Rules const& rules)
 {
     auto const sle = getForMod(base, keylet::account(to).key, mods, j);
     if (!sle)
@@ -674,7 +679,7 @@ ApplyStateTable::threadTx(
         JLOG(j.warn()) << "Threading to non-existent account: " << toBase58(to);
         return;
     }
-    threadItem(meta, sle);
+    threadItem(meta, sle, rules);
 }
 
 void
@@ -693,14 +698,26 @@ ApplyStateTable::threadOwners(
             break;
         }
         case ltRIPPLE_STATE: {
-            threadTx(base, meta, (*sle)[sfLowLimit].getIssuer(), mods, j);
-            threadTx(base, meta, (*sle)[sfHighLimit].getIssuer(), mods, j);
+            threadTx(
+                base,
+                meta,
+                (*sle)[sfLowLimit].getIssuer(),
+                mods,
+                j,
+                base.rules());
+            threadTx(
+                base,
+                meta,
+                (*sle)[sfHighLimit].getIssuer(),
+                mods,
+                j,
+                base.rules());
             break;
         }
         default: {
             // If sfAccount is present, thread to that account
             if (auto const optSleAcct{(*sle)[~sfAccount]})
-                threadTx(base, meta, *optSleAcct, mods, j);
+                threadTx(base, meta, *optSleAcct, mods, j, base.rules());
 
             // Don't thread a check's sfDestination unless the amendment is
             // enabled
@@ -710,7 +727,7 @@ ApplyStateTable::threadOwners(
 
             // If sfDestination is present, thread to that account
             if (auto const optSleDest{(*sle)[~sfDestination]})
-                threadTx(base, meta, *optSleDest, mods, j);
+                threadTx(base, meta, *optSleDest, mods, j, base.rules());
         }
     }
 }

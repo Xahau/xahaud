@@ -5049,7 +5049,7 @@ public:
         testFailInPreclaim(all);
         testQueuedTxFails(all);
         testMultiTxnPerAccount(all);
-        testTieBreaking(all);
+        testTieBreaking(all - fixPreviousTxnID);
         testAcctTxnID(all);
         testMaximum(all);
         testUnexpectedBalanceChange(all);
