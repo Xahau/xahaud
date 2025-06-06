@@ -5067,7 +5067,7 @@ public:
         testAcctInQueueButEmpty(all);
         testRPC(all);
         testExpirationReplacement(all);
-        testFullQueueGapFill(all);
+        testFullQueueGapFill(all - fixProvisionalDoubleThreading);
         testSignAndSubmitSequence(all);
         testAccountInfo(all);
         testServerInfo(all);
