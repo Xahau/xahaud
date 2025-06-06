@@ -369,7 +369,7 @@ extern uint256 const fixXahauV3;
 extern uint256 const fix20250131;
 extern uint256 const featureHookCanEmit;
 extern uint256 const fixRewardClaimFlags;
-extern uint256 const fixPreviousTxnID;
+extern uint256 const fixProvisionalDoubleThreading;
 
 }  // namespace ripple
 

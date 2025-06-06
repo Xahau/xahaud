@@ -555,7 +555,7 @@ ApplyStateTable::threadItem(
     std::shared_ptr<SLE> const& sle,
     const Rules& rules)
 {
-    if (rules.enabled(fixPreviousTxnID))
+    if (rules.enabled(fixProvisionalDoubleThreading))
     {
         auto const key = sle->key();
         auto iter = originalThreadingState_.find(key);
