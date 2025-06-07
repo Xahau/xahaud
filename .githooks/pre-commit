@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Pre-commit hook that runs the suspicious patterns check on staged files
+
+# Get the repository's root directory
+repo_root=$(git rev-parse --show-toplevel)
+
+# Run the suspicious patterns script in pre-commit mode
+"$repo_root/suspicious_patterns.sh" --pre-commit
+
+# Exit with the same code as the script
+exit $?
