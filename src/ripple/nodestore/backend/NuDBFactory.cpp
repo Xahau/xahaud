@@ -31,6 +31,7 @@
 #include <exception>
 #include <memory>
 #include <nudb/nudb.hpp>
+#include <xrpl/beast/core/LexicalCast.h>
 
 namespace ripple {
 namespace NodeStore {
