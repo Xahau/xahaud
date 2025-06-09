@@ -118,7 +118,8 @@ ApplyStateTable::generateTxMeta(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
-    beast::Journal j)
+    beast::Journal j,
+    bool isProvisional)
 {
     TxMeta meta(tx.getTransactionID(), to.seq());
     if (deliver)
@@ -254,6 +255,44 @@ ApplyStateTable::generateTxMeta(
         }
     }
 
+    // After provisional metadata generation, restore the original PreviousTxnID
+    // values to prevent contamination of the "before" state used for final
+    // metadata comparison. This ensures PreviousTxnID appears correctly in
+    // ModifiedNode metadata.
+    if (isProvisional && to.rules().enabled(fixProvisionalDoubleThreading))
+    {
+        for (auto const& [key, state] : originalThreadingState_)
+        {
+            auto iter = items_.find(key);
+            if (iter != items_.end())
+            {
+                auto sle =
+                    iter->second.second;  // This is already a shared_ptr<SLE>
+                if (state.hasPrevTxnID)
+                {
+                    sle->setFieldH256(sfPreviousTxnID, state.prevTxnID);
+                    sle->setFieldU32(sfPreviousTxnLgrSeq, state.prevTxnLgrSeq);
+                    // Restored to original PreviousTxnID
+                }
+                else
+                {
+                    sle->makeFieldAbsent(sfPreviousTxnID);
+                    sle->makeFieldAbsent(sfPreviousTxnLgrSeq);
+                    // Restored to no PreviousTxnID
+                }
+            }
+        }
+    }
+    else if (
+        !isProvisional && to.rules().enabled(fixProvisionalDoubleThreading))
+    {
+        // For final metadata generation, clear the tracking state
+        // This prevents any confusion if the same ApplyStateTable is reused
+        // Clear the tracking state to prevent any confusion if this
+        // ApplyStateTable instance is reused
+        originalThreadingState_.clear();
+    }
+
     return {meta, newMod};
 }
 
@@ -287,6 +326,8 @@ ApplyStateTable::apply(
         // VFALCO For diagnostics do we want to show
         //        metadata even when the base view is open?
         JLOG(j.trace()) << "metadata " << meta.getJson(JsonOptions::none);
+
+        // Metadata has been generated
     }
     to.rawTxInsert(tx.getTransactionID(), sTx, sMeta);
     apply(to);
@@ -549,12 +590,31 @@ ApplyStateTable::destroyXRP(XRPAmount const& fee)
 //------------------------------------------------------------------------------
 
 // Insert this transaction to the SLE's threading list
+//
+// This method is called during metadata generation to update the
+// PreviousTxnID/PreviousTxnLgrSeq fields on SLEs. However, it's called
+// twice for each transaction:
+// 1. During provisional metadata generation (for hooks to see)
+// 2. During final metadata generation (for the actual ledger)
+//
+// The fixProvisionalDoubleThreading amendment fixes a bug where the
+// provisional threading would contaminate the "original" state used
+// for metadata comparison, causing PreviousTxnID to be missing from
+// the final metadata.
+//
+// The fix works by:
+// - Saving the original PreviousTxnID state before provisional threading
+// - Restoring it after provisional metadata generation
+// - Allowing final threading to proceed normally
 void
 ApplyStateTable::threadItem(
     TxMeta& meta,
     std::shared_ptr<SLE> const& sle,
     const Rules& rules)
 {
+    key_type prevTxID;
+    LedgerIndex prevLgrID;
+
     if (rules.enabled(fixProvisionalDoubleThreading))
     {
         auto const key = sle->key();
@@ -571,30 +631,33 @@ ApplyStateTable::threadItem(
                 state.prevTxnLgrSeq = sle->getFieldU32(sfPreviousTxnLgrSeq);
             }
             originalThreadingState_[key] = state;
+
+            // Thread to get the values for metadata
+            if (!sle->thread(
+                    meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
+                return;
+
+            // Debug logging
+            // Don't restore yet - we'll restore all threaded SLEs after
+            // provisional metadata generation completes
         }
         else
         {
-            // Subsequent call (final metadata) - restore to pristine state
-            // before threading
-            auto const& origState = iter->second;
-            if (origState.hasPrevTxnID)
-            {
-                sle->setFieldH256(sfPreviousTxnID, origState.prevTxnID);
-                sle->setFieldU32(sfPreviousTxnLgrSeq, origState.prevTxnLgrSeq);
-            }
-            else
-            {
-                sle->makeFieldAbsent(sfPreviousTxnID);
-                sle->makeFieldAbsent(sfPreviousTxnLgrSeq);
-            }
+            // Subsequent call (final metadata) - just thread normally
+            // No restore needed since we eagerly restored after provisional
+            if (!sle->thread(
+                    meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
+                return;
+
+            // Final threading - this will persist in the ledger
         }
     }
-
-    key_type prevTxID;
-    LedgerIndex prevLgrID;
-
-    if (!sle->thread(meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
-        return;
+    else
+    {
+        // Amendment not enabled - use original behavior
+        if (!sle->thread(meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
+            return;
+    }
 
     if (!prevTxID.isZero())
     {
@@ -605,6 +668,11 @@ ApplyStateTable::threadItem(
             assert(node.getFieldIndex(sfPreviousTxnLgrSeq) == -1);
             node.setFieldH256(sfPreviousTxnID, prevTxID);
             node.setFieldU32(sfPreviousTxnLgrSeq, prevLgrID);
+            // Added PreviousTxnID to metadata
+        }
+        else
+        {
+            // PreviousTxnID already present in metadata
         }
 
         assert(node.getFieldH256(sfPreviousTxnID) == prevTxID);
