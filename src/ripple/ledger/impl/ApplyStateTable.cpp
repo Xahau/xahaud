@@ -735,8 +735,7 @@ ApplyStateTable::threadTx(
     TxMeta& meta,
     AccountID const& to,
     Mods& mods,
-    beast::Journal j,
-    Rules const& rules)
+    beast::Journal j)
 {
     auto const sle = getForMod(base, keylet::account(to).key, mods, j);
     if (!sle)
@@ -747,7 +746,7 @@ ApplyStateTable::threadTx(
         JLOG(j.warn()) << "Threading to non-existent account: " << toBase58(to);
         return;
     }
-    threadItem(meta, sle, rules);
+    threadItem(meta, sle, base.rules());
 }
 
 void
@@ -766,26 +765,14 @@ ApplyStateTable::threadOwners(
             break;
         }
         case ltRIPPLE_STATE: {
-            threadTx(
-                base,
-                meta,
-                (*sle)[sfLowLimit].getIssuer(),
-                mods,
-                j,
-                base.rules());
-            threadTx(
-                base,
-                meta,
-                (*sle)[sfHighLimit].getIssuer(),
-                mods,
-                j,
-                base.rules());
+            threadTx(base, meta, (*sle)[sfLowLimit].getIssuer(), mods, j);
+            threadTx(base, meta, (*sle)[sfHighLimit].getIssuer(), mods, j);
             break;
         }
         default: {
             // If sfAccount is present, thread to that account
             if (auto const optSleAcct{(*sle)[~sfAccount]})
-                threadTx(base, meta, *optSleAcct, mods, j, base.rules());
+                threadTx(base, meta, *optSleAcct, mods, j);
 
             // Don't thread a check's sfDestination unless the amendment is
             // enabled
@@ -795,7 +782,7 @@ ApplyStateTable::threadOwners(
 
             // If sfDestination is present, thread to that account
             if (auto const optSleDest{(*sle)[~sfDestination]})
-                threadTx(base, meta, *optSleDest, mods, j, base.rules());
+                threadTx(base, meta, *optSleDest, mods, j);
         }
     }
 }
