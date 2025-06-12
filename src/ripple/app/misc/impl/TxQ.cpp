@@ -769,6 +769,47 @@ TxQ::apply(
     if (!isTesSuccess(pfresult.ter))
         return {pfresult.ter, false};
 
+    bool const isReplayNetwork = (app.config().NETWORK_ID == 65534);
+
+    if (isReplayNetwork)
+    {
+        // in the replay network everything is always queued no matter what
+
+        std::lock_guard lock(mutex_);
+        auto const metricsSnapshot = feeMetrics_.getSnapshot();
+        auto const feeLevelPaid =
+            getRequiredFeeLevel(view, flags, metricsSnapshot, lock);
+
+        auto const account = (*tx)[sfAccount];
+        AccountMap::iterator accountIter = byAccount_.find(account);
+        bool const accountIsInQueue = accountIter != byAccount_.end();
+
+        if (!accountIsInQueue)
+        {
+            // Create a new TxQAccount object and add the byAccount lookup.
+            bool created;
+            std::tie(accountIter, created) =
+                byAccount_.emplace(account, TxQAccount(tx));
+            (void)created;
+            assert(created);
+        }
+
+        flags &= ~tapRETRY;
+
+        auto& candidate = accountIter->second.add(
+            {tx, transactionID, feeLevelPaid, flags, pfresult});
+
+        // Then index it into the byFee lookup.
+        byFee_.insert(candidate);
+        JLOG(j_.debug()) << "Added transaction " << candidate.txID
+                         << " with result " << transToken(pfresult.ter)
+                         << " from " << (accountIsInQueue ? "existing" : "new")
+                         << " account " << candidate.account << " to queue."
+                         << " Flags: " << flags;
+
+        return {terQUEUED, false};
+    }
+
     // If the account is not currently in the ledger, don't queue its tx.
     auto const account = (*tx)[sfAccount];
     Keylet const accountKey{keylet::account(account)};
@@ -1158,11 +1199,11 @@ TxQ::apply(
                 (potentialTotalSpend == XRPAmount{0} &&
                  multiTxn->applyView.fees().base == 0));
             sleBump->setFieldAmount(sfBalance, balance - potentialTotalSpend);
-            // The transaction's sequence/ticket will be valid when the other
-            // transactions in the queue have been processed. If the tx has a
-            // sequence, set the account to match it. If it has a ticket, use
-            // the next queueable sequence, which is the closest approximation
-            // to the most successful case.
+            // The transaction's sequence/ticket will be valid when the
+            // other transactions in the queue have been processed. If the
+            // tx has a sequence, set the account to match it. If it has a
+            // ticket, use the next queueable sequence, which is the closest
+            // approximation to the most successful case.
             sleBump->at(sfSequence) = txSeqProx.isSeq()
                 ? txSeqProx.value()
                 : nextQueuableSeqImpl(sleAccount, lock).value();

@@ -120,8 +120,11 @@ preflight1(PreflightContext const& ctx)
     auto const fee = ctx.tx.getFieldAmount(sfFee);
     if (!fee.native() || fee.negative() || !isLegalAmount(fee.xrp()))
     {
-        JLOG(ctx.j.debug()) << "preflight1: invalid fee";
-        return temBAD_FEE;
+        if (ctx.app.config().NETWORK_ID != 65534 /* replay network */)
+        {
+            JLOG(ctx.j.debug()) << "preflight1: invalid fee";
+            return temBAD_FEE;
+        }
     }
 
     // if a hook emitted this transaction we bypass signature checks
@@ -437,6 +440,10 @@ Transactor::minimumFee(
 TER
 Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
 {
+    // on the replay network fees are unimportant
+    if (ctx.app.config().NETWORK_ID == 65534 /* replay network */)
+        return tesSUCCESS;
+
     if (!ctx.tx[sfFee].native())
         return temBAD_FEE;
 
@@ -478,6 +485,7 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
                        "a fee and an existing account.";
             }
         }
+        std::cout << "transactor 485 NO_ACCOUNT\n";
         return terNO_ACCOUNT;
     }
 
@@ -549,6 +557,7 @@ Transactor::checkSeqProxy(
         JLOG(j.trace())
             << "applyTransaction: delay: source account does not exist "
             << toBase58(id);
+        std::cout << "transactor 557 NO_ACCOUNT\n";
         return terNO_ACCOUNT;
     }
 
@@ -635,6 +644,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         JLOG(ctx.j.trace())
             << "applyTransaction: delay: source account does not exist "
             << toBase58(id);
+        std::cout << "transactor 644 NO_ACCOUNT\n";
         return terNO_ACCOUNT;
     }
 
@@ -792,12 +802,14 @@ Transactor::apply()
 
     // If the transactor requires a valid account and the transaction doesn't
     // list one, preflight will have already a flagged a failure.
-    auto const sle = view().peek(keylet::account(account_));
+    auto sle = view().peek(keylet::account(account_));
+
+    const bool isReplayNetwork = (ctx_.app.config().NETWORK_ID == 65534);
 
     // sle must exist except for transactions
     // that allow zero account. (and ttIMPORT)
     assert(
-        sle != nullptr || account_ == beast::zero ||
+        sle != nullptr || account_ == beast::zero || isReplayNetwork ||
         view().rules().enabled(featureImport) &&
             ctx_.tx.getTxnType() == ttIMPORT &&
             !ctx_.tx.isFieldPresent(sfIssuer));
@@ -819,6 +831,39 @@ Transactor::apply()
             sle->setFieldH256(sfAccountTxnID, ctx_.tx.getTransactionID());
 
         view().update(sle);
+    }
+    else if (isReplayNetwork)
+    {
+        // create missing acc for replay network
+        // Create the account.
+        std::uint32_t const seqno{
+            view().rules().enabled(featureXahauGenesis)
+                ? view().info().parentCloseTime.time_since_epoch().count()
+                : view().rules().enabled(featureDeletableAccounts)
+                ? view().seq()
+                : 1};
+
+        sle = std::make_shared<SLE>(keylet::account(account_));
+        sle->setAccountID(sfAccount, account_);
+
+        sle->setFieldU32(sfSequence, seqno);
+        sle->setFieldU32(sfOwnerCount, 0);
+
+        if (view().exists(keylet::fees()) &&
+            view().rules().enabled(featureXahauGenesis))
+        {
+            auto sleFees = view().peek(keylet::fees());
+            uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount)
+                ? sleFees->getFieldU64(sfAccountCount)
+                : 0;
+            sle->setFieldU64(sfAccountIndex, accIdx);
+            sleFees->setFieldU64(sfAccountCount, accIdx + 1);
+            view().update(sleFees);
+        }
+
+        // we'll fix this up at the end
+        sle->setFieldAmount(sfBalance, STAmount{XRPAmount{100}});
+        view().insert(sle);
     }
 
     return doApply();
@@ -842,7 +887,7 @@ Transactor::checkSign(PreclaimContext const& ctx)
 
     // wildcard network gets a free pass on all signatures
     if (ctx.tx.isFieldPresent(sfNetworkID) &&
-        ctx.tx.getFieldU32(sfNetworkID) == 65535)
+        ctx.tx.getFieldU32(sfNetworkID) >= 65534)
         return tesSUCCESS;
 
     // pass ttIMPORTs, their signatures are checked at the preflight against the
@@ -876,7 +921,18 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
 
     if (!sleAccount)
-        return terNO_ACCOUNT;
+    {
+        std::cout << "transactor 922 NO_ACCOUNT\n";
+
+        if (ctx.app.config().NETWORK_ID == 65534)
+        {
+            // replay network allows transactions to create missing accounts
+            // implicitly and in this event we will just pass the txn
+            return tesSUCCESS;
+        }
+        else
+            return terNO_ACCOUNT;
+    }
 
     bool const isMasterDisabled = sleAccount->isFlag(lsfDisableMaster);
 
@@ -1941,7 +1997,9 @@ Transactor::operator()()
     {
         // Check invariants: if `tecINVARIANT_FAILED` is not returned, we can
         // proceed to apply the tx
-        result = ctx_.checkInvariants(result, fee);
+
+        if (ctx_.app.config().NETWORK_ID != 65534)
+            result = ctx_.checkInvariants(result, fee);
 
         if (result == tecINVARIANT_FAILED)
         {

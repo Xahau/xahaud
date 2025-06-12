@@ -302,7 +302,7 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
 
     // wildcard network gets a free pass on all signatures
     bool const isWildcardNetwork =
-        isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
+        isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) >= 65534;
 
     bool validSig = false;
     try
