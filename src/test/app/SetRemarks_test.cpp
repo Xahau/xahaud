@@ -461,8 +461,8 @@ struct SetRemarks_test : public beast::unit_test::suite
         {
             using namespace std::literals::chrono_literals;
             auto const id = keylet::escrow(alice, env.seq(alice)).key;
-            env(escrow::create(alice, bob, XRP(10)),
-                escrow::finish_time(env.now() + 1s),
+            env(escrow(alice, bob, XRP(10)),
+                finish_time(env.now() + 1s),
                 fee(XRP(1)));
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
