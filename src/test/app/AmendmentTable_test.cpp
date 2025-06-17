@@ -17,12 +17,14 @@
 */
 //==============================================================================
 
+#include <test/jtx/Env.h>
+#include <test/unit_test/SuiteJournal.h>
 #include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpld/core/ConfigSections.h>
 #include <xrpl/basics/BasicConfig.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpld/core/ConfigSections.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/STValidation.h>
@@ -30,8 +32,6 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx/Env.h>
-#include <test/unit_test/SuiteJournal.h>
 
 namespace ripple {
 

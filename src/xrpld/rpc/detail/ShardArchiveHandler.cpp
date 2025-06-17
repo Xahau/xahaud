@@ -19,12 +19,12 @@
 
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/rdb/ShardArchive.h>
-#include <xrpl/basics/Archive.h>
-#include <xrpl/basics/BasicConfig.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/DatabaseShard.h>
 #include <xrpld/rpc/ShardArchiveHandler.h>
 #include <xrpld/rpc/detail/Handler.h>
+#include <xrpl/basics/Archive.h>
+#include <xrpl/basics/BasicConfig.h>
 
 #include <memory>
 

@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <test/jtx/did.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx/did.h>
 
 namespace ripple {
 namespace test {

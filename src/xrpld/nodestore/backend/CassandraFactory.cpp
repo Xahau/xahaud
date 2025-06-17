@@ -22,16 +22,16 @@
 #include <cassandra.h>
 #include <libpq-fe.h>
 
-#include <xrpl/basics/Slice.h>
-#include <xrpl/basics/StringUtilities.h>
-#include <xrpl/basics/contract.h>
-#include <xrpl/basics/strHex.h>
 #include <xrpld/nodestore/Backend.h>
 #include <xrpld/nodestore/Factory.h>
 #include <xrpld/nodestore/Manager.h>
 #include <xrpld/nodestore/detail/DecodedBlob.h>
 #include <xrpld/nodestore/detail/EncodedBlob.h>
 #include <xrpld/nodestore/detail/codec.h>
+#include <xrpl/basics/Slice.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/digest.h>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/filesystem.hpp>

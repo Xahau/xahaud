@@ -21,10 +21,10 @@
 #define RIPPLE_TX_APPLYCONTEXT_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
-#include <xrpl/basics/XRPAmount.h>
-#include <xrpl/beast/utility/Journal.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpl/basics/XRPAmount.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/STTx.h>
 #include <optional>
 #include <utility>

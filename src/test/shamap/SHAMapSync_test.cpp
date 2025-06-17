@@ -17,14 +17,14 @@
 */
 //==============================================================================
 
+#include <test/shamap/common.h>
+#include <test/unit_test/SuiteJournal.h>
+#include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapItem.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/xor_shift_engine.h>
-#include <xrpld/shamap/SHAMap.h>
-#include <xrpld/shamap/SHAMapItem.h>
-#include <test/shamap/common.h>
-#include <test/unit_test/SuiteJournal.h>
 
 namespace ripple {
 namespace tests {

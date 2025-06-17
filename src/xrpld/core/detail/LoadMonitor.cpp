@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <xrpld/core/LoadMonitor.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/UptimeClock.h>
-#include <xrpld/core/LoadMonitor.h>
 
 namespace ripple {
 

@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
+#include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/crypto/csprng.h>
 #include <xrpl/protocol/Serializer.h>
-#include <xrpld/shamap/SHAMap.h>
-#include <xrpld/shamap/SHAMapNodeID.h>
 #include <cassert>
 
 namespace ripple {

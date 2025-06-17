@@ -20,9 +20,9 @@
 #ifndef RIPPLE_CONDITIONS_CONDITION_H
 #define RIPPLE_CONDITIONS_CONDITION_H
 
+#include <xrpld/conditions/detail/utils.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Slice.h>
-#include <xrpld/conditions/detail/utils.h>
 #include <array>
 #include <cstdint>
 #include <set>

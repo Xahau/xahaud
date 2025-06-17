@@ -21,9 +21,9 @@
 #define RIPPLE_APP_DATA_DATABASECON_H_INCLUDED
 
 #include <xrpld/app/main/DBInit.h>
-#include <xrpld/perflog/PerfLog.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/core/SociDB.h>
+#include <xrpld/perflog/PerfLog.h>
 #include <boost/filesystem/path.hpp>
 #include <mutex>
 #include <optional>

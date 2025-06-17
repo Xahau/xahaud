@@ -20,12 +20,12 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/overlay/Overlay.h>
+#include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/detail/Handler.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/jss.h>
-#include <xrpld/rpc/Context.h>
-#include <xrpld/rpc/detail/Handler.h>
 
 namespace ripple {
 

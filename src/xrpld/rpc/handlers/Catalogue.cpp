@@ -22,6 +22,12 @@
 #include <xrpld/app/ledger/LedgerToJson.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/GRPCHandlers.h>
+#include <xrpld/rpc/Role.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpld/rpc/detail/Tuning.h>
+#include <xrpld/shamap/SHAMapItem.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/ErrorCodes.h>
@@ -29,12 +35,6 @@
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
-#include <xrpld/rpc/Context.h>
-#include <xrpld/rpc/GRPCHandlers.h>
-#include <xrpld/rpc/Role.h>
-#include <xrpld/rpc/detail/RPCHelpers.h>
-#include <xrpld/rpc/detail/Tuning.h>
-#include <xrpld/shamap/SHAMapItem.h>
 
 #include <atomic>
 #include <condition_variable>

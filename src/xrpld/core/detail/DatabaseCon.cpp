@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/Log.h>
-#include <xrpl/basics/contract.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/core/SociDB.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/basics/contract.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>

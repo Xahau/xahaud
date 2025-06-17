@@ -8,13 +8,13 @@
 #ifndef BEAST_TEST_FAIL_STREAM_HPP
 #define BEAST_TEST_FAIL_STREAM_HPP
 
-#include <boost/optional.hpp>
 #include <xrpl/beast/core/async_result.hpp>
 #include <xrpl/beast/core/bind_handler.hpp>
 #include <xrpl/beast/core/detail/type_traits.hpp>
 #include <xrpl/beast/core/error.hpp>
 #include <xrpl/beast/test/fail_counter.hpp>
 #include <xrpl/beast/websocket/teardown.hpp>
+#include <boost/optional.hpp>
 
 namespace beast {
 namespace test {

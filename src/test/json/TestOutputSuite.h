@@ -20,9 +20,9 @@
 #ifndef RIPPLE_RPC_TESTOUTPUTSUITE_H_INCLUDED
 #define RIPPLE_RPC_TESTOUTPUTSUITE_H_INCLUDED
 
+#include <test/jtx/TestSuite.h>
 #include <xrpl/json/Output.h>
 #include <xrpl/json/Writer.h>
-#include <test/jtx/TestSuite.h>
 
 namespace ripple {
 namespace test {

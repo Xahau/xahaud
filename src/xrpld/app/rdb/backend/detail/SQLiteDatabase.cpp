@@ -26,12 +26,12 @@
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/app/rdb/backend/detail/Node.h>
 #include <xrpld/app/rdb/backend/detail/Shard.h>
-#include <xrpl/basics/BasicConfig.h>
-#include <xrpl/basics/StringUtilities.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/core/SociDB.h>
-#include <xrpl/json/to_string.h>
 #include <xrpld/nodestore/DatabaseShard.h>
+#include <xrpl/basics/BasicConfig.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/json/to_string.h>
 #include <soci/sqlite3/soci-sqlite3.h>
 
 namespace ripple {

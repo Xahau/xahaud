@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <test/jtx/paychan.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx/paychan.h>
 
 namespace ripple {
 namespace test {

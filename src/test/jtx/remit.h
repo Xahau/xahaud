@@ -20,9 +20,9 @@
 #ifndef RIPPLE_TEST_JTX_REMIT_H_INCLUDED
 #define RIPPLE_TEST_JTX_REMIT_H_INCLUDED
 
-#include <xrpl/protocol/STAmount.h>
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
+#include <xrpl/protocol/STAmount.h>
 
 namespace ripple {
 namespace test {

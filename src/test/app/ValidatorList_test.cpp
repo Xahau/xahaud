@@ -17,11 +17,12 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/strHex.h>
-#include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
@@ -29,7 +30,6 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/protocol/messages.h>
-#include <test/jtx.h>
 
 #include <boost/beast/core/multi_buffer.hpp>
 

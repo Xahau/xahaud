@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/Log.h>
 #include <xrpld/consensus/Consensus.h>
+#include <xrpl/basics/Log.h>
 
 namespace ripple {
 

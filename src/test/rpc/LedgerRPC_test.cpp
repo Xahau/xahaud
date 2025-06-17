@@ -17,6 +17,12 @@
 */
 //==============================================================================
 
+#include <test/app/Import_json.h>
+#include <test/jtx.h>
+#include <test/jtx/Oracle.h>
+#include <test/jtx/attester.h>
+#include <test/jtx/multisign.h>
+#include <test/jtx/xchain_bridge.h>
 #include <xrpld/app/hook/Enum.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/TxQ.h>
@@ -26,12 +32,6 @@
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/STXChainBridge.h>
 #include <xrpl/protocol/jss.h>
-#include <test/app/Import_json.h>
-#include <test/jtx.h>
-#include <test/jtx/Oracle.h>
-#include <test/jtx/attester.h>
-#include <test/jtx/multisign.h>
-#include <test/jtx/xchain_bridge.h>
 
 namespace ripple {
 

@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
+#include <test/jtx/import.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx/import.h>
 
 namespace ripple {
 namespace test {

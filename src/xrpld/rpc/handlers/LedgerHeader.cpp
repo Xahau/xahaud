@@ -18,10 +18,10 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/LedgerToJson.h>
-#include <xrpl/basics/strHex.h>
 #include <xrpld/ledger/ReadView.h>
-#include <xrpl/protocol/jss.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpl/basics/strHex.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 

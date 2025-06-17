@@ -18,10 +18,10 @@
 //==============================================================================
 
 #include <xrpld/app/main/Application.h>
+#include <xrpld/rpc/Context.h>
 #include <xrpl/json/JsonPropertyStream.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/jss.h>
-#include <xrpld/rpc/Context.h>
 
 namespace ripple {
 

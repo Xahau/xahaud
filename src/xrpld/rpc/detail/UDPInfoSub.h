@@ -20,11 +20,11 @@
 #ifndef RIPPLE_RPC_UDPINFOSUB_H
 #define RIPPLE_RPC_UDPINFOSUB_H
 
+#include <xrpld/net/InfoSub.h>
+#include <xrpld/rpc/Role.h>
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/json/to_string.h>
-#include <xrpld/net/InfoSub.h>
-#include <xrpld/rpc/Role.h>
 #include <xrpl/server/WSSession.h>
 #include <boost/utility/string_view.hpp>
 #include <memory>

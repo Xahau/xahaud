@@ -20,14 +20,14 @@
 #ifndef RIPPLE_LEDGER_VIEW_H_INCLUDED
 #define RIPPLE_LEDGER_VIEW_H_INCLUDED
 
-#include <xrpl/basics/Log.h>
-#include <xrpl/beast/utility/Journal.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpld/ledger/OpenView.h>
 #include <xrpld/ledger/RawView.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/Sandbox.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/Rate.h>

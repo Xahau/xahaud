@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/main/Application.h>
+#include <xrpld/rpc/Context.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/ResourceManager.h>
-#include <xrpld/rpc/Context.h>
 
 namespace ripple {
 

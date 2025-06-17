@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/misc/LoadFeeTrack.h>
-#include <xrpl/beast/unit_test.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ReadView.h>
+#include <xrpl/beast/unit_test.h>
 
 namespace ripple {
 

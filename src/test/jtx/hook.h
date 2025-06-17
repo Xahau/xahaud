@@ -20,9 +20,9 @@
 #ifndef RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 #define RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 
+#include <test/jtx/Account.h>
 #include <xrpl/json/json_value.h>
 #include <optional>
-#include <test/jtx/Account.h>
 
 namespace ripple {
 namespace test {

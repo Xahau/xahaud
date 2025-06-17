@@ -23,10 +23,10 @@
 // Disable lz4 deprecation warning due to incompatibility with clang attributes
 #define LZ4_DISABLE_DEPRECATE_WARNINGS
 
-#include <xrpl/basics/contract.h>
-#include <xrpl/basics/safe_cast.h>
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/nodestore/detail/varint.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/basics/safe_cast.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <cstddef>
 #include <cstring>

@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/safe_cast.h>
 #include <xrpld/nodestore/detail/DecodedBlob.h>
+#include <xrpl/basics/safe_cast.h>
 #include <algorithm>
 #include <cassert>
 

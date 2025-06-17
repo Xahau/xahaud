@@ -20,8 +20,8 @@
 #ifndef RIPPLE_NODESTORE_TYPES_H_INCLUDED
 #define RIPPLE_NODESTORE_TYPES_H_INCLUDED
 
-#include <xrpl/basics/BasicConfig.h>
 #include <xrpld/nodestore/NodeObject.h>
+#include <xrpl/basics/BasicConfig.h>
 #include <vector>
 
 namespace ripple {

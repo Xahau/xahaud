@@ -20,10 +20,10 @@
 #ifndef RIPPLE_LEDGER_OPENVIEW_H_INCLUDED
 #define RIPPLE_LEDGER_OPENVIEW_H_INCLUDED
 
-#include <xrpl/basics/XRPAmount.h>
 #include <xrpld/ledger/RawView.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/detail/RawStateTable.h>
+#include <xrpl/basics/XRPAmount.h>
 
 #include <boost/container/pmr/monotonic_buffer_resource.hpp>
 #include <boost/container/pmr/polymorphic_allocator.hpp>

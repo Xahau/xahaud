@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/main/Application.h>
-#include <xrpl/json/json_value.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/rpc/Context.h>
+#include <xrpl/json/json_value.h>
 
 namespace ripple {
 

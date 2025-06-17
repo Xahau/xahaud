@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
 #include <sstream>
-#include <test/jtx.h>
 
 namespace ripple {
 namespace test {

@@ -20,9 +20,9 @@
 #ifndef RIPPLE_CONSENSUS_CONSENSUS_TYPES_H_INCLUDED
 #define RIPPLE_CONSENSUS_CONSENSUS_TYPES_H_INCLUDED
 
-#include <xrpl/basics/chrono.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpld/consensus/DisputedTx.h>
+#include <xrpl/basics/chrono.h>
 #include <chrono>
 #include <map>
 

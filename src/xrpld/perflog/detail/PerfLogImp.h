@@ -21,10 +21,10 @@
 #define RIPPLE_BASICS_PERFLOGIMP_H
 
 #include <xrpld/perflog/PerfLog.h>
+#include <xrpld/rpc/detail/Handler.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/jss.h>
-#include <xrpld/rpc/detail/Handler.h>
 #include <boost/asio/ip/host_name.hpp>
 #include <condition_variable>
 #include <cstdint>

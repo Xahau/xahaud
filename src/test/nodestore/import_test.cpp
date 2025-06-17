@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
+#include <xrpld/nodestore/detail/codec.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/beast/clock/basic_seconds_clock.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpld/nodestore/detail/codec.h>
 #include <boost/beast/core/string.hpp>
 #include <boost/regex.hpp>
 #include <algorithm>

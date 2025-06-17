@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/Log.h>
 #include <xrpld/peerfinder/detail/Bootcache.h>
 #include <xrpld/peerfinder/detail/Tuning.h>
 #include <xrpld/peerfinder/detail/iosformat.h>
+#include <xrpl/basics/Log.h>
 
 namespace ripple {
 namespace PeerFinder {

@@ -21,12 +21,12 @@
 #define RIPPLE_APP_MISC_VALIDATORLIST_H_INCLUDED
 
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/core/TimeKeeper.h>
+#include <xrpld/overlay/Message.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/UnorderedContainers.h>
-#include <xrpld/core/TimeKeeper.h>
 #include <xrpl/crypto/csprng.h>
 #include <xrpl/json/json_value.h>
-#include <xrpld/overlay/Message.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/range/adaptors.hpp>

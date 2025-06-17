@@ -15,13 +15,13 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
+#include <test/jtx/envconfig.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx.h>
-#include <test/jtx/envconfig.h>
 
 namespace ripple {
 namespace test {

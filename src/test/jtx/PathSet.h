@@ -20,9 +20,9 @@
 #ifndef RIPPLE_LEDGER_TESTS_PATHSET_H_INCLUDED
 #define RIPPLE_LEDGER_TESTS_PATHSET_H_INCLUDED
 
+#include <test/jtx.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/TxFlags.h>
-#include <test/jtx.h>
 
 namespace ripple {
 namespace test {

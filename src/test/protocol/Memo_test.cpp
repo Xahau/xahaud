@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx.h>
 
 namespace ripple {
 #define MEMOFEE fee(1'000'000)

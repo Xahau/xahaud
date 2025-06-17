@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
+#include <test/jtx/WSClient.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx.h>
-#include <test/jtx/WSClient.h>
 
 namespace ripple {
 

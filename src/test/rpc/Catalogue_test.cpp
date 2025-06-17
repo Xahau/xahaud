@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 #include <chrono>
 #include <fstream>
-#include <test/jtx.h>
 #include <thread>
 
 namespace ripple {

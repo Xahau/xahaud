@@ -20,12 +20,12 @@
 #ifndef RIPPLE_CORE_CONFIG_H_INCLUDED
 #define RIPPLE_CORE_CONFIG_H_INCLUDED
 
+#include <xrpld/core/ConfigSections.h>
 #include <xrpl/basics/BasicConfig.h>
 #include <xrpl/basics/FeeUnits.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/net/IPEndpoint.h>
 #include <xrpl/beast/utility/Journal.h>
-#include <xrpld/core/ConfigSections.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SystemParameters.h>  // VFALCO Breaks levelization
 

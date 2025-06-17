@@ -23,12 +23,12 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/rdb/State.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
-#include <xrpl/beast/core/CurrentThreadName.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/core/Pg.h>
 #include <xrpld/nodestore/Scheduler.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpld/shamap/SHAMapMissingNode.h>
+#include <xrpl/beast/core/CurrentThreadName.h>
 
 #include <boost/algorithm/string/predicate.hpp>
 

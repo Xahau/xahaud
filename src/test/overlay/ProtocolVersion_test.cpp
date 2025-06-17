@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <xrpl/beast/unit_test.h>
 #include <xrpld/overlay/detail/ProtocolVersion.h>
+#include <xrpl/beast/unit_test.h>
 
 namespace ripple {
 

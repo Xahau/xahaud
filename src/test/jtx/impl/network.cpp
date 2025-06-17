@@ -17,14 +17,14 @@
 */
 //==============================================================================
 
+#include <test/app/Import_json.h>
+#include <test/jtx/network.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
-#include <test/app/Import_json.h>
-#include <test/jtx/network.h>
 
 namespace ripple {
 namespace test {

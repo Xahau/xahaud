@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/TxFlags.h>
-#include <xrpl/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <test/jtx/TestHelpers.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {

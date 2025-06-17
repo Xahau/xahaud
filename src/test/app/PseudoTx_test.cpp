@@ -15,11 +15,11 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STAccount.h>
 #include <string>
-#include <test/jtx.h>
 #include <vector>
 
 namespace ripple {

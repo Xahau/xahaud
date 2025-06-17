@@ -17,9 +17,10 @@
 */
 //==============================================================================
 
+#include <test/jtx/utility.h>
+#include <xrpld/net/RPCCall.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/json/Object.h>
-#include <xrpld/net/RPCCall.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
@@ -27,7 +28,6 @@
 #include <xrpl/protocol/UintTypes.h>
 #include <xrpl/protocol/jss.h>
 #include <cstring>
-#include <test/jtx/utility.h>
 
 namespace ripple {
 namespace test {

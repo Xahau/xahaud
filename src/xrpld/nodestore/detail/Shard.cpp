@@ -20,11 +20,11 @@
 #include <xrpld/app/ledger/InboundLedger.h>
 #include <xrpld/app/main/DBInit.h>
 #include <xrpld/app/rdb/backend/detail/Shard.h>
-#include <xrpl/basics/StringUtilities.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/Manager.h>
 #include <xrpld/nodestore/detail/DeterministicShard.h>
 #include <xrpld/nodestore/detail/Shard.h>
+#include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/LedgerHeader.h>
 #include <xrpl/protocol/digest.h>
 

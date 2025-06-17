@@ -19,13 +19,6 @@
 #ifndef RIPPLE_TEST_CSF_PEER_H_INCLUDED
 #define RIPPLE_TEST_CSF_PEER_H_INCLUDED
 
-#include <xrpl/beast/utility/WrappedSink.h>
-#include <xrpld/consensus/Consensus.h>
-#include <xrpld/consensus/Validations.h>
-#include <xrpl/protocol/PublicKey.h>
-#include <boost/container/flat_map.hpp>
-#include <boost/container/flat_set.hpp>
-#include <algorithm>
 #include <test/csf/CollectorRef.h>
 #include <test/csf/Scheduler.h>
 #include <test/csf/TrustGraph.h>
@@ -33,6 +26,13 @@
 #include <test/csf/Validation.h>
 #include <test/csf/events.h>
 #include <test/csf/ledgers.h>
+#include <xrpld/consensus/Consensus.h>
+#include <xrpld/consensus/Validations.h>
+#include <xrpl/beast/utility/WrappedSink.h>
+#include <xrpl/protocol/PublicKey.h>
+#include <boost/container/flat_map.hpp>
+#include <boost/container/flat_set.hpp>
+#include <algorithm>
 
 namespace ripple {
 namespace test {

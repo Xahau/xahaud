@@ -22,12 +22,12 @@
 #pragma clang diagnostic ignored "-Wdeprecated"
 #endif
 
-#include <xrpl/basics/ByteUtilities.h>
-#include <xrpl/basics/contract.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/core/SociDB.h>
+#include <xrpl/basics/ByteUtilities.h>
+#include <xrpl/basics/contract.h>
 #include <boost/filesystem.hpp>
 #include <memory>
 #include <soci/sqlite3/soci-sqlite3.h>

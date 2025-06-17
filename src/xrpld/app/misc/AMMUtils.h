@@ -19,9 +19,9 @@
 #ifndef RIPPLE_APP_MISC_AMMUTILS_H_INLCUDED
 #define RIPPLE_APP_MISC_AMMUTILS_H_INLCUDED
 
+#include <xrpld/ledger/View.h>
 #include <xrpl/basics/Expected.h>
 #include <xrpl/beast/utility/Journal.h>
-#include <xrpld/ledger/View.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STLedgerEntry.h>
 #include <xrpl/protocol/TER.h>

@@ -17,14 +17,14 @@
 */
 //==============================================================================
 
+#include <xrpld/conditions/Condition.h>
+#include <xrpld/conditions/Fulfillment.h>
+#include <xrpld/conditions/detail/PreimageSha256.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpld/conditions/Condition.h>
-#include <xrpld/conditions/Fulfillment.h>
-#include <xrpld/conditions/detail/PreimageSha256.h>
 #include <algorithm>
 #include <string>
 #include <utility>

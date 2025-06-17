@@ -22,8 +22,8 @@
 #include <xrpl/beast/core/CurrentThreadName.h>
 #include <xrpl/resource/Fees.h>
 
-#include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpld/core/ConfigSections.h>
+#include <xrpl/beast/net/IPAddressConversion.h>
 
 namespace ripple {
 

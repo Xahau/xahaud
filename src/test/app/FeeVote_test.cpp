@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpld/app/misc/FeeVote.h>
 #include <xrpl/basics/BasicConfig.h>
-#include <test/jtx.h>
 
 namespace ripple {
 namespace test {

@@ -20,11 +20,11 @@
 #ifndef RIPPLE_CORE_JOBQUEUE_H_INCLUDED
 #define RIPPLE_CORE_JOBQUEUE_H_INCLUDED
 
-#include <xrpl/basics/LocalValue.h>
 #include <xrpld/core/ClosureCounter.h>
 #include <xrpld/core/JobTypeData.h>
 #include <xrpld/core/JobTypes.h>
 #include <xrpld/core/detail/Workers.h>
+#include <xrpl/basics/LocalValue.h>
 #include <xrpl/json/json_value.h>
 #include <boost/coroutine/all.hpp>
 #include <boost/range/begin.hpp>  // workaround for boost 1.72 bug

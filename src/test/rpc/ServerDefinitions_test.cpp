@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx.h>
 
 namespace ripple {
 

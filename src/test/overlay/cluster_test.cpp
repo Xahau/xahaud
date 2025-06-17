@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/BasicConfig.h>
-#include <xrpld/overlay/Cluster.h>
-#include <xrpld/overlay/ClusterNode.h>
-#include <xrpl/protocol/SecretKey.h>
 #include <test/jtx/TestSuite.h>
 #include <test/unit_test/SuiteJournal.h>
+#include <xrpld/overlay/Cluster.h>
+#include <xrpld/overlay/ClusterNode.h>
+#include <xrpl/basics/BasicConfig.h>
+#include <xrpl/protocol/SecretKey.h>
 
 namespace ripple {
 namespace tests {

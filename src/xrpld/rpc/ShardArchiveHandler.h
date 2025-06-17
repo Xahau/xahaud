@@ -21,11 +21,11 @@
 #define RIPPLE_RPC_SHARDARCHIVEHANDLER_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
-#include <xrpl/basics/BasicConfig.h>
-#include <xrpl/basics/StringUtilities.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/net/DatabaseDownloader.h>
 #include <xrpld/rpc/ShardVerificationScheduler.h>
+#include <xrpl/basics/BasicConfig.h>
+#include <xrpl/basics/StringUtilities.h>
 
 #include <boost/asio/basic_waitable_timer.hpp>
 #include <boost/filesystem.hpp>

@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
+#include <test/jtx/envconfig.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/SHAMapStore.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx.h>
-#include <test/jtx/envconfig.h>
 
 namespace ripple {
 namespace test {

@@ -20,13 +20,13 @@
 #include <xrpld/app/ledger/LedgerToJson.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpld/rpc/GRPCHandlers.h>
+#include <xrpld/rpc/Role.h>
+#include <xrpld/rpc/handlers/LedgerHandler.h>
 #include <xrpl/json/Object.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
-#include <xrpld/rpc/GRPCHandlers.h>
-#include <xrpld/rpc/Role.h>
-#include <xrpld/rpc/handlers/LedgerHandler.h>
 
 namespace ripple {
 namespace RPC {

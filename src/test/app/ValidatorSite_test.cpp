@@ -17,6 +17,9 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
+#include <test/jtx/TrustedPublisherServer.h>
+#include <test/unit_test/FileDirGuard.h>
 #include <xrpld/app/misc/ValidatorSite.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/base64.h>
@@ -33,9 +36,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <chrono>
 #include <date/date.h>
-#include <test/jtx.h>
-#include <test/jtx/TrustedPublisherServer.h>
-#include <test/unit_test/FileDirGuard.h>
 
 namespace ripple {
 namespace test {

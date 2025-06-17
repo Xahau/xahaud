@@ -17,6 +17,8 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
+#include <test/jtx/envconfig.h>
 #include <xrpld/app/ledger/BuildLedger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/LedgerReplay.h>
@@ -25,11 +27,9 @@
 #include <xrpld/app/ledger/detail/LedgerDeltaAcquire.h>
 #include <xrpld/app/ledger/detail/LedgerReplayMsgHandler.h>
 #include <xrpld/app/ledger/detail/SkipListAcquire.h>
-#include <xrpl/basics/Slice.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpld/overlay/detail/PeerImp.h>
-#include <test/jtx.h>
-#include <test/jtx/envconfig.h>
+#include <xrpl/basics/Slice.h>
 
 #include <chrono>
 #include <thread>

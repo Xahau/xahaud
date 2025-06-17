@@ -17,15 +17,26 @@
 */
 //==============================================================================
 
+#include <test/jtx/Env.h>
+#include <test/jtx/JSONRPCClient.h>
+#include <test/jtx/balance.h>
+#include <test/jtx/fee.h>
+#include <test/jtx/flags.h>
+#include <test/jtx/pay.h>
+#include <test/jtx/require.h>
+#include <test/jtx/seq.h>
+#include <test/jtx/sig.h>
+#include <test/jtx/trust.h>
+#include <test/jtx/utility.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/TxQ.h>
-#include <xrpl/basics/Slice.h>
-#include <xrpl/basics/contract.h>
 #include <xrpld/consensus/LedgerTiming.h>
-#include <xrpl/json/to_string.h>
 #include <xrpld/net/HTTPClient.h>
 #include <xrpld/net/RPCCall.h>
+#include <xrpl/basics/Slice.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/json/to_string.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
@@ -38,17 +49,6 @@
 #include <xrpl/protocol/UintTypes.h>
 #include <xrpl/protocol/jss.h>
 #include <memory>
-#include <test/jtx/Env.h>
-#include <test/jtx/JSONRPCClient.h>
-#include <test/jtx/balance.h>
-#include <test/jtx/fee.h>
-#include <test/jtx/flags.h>
-#include <test/jtx/pay.h>
-#include <test/jtx/require.h>
-#include <test/jtx/seq.h>
-#include <test/jtx/sig.h>
-#include <test/jtx/trust.h>
-#include <test/jtx/utility.h>
 
 namespace ripple {
 namespace test {

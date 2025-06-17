@@ -20,8 +20,8 @@
 #ifndef RIPPLE_SHAMAP_SHAMAPMISSINGNODE_H_INCLUDED
 #define RIPPLE_SHAMAP_SHAMAPMISSINGNODE_H_INCLUDED
 
-#include <xrpl/basics/base_uint.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
+#include <xrpl/basics/base_uint.h>
 #include <iosfwd>
 #include <stdexcept>
 #include <string>

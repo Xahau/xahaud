@@ -20,9 +20,9 @@
 #ifndef RIPPLE_APP_LEDGER_INBOUNDTRANSACTIONS_H_INCLUDED
 #define RIPPLE_APP_LEDGER_INBOUNDTRANSACTIONS_H_INCLUDED
 
-#include <xrpl/beast/clock/abstract_clock.h>
 #include <xrpld/overlay/Peer.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <xrpl/beast/clock/abstract_clock.h>
 #include <memory>
 
 namespace ripple {

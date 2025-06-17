@@ -18,8 +18,8 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/CancelOffer.h>
-#include <xrpl/basics/Log.h>
 #include <xrpld/ledger/View.h>
+#include <xrpl/basics/Log.h>
 #include <xrpl/protocol/st.h>
 
 namespace ripple {

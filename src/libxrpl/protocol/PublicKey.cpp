@@ -20,8 +20,8 @@
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/PublicKey.h>
-#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/detail/secp256k1.h>
+#include <xrpl/protocol/digest.h>
 #include <boost/multiprecision/cpp_int.hpp>
 #include <ed25519.h>
 

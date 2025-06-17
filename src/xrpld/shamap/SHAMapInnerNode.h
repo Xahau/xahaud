@@ -20,12 +20,12 @@
 #ifndef RIPPLE_SHAMAP_SHAMAPINNERNODE_H_INCLUDED
 #define RIPPLE_SHAMAP_SHAMAPINNERNODE_H_INCLUDED
 
-#include <xrpl/basics/TaggedCache.h>
-#include <xrpl/beast/utility/Journal.h>
 #include <xrpld/shamap/SHAMapItem.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
 #include <xrpld/shamap/detail/TaggedPointer.h>
+#include <xrpl/basics/TaggedCache.h>
+#include <xrpl/beast/utility/Journal.h>
 
 #include <atomic>
 #include <bit>

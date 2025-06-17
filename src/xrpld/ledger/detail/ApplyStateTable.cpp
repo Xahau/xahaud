@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <xrpld/ledger/detail/ApplyStateTable.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/json/to_string.h>
-#include <xrpld/ledger/detail/ApplyStateTable.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/st.h>
 #include <cassert>
@@ -194,8 +194,8 @@ ApplyStateTable::generateTxMeta(
         {
             assert(curNode && origNode);
 
-            if (curNode->isThreadedType(to.rules()))  // thread transaction to node
-                                            // item modified
+            if (curNode->isThreadedType(to.rules()))  // thread transaction to
+                                                      // node item modified
                 threadItem(meta, curNode);
 
             STObject prevs(sfPreviousFields);

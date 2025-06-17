@@ -25,9 +25,9 @@
 #include <xrpld/app/paths/PathRequests.h>
 #include <xrpld/app/paths/RippleCalc.h>
 #include <xrpld/app/paths/detail/PathfinderUtils.h>
+#include <xrpld/core/Config.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/core/LexicalCast.h>
-#include <xrpld/core/Config.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/UintTypes.h>

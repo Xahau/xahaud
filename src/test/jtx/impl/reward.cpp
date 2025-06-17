@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <xrpl/protocol/jss.h>
 #include <test/jtx/reward.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {

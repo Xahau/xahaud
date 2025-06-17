@@ -21,9 +21,9 @@
 #define RIPPLE_APP_REPORTING_ETLSOURCE_H_INCLUDED
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/reporting/ETLHelpers.h>
+#include <xrpld/rpc/Context.h>
 #include <xrpl/proto/org/xrpl/rpc/v1/xrp_ledger.grpc.pb.h>
 #include <xrpl/protocol/STLedgerEntry.h>
-#include <xrpld/rpc/Context.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/beast/core.hpp>

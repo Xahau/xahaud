@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx.h>
 
 namespace ripple {
 

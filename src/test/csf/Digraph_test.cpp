@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <test/csf/Digraph.h>
 #include <xrpl/beast/unit_test.h>
 #include <string>
-#include <test/csf/Digraph.h>
 #include <vector>
 
 namespace ripple {

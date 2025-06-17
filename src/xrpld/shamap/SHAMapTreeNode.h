@@ -20,13 +20,13 @@
 #ifndef RIPPLE_SHAMAP_SHAMAPTREENODE_H_INCLUDED
 #define RIPPLE_SHAMAP_SHAMAPTREENODE_H_INCLUDED
 
+#include <xrpld/shamap/SHAMapItem.h>
+#include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpl/basics/CountedObject.h>
 #include <xrpl/basics/SHAMapHash.h>
 #include <xrpl/basics/TaggedCache.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/Serializer.h>
-#include <xrpld/shamap/SHAMapItem.h>
-#include <xrpld/shamap/SHAMapNodeID.h>
 
 #include <cstdint>
 #include <memory>

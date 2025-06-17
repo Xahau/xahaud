@@ -1,9 +1,9 @@
-#include <xrpl/basics/contract.h>
 #include <xrpld/nodestore/Factory.h>
 #include <xrpld/nodestore/Manager.h>
 #include <xrpld/nodestore/detail/DecodedBlob.h>
 #include <xrpld/nodestore/detail/EncodedBlob.h>
 #include <xrpld/nodestore/detail/codec.h>
+#include <xrpl/basics/contract.h>
 #include <boost/beast/core/string.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>

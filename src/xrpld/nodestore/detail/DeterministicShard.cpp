@@ -18,11 +18,11 @@
 //==============================================================================
 
 #include <xrpld/app/main/Application.h>
-#include <xrpl/beast/hash/hash_append.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/Manager.h>
 #include <xrpld/nodestore/detail/DeterministicShard.h>
 #include <xrpld/nodestore/detail/Shard.h>
+#include <xrpl/beast/hash/hash_append.h>
 #include <xrpl/protocol/digest.h>
 #include <fstream>
 #include <nudb/detail/format.hpp>

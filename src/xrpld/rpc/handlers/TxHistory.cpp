@@ -25,13 +25,13 @@
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/core/Pg.h>
 #include <xrpld/core/SociDB.h>
+#include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/Role.h>
+#include <xrpld/rpc/Status.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
-#include <xrpld/rpc/Context.h>
-#include <xrpld/rpc/Role.h>
-#include <xrpld/rpc/Status.h>
 #include <boost/format.hpp>
 
 namespace ripple {

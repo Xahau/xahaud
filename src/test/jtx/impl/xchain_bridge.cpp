@@ -19,6 +19,8 @@
 
 #include <test/jtx/xchain_bridge.h>
 
+#include <test/jtx/Env.h>
+#include <test/jtx/attester.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/Issue.h>
 #include <xrpl/protocol/SField.h>
@@ -28,8 +30,6 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/XChainAttestations.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx/Env.h>
-#include <test/jtx/attester.h>
 
 namespace ripple {
 namespace test {

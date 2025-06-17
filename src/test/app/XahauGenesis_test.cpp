@@ -15,6 +15,8 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
+#include <test/jtx/envconfig.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/tx/apply.h>
@@ -27,8 +29,6 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <string>
-#include <test/jtx.h>
-#include <test/jtx/envconfig.h>
 #include <vector>
 
 #define BEAST_REQUIRE(x)     \

@@ -17,16 +17,16 @@
 */
 //==============================================================================
 
+#include <test/jtx.h>
+#include <test/jtx/TrustedPublisherServer.h>
 #include <xrpld/app/main/BasicApp.h>
 #include <xrpld/app/misc/ValidatorSite.h>
+#include <xrpld/core/ConfigSections.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpld/core/ConfigSections.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/jss.h>
-#include <test/jtx.h>
-#include <test/jtx/TrustedPublisherServer.h>
 
 #include <set>
 

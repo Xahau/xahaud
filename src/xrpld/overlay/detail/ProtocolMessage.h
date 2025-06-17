@@ -20,10 +20,10 @@
 #ifndef RIPPLE_OVERLAY_PROTOCOLMESSAGE_H_INCLUDED
 #define RIPPLE_OVERLAY_PROTOCOLMESSAGE_H_INCLUDED
 
-#include <xrpl/basics/ByteUtilities.h>
 #include <xrpld/overlay/Compression.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/overlay/detail/ZeroCopyStream.h>
+#include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/protocol/messages.h>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/buffers_iterator.hpp>

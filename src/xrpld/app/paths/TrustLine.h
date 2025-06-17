@@ -20,8 +20,8 @@
 #ifndef RIPPLE_APP_PATHS_RIPPLESTATE_H_INCLUDED
 #define RIPPLE_APP_PATHS_RIPPLESTATE_H_INCLUDED
 
-#include <xrpl/basics/CountedObject.h>
 #include <xrpld/ledger/View.h>
+#include <xrpl/basics/CountedObject.h>
 #include <xrpl/protocol/Rate.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STLedgerEntry.h>

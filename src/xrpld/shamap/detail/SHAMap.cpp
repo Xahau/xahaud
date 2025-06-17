@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/contract.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapAccountStateLeafNode.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpld/shamap/SHAMapSyncFilter.h>
 #include <xrpld/shamap/SHAMapTxLeafNode.h>
 #include <xrpld/shamap/SHAMapTxPlusMetaLeafNode.h>
+#include <xrpl/basics/contract.h>
 
 namespace ripple {
 

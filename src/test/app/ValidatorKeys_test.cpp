@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
+#include <test/jtx/Env.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
-#include <xrpl/basics/base64.h>
-#include <xrpl/beast/unit_test.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/core/ConfigSections.h>
-#include <test/jtx/Env.h>
+#include <xrpl/basics/base64.h>
+#include <xrpl/beast/unit_test.h>
 
 #include <string>
 

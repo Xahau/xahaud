@@ -23,8 +23,8 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/detail/TimeoutCounter.h>
 #include <xrpld/app/main/Application.h>
-#include <xrpl/basics/CountedObject.h>
 #include <xrpld/overlay/PeerSet.h>
+#include <xrpl/basics/CountedObject.h>
 #include <mutex>
 #include <set>
 #include <utility>

@@ -24,14 +24,14 @@
 #include <xrpld/app/ledger/TransactionStateSF.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpl/basics/Log.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/nodestore/DatabaseShard.h>
 #include <xrpld/overlay/Overlay.h>
+#include <xrpld/shamap/SHAMapNodeID.h>
+#include <xrpl/basics/Log.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
-#include <xrpld/shamap/SHAMapNodeID.h>
 
 #include <boost/iterator/function_output_iterator.hpp>
 

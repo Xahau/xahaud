@@ -20,9 +20,9 @@
 #ifndef RIPPLE_LEDGER_APPLYVIEW_H_INCLUDED
 #define RIPPLE_LEDGER_APPLYVIEW_H_INCLUDED
 
-#include <xrpl/basics/safe_cast.h>
 #include <xrpld/ledger/RawView.h>
 #include <xrpld/ledger/ReadView.h>
+#include <xrpl/basics/safe_cast.h>
 
 namespace ripple {
 

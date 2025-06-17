@@ -20,14 +20,14 @@
 #ifndef RIPPLE_CONSENSUS_CONSENSUS_H_INCLUDED
 #define RIPPLE_CONSENSUS_CONSENSUS_H_INCLUDED
 
-#include <xrpl/basics/Log.h>
-#include <xrpl/basics/chrono.h>
-#include <xrpl/beast/utility/Journal.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpld/consensus/DisputedTx.h>
 #include <xrpld/consensus/LedgerTiming.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/json/json_writer.h>
 #include <boost/logic/tribool.hpp>
 

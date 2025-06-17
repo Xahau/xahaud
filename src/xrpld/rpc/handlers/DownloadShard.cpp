@@ -18,14 +18,14 @@
 //==============================================================================
 
 #include <xrpld/app/main/Application.h>
-#include <xrpl/basics/BasicConfig.h>
 #include <xrpld/nodestore/DatabaseShard.h>
-#include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/RPCErr.h>
-#include <xrpl/protocol/jss.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/ShardArchiveHandler.h>
 #include <xrpld/rpc/detail/Handler.h>
+#include <xrpl/basics/BasicConfig.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/jss.h>
 
 #include <boost/algorithm/string.hpp>
 

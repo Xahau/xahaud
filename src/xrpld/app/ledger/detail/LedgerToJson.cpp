@@ -22,12 +22,12 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/DeliverMax.h>
 #include <xrpld/app/misc/TxQ.h>
-#include <xrpl/basics/base_uint.h>
 #include <xrpld/core/Pg.h>
-#include <xrpl/protocol/jss.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/DeliveredAmount.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpl/basics/base_uint.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 

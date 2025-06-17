@@ -20,10 +20,10 @@
 #ifndef RIPPLE_OVERLAY_OVERLAY_H_INCLUDED
 #define RIPPLE_OVERLAY_OVERLAY_H_INCLUDED
 
-#include <xrpl/beast/utility/PropertyStream.h>
-#include <xrpl/json/json_value.h>
 #include <xrpld/overlay/Peer.h>
 #include <xrpld/overlay/PeerSet.h>
+#include <xrpl/beast/utility/PropertyStream.h>
+#include <xrpl/json/json_value.h>
 #include <xrpl/server/Handoff.h>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>

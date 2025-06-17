@@ -20,11 +20,11 @@
 #ifndef RIPPLE_LEDGER_APPLYVIEWBASE_H_INCLUDED
 #define RIPPLE_LEDGER_APPLYVIEWBASE_H_INCLUDED
 
-#include <xrpl/basics/XRPAmount.h>
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpld/ledger/OpenView.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/detail/ApplyStateTable.h>
+#include <xrpl/basics/XRPAmount.h>
 
 namespace ripple {
 namespace detail {

@@ -21,9 +21,9 @@
 #define RIPPLE_APP_REPORTING_P2PPROXY_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
-#include <xrpl/proto/org/xrpl/rpc/v1/xrp_ledger.grpc.pb.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/detail/Handler.h>
+#include <xrpl/proto/org/xrpl/rpc/v1/xrp_ledger.grpc.pb.h>
 
 #include <boost/beast/websocket.hpp>
 #include <grpcpp/grpcpp.h>

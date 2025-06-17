@@ -20,12 +20,12 @@
 #ifndef RIPPLE_TEST_JTX_JTX_H_INCLUDED
 #define RIPPLE_TEST_JTX_JTX_H_INCLUDED
 
+#include <test/jtx/basic_prop.h>
+#include <test/jtx/requires.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TER.h>
-#include <test/jtx/basic_prop.h>
-#include <test/jtx/requires.h>
 
 #include <functional>
 #include <memory>

@@ -20,6 +20,8 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/reporting/P2pProxy.h>
+#include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/Role.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/LedgerFormats.h>
@@ -29,8 +31,6 @@
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
-#include <xrpld/rpc/Context.h>
-#include <xrpld/rpc/Role.h>
 
 #include <boost/algorithm/string.hpp>
 

@@ -20,9 +20,9 @@
 #ifndef RIPPLE_APP_LEDGER_BUILD_LEDGER_H_INCLUDED
 #define RIPPLE_APP_LEDGER_BUILD_LEDGER_H_INCLUDED
 
+#include <xrpld/ledger/ApplyView.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/utility/Journal.h>
-#include <xrpld/ledger/ApplyView.h>
 #include <chrono>
 #include <memory>
 

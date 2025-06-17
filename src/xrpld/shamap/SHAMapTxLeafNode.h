@@ -20,12 +20,12 @@
 #ifndef RIPPLE_SHAMAP_SHAMAPTXLEAFNODE_H_INCLUDED
 #define RIPPLE_SHAMAP_SHAMAPTXLEAFNODE_H_INCLUDED
 
-#include <xrpl/basics/CountedObject.h>
-#include <xrpl/protocol/HashPrefix.h>
-#include <xrpl/protocol/digest.h>
 #include <xrpld/shamap/SHAMapItem.h>
 #include <xrpld/shamap/SHAMapLeafNode.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
+#include <xrpl/basics/CountedObject.h>
+#include <xrpl/protocol/HashPrefix.h>
+#include <xrpl/protocol/digest.h>
 
 namespace ripple {
 

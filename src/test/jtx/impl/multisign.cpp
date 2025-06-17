@@ -17,6 +17,8 @@
 */
 //==============================================================================
 
+#include <test/jtx/multisign.h>
+#include <test/jtx/utility.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Sign.h>
@@ -24,8 +26,6 @@
 #include <xrpl/protocol/jss.h>
 #include <optional>
 #include <sstream>
-#include <test/jtx/multisign.h>
-#include <test/jtx/utility.h>
 
 namespace ripple {
 namespace test {

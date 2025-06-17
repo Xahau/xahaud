@@ -24,10 +24,6 @@
 #include <xrpld/app/misc/ValidatorSite.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/Wallet.h>
-#include <xrpl/basics/base64.h>
-#include <xrpl/basics/make_SSLContext.h>
-#include <xrpl/basics/random.h>
-#include <xrpl/beast/core/LexicalCast.h>
 #include <xrpld/nodestore/DatabaseShard.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/ConnectAttempt.h>
@@ -36,6 +32,10 @@
 #include <xrpld/peerfinder/make_Manager.h>
 #include <xrpld/rpc/handlers/GetCounts.h>
 #include <xrpld/rpc/json_body.h>
+#include <xrpl/basics/base64.h>
+#include <xrpl/basics/make_SSLContext.h>
+#include <xrpl/basics/random.h>
+#include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/server/SimpleWriter.h>
 
 #include <xrpld/core/ConfigSections.h>

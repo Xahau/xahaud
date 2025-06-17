@@ -21,8 +21,8 @@
 #define RIPPLE_OVERLAY_HANDSHAKE_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
-#include <xrpl/beast/utility/Journal.h>
 #include <xrpld/overlay/detail/ProtocolVersion.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/BuildInfo.h>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>

@@ -20,10 +20,10 @@
 #ifndef RIPPLE_OVERLAY_MAKE_OVERLAY_H_INCLUDED
 #define RIPPLE_OVERLAY_MAKE_OVERLAY_H_INCLUDED
 
-#include <xrpl/basics/Resolver.h>
 #include <xrpld/overlay/Overlay.h>
-#include <xrpl/resource/ResourceManager.h>
 #include <xrpld/rpc/ServerHandler.h>
+#include <xrpl/basics/Resolver.h>
+#include <xrpl/resource/ResourceManager.h>
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/ssl/context.hpp>
 

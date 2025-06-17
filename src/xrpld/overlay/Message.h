@@ -20,8 +20,8 @@
 #ifndef RIPPLE_OVERLAY_MESSAGE_H_INCLUDED
 #define RIPPLE_OVERLAY_MESSAGE_H_INCLUDED
 
-#include <xrpl/basics/ByteUtilities.h>
 #include <xrpld/overlay/Compression.h>
+#include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/messages.h>
 #include <boost/asio/buffer.hpp>
