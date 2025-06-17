@@ -22,7 +22,7 @@
 
 // Convenience header that includes everything
 
-#include <ripple/json/to_string.h>
+#include <xrpl/json/to_string.h>
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
 #include <test/jtx/Env_ss.h>

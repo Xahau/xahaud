@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/basics/ByteUtilities.h>
-#include <ripple/basics/FileUtilities.h>
-#include <ripple/beast/unit_test.h>
+#include <xrpl/basics/ByteUtilities.h>
+#include <xrpl/basics/FileUtilities.h>
+#include <xrpl/beast/unit_test.h>
 #include <fstream>
 #include <test/unit_test/FileDirGuard.h>
 

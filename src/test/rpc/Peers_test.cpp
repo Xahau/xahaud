@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/overlay/Cluster.h>
-#include <ripple/overlay/Overlay.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/overlay/Cluster.h>
+#include <xrpld/overlay/Overlay.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
 #include <unordered_map>

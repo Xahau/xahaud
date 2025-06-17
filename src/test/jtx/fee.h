@@ -20,8 +20,8 @@
 #ifndef RIPPLE_TEST_JTX_FEE_H_INCLUDED
 #define RIPPLE_TEST_JTX_FEE_H_INCLUDED
 
-#include <ripple/basics/contract.h>
-#include <ripple/protocol/STAmount.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/protocol/STAmount.h>
 #include <test/jtx/Env.h>
 #include <test/jtx/tags.h>
 

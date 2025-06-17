@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/json/json_reader.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/json/json_reader.h>
 #include <test/jtx/jtx_json.h>
 #include <test/jtx/utility.h>
 

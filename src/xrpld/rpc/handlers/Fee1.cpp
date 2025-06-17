@@ -17,17 +17,17 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/applyHook.h>
-#include <ripple/app/ledger/OpenLedger.h>
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/app/tx/impl/Transactor.h>
-#include <ripple/basics/FeeUnits.h>
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/protocol/ErrorCodes.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/rpc/Context.h>
-#include <ripple/rpc/GRPCHandlers.h>
+#include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/TxQ.h>
+#include <xrpld/app/tx/detail/Transactor.h>
+#include <xrpl/basics/FeeUnits.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/GRPCHandlers.h>
 namespace ripple {
 
 inline std::optional<XRPAmount>

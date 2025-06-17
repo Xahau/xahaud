@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/Enum.h>
-#include <ripple/basics/contract.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/hook/Enum.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/protocol/jss.h>
 #include <stdexcept>
 #include <test/jtx/hook.h>
 

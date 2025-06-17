@@ -15,8 +15,8 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/jss.h>
 #include <optional>
 #include <test/jtx.h>
 

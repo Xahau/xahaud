@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/impl/Invoke.h>
-#include <ripple/basics/Log.h>
-#include <ripple/ledger/View.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/st.h>
+#include <xrpld/app/tx/detail/Invoke.h>
+#include <xrpl/basics/Log.h>
+#include <xrpld/ledger/View.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/st.h>
 
 namespace ripple {
 

@@ -20,8 +20,8 @@
 #ifndef RIPPLE_PROTOCOL_B58_UTILS_H_INCLUDED
 #define RIPPLE_PROTOCOL_B58_UTILS_H_INCLUDED
 
-#include <ripple/basics/contract.h>
-#include <ripple/protocol/impl/token_errors.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/protocol/detail/token_errors.h>
 
 #include <boost/outcome.hpp>
 #include <boost/outcome/result.hpp>

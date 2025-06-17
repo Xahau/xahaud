@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/core/JobQueue.h>
+#include <xrpld/core/JobQueue.h>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>

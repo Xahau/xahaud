@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/basics/Expected.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/TER.h>
+#include <xrpl/basics/Expected.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/TER.h>
 #include <array>
 #include <cstdint>
 

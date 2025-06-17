@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/protocol/AmountConversions.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Quality.h>
-#include <ripple/protocol/Rate.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/protocol/AmountConversions.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Quality.h>
+#include <xrpl/protocol/Rate.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx.h>
 
 namespace ripple {

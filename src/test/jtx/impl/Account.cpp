@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/UintTypes.h>
+#include <xrpl/protocol/UintTypes.h>
 #include <test/jtx/Account.h>
 #include <test/jtx/amount.h>
 

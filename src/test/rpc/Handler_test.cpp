@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/beast/unit_test.h>
-#include <ripple/rpc/impl/Handler.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpld/rpc/detail/Handler.h>
 #include <test/jtx.h>
 
 #include <chrono>

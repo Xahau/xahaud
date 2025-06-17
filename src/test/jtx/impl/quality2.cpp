@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Quality.h>
-#include <ripple/protocol/SField.h>
+#include <xrpl/protocol/Quality.h>
+#include <xrpl/protocol/SField.h>
 #include <test/jtx/quality.h>
 
 namespace ripple {

@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/jss.h>
+#include <xrpl/protocol/jss.h>
 #include <boost/container/static_vector.hpp>
 #include <algorithm>
 #include <test/jtx.h>

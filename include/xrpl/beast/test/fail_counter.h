@@ -9,7 +9,7 @@
 #define BEAST_TEST_FAIL_COUNTER_HPP
 
 #include <boost/throw_exception.hpp>
-#include <beast/core/error.hpp>
+#include <xrpl/beast/core/error.hpp>
 
 namespace beast {
 namespace test {

@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
-#include <ripple/ledger/ApplyViewImpl.h>
-#include <ripple/ledger/PaymentSandbox.h>
-#include <ripple/ledger/View.h>
-#include <ripple/protocol/AmountConversions.h>
-#include <ripple/protocol/Feature.h>
+#include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpld/ledger/PaymentSandbox.h>
+#include <xrpld/ledger/View.h>
+#include <xrpl/protocol/AmountConversions.h>
+#include <xrpl/protocol/Feature.h>
 #include <test/jtx/PathSet.h>
 
 namespace ripple {

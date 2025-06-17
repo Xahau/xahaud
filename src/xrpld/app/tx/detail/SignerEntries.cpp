@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/impl/SignerEntries.h>
-#include <ripple/basics/Log.h>
-#include <ripple/protocol/Rules.h>
-#include <ripple/protocol/STArray.h>
-#include <ripple/protocol/STObject.h>
-#include <ripple/protocol/STTx.h>
+#include <xrpld/app/tx/detail/SignerEntries.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/protocol/Rules.h>
+#include <xrpl/protocol/STArray.h>
+#include <xrpl/protocol/STObject.h>
+#include <xrpl/protocol/STTx.h>
 #include <cstdint>
 #include <optional>
 

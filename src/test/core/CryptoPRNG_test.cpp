@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/beast/utility/temp_dir.h>
-#include <ripple/crypto/csprng.h>
+#include <xrpl/beast/utility/temp_dir.h>
+#include <xrpl/crypto/csprng.h>
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <streambuf>

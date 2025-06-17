@@ -16,8 +16,8 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
-#include <ripple/beast/unit_test.h>
-#include <ripple/consensus/LedgerTiming.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpld/consensus/LedgerTiming.h>
 
 namespace ripple {
 namespace test {

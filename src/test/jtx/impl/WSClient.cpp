@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/json/json_reader.h>
-#include <ripple/json/to_string.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/server/Port.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/to_string.h>
+#include <xrpl/protocol/jss.h>
+#include <xrpl/server/Port.h>
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/beast/websocket.hpp>
 #include <test/jtx.h>
@@ -32,7 +32,7 @@
 
 #include <iostream>
 
-#include <ripple/beast/unit_test.h>
+#include <xrpl/beast/unit_test.h>
 
 namespace ripple {
 namespace test {

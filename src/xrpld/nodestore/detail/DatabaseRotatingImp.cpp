@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/Ledger.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/main/Application.h>
-#include <ripple/nodestore/impl/DatabaseRotatingImp.h>
-#include <ripple/protocol/HashPrefix.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
+#include <xrpl/protocol/HashPrefix.h>
 
 namespace ripple {
 namespace NodeStore {

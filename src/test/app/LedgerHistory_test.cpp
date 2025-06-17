@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerHistory.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/beast/insight/NullCollector.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/ledger/OpenView.h>
+#include <xrpld/app/ledger/LedgerHistory.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpl/beast/insight/NullCollector.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpld/ledger/OpenView.h>
 #include <chrono>
 #include <memory>
 #include <sstream>

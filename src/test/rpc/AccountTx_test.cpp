@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/Enum.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/ErrorCodes.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/hook/Enum.h>
+#include <xrpld/app/misc/TxQ.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx.h>
 
 #include <boost/container/flat_set.hpp>

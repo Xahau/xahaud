@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/app/consensus/RCLValidations.h>
-#include <ripple/app/ledger/Ledger.h>
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/NegativeUNLVote.h>
-#include <ripple/json/to_string.h>
-#include <ripple/shamap/SHAMapItem.h>
+#include <xrpld/app/consensus/RCLValidations.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/NegativeUNLVote.h>
+#include <xrpl/json/to_string.h>
+#include <xrpld/shamap/SHAMapItem.h>
 
 namespace ripple {
 

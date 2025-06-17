@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx.h>
 
-#include <ripple/resource/Charge.h>
-#include <ripple/resource/Fees.h>
-#include <ripple/rpc/GRPCHandlers.h>
+#include <xrpl/resource/Charge.h>
+#include <xrpl/resource/Fees.h>
+#include <xrpld/rpc/GRPCHandlers.h>
 #include <test/jtx/WSClient.h>
 #include <test/rpc/GRPCTestClientBase.h>
 

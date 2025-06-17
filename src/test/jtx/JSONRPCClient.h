@@ -20,7 +20,7 @@
 #ifndef RIPPLE_TEST_HTTPCLIENT_H_INCLUDED
 #define RIPPLE_TEST_HTTPCLIENT_H_INCLUDED
 
-#include <ripple/core/Config.h>
+#include <xrpld/core/Config.h>
 #include <memory>
 #include <test/jtx/AbstractClient.h>
 

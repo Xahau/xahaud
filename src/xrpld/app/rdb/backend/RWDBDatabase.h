@@ -1,13 +1,13 @@
 #ifndef RIPPLE_APP_RDB_BACKEND_MEMORYDATABASE_H_INCLUDED
 #define RIPPLE_APP_RDB_BACKEND_MEMORYDATABASE_H_INCLUDED
 
-#include <ripple/app/ledger/AcceptedLedger.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/ledger/LedgerToJson.h>
-#include <ripple/app/ledger/PendingSaves.h>
-#include <ripple/app/ledger/TransactionMaster.h>
-#include <ripple/app/misc/impl/AccountTxPaging.h>
-#include <ripple/app/rdb/backend/SQLiteDatabase.h>
+#include <xrpld/app/ledger/AcceptedLedger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/LedgerToJson.h>
+#include <xrpld/app/ledger/PendingSaves.h>
+#include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/misc/detail/AccountTxPaging.h>
+#include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <algorithm>
 #include <map>
 #include <mutex>

@@ -18,13 +18,13 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/Enum.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/PayChan.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/hook/Enum.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/TxQ.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/PayChan.h>
+#include <xrpl/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <test/jtx/TestHelpers.h>

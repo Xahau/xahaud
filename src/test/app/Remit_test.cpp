@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <ripple/basics/chrono.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/ledger/Directory.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/ledger/Directory.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx.h>
 
 #include <chrono>

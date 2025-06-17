@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/beast/unit_test.h>
+#include <xrpl/beast/unit_test.h>
 #include <set>
 #include <test/csf/BasicNetwork.h>
 #include <test/csf/Scheduler.h>

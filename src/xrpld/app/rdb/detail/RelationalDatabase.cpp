@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/rdb/RelationalDatabase.h>
-#include <ripple/app/rdb/backend/FlatmapDatabase.h>
-#include <ripple/app/rdb/backend/RWDBDatabase.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/nodestore/DatabaseShard.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/rdb/RelationalDatabase.h>
+#include <xrpld/app/rdb/backend/FlatmapDatabase.h>
+#include <xrpld/app/rdb/backend/RWDBDatabase.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/nodestore/DatabaseShard.h>
 
 namespace ripple {
 

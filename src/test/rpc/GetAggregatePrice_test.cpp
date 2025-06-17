@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx.h>
 #include <test/jtx/Oracle.h>
 

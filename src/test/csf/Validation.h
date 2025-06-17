@@ -19,7 +19,7 @@
 #ifndef RIPPLE_TEST_CSF_VALIDATION_H_INCLUDED
 #define RIPPLE_TEST_CSF_VALIDATION_H_INCLUDED
 
-#include <ripple/basics/tagged_integer.h>
+#include <xrpl/basics/tagged_integer.h>
 #include <test/csf/ledgers.h>
 
 #include <memory>

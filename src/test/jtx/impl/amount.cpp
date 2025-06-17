@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/basics/safe_cast.h>
+#include <xrpl/basics/safe_cast.h>
 #include <cassert>
 #include <cmath>
 #include <iomanip>

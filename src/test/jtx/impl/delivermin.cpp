@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/jss.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx/delivermin.h>
 
 namespace ripple {

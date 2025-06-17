@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/Ledger.h>
-#include <ripple/basics/Log.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/ledger/View.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpld/ledger/View.h>
 #include <test/jtx.h>
 
 namespace ripple {

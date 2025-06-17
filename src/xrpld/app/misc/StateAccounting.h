@@ -1,10 +1,10 @@
 #ifndef RIPPLE_APP_MAIN_STATEACCOUNTING_H_INCLUDED
 #define RIPPLE_APP_MAIN_STATEACCOUNTING_H_INCLUDED
 
-#include <ripple/basics/chrono.h>
-#include <ripple/beast/utility/Journal.h>
-#include <ripple/json/json_value.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/beast/utility/Journal.h>
+#include <xrpl/json/json_value.h>
+#include <xrpl/protocol/jss.h>
 #include <array>
 #include <mutex>
 

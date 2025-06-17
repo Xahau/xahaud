@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/basics/ByteUtilities.h>
-#include <ripple/beast/unit_test.h>
+#include <xrpl/basics/ByteUtilities.h>
+#include <xrpl/beast/unit_test.h>
 #include <test/csf/Scheduler.h>
 
 #include <set>

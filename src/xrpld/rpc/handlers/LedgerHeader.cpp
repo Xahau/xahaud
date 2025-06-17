@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerToJson.h>
-#include <ripple/basics/strHex.h>
-#include <ripple/ledger/ReadView.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/rpc/impl/RPCHelpers.h>
+#include <xrpld/app/ledger/LedgerToJson.h>
+#include <xrpl/basics/strHex.h>
+#include <xrpld/ledger/ReadView.h>
+#include <xrpl/protocol/jss.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
 
 namespace ripple {
 

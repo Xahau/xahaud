@@ -15,17 +15,17 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/app/tx/impl/XahauGenesis.h>
-#include <ripple/core/Config.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/STAccount.h>
-#include <ripple/protocol/digest.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/XahauGenesis.h>
+#include <xrpld/core/Config.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
 #include <string>
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>

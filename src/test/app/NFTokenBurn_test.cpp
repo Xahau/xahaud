@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/impl/details/NFTokenUtils.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/jss.h>
 #include <test/jtx.h>
 
 #include <random>

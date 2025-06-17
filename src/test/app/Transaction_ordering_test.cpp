@@ -15,8 +15,8 @@
 */
 //==============================================================================
 
-#include <ripple/core/JobQueue.h>
-#include <ripple/protocol/ErrorCodes.h>
+#include <xrpld/core/JobQueue.h>
+#include <xrpl/protocol/ErrorCodes.h>
 #include <test/jtx.h>
 
 namespace ripple {

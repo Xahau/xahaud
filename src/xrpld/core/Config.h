@@ -20,14 +20,14 @@
 #ifndef RIPPLE_CORE_CONFIG_H_INCLUDED
 #define RIPPLE_CORE_CONFIG_H_INCLUDED
 
-#include <ripple/basics/BasicConfig.h>
-#include <ripple/basics/FeeUnits.h>
-#include <ripple/basics/base_uint.h>
-#include <ripple/beast/net/IPEndpoint.h>
-#include <ripple/beast/utility/Journal.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/protocol/PublicKey.h>
-#include <ripple/protocol/SystemParameters.h>  // VFALCO Breaks levelization
+#include <xrpl/basics/BasicConfig.h>
+#include <xrpl/basics/FeeUnits.h>
+#include <xrpl/basics/base_uint.h>
+#include <xrpl/beast/net/IPEndpoint.h>
+#include <xrpl/beast/utility/Journal.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpl/protocol/PublicKey.h>
+#include <xrpl/protocol/SystemParameters.h>  // VFALCO Breaks levelization
 
 #include <boost/beast/core/string.hpp>
 #include <boost/filesystem.hpp>  // VFALCO FIX: This include should not be here

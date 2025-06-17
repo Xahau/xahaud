@@ -19,7 +19,7 @@
 
 #include <test/jtx/envconfig.h>
 
-#include <ripple/core/ConfigSections.h>
+#include <xrpld/core/ConfigSections.h>
 #include <test/jtx/amount.h>
 
 namespace ripple {

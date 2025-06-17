@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/protocol/digest.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 

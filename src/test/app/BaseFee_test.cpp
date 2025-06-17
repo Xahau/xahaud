@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <test/jtx/TestHelpers.h>

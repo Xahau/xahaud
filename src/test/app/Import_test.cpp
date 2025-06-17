@@ -17,17 +17,17 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/tx/impl/Import.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/json/json_writer.h>
-#include <ripple/ledger/Directory.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Import.h>
-#include <ripple/protocol/jss.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/json_writer.h>
+#include <xrpld/ledger/Directory.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Import.h>
+#include <xrpl/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 

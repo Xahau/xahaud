@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/protocol/jss.h>
 #include <stdexcept>
 #include <test/jtx/trust.h>
 

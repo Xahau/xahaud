@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/basics/contract.h>
-#include <ripple/core/Config.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/server/Port.h>
+#include <xrpl/basics/contract.h>
+#include <xrpld/core/Config.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpl/server/Port.h>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <fstream>

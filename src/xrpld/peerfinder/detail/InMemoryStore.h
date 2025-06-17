@@ -1,8 +1,8 @@
 #ifndef RIPPLE_PEERFINDER_INMEMORYSTORE_H_INCLUDED
 #define RIPPLE_PEERFINDER_INMEMORYSTORE_H_INCLUDED
 
-#include <ripple/beast/net/IPEndpoint.h>
-#include <ripple/peerfinder/impl/Store.h>
+#include <xrpl/beast/net/IPEndpoint.h>
+#include <xrpld/peerfinder/detail/Store.h>
 #include <boost/functional/hash.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 

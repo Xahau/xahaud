@@ -19,19 +19,19 @@
 
 #define MAGIC_ENUM_NO_CHECK_REFLECTED_ENUM
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/app/misc/NetworkOPs.h>
-#include <ripple/app/reporting/P2pProxy.h>
-#include <ripple/json/json_value.h>
-#include <ripple/json/json_writer.h>
-#include <ripple/protocol/LedgerFormats.h>
-#include <ripple/protocol/RPCErr.h>
-#include <ripple/protocol/SField.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/digest.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/rpc/impl/TransactionSign.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/reporting/P2pProxy.h>
+#include <xrpl/json/json_value.h>
+#include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/LedgerFormats.h>
+#include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/SField.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
+#include <xrpld/rpc/detail/TransactionSign.h>
 #include <boost/algorithm/string.hpp>
 #include <magic/magic_enum.h>
 #include <sstream>

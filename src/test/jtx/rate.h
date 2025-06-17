@@ -20,7 +20,7 @@
 #ifndef RIPPLE_TEST_JTX_RATE_H_INCLUDED
 #define RIPPLE_TEST_JTX_RATE_H_INCLUDED
 
-#include <ripple/json/json_value.h>
+#include <xrpl/json/json_value.h>
 #include <test/jtx/Account.h>
 
 namespace ripple {

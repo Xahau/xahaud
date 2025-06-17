@@ -20,9 +20,9 @@
 // MODULES: ../impl/IPEndpoint.cpp ../impl/IPAddressV4.cpp
 // ../impl/IPAddressV6.cpp
 
-#include <ripple/basics/random.h>
-#include <ripple/beast/net/IPEndpoint.h>
-#include <ripple/beast/unit_test.h>
+#include <xrpl/basics/random.h>
+#include <xrpl/beast/net/IPEndpoint.h>
+#include <xrpl/beast/unit_test.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/asio/ip/address.hpp>
 #include <boost/predef.h>

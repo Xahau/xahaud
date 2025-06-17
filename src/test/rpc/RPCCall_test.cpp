@@ -15,11 +15,11 @@
 */
 //==============================================================================
 
-#include <ripple/beast/unit_test.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/net/RPCCall.h>
-#include <ripple/protocol/ErrorCodes.h>
-#include <ripple/rpc/impl/RPCHelpers.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpld/net/RPCCall.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
 #include <test/jtx.h>
 #include <test/jtx/utility.h>
 

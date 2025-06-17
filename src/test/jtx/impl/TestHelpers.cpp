@@ -19,7 +19,7 @@
 
 #include <test/jtx/TestHelpers.h>
 
-#include <ripple/protocol/TxFlags.h>
+#include <xrpl/protocol/TxFlags.h>
 #include <test/jtx/offer.h>
 #include <test/jtx/owners.h>
 

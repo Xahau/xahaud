@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
-#include <ripple/basics/TaggedCache.h>
-#include <ripple/basics/chrono.h>
-#include <ripple/beast/clock/manual_clock.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/Protocol.h>
+#include <xrpl/basics/TaggedCache.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/beast/clock/manual_clock.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/Protocol.h>
 #include <test/unit_test/SuiteJournal.h>
 
 namespace ripple {

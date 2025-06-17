@@ -33,8 +33,8 @@
 #pragma clang diagnostic ignored "-Wdeprecated"
 #endif
 
-#include <ripple/basics/Log.h>
-#include <ripple/core/JobQueue.h>
+#include <xrpl/basics/Log.h>
+#include <xrpld/core/JobQueue.h>
 #define SOCI_USE_BOOST
 #include <cstdint>
 #include <soci/soci.h>

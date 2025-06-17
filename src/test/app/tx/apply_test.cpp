@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/apply.h>
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/protocol/Feature.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/protocol/Feature.h>
 #include <test/jtx/Env.h>
 
 namespace ripple {
