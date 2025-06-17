@@ -2,7 +2,7 @@
 
 set -o errexit
 
-marker_base=985c80fbc6131f3a8cedd0da7e8af98dfceb13c7
+marker_base=34be0ce4fef20c978df2923c29321ad6cc17facc
 marker_commit=${1:-${marker_base}}
 
 if [ $(git merge-base ${marker_commit} ${marker_base}) != ${marker_base} ]; then
