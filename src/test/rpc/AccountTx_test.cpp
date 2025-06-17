@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <test/jtx.h>
-#include <xrpld/app/hook/Enum.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/jss.h>
 

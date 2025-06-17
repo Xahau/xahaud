@@ -37,7 +37,7 @@ else()
     # for the single amalgamation source file.
     PATCH_COMMAND
       ${CMAKE_COMMAND} -E copy_if_different
-      ${CMAKE_CURRENT_SOURCE_DIR}/Builds/CMake/CMake_sqlite3.txt
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CMake_sqlite3.txt
       <SOURCE_DIR>/CMakeLists.txt
     CMAKE_ARGS
       -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}

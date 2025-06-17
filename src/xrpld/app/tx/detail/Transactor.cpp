@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/hook/Enum.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -32,6 +31,7 @@
 #include <xrpld/ledger/detail/ApplyViewBase.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/contract.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>

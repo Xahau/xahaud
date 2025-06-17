@@ -20,9 +20,9 @@
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
-#include <xrpld/app/hook/Enum.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/TxFlags.h>

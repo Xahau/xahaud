@@ -57,12 +57,12 @@ Ensure that your code compiles according to the build instructions in the
 [`documentation`](https://docs.xahau.network/infrastructure/building-xahau).
 If you create new source files, they must go under `src/ripple`.
 You will need to add them to one of the
-[source lists](./Builds/CMake/RippledCore.cmake) in CMake.
+[source lists](./cmake/RippledCore.cmake) in CMake.
 
 Please write tests for your code.
 If you create new test source files, they must go under `src/test`.
 You will need to add them to one of the
-[source lists](./Builds/CMake/RippledCore.cmake) in CMake.
+[source lists](./cmake/RippledCore.cmake) in CMake.
 If your test can be run offline, in under 60 seconds, then it can be an
 automatic test run by `rippled --unittest`.
 Otherwise, it must be a manual test.

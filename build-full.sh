@@ -155,7 +155,7 @@ cp -r include/api/wasmedge /usr/include/ &&
 cd /io/ &&
 echo "-- Build Rippled --" &&
 pwd &&
-cp Builds/CMake/deps/Rocksdb.cmake Builds/CMake/deps/Rocksdb.cmake.old &&
+cp cmake/deps/Rocksdb.cmake cmake/deps/Rocksdb.cmake.old &&
 
 echo "MOVING TO [ build-core.sh ]"
 cd /io;

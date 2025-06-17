@@ -17,13 +17,12 @@
 */
 //==============================================================================
 
-#include <xrpl/app/hook/Enum.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/safe_cast.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/json/to_string.h>
-#include <xrpl/ledger/ReadView.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Protocol.h>

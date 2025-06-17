@@ -327,7 +327,7 @@ to select only specific tests for the purpose of the coverage report, by setting
 the `coverage_test` variable in `cmake`
 
 The default coverage report format is `html-details`, but the user
-can override it to any of the formats listed in `Builds/CMake/CodeCoverage.cmake`
+can override it to any of the formats listed in `cmake/CodeCoverage.cmake`
 by setting the `coverage_format` variable in `cmake`. It is also possible
 to generate more than one format at a time by setting the `coverage_extra_args`
 variable in `cmake`. The specific command line used to run the `gcovr` tool will be

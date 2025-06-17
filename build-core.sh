@@ -27,8 +27,8 @@ if [[ "$?" -ne "0" ]]; then
   exit 127
 fi
 
-perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" Builds/CMake/deps/Rocksdb.cmake &&
-mv Builds/CMake/deps/WasmEdge.cmake Builds/CMake/deps/WasmEdge.old &&
+perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" cmake/deps/Rocksdb.cmake &&
+mv cmake/deps/WasmEdge.cmake cmake/deps/WasmEdge.old &&
 echo "find_package(LLVM REQUIRED CONFIG)
 message(STATUS \"Found LLVM \${LLVM_PACKAGE_VERSION}\")
 message(STATUS \"Using LLVMConfig.cmake in: \${LLVM_DIR}\")
@@ -37,7 +37,7 @@ set_target_properties(wasmedge PROPERTIES IMPORTED_LOCATION \${WasmEdge_LIB})
 target_link_libraries (ripple_libs INTERFACE wasmedge)
 add_library (wasmedge::wasmedge ALIAS wasmedge)
 message(\"WasmEdge DONE\")
-" > Builds/CMake/deps/WasmEdge.cmake &&
+" > cmake/deps/WasmEdge.cmake &&
 git checkout src/ripple/protocol/impl/BuildInfo.cpp &&
 sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4\"/g src/ripple/protocol/impl/BuildInfo.cpp &&
 cd release-build &&
@@ -69,8 +69,8 @@ fi
 cd ..;
 
 mv src/ripple/net/impl/RegisterSSLCerts.cpp.old src/ripple/net/impl/RegisterSSLCerts.cpp;
-mv Builds/CMake/deps/Rocksdb.cmake.old Builds/CMake/deps/Rocksdb.cmake;
-mv Builds/CMake/deps/WasmEdge.old Builds/CMake/deps/WasmEdge.cmake;
+mv cmake/deps/Rocksdb.cmake.old cmake/deps/Rocksdb.cmake;
+mv cmake/deps/WasmEdge.old cmake/deps/WasmEdge.cmake;
 
 
 echo "END INSIDE CONTAINER - CORE"

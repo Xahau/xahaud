@@ -20,7 +20,6 @@
 #ifndef RIPPLE_TX_SETHOOK_H_INCLUDED
 #define RIPPLE_TX_SETHOOK_H_INCLUDED
 
-#include <xrpld/app/hook/Enum.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
@@ -28,6 +27,7 @@
 #include <xrpl/basics/Blob.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/STArray.h>

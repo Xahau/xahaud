@@ -8,7 +8,7 @@
 # those warnings.
 if (RIPPLED_SOURCE)
   execute_process( COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      ${RIPPLED_SOURCE}/Builds/CMake/SociConfig.cmake.patched
+      ${RIPPLED_SOURCE}/cmake/SociConfig.cmake.patched
       cmake/SociConfig.cmake )
 endif ()
 

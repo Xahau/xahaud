@@ -1,7 +1,7 @@
 namespace XahauGenesis {
 // the wasm bytecode is loaded from this file as vec<u8> GovernanceHook and
 // RewardHook
-#include <xrpld/app/hook/xahau.h>
+#include <xrpl/hook/xahau.h>
 
 using namespace ripple;
 

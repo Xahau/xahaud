@@ -23,11 +23,11 @@
 #include <test/jtx/attester.h>
 #include <test/jtx/multisign.h>
 #include <test/jtx/xchain_bridge.h>
-#include <xrpld/app/hook/Enum.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/STXChainBridge.h>
