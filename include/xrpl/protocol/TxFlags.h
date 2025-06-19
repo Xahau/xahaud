@@ -157,22 +157,28 @@ constexpr std::uint32_t const tfNFTokenMintOldMask =
 
 // MPTokenIssuanceCreate flags:
 // NOTE - there is intentionally no flag here for lsfMPTLocked, which this transaction cannot mutate. 
-constexpr std::uint32_t const tfMPTCanLock                 = lsfMPTCanLock;
-constexpr std::uint32_t const tfMPTRequireAuth             = lsfMPTRequireAuth;
-constexpr std::uint32_t const tfMPTCanEscrow               = lsfMPTCanEscrow;
-constexpr std::uint32_t const tfMPTCanTrade                = lsfMPTCanTrade;
-constexpr std::uint32_t const tfMPTCanTransfer             = lsfMPTCanTransfer;
-constexpr std::uint32_t const tfMPTCanClawback             = lsfMPTCanClawback;
+enum MPTokenIssuanceCreateFlags : uint32_t {
+    tfMPTCanLock = lsfMPTCanLock,
+    tfMPTRequireAuth = lsfMPTRequireAuth,
+    tfMPTCanEscrow = lsfMPTCanEscrow,
+    tfMPTCanTrade = lsfMPTCanTrade,
+    tfMPTCanTransfer = lsfMPTCanTransfer,
+    tfMPTCanClawback = lsfMPTCanClawback,
+};
 constexpr std::uint32_t const tfMPTokenIssuanceCreateMask  =
   ~(tfUniversal | tfMPTCanLock | tfMPTRequireAuth | tfMPTCanEscrow | tfMPTCanTrade | tfMPTCanTransfer | tfMPTCanClawback);
 
 // MPTokenAuthorize flags:
-constexpr std::uint32_t const tfMPTUnauthorize             = 0x00000001;
+enum MPTokenAuthorizeFlags : uint32_t {
+    tfMPTUnauthorize = 0x00000001,
+};
 constexpr std::uint32_t const tfMPTokenAuthorizeMask  = ~(tfUniversal | tfMPTUnauthorize);
 
 // MPTokenIssuanceSet flags:
-constexpr std::uint32_t const tfMPTLock                   = 0x00000001;
-constexpr std::uint32_t const tfMPTUnlock                 = 0x00000002;
+enum MPTokenIssuanceSetFlags : uint32_t {
+    tfMPTLock = 0x00000001,
+    tfMPTUnlock = 0x00000002,
+};
 constexpr std::uint32_t const tfMPTokenIssuanceSetMask  = ~(tfUniversal | tfMPTLock | tfMPTUnlock);
 
 // MPTokenIssuanceDestroy flags:
@@ -243,11 +249,15 @@ constexpr std::uint32_t tfWithdrawMask = ~(tfUniversal | tfWithdrawSubTx);
 constexpr std::uint32_t tfDepositMask = ~(tfUniversal | tfDepositSubTx);
 
 // AMMClawback flags:
-constexpr std::uint32_t tfClawTwoAssets                = 0x00000001;
+enum AMMClawbackFlags : uint32_t {
+    tfClawTwoAssets = 0x00000001,
+};
 constexpr std::uint32_t tfAMMClawbackMask = ~(tfUniversal | tfClawTwoAssets);
 
 // BridgeModify flags:
-constexpr std::uint32_t tfClearAccountCreateAmount     = 0x00010000;
+enum BridgeModifyFlags : uint32_t {
+    tfClearAccountCreateAmount = 0x00010000,
+};
 constexpr std::uint32_t tfBridgeModifyMask = ~(tfUniversal | tfClearAccountCreateAmount);
 // clang-format on
 

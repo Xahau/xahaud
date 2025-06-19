@@ -121,7 +121,7 @@ private:
 
             if (find("UINT"))
             {
-                if (find("256") || find("192") || find("160") || find("128"))
+                if (find("512") || find("384") || find("256") || find("192") || find("160") || find("128"))
                     return replace("UINT", "Hash");
                 else
                     return replace("UINT", "UInt");
@@ -158,7 +158,9 @@ private:
                     {"ID", "ID"},
                     {"AMM", "AMM"},
                     {"URITOKEN", "URIToken"},
-                    {"URI", "URI"}};
+                    {"URI", "URI"},
+                    {"DID", "DID"},
+                    {"MPTOKEN", "MPToken"}};
 
             std::string out;
             size_t pos = 0;
@@ -385,6 +387,10 @@ private:
         }
 
         auto const translate_tt = [](std::string inp) -> std::string {
+            if (inp == "Amendment")
+                return "EnableAmendment";
+            if (inp == "Fee")
+                return "SetFee";
             if (inp == "PaychanClaim")
                 return "PaymentChannelClaim";
             if (inp == "PaychanCreate")
@@ -422,15 +428,48 @@ private:
         addFlagsToJson<NFTokenMintFlags>(ret, "NFTokenMint");
         addFlagsToJson<NFTokenCreateOfferFlags>(ret, "NFTokenCreateOffer");
         addFlagsToJson<ClaimRewardFlags>(ret, "ClaimReward");
+        addFlagsToJson<BridgeModifyFlags>(ret, "XChainModifyBridge");
+        addFlagsToJson<MPTokenIssuanceCreateFlags>(ret, "MPTokenIssuanceCreate");
+        addFlagsToJson<MPTokenAuthorizeFlags>(ret, "MPTokenAuthorize");
+        addFlagsToJson<MPTokenIssuanceSetFlags>(ret, "MPTokenIssuanceSet");
+        addFlagsToJson<AMMClawbackFlags>(ret, "AMMClawback");
         struct FlagData
         {
             std::string name;
             std::uint32_t value;
         };
+        // URITokenMint
         std::array<FlagData, 1> uriTokenMintFlags{{{"tfBurnable", tfBurnable}}};
         for (auto const& entry : uriTokenMintFlags)
         {
             ret[jss::TRANSACTION_FLAGS]["URITokenMint"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+        // AMMWithdraw
+        std::array<FlagData, 7> ammWithdrawFlags{{
+            {"tfLPToken", tfLPToken},
+            {"tfSingleAsset", tfSingleAsset},
+            {"tfTwoAsset", tfTwoAsset},
+            {"tfOneAssetLPToken", tfOneAssetLPToken},
+            {"tfLimitLPToken", tfLimitLPToken},
+            {"tfWithdrawAll", tfWithdrawAll},
+            {"tfOneAssetWithdrawAll", tfOneAssetWithdrawAll}}};
+        for (auto const& entry : ammWithdrawFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["AMMWithdraw"][entry.name] =
+                static_cast<uint32_t>(entry.value);
+        }
+        // AMM Deposit
+        std::array<FlagData, 6> ammDepositFlags{{
+            {"tfLPToken", tfLPToken},
+            {"tfSingleAsset", tfSingleAsset},
+            {"tfTwoAsset", tfTwoAsset},
+            {"tfOneAssetLPToken", tfOneAssetLPToken},
+            {"tfLimitLPToken", tfLimitLPToken},
+            {"tfTwoAssetIfEmpty", tfTwoAssetIfEmpty}}};
+        for (auto const& entry : ammDepositFlags)
+        {
+            ret[jss::TRANSACTION_FLAGS]["AMMDeposit"][entry.name] =
                 static_cast<uint32_t>(entry.value);
         }
 
