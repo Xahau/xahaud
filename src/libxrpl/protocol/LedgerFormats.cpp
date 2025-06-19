@@ -27,10 +27,10 @@ LedgerFormats::LedgerFormats()
 {
     // Fields shared by all ledger formats:
     static const std::initializer_list<SOElement> commonFields{
-        {sfLedgerIndex,              soeOPTIONAL},
-        {sfLedgerEntryType,          soeREQUIRED},
-        {sfFlags,                    soeREQUIRED},
-        {sfRemarks,                  soeOPTIONAL},
+        {sfLedgerIndex, soeOPTIONAL},
+        {sfLedgerEntryType, soeREQUIRED},
+        {sfFlags, soeREQUIRED},
+        {sfRemarks, soeOPTIONAL},
     };
 
 #pragma push_macro("UNWRAP")
