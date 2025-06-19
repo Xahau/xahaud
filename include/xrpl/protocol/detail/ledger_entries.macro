@@ -65,7 +65,6 @@ LEDGER_ENTRY(ltCHECK, 0x0043, Check, ({
 /** A reference-counted ledger object which stores the web assembly bytecode of a hook.
 
     \sa keylet::hookDefinition
-ltHOOK_DEFINITION = 'D', 0x0044
 */
 LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, ({
     {sfHookHash,             soeREQUIRED},
@@ -84,7 +83,6 @@ LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, ({
 /** A ledger object containing a hook-emitted transaction from a previous hook execution.
 
     \sa keylet::emitted
-ltEMITTED_TXN = 'E', 0x0045
 */
 LEDGER_ENTRY(ltEMITTED_TXN, 'E', EmittedTxn, ({
     {sfEmittedTxn,           soeOPTIONAL},
@@ -94,7 +92,6 @@ LEDGER_ENTRY(ltEMITTED_TXN, 'E', EmittedTxn, ({
 /** A ledger object which describes an installed hook on an account.
 
   \sa keylet::hook
-ltHOOK ='H',  0x0048
 */
 LEDGER_ENTRY(ltHOOK, 'H', Hook, ({
     {sfAccount,              soeOPTIONAL},
@@ -106,25 +103,10 @@ LEDGER_ENTRY(ltHOOK, 'H', Hook, ({
 
 /** The ledger object which records the last (and largest) sequence for a validator list key
   * as used in the Import amendment
-ltIMPORT_VLSEQ = 0x0049,
   */
 LEDGER_ENTRY(ltIMPORT_VLSEQ, 0x0049, ImportVLSequence, ({
     {sfPublicKey,            soeREQUIRED},
     {sfImportSequence,       soeREQUIRED},
-}))
-
-/** The ledger object which tracks the DID.
-
-   \sa keylet::did
-*/
-LEDGER_ENTRY(ltDID, 0x4449, DID, ({
-    {sfAccount,              soeREQUIRED},
-    {sfDIDDocument,          soeOPTIONAL},
-    {sfURI,                  soeOPTIONAL},
-    {sfData,                 soeOPTIONAL},
-    {sfOwnerNode,            soeREQUIRED},
-    {sfPreviousTxnID,        soeREQUIRED},
-    {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
 /** The ledger object which tracks the current negative UNL state.
@@ -157,7 +139,6 @@ LEDGER_ENTRY(ltNFTOKEN_PAGE, 0x0050, NFTokenPage, ({
   * that were validating for more than 240 of the last 256 ledgers
   *
   * \sa keylet::UNLReport
-ltUNL_REPORT = 0x0052, 
   */
 LEDGER_ENTRY(ltUNL_REPORT, 0x0052, UNLReport, ({
     {sfImportVLKeys,         soeOPTIONAL},
@@ -196,7 +177,6 @@ LEDGER_ENTRY(ltTICKET, 0x0054, Ticket, ({
 /** A unique ledger object which contains an up to 256 byte URI
 
     \sa keylet::uritoken
-ltURI_TOKEN = 0x0055,
 */
 LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, ({
     {sfOwner,                soeREQUIRED},
@@ -443,7 +423,6 @@ LEDGER_ENTRY(ltESCROW, 0x0075, Escrow, ({
 /** A ledger object which describes a stored value (from a k-v pair) for an installed hook.
 
     \sa keylet::hookState
-ltHOOK_STATE ='v', 0x0076
 */
 LEDGER_ENTRY(ltHOOK_STATE, 0x0076, HookState, ({
     {sfOwnerNode,            soeREQUIRED},
@@ -544,6 +523,20 @@ LEDGER_ENTRY(ltCREDENTIAL, 0x0081, Credential, ({
     {sfURI,                  soeOPTIONAL},
     {sfIssuerNode,           soeREQUIRED},
     {sfSubjectNode,          soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** The ledger object which tracks the DID.
+
+   \sa keylet::did
+*/
+LEDGER_ENTRY(ltDID, 0x008D, DID, ({
+    {sfAccount,              soeREQUIRED},
+    {sfDIDDocument,          soeOPTIONAL},
+    {sfURI,                  soeOPTIONAL},
+    {sfData,                 soeOPTIONAL},
+    {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
