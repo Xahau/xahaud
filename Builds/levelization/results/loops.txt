@@ -13,6 +13,9 @@ Loop: test.jtx test.unit_test
 Loop: xrpl.basics xrpl.json
   xrpl.json == xrpl.basics
 
+Loop: xrpl.protocol xrpld.app
+  xrpld.app > xrpl.protocol
+
 Loop: xrpld.app xrpld.core
   xrpld.app > xrpld.core
 
@@ -22,8 +25,11 @@ Loop: xrpld.app xrpld.ledger
 Loop: xrpld.app xrpld.net
   xrpld.app > xrpld.net
 
+Loop: xrpld.app xrpld.nodestore
+  xrpld.app > xrpld.nodestore
+
 Loop: xrpld.app xrpld.overlay
-  xrpld.overlay == xrpld.app
+  xrpld.overlay ~= xrpld.app
 
 Loop: xrpld.app xrpld.peerfinder
   xrpld.app > xrpld.peerfinder
@@ -41,7 +47,7 @@ Loop: xrpld.core xrpld.perflog
   xrpld.perflog == xrpld.core
 
 Loop: xrpld.net xrpld.rpc
-  xrpld.rpc ~= xrpld.net
+  xrpld.rpc > xrpld.net
 
 Loop: xrpld.overlay xrpld.rpc
   xrpld.rpc ~= xrpld.overlay
