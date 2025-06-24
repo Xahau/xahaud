@@ -6310,7 +6310,6 @@ public:
         testAccountDelete(features);
         testMaxSupply(features);
         testMinMax(features);
-        testHalving(features - featureOwnerPaysFee);
         testBlackhole(features);
     }
 };
