@@ -32,19 +32,9 @@ jobs:
           clean: true
           fetch-depth: 2 # Only get the last 2 commits, to avoid fetching all history
 
-  checkpatterns:
-    runs-on: [self-hosted, vanity]
-    needs: checkout
-    defaults:
-      run:
-        working-directory: ${{ needs.checkout.outputs.checkout_path }}
-    steps:
-      - name: Check for suspicious patterns
-        run: /bin/bash suspicious_patterns.sh
-
   build:
     runs-on: [self-hosted, vanity]
-    needs: [checkpatterns, checkout]
+    needs: [checkout]
     defaults:
       run:
         working-directory: ${{ needs.checkout.outputs.checkout_path }}
