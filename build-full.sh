@@ -28,9 +28,9 @@ yum-config-manager --disable centos-sclo-sclo
 cd /io;
 mkdir -p src/certs;
 curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o src/certs/certbundle.h;
-if [ "`grep certbundle.h src/ripple/net/impl/RegisterSSLCerts.cpp | wc -l`" -eq "0" ]
+if [ "`grep certbundle.h src/xrpld/net/detail/RegisterSSLCerts.cpp | wc -l`" -eq "0" ]
 then
-    cp src/ripple/net/impl/RegisterSSLCerts.cpp src/ripple/net/impl/RegisterSSLCerts.cpp.old
+    cp src/xrpld/net/detail/RegisterSSLCerts.cpp src/xrpld/net/detail/RegisterSSLCerts.cpp.old
     perl -i -pe "s/^{/{
     #ifdef EMBEDDED_CA_BUNDLE
     BIO *cbio = BIO_new_mem_buf(ca_bundle.data(), ca_bundle.size());
@@ -70,8 +70,8 @@ then
             BIO_free(cbio);
         }
     }
-    #endif/g" src/ripple/net/impl/RegisterSSLCerts.cpp &&
-    sed -i "s/#include <ripple\/net\/RegisterSSLCerts.h>/\0\n#include <certs\/certbundle.h>/g" src/ripple/net/impl/RegisterSSLCerts.cpp
+    #endif/g" src/xrpld/net/detail/RegisterSSLCerts.cpp &&
+    sed -i "s/#include <xrpld\/net\/RegisterSSLCerts.h>/\0\n#include <certs\/certbundle.h>/g" src/xrpld/net/detail/RegisterSSLCerts.cpp
 fi
 mkdir -p .nih_c;
 mkdir -p .nih_toolchain;
@@ -93,10 +93,10 @@ tar xzvf zstd-${ZSTD_VERSION}.tar.gz &&
 cd zstd-${ZSTD_VERSION} &&
 make -j$3 install &&
 cd .. &&
-echo "-- Install Cmake 3.23.1 --" &&
+echo "-- Install Cmake 3.25.3 --" &&
 pwd &&
-( wget -nc -q https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1-linux-x86_64.tar.gz; echo "" ) &&
-tar -xzf cmake-3.23.1-linux-x86_64.tar.gz -C /hbb/ &&
+( wget -nc -q https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-linux-x86_64.tar.gz; echo "" ) &&
+tar -xzf cmake-3.25.3-linux-x86_64.tar.gz -C /hbb/ &&
 echo "-- Install Boost 1.86.0 --" &&
 pwd &&
 ( wget -nc -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz; echo "" ) &&

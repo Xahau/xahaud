@@ -38,8 +38,8 @@ target_link_libraries (ripple_libs INTERFACE wasmedge)
 add_library (wasmedge::wasmedge ALIAS wasmedge)
 message(\"WasmEdge DONE\")
 " > cmake/deps/WasmEdge.cmake &&
-git checkout src/ripple/protocol/impl/BuildInfo.cpp &&
-sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4\"/g src/ripple/protocol/impl/BuildInfo.cpp &&
+git checkout src/libxrpl/protocol/BuildInfo.cpp &&
+sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4\"/g src/libxrpl/protocol/BuildInfo.cpp &&
 cd release-build &&
 cmake .. -DCMAKE_BUILD_TYPE=Release -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ -DWasmEdge_LIB=/usr/local/lib64/libwasmedge.a &&
 make -j$3 VERBOSE=1 &&
@@ -68,7 +68,7 @@ fi
 
 cd ..;
 
-mv src/ripple/net/impl/RegisterSSLCerts.cpp.old src/ripple/net/impl/RegisterSSLCerts.cpp;
+mv src/xrpld/net/detail/RegisterSSLCerts.cpp.old src/xrpld/net/detail/RegisterSSLCerts.cpp;
 mv cmake/deps/Rocksdb.cmake.old cmake/deps/Rocksdb.cmake;
 mv cmake/deps/WasmEdge.old cmake/deps/WasmEdge.cmake;
 
