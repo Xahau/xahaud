@@ -859,6 +859,14 @@ trustTransferAllowed(
                 return tecFROZEN;
             }
 
+            if (isDeepFrozen(view, p, issue.currency, issue.account))
+            {
+                JLOG(j.trace()) << "trustTransferAllowed: "
+                                << "issuer: " << issue.account << " "
+                                << "is deep frozen on party: " << p;
+                return tecFROZEN;
+            }
+
             // if called with more than one party then any party
             // that has a noripple on the issuer side of their tl
             // blocks any possible xfer
