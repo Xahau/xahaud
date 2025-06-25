@@ -41,6 +41,8 @@ message(\"WasmEdge DONE\")
 git checkout src/libxrpl/protocol/BuildInfo.cpp &&
 sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4\"/g src/libxrpl/protocol/BuildInfo.cpp &&
 cd release-build &&
+which cmake &&
+cmake --version &&
 cmake .. -DCMAKE_BUILD_TYPE=Release -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ -DWasmEdge_LIB=/usr/local/lib64/libwasmedge.a &&
 make -j$3 VERBOSE=1 &&
 strip -s rippled &&
