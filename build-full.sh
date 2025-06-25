@@ -97,7 +97,8 @@ echo "-- Install Cmake 3.25.3 --" &&
 pwd &&
 ( wget -nc -q https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-linux-x86_64.tar.gz; echo "" ) &&
 tar -xzf cmake-3.25.3-linux-x86_64.tar.gz -C /hbb/ &&
-ln -sf /usr/local/cmake-3.25.0-linux-x86_64/bin/cmake /hbb/bin/cmake &&
+ln -sf /hbb/cmake-3.25.3-linux-x86_64/bin/cmake /hbb/bin/cmake &&
+export PATH="/hbb/cmake-3.25.3-linux-x86_64/bin:$PATH" &&
 echo "-- Install Boost 1.86.0 --" &&
 pwd &&
 ( wget -nc -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz; echo "" ) &&
