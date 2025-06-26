@@ -122,4 +122,6 @@ jobs:
 
       - name: Test
         run: |
-          ${{ env.build_dir }}/rippled --unittest --unittest-jobs $(nproc)
+          cd ${{ env.build_dir }}
+          ./rippled --unittest --unittest-jobs $(nproc)
+          ctest -j $(nproc) --output-on-failure

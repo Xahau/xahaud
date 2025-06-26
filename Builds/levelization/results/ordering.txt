@@ -142,6 +142,7 @@ test.shamap > xrpl.protocol
 test.toplevel > test.csf
 test.toplevel > xrpl.json
 test.unit_test > xrpl.basics
+tests.libxrpl > xrpl.basics
 xrpl.hook > xrpl.basics
 xrpl.hook > xrpl.protocol
 xrpl.json > xrpl.basics
