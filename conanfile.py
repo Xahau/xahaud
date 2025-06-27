@@ -83,7 +83,11 @@ class Xrpl(ConanFile):
         'snappy/*:shared': False,
         'soci/*:shared': False,
         'soci/*:with_sqlite3': True,
-        'soci/*:with_boost': True,
+        # TODO: this is workaround for soci's overly zealous boost dependency which will
+        # cause the build to link against ALL the boost libraries, which is not what we want.
+        # Components depending on soci, already have a dependency on boost, so we can skip this.
+        # When conan 2 is used, the updated soci recipe is already only linking against the boost::headers.
+        'soci/*:with_boost': False,
         'xxhash/*:shared': False,
     }
 
