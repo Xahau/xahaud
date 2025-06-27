@@ -24,7 +24,7 @@ endif()
 
 target_link_libraries(ripple_boost
   INTERFACE
-    Boost::boost
+    Boost::headers
     Boost::chrono
     Boost::container
     Boost::coroutine
