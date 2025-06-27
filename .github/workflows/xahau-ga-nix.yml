@@ -2,7 +2,7 @@ name: Nix - GA Runner
 
 on:
   push:
-    branches: ["dev", "candidate", "release"]
+    branches: ["dev", "candidate", "release", "nd-link-to-boost-2025-06-27"]
   pull_request:
     branches: ["dev", "candidate", "release"]
 
