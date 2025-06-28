@@ -168,13 +168,9 @@ struct DID_test : public beast::unit_test::suite
         BEAST_EXPECT(ownerCount(env, alice) == 0);
 
         // some empty fields, some optional fields
-        // pre-fix amendment
-        auto const fixEnabled = env.current()->rules().enabled(fixEmptyDID);
-        env(did::set(alice),
-            did::uri(""),
-            fixEnabled ? ter(tecEMPTY_DID) : ter(tesSUCCESS));
+        env(did::set(alice), did::uri(""), ter(tecEMPTY_DID));
         env.close();
-        auto const expectedOwnerReserve = fixEnabled ? 0 : 1;
+        auto const expectedOwnerReserve = 0;
         BEAST_EXPECT(ownerCount(env, alice) == expectedOwnerReserve);
 
         // Modifying a DID to become empty is checked in testSetModify
@@ -391,18 +387,11 @@ struct DID_test : public beast::unit_test::suite
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
-        FeatureBitset const emptyDID{fixEmptyDID};
         testEnabled(all);
         testAccountReserve(all);
         testSetInvalid(all);
         testDeleteInvalid(all);
         testSetModify(all);
-
-        testEnabled(all - emptyDID);
-        testAccountReserve(all - emptyDID);
-        testSetInvalid(all - emptyDID);
-        testDeleteInvalid(all - emptyDID);
-        testSetModify(all - emptyDID);
     }
 };
 

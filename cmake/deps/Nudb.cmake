@@ -6,7 +6,7 @@
    proper targets and export/install
 #]===================================================================]
 
-if (is_root_project) # NuDB not needed in the case of xrpl_core inclusion build
+if (is_root_project) # NuDB not needed in the case of xrpl.libpb inclusion build
   add_library (nudb INTERFACE)
   FetchContent_Declare(
     nudb_src

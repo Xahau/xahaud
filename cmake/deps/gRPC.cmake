@@ -361,24 +361,24 @@ foreach(file ${GRPC_DEFINITION_FILES})
     list(APPEND GRPC_PROTO_HDRS ${hdr_1} ${hdr_2})
 endforeach()
 
-target_include_directories(xrpl_core SYSTEM PUBLIC
+target_include_directories(xrpl.libpb SYSTEM PUBLIC
   $<BUILD_INTERFACE:${output_dir}>
   $<BUILD_INTERFACE:${output_dir}/ripple/proto>
   # The generated sources include headers relative to this path. Fix it later.
   $<INSTALL_INTERFACE:include/ripple/proto>
 )
-target_sources(xrpl_core PRIVATE ${GRPC_PROTO_SRCS})
+target_sources(xrpl.libpb PRIVATE ${GRPC_PROTO_SRCS})
 install(
   DIRECTORY ${output_dir}/ripple
   DESTINATION include/
   FILES_MATCHING PATTERN "*.h"
 )
-target_link_libraries(xrpl_core PUBLIC
+target_link_libraries(xrpl.libpb PUBLIC
   "gRPC::grpc++"
   # libgrpc is missing references.
   absl::random_random
 )
-target_compile_options(xrpl_core
+target_compile_options(xrpl.libpb
   PRIVATE
     $<$<BOOL:${MSVC}>:-wd4065>
     $<$<NOT:$<BOOL:${MSVC}>>:-Wno-deprecated-declarations>

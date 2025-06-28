@@ -136,18 +136,18 @@ set(CMAKE_CURRENT_BINARY_DIR ${output_dir})
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS src/ripple/proto/ripple.proto)
 set(CMAKE_CURRENT_BINARY_DIR ${ccbd})
 
-target_include_directories(xrpl_core SYSTEM PUBLIC
+target_include_directories(xrpl.libpb SYSTEM PUBLIC
     # The generated implementation imports the header relative to the output
     # directory.
     $<BUILD_INTERFACE:${output_dir}>
     $<BUILD_INTERFACE:${output_dir}/src>
 )
-target_sources(xrpl_core PRIVATE ${output_dir}/src/ripple/proto/ripple.pb.cc)
+target_sources(xrpl.libpb PRIVATE ${output_dir}/src/ripple/proto/ripple.pb.cc)
 install(
   FILES ${output_dir}/src/ripple/proto/ripple.pb.h
   DESTINATION include/ripple/proto)
-target_link_libraries(xrpl_core PUBLIC protobuf::libprotobuf)
-target_compile_options(xrpl_core
+target_link_libraries(xrpl.libpb PUBLIC protobuf::libprotobuf)
+target_compile_options(xrpl.libpb
   PUBLIC
     $<$<BOOL:${is_xcode}>:
       --system-header-prefix="google/protobuf"
