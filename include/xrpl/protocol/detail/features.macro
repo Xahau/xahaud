@@ -46,7 +46,6 @@ XRPL_FIX    (ReducedOffersV2,            Supported::yes, VoteBehavior::DefaultNo
 XRPL_FEATURE(NFTokenMintOffer,           Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (AMMv1_1,                    Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (PreviousTxnID,              Supported::yes, VoteBehavior::DefaultNo)
-XRPL_FIX    (XChainRewardRounding,       Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(PriceOracle,                Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (AMMOverflowOffer,           Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (InnerObjTemplate,           Supported::yes, VoteBehavior::DefaultNo)

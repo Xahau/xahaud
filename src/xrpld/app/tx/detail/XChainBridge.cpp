@@ -678,10 +678,7 @@ finalizeClaimHelper(
             // if the transfer failed, distribute the pool for "OnTransferFail"
             // cases (the attesters did their job)
             STAmount const share = [&] {
-                auto const round_mode =
-                    innerSb.rules().enabled(fixXChainRewardRounding)
-                    ? Number::rounding_mode::downward
-                    : Number::getround();
+                auto const round_mode = Number::rounding_mode::downward;
                 saveNumberRoundMode _{Number::setround(round_mode)};
 
                 STAmount const den{rewardAccounts.size()};
