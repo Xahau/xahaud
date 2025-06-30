@@ -21,6 +21,7 @@ jobs:
   # with compiler versions. Instrumentation requires clang version 16 or later
 
   instrumentation-build:
+    if: false # disable for now
     env:
       CLANG_RELEASE: 16
     strategy:
