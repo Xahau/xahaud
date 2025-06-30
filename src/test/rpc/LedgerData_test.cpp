@@ -304,10 +304,10 @@ public:
         // Put a bunch of different LedgerEntryTypes into a ledger
         using namespace test::jtx;
 
-        // Make sure fixInnerObjTemplate2 doesn't break amendments.
+        // Make sure fixInnerObjTemplate doesn't break amendments.
         for (FeatureBitset const& features :
-             {supported_amendments() - fixInnerObjTemplate2,
-              supported_amendments() | fixInnerObjTemplate2})
+             {supported_amendments() - fixInnerObjTemplate,
+              supported_amendments() | fixInnerObjTemplate})
         {
             using namespace std::chrono;
 

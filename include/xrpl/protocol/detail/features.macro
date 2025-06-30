@@ -41,7 +41,6 @@ XRPL_FEATURE(MPTokensV1,                 Supported::yes, VoteBehavior::DefaultNo
 // invariants expected to be included under it are complete.
 XRPL_FEATURE(InvariantsV1_1,             Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (NFTokenPageLinks,           Supported::yes, VoteBehavior::DefaultNo)
-XRPL_FIX    (InnerObjTemplate2,          Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (EnforceNFTokenTrustline,    Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (ReducedOffersV2,            Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(NFTokenMintOffer,           Supported::yes, VoteBehavior::DefaultNo)
