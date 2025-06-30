@@ -75,7 +75,7 @@ using JSSMap =
     [[maybe_unused]] std::string const x##_hash_str = to_string(x##_hash);     \
     [[maybe_unused]] Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
 
-class SetHook_test : public beast::unit_test::suite
+class SetHook0_test : public beast::unit_test::suite
 {
 private:
     // helper
@@ -12847,20 +12847,33 @@ public:
         test_util_verify(features);   //
     }
 
+public:
+    void
+    run(std::uint32_t instance, bool last = false)
+    {
+        using namespace test::jtx;
+        static FeatureBitset const all{supported_amendments()};
+
+        static std::array<FeatureBitset, 6> const feats{
+            all,
+            all - fixXahauV2,
+            all - fixXahauV1 - fixXahauV2,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
+                featureHookCanEmit};
+
+        if (BEAST_EXPECT(instance < feats.size()))
+        {
+            testWithFeatures(feats[instance]);
+        }
+        BEAST_EXPECT(!last || instance == feats.size() - 1);
+    }
+
     void
     run() override
     {
-        using namespace test::jtx;
-        auto const sa = supported_amendments();
-        testWithFeatures(sa);
-        testWithFeatures(sa - fixXahauV2);
-        testWithFeatures(sa - fixXahauV1 - fixXahauV2);
-        testWithFeatures(sa - fixXahauV1 - fixXahauV2 - fixNSDelete);
-        testWithFeatures(
-            sa - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap);
-        testWithFeatures(
-            sa - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
-            featureHookCanEmit);
+        run(0);
     }
 
 private:
@@ -13000,7 +13013,29 @@ private:
 
     HASH_WASM(accept2);
 };
-BEAST_DEFINE_TESTSUITE(SetHook, app, ripple);
+
+#define SETHOOK_TEST(i, last)                      \
+    class SetHook##i##_test : public SetHook0_test \
+    {                                              \
+        void                                       \
+        run() override                             \
+        {                                          \
+            SetHook0_test::run(i, last);           \
+        }                                          \
+    };
+
+SETHOOK_TEST(1, false)
+SETHOOK_TEST(2, false)
+SETHOOK_TEST(3, false)
+SETHOOK_TEST(4, false)
+SETHOOK_TEST(5, true)
+
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook2, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M
