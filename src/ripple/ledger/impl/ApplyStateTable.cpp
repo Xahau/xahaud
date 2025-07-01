@@ -627,6 +627,7 @@ ApplyStateTable::threadItem(
 
     key_type prevTxID;
     LedgerIndex prevLgrID;
+
     if (!sle->thread(meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
         return;
 
