@@ -8073,7 +8073,8 @@ public:
     {
         using namespace test::jtx;
         static FeatureBitset const all{
-            supported_amendments() | featureNFTokenMintOffer};
+            supported_amendments() | featureNFTokenMintOffer |
+            featureDynamicNFT};
         static FeatureBitset const fixNFTDir{fixNFTokenDirV1};
 
         static std::array<FeatureBitset, 8> const feats{
