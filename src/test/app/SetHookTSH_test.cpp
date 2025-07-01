@@ -39,7 +39,7 @@ namespace test {
             return;          \
     }
 
-struct SetHookTSH_test : public beast::unit_test::suite
+struct SetHookTSH0_test : public beast::unit_test::suite
 {
 private:
     const uint64_t tshSTRONG = 0;
@@ -5537,18 +5537,48 @@ private:
 
 public:
     void
-    run() override
+    run(std::uint32_t instance, bool last = false)
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
-        testTSH(sa - fixXahauV1 - fixXahauV2);
-        testTSH(sa - fixXahauV2);
-        testTSH(sa);
-        testEmittedTxn(sa);
+        static FeatureBitset const all{supported_amendments()};
+
+        static std::array<FeatureBitset, 3> const feats{
+            all,
+            all - fixXahauV1 - fixXahauV2,
+            all - fixXahauV2,
+        };
+
+        if (BEAST_EXPECT(instance < feats.size()))
+        {
+            testTSH(feats[instance]);
+        }
+        if (instance == 0)
+        {
+            testEmittedTxn(feats[instance]);
+        }
+        BEAST_EXPECT(!last || instance == feats.size() - 1);
+    }
+    void
+    run() override
+    {
+        run(0);
     }
 };
+#define SETHOOKTSH_TEST(i, last)                         \
+    class SetHookTSH##i##_test : public SetHookTSH0_test \
+    {                                                    \
+        void                                             \
+        run() override                                   \
+        {                                                \
+            SetHookTSH0_test::run(i, last);              \
+        }                                                \
+    };
+SETHOOKTSH_TEST(1, false)
+SETHOOKTSH_TEST(2, false)
 
-BEAST_DEFINE_TESTSUITE(SetHookTSH, app, ripple);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH0, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH1, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH2, app, ripple, 2);
 
 }  // namespace test
 }  // namespace ripple
