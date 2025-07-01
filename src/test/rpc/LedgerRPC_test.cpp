@@ -3643,7 +3643,7 @@ public:
         testcase("ledger_entry Request MPT");
         using namespace test::jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this};
+        Env env{*this, supported_amendments() | featureMPTokensV1};
         Account const alice{"alice"};
         Account const bob("bob");
 

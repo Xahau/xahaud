@@ -1317,7 +1317,7 @@ class MPToken_test : public beast::unit_test::suite
     }
 
     void
-    testDepositPreauth()
+    testDepositPreauth(FeatureBitset features)
     {
         testcase("DepositPreauth");
 
@@ -1330,7 +1330,7 @@ class MPToken_test : public beast::unit_test::suite
         const char credType[] = "abcde";
 
         {
-            Env env(*this);
+            Env env(*this, features);
 
             env.fund(XRP(50000), diana, dpIssuer);
             env.close();
@@ -1405,7 +1405,7 @@ class MPToken_test : public beast::unit_test::suite
 
         testcase("DepositPreauth disabled featureCredentials");
         {
-            Env env(*this, supported_amendments() - featureCredentials);
+            Env env(*this, features - featureCredentials);
 
             std::string const credIdx =
                 "D007AE4B6E1274B4AF872588267B810C2F82716726351D1C7D38D3E5499FC6"
@@ -2308,7 +2308,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() | featureMPTokensV1};
 
         // MPTokenIssuanceCreate
         testCreateValidation(all);
@@ -2332,7 +2332,7 @@ public:
 
         // Test Direct Payment
         testPayment(all);
-        testDepositPreauth();
+        testDepositPreauth(all);
 
         // Test MPT Amount is invalid in Tx, which don't support MPT
         testMPTInvalidInTx(all);
