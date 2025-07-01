@@ -2308,7 +2308,8 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() | featureMPTokensV1};
+        FeatureBitset const all{
+            supported_amendments() | featureMPTokensV1 | featureCredentials};
 
         // MPTokenIssuanceCreate
         testCreateValidation(all);

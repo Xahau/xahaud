@@ -890,7 +890,7 @@ class Simulate_test : public beast::unit_test::suite
         // scenario setup
 
         using namespace jtx;
-        Env env(*this);
+        Env env(*this, supported_amendments() | featureCredentials);
 
         Account const subject{"subject"};
         Account const issuer{"issuer"};

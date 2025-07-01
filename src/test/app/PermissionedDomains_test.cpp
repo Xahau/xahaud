@@ -83,7 +83,7 @@ class PermissionedDomains_test : public beast::unit_test::suite
     void
     testCredentialsDisabled()
     {
-        auto amendments = supported_amendments();
+        auto amendments = supported_amendments() | featureCredentials;
         amendments.set(featurePermissionedDomains);
         amendments.reset(featureCredentials);
         testcase("Credentials disabled");

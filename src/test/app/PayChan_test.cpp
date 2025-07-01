@@ -913,7 +913,7 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    testDepositAuthCreds()
+    testDepositAuthCreds(FeatureBitset features)
     {
         testcase("Deposit Authorization with Credentials");
         using namespace jtx;
@@ -928,7 +928,7 @@ struct PayChan_test : public beast::unit_test::suite
         Account const zelda("zelda");
 
         {
-            Env env{*this};
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, carol, dillon, zelda);
 
             auto const pk = alice.pk();
@@ -1035,7 +1035,7 @@ struct PayChan_test : public beast::unit_test::suite
         }
 
         {
-            Env env{*this};
+            Env env{*this, features};
             env.fund(XRP(10000), alice, bob, carol, dillon, zelda);
 
             auto const pk = alice.pk();
@@ -1068,7 +1068,7 @@ struct PayChan_test : public beast::unit_test::suite
 
         {
             // Credentials amendment not enabled
-            Env env(*this, supported_amendments() - featureCredentials);
+            Env env(*this, features - featureCredentials);
             env.fund(XRP(5000), "alice", "bob");
             env.close();
 
@@ -5798,14 +5798,14 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() | featureCredentials};
         testWithFeats(all - disallowIncoming);
         testWithFeats(
             all - disallowIncoming - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
         testIOUWithFeats(all - disallowIncoming);
         testIOUWithFeats(all);
-        testDepositAuthCreds();
+        testDepositAuthCreds(all);
     }
 };
 

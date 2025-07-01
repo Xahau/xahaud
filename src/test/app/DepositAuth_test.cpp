@@ -66,7 +66,7 @@ struct DepositAuth_test : public beast::unit_test::suite
         }
         {
             // featureDepositAuth is enabled.
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice);
 
             env(fset(alice, asfDepositAuth));
@@ -437,7 +437,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
             //  o We should be able to add and remove an entry, and
             //  o That entry should cost one reserve.
             //  o The reserve should be returned when the entry is removed.
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, becky);
             env.close();
 
@@ -456,7 +456,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         {
             // Verify that an account can be preauthorized and unauthorized
             // using tickets.
-            Env env(*this);
+            Env env(*this, features);
             env.fund(XRP(10000), alice, becky);
             env.close();
 
@@ -810,7 +810,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     }
 
     void
-    testCredentialsPayment()
+    testCredentialsPayment(FeatureBitset features)
     {
         using namespace jtx;
 
@@ -824,7 +824,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         {
             testcase("Payment failed with disabled credentials rule.");
 
-            Env env(*this, supported_amendments() - featureCredentials);
+            Env env(*this, features - featureCredentials);
 
             env.fund(XRP(5000), issuer, bob, alice);
             env.close();
@@ -856,7 +856,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         {
             testcase("Payment with credentials.");
 
-            Env env(*this);
+            Env env(*this, features);
 
             env.fund(XRP(5000), issuer, alice, bob, john);
             env.close();
@@ -926,7 +926,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         {
             testcase("Payment failed with invalid credentials.");
 
-            Env env(*this);
+            Env env(*this, features);
 
             env.fund(XRP(10000), issuer, alice, bob, maria);
             env.close();
@@ -1015,7 +1015,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     }
 
     void
-    testCredentialsCreation()
+    testCredentialsCreation(FeatureBitset features)
     {
         using namespace jtx;
 
@@ -1028,7 +1028,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         {
             testcase("Creating / deleting with credentials.");
 
-            Env env(*this);
+            Env env(*this, features);
 
             env.fund(XRP(5000), issuer, alice, bob);
             env.close();
@@ -1186,7 +1186,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     }
 
     void
-    testExpiredCreds()
+    testExpiredCreds(FeatureBitset features)
     {
         using namespace jtx;
         const char credType[] = "abcde";
@@ -1201,7 +1201,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         {
             testcase("Payment failed with expired credentials.");
 
-            Env env(*this);
+            Env env(*this, features);
 
             env.fund(XRP(10000), issuer, alice, bob, gw);
             env.close();
@@ -1348,7 +1348,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
 
             testcase("Escrow failed with expired credentials.");
 
-            Env env(*this);
+            Env env(*this, features);
 
             env.fund(XRP(5000), issuer, alice, bob, zelda);
             env.close();
@@ -1422,7 +1422,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     }
 
     void
-    testSortingCredentials()
+    testSortingCredentials(FeatureBitset features)
     {
         using namespace jtx;
 
@@ -1430,7 +1430,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         Account const alice{"alice"};
         Account const bob{"bob"};
 
-        Env env(*this);
+        Env env(*this, features);
 
         testcase("Sorting credentials.");
 
@@ -1553,17 +1553,19 @@ struct DepositPreauth_test : public beast::unit_test::suite
     void
     run() override
     {
-        auto const all{jtx::supported_amendments() - featureXahauGenesis};
+        auto const all{
+            (jtx::supported_amendments() | featureCredentials) -
+            featureXahauGenesis};
         testEnable(all);
         testInvalid(all);
         testPayment(all - featureDepositPreauth - featureCredentials);
         testPayment(all - featureDepositPreauth);
         testPayment(all - featureCredentials);
         testPayment(all);
-        testCredentialsPayment();
-        testCredentialsCreation();
-        testExpiredCreds();
-        testSortingCredentials();
+        testCredentialsPayment(all);
+        testCredentialsCreation(all);
+        testExpiredCreds(all);
+        testSortingCredentials(all);
     }
 };
 

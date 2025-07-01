@@ -32,7 +32,7 @@
 XRPL_FEATURE(DeepFreeze,                 Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(PermissionedDomains,        Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(DynamicNFT,                 Supported::yes, VoteBehavior::DefaultNo)
-XRPL_FEATURE(Credentials,                Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(Credentials,                Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FEATURE(AMMClawback,                Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(MPTokensV1,                 Supported::no,  VoteBehavior::DefaultNo)
 // InvariantsV1_1 will be changes to Supported::yes when all the

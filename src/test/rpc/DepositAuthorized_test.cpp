@@ -341,7 +341,7 @@ public:
         Account const diana{"diana"};
         Account const carol{"carol"};
 
-        Env env(*this);
+        Env env(*this, supported_amendments() | featureCredentials);
         env.fund(XRP(1000), alice, becky, carol, diana);
         env.close();
 

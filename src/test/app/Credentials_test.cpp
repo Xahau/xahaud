@@ -967,7 +967,7 @@ struct Credentials_test : public beast::unit_test::suite
     }
 
     void
-    testRPC()
+    testRPC(FeatureBitset features)
     {
         using namespace test::jtx;
 
@@ -977,7 +977,7 @@ struct Credentials_test : public beast::unit_test::suite
 
         {
             using namespace jtx;
-            Env env{*this};
+            Env env{*this, features};
 
             env.fund(XRP(5000), subject, issuer);
             env.close();
@@ -1094,7 +1094,7 @@ struct Credentials_test : public beast::unit_test::suite
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() | featureCredentials};
         testSuccessful(all);
         testCredentialsDelete(all);
         testCreateFailed(all);
@@ -1102,7 +1102,7 @@ struct Credentials_test : public beast::unit_test::suite
         testDeleteFailed(all);
         testFeatureFailed(all - featureCredentials);
         testFlags(all);
-        testRPC();
+        testRPC(all);
     }
 };
 

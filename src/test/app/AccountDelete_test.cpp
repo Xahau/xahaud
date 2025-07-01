@@ -913,7 +913,7 @@ public:
     }
 
     void
-    testDestinationDepositAuthCredentials()
+    testDestinationDepositAuthCredentials(FeatureBitset features)
     {
         {
             testcase(
@@ -928,7 +928,7 @@ public:
 
             const char credType[] = "abcd";
 
-            Env env{*this};
+            Env env{*this, features};
             env.fund(XRP(100000), alice, becky, carol, daria);
             env.close();
 
@@ -1149,7 +1149,7 @@ public:
             Account const becky{"becky"};
             Account const carol{"carol"};
 
-            Env env{*this, supported_amendments() - featureCredentials};
+            Env env{*this, features - featureCredentials};
             env.fund(XRP(100000), alice, becky, carol);
             env.close();
 
@@ -1181,7 +1181,7 @@ public:
     }
 
     void
-    testDeleteCredentialsOwner()
+    testDeleteCredentialsOwner(FeatureBitset features)
     {
         {
             testcase("Deleting Issuer deletes issued credentials");
@@ -1194,7 +1194,7 @@ public:
 
             const char credType[] = "abcd";
 
-            Env env{*this};
+            Env env{*this, features};
             env.fund(XRP(100000), alice, becky, carol);
             env.close();
 
@@ -1238,7 +1238,7 @@ public:
 
             const char credType[] = "abcd";
 
-            Env env{*this};
+            Env env{*this, features};
             env.fund(XRP(100000), alice, becky, carol);
             env.close();
 
@@ -1286,12 +1286,12 @@ public:
             testBalanceTooSmallForFee(features);
             testWithTickets(features);
             testDest(features);
-            testDestinationDepositAuthCredentials();
-            testDeleteCredentialsOwner();
+            testDestinationDepositAuthCredentials(features);
+            testDeleteCredentialsOwner(features);
         };
 
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = supported_amendments() | featureCredentials;
         testWithFeatures(sa);
     }
 };

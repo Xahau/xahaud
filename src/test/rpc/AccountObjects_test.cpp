@@ -577,7 +577,7 @@ public:
 
         Env env(
             *this,
-            features | featureXChainBridge | featureDID |
+            features | featureXChainBridge | featureDID | featureCredentials |
                 featurePermissionedDomains);
 
         // Make a lambda we can use to get "account_objects" easily.
