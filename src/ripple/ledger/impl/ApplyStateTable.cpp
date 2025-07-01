@@ -608,15 +608,10 @@ ApplyStateTable::threadItem(
     std::shared_ptr<SLE> const& sle,
     const Rules& rules)
 {
-    key_type prevTxID;
-    LedgerIndex prevLgrID;
-
     if (rules.enabled(fixProvisionalDoubleThreading))
     {
         auto const key = sle->key();
-        auto iter = originalThreadingState_.find(key);
-
-        if (iter == originalThreadingState_.end())
+        if (originalThreadingState_.find(key) == originalThreadingState_.end())
         {
             // First time (provisional metadata) - save the original state
             ThreadingState state;
@@ -627,33 +622,13 @@ ApplyStateTable::threadItem(
                 state.prevTxnLgrSeq = sle->getFieldU32(sfPreviousTxnLgrSeq);
             }
             originalThreadingState_[key] = state;
-
-            // Thread to get the values for metadata
-            if (!sle->thread(
-                    meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
-                return;
-
-            // Debug logging
-            // Don't restore yet - we'll restore all threaded SLEs after
-            // provisional metadata generation completes
-        }
-        else
-        {
-            // Subsequent call (final metadata) - just thread normally
-            // No restore needed since we eagerly restored after provisional
-            if (!sle->thread(
-                    meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
-                return;
-
-            // Final threading - this will persist in the ledger
         }
     }
-    else
-    {
-        // Amendment not enabled - use original behavior
-        if (!sle->thread(meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
-            return;
-    }
+
+    key_type prevTxID;
+    LedgerIndex prevLgrID;
+    if (!sle->thread(meta.getTxID(), meta.getLgrSeq(), prevTxID, prevLgrID))
+        return;
 
     if (!prevTxID.isZero())
     {
