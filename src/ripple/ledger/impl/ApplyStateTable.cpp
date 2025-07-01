@@ -593,9 +593,15 @@ ApplyStateTable::destroyXRP(XRPAmount const& fee)
 // the final metadata.
 //
 // The fix works by:
-// - Saving the original PreviousTxnID state before provisional threading
-// - Restoring it after provisional metadata generation
-// - Allowing final threading to proceed normally
+// - Saving the original PreviousTxnID state for an SLE the first time it's
+//   threaded during the provisional pass.
+// - Restoring the original state for all affected SLEs in a single batch
+//   after the entire provisional metadata generation is complete.
+//
+// This batch-restore is critical because threadItem() can be called on the
+// same SLE multiple times within one metadata pass. Restoring immediately
+// would be incorrect. This approach ensures the final metadata comparison
+// starts from the correct, uncontaminated "before" state.
 void
 ApplyStateTable::threadItem(
     TxMeta& meta,
