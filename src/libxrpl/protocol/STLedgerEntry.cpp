@@ -135,12 +135,11 @@ STLedgerEntry::getJson(JsonOptions options) const
 bool
 STLedgerEntry::isThreadedType(Rules const& rules) const
 {
-    static constexpr std::array<LedgerEntryType, 8> newPreviousTxnIDTypes = {
+    static constexpr std::array<LedgerEntryType, 7> newPreviousTxnIDTypes = {
         ltDIR_NODE,
         ltAMENDMENTS,
         ltFEE_SETTINGS,
         ltNEGATIVE_UNL,
-        ltAMM,
         ltHOOK_STATE,
         ltHOOK_DEFINITION,
         ltIMPORT_VLSEQ,

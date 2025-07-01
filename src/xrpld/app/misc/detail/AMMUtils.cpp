@@ -118,8 +118,7 @@ ammLPHolds(
 {
     // This function looks similar to `accountHolds`. However, it only checks if
     // a LPToken holder has enough balance. On the other hand, `accountHolds`
-    // checks if the underlying assets of LPToken are frozen with the
-    // fixFrozenLPTokenTransfer amendment
+    // checks if the underlying assets of LPToken are frozen
 
     auto const currency = ammLPTCurrency(cur1, cur2);
     STAmount amount;

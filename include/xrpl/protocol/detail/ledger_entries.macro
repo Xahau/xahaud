@@ -482,8 +482,8 @@ LEDGER_ENTRY(ltAMM, 0x0079, AMM, amm, ({
     {sfAsset,                soeREQUIRED},
     {sfAsset2,               soeREQUIRED},
     {sfOwnerNode,            soeREQUIRED},
-    {sfPreviousTxnID,        soeOPTIONAL},
-    {sfPreviousTxnLgrSeq,    soeOPTIONAL},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
 /** A ledger object which tracks Oracle

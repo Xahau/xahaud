@@ -335,29 +335,26 @@ accountHolds(
                 return false;
             }
 
-            // when fixFrozenLPTokenTransfer is enabled, if currency is lptoken,
-            // we need to check if the associated assets have been frozen
-            if (view.rules().enabled(fixFrozenLPTokenTransfer))
+            // If currency is lptoken, we need to check if the associated assets
+            // have been frozen
+            auto const sleIssuer = view.read(keylet::account(issuer));
+            if (!sleIssuer)
             {
-                auto const sleIssuer = view.read(keylet::account(issuer));
-                if (!sleIssuer)
-                {
-                    return false;  // LCOV_EXCL_LINE
-                }
-                else if (sleIssuer->isFieldPresent(sfAMMID))
-                {
-                    auto const sleAmm =
-                        view.read(keylet::amm((*sleIssuer)[sfAMMID]));
+                return false;  // LCOV_EXCL_LINE
+            }
+            else if (sleIssuer->isFieldPresent(sfAMMID))
+            {
+                auto const sleAmm =
+                    view.read(keylet::amm((*sleIssuer)[sfAMMID]));
 
-                    if (!sleAmm ||
-                        isLPTokenFrozen(
-                            view,
-                            account,
-                            (*sleAmm)[sfAsset].get<Issue>(),
-                            (*sleAmm)[sfAsset2].get<Issue>()))
-                    {
-                        return false;
-                    }
+                if (!sleAmm ||
+                    isLPTokenFrozen(
+                        view,
+                        account,
+                        (*sleAmm)[sfAsset].get<Issue>(),
+                        (*sleAmm)[sfAsset2].get<Issue>()))
+                {
+                    return false;
                 }
             }
         }
@@ -1443,18 +1440,9 @@ accountSendIOU(
     WaiveTransferFee waiveFee,
     bool const senderPaysXferFees)
 {
-    if (view.rules().enabled(fixAMMv1_1))
+    if (saAmount < beast::zero || saAmount.holds<MPTIssue>())
     {
-        if (saAmount < beast::zero || saAmount.holds<MPTIssue>())
-        {
-            return tecINTERNAL;
-        }
-    }
-    else
-    {
-        XRPL_ASSERT(
-            saAmount >= beast::zero && !saAmount.holds<MPTIssue>(),
-            "ripple::accountSendIOU : minimum amount and not MPT");
+        return tecINTERNAL;
     }
 
     /* If we aren't sending anything or if the sender is the same as the

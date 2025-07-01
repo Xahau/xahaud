@@ -311,26 +311,24 @@ AMMWithdraw::applyGuts(Sandbox& sb)
 
     // Due to rounding, the LPTokenBalance of the last LP
     // might not match the LP's trustline balance
-    if (sb.rules().enabled(fixAMMv1_1))
+
+    if (auto const res =
+            isOnlyLiquidityProvider(sb, lpTokens.issue(), account_);
+        !res)
+        return {res.error(), false};
+    else if (res.value())
     {
-        if (auto const res =
-                isOnlyLiquidityProvider(sb, lpTokens.issue(), account_);
-            !res)
-            return {res.error(), false};
-        else if (res.value())
+        if (withinRelativeDistance(
+                lpTokens,
+                ammSle->getFieldAmount(sfLPTokenBalance),
+                Number{1, -3}))
         {
-            if (withinRelativeDistance(
-                    lpTokens,
-                    ammSle->getFieldAmount(sfLPTokenBalance),
-                    Number{1, -3}))
-            {
-                ammSle->setFieldAmount(sfLPTokenBalance, lpTokens);
-                sb.update(ammSle);
-            }
-            else
-            {
-                return {tecAMM_INVALID_TOKENS, false};
-            }
+            ammSle->setFieldAmount(sfLPTokenBalance, lpTokens);
+            sb.update(ammSle);
+        }
+        else
+        {
+            return {tecAMM_INVALID_TOKENS, false};
         }
     }
 
@@ -542,8 +540,7 @@ AMMWithdraw::withdraw(
 
     // Should not happen since the only LP on last withdraw
     // has the balance set to the lp token trustline balance.
-    if (view.rules().enabled(fixAMMv1_1) &&
-        lpTokensWithdrawActual > lpTokensAMMBalance)
+    if (lpTokensWithdrawActual > lpTokensAMMBalance)
     {
         // LCOV_EXCL_START
         JLOG(journal.debug())
@@ -597,9 +594,8 @@ AMMWithdraw::withdraw(
     }
 
     // Check the reserve in case a trustline has to be created
-    bool const enabledFixAMMv1_2 = view.rules().enabled(fixAMMv1_2);
     auto sufficientReserve = [&](Issue const& issue) -> TER {
-        if (!enabledFixAMMv1_2 || isXRP(issue))
+        if (isXRP(issue))
             return tesSUCCESS;
         if (!view.exists(keylet::line(account, issue)))
         {

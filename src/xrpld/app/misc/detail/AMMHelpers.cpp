@@ -165,13 +165,6 @@ adjustAmountsByLPTokens(
 
     if (lpTokensActual < lpTokens)
     {
-        bool const ammRoundingEnabled = [&]() {
-            if (auto const& rules = getCurrentTransactionRules();
-                rules && rules->enabled(fixAMMv1_1))
-                return true;
-            return false;
-        }();
-
         // Equal trade
         if (amount2)
         {
@@ -179,14 +172,7 @@ adjustAmountsByLPTokens(
             auto const amountActual = toSTAmount(amount.issue(), fr * amount);
             auto const amount2Actual =
                 toSTAmount(amount2->issue(), fr * *amount2);
-            if (!ammRoundingEnabled)
-                return std::make_tuple(
-                    amountActual < amount ? amountActual : amount,
-                    amount2Actual < amount2 ? amount2Actual : amount2,
-                    lpTokensActual);
-            else
-                return std::make_tuple(
-                    amountActual, amount2Actual, lpTokensActual);
+            return std::make_tuple(amountActual, amount2Actual, lpTokensActual);
         }
 
         // Single trade
@@ -194,19 +180,11 @@ adjustAmountsByLPTokens(
             if (isDeposit)
                 return ammAssetIn(
                     amountBalance, lptAMMBalance, lpTokensActual, tfee);
-            else if (!ammRoundingEnabled)
-                return withdrawByTokens(
-                    amountBalance, lptAMMBalance, lpTokens, tfee);
-            else
-                return withdrawByTokens(
-                    amountBalance, lptAMMBalance, lpTokensActual, tfee);
+            return withdrawByTokens(
+                amountBalance, lptAMMBalance, lpTokensActual, tfee);
         }();
-        if (!ammRoundingEnabled)
-            return amountActual < amount
-                ? std::make_tuple(amountActual, std::nullopt, lpTokensActual)
-                : std::make_tuple(amount, std::nullopt, lpTokensActual);
-        else
-            return std::make_tuple(amountActual, std::nullopt, lpTokensActual);
+
+        return std::make_tuple(amountActual, std::nullopt, lpTokensActual);
     }
 
     XRPL_ASSERT(

@@ -533,10 +533,7 @@ public:
         // Single path AMM offer has to factor in the transfer in rate
         // when calculating the upper bound quality and the quality function
         // because single path AMM's offer quality is not constant.
-        if (!rules.enabled(fixAMMv1_1))
-            return ofrQ;
-        else if (
-            offerType == OfferType::CLOB ||
+        if (offerType == OfferType::CLOB ||
             (this->ammLiquidity_ && this->ammLiquidity_->multiPath()))
             return ofrQ;
 
@@ -838,7 +835,7 @@ BookStep<TIn, TOut, TDerived>::forEachOffer(
         // If offer crossing then use either LOB quality or nullopt
         // to prevent AMM being blocked by a lower quality LOB.
         auto const qualityThreshold = [&]() -> std::optional<Quality> {
-            if (sb.rules().enabled(fixAMMv1_1) && lobQuality)
+            if (lobQuality)
                 return static_cast<TDerived const*>(this)->qualityThreshold(
                     *lobQuality);
             return lobQuality;
@@ -881,11 +878,8 @@ BookStep<TIn, TOut, TDerived>::consumeOffer(
     {
         // purposely written as separate if statements so we get logging even
         // when the amendment isn't active.
-        if (sb.rules().enabled(fixAMMOverflowOffer))
-        {
-            Throw<FlowException>(
-                tecINVARIANT_FAILED, "AMM pool product invariant failed.");
-        }
+        Throw<FlowException>(
+            tecINVARIANT_FAILED, "AMM pool product invariant failed.");
     }
 
     // The offer owner gets the ofrAmt. The difference between ofrAmt and
@@ -955,7 +949,7 @@ BookStep<TIn, TOut, TDerived>::tip(ReadView const& view) const
     // as the result a LOB offer is partially crossed, and it might take a few
     // iterations to fully cross the offer.
     auto const qualityThreshold = [&]() -> std::optional<Quality> {
-        if (view.rules().enabled(fixAMMv1_1) && lobQuality)
+        if (lobQuality)
             return static_cast<TDerived const*>(this)->qualityThreshold(
                 *lobQuality);
         return std::nullopt;

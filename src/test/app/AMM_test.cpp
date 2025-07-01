@@ -2296,29 +2296,20 @@ private:
                 ammAlice.deposit(carol, 1'000'000);
                 ammAlice.withdraw(
                     carol, USD(100), std::nullopt, IOUAmount{520, 0});
-                if (!env.current()->rules().enabled(fixAMMv1_1))
-                    BEAST_EXPECT(
-                        ammAlice.expectBalances(
-                            XRPAmount(11'000'000'000),
-                            STAmount{USD, UINT64_C(9'372'781065088757), -12},
-                            IOUAmount{10'153'846'15384616, -8}) &&
-                        ammAlice.expectLPTokens(
-                            carol, IOUAmount{153'846'15384616, -8}));
-                else
-                    BEAST_EXPECT(
-                        ammAlice.expectBalances(
-                            XRPAmount(11'000'000'000),
-                            STAmount{USD, UINT64_C(9'372'781065088769), -12},
-                            IOUAmount{10'153'846'15384616, -8}) &&
-                        ammAlice.expectLPTokens(
-                            carol, IOUAmount{153'846'15384616, -8}));
+                BEAST_EXPECT(
+                    ammAlice.expectBalances(
+                        XRPAmount(11'000'000'000),
+                        STAmount{USD, UINT64_C(9'372'781065088769), -12},
+                        IOUAmount{10'153'846'15384616, -8}) &&
+                    ammAlice.expectLPTokens(
+                        carol, IOUAmount{153'846'15384616, -8}));
                 ammAlice.withdrawAll(carol);
                 BEAST_EXPECT(ammAlice.expectLPTokens(carol, IOUAmount{0}));
             },
             std::nullopt,
             0,
             std::nullopt,
-            {all, all - fixAMMv1_1});
+            {all});
 
         // Withdraw with EPrice limit. AssetOut is 0.
         testAMM(
@@ -2326,27 +2317,18 @@ private:
                 ammAlice.deposit(carol, 1'000'000);
                 ammAlice.withdraw(
                     carol, USD(0), std::nullopt, IOUAmount{520, 0});
-                if (!env.current()->rules().enabled(fixAMMv1_1))
-                    BEAST_EXPECT(
-                        ammAlice.expectBalances(
-                            XRPAmount(11'000'000'000),
-                            STAmount{USD, UINT64_C(9'372'781065088757), -12},
-                            IOUAmount{10'153'846'15384616, -8}) &&
-                        ammAlice.expectLPTokens(
-                            carol, IOUAmount{153'846'15384616, -8}));
-                else
-                    BEAST_EXPECT(
-                        ammAlice.expectBalances(
-                            XRPAmount(11'000'000'000),
-                            STAmount{USD, UINT64_C(9'372'781065088769), -12},
-                            IOUAmount{10'153'846'15384616, -8}) &&
-                        ammAlice.expectLPTokens(
-                            carol, IOUAmount{153'846'15384616, -8}));
+                BEAST_EXPECT(
+                    ammAlice.expectBalances(
+                        XRPAmount(11'000'000'000),
+                        STAmount{USD, UINT64_C(9'372'781065088769), -12},
+                        IOUAmount{10'153'846'15384616, -8}) &&
+                    ammAlice.expectLPTokens(
+                        carol, IOUAmount{153'846'15384616, -8}));
             },
             std::nullopt,
             0,
             std::nullopt,
-            {all, all - fixAMMv1_1});
+            {all});
 
         // IOU to IOU + transfer fee
         {
@@ -3009,40 +2991,21 @@ private:
                     ammAlice.withdraw(ed, tokens, USD(0));
                 }
                 // carol, bob, and ed pay ~0.99USD in fees.
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(29'499'00572620545), -11));
-                    BEAST_EXPECT(
-                        env.balance(bob, USD) ==
-                        STAmount(USD, UINT64_C(18'999'00572616195), -11));
-                    BEAST_EXPECT(
-                        env.balance(ed, USD) ==
-                        STAmount(USD, UINT64_C(18'999'00572611841), -11));
-                    // USD pool is slightly higher because of the fees.
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(13'000),
-                        STAmount(USD, UINT64_C(13'002'98282151419), -11),
-                        ammTokens));
-                }
-                else
-                {
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(29'499'00572620544), -11));
-                    BEAST_EXPECT(
-                        env.balance(bob, USD) ==
-                        STAmount(USD, UINT64_C(18'999'00572616194), -11));
-                    BEAST_EXPECT(
-                        env.balance(ed, USD) ==
-                        STAmount(USD, UINT64_C(18'999'0057261184), -10));
-                    // USD pool is slightly higher because of the fees.
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(13'000),
-                        STAmount(USD, UINT64_C(13'002'98282151422), -11),
-                        ammTokens));
-                }
+                BEAST_EXPECT(
+                    env.balance(carol, USD) ==
+                    STAmount(USD, UINT64_C(29'499'00572620544), -11));
+                BEAST_EXPECT(
+                    env.balance(bob, USD) ==
+                    STAmount(USD, UINT64_C(18'999'00572616194), -11));
+                BEAST_EXPECT(
+                    env.balance(ed, USD) ==
+                    STAmount(USD, UINT64_C(18'999'0057261184), -10));
+                // USD pool is slightly higher because of the fees.
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRP(13'000),
+                    STAmount(USD, UINT64_C(13'002'98282151422), -11),
+                    ammTokens));
+
                 ammTokens = ammAlice.getLPTokensBalance();
                 // Trade with the fee
                 for (int i = 0; i < 10; ++i)
@@ -3053,94 +3016,48 @@ private:
                 // dan pays ~9.94USD, which is ~10 times more in fees than
                 // carol, bob, ed. the discounted fee is 10 times less
                 // than the trading fee.
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(
-                        env.balance(dan, USD) ==
-                        STAmount(USD, UINT64_C(19'490'056722744), -9));
-                    // USD pool gains more in dan's fees.
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(13'000),
-                        STAmount{USD, UINT64_C(13'012'92609877019), -11},
-                        ammTokens));
-                    // Discounted fee payment
-                    ammAlice.deposit(carol, USD(100));
-                    ammTokens = ammAlice.getLPTokensBalance();
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(13'000),
-                        STAmount{USD, UINT64_C(13'112'92609877019), -11},
-                        ammTokens));
-                    env(pay(carol, bob, USD(100)),
-                        path(~USD),
-                        sendmax(XRP(110)));
-                    env.close();
-                    // carol pays 100000 drops in fees
-                    // 99900668XRP swapped in for 100USD
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount{13'100'000'668},
-                        STAmount{USD, UINT64_C(13'012'92609877019), -11},
-                        ammTokens));
-                }
-                else
-                {
-                    BEAST_EXPECT(
-                        env.balance(dan, USD) ==
-                        STAmount(USD, UINT64_C(19'490'05672274399), -11));
-                    // USD pool gains more in dan's fees.
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(13'000),
-                        STAmount{USD, UINT64_C(13'012'92609877023), -11},
-                        ammTokens));
-                    // Discounted fee payment
-                    ammAlice.deposit(carol, USD(100));
-                    ammTokens = ammAlice.getLPTokensBalance();
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(13'000),
-                        STAmount{USD, UINT64_C(13'112'92609877023), -11},
-                        ammTokens));
-                    env(pay(carol, bob, USD(100)),
-                        path(~USD),
-                        sendmax(XRP(110)));
-                    env.close();
-                    // carol pays 100000 drops in fees
-                    // 99900668XRP swapped in for 100USD
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount{13'100'000'668},
-                        STAmount{USD, UINT64_C(13'012'92609877023), -11},
-                        ammTokens));
-                }
+                BEAST_EXPECT(
+                    env.balance(dan, USD) ==
+                    STAmount(USD, UINT64_C(19'490'05672274399), -11));
+                // USD pool gains more in dan's fees.
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRP(13'000),
+                    STAmount{USD, UINT64_C(13'012'92609877023), -11},
+                    ammTokens));
+                // Discounted fee payment
+                ammAlice.deposit(carol, USD(100));
+                ammTokens = ammAlice.getLPTokensBalance();
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRP(13'000),
+                    STAmount{USD, UINT64_C(13'112'92609877023), -11},
+                    ammTokens));
+                env(pay(carol, bob, USD(100)), path(~USD), sendmax(XRP(110)));
+                env.close();
+                // carol pays 100000 drops in fees
+                // 99900668XRP swapped in for 100USD
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRPAmount{13'100'000'668},
+                    STAmount{USD, UINT64_C(13'012'92609877023), -11},
+                    ammTokens));
+
                 // Payment with the trading fee
                 env(pay(alice, carol, XRP(100)), path(~XRP), sendmax(USD(110)));
                 env.close();
                 // alice pays ~1.011USD in fees, which is ~10 times more
                 // than carol's fee
                 // 100.099431529USD swapped in for 100XRP
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount{13'000'000'668},
-                        STAmount{USD, UINT64_C(13'114'03663047264), -11},
-                        ammTokens));
-                }
-                else
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount{13'000'000'668},
-                        STAmount{USD, UINT64_C(13'114'03663047269), -11},
-                        ammTokens));
-                }
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRPAmount{13'000'000'668},
+                    STAmount{USD, UINT64_C(13'114'03663047269), -11},
+                    ammTokens));
+
                 // Auction slot expired, no discounted fee
                 env.close(seconds(TOTAL_TIME_SLOT_SECS + 1));
                 // clock is parent's based
                 env.close();
-                if (!features[fixAMMv1_1])
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(29'399'00572620545), -11));
-                else
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(29'399'00572620544), -11));
+                BEAST_EXPECT(
+                    env.balance(carol, USD) ==
+                    STAmount(USD, UINT64_C(29'399'00572620544), -11));
                 ammTokens = ammAlice.getLPTokensBalance();
                 for (int i = 0; i < 10; ++i)
                 {
@@ -3149,45 +3066,23 @@ private:
                 }
                 // carol pays ~9.94USD in fees, which is ~10 times more in
                 // trading fees vs discounted fee.
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(29'389'06197177128), -11));
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount{13'000'000'668},
-                        STAmount{USD, UINT64_C(13'123'98038490681), -11},
-                        ammTokens));
-                }
-                else
-                {
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(29'389'06197177124), -11));
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount{13'000'000'668},
-                        STAmount{USD, UINT64_C(13'123'98038490689), -11},
-                        ammTokens));
-                }
+                BEAST_EXPECT(
+                    env.balance(carol, USD) ==
+                    STAmount(USD, UINT64_C(29'389'06197177124), -11));
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRPAmount{13'000'000'668},
+                    STAmount{USD, UINT64_C(13'123'98038490689), -11},
+                    ammTokens));
+
                 env(pay(carol, bob, USD(100)), path(~USD), sendmax(XRP(110)));
                 env.close();
                 // carol pays ~1.008XRP in trading fee, which is
                 // ~10 times more than the discounted fee.
                 // 99.815876XRP is swapped in for 100USD
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount(13'100'824'790),
-                        STAmount{USD, UINT64_C(13'023'98038490681), -11},
-                        ammTokens));
-                }
-                else
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRPAmount(13'100'824'790),
-                        STAmount{USD, UINT64_C(13'023'98038490689), -11},
-                        ammTokens));
-                }
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRPAmount(13'100'824'790),
+                    STAmount{USD, UINT64_C(13'023'98038490689), -11},
+                    ammTokens));
             },
             std::nullopt,
             1'000,
@@ -3276,20 +3171,10 @@ private:
                 IOUAmount{1'004'487'562112089, -9}));
             // Bob pays the full fee ~0.1USD
             env(pay(bob, alice, XRP(10)), path(~XRP), sendmax(USD(11)));
-            if (!features[fixAMMv1_1])
-            {
-                BEAST_EXPECT(amm.expectBalances(
-                    XRPAmount{1'000'010'011},
-                    STAmount{USD, UINT64_C(1'010'10090898081), -11},
-                    IOUAmount{1'004'487'562112089, -9}));
-            }
-            else
-            {
-                BEAST_EXPECT(amm.expectBalances(
-                    XRPAmount{1'000'010'011},
-                    STAmount{USD, UINT64_C(1'010'100908980811), -12},
-                    IOUAmount{1'004'487'562112089, -9}));
-            }
+            BEAST_EXPECT(amm.expectBalances(
+                XRPAmount{1'000'010'011},
+                STAmount{USD, UINT64_C(1'010'100908980811), -12},
+                IOUAmount{1'004'487'562112089, -9}));
         }
 
         // preflight tests
@@ -3685,40 +3570,22 @@ private:
                 XRPAmount(10'030'082'730),
                 STAmount(EUR, UINT64_C(9'970'007498125468), -12),
                 ammEUR_XRP.tokens()));
-            if (!features[fixAMMv1_1])
-            {
-                BEAST_EXPECT(ammUSD_EUR.expectBalances(
-                    STAmount(USD, UINT64_C(9'970'097277662122), -12),
-                    STAmount(EUR, UINT64_C(10'029'99250187452), -11),
-                    ammUSD_EUR.tokens()));
 
-                // fixReducedOffersV2 changes the expected results slightly.
-                Amounts const expectedAmounts =
-                    env.closed()->rules().enabled(fixReducedOffersV2)
-                    ? Amounts{XRPAmount(30'201'749), STAmount(USD, UINT64_C(29'90272233787816), -14)}
-                    : Amounts{
-                          XRPAmount(30'201'749),
-                          STAmount(USD, UINT64_C(29'90272233787818), -14)};
+            BEAST_EXPECT(ammUSD_EUR.expectBalances(
+                STAmount(USD, UINT64_C(9'970'097277662172), -12),
+                STAmount(EUR, UINT64_C(10'029'99250187452), -11),
+                ammUSD_EUR.tokens()));
 
-                BEAST_EXPECT(expectOffers(env, alice, 1, {{expectedAmounts}}));
-            }
-            else
-            {
-                BEAST_EXPECT(ammUSD_EUR.expectBalances(
-                    STAmount(USD, UINT64_C(9'970'097277662172), -12),
-                    STAmount(EUR, UINT64_C(10'029'99250187452), -11),
-                    ammUSD_EUR.tokens()));
+            // fixReducedOffersV2 changes the expected results slightly.
+            Amounts const expectedAmounts =
+                env.closed()->rules().enabled(fixReducedOffersV2)
+                ? Amounts{XRPAmount(30'201'749), STAmount(USD, UINT64_C(29'90272233782839), -14)}
+                : Amounts{
+                      XRPAmount(30'201'749),
+                      STAmount(USD, UINT64_C(29'90272233782840), -14)};
 
-                // fixReducedOffersV2 changes the expected results slightly.
-                Amounts const expectedAmounts =
-                    env.closed()->rules().enabled(fixReducedOffersV2)
-                    ? Amounts{XRPAmount(30'201'749), STAmount(USD, UINT64_C(29'90272233782839), -14)}
-                    : Amounts{
-                          XRPAmount(30'201'749),
-                          STAmount(USD, UINT64_C(29'90272233782840), -14)};
+            BEAST_EXPECT(expectOffers(env, alice, 1, {{expectedAmounts}}));
 
-                BEAST_EXPECT(expectOffers(env, alice, 1, {{expectedAmounts}}));
-            }
             // Initial 30,000 + 100
             BEAST_EXPECT(expectLine(env, carol, STAmount{USD, 30'100}));
             // Initial 1,000 - 30082730(AMM pool) - 70798251(offer) - 10(tx fee)
@@ -3792,24 +3659,16 @@ private:
                     sendmax(XRP(200)),
                     txflags(tfPartialPayment));
                 env.close();
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(10'100), USD(10'000), ammAlice.tokens()));
-                    // Initial 30,000 + 200
-                    BEAST_EXPECT(expectLine(env, carol, USD(30'200)));
-                }
-                else
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(10'100),
-                        STAmount(USD, UINT64_C(10'000'00000000001), -11),
-                        ammAlice.tokens()));
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount(USD, UINT64_C(30'199'99999999999), -11)));
-                }
+
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRP(10'100),
+                    STAmount(USD, UINT64_C(10'000'00000000001), -11),
+                    ammAlice.tokens()));
+                BEAST_EXPECT(expectLine(
+                    env,
+                    carol,
+                    STAmount(USD, UINT64_C(30'199'99999999999), -11)));
+
                 // Initial 30,000 - 10000(AMM pool LP) - 100(AMM offer) -
                 // - 100(offer) - 10(tx fee) - one reserve
                 BEAST_EXPECT(expectLedgerEntryRoot(
@@ -3894,46 +3753,29 @@ private:
                 env.close();
                 env(offer(carol, XRP(100), USD(55)));
                 env.close();
-                if (!features[fixAMMv1_1])
-                {
-                    // Pre-amendment the transfer fee is not taken into
-                    // account when calculating the limit out based on
-                    // limitQuality. Carol pays 0.1% on the takerGets, which
-                    // lowers the overall quality. AMM offer is generated based
-                    // on higher limit out, which generates a larger offer
-                    // with lower quality. Consequently, the offer fails
-                    // to cross.
-                    BEAST_EXPECT(
-                        amm.expectBalances(XRP(1'000), USD(500), amm.tokens()));
-                    BEAST_EXPECT(expectOffers(
-                        env, carol, 1, {{Amounts{XRP(100), USD(55)}}}));
-                }
-                else
-                {
-                    // Post-amendment the transfer fee is taken into account
-                    // when calculating the limit out based on limitQuality.
-                    // This increases the limitQuality and decreases
-                    // the limit out. Consequently, AMM offer size is decreased,
-                    // and the quality is increased, matching the overall
-                    // quality.
-                    // AMM offer ~50USD/91XRP
-                    BEAST_EXPECT(amm.expectBalances(
-                        XRPAmount(909'090'909),
-                        STAmount{USD, UINT64_C(550'000000055), -9},
-                        amm.tokens()));
-                    // Offer ~91XRP/49.99USD
-                    BEAST_EXPECT(expectOffers(
-                        env,
-                        carol,
-                        1,
-                        {{Amounts{
-                            XRPAmount{9'090'909},
-                            STAmount{USD, 4'99999995, -8}}}}));
-                    // Carol pays 0.1% fee on ~50USD =~ 0.05USD
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(29'949'94999999494), -11));
-                }
+                // Post-amendment the transfer fee is taken into account
+                // when calculating the limit out based on limitQuality.
+                // This increases the limitQuality and decreases
+                // the limit out. Consequently, AMM offer size is decreased,
+                // and the quality is increased, matching the overall
+                // quality.
+                // AMM offer ~50USD/91XRP
+                BEAST_EXPECT(amm.expectBalances(
+                    XRPAmount(909'090'909),
+                    STAmount{USD, UINT64_C(550'000000055), -9},
+                    amm.tokens()));
+                // Offer ~91XRP/49.99USD
+                BEAST_EXPECT(expectOffers(
+                    env,
+                    carol,
+                    1,
+                    {{Amounts{
+                        XRPAmount{9'090'909},
+                        STAmount{USD, 4'99999995, -8}}}}));
+                // Carol pays 0.1% fee on ~50USD =~ 0.05USD
+                BEAST_EXPECT(
+                    env.balance(carol, USD) ==
+                    STAmount(USD, UINT64_C(29'949'94999999494), -11));
             },
             {{XRP(1'000), USD(500)}},
             0,
@@ -3945,22 +3787,11 @@ private:
                 env.close();
                 env(offer(carol, XRP(10), USD(5.5)));
                 env.close();
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(amm.expectBalances(
-                        XRP(990),
-                        STAmount{USD, UINT64_C(505'050505050505), -12},
-                        amm.tokens()));
-                    BEAST_EXPECT(expectOffers(env, carol, 0));
-                }
-                else
-                {
-                    BEAST_EXPECT(amm.expectBalances(
-                        XRP(990),
-                        STAmount{USD, UINT64_C(505'0505050505051), -13},
-                        amm.tokens()));
-                    BEAST_EXPECT(expectOffers(env, carol, 0));
-                }
+                BEAST_EXPECT(amm.expectBalances(
+                    XRP(990),
+                    STAmount{USD, UINT64_C(505'0505050505051), -13},
+                    amm.tokens()));
+                BEAST_EXPECT(expectOffers(env, carol, 0));
             },
             {{XRP(1'000), USD(500)}},
             0,
@@ -3990,83 +3821,44 @@ private:
                 env.close();
                 env(offer(carol, EUR(100), GBP(100)));
                 env.close();
-                if (!features[fixAMMv1_1])
-                {
-                    // After the auto-bridge offers are consumed, single path
-                    // AMM offer is generated with the limit out not taking
-                    // into consideration the transfer fee. This results
-                    // in an overall lower quality offer than the limit quality
-                    // and the single path AMM offer fails to consume.
-                    // Total consumed ~37.06GBP/39.32EUR
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        STAmount{GBP, UINT64_C(1'037'06583722133), -11},
-                        STAmount{EUR, UINT64_C(1'060'684828792831), -12},
-                        ammAlice.tokens()));
-                    // Consumed offer ~49.32EUR/49.32GBP
-                    BEAST_EXPECT(expectOffers(
-                        env,
-                        carol,
-                        1,
-                        {Amounts{
-                            STAmount{EUR, UINT64_C(50'684828792831), -12},
-                            STAmount{GBP, UINT64_C(50'684828792831), -12}}}));
-                    BEAST_EXPECT(expectOffers(env, bob, 0));
-                    BEAST_EXPECT(expectOffers(env, ed, 0));
 
-                    // Initial 30,000 - ~47.06(offers = 37.06(AMM) + 10(LOB))
-                    // * 1.25
-                    //     = 58.825 = ~29941.17
-                    // carol bought ~72.93EUR at the cost of ~70.68GBP
-                    // the offer is partially consumed
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{GBP, UINT64_C(29'941'16770347333), -11}));
-                    // Initial 30,000 + ~49.3(offers = 39.3(AMM) + 10(LOB))
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{EUR, UINT64_C(30'049'31517120716), -11}));
-                }
-                else
-                {
-                    // After the auto-bridge offers are consumed, single path
-                    // AMM offer is generated with the limit out taking
-                    // into consideration the transfer fee. This results
-                    // in an overall quality offer matching the limit quality
-                    // and the single path AMM offer is consumed. More
-                    // liquidity is consumed overall in post-amendment.
-                    // Total consumed ~60.68GBP/62.93EUR
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        STAmount{GBP, UINT64_C(1'060'684828792832), -12},
-                        STAmount{EUR, UINT64_C(1'037'06583722134), -11},
-                        ammAlice.tokens()));
-                    // Consumed offer ~72.93EUR/72.93GBP
-                    BEAST_EXPECT(expectOffers(
-                        env,
-                        carol,
-                        1,
-                        {Amounts{
-                            STAmount{EUR, UINT64_C(27'06583722134028), -14},
-                            STAmount{GBP, UINT64_C(27'06583722134028), -14}}}));
-                    BEAST_EXPECT(expectOffers(env, bob, 0));
-                    BEAST_EXPECT(expectOffers(env, ed, 0));
+                // After the auto-bridge offers are consumed, single path
+                // AMM offer is generated with the limit out taking
+                // into consideration the transfer fee. This results
+                // in an overall quality offer matching the limit quality
+                // and the single path AMM offer is consumed. More
+                // liquidity is consumed overall in post-amendment.
+                // Total consumed ~60.68GBP/62.93EUR
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    STAmount{GBP, UINT64_C(1'060'684828792832), -12},
+                    STAmount{EUR, UINT64_C(1'037'06583722134), -11},
+                    ammAlice.tokens()));
+                // Consumed offer ~72.93EUR/72.93GBP
+                BEAST_EXPECT(expectOffers(
+                    env,
+                    carol,
+                    1,
+                    {Amounts{
+                        STAmount{EUR, UINT64_C(27'06583722134028), -14},
+                        STAmount{GBP, UINT64_C(27'06583722134028), -14}}}));
+                BEAST_EXPECT(expectOffers(env, bob, 0));
+                BEAST_EXPECT(expectOffers(env, ed, 0));
 
-                    // Initial 30,000 - ~70.68(offers = 60.68(AMM) + 10(LOB))
-                    // * 1.25
-                    //     = 88.35 = ~29911.64
-                    // carol bought ~72.93EUR at the cost of ~70.68GBP
-                    // the offer is partially consumed
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{GBP, UINT64_C(29'911'64396400896), -11}));
-                    // Initial 30,000 + ~72.93(offers = 62.93(AMM) + 10(LOB))
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{EUR, UINT64_C(30'072'93416277865), -11}));
-                }
+                // Initial 30,000 - ~70.68(offers = 60.68(AMM) + 10(LOB))
+                // * 1.25
+                //     = 88.35 = ~29911.64
+                // carol bought ~72.93EUR at the cost of ~70.68GBP
+                // the offer is partially consumed
+                BEAST_EXPECT(expectLine(
+                    env,
+                    carol,
+                    STAmount{GBP, UINT64_C(29'911'64396400896), -11}));
+                // Initial 30,000 + ~72.93(offers = 62.93(AMM) + 10(LOB))
+                BEAST_EXPECT(expectLine(
+                    env,
+                    carol,
+                    STAmount{EUR, UINT64_C(30'072'93416277865), -11}));
+
                 // Initial 2000 + 10 = 2010
                 BEAST_EXPECT(expectLine(env, bob, GBP(2'010)));
                 // Initial 2000 - 10 * 1.25 = 1987.5
@@ -4198,50 +3990,25 @@ private:
                 path(~USD),
                 path(~ETH, ~EUR, ~USD),
                 sendmax(XRP(200)));
-            if (!features[fixAMMv1_1])
-            {
-                // XRP-ETH-EUR-USD
-                // This path provides ~26.06USD/26.2XRP
-                BEAST_EXPECT(xrp_eth.expectBalances(
-                    XRPAmount(10'026'208'900),
-                    STAmount{ETH, UINT64_C(10'073'65779244494), -11},
-                    xrp_eth.tokens()));
-                BEAST_EXPECT(eth_eur.expectBalances(
-                    STAmount{ETH, UINT64_C(10'926'34220755506), -11},
-                    STAmount{EUR, UINT64_C(10'973'54232078752), -11},
-                    eth_eur.tokens()));
-                BEAST_EXPECT(eur_usd.expectBalances(
-                    STAmount{EUR, UINT64_C(10'126'45767921248), -11},
-                    STAmount{USD, UINT64_C(9'973'93151712086), -11},
-                    eur_usd.tokens()));
-                // XRP-USD path
-                // This path provides ~73.9USD/74.1XRP
-                BEAST_EXPECT(xrp_usd.expectBalances(
-                    XRPAmount(10'224'106'246),
-                    STAmount{USD, UINT64_C(10'126'06848287914), -11},
-                    xrp_usd.tokens()));
-            }
-            else
-            {
-                BEAST_EXPECT(xrp_eth.expectBalances(
-                    XRPAmount(10'026'208'900),
-                    STAmount{ETH, UINT64_C(10'073'65779244461), -11},
-                    xrp_eth.tokens()));
-                BEAST_EXPECT(eth_eur.expectBalances(
-                    STAmount{ETH, UINT64_C(10'926'34220755539), -11},
-                    STAmount{EUR, UINT64_C(10'973'5423207872), -10},
-                    eth_eur.tokens()));
-                BEAST_EXPECT(eur_usd.expectBalances(
-                    STAmount{EUR, UINT64_C(10'126'4576792128), -10},
-                    STAmount{USD, UINT64_C(9'973'93151712057), -11},
-                    eur_usd.tokens()));
-                // XRP-USD path
-                // This path provides ~73.9USD/74.1XRP
-                BEAST_EXPECT(xrp_usd.expectBalances(
-                    XRPAmount(10'224'106'246),
-                    STAmount{USD, UINT64_C(10'126'06848287943), -11},
-                    xrp_usd.tokens()));
-            }
+
+            BEAST_EXPECT(xrp_eth.expectBalances(
+                XRPAmount(10'026'208'900),
+                STAmount{ETH, UINT64_C(10'073'65779244461), -11},
+                xrp_eth.tokens()));
+            BEAST_EXPECT(eth_eur.expectBalances(
+                STAmount{ETH, UINT64_C(10'926'34220755539), -11},
+                STAmount{EUR, UINT64_C(10'973'5423207872), -10},
+                eth_eur.tokens()));
+            BEAST_EXPECT(eur_usd.expectBalances(
+                STAmount{EUR, UINT64_C(10'126'4576792128), -10},
+                STAmount{USD, UINT64_C(9'973'93151712057), -11},
+                eur_usd.tokens()));
+            // XRP-USD path
+            // This path provides ~73.9USD/74.1XRP
+            BEAST_EXPECT(xrp_usd.expectBalances(
+                XRPAmount(10'224'106'246),
+                STAmount{USD, UINT64_C(10'126'06848287943), -11},
+                xrp_usd.tokens()));
 
             // XRP-EUR-BTC-USD
             // This path doesn't provide any liquidity due to how
@@ -4279,54 +4046,27 @@ private:
                 path(~EUR, ~BTC, ~USD),
                 path(~ETH, ~EUR, ~BTC, ~USD),
                 sendmax(XRP(200)));
-            if (!features[fixAMMv1_1])
-            {
-                // XRP-EUR-BTC-USD path provides ~17.8USD/~18.7XRP
-                // XRP-ETH-EUR-BTC-USD path provides ~82.2USD/82.4XRP
-                BEAST_EXPECT(xrp_eur.expectBalances(
-                    XRPAmount(10'118'738'472),
-                    STAmount{EUR, UINT64_C(9'981'544436337968), -12},
-                    xrp_eur.tokens()));
-                BEAST_EXPECT(eur_btc.expectBalances(
-                    STAmount{EUR, UINT64_C(10'101'16096785173), -11},
-                    STAmount{BTC, UINT64_C(10'097'91426968066), -11},
-                    eur_btc.tokens()));
-                BEAST_EXPECT(btc_usd.expectBalances(
-                    STAmount{BTC, UINT64_C(10'202'08573031934), -11},
-                    USD(9'900),
-                    btc_usd.tokens()));
-                BEAST_EXPECT(xrp_eth.expectBalances(
-                    XRPAmount(10'082'446'397),
-                    STAmount{ETH, UINT64_C(10'017'41072778012), -11},
-                    xrp_eth.tokens()));
-                BEAST_EXPECT(eth_eur.expectBalances(
-                    STAmount{ETH, UINT64_C(10'982'58927221988), -11},
-                    STAmount{EUR, UINT64_C(10'917'2945958103), -10},
-                    eth_eur.tokens()));
-            }
-            else
-            {
-                BEAST_EXPECT(xrp_eur.expectBalances(
-                    XRPAmount(10'118'738'472),
-                    STAmount{EUR, UINT64_C(9'981'544436337923), -12},
-                    xrp_eur.tokens()));
-                BEAST_EXPECT(eur_btc.expectBalances(
-                    STAmount{EUR, UINT64_C(10'101'16096785188), -11},
-                    STAmount{BTC, UINT64_C(10'097'91426968059), -11},
-                    eur_btc.tokens()));
-                BEAST_EXPECT(btc_usd.expectBalances(
-                    STAmount{BTC, UINT64_C(10'202'08573031941), -11},
-                    USD(9'900),
-                    btc_usd.tokens()));
-                BEAST_EXPECT(xrp_eth.expectBalances(
-                    XRPAmount(10'082'446'397),
-                    STAmount{ETH, UINT64_C(10'017'41072777996), -11},
-                    xrp_eth.tokens()));
-                BEAST_EXPECT(eth_eur.expectBalances(
-                    STAmount{ETH, UINT64_C(10'982'58927222004), -11},
-                    STAmount{EUR, UINT64_C(10'917'2945958102), -10},
-                    eth_eur.tokens()));
-            }
+
+            BEAST_EXPECT(xrp_eur.expectBalances(
+                XRPAmount(10'118'738'472),
+                STAmount{EUR, UINT64_C(9'981'544436337923), -12},
+                xrp_eur.tokens()));
+            BEAST_EXPECT(eur_btc.expectBalances(
+                STAmount{EUR, UINT64_C(10'101'16096785188), -11},
+                STAmount{BTC, UINT64_C(10'097'91426968059), -11},
+                eur_btc.tokens()));
+            BEAST_EXPECT(btc_usd.expectBalances(
+                STAmount{BTC, UINT64_C(10'202'08573031941), -11},
+                USD(9'900),
+                btc_usd.tokens()));
+            BEAST_EXPECT(xrp_eth.expectBalances(
+                XRPAmount(10'082'446'397),
+                STAmount{ETH, UINT64_C(10'017'41072777996), -11},
+                xrp_eth.tokens()));
+            BEAST_EXPECT(eth_eur.expectBalances(
+                STAmount{ETH, UINT64_C(10'982'58927222004), -11},
+                STAmount{EUR, UINT64_C(10'917'2945958102), -10},
+                eth_eur.tokens()));
             BEAST_EXPECT(expectLine(env, carol, USD(300)));
         }
 
@@ -4346,29 +4086,15 @@ private:
                     path(~XRP, ~USD),
                     sendmax(EUR(400)),
                     txflags(tfPartialPayment | tfNoRippleDirect));
-                if (!features[fixAMMv1_1])
-                {
-                    // Carol gets ~29.91USD because of the AMM offers limit
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(10'030),
-                        STAmount{USD, UINT64_C(9'970'089730807577), -12},
-                        ammAlice.tokens()));
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{USD, UINT64_C(30'029'91026919241), -11}));
-                }
-                else
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(10'030),
-                        STAmount{USD, UINT64_C(9'970'089730807827), -12},
-                        ammAlice.tokens()));
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{USD, UINT64_C(30'029'91026919217), -11}));
-                }
+
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRP(10'030),
+                    STAmount{USD, UINT64_C(9'970'089730807827), -12},
+                    ammAlice.tokens()));
+                BEAST_EXPECT(expectLine(
+                    env,
+                    carol,
+                    STAmount{USD, UINT64_C(30'029'91026919217), -11}));
                 BEAST_EXPECT(
                     expectOffers(env, alice, 1, {{{EUR(140), XRP(100)}}}));
             },
@@ -4393,18 +4119,7 @@ private:
                     txflags(tfPartialPayment | tfNoRippleDirect));
                 BEAST_EXPECT(ammAlice.expectBalances(
                     XRPAmount{10'101'010'102}, USD(9'900), ammAlice.tokens()));
-                if (!features[fixAMMv1_1])
-                {
-                    // Carol gets ~100USD
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{USD, UINT64_C(30'099'99999999999), -11}));
-                }
-                else
-                {
-                    BEAST_EXPECT(expectLine(env, carol, USD(30'100)));
-                }
+                BEAST_EXPECT(expectLine(env, carol, USD(30'100)));
                 BEAST_EXPECT(expectOffers(
                     env,
                     alice,
@@ -4425,33 +4140,18 @@ private:
             env(offer(bob, XRP(100), USD(100.001)));
             AMM ammAlice(env, alice, XRP(10'000), USD(10'100));
             env(offer(carol, USD(100), XRP(100)));
-            if (!features[fixAMMv1_1])
-            {
-                BEAST_EXPECT(ammAlice.expectBalances(
-                    XRPAmount{10'049'825'373},
-                    STAmount{USD, UINT64_C(10'049'92586949302), -11},
-                    ammAlice.tokens()));
-                BEAST_EXPECT(expectOffers(
-                    env,
-                    bob,
-                    1,
-                    {{{XRPAmount{50'074'629},
-                       STAmount{USD, UINT64_C(50'07513050698), -11}}}}));
-            }
-            else
-            {
-                BEAST_EXPECT(ammAlice.expectBalances(
-                    XRPAmount{10'049'825'372},
-                    STAmount{USD, UINT64_C(10'049'92587049303), -11},
-                    ammAlice.tokens()));
-                BEAST_EXPECT(expectOffers(
-                    env,
-                    bob,
-                    1,
-                    {{{XRPAmount{50'074'628},
-                       STAmount{USD, UINT64_C(50'07512950697), -11}}}}));
-                BEAST_EXPECT(expectLine(env, carol, USD(30'100)));
-            }
+
+            BEAST_EXPECT(ammAlice.expectBalances(
+                XRPAmount{10'049'825'372},
+                STAmount{USD, UINT64_C(10'049'92587049303), -11},
+                ammAlice.tokens()));
+            BEAST_EXPECT(expectOffers(
+                env,
+                bob,
+                1,
+                {{{XRPAmount{50'074'628},
+                   STAmount{USD, UINT64_C(50'07512950697), -11}}}}));
+            BEAST_EXPECT(expectLine(env, carol, USD(30'100)));
         }
 
         // Individually frozen account
@@ -4723,18 +4423,11 @@ private:
         // Execute with CLOB offer
         prep(
             [&](Env& env) {
-                if (!features[fixAMMv1_1])
-                    env(offer(
-                            LP1,
-                            XRPAmount{18'095'133},
-                            STAmount{TST, UINT64_C(1'68737984885388), -14}),
-                        txflags(tfPassive));
-                else
-                    env(offer(
-                            LP1,
-                            XRPAmount{18'095'132},
-                            STAmount{TST, UINT64_C(1'68737976189735), -14}),
-                        txflags(tfPassive));
+                env(offer(
+                        LP1,
+                        XRPAmount{18'095'132},
+                        STAmount{TST, UINT64_C(1'68737976189735), -14}),
+                    txflags(tfPassive));
             },
             [&](Env& env) {
                 BEAST_EXPECT(
@@ -4861,8 +4554,6 @@ private:
                     carol, USD(100), std::nullopt, IOUAmount{520, 0});
                 // carol withdraws ~1,443.44USD
                 auto const balanceAfterWithdraw = [&]() {
-                    if (!features[fixAMMv1_1])
-                        return STAmount(USD, UINT64_C(30'443'43891402715), -11);
                     return STAmount(USD, UINT64_C(30'443'43891402714), -11);
                 }();
                 BEAST_EXPECT(env.balance(carol, USD) == balanceAfterWithdraw);
@@ -4873,22 +4564,12 @@ private:
                 ammAlice.vote(alice, 0);
                 BEAST_EXPECT(ammAlice.expectTradingFee(0));
                 auto const tokensNoFee = ammAlice.withdraw(carol, deposit);
-                if (!features[fixAMMv1_1])
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(30'443'43891402717), -11));
-                else
-                    BEAST_EXPECT(
-                        env.balance(carol, USD) ==
-                        STAmount(USD, UINT64_C(30'443'43891402716), -11));
+                BEAST_EXPECT(
+                    env.balance(carol, USD) ==
+                    STAmount(USD, UINT64_C(30'443'43891402716), -11));
                 // carol pays ~4008 LPTokens in fees or ~0.5% of the no-fee
                 // LPTokens
-                if (!features[fixAMMv1_1])
-                    BEAST_EXPECT(
-                        tokensNoFee == IOUAmount(746'579'80779913, -8));
-                else
-                    BEAST_EXPECT(
-                        tokensNoFee == IOUAmount(746'579'80779912, -8));
+                BEAST_EXPECT(tokensNoFee == IOUAmount(746'579'80779912, -8));
                 BEAST_EXPECT(tokensFee == IOUAmount(750'588'23529411, -8));
             },
             std::nullopt,
@@ -4978,20 +4659,10 @@ private:
                     {{Amounts{
                         STAmount{EUR, UINT64_C(5'025125628140703), -15},
                         STAmount{USD, UINT64_C(5'025125628140703), -15}}}}));
-                if (!features[fixAMMv1_1])
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        STAmount{USD, UINT64_C(1'004'974874371859), -12},
-                        STAmount{EUR, UINT64_C(1'005'025125628141), -12},
-                        ammAlice.tokens()));
-                }
-                else
-                {
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        STAmount{USD, UINT64_C(1'004'97487437186), -11},
-                        STAmount{EUR, UINT64_C(1'005'025125628141), -12},
-                        ammAlice.tokens()));
-                }
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    STAmount{USD, UINT64_C(1'004'97487437186), -11},
+                    STAmount{EUR, UINT64_C(1'005'025125628141), -12},
+                    ammAlice.tokens()));
             },
             {{USD(1'000), EUR(1'010)}},
             0,
@@ -5018,21 +4689,12 @@ private:
                 sendmax(EUR(15)),
                 txflags(tfNoRippleDirect));
             BEAST_EXPECT(expectLine(env, ed, USD(2'010)));
-            if (!features[fixAMMv1_1])
-            {
-                BEAST_EXPECT(expectLine(env, bob, EUR(1'990)));
-                BEAST_EXPECT(ammAlice.expectBalances(
-                    USD(1'000), EUR(1'005), ammAlice.tokens()));
-            }
-            else
-            {
-                BEAST_EXPECT(expectLine(
-                    env, bob, STAmount(EUR, UINT64_C(1989'999999999999), -12)));
-                BEAST_EXPECT(ammAlice.expectBalances(
-                    USD(1'000),
-                    STAmount(EUR, UINT64_C(1005'000000000001), -12),
-                    ammAlice.tokens()));
-            }
+            BEAST_EXPECT(expectLine(
+                env, bob, STAmount(EUR, UINT64_C(1989'999999999999), -12)));
+            BEAST_EXPECT(ammAlice.expectBalances(
+                USD(1'000),
+                STAmount(EUR, UINT64_C(1005'000000000001), -12),
+                ammAlice.tokens()));
             BEAST_EXPECT(expectOffers(env, carol, 0));
         }
 
@@ -5055,28 +4717,12 @@ private:
                 sendmax(EUR(15)),
                 txflags(tfNoRippleDirect));
             BEAST_EXPECT(expectLine(env, ed, USD(2'010)));
-            if (!features[fixAMMv1_1])
-            {
-                BEAST_EXPECT(expectLine(
-                    env,
-                    bob,
-                    STAmount{EUR, UINT64_C(1'989'987453007618), -12}));
-                BEAST_EXPECT(ammAlice.expectBalances(
-                    USD(1'000),
-                    STAmount{EUR, UINT64_C(1'005'012546992382), -12},
-                    ammAlice.tokens()));
-            }
-            else
-            {
-                BEAST_EXPECT(expectLine(
-                    env,
-                    bob,
-                    STAmount{EUR, UINT64_C(1'989'987453007628), -12}));
-                BEAST_EXPECT(ammAlice.expectBalances(
-                    USD(1'000),
-                    STAmount{EUR, UINT64_C(1'005'012546992372), -12},
-                    ammAlice.tokens()));
-            }
+            BEAST_EXPECT(expectLine(
+                env, bob, STAmount{EUR, UINT64_C(1'989'987453007628), -12}));
+            BEAST_EXPECT(ammAlice.expectBalances(
+                USD(1'000),
+                STAmount{EUR, UINT64_C(1'005'012546992372), -12},
+                ammAlice.tokens()));
             BEAST_EXPECT(expectOffers(env, carol, 0));
         }
 
@@ -5185,46 +4831,22 @@ private:
                 // Due to round off some accounts have a tiny gain, while
                 // other have a tiny loss. The last account to withdraw
                 // gets everything in the pool.
-                if (!features[fixAMMv1_1])
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(10'000),
-                        STAmount{USD, UINT64_C(10'000'0000000013), -10},
-                        IOUAmount{10'000'000}));
-                else
-                    BEAST_EXPECT(ammAlice.expectBalances(
-                        XRP(10'000), USD(10'000), IOUAmount{10'000'000}));
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRP(10'000), USD(10'000), IOUAmount{10'000'000}));
                 BEAST_EXPECT(expectLine(env, ben, USD(1'500'000)));
                 BEAST_EXPECT(expectLine(env, simon, USD(1'500'000)));
                 BEAST_EXPECT(expectLine(env, chris, USD(1'500'000)));
                 BEAST_EXPECT(expectLine(env, dan, USD(1'500'000)));
-                if (!features[fixAMMv1_1])
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        carol,
-                        STAmount{USD, UINT64_C(30'000'00000000001), -11}));
-                else
-                    BEAST_EXPECT(expectLine(env, carol, USD(30'000)));
+                BEAST_EXPECT(expectLine(env, carol, USD(30'000)));
                 BEAST_EXPECT(expectLine(env, ed, USD(1'500'000)));
                 BEAST_EXPECT(expectLine(env, paul, USD(1'500'000)));
-                if (!features[fixAMMv1_1])
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        nataly,
-                        STAmount{USD, UINT64_C(1'500'000'000000002), -9}));
-                else
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        nataly,
-                        STAmount{USD, UINT64_C(1'500'000'000000005), -9}));
+                BEAST_EXPECT(expectLine(
+                    env,
+                    nataly,
+                    STAmount{USD, UINT64_C(1'500'000'000000005), -9}));
                 ammAlice.withdrawAll(alice);
                 BEAST_EXPECT(!ammAlice.ammExists());
-                if (!features[fixAMMv1_1])
-                    BEAST_EXPECT(expectLine(
-                        env,
-                        alice,
-                        STAmount{USD, UINT64_C(30'000'0000000013), -10}));
-                else
-                    BEAST_EXPECT(expectLine(env, alice, USD(30'000)));
+                BEAST_EXPECT(expectLine(env, alice, USD(30'000)));
                 // alice XRP balance is 30,000initial - 50 ammcreate fee -
                 // 10drops fee
                 BEAST_EXPECT(accountBalance(env, alice) == "29949999990");
@@ -5613,71 +5235,6 @@ private:
                         BEAST_EXPECT(!amm->expectBalances(
                             USD(1'000), ETH(1'000), amm->tokens()));
                     }
-                    if (i == 2 && !features[fixAMMv1_1])
-                    {
-                        if (rates.first == 1.5)
-                        {
-                            if (!features[fixAMMv1_1])
-                                BEAST_EXPECT(expectOffers(
-                                    env,
-                                    ed,
-                                    1,
-                                    {{Amounts{
-                                        STAmount{
-                                            ETH,
-                                            UINT64_C(378'6327949540823),
-                                            -13},
-                                        STAmount{
-                                            USD,
-                                            UINT64_C(283'9745962155617),
-                                            -13}}}}));
-                            else
-                                BEAST_EXPECT(expectOffers(
-                                    env,
-                                    ed,
-                                    1,
-                                    {{Amounts{
-                                        STAmount{
-                                            ETH,
-                                            UINT64_C(378'6327949540813),
-                                            -13},
-                                        STAmount{
-                                            USD,
-                                            UINT64_C(283'974596215561),
-                                            -12}}}}));
-                        }
-                        else
-                        {
-                            if (!features[fixAMMv1_1])
-                                BEAST_EXPECT(expectOffers(
-                                    env,
-                                    ed,
-                                    1,
-                                    {{Amounts{
-                                        STAmount{
-                                            ETH,
-                                            UINT64_C(325'299461620749),
-                                            -12},
-                                        STAmount{
-                                            USD,
-                                            UINT64_C(243'9745962155617),
-                                            -13}}}}));
-                            else
-                                BEAST_EXPECT(expectOffers(
-                                    env,
-                                    ed,
-                                    1,
-                                    {{Amounts{
-                                        STAmount{
-                                            ETH,
-                                            UINT64_C(325'299461620748),
-                                            -12},
-                                        STAmount{
-                                            USD,
-                                            UINT64_C(243'974596215561),
-                                            -12}}}}));
-                        }
-                    }
                     else if (i == 2)
                     {
                         if (rates.first == 1.5)
@@ -5747,71 +5304,31 @@ private:
                 {
                     if (rates.first == 1.5)
                     {
-                        if (!features[fixAMMv1_1])
-                        {
-                            BEAST_EXPECT(expectOffers(
-                                env, ed, 1, {{Amounts{ETH(400), USD(250)}}}));
-                            BEAST_EXPECT(expectOffers(
-                                env,
-                                alice,
-                                1,
-                                {{Amounts{
-                                    STAmount{
-                                        USD, UINT64_C(40'5694150420947), -13},
-                                    STAmount{
-                                        ETH, UINT64_C(64'91106406735152), -14},
-                                }}}));
-                        }
-                        else
-                        {
-                            // Ed offer is partially crossed.
-                            // The updated rounding makes limitQuality
-                            // work if both amendments are enabled
-                            BEAST_EXPECT(expectOffers(
-                                env,
-                                ed,
-                                1,
-                                {{Amounts{
-                                    STAmount{
-                                        ETH, UINT64_C(335'0889359326475), -13},
-                                    STAmount{
-                                        USD, UINT64_C(209'4305849579047), -13},
-                                }}}));
-                            BEAST_EXPECT(expectOffers(env, alice, 0));
-                        }
+                        // Ed offer is partially crossed.
+                        // The updated rounding makes limitQuality
+                        // work if both amendments are enabled
+                        BEAST_EXPECT(expectOffers(
+                            env,
+                            ed,
+                            1,
+                            {{Amounts{
+                                STAmount{ETH, UINT64_C(335'0889359326475), -13},
+                                STAmount{USD, UINT64_C(209'4305849579047), -13},
+                            }}}));
+                        BEAST_EXPECT(expectOffers(env, alice, 0));
                     }
                     else
                     {
-                        if (!features[fixAMMv1_1])
-                        {
-                            // Ed offer is partially crossed.
-                            BEAST_EXPECT(expectOffers(
-                                env,
-                                ed,
-                                1,
-                                {{Amounts{
-                                    STAmount{
-                                        ETH, UINT64_C(335'0889359326485), -13},
-                                    STAmount{
-                                        USD, UINT64_C(209'4305849579053), -13},
-                                }}}));
-                            BEAST_EXPECT(expectOffers(env, alice, 0));
-                        }
-                        else
-                        {
-                            // Ed offer is partially crossed.
-                            BEAST_EXPECT(expectOffers(
-                                env,
-                                ed,
-                                1,
-                                {{Amounts{
-                                    STAmount{
-                                        ETH, UINT64_C(335'0889359326475), -13},
-                                    STAmount{
-                                        USD, UINT64_C(209'4305849579047), -13},
-                                }}}));
-                            BEAST_EXPECT(expectOffers(env, alice, 0));
-                        }
+                        // Ed offer is partially crossed.
+                        BEAST_EXPECT(expectOffers(
+                            env,
+                            ed,
+                            1,
+                            {{Amounts{
+                                STAmount{ETH, UINT64_C(335'0889359326475), -13},
+                                STAmount{USD, UINT64_C(209'4305849579047), -13},
+                            }}}));
+                        BEAST_EXPECT(expectOffers(env, alice, 0));
                     }
                 }
             }
@@ -5857,51 +5374,7 @@ private:
                     env.close();
 
                     BEAST_EXPECT(expectLine(env, bob, USD(2'100)));
-
-                    if (i == 2 && !features[fixAMMv1_1])
-                    {
-                        if (rates.first == 1.5)
-                        {
-                            // Liquidity is consumed from AMM strand only
-                            BEAST_EXPECT(amm->expectBalances(
-                                STAmount{ETH, UINT64_C(1'176'66038955758), -11},
-                                USD(850),
-                                amm->tokens()));
-                        }
-                        else
-                        {
-                            BEAST_EXPECT(amm->expectBalances(
-                                STAmount{
-                                    ETH, UINT64_C(1'179'540094339627), -12},
-                                STAmount{USD, UINT64_C(847'7880529867501), -13},
-                                amm->tokens()));
-                            BEAST_EXPECT(expectOffers(
-                                env,
-                                ed,
-                                2,
-                                {{Amounts{
-                                      STAmount{
-                                          ETH,
-                                          UINT64_C(343'3179205198749),
-                                          -13},
-                                      STAmount{
-                                          CAN,
-                                          UINT64_C(343'3179205198749),
-                                          -13},
-                                  },
-                                  Amounts{
-                                      STAmount{
-                                          CAN,
-                                          UINT64_C(362'2119470132499),
-                                          -13},
-                                      STAmount{
-                                          USD,
-                                          UINT64_C(362'2119470132499),
-                                          -13},
-                                  }}}));
-                        }
-                    }
-                    else if (i == 2)
+                    if (i == 2)
                     {
                         if (rates.first == 1.5)
                         {
@@ -5969,7 +5442,12 @@ private:
                         std::uint16_t tfee,
                         bool closeLedger,
                         std::optional<std::uint16_t> extra = std::nullopt) {
-            Env env(*this, features);
+            Env env(
+                *this,
+                envconfig(),
+                features,
+                nullptr,
+                beast::severities::kDisabled);
             fund(env, gw, {alice}, XRP(1'000), {USD(10)});
             AMM amm(
                 env,
@@ -6142,7 +5620,12 @@ private:
         boost::smatch match;
         // tests that succeed should have the same amounts pre-fix and post-fix
         std::vector<std::pair<STAmount, STAmount>> successAmounts;
-        Env env(*this, features);
+        Env env(
+            *this,
+            envconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled);
         auto rules = env.current()->rules();
         CurrentTransactionRulesGuard rg(rules);
         for (auto const& t : tests)
@@ -6174,34 +5657,19 @@ private:
                 {
                     if (status == SucceedShouldSucceedResize)
                     {
-                        if (!features[fixAMMv1_1])
-                            BEAST_EXPECT(Quality{*amounts} < quality);
-                        else
-                            BEAST_EXPECT(Quality{*amounts} >= quality);
+                        BEAST_EXPECT(Quality{*amounts} >= quality);
                     }
                     else if (status == Succeed)
                     {
-                        if (!features[fixAMMv1_1])
-                            BEAST_EXPECT(
-                                Quality{*amounts} >= quality ||
-                                withinRelativeDistance(
-                                    Quality{*amounts}, quality, Number{1, -7}));
-                        else
-                            BEAST_EXPECT(Quality{*amounts} >= quality);
+                        BEAST_EXPECT(Quality{*amounts} >= quality);
                     }
                     else if (status == FailShouldSucceed)
                     {
-                        BEAST_EXPECT(
-                            features[fixAMMv1_1] &&
-                            Quality{*amounts} >= quality);
+                        BEAST_EXPECT(Quality{*amounts} >= quality);
                     }
                     else if (status == SucceedShouldFail)
                     {
-                        BEAST_EXPECT(
-                            !features[fixAMMv1_1] &&
-                            Quality{*amounts} < quality &&
-                            withinRelativeDistance(
-                                Quality{*amounts}, quality, Number{1, -7}));
+                        BEAST_EXPECT(false);
                     }
                 }
                 else
@@ -6244,11 +5712,11 @@ private:
                     }
                     else if (status == FailShouldSucceed)
                     {
-                        BEAST_EXPECT(!features[fixAMMv1_1]);
+                        BEAST_EXPECT(false);
                     }
                     else if (status == SucceedShouldFail)
                     {
-                        BEAST_EXPECT(features[fixAMMv1_1]);
+                        BEAST_EXPECT(true);
                     }
                 }
             }
@@ -6256,8 +5724,7 @@ private:
             {
                 BEAST_EXPECT(
                     !strcmp(e.what(), "changeSpotPriceQuality failed"));
-                BEAST_EXPECT(
-                    !features[fixAMMv1_1] && status == FailShouldSucceed);
+                BEAST_EXPECT(false);
             }
         }
 
@@ -6561,94 +6028,72 @@ private:
              })
         {
             testcase(input.testCase);
-            for (auto const& features :
-                 {all - fixAMMOverflowOffer, all | fixAMMOverflowOffer})
-            {
-                Env env(*this, features);
 
-                env.fund(XRP(5'000), gatehub, bitstamp, trader);
-                env.close();
+            Env env(
+                *this, envconfig(), all, nullptr, beast::severities::kDisabled);
 
-                if (input.rateGH != 0.0)
-                    env(rate(gatehub, input.rateGH));
-                if (input.rateBIT != 0.0)
-                    env(rate(bitstamp, input.rateBIT));
+            env.fund(XRP(5'000), gatehub, bitstamp, trader);
+            env.close();
 
-                env(trust(trader, usdGH(10'000'000)));
-                env(trust(trader, usdBIT(10'000'000)));
-                env(trust(trader, btcGH(10'000'000)));
-                env.close();
+            if (input.rateGH != 0.0)
+                env(rate(gatehub, input.rateGH));
+            if (input.rateBIT != 0.0)
+                env(rate(bitstamp, input.rateBIT));
 
-                env(pay(gatehub, trader, usdGH(100'000)));
-                env(pay(gatehub, trader, btcGH(100'000)));
-                env(pay(bitstamp, trader, usdBIT(100'000)));
-                env.close();
+            env(trust(trader, usdGH(10'000'000)));
+            env(trust(trader, usdBIT(10'000'000)));
+            env(trust(trader, btcGH(10'000'000)));
+            env.close();
 
-                AMM amm{
-                    env,
-                    trader,
-                    usdGH(input.poolUsdGH),
-                    usdBIT(input.poolUsdBIT)};
-                env.close();
+            env(pay(gatehub, trader, usdGH(100'000)));
+            env(pay(gatehub, trader, btcGH(100'000)));
+            env(pay(bitstamp, trader, usdBIT(100'000)));
+            env.close();
 
-                IOUAmount const preSwapLPTokenBalance =
-                    amm.getLPTokensBalance();
+            AMM amm{
+                env, trader, usdGH(input.poolUsdGH), usdBIT(input.poolUsdBIT)};
+            env.close();
 
-                env(offer(trader, usdBIT(1), btcGH(input.offer1BtcGH)));
-                env(offer(
-                    trader,
-                    btcGH(input.offer2BtcGH),
-                    usdGH(input.offer2UsdGH)));
-                env.close();
+            IOUAmount const preSwapLPTokenBalance = amm.getLPTokensBalance();
 
-                env(pay(trader, trader, input.sendUsdGH),
-                    path(~usdGH),
-                    path(~btcGH, ~usdGH),
-                    sendmax(input.sendMaxUsdBIT),
-                    txflags(tfPartialPayment));
-                env.close();
+            env(offer(trader, usdBIT(1), btcGH(input.offer1BtcGH)));
+            env(offer(
+                trader, btcGH(input.offer2BtcGH), usdGH(input.offer2UsdGH)));
+            env.close();
 
-                auto const failUsdGH =
-                    features[fixAMMv1_1] ? input.failUsdGHr : input.failUsdGH;
-                auto const failUsdBIT =
-                    features[fixAMMv1_1] ? input.failUsdBITr : input.failUsdBIT;
-                auto const goodUsdGH =
-                    features[fixAMMv1_1] ? input.goodUsdGHr : input.goodUsdGH;
-                auto const goodUsdBIT =
-                    features[fixAMMv1_1] ? input.goodUsdBITr : input.goodUsdBIT;
-                if (!features[fixAMMOverflowOffer])
-                {
-                    BEAST_EXPECT(amm.expectBalances(
-                        failUsdGH, failUsdBIT, input.lpTokenBalance));
-                }
-                else
-                {
-                    BEAST_EXPECT(amm.expectBalances(
-                        goodUsdGH, goodUsdBIT, input.lpTokenBalance));
+            env(pay(trader, trader, input.sendUsdGH),
+                path(~usdGH),
+                path(~btcGH, ~usdGH),
+                sendmax(input.sendMaxUsdBIT),
+                txflags(tfPartialPayment));
+            env.close();
 
-                    // Invariant: LPToken balance must not change in a
-                    // payment or a swap transaction
-                    BEAST_EXPECT(
-                        amm.getLPTokensBalance() == preSwapLPTokenBalance);
+            auto const failUsdGH = input.failUsdGHr;
+            auto const failUsdBIT = input.failUsdBITr;
+            auto const goodUsdGH = input.goodUsdGHr;
+            auto const goodUsdBIT = input.goodUsdBITr;
 
-                    // Invariant: The square root of (product of the pool
-                    // balances) must be at least the LPTokenBalance
-                    Number const sqrtPoolProduct =
-                        root2(goodUsdGH * goodUsdBIT);
+            BEAST_EXPECT(amm.expectBalances(
+                goodUsdGH, goodUsdBIT, input.lpTokenBalance));
 
-                    // Include a tiny tolerance for the test cases using
-                    //   .goodUsdGH{usdGH, uint64_t(35'44113971506987),
-                    //   -14}, .goodUsdBIT{usdBIT,
-                    //   uint64_t(2'821579689703915), -15},
-                    // These two values multiply
-                    // to 99.99999999999994227040383754105 which gets
-                    // internally rounded to 100, due to representation
-                    // error.
-                    BEAST_EXPECT(
-                        (sqrtPoolProduct + Number{1, -14} >=
-                         input.lpTokenBalance));
-                }
-            }
+            // Invariant: LPToken balance must not change in a
+            // payment or a swap transaction
+            BEAST_EXPECT(amm.getLPTokensBalance() == preSwapLPTokenBalance);
+
+            // Invariant: The square root of (product of the pool
+            // balances) must be at least the LPTokenBalance
+            Number const sqrtPoolProduct = root2(goodUsdGH * goodUsdBIT);
+
+            // Include a tiny tolerance for the test cases using
+            //   .goodUsdGH{usdGH, uint64_t(35'44113971506987),
+            //   -14}, .goodUsdBIT{usdBIT,
+            //   uint64_t(2'821579689703915), -15},
+            // These two values multiply
+            // to 99.99999999999994227040383754105 which gets
+            // internally rounded to 100, due to representation
+            // error.
+            BEAST_EXPECT(
+                (sqrtPoolProduct + Number{1, -14} >= input.lpTokenBalance));
         }
     }
 
@@ -6686,7 +6131,7 @@ private:
             {{xrpPool, iouPool}},
             889,
             std::nullopt,
-            {jtx::supported_amendments() | fixAMMv1_1});
+            {jtx::supported_amendments()});
     }
 
     void
@@ -6713,25 +6158,12 @@ private:
             env(offer(carol, USD(0.49), XRP(1)));
             env.close();
 
-            if (!features[fixAMMv1_1])
-            {
-                BEAST_EXPECT(amm.expectBalances(
-                    XRP(200'000), USD(100'000), amm.tokens()));
-                BEAST_EXPECT(expectOffers(
-                    env, alice, 1, {{Amounts{XRP(1), USD(0.01)}}}));
-                // Carol's offer is blocked by alice's offer
-                BEAST_EXPECT(expectOffers(
-                    env, carol, 1, {{Amounts{USD(0.49), XRP(1)}}}));
-            }
-            else
-            {
-                BEAST_EXPECT(amm.expectBalances(
-                    XRPAmount(200'000'980'005), USD(99'999.51), amm.tokens()));
-                BEAST_EXPECT(expectOffers(
-                    env, alice, 1, {{Amounts{XRP(1), USD(0.01)}}}));
-                // Carol's offer crosses AMM
-                BEAST_EXPECT(expectOffers(env, carol, 0));
-            }
+            BEAST_EXPECT(amm.expectBalances(
+                XRPAmount(200'000'980'005), USD(99'999.51), amm.tokens()));
+            BEAST_EXPECT(
+                expectOffers(env, alice, 1, {{Amounts{XRP(1), USD(0.01)}}}));
+            // Carol's offer crosses AMM
+            BEAST_EXPECT(expectOffers(env, carol, 0));
         }
 
         // There is no blocking offer, the same AMM liquidity is consumed
@@ -6768,31 +6200,18 @@ private:
             AMM amm(env, alice, XRP(1'000), USD(500));
             env(offer(carol, XRP(100), USD(55)));
             env.close();
-            if (!features[fixAMMv1_1])
-            {
-                BEAST_EXPECT(
-                    amm.expectBalances(XRP(1'000), USD(500), amm.tokens()));
-                BEAST_EXPECT(expectOffers(
-                    env, bob, 1, {{Amounts{USD(1), XRPAmount(500)}}}));
-                BEAST_EXPECT(expectOffers(
-                    env, carol, 1, {{Amounts{XRP(100), USD(55)}}}));
-            }
-            else
-            {
-                BEAST_EXPECT(amm.expectBalances(
-                    XRPAmount(909'090'909),
-                    STAmount{USD, UINT64_C(550'000000055), -9},
-                    amm.tokens()));
-                BEAST_EXPECT(expectOffers(
-                    env,
-                    carol,
-                    1,
-                    {{Amounts{
-                        XRPAmount{9'090'909},
-                        STAmount{USD, 4'99999995, -8}}}}));
-                BEAST_EXPECT(expectOffers(
-                    env, bob, 1, {{Amounts{USD(1), XRPAmount(500)}}}));
-            }
+            BEAST_EXPECT(amm.expectBalances(
+                XRPAmount(909'090'909),
+                STAmount{USD, UINT64_C(550'000000055), -9},
+                amm.tokens()));
+            BEAST_EXPECT(expectOffers(
+                env,
+                carol,
+                1,
+                {{Amounts{
+                    XRPAmount{9'090'909}, STAmount{USD, 4'99999995, -8}}}}));
+            BEAST_EXPECT(
+                expectOffers(env, bob, 1, {{Amounts{USD(1), XRPAmount(500)}}}));
         }
 
         // There is no blocking offer, the same AMM liquidity is consumed
@@ -6843,16 +6262,8 @@ private:
             BEAST_EXPECT(
                 lpToken == "1414.213562373095" &&
                 lpTokenBalance == "1414.213562373");
-            if (!features[fixAMMv1_1])
-            {
-                amm.withdrawAll(gw, std::nullopt, ter(tecAMM_BALANCE));
-                BEAST_EXPECT(amm.ammExists());
-            }
-            else
-            {
-                amm.withdrawAll(gw);
-                BEAST_EXPECT(!amm.ammExists());
-            }
+            amm.withdrawAll(gw);
+            BEAST_EXPECT(!amm.ammExists());
         }
 
         // Last Liquidity Provider is the issuer of two tokens, or not
@@ -6879,16 +6290,8 @@ private:
             BEAST_EXPECT(
                 lpToken == "1414.213562373095" &&
                 lpTokenBalance == "1414.213562373");
-            if (!features[fixAMMv1_1])
-            {
-                amm.withdrawAll(lp, std::nullopt, ter(tecAMM_BALANCE));
-                BEAST_EXPECT(amm.ammExists());
-            }
-            else
-            {
-                amm.withdrawAll(lp);
-                BEAST_EXPECT(!amm.ammExists());
-            }
+            amm.withdrawAll(lp);
+            BEAST_EXPECT(!amm.ammExists());
         }
 
         // More than one Liquidity Provider
@@ -7070,8 +6473,7 @@ private:
         testcase("Fix Reserve Check On Withdrawal");
         using namespace jtx;
 
-        auto const err = features[fixAMMv1_2] ? ter(tecINSUFFICIENT_RESERVE)
-                                              : ter(tesSUCCESS);
+        auto const err = ter(tecINSUFFICIENT_RESERVE);
 
         auto test = [&](auto&& cb) {
             Env env(*this, features);
@@ -7128,46 +6530,32 @@ private:
         testFeeVote();
         testInvalidBid();
         testBid(all);
-        testBid(all - fixAMMv1_1);
         testInvalidAMMPayment();
         testBasicPaymentEngine(all);
-        testBasicPaymentEngine(all - fixAMMv1_1);
         testBasicPaymentEngine(all - fixReducedOffersV2);
-        testBasicPaymentEngine(all - fixAMMv1_1 - fixReducedOffersV2);
         testAMMTokens();
         testAmendment();
         testFlags();
         testRippling();
         testAMMAndCLOB(all);
-        testAMMAndCLOB(all - fixAMMv1_1);
         testTradingFee(all);
-        testTradingFee(all - fixAMMv1_1);
         testAdjustedTokens(all);
-        testAdjustedTokens(all - fixAMMv1_1);
         testAutoDelete();
         testClawback();
         testAMMID();
         testSelection(all);
-        testSelection(all - fixAMMv1_1);
         testFixDefaultInnerObj();
         testMalformed();
         testFixOverflowOffer(all);
-        testFixOverflowOffer(all - fixAMMv1_1);
         testSwapRounding();
         testFixChangeSpotPriceQuality(all);
-        testFixChangeSpotPriceQuality(all - fixAMMv1_1);
         testFixAMMOfferBlockedByLOB(all);
-        testFixAMMOfferBlockedByLOB(all - fixAMMv1_1);
         testLPTokenBalance(all);
-        testLPTokenBalance(all - fixAMMv1_1);
         testAMMClawback(all);
         testAMMClawback(all - featureAMMClawback);
-        testAMMClawback(all - fixAMMv1_1 - featureAMMClawback);
         testAMMDepositWithFrozenAssets(all);
         testAMMDepositWithFrozenAssets(all - featureAMMClawback);
-        testAMMDepositWithFrozenAssets(all - fixAMMv1_1 - featureAMMClawback);
         testFixReserveCheckOnWithdrawal(all);
-        testFixReserveCheckOnWithdrawal(all - fixAMMv1_2);
     }
 };
 

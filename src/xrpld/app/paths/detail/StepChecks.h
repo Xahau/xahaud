@@ -61,23 +61,20 @@ checkFreeze(
         }
     }
 
-    if (view.rules().enabled(fixFrozenLPTokenTransfer))
+    if (auto const sleDst = view.read(keylet::account(dst));
+        sleDst && sleDst->isFieldPresent(sfAMMID))
     {
-        if (auto const sleDst = view.read(keylet::account(dst));
-            sleDst && sleDst->isFieldPresent(sfAMMID))
-        {
-            auto const sleAmm = view.read(keylet::amm((*sleDst)[sfAMMID]));
-            if (!sleAmm)
-                return tecINTERNAL;  // LCOV_EXCL_LINE
+        auto const sleAmm = view.read(keylet::amm((*sleDst)[sfAMMID]));
+        if (!sleAmm)
+            return tecINTERNAL;  // LCOV_EXCL_LINE
 
-            if (isLPTokenFrozen(
-                    view,
-                    src,
-                    (*sleAmm)[sfAsset].get<Issue>(),
-                    (*sleAmm)[sfAsset2].get<Issue>()))
-            {
-                return terNO_LINE;
-            }
+        if (isLPTokenFrozen(
+                view,
+                src,
+                (*sleAmm)[sfAsset].get<Issue>(),
+                (*sleAmm)[sfAsset2].get<Issue>()))
+        {
+            return terNO_LINE;
         }
     }
 
