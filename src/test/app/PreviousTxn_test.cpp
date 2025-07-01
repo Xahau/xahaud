@@ -33,7 +33,7 @@ public:
 
         using namespace test::jtx;
         Env env{
-            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+            *this, envconfig(), features, nullptr, beast::severities::kNone};
         auto j = env.app().logs().journal("PreviousTxnID_test");
 
         auto const alice = Account{"alice"};
@@ -173,12 +173,13 @@ public:
                 // This is different from PreviousFields, which shows what
                 // field values changed.
                 //
-                // The bug was that ApplyStateTable::threadItem() was
+                // The bug fixed by the `fixProvisionalDoubleThreading`
+                // amendment was that ApplyStateTable::threadItem() was
                 // modifying the original SLE during provisional metadata
-                // generation, contaminating the "before" state. When final
-                // metadata was generated, the comparison didn't see
-                // PreviousTxnID as a change because both states had the new
-                // value.
+                // generation. This contaminated the "before" state used for
+                // comparison, so when final metadata was generated, the
+                // comparison didn't see PreviousTxnID as a change because both
+                // states had the new value.
                 if (node.isFieldPresent(sfPreviousTxnID))
                 {
                     foundPreviousTxnIDInModified = true;

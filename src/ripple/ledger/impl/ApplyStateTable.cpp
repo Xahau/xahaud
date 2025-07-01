@@ -266,8 +266,7 @@ ApplyStateTable::generateTxMeta(
             auto iter = items_.find(key);
             if (iter != items_.end())
             {
-                auto sle =
-                    iter->second.second;  // This is already a shared_ptr<SLE>
+                auto sle = iter->second.second;
                 if (state.hasPrevTxnID)
                 {
                     sle->setFieldH256(sfPreviousTxnID, state.prevTxnID);
@@ -282,15 +281,6 @@ ApplyStateTable::generateTxMeta(
                 }
             }
         }
-    }
-    else if (
-        !isProvisional && to.rules().enabled(fixProvisionalDoubleThreading))
-    {
-        // For final metadata generation, clear the tracking state
-        // This prevents any confusion if the same ApplyStateTable is reused
-        // Clear the tracking state to prevent any confusion if this
-        // ApplyStateTable instance is reused
-        originalThreadingState_.clear();
     }
 
     return {meta, newMod};

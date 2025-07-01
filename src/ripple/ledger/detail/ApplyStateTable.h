@@ -55,7 +55,9 @@ private:
     XRPAmount dropsDestroyed_{0};
 
     // Track original PreviousTxnID/LgrSeq values to restore after provisional
-    // metadata
+    // metadata. This map is populated during provisional metadata generation
+    // and consumed during final metadata generation. It is not cleared as
+    // the ApplyStateTable instance is single-use per transaction.
     struct ThreadingState
     {
         uint256 prevTxnID;
