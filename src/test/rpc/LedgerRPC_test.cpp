@@ -2792,7 +2792,7 @@ public:
         testcase("ledger_entry Request DID");
         using namespace test::jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this};
+        Env env{*this, supported_amendments() | featureDID};
         Account const alice{"alice"};
 
         env.fund(XRP(10000), alice);

@@ -576,7 +576,9 @@ public:
         auto const USD = gw["USD"];
 
         Env env(
-            *this, features | featureXChainBridge | featurePermissionedDomains);
+            *this,
+            features | featureXChainBridge | featureDID |
+                featurePermissionedDomains);
 
         // Make a lambda we can use to get "account_objects" easily.
         auto acctObjs = [&env](

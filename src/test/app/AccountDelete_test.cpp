@@ -110,7 +110,7 @@ public:
 
         testcase("Basics");
 
-        Env env(*this, features);
+        Env env(*this, features | featureDID);
         Account const alice("alice");
         Account const becky("becky");
         Account const carol("carol");

@@ -386,7 +386,7 @@ struct DID_test : public beast::unit_test::suite
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() | featureDID};
         testEnabled(all);
         testAccountReserve(all);
         testSetInvalid(all);
