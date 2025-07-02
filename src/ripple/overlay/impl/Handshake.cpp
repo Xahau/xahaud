@@ -241,7 +241,7 @@ verifyHandshake(
 
     if (auto const iter = headers.find("Network-ID"); iter != headers.end())
     {
-        std::uint32_t nid;
+        std::uint32_t nid{0};
 
         if (!beast::lexicalCastChecked(nid, std::string(iter->value())))
             throw std::runtime_error("Invalid peer network identifier");
