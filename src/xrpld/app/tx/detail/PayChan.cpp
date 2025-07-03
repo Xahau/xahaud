@@ -705,7 +705,8 @@ PayChanClaim::preflight(PreflightContext const& ctx)
             return temBAD_SIGNATURE;
     }
 
-    if (auto const err = credentials::checkFields(ctx); !isTesSuccess(err))
+    if (auto const err = credentials::checkFields(ctx.tx, ctx.j);
+        !isTesSuccess(err))
         return err;
 
     return tesSUCCESS;
@@ -717,7 +718,8 @@ PayChanClaim::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureCredentials))
         return Transactor::preclaim(ctx);
 
-    if (auto const err = credentials::valid(ctx, ctx.tx[sfAccount]);
+    if (auto const err =
+            credentials::valid(ctx.tx, ctx.view, ctx.tx[sfAccount], ctx.j);
         !isTesSuccess(err))
         return err;
 
@@ -786,7 +788,8 @@ PayChanClaim::doApply()
 
         if (depositAuth)
         {
-            if (auto err = verifyDepositPreauth(ctx_, txAccount, dst, sled);
+            if (auto err = verifyDepositPreauth(
+                    ctx_.tx, ctx_.view(), txAccount, dst, sled, ctx_.journal);
                 !isTesSuccess(err))
                 return err;
         }

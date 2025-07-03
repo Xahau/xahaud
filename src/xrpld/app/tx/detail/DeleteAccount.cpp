@@ -67,7 +67,8 @@ DeleteAccount::preflight(PreflightContext const& ctx)
     if (ctx.tx.isTimeSequenced())
         return temBAD_SEQUENCE;
 
-    if (auto const err = credentials::checkFields(ctx); !isTesSuccess(err))
+    if (auto const err = credentials::checkFields(ctx.tx, ctx.j);
+        !isTesSuccess(err))
         return err;
 
     return tesSUCCESS;
@@ -282,7 +283,8 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
         return tecDST_TAG_NEEDED;
 
     // If credentials are provided - check them anyway
-    if (auto const err = credentials::valid(ctx, account); !isTesSuccess(err))
+    if (auto const err = credentials::valid(ctx.tx, ctx.view, account, ctx.j);
+        !isTesSuccess(err))
         return err;
 
     // if credentials then postpone auth check to doApply, to check for expired
@@ -467,7 +469,8 @@ DeleteAccount::doApply()
     if (ctx_.view().rules().enabled(featureDepositAuth) &&
         ctx_.tx.isFieldPresent(sfCredentialIDs))
     {
-        if (auto err = verifyDepositPreauth(ctx_, account_, dstID, dst);
+        if (auto err = verifyDepositPreauth(
+                ctx_.tx, ctx_.view(), account_, dstID, dst, ctx_.journal);
             !isTesSuccess(err))
             return err;
     }

@@ -445,7 +445,8 @@ EscrowFinish::preflightSigValidated(PreflightContext const& ctx)
         }
     }
 
-    if (auto const err = credentials::checkFields(ctx); !isTesSuccess(err))
+    if (auto const err = credentials::checkFields(ctx.tx, ctx.j);
+        !isTesSuccess(err))
         return err;
 
     // sfOfferSequence was changed to optional, so ensure the behaviour is the
@@ -475,12 +476,13 @@ EscrowFinish::calculateBaseFee(ReadView const& view, STTx const& tx)
 TER
 EscrowFinish::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureCredentials))
-        return Transactor::preclaim(ctx);
-
-    if (auto const err = credentials::valid(ctx, ctx.tx[sfAccount]);
-        !isTesSuccess(err))
-        return err;
+    if (ctx.view.rules().enabled(featureCredentials))
+    {
+        if (auto const err =
+                credentials::valid(ctx.tx, ctx.view, ctx.tx[sfAccount], ctx.j);
+            !isTesSuccess(err))
+            return err;
+    }
 
     return tesSUCCESS;
 }
@@ -595,7 +597,8 @@ EscrowFinish::doApply()
 
     if (ctx_.view().rules().enabled(featureDepositAuth))
     {
-        if (auto err = verifyDepositPreauth(ctx_, account_, destID, sled);
+        if (auto err = verifyDepositPreauth(
+                ctx_.tx, ctx_.view(), account_, destID, sled, ctx_.journal);
             !isTesSuccess(err))
             return err;
     }
