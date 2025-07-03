@@ -238,7 +238,8 @@ Payment::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (auto const err = credentials::checkFields(ctx); !isTesSuccess(err))
+    if (auto const err = credentials::checkFields(ctx.tx, ctx.j);
+        !isTesSuccess(err))
         return err;
 
     return preflight2(ctx);
@@ -358,7 +359,8 @@ Payment::preclaim(PreclaimContext const& ctx)
         }
     }
 
-    if (auto const err = credentials::valid(ctx, ctx.tx[sfAccount]);
+    if (auto const err =
+            credentials::valid(ctx.tx, ctx.view, ctx.tx[sfAccount], ctx.j);
         !isTesSuccess(err))
         return err;
 
@@ -464,8 +466,13 @@ Payment::doApply()
             //  1. If Account == Destination, or
             //  2. If Account is deposit preauthorized by destination.
 
-            if (auto err =
-                    verifyDepositPreauth(ctx_, account_, dstAccountID, sleDst);
+            if (auto err = verifyDepositPreauth(
+                    ctx_.tx,
+                    ctx_.view(),
+                    account_,
+                    dstAccountID,
+                    sleDst,
+                    ctx_.journal);
                 !isTesSuccess(err))
                 return err;
         }
@@ -537,8 +544,13 @@ Payment::doApply()
             ter != tesSUCCESS)
             return ter;
 
-        if (auto err =
-                verifyDepositPreauth(ctx_, account_, dstAccountID, sleDst);
+        if (auto err = verifyDepositPreauth(
+                ctx_.tx,
+                ctx_.view(),
+                account_,
+                dstAccountID,
+                sleDst,
+                ctx_.journal);
             !isTesSuccess(err))
             return err;
 
@@ -660,8 +672,13 @@ Payment::doApply()
         if (dstAmount > dstReserve ||
             sleDst->getFieldAmount(sfBalance) > dstReserve)
         {
-            if (auto err =
-                    verifyDepositPreauth(ctx_, account_, dstAccountID, sleDst);
+            if (auto err = verifyDepositPreauth(
+                    ctx_.tx,
+                    ctx_.view(),
+                    account_,
+                    dstAccountID,
+                    sleDst,
+                    ctx_.journal);
                 !isTesSuccess(err))
                 return err;
         }
