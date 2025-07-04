@@ -862,7 +862,7 @@ Transactor::apply()
         }
 
         // we'll fix this up at the end
-        sle->setFieldAmount(sfBalance, STAmount{XRPAmount{1000000000}});
+        sle->setFieldAmount(sfBalance, STAmount{XRPAmount{100}});
         view().insert(sle);
     }
 
