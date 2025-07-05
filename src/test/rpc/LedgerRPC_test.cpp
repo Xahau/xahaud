@@ -3306,7 +3306,8 @@ public:
                 section.set("normal_consensus_increase_percent", "0");
                 return cfg;
             }),
-            supported_amendments() - featureXahauGenesis};
+            supported_amendments() - featureXahauGenesis -
+                fixProvisionalDoubleThreading};
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";

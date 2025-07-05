@@ -444,7 +444,8 @@ Payment::doApply()
             //             on the TER. But always applying *should*
             //             be safe.
             pv.apply(ctx_.rawView());
-            addWeakTSHFromSandbox(pv);
+            if (!view().rules().enabled(featureIOUIssuerWeakTSH))
+                addWeakTSHFromBalanceChanges(pv);
         }
 
         // TODO: is this right?  If the amount is the correct amount, was

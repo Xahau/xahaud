@@ -188,6 +188,7 @@ protected:
     TER
     doTSH(
         bool strong,  // only do strong TSH iff true, otheriwse only weak
+        std::vector<std::pair<AccountID, bool>> tsh,
         hook::HookStateMap& stateMap,
         std::vector<hook::HookResult>& result,
         std::shared_ptr<STObject const> const& provisionalMeta);
@@ -213,7 +214,7 @@ protected:
         std::shared_ptr<STObject const> const& provisionalMeta);
 
     void
-    addWeakTSHFromSandbox(detail::ApplyViewBase const& pv);
+    addWeakTSHFromBalanceChanges(detail::ApplyViewBase const& pv);
 
     // hooks amendment fields, these are unpopulated and unused unless
     // featureHooks is enabled

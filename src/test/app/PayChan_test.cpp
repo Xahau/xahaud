@@ -5576,6 +5576,22 @@ struct PayChan_test : public beast::unit_test::suite
                 ter(tecFROZEN));
             env.close();
 
+            // clear freeze on alice trustline
+            env(trust(
+                gw, USD(100000), alice, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            // alice close paychan success
+            env(paychan::claim(alice, chan, reqBal, authAmt),
+                txflags(tfClose),
+                ter(tesSUCCESS));
+            env.close();
+
+            // create paychan success
+            chan = channel(alice, bob, env.seq(alice));
+            env(paychan::create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+
             // clear freeze on bob trustline
             env(trust(gw, USD(100000), bob, tfClearFreeze | tfClearDeepFreeze));
             // clear freeze on alice trustline
@@ -5816,6 +5832,53 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testIOUClawback(FeatureBitset features)
+    {
+        testcase("IOU Clawback");
+        using namespace test::jtx;
+        using namespace std::chrono;
+
+        Env env(*this, features);
+        Account alice{"alice"};
+        Account bob{"bob"};
+        Account gw{"gw"};
+
+        env.fund(XRP(1000), alice, bob, gw);
+        env.close();
+
+        auto const USD = gw["USD"];
+
+        // gw sets asfAllowTrustLineClawback
+        env(fset(gw, asfAllowTrustLineClawback));
+        env.close();
+
+        bool const clawbackEnabled = features[featureClawback];
+        if (clawbackEnabled)
+        {
+            env.require(flags(gw, asfAllowTrustLineClawback));
+        }
+        else
+        {
+            env.require(nflags(gw, asfAllowTrustLineClawback));
+        }
+
+        // gw issues 1000 USD to alice
+        env.trust(USD(1000), alice);
+        env(pay(gw, alice, USD(1000)));
+        env.close();
+
+        BEAST_EXPECT(env.balance(alice, USD) == USD(1000));
+        BEAST_EXPECT(env.balance(bob, USD) == USD(0));
+
+        // alice paychan token fails; cannot escrow clawable tokens
+        auto const createResult =
+            clawbackEnabled ? ter(tecNO_PERMISSION) : ter(tesSUCCESS);
+        env(paychan::create(alice, bob, USD(10), 100s, alice.pk()),
+            ter(createResult));
+        env.close();
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testSimple(features);
@@ -5872,6 +5935,7 @@ struct PayChan_test : public beast::unit_test::suite
         testIOUTLINSF(features);
         testIOUMismatchFunding(features);
         testIOUPrecisionLoss(features);
+        testIOUClawback(features);
     }
 
 public:
@@ -5885,6 +5949,7 @@ public:
             all - disallowIncoming - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
         testIOUWithFeats(all - disallowIncoming);
+        testIOUWithFeats(all - featureClawback);
         testIOUWithFeats(all);
         testDepositAuthCreds(all);
     }

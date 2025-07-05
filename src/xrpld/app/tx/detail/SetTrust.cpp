@@ -600,8 +600,8 @@ SetTrust::doApply()
         // Reserve is not scaled by load.
         else if (bReserveIncrease && mPriorBalance < reserveCreate)
         {
-            JLOG(j_.trace()) << "Delay transaction: Insufficent reserve to "
-                                "add trust line.";
+            JLOG(j_.trace())
+                << "Delay transaction: Insufficient reserve to add trust line.";
 
             // Another transaction could provide XRP to the account and then
             // this transaction would succeed.

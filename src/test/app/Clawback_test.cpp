@@ -823,6 +823,19 @@ class Clawback_test : public beast::unit_test::suite
         BEAST_EXPECT(getLineFreezeFlag(env, alice, bob, USD.currency));
     }
 
+    static STAmount
+    lockedAmount(
+        test::jtx::Env const& env,
+        test::jtx::Account const& account,
+        test::jtx::Account const& gw,
+        test::jtx::IOU const& iou)
+    {
+        auto const sle = env.le(keylet::line(account, gw, iou.currency));
+        if (sle->isFieldPresent(sfLockedBalance))
+            return (*sle)[sfLockedBalance];
+        return STAmount(iou, 0);
+    }
+
     void
     testAmountExceedsAvailable(FeatureBitset features)
     {

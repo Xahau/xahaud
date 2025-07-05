@@ -24,6 +24,7 @@
 #include <xrpld/ledger/RawView.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxMeta.h>
 #include <xrpl/protocol/XRPAmount.h>
@@ -53,6 +54,18 @@ private:
     items_t items_;
     XRPAmount dropsDestroyed_{0};
 
+    // Track original PreviousTxnID/LgrSeq values to restore after provisional
+    // metadata. This map is populated during provisional metadata generation
+    // and consumed during final metadata generation. It is not cleared as
+    // the ApplyStateTable instance is single-use per transaction.
+    struct ThreadingState
+    {
+        uint256 prevTxnID;
+        uint32_t prevTxnLgrSeq;
+        bool hasPrevTxnID;
+    };
+    mutable std::map<key_type, ThreadingState> originalThreadingState_;
+
 public:
     ApplyStateTable() = default;
     ApplyStateTable(ApplyStateTable&&) = default;
@@ -73,7 +86,8 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
-        beast::Journal j);
+        beast::Journal j,
+        bool isProvisional = false);
 
     std::optional<TxMeta>
     apply(
@@ -139,8 +153,11 @@ public:
     }
 
 private:
-    static void
-    threadItem(TxMeta& meta, std::shared_ptr<SLE> const& to);
+    void
+    threadItem(
+        TxMeta& meta,
+        std::shared_ptr<SLE> const& to,
+        Rules const& rules);
 
     std::shared_ptr<SLE>
     getForMod(

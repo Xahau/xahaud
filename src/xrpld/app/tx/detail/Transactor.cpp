@@ -1579,15 +1579,15 @@ Transactor::doHookCallback(
 }
 
 void
-Transactor::addWeakTSHFromSandbox(detail::ApplyViewBase const& pv)
+Transactor::addWeakTSHFromBalanceChanges(detail::ApplyViewBase const& pv)
 {
     // If Hooks are enabled then non-issuers who have their TL balance
-    // modified by the execution of the path have the opportunity to have their
-    // weak hooks executed.
+    // modified by the execution of the transaction have the opportunity to have
+    // their weak hooks executed.
     if (ctx_.view().rules().enabled(featureHooks))
     {
-        // anyone whose balance changed as a result of this Pathing is a weak
-        // TSH
+        // anyone whose balance changed as a result of transaction processing is
+        // a weak TSH
         auto bc = pv.balanceChanges(view());
 
         for (auto const& entry : bc)
@@ -1608,14 +1608,12 @@ Transactor::addWeakTSHFromSandbox(detail::ApplyViewBase const& pv)
 TER
 Transactor::doTSH(
     bool strong,  // only strong iff true, only weak iff false
+    std::vector<std::pair<AccountID, bool>> tsh,
     hook::HookStateMap& stateMap,
     std::vector<hook::HookResult>& results,
     std::shared_ptr<STObject const> const& provisionalMeta)
 {
     auto& view = ctx_.view();
-
-    std::vector<std::pair<AccountID, bool>> tsh =
-        hook::getTransactionalStakeHolders(ctx_.tx, view);
 
     // add the extra TSH marked out by the specific transactor (if applicable)
     if (!strong)
@@ -1899,6 +1897,9 @@ Transactor::operator()()
     // application to the ledger
     std::map<AccountID, std::set<uint256>> aawMap;
 
+    std::vector<std::pair<AccountID, bool>> tsh =
+        hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
+
     // Pre-application (Strong TSH) Hooks are executed here
     // These TSH have the right to rollback.
     // Weak TSH and callback are executed post-application.
@@ -1927,7 +1928,7 @@ Transactor::operator()()
             // (who have the right to rollback the txn), any weak TSH will be
             // executed after doApply has been successful (callback as well)
 
-            result = doTSH(true, stateMap, hookResults, {});
+            result = doTSH(true, tsh, stateMap, hookResults, {});
         }
 
         // write state if all chains executed successfully
@@ -2207,7 +2208,23 @@ Transactor::operator()()
         hook::HookStateMap stateMap;
         std::vector<hook::HookResult> weakResults;
 
-        doTSH(false, stateMap, weakResults, proMeta);
+        if (view().rules().enabled(featureIOUIssuerWeakTSH))
+        {
+            // Regardless of the transaction type, if the result changes the
+            // trust line balance, add high and low accounts to weakTSH.
+            ApplyViewImpl& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
+            addWeakTSHFromBalanceChanges(avi);
+        }
+
+        if (!view().rules().enabled(featureIOUIssuerWeakTSH))
+        {
+            // before amendment enabled, we need to get TSHs after txn basic
+            // processing If the object is deleted in cancen txn, it may not
+            // be possible to obtain the appropriate TSH.
+            tsh = hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
+        }
+
+        doTSH(false, tsh, stateMap, weakResults, proMeta);
 
         // execute any hooks that nominated for 'again as weak'
         for (auto const& [accID, hookHashes] : aawMap)
