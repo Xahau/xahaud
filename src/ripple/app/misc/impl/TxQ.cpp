@@ -745,7 +745,6 @@ TxQ::apply(
     // See if the transaction paid a high enough fee that it can go straight
     // into the ledger.
 
-    /* RHTEST
     view.getAndResetKeysTouched();
     if (auto directApplied = tryDirectApply(app, view, tx, flags, j))
     {
@@ -753,7 +752,8 @@ TxQ::apply(
             transactionID, view.getAndResetKeysTouched());
         return *directApplied;
     }
-    */
+
+    return {telCAN_NOT_QUEUE, false};
 
     // If we get past tryDirectApply() without returning then we expect
     // one of the following to occur:
@@ -1930,13 +1930,15 @@ TxQ::tryDirectApply(
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
+    bool const isReplayNetwork = (app.config().NETWORK_ID == 65534);
+
     // Don't attempt to direct apply if the account is not in the ledger.
-    if (!sleAccount && !isFirstImport)
+    if (!sleAccount && !isFirstImport && !isReplayNetwork)
         return {};
 
     std::optional<SeqProxy> txSeqProx;
 
-    if (!isFirstImport)
+    if (!isFirstImport && !isReplayNetwork)
     {
         SeqProxy const acctSeqProx =
             SeqProxy::sequence((*sleAccount)[sfSequence]);
@@ -1949,7 +1951,7 @@ TxQ::tryDirectApply(
     }
 
     FeeLevel64 const requiredFeeLevel =
-        isFirstImport ? FeeLevel64{0} : [this, &view, flags]() {
+        (isFirstImport || isReplayNetwork) ? FeeLevel64{0} : [this, &view, flags]() {
             std::lock_guard lock(mutex_);
             return getRequiredFeeLevel(
                 view, flags, feeMetrics_.getSnapshot(), lock);
@@ -1959,7 +1961,7 @@ TxQ::tryDirectApply(
     // transaction straight into the ledger.
     FeeLevel64 const feeLevelPaid = getFeeLevelPaid(view, *tx);
 
-    if (feeLevelPaid >= requiredFeeLevel)
+    if (feeLevelPaid >= requiredFeeLevel || isReplayNetwork)
     {
         // Attempt to apply the transaction directly.
         auto const transactionID = tx->getTransactionID();

@@ -263,6 +263,9 @@ OpenView::rawTxInsert(
     std::shared_ptr<Serializer const> const& txn,
     std::shared_ptr<Serializer const> const& metaData)
 {
+    if (txExists(key))
+        return;
+
     auto const result = txs_.emplace(
         std::piecewise_construct,
         std::forward_as_tuple(key),
