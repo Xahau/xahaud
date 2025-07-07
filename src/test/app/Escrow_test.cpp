@@ -4238,6 +4238,54 @@ struct Escrow_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testIOUClawback(FeatureBitset features)
+    {
+        testcase("IOU Clawback");
+        using namespace test::jtx;
+        using namespace std::chrono;
+
+        Env env(*this, features);
+        Account alice{"alice"};
+        Account bob{"bob"};
+        Account gw{"gw"};
+
+        env.fund(XRP(1000), alice, bob, gw);
+        env.close();
+
+        auto const USD = gw["USD"];
+
+        // gw sets asfAllowTrustLineClawback
+        env(fset(gw, asfAllowTrustLineClawback));
+        env.close();
+
+        bool const clawbackEnabled = features[featureClawback];
+        if (clawbackEnabled)
+        {
+            env.require(flags(gw, asfAllowTrustLineClawback));
+        }
+        else
+        {
+            env.require(nflags(gw, asfAllowTrustLineClawback));
+        }
+
+        // gw issues 1000 USD to alice
+        env.trust(USD(1000), alice);
+        env(pay(gw, alice, USD(1000)));
+        env.close();
+
+        BEAST_EXPECT(env.balance(alice, USD) == USD(1000));
+        BEAST_EXPECT(env.balance(bob, USD) == USD(0));
+
+        // alice escrows token fails; cannot escrow clawable tokens
+        auto const createResult =
+            clawbackEnabled ? ter(tecNO_PERMISSION) : ter(tesSUCCESS);
+        env(escrow::create(alice, bob, USD(10)),
+            escrow::finish_time(env.now() + 1s),
+            createResult);
+        env.close();
+    }
+
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
     {
@@ -4507,6 +4555,7 @@ struct Escrow_test : public beast::unit_test::suite
         testIOUTLFreeze(features);
         testIOUTLINSF(features);
         testIOUPrecisionLoss(features);
+        testIOUClawback(features);
     }
 
 public:
@@ -4517,6 +4566,7 @@ public:
         FeatureBitset const all{supported_amendments()};
         testWithFeats(all - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
+        testIOUWithFeats(all - featureClawback);
         testIOUWithFeats(all);
         testEscrowID(all);
     }

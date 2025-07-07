@@ -24,6 +24,7 @@
 #include <ripple/app/tx/impl/CashCheck.h>
 #include <ripple/app/tx/impl/Change.h>
 #include <ripple/app/tx/impl/ClaimReward.h>
+#include <ripple/app/tx/impl/Clawback.h>
 #include <ripple/app/tx/impl/CreateCheck.h>
 #include <ripple/app/tx/impl/CreateOffer.h>
 #include <ripple/app/tx/impl/CreateTicket.h>
@@ -108,6 +109,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<DeleteAccount>(ctx);
         case ttACCOUNT_SET:
             return invoke_preflight_helper<SetAccount>(ctx);
+        case ttCLAWBACK:
+            return invoke_preflight_helper<Clawback>(ctx);
         case ttCHECK_CANCEL:
             return invoke_preflight_helper<CancelCheck>(ctx);
         case ttCHECK_CASH:
@@ -231,6 +234,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<DeleteAccount>(ctx);
         case ttACCOUNT_SET:
             return invoke_preclaim<SetAccount>(ctx);
+        case ttCLAWBACK:
+            return invoke_preclaim<Clawback>(ctx);
         case ttCHECK_CANCEL:
             return invoke_preclaim<CancelCheck>(ctx);
         case ttCHECK_CASH:
@@ -316,6 +321,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return DeleteAccount::calculateBaseFee(view, tx);
         case ttACCOUNT_SET:
             return SetAccount::calculateBaseFee(view, tx);
+        case ttCLAWBACK:
+            return Clawback::calculateBaseFee(view, tx);
         case ttCHECK_CANCEL:
             return CancelCheck::calculateBaseFee(view, tx);
         case ttCHECK_CASH:
@@ -441,6 +448,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttACCOUNT_SET: {
             SetAccount p(ctx);
+            return p();
+        }
+        case ttCLAWBACK: {
+            Clawback p(ctx);
             return p();
         }
         case ttCHECK_CANCEL: {

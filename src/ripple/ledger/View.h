@@ -522,7 +522,7 @@ trustAdjustLockedBalance(
     // check for freezes & auth
     {
         TER const result =
-            trustTransferAllowed(view, parties, deltaAmt.issue(), j);
+            trustTransferAllowed(view, parties, deltaAmt.issue(), j, true);
 
         JLOG(j.trace())
             << "trustAdjustLockedBalance: trustTransferAllowed result="
@@ -625,7 +625,8 @@ trustTransferAllowed(
     V& view,
     std::vector<AccountID> const& parties,
     Issue const& issue,
-    beast::Journal const& j)
+    beast::Journal const& j,
+    bool isLocking = false)
 {
     static_assert(
         std::is_same<V, ReadView const>::value ||
@@ -653,6 +654,12 @@ trustTransferAllowed(
         return tecFROZEN;
 
     uint32_t issuerFlags = sleIssuerAcc->getFieldU32(sfFlags);
+
+    // reject the creation of a locked balance (isLocking) if the
+    // issuer has enabled clawback
+    if (isLocking && view.rules().enabled(featureClawback) &&
+        issuerFlags & lsfAllowTrustLineClawback)
+        return tecNO_PERMISSION;
 
     bool requireAuth = issuerFlags & lsfRequireAuth;
 

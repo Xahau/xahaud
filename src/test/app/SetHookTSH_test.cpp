@@ -1237,6 +1237,90 @@ private:
         }
     }
 
+    void
+    testClawbackTSH(FeatureBitset features)
+    {
+        testcase("clawback tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: IOU issuer
+        // tsh issuer
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const holder = Account("bob");
+            env.fund(XRP(1000), issuer, holder);
+            env.close();
+
+            env(fset(issuer, asfAllowTrustLineClawback));
+            env.close();
+
+            env.trust(issuer["USD"](1000), holder);
+            env(pay(issuer, holder, issuer["USD"](1000)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // clawback
+            env(claw(issuer, holder["USD"](1000)), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: IOU issuer
+        // tsh holder
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const holder = Account("bob");
+            env.fund(XRP(1000), issuer, holder);
+            env.close();
+
+            env(fset(issuer, asfAllowTrustLineClawback));
+            env.close();
+
+            env.trust(issuer["USD"](1000), holder);
+            env(pay(issuer, holder, issuer["USD"](1000)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, holder);
+
+            // set tsh hook
+            setTSHHook(env, holder, testStrong);
+
+            // clawback
+            env(claw(issuer, holder["USD"](1000)), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+    }
+
     // DepositPreauth
     // | otxn  | tsh | preauth |
     // |   A   |  A  |    S    |
@@ -5499,6 +5583,7 @@ private:
         testCheckCashTSH(features);
         testCheckCreateTSH(features);
         testClaimRewardTSH(features);
+        testClawbackTSH(features);
         testDepositPreauthTSH(features);
         testEscrowCancelTSH(features);
         testEscrowIDCancelTSH(features);
