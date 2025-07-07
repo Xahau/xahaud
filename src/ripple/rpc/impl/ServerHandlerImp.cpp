@@ -365,8 +365,27 @@ void
 ServerHandlerImp::onUDPMessage(
     std::string const& message,
     boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+    Port const& p,
     std::function<void(std::string const&)> sendResponse)
 {
+    uint8_t static is_peer[65536] = {};
+    auto const port = p.port;
+
+    if (is_peer[port] == 0 /* not yet known */)
+    {
+        is_peer[port] = p.has_peer() ? 1 : 2;
+        std::cout << "set port " << port << " to " << ('0' + is_peer[port]) << "\n";
+    }
+    
+    
+    if (is_peer[port] == 1)
+    {
+        // offload to peer processing
+        // RHUPTO udp peer processing here
+        std::cout << "offload to peer processing\n";
+    }
+    
+
     Json::Value jv;
     if (message.size() > RPC::Tuning::maxRequestSize ||
         !Json::Reader{}.parse(message, jv) || !jv.isObject())

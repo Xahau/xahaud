@@ -192,6 +192,17 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
                 eps.push_back(sp->get_endpoint());
                 sp->run();
             }
+
+            if (port.has_peer())
+            {
+                // peer ports run dual tcp/udp stack
+                if (auto sp = ios_.emplace<UDPDoor<Handler>>(
+                        handler_, io_service_, ports_.back(), j_))
+                {
+                    eps.push_back(sp->get_endpoint());
+                    sp->run();
+                }
+            }
         }
     }
     return eps;
