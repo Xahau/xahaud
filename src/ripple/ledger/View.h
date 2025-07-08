@@ -88,6 +88,13 @@ isFrozen(
     Currency const& currency,
     AccountID const& issuer);
 
+[[nodiscard]] bool
+isDeepFrozen(
+    ReadView const& view,
+    AccountID const& account,
+    Currency const& currency,
+    AccountID const& issuer);
+
 // Returns the amount an account can spend without going into debt.
 //
 // <-- saAmount: amount of currency held by account. May be negative.
@@ -343,6 +350,7 @@ trustCreate(
     const bool bAuth,           // --> authorize account.
     const bool bNoRipple,       // --> others cannot ripple through
     const bool bFreeze,         // --> funds cannot leave
+    bool bDeepFreeze,           // --> can neither receive nor send funds
     STAmount const& saBalance,  // --> balance of account being set.
                                 // Issuer should be noAccount()
     STAmount const& saLimit,    // --> limit for account being set.
@@ -661,6 +669,15 @@ trustTransferAllowed(
         if (p == issue.account)
             continue;
 
+        if (isDeepFrozen(view, p, issue.currency, issue.account))
+        {
+            JLOG(j.trace()) << "trustTransferAllowed: "
+                            // << "parties=[" << parties << "], "
+                            << "issuer: " << issue.account << " "
+                            << "has deep freeze on party: " << p;
+            return tecFROZEN;
+        }
+
         auto const line =
             view.read(keylet::line(p, issue.account, issue.currency));
         if (!line)
@@ -971,6 +988,7 @@ trustTransferLockedBalance(
                         false,                          // authorize account
                         (sleDstAcc->getFlags() & lsfDefaultRipple) == 0,
                         false,                          // freeze trust line
+                        false,                          // deep freeze trust line
                         dstAmt,                         // initial balance
                         Issue(currency, dstAccID),      // limit of zero
                         0,                              // quality in

@@ -120,10 +120,12 @@ enum TrustSetFlags : uint32_t {
     tfClearNoRipple = 0x00040000,
     tfSetFreeze = 0x00100000,
     tfClearFreeze = 0x00200000,
+    tfSetDeepFreeze = 0x00400000,
+    tfClearDeepFreeze = 0x00800000
 };
 constexpr std::uint32_t tfTrustSetMask =
     ~(tfUniversal | tfSetfAuth | tfSetNoRipple | tfClearNoRipple | tfSetFreeze |
-      tfClearFreeze);
+      tfClearFreeze | tfSetDeepFreeze | tfClearDeepFreeze);
 
 // EnableAmendment flags:
 enum EnableAmendmentFlags : std::uint32_t {

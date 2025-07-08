@@ -38,6 +38,14 @@ private:
         std::shared_ptr<SLE> const& buy,
         std::shared_ptr<SLE> const& sell);
 
+    static TER
+    checkAcceptAsset(
+        ReadView const& view,
+        ApplyFlags const flags,
+        AccountID const id,
+        beast::Journal const j,
+        Issue const& issue);
+
 public:
     static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
 

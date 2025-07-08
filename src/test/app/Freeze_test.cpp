@@ -24,32 +24,32 @@
 #include <test/jtx.h>
 
 namespace ripple {
-
+namespace test {
 class Freeze_test : public beast::unit_test::suite
 {
-    static Json::Value
-    getAccountLines(test::jtx::Env& env, test::jtx::Account const& account)
+    // Functions used in debugging
+    Json::Value
+    getAccountOffers(jtx::Env& env, AccountID const& acct)
     {
-        Json::Value jq;
-        jq[jss::account] = account.human();
-        return env.rpc("json", "account_lines", to_string(jq))[jss::result];
+        using namespace test::jtx;
+        Json::Value jv;
+        jv[jss::account] = to_string(acct);
+        return env.rpc("json", "account_offers", to_string(jv))[jss::result];
     }
 
-    static Json::Value
-    getAccountOffers(
-        test::jtx::Env& env,
-        test::jtx::Account const& account,
-        bool current = false)
+    Json::Value
+    getAccountLines(jtx::Env& env, AccountID const& acctId)
     {
-        Json::Value jq;
-        jq[jss::account] = account.human();
-        jq[jss::ledger_index] = current ? "current" : "validated";
-        return env.rpc("json", "account_offers", to_string(jq))[jss::result];
+        using namespace test::jtx;
+        Json::Value jv;
+        jv[jss::account] = to_string(acctId);
+        return env.rpc("json", "account_lines", to_string(jv))[jss::result];
     }
 
-    static bool
+    bool
     checkArraySize(Json::Value const& val, unsigned int size)
     {
+        using namespace test::jtx;
         return val.isArray() && val.size() == size;
     }
 
@@ -60,7 +60,6 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
-        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account alice{"alice"};
@@ -114,7 +113,7 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, bob["USD"](0), tfSetFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -132,10 +131,10 @@ class Freeze_test : public beast::unit_test::suite
             env(offer(bob, G1["USD"](5), XRP(25)));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 6u : 5u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, 5u)))
                 return;
-            auto ff = affected[withTouch ? 4u : 3u][sfModifiedNode.fieldName]
-                              [sfFinalFields.fieldName];
+            auto ff =
+                affected[3u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
             BEAST_EXPECT(
                 ff[sfHighLimit.fieldName] ==
                 bob["USD"](100).value().getJson(JsonOptions::none));
@@ -200,7 +199,7 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, bob["USD"](0), tfClearFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -210,6 +209,193 @@ class Freeze_test : public beast::unit_test::suite
             BEAST_EXPECT(!(ff[jss::Flags].asUInt() & lsfLowFreeze));
             BEAST_EXPECT(!(ff[jss::Flags].asUInt() & lsfHighFreeze));
             env.close();
+        }
+    }
+
+    void
+    testDeepFreeze(FeatureBitset features)
+    {
+        testcase("Deep Freeze");
+
+        using namespace test::jtx;
+        Env env(*this, features);
+
+        Account G1{"G1"};
+        Account A1{"A1"};
+
+        env.fund(XRP(10000), G1, A1);
+        env.close();
+
+        env.trust(G1["USD"](1000), A1);
+        env.close();
+
+        if (features[featureDeepFreeze])
+        {
+            //  test: Issuer deep freezing the trust line in a single
+            //  transaction
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            {
+                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                BEAST_EXPECT(flags & lsfLowFreeze);
+                BEAST_EXPECT(flags & lsfLowDeepFreeze);
+                BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
+                env.close();
+            }
+
+            //  test: Issuer clearing deep freeze and normal freeze in a single
+            //  transaction
+            env(trust(G1, A1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            {
+                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                BEAST_EXPECT(!(flags & (lsfLowFreeze | lsfLowDeepFreeze)));
+                BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
+                env.close();
+            }
+
+            //  test: Issuer deep freezing not already frozen line must fail
+            env(trust(G1, A1["USD"](0), tfSetDeepFreeze),
+                ter(tecNO_PERMISSION));
+
+            env(trust(G1, A1["USD"](0), tfSetFreeze));
+            env.close();
+
+            //  test: Issuer deep freezing already frozen trust line
+            env(trust(G1, A1["USD"](0), tfSetDeepFreeze));
+            {
+                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                BEAST_EXPECT(flags & lsfLowFreeze);
+                BEAST_EXPECT(flags & lsfLowDeepFreeze);
+                BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
+                env.close();
+            }
+
+            //  test: Holder clearing freeze flags has no effect. Each sides'
+            //  flags are independent
+            env(trust(A1, G1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            {
+                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                BEAST_EXPECT(flags & lsfLowFreeze);
+                BEAST_EXPECT(flags & lsfLowDeepFreeze);
+                BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
+                env.close();
+            }
+
+            //  test: Issuer can't clear normal freeze when line is deep frozen
+            env(trust(G1, A1["USD"](0), tfClearFreeze), ter(tecNO_PERMISSION));
+
+            //  test: Issuer clearing deep freeze but normal freeze is still in
+            //  effect
+            env(trust(G1, A1["USD"](0), tfClearDeepFreeze));
+            {
+                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                BEAST_EXPECT(flags & lsfLowFreeze);
+                BEAST_EXPECT(!(flags & lsfLowDeepFreeze));
+                BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
+                env.close();
+            }
+        }
+        else
+        {
+            //  test: applying deep freeze before amendment fails
+            env(trust(G1, A1["USD"](0), tfSetDeepFreeze), ter(temINVALID_FLAG));
+
+            //  test: clearing deep freeze before amendment fails
+            env(trust(G1, A1["USD"](0), tfClearDeepFreeze),
+                ter(temINVALID_FLAG));
+        }
+    }
+
+    void
+    testCreateFrozenTrustline(FeatureBitset features)
+    {
+        testcase("Create Frozen Trustline");
+
+        using namespace test::jtx;
+        Env env(*this, features);
+
+        Account G1{"G1"};
+        Account A1{"A1"};
+
+        env.fund(XRP(10000), G1, A1);
+        env.close();
+
+        // test: can create frozen trustline
+        {
+            env(trust(G1, A1["USD"](1000), tfSetFreeze));
+            auto const flags = getTrustlineFlags(env, 5u, 3u, false);
+            BEAST_EXPECT(flags & lsfLowFreeze);
+            env.close();
+            env.require(lines(A1, 1));
+        }
+
+        // Cleanup
+        env(trust(G1, A1["USD"](0), tfClearFreeze));
+        env.close();
+        env.require(lines(G1, 0));
+        env.require(lines(A1, 0));
+
+        // test: cannot create deep frozen trustline without normal freeze
+        if (features[featureDeepFreeze])
+        {
+            env(trust(G1, A1["USD"](1000), tfSetDeepFreeze),
+                ter(tecNO_PERMISSION));
+            env.close();
+            env.require(lines(A1, 0));
+        }
+
+        // test: can create deep frozen trustline together with normal freeze
+        if (features[featureDeepFreeze])
+        {
+            env(trust(G1, A1["USD"](1000), tfSetFreeze | tfSetDeepFreeze));
+            auto const flags = getTrustlineFlags(env, 5u, 3u, false);
+            BEAST_EXPECT(flags & lsfLowFreeze);
+            BEAST_EXPECT(flags & lsfLowDeepFreeze);
+            env.close();
+            env.require(lines(A1, 1));
+        }
+    }
+
+    void
+    testSetAndClear(FeatureBitset features)
+    {
+        testcase("Freeze Set and Clear");
+
+        using namespace test::jtx;
+        Env env(*this, features);
+
+        Account G1{"G1"};
+        Account A1{"A1"};
+
+        env.fund(XRP(10000), G1, A1);
+        env.close();
+
+        env.trust(G1["USD"](1000), A1);
+        env.close();
+
+        if (features[featureDeepFreeze])
+        {
+            //  test: can't have both set and clear flag families in the same
+            //  transaction
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfClearFreeze),
+                ter(tecNO_PERMISSION));
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfClearDeepFreeze),
+                ter(tecNO_PERMISSION));
+            env(trust(G1, A1["USD"](0), tfSetDeepFreeze | tfClearFreeze),
+                ter(tecNO_PERMISSION));
+            env(trust(G1, A1["USD"](0), tfSetDeepFreeze | tfClearDeepFreeze),
+                ter(tecNO_PERMISSION));
+        }
+        else
+        {
+            //  test: old behavior, transaction succeed with no effect on a
+            //  trust line
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfClearFreeze));
+            {
+                auto affected = env.meta()->getJson(
+                    JsonOptions::none)[sfAffectedNodes.fieldName];
+                BEAST_EXPECT(checkArraySize(
+                    affected, 1u));  // means no trustline changes
+            }
         }
     }
 
@@ -270,7 +456,7 @@ class Freeze_test : public beast::unit_test::suite
             auto offers = env.rpc(
                 "book_offers",
                 std::string("USD/") + G1.human(),
-                "XAH")[jss::result][jss::offers];
+                "XRP")[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
             std::set<std::string> accounts;
@@ -284,7 +470,7 @@ class Freeze_test : public beast::unit_test::suite
             //    test: visible offers where taker_gets is unfrozen issuer
             offers = env.rpc(
                 "book_offers",
-                "XAH",
+                "XRP",
                 std::string("USD/") + G1.human())[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
@@ -345,7 +531,7 @@ class Freeze_test : public beast::unit_test::suite
             //    (should these actually be filtered?)
             offers = env.rpc(
                 "book_offers",
-                "XAH",
+                "XRP",
                 std::string("USD/") + G1.human())[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
@@ -353,7 +539,7 @@ class Freeze_test : public beast::unit_test::suite
             offers = env.rpc(
                 "book_offers",
                 std::string("USD/") + G1.human(),
-                "XAH")[jss::result][jss::offers];
+                "XRP")[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
         }
@@ -378,19 +564,46 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
-        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account A1{"A1"};
+        Account frozenAcc{"A2"};
+        Account deepFrozenAcc{"A3"};
 
         env.fund(XRP(12000), G1);
         env.fund(XRP(1000), A1);
+        env.fund(XRP(1000), frozenAcc);
+        env.fund(XRP(1000), deepFrozenAcc);
         env.close();
 
         env.trust(G1["USD"](1000), A1);
+        env.trust(G1["USD"](1000), frozenAcc);
+        env.trust(G1["USD"](1000), deepFrozenAcc);
         env.close();
 
         env(pay(G1, A1, G1["USD"](1000)));
+        env(pay(G1, frozenAcc, G1["USD"](1000)));
+        env(pay(G1, deepFrozenAcc, G1["USD"](1000)));
+
+        // Freezing and deep freezing some of the trust lines to check deep
+        // freeze and clearing of freeze separately
+        env(trust(G1, frozenAcc["USD"](0), tfSetFreeze));
+        {
+            auto const flags = getTrustlineFlags(env, 2u, 1u);
+            BEAST_EXPECT(flags & lsfLowFreeze);
+            BEAST_EXPECT(!(flags & lsfHighFreeze));
+        }
+        if (features[featureDeepFreeze])
+        {
+            env(trust(
+                G1, deepFrozenAcc["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            {
+                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                BEAST_EXPECT(!(flags & (lsfLowFreeze | lsfLowDeepFreeze)));
+                BEAST_EXPECT(flags & lsfHighFreeze);
+                BEAST_EXPECT(flags & lsfHighDeepFreeze);
+            }
+        }
         env.close();
 
         // TrustSet NoFreeze
@@ -415,16 +628,48 @@ class Freeze_test : public beast::unit_test::suite
         env.require(flags(G1, asfNoFreeze));
         env.require(flags(G1, asfGlobalFreeze));
 
-        //    test: trustlines can't be frozen
-        env(trust(G1, A1["USD"](0), tfSetFreeze));
-        auto affected =
-            env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 2u : 1u)))
-            return;
+        //    test: trustlines can't be frozen when no freeze enacted
+        if (features[featureDeepFreeze])
+        {
+            env(trust(G1, A1["USD"](0), tfSetFreeze), ter(tecNO_PERMISSION));
 
-        auto let =
-            affected[0u][sfModifiedNode.fieldName][sfLedgerEntryType.fieldName];
-        BEAST_EXPECT(let == jss::AccountRoot);
+            // test: cannot deep freeze already frozen line when no freeze
+            // enacted
+            env(trust(G1, frozenAcc["USD"](0), tfSetDeepFreeze),
+                ter(tecNO_PERMISSION));
+        }
+        else
+        {
+            //  test: previous functionality, checking there's no changes to a
+            //  trust line
+            env(trust(G1, A1["USD"](0), tfSetFreeze));
+            auto affected = env.meta()->getJson(
+                JsonOptions::none)[sfAffectedNodes.fieldName];
+            if (!BEAST_EXPECT(checkArraySize(affected, 1u)))
+                return;
+
+            auto let = affected[0u][sfModifiedNode.fieldName]
+                               [sfLedgerEntryType.fieldName];
+            BEAST_EXPECT(let == jss::AccountRoot);
+        }
+
+        //  test: can clear freeze on account
+        env(trust(G1, frozenAcc["USD"](0), tfClearFreeze));
+        {
+            auto const flags = getTrustlineFlags(env, 2u, 1u);
+            BEAST_EXPECT(!(flags & lsfLowFreeze));
+        }
+
+        if (features[featureDeepFreeze])
+        {
+            //  test: can clear deep freeze on account
+            env(trust(G1, deepFrozenAcc["USD"](0), tfClearDeepFreeze));
+            {
+                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                BEAST_EXPECT(flags & lsfHighFreeze);
+                BEAST_EXPECT(!(flags & lsfHighDeepFreeze));
+            }
+        }
     }
 
     void
@@ -434,7 +679,6 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
-        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account A2{"A2"};
@@ -478,7 +722,7 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A3["USD"](0), tfSetFreeze));
         auto affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
             return;
         auto ff =
             affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -508,10 +752,9 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A4["USD"](0), tfSetFreeze));
         affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
             return;
-        ff = affected[withTouch ? 1u : 0u][sfModifiedNode.fieldName]
-                     [sfFinalFields.fieldName];
+        ff = affected[0u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
         BEAST_EXPECT(
             ff[sfLowLimit.fieldName] ==
             G1["USD"](0).value().getJson(JsonOptions::none));
@@ -525,7 +768,7 @@ class Freeze_test : public beast::unit_test::suite
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
         if (!BEAST_EXPECT(checkArraySize(affected, 8u)))
             return;
-        auto created = affected[5u][sfCreatedNode.fieldName];
+        auto created = affected[0u][sfCreatedNode.fieldName];
         BEAST_EXPECT(
             created[sfNewFields.fieldName][jss::Account] == A2.human());
         env.close();
@@ -536,23 +779,1171 @@ class Freeze_test : public beast::unit_test::suite
             return;
     }
 
+    void
+    testOffersWhenDeepFrozen(FeatureBitset features)
+    {
+        testcase("Offers on frozen trust lines");
+
+        using namespace test::jtx;
+        Env env(*this, features);
+
+        Account G1{"G1"};
+        Account A1{"A1"};
+        Account A2{"A2"};
+        Account A3{"A3"};
+        auto const USD{G1["USD"]};
+
+        env.fund(XRP(10000), G1, A1, A2, A3);
+        env.close();
+
+        auto const limit = USD(10000);
+        env.trust(limit, A1, A2, A3);
+        env.close();
+
+        env(pay(G1, A1, USD(1000)));
+        env(pay(G1, A2, USD(1000)));
+        env.close();
+
+        // Making large passive sell offer
+        // Wants to sell 50 USD for 100 XRP
+        env(offer(A2, XRP(100), USD(50)), txflags(tfPassive));
+        env.close();
+        // Making large passive buy offer
+        // Wants to buy 100 USD for 100 XRP
+        env(offer(A3, USD(100), XRP(100)), txflags(tfPassive));
+        env.close();
+        env.require(offers(A2, 1), offers(A3, 1));
+
+        // Checking A1 can buy from A2 by crossing it's offer
+        env(offer(A1, USD(1), XRP(2)), txflags(tfFillOrKill));
+        env.close();
+        env.require(balance(A1, USD(1001)), balance(A2, USD(999)));
+
+        // Checking A1 can sell to A3 by crossing it's offer
+        env(offer(A1, XRP(1), USD(1)), txflags(tfFillOrKill));
+        env.close();
+        env.require(balance(A1, USD(1000)), balance(A3, USD(1)));
+
+        // Testing aggressive and passive offer placing, trustline frozen by
+        // the issuer
+        {
+            env(trust(G1, A1["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: can still make passive buy offer
+            env(offer(A1, USD(1), XRP(0.5)), txflags(tfPassive));
+            env.close();
+            env.require(balance(A1, USD(1000)), offers(A1, 1));
+            // Cleanup
+            env(offer_cancel(A1, env.seq(A1) - 1));
+            env.require(offers(A1, 0));
+            env.close();
+
+            // test: can still buy from A2
+            env(offer(A1, USD(1), XRP(2)), txflags(tfFillOrKill));
+            env.close();
+            env.require(
+                balance(A1, USD(1001)), balance(A2, USD(998)), offers(A1, 0));
+
+            // test: cannot create passive sell offer
+            env(offer(A1, XRP(2), USD(1)),
+                txflags(tfPassive),
+                ter(tecUNFUNDED_OFFER));
+            env.close();
+            env.require(balance(A1, USD(1001)), offers(A1, 0));
+
+            // test: cannot sell to A3
+            env(offer(A1, XRP(1), USD(1)),
+                txflags(tfFillOrKill),
+                ter(tecUNFUNDED_OFFER));
+            env.close();
+            env.require(balance(A1, USD(1001)), offers(A1, 0));
+
+            env(trust(G1, A1["USD"](0), tfClearFreeze));
+            env.close();
+        }
+
+        // Testing aggressive and passive offer placing, trustline deep frozen
+        // by the issuer
+        if (features[featureDeepFreeze])
+        {
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: cannot create passive buy offer
+            env(offer(A1, USD(1), XRP(0.5)),
+                txflags(tfPassive),
+                ter(tecFROZEN));
+            env.close();
+
+            // test: cannot buy from A2
+            env(offer(A1, USD(1), XRP(2)),
+                txflags(tfFillOrKill),
+                ter(tecFROZEN));
+            env.close();
+
+            // test: cannot create passive sell offer
+            env(offer(A1, XRP(2), USD(1)),
+                txflags(tfPassive),
+                ter(tecUNFUNDED_OFFER));
+            env.close();
+
+            // test: cannot sell to A3
+            env(offer(A1, XRP(1), USD(1)),
+                txflags(tfFillOrKill),
+                ter(tecUNFUNDED_OFFER));
+            env.close();
+
+            env(trust(G1, A1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+            env.require(balance(A1, USD(1001)), offers(A1, 0));
+        }
+
+        // Testing already existing offers behavior after trustline is frozen by
+        // the issuer
+        {
+            env.require(balance(A1, USD(1001)));
+            env(offer(A1, XRP(1.9), USD(1)));
+            env(offer(A1, USD(1), XRP(1.1)));
+            env.close();
+            env.require(balance(A1, USD(1001)), offers(A1, 2));
+
+            env(trust(G1, A1["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: A2 wants to sell to A1, must succeed
+            env.require(balance(A1, USD(1001)), balance(A2, USD(998)));
+            env(offer(A2, XRP(1.1), USD(1)), txflags(tfFillOrKill));
+            env.close();
+            env.require(
+                balance(A1, USD(1002)), balance(A2, USD(997)), offers(A1, 1));
+
+            // test: A3 wants to buy from A1, must fail
+            env.require(
+                balance(A1, USD(1002)), balance(A3, USD(1)), offers(A1, 1));
+            env(offer(A3, USD(1), XRP(1.9)),
+                txflags(tfFillOrKill),
+                ter(tecKILLED));
+            env.close();
+            env.require(
+                balance(A1, USD(1002)), balance(A3, USD(1)), offers(A1, 0));
+
+            env(trust(G1, A1["USD"](0), tfClearFreeze));
+            env.close();
+        }
+
+        // Testing existing offers behavior after trustline is deep frozen by
+        // the issuer
+        if (features[featureDeepFreeze])
+        {
+            env.require(balance(A1, USD(1002)));
+            env(offer(A1, XRP(1.9), USD(1)));
+            env(offer(A1, USD(1), XRP(1.1)));
+            env.close();
+            env.require(balance(A1, USD(1002)), offers(A1, 2));
+
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A2 wants to sell to A1, must fail
+            env.require(balance(A1, USD(1002)), balance(A2, USD(997)));
+            env(offer(A2, XRP(1.1), USD(1)),
+                txflags(tfFillOrKill),
+                ter(tecKILLED));
+            env.close();
+            env.require(
+                balance(A1, USD(1002)), balance(A2, USD(997)), offers(A1, 1));
+
+            // test: A3 wants to buy from A1, must fail
+            env.require(
+                balance(A1, USD(1002)), balance(A3, USD(1)), offers(A1, 1));
+            env(offer(A3, USD(1), XRP(1.9)),
+                txflags(tfFillOrKill),
+                ter(tecKILLED));
+            env.close();
+            env.require(
+                balance(A1, USD(1002)), balance(A3, USD(1)), offers(A1, 0));
+
+            env(trust(G1, A1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Testing aggressive and passive offer placing, trustline frozen by
+        // the holder
+        {
+            env(trust(A1, limit, tfSetFreeze));
+            env.close();
+
+            // test: A1 can make passive buy offer
+            env(offer(A1, USD(1), XRP(0.5)), txflags(tfPassive));
+            env.close();
+            env.require(balance(A1, USD(1002)), offers(A1, 1));
+            //  Cleanup
+            env(offer_cancel(A1, env.seq(A1) - 1));
+            env.require(offers(A1, 0));
+            env.close();
+
+            // test: A1 wants to buy, must fail
+            if (features[featureFlowCross])
+            {
+                env(offer(A1, USD(1), XRP(2)),
+                    txflags(tfFillOrKill),
+                    ter(tecKILLED));
+                env.close();
+                env.require(
+                    balance(A1, USD(1002)),
+                    balance(A2, USD(997)),
+                    offers(A1, 0));
+            }
+            else
+            {
+                // The transaction that should be here would succeed.
+                // I don't want to adjust balances in following tests. Flow
+                // cross feature flag is not relevant to this particular test
+                // case so we're not missing out some corner cases checks.
+            }
+
+            // test: A1 can create passive sell offer
+            env(offer(A1, XRP(2), USD(1)), txflags(tfPassive));
+            env.close();
+            env.require(balance(A1, USD(1002)), offers(A1, 1));
+            // Cleanup
+            env(offer_cancel(A1, env.seq(A1) - 1));
+            env.require(offers(A1, 0));
+            env.close();
+
+            // test: A1 can sell to A3
+            env(offer(A1, XRP(1), USD(1)), txflags(tfFillOrKill));
+            env.close();
+            env.require(balance(A1, USD(1001)), offers(A1, 0));
+
+            env(trust(A1, limit, tfClearFreeze));
+            env.close();
+        }
+
+        // Testing aggressive and passive offer placing, trustline deep frozen
+        // by the holder
+        if (features[featureDeepFreeze])
+        {
+            env(trust(A1, limit, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A1 cannot create passive buy offer
+            env(offer(A1, USD(1), XRP(0.5)),
+                txflags(tfPassive),
+                ter(tecFROZEN));
+            env.close();
+
+            // test: A1 cannot buy, must fail
+            env(offer(A1, USD(1), XRP(2)),
+                txflags(tfFillOrKill),
+                ter(tecFROZEN));
+            env.close();
+
+            // test: A1 cannot create passive sell offer
+            env(offer(A1, XRP(2), USD(1)),
+                txflags(tfPassive),
+                ter(tecUNFUNDED_OFFER));
+            env.close();
+
+            // test: A1 cannot sell to A3
+            env(offer(A1, XRP(1), USD(1)),
+                txflags(tfFillOrKill),
+                ter(tecUNFUNDED_OFFER));
+            env.close();
+
+            env(trust(A1, limit, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+    }
+
+    void
+    testPathsWhenFrozen(FeatureBitset features)
+    {
+        testcase("Longer paths payment on frozen trust lines");
+        using namespace test::jtx;
+        using path = test::jtx::path;
+
+        Env env(*this, features);
+        Account G1{"G1"};
+        Account A1{"A1"};
+        Account A2{"A2"};
+        auto const USD{G1["USD"]};
+
+        env.fund(XRP(10000), G1, A1, A2);
+        env.close();
+
+        auto const limit = USD(10000);
+        env.trust(limit, A1, A2);
+        env.close();
+
+        env(pay(G1, A1, USD(1000)));
+        env(pay(G1, A2, USD(1000)));
+        env.close();
+
+        env(offer(A2, XRP(100), USD(100)), txflags(tfPassive));
+        env.close();
+
+        // Testing payments A1 <-> G1 using offer from A2 frozen by issuer.
+        {
+            env(trust(G1, A2["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: A1 cannot send USD using XRP through A2 offer
+            env(pay(A1, G1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            // test: G1 cannot send USD using XRP through A2 offer
+            env(pay(G1, A1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze));
+            env.close();
+        }
+
+        // Testing payments A1 <-> G1 using offer from A2 deep frozen by issuer.
+        if (features[featureDeepFreeze])
+        {
+            env(trust(G1, A2["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A1 cannot send USD using XRP through A2 offer
+            env(pay(A1, G1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            // test: G1 cannot send USD using XRP through A2 offer
+            env(pay(G1, A1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Testing payments A1 <-> G1 using offer from A2 frozen by currency
+        // holder.
+        {
+            env(trust(A2, limit, tfSetFreeze));
+            env.close();
+
+            // test: A1 can send USD using XRP through A2 offer
+            env(pay(A1, G1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect));
+            env.close();
+
+            // test: G1 can send USD using XRP through A2 offer
+            env(pay(G1, A1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze));
+            env.close();
+        }
+
+        // Testing payments A1 <-> G1 using offer from A2 deep frozen by
+        // currency holder.
+        if (features[featureDeepFreeze])
+        {
+            env(trust(A2, limit, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A1 cannot send USD using XRP through A2 offer
+            env(pay(A1, G1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            // test: G1 cannot send USD using XRP through A2 offer
+            env(pay(G1, A1, USD(10)),
+                path(~USD),
+                sendmax(XRP(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Cleanup
+        env(offer_cancel(A1, env.seq(A1) - 1));
+        env.require(offers(A1, 0));
+        env.close();
+
+        env(offer(A2, USD(100), XRP(100)), txflags(tfPassive));
+        env.close();
+
+        // Testing payments A1 <-> G1 using offer from A2 frozen by issuer.
+        {
+            env(trust(G1, A2["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: A1 can send XRP using USD through A2 offer
+            env(pay(A1, G1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect));
+            env.close();
+
+            // test: G1 can send XRP using USD through A2 offer
+            env(pay(G1, A1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze));
+            env.close();
+        }
+
+        // Testing payments A1 <-> G1 using offer from A2 deep frozen by
+        // issuer.
+        if (features[featureDeepFreeze])
+        {
+            env(trust(G1, A2["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A1 cannot send XRP using USD through A2 offer
+            env(pay(A1, G1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            // test: G1 cannot send XRP using USD through A2 offer
+            env(pay(G1, A1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Testing payments A1 <-> G1 using offer from A2 frozen by currency
+        // holder.
+        {
+            env(trust(A2, limit, tfSetFreeze));
+            env.close();
+
+            // test: A1 can send XRP using USD through A2 offer
+            env(pay(A1, G1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect));
+            env.close();
+
+            // test: G1 can send XRP using USD through A2 offer
+            env(pay(G1, A1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze));
+            env.close();
+        }
+
+        // Testing payments A1 <-> G1 using offer from A2 deep frozen by
+        // currency holder.
+        if (features[featureDeepFreeze])
+        {
+            env(trust(A2, limit, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A1 cannot send XRP using USD through A2 offer
+            env(pay(A1, G1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            // test: G1 cannot send XRP using USD through A2 offer
+            env(pay(G1, A1, XRP(10)),
+                path(~XRP),
+                sendmax(USD(11)),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Cleanup
+        env(offer_cancel(A1, env.seq(A1) - 1));
+        env.require(offers(A1, 0));
+        env.close();
+    }
+
+    void
+    testPaymentsWhenDeepFrozen(FeatureBitset features)
+    {
+        testcase("Direct payments on frozen trust lines");
+
+        using namespace test::jtx;
+        Env env(*this, features);
+
+        Account G1{"G1"};
+        Account A1{"A1"};
+        Account A2{"A2"};
+        auto const USD{G1["USD"]};
+
+        env.fund(XRP(10000), G1, A1, A2);
+        env.close();
+
+        auto const limit = USD(10000);
+        env.trust(limit, A1, A2);
+        env.close();
+
+        env(pay(G1, A1, USD(1000)));
+        env(pay(G1, A2, USD(1000)));
+        env.close();
+
+        // Checking payments before freeze
+        // To issuer:
+        env(pay(A1, G1, USD(1)));
+        env(pay(A2, G1, USD(1)));
+        env.close();
+
+        // To each other:
+        env(pay(A1, A2, USD(1)));
+        env(pay(A2, A1, USD(1)));
+        env.close();
+
+        // Freeze A1
+        env(trust(G1, A1["USD"](0), tfSetFreeze));
+        env.close();
+
+        // Issuer and A1 can send payments to each other
+        env(pay(A1, G1, USD(1)));
+        env(pay(G1, A1, USD(1)));
+        env.close();
+
+        // A1 cannot send tokens to A2
+        env(pay(A1, A2, USD(1)), ter(tecPATH_DRY));
+
+        // A2 can still send to A1
+        env(pay(A2, A1, USD(1)));
+        env.close();
+
+        if (features[featureDeepFreeze])
+        {
+            // Deep freeze A1
+            env(trust(G1, A1["USD"](0), tfSetDeepFreeze));
+            env.close();
+
+            // Issuer and A1 can send payments to each other
+            env(pay(A1, G1, USD(1)));
+            env(pay(G1, A1, USD(1)));
+            env.close();
+
+            // A1 cannot send tokens to A2
+            env(pay(A1, A2, USD(1)), ter(tecPATH_DRY));
+
+            // A2 cannot send tokens to A1
+            env(pay(A2, A1, USD(1)), ter(tecPATH_DRY));
+
+            // Clear deep freeze on A1
+            env(trust(G1, A1["USD"](0), tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Clear freeze on A1
+        env(trust(G1, A1["USD"](0), tfClearFreeze));
+        env.close();
+
+        // A1 freezes trust line
+        env(trust(A1, limit, tfSetFreeze));
+        env.close();
+
+        // Issuer and A2 must not be affected
+        env(pay(A2, G1, USD(1)));
+        env(pay(G1, A2, USD(1)));
+        env.close();
+
+        // A1 can send tokens to the issuer
+        env(pay(A1, G1, USD(1)));
+        env.close();
+        // A1 can send tokens to A2
+        env(pay(A1, A2, USD(1)));
+        env.close();
+
+        // Issuer can sent tokens to A1
+        env(pay(G1, A1, USD(1)));
+        // A2 cannot send tokens to A1
+        env(pay(A2, A1, USD(1)), ter(tecPATH_DRY));
+
+        if (features[featureDeepFreeze])
+        {
+            // A1 deep freezes trust line
+            env(trust(A1, limit, tfSetDeepFreeze));
+            env.close();
+
+            // Issuer and A2 must not be affected
+            env(pay(A2, G1, USD(1)));
+            env(pay(G1, A2, USD(1)));
+            env.close();
+
+            // A1 can still send token to issuer
+            env(pay(A1, G1, USD(1)));
+            env.close();
+
+            // Issuer can send tokens to A1
+            env(pay(G1, A1, USD(1)));
+            // A2 cannot send tokens to A1
+            env(pay(A2, A1, USD(1)), ter(tecPATH_DRY));
+            // A1 cannot send tokens to A2
+            env(pay(A1, A2, USD(1)), ter(tecPATH_DRY));
+        }
+    }
+
+    void
+    testChecksWhenFrozen(FeatureBitset features)
+    {
+        testcase("Checks on frozen trust lines");
+
+        using namespace test::jtx;
+        Env env(*this, features);
+
+        Account G1{"G1"};
+        Account A1{"A1"};
+        Account A2{"A2"};
+        auto const USD{G1["USD"]};
+
+        env.fund(XRP(10000), G1, A1, A2);
+        env.close();
+
+        auto const limit = USD(10000);
+        env.trust(limit, A1, A2);
+        env.close();
+
+        env(pay(G1, A1, USD(1000)));
+        env(pay(G1, A2, USD(1000)));
+        env.close();
+
+        // Confirming we can write and cash checks
+        {
+            uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+            env(check::create(G1, A1, USD(10)));
+            env.close();
+            env(check::cash(A1, checkId, USD(10)));
+            env.close();
+        }
+
+        {
+            uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+            env(check::create(G1, A2, USD(10)));
+            env.close();
+            env(check::cash(A2, checkId, USD(10)));
+            env.close();
+        }
+
+        {
+            uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+            env(check::create(A1, G1, USD(10)));
+            env.close();
+            env(check::cash(G1, checkId, USD(10)));
+            env.close();
+        }
+
+        {
+            uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+            env(check::create(A1, A2, USD(10)));
+            env.close();
+            env(check::cash(A2, checkId, USD(10)));
+            env.close();
+        }
+
+        {
+            uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+            env(check::create(A2, G1, USD(10)));
+            env.close();
+            env(check::cash(G1, checkId, USD(10)));
+            env.close();
+        }
+
+        {
+            uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+            env(check::create(A2, A1, USD(10)));
+            env.close();
+            env(check::cash(A1, checkId, USD(10)));
+            env.close();
+        }
+
+        // Testing creation and cashing of checks on a trustline frozen by
+        // issuer
+        {
+            env(trust(G1, A1["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: issuer writes check to A1.
+            {
+                uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+                env(check::create(G1, A1, USD(10)));
+                env.close();
+                env(check::cash(A1, checkId, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A2 writes check to A1.
+            {
+                uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+                env(check::create(A2, A1, USD(10)));
+                env.close();
+                // Same as previous test
+                env(check::cash(A1, checkId, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A1 writes check to issuer
+            {
+                env(check::create(A1, G1, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A1 writes check to A2
+            {
+                // Same as previous test
+                env(check::create(A1, A2, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // Unfreeze the trustline to create a couple of checks so that we
+            // could try to cash them later when the trustline is frozen again.
+            env(trust(G1, A1["USD"](0), tfClearFreeze));
+            env.close();
+
+            uint256 const checkId1{getCheckIndex(A1, env.seq(A1))};
+            env(check::create(A1, G1, USD(10)));
+            env.close();
+            uint256 const checkId2{getCheckIndex(A1, env.seq(A1))};
+            env(check::create(A1, A2, USD(10)));
+            env.close();
+
+            env(trust(G1, A1["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: issuer tries to cash the check from A1
+            {
+                env(check::cash(G1, checkId1, USD(10)), ter(tecPATH_PARTIAL));
+                env.close();
+            }
+
+            // test: A2 tries to cash the check from A1
+            {
+                env(check::cash(A2, checkId2, USD(10)), ter(tecPATH_PARTIAL));
+                env.close();
+            }
+
+            env(trust(G1, A1["USD"](0), tfClearFreeze));
+            env.close();
+        }
+
+        // Testing creation and cashing of checks on a trustline deep frozen by
+        // issuer
+        if (features[featureDeepFreeze])
+        {
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: issuer writes check to A1.
+            {
+                uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+                env(check::create(G1, A1, USD(10)));
+                env.close();
+
+                env(check::cash(A1, checkId, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A2 writes check to A1.
+            {
+                uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+                env(check::create(A2, A1, USD(10)));
+                env.close();
+                // Same as previous test
+                env(check::cash(A1, checkId, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A1 writes check to issuer
+            {
+                env(check::create(A1, G1, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A1 writes check to A2
+            {
+                // Same as previous test
+                env(check::create(A1, A2, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // Unfreeze the trustline to create a couple of checks so that we
+            // could try to cash them later when the trustline is frozen again.
+            env(trust(G1, A1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            uint256 const checkId1{getCheckIndex(A1, env.seq(A1))};
+            env(check::create(A1, G1, USD(10)));
+            env.close();
+            uint256 const checkId2{getCheckIndex(A1, env.seq(A1))};
+            env(check::create(A1, A2, USD(10)));
+            env.close();
+
+            env(trust(G1, A1["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: issuer tries to cash the check from A1
+            {
+                env(check::cash(G1, checkId1, USD(10)), ter(tecPATH_PARTIAL));
+                env.close();
+            }
+
+            // test: A2 tries to cash the check from A1
+            {
+                env(check::cash(A2, checkId2, USD(10)), ter(tecPATH_PARTIAL));
+                env.close();
+            }
+
+            env(trust(G1, A1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Testing creation and cashing of checks on a trustline frozen by
+        // a currency holder
+        {
+            env(trust(A1, limit, tfSetFreeze));
+            env.close();
+
+            // test: issuer writes check to A1.
+            {
+                env(check::create(G1, A1, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A2 writes check to A1.
+            {
+                env(check::create(A2, A1, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A1 writes check to issuer
+            {
+                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                env(check::create(A1, G1, USD(10)));
+                env.close();
+                env(check::cash(G1, checkId, USD(10)));
+                env.close();
+            }
+
+            // test: A1 writes check to A2
+            {
+                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                env(check::create(A1, A2, USD(10)));
+                env.close();
+                env(check::cash(A2, checkId, USD(10)));
+                env.close();
+            }
+
+            env(trust(A1, limit, tfClearFreeze));
+            env.close();
+        }
+
+        // Testing creation and cashing of checks on a trustline deep frozen by
+        // a currency holder
+        if (features[featureDeepFreeze])
+        {
+            env(trust(A1, limit, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: issuer writes check to A1.
+            {
+                env(check::create(G1, A1, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A2 writes check to A1.
+            {
+                env(check::create(A2, A1, USD(10)), ter(tecFROZEN));
+                env.close();
+            }
+
+            // test: A1 writes check to issuer
+            {
+                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                env(check::create(A1, G1, USD(10)));
+                env.close();
+                env(check::cash(G1, checkId, USD(10)), ter(tecPATH_PARTIAL));
+                env.close();
+            }
+
+            // test: A1 writes check to A2
+            {
+                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                env(check::create(A1, A2, USD(10)));
+                env.close();
+                env(check::cash(A2, checkId, USD(10)), ter(tecPATH_PARTIAL));
+                env.close();
+            }
+
+            env(trust(A1, limit, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+    }
+
+    void
+    testNFTOffersWhenFreeze(FeatureBitset features)
+    {
+        testcase("NFT offers on frozen trust lines");
+        using namespace test::jtx;
+
+        Env env(*this, features);
+        Account G1{"G1"};
+        Account A1{"A1"};
+        Account A2{"A2"};
+        auto const USD{G1["USD"]};
+
+        env.fund(XRP(10000), G1, A1, A2);
+        env.close();
+
+        auto const limit = USD(10000);
+        env.trust(limit, A1, A2);
+        env.close();
+
+        env(pay(G1, A1, USD(1000)));
+        env(pay(G1, A2, USD(1000)));
+        env.close();
+
+        // Testing A2 nft offer sell when A2 frozen by issuer
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A2, USD(10));
+            env(trust(G1, A2["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: A2 can still receive USD for his NFT
+            env(token::acceptSellOffer(A1, sellOfferIndex));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze));
+            env.close();
+        }
+
+        // Testing A2 nft offer sell when A2 deep frozen by issuer
+        if (features[featureDeepFreeze])
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A2, USD(10));
+
+            env(trust(G1, A2["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A2 cannot receive USD for his NFT
+            env(token::acceptSellOffer(A1, sellOfferIndex), ter(tecFROZEN));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Testing A1 nft offer sell when A2 frozen by issuer
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A1, USD(10));
+            env(trust(G1, A2["USD"](0), tfSetFreeze));
+            env.close();
+
+            // test: A2 cannot send USD for NFT
+            env(token::acceptSellOffer(A2, sellOfferIndex),
+                ter(tecINSUFFICIENT_FUNDS));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze));
+            env.close();
+        }
+
+        // Testing A1 nft offer sell when A2 deep frozen by issuer
+        if (features[featureDeepFreeze])
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A1, USD(10));
+            env(trust(G1, A2["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A2 cannot send USD for NFT
+            env(token::acceptSellOffer(A2, sellOfferIndex),
+                ter(tecINSUFFICIENT_FUNDS));
+            env.close();
+
+            env(trust(G1, A2["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Testing A2 nft offer sell when A2 frozen by currency holder
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A2, USD(10));
+            env(trust(A2, limit, tfSetFreeze));
+            env.close();
+
+            // test: offer can still be accepted.
+            env(token::acceptSellOffer(A1, sellOfferIndex));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze));
+            env.close();
+        }
+
+        // Testing A2 nft offer sell when A2 deep frozen by currency holder
+        if (features[featureDeepFreeze])
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A2, USD(10));
+
+            env(trust(A2, limit, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A2 cannot receive USD for his NFT
+            env(token::acceptSellOffer(A1, sellOfferIndex), ter(tecFROZEN));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+
+        // Testing A1 nft offer sell when A2 frozen by currency holder
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A1, USD(10));
+            env(trust(A2, limit, tfSetFreeze));
+            env.close();
+
+            // test: A2 cannot send USD for NFT
+            env(token::acceptSellOffer(A2, sellOfferIndex));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze));
+            env.close();
+        }
+
+        // Testing A1 nft offer sell when A2 deep frozen by currency holder
+        if (features[featureDeepFreeze])
+        {
+            auto const sellOfferIndex = createNFTSellOffer(env, A1, USD(10));
+            env(trust(A2, limit, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // test: A2 cannot send USD for NFT
+            env(token::acceptSellOffer(A2, sellOfferIndex),
+                ter(tecINSUFFICIENT_FUNDS));
+            env.close();
+
+            env(trust(A2, limit, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+        }
+    }
+
+    // Helper function to extract trustline flags from open ledger
+    uint32_t
+    getTrustlineFlags(
+        test::jtx::Env& env,
+        size_t expectedArraySize,
+        size_t expectedArrayIndex,
+        bool modified = true)
+    {
+        using namespace test::jtx;
+        auto const affected =
+            env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
+        if (!BEAST_EXPECT(checkArraySize(affected, expectedArraySize)))
+            return 0;
+
+        if (modified)
+        {
+            return affected[expectedArrayIndex][sfModifiedNode.fieldName]
+                           [sfFinalFields.fieldName][jss::Flags]
+                               .asUInt();
+        }
+
+        return affected[expectedArrayIndex][sfCreatedNode.fieldName]
+                       [sfNewFields.fieldName][jss::Flags]
+                           .asUInt();
+    }
+
+    // Helper function that returns the index of the next check on account
+    uint256
+    getCheckIndex(AccountID const& account, std::uint32_t uSequence)
+    {
+        return keylet::check(account, uSequence).key;
+    }
+
+    uint256
+    createNFTSellOffer(
+        test::jtx::Env& env,
+        test::jtx::Account const& account,
+        test::jtx::PrettyAmount const& currency)
+    {
+        using namespace test::jtx;
+        uint256 const nftID{token::getNextID(env, account, 0u, tfTransferable)};
+        env(token::mint(account, 0), txflags(tfTransferable));
+        env.close();
+
+        uint256 const sellOfferIndex =
+            keylet::nftoffer(account, env.seq(account)).key;
+        env(token::createOffer(account, nftID, currency),
+            txflags(tfSellNFToken));
+        env.close();
+
+        return sellOfferIndex;
+    }
+
 public:
     void
     run() override
     {
         auto testAll = [this](FeatureBitset features) {
             testRippleState(features);
+            testDeepFreeze(features);
+            testCreateFrozenTrustline(features);
+            testSetAndClear(features);
             testGlobalFreeze(features);
             testNoFreeze(features);
             testOffersWhenFrozen(features);
+            testOffersWhenDeepFrozen(features);
+            testPaymentsWhenDeepFrozen(features);
+            testChecksWhenFrozen(features);
+            testPathsWhenFrozen(features);
+            testNFTOffersWhenFreeze(features);
         };
         using namespace test::jtx;
         auto const sa = supported_amendments();
+        testAll(sa - featureFlowCross - featureDeepFreeze);
         testAll(sa - featureFlowCross);
-        testAll(sa - featureTouch);
+        testAll(sa - featureDeepFreeze);
         testAll(sa);
     }
 };
 
 BEAST_DEFINE_TESTSUITE(Freeze, app, ripple);
+
+}  // namespace test
 }  // namespace ripple
