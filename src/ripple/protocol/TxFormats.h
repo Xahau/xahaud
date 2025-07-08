@@ -140,7 +140,7 @@ enum TxType : std::uint16_t
     ttNFTOKEN_ACCEPT_OFFER = 29,
 
     /** This transaction claws back issued tokens. */
-    ttCLAWBACK = 44,
+    ttCLAWBACK = 30,
 
     /** This transaction mints/burns/buys/sells a URI TOKEN */
     ttURITOKEN_MINT = 45,
