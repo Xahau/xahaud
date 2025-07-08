@@ -29,7 +29,6 @@ public:
     void
     testPreviousTxnID(FeatureBitset features)
     {
-        testcase("Check PreviousTxnID in trustline metadata");
 
         using namespace test::jtx;
         Env env{
@@ -47,8 +46,9 @@ public:
         env(trust(alice, USD(1000)));
         env.close();
 
-        // Get the transaction metadata
+        // Get the transaction metadata and ID
         auto const meta1 = env.meta();
+        auto const trustCreateTxID = env.tx()->getTransactionID();
         BEAST_EXPECT(meta1);
 
         // Check if ModifiedNode has PreviousTxnID at root level
@@ -151,6 +151,7 @@ public:
         // Check ModifiedNode for PreviousTxnID
         auto const& affectedNodes2 = meta2->getFieldArray(sfAffectedNodes);
         bool foundPreviousTxnIDInModified = false;
+        bool foundPreviousTxnIDInPreviousFields = false;
 
         for (auto const& node : affectedNodes2)
         {
@@ -180,6 +181,9 @@ public:
                 // comparison, so when final metadata was generated, the
                 // comparison didn't see PreviousTxnID as a change because both
                 // states had the new value.
+                bool expectPreviousTxnID =
+                    features[fixProvisionalDoubleThreading];
+
                 if (node.isFieldPresent(sfPreviousTxnID))
                 {
                     foundPreviousTxnIDInModified = true;
@@ -192,15 +196,106 @@ public:
 
                     JLOG(j.info()) << "Found PreviousTxnID: " << prevTxnID
                                    << " at ledger: " << prevLgrSeq << std::endl;
+
+                    // When the fix is enabled, we should see the trustline
+                    // creation transaction ID as the previous transaction
+                    if (expectPreviousTxnID)
+                    {
+                        BEAST_EXPECT(prevTxnID == trustCreateTxID);
+                    }
                 }
                 else
                 {
-                    BEAST_EXPECT(false);
+                    // Without the fix, we expect PreviousTxnID to be missing
+                    // due to the provisional metadata contamination bug
+                    JLOG(j.info()) << "PreviousTxnID missing in metadata";
+                }
+
+                // Check if PreviousTxnID appears in PreviousFields
+                // (it shouldn't - PreviousTxnID is a root-level field)
+                if (node.isFieldPresent(sfPreviousFields))
+                {
+                    auto prevFields = dynamic_cast<STObject const*>(
+                        node.peekAtPField(sfPreviousFields));
+                    if (prevFields &&
+                        prevFields->isFieldPresent(sfPreviousTxnID))
+                    {
+                        foundPreviousTxnIDInPreviousFields = true;
+                        JLOG(j.warn()) << "Found PreviousTxnID in "
+                                          "PreviousFields (unexpected)";
+                    }
                 }
             }
         }
 
-        BEAST_EXPECT(foundPreviousTxnIDInModified);
+        // PreviousTxnID should never appear in PreviousFields
+        BEAST_EXPECT(!foundPreviousTxnIDInPreviousFields);
+
+        // With the fix enabled, we expect to find PreviousTxnID
+        // Without the fix, we expect it to be missing (the bug)
+        if (features[fixProvisionalDoubleThreading])
+        {
+            BEAST_EXPECT(foundPreviousTxnIDInModified);
+        }
+        else
+        {
+            BEAST_EXPECT(!foundPreviousTxnIDInModified);
+        }
+
+        // Additional check: Verify the SLE state after the payment
+        auto const sleTrustlineAfter = env.le(trustlineKey);
+        BEAST_EXPECT(sleTrustlineAfter);
+
+        if (sleTrustlineAfter)
+        {
+            // The SLE should always have PreviousTxnID set after modification
+            BEAST_EXPECT(sleTrustlineAfter->isFieldPresent(sfPreviousTxnID));
+            BEAST_EXPECT(
+                sleTrustlineAfter->isFieldPresent(sfPreviousTxnLgrSeq));
+
+            auto const currentPrevTxnID =
+                sleTrustlineAfter->getFieldH256(sfPreviousTxnID);
+            auto const currentPrevTxnSeq =
+                sleTrustlineAfter->getFieldU32(sfPreviousTxnLgrSeq);
+
+            // The PreviousTxnID should now point to the payment transaction
+            auto const paymentTxID = env.tx()->getTransactionID();
+            BEAST_EXPECT(currentPrevTxnID == paymentTxID);
+            BEAST_EXPECT(currentPrevTxnSeq == env.closed()->seq());
+
+            // When the bug is present (feature disabled), the metadata won't
+            // show the change, but the SLE will still be updated correctly
+            if (!features[fixProvisionalDoubleThreading])
+            {
+                JLOG(j.info())
+                    << "Bug confirmed: SLE has correct PreviousTxnID ("
+                    << currentPrevTxnID
+                    << ") but metadata doesn't show the change";
+            }
+        }
+
+        // Check account objects were threaded correctly
+        auto const aliceAccount = env.le(keylet::account(alice));
+        auto const bobAccount = env.le(keylet::account(bob));
+
+        BEAST_EXPECT(aliceAccount);
+        BEAST_EXPECT(bobAccount);
+
+        if (aliceAccount && bobAccount)
+        {
+            // Both accounts should have been threaded by the payment
+            BEAST_EXPECT(aliceAccount->isFieldPresent(sfPreviousTxnID));
+            BEAST_EXPECT(bobAccount->isFieldPresent(sfPreviousTxnID));
+
+            auto const alicePrevTxnID =
+                aliceAccount->getFieldH256(sfPreviousTxnID);
+            auto const bobPrevTxnID = bobAccount->getFieldH256(sfPreviousTxnID);
+            auto const paymentTxID = env.tx()->getTransactionID();
+
+            // Both should point to the payment transaction
+            BEAST_EXPECT(alicePrevTxnID == paymentTxID);
+            BEAST_EXPECT(bobPrevTxnID == paymentTxID);
+        }
     }
 
     void
@@ -208,7 +303,12 @@ public:
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
+
+        testcase("With fixProvisionalDoubleThreading enabled");
         testPreviousTxnID(sa);
+
+        testcase("Without fixProvisionalDoubleThreading (bug present)");
+        testPreviousTxnID(sa - fixProvisionalDoubleThreading);
     }
 };
 
