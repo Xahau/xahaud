@@ -60,9 +60,11 @@ class Invariants_test : public beast::unit_test::suite
         using namespace test::jtx;
         Env env{*this};
 
-        Account A1{"A1"};
-        Account A2{"A2"};
+        Account const A1{"A1"};
+        Account const A2{"A2"};
         env.fund(XRP(1000), A1, A2);
+        if (preclose)
+            BEAST_EXPECT(preclose(A1, A2, env));
         env.close();
 
         OpenView ov{*env.current()};
@@ -89,16 +91,17 @@ class Invariants_test : public beast::unit_test::suite
             terActual = ac.checkInvariants(terActual, fee);
             BEAST_EXPECT(terExpect == terActual);
             BEAST_EXPECT(
-                boost::starts_with(
-                    sink.messages().str(), "Invariant failed:") ||
-                boost::starts_with(
-                    sink.messages().str(), "Transaction caused an exception"));
-            // uncomment if you want to log the invariant failure message
-            // log << "   --> " << sink.messages().str() << std::endl;
+                sink.messages().str().starts_with("Invariant failed:") ||
+                sink.messages().str().starts_with(
+                    "Transaction caused an exception"));
             for (auto const& m : expect_logs)
             {
-                BEAST_EXPECT(
-                    sink.messages().str().find(m) != std::string::npos);
+                if (sink.messages().str().find(m) == std::string::npos)
+                {
+                    // uncomment if you want to log the invariant failure
+                    // message log << "   --> " << m << std::endl;
+                    fail();
+                }
             }
         }
     }

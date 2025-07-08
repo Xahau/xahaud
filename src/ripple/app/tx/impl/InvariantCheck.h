@@ -507,6 +507,8 @@ using InvariantChecks = std::tuple<
     XRPBalanceChecks,
     XRPNotCreated,
     NoXRPTrustLines,
+    NoDeepFreezeTrustLinesWithoutFreeze,
+    TransfersNotFrozen,
     NoBadOffers,
     NoZeroEscrow,
     ValidNewAccountRoot,
