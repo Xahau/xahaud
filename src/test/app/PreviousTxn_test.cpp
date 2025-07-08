@@ -29,7 +29,6 @@ public:
     void
     testPreviousTxnID(FeatureBitset features)
     {
-
         using namespace test::jtx;
         Env env{
             *this, envconfig(), features, nullptr, beast::severities::kNone};
