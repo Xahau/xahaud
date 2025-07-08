@@ -24,35 +24,9 @@
 #include <test/jtx.h>
 
 namespace ripple {
-namespace test {
+
 class Freeze_test : public beast::unit_test::suite
 {
-    // Functions used in debugging
-    Json::Value
-    getAccountOffers(jtx::Env& env, AccountID const& acct)
-    {
-        using namespace test::jtx;
-        Json::Value jv;
-        jv[jss::account] = to_string(acct);
-        return env.rpc("json", "account_offers", to_string(jv))[jss::result];
-    }
-
-    Json::Value
-    getAccountLines(jtx::Env& env, AccountID const& acctId)
-    {
-        using namespace test::jtx;
-        Json::Value jv;
-        jv[jss::account] = to_string(acctId);
-        return env.rpc("json", "account_lines", to_string(jv))[jss::result];
-    }
-
-    bool
-    checkArraySize(Json::Value const& val, unsigned int size)
-    {
-        using namespace test::jtx;
-        return val.isArray() && val.size() == size;
-    }
-
     void
     testRippleState(FeatureBitset features)
     {
@@ -60,6 +34,7 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account alice{"alice"};
@@ -113,7 +88,7 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, bob["USD"](0), tfSetFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -131,10 +106,10 @@ class Freeze_test : public beast::unit_test::suite
             env(offer(bob, G1["USD"](5), XRP(25)));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 5u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 6u : 5u)))
                 return;
-            auto ff =
-                affected[3u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+            auto ff = affected[withTouch ? 4u : 3u][sfModifiedNode.fieldName]
+                              [sfFinalFields.fieldName];
             BEAST_EXPECT(
                 ff[sfHighLimit.fieldName] ==
                 bob["USD"](100).value().getJson(JsonOptions::none));
@@ -199,7 +174,7 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, bob["USD"](0), tfClearFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -220,6 +195,8 @@ class Freeze_test : public beast::unit_test::suite
         using namespace test::jtx;
         Env env(*this, features);
 
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
+
         Account G1{"G1"};
         Account A1{"A1"};
 
@@ -235,7 +212,8 @@ class Freeze_test : public beast::unit_test::suite
             //  transaction
             env(trust(G1, A1["USD"](0), tfSetFreeze | tfSetDeepFreeze));
             {
-                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                auto const flags = getTrustlineFlags(
+                    env, withTouch ? 3u : 2u, withTouch ? 2u : 1u);
                 BEAST_EXPECT(flags & lsfLowFreeze);
                 BEAST_EXPECT(flags & lsfLowDeepFreeze);
                 BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
@@ -246,7 +224,8 @@ class Freeze_test : public beast::unit_test::suite
             //  transaction
             env(trust(G1, A1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
             {
-                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                auto const flags = getTrustlineFlags(
+                    env, withTouch ? 3u : 2u, withTouch ? 2u : 1u);
                 BEAST_EXPECT(!(flags & (lsfLowFreeze | lsfLowDeepFreeze)));
                 BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
                 env.close();
@@ -262,7 +241,8 @@ class Freeze_test : public beast::unit_test::suite
             //  test: Issuer deep freezing already frozen trust line
             env(trust(G1, A1["USD"](0), tfSetDeepFreeze));
             {
-                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                auto const flags = getTrustlineFlags(
+                    env, withTouch ? 3u : 2u, withTouch ? 2u : 1u);
                 BEAST_EXPECT(flags & lsfLowFreeze);
                 BEAST_EXPECT(flags & lsfLowDeepFreeze);
                 BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
@@ -273,7 +253,8 @@ class Freeze_test : public beast::unit_test::suite
             //  flags are independent
             env(trust(A1, G1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
             {
-                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                auto const flags = getTrustlineFlags(
+                    env, withTouch ? 3u : 2u, withTouch ? 2u : 1u);
                 BEAST_EXPECT(flags & lsfLowFreeze);
                 BEAST_EXPECT(flags & lsfLowDeepFreeze);
                 BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
@@ -287,7 +268,8 @@ class Freeze_test : public beast::unit_test::suite
             //  effect
             env(trust(G1, A1["USD"](0), tfClearDeepFreeze));
             {
-                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                auto const flags = getTrustlineFlags(
+                    env, withTouch ? 3u : 2u, withTouch ? 2u : 1u);
                 BEAST_EXPECT(flags & lsfLowFreeze);
                 BEAST_EXPECT(!(flags & lsfLowDeepFreeze));
                 BEAST_EXPECT(!(flags & (lsfHighFreeze | lsfHighDeepFreeze)));
@@ -363,6 +345,8 @@ class Freeze_test : public beast::unit_test::suite
         using namespace test::jtx;
         Env env(*this, features);
 
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
+
         Account G1{"G1"};
         Account A1{"A1"};
 
@@ -394,7 +378,8 @@ class Freeze_test : public beast::unit_test::suite
                 auto affected = env.meta()->getJson(
                     JsonOptions::none)[sfAffectedNodes.fieldName];
                 BEAST_EXPECT(checkArraySize(
-                    affected, 1u));  // means no trustline changes
+                    affected,
+                    withTouch ? 2u : 1u));  // means no trustline changes
             }
         }
     }
@@ -456,7 +441,7 @@ class Freeze_test : public beast::unit_test::suite
             auto offers = env.rpc(
                 "book_offers",
                 std::string("USD/") + G1.human(),
-                "XRP")[jss::result][jss::offers];
+                "XAH")[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
             std::set<std::string> accounts;
@@ -470,7 +455,7 @@ class Freeze_test : public beast::unit_test::suite
             //    test: visible offers where taker_gets is unfrozen issuer
             offers = env.rpc(
                 "book_offers",
-                "XRP",
+                "XAH",
                 std::string("USD/") + G1.human())[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
@@ -531,7 +516,7 @@ class Freeze_test : public beast::unit_test::suite
             //    (should these actually be filtered?)
             offers = env.rpc(
                 "book_offers",
-                "XRP",
+                "XAH",
                 std::string("USD/") + G1.human())[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
@@ -539,7 +524,7 @@ class Freeze_test : public beast::unit_test::suite
             offers = env.rpc(
                 "book_offers",
                 std::string("USD/") + G1.human(),
-                "XRP")[jss::result][jss::offers];
+                "XAH")[jss::result][jss::offers];
             if (!BEAST_EXPECT(checkArraySize(offers, 2u)))
                 return;
         }
@@ -564,6 +549,7 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account A1{"A1"};
@@ -589,7 +575,7 @@ class Freeze_test : public beast::unit_test::suite
         // freeze and clearing of freeze separately
         env(trust(G1, frozenAcc["USD"](0), tfSetFreeze));
         {
-            auto const flags = getTrustlineFlags(env, 2u, 1u);
+            auto const flags = getTrustlineFlags(env, withTouch ? 3u : 2u, 1u);
             BEAST_EXPECT(flags & lsfLowFreeze);
             BEAST_EXPECT(!(flags & lsfHighFreeze));
         }
@@ -598,7 +584,8 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(
                 G1, deepFrozenAcc["USD"](0), tfSetFreeze | tfSetDeepFreeze));
             {
-                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                auto const flags =
+                    getTrustlineFlags(env, withTouch ? 3u : 2u, 1u);
                 BEAST_EXPECT(!(flags & (lsfLowFreeze | lsfLowDeepFreeze)));
                 BEAST_EXPECT(flags & lsfHighFreeze);
                 BEAST_EXPECT(flags & lsfHighDeepFreeze);
@@ -645,7 +632,7 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, A1["USD"](0), tfSetFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(affected, 1u)))
+            if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 2u : 1u)))
                 return;
 
             auto let = affected[0u][sfModifiedNode.fieldName]
@@ -656,7 +643,7 @@ class Freeze_test : public beast::unit_test::suite
         //  test: can clear freeze on account
         env(trust(G1, frozenAcc["USD"](0), tfClearFreeze));
         {
-            auto const flags = getTrustlineFlags(env, 2u, 1u);
+            auto const flags = getTrustlineFlags(env, withTouch ? 3u : 2u, 1u);
             BEAST_EXPECT(!(flags & lsfLowFreeze));
         }
 
@@ -665,7 +652,8 @@ class Freeze_test : public beast::unit_test::suite
             //  test: can clear deep freeze on account
             env(trust(G1, deepFrozenAcc["USD"](0), tfClearDeepFreeze));
             {
-                auto const flags = getTrustlineFlags(env, 2u, 1u);
+                auto const flags =
+                    getTrustlineFlags(env, withTouch ? 3u : 2u, 1u);
                 BEAST_EXPECT(flags & lsfHighFreeze);
                 BEAST_EXPECT(!(flags & lsfHighDeepFreeze));
             }
@@ -679,6 +667,7 @@ class Freeze_test : public beast::unit_test::suite
 
         using namespace test::jtx;
         Env env(*this, features);
+        bool const withTouch = env.current()->rules().enabled(featureTouch);
 
         Account G1{"G1"};
         Account A2{"A2"};
@@ -722,7 +711,7 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A3["USD"](0), tfSetFreeze));
         auto affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
             return;
         auto ff =
             affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -752,9 +741,10 @@ class Freeze_test : public beast::unit_test::suite
         env(trust(G1, A4["USD"](0), tfSetFreeze));
         affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
+        if (!BEAST_EXPECT(checkArraySize(affected, withTouch ? 3u : 2u)))
             return;
-        ff = affected[0u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+        ff = affected[withTouch ? 1u : 0u][sfModifiedNode.fieldName]
+                     [sfFinalFields.fieldName];
         BEAST_EXPECT(
             ff[sfLowLimit.fieldName] ==
             G1["USD"](0).value().getJson(JsonOptions::none));
@@ -768,7 +758,7 @@ class Freeze_test : public beast::unit_test::suite
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
         if (!BEAST_EXPECT(checkArraySize(affected, 8u)))
             return;
-        auto created = affected[0u][sfCreatedNode.fieldName];
+        auto created = affected[5u][sfCreatedNode.fieldName];
         BEAST_EXPECT(
             created[sfNewFields.fieldName][jss::Account] == A2.human());
         env.close();
@@ -1879,14 +1869,18 @@ class Freeze_test : public beast::unit_test::suite
 
         if (modified)
         {
-            return affected[expectedArrayIndex][sfModifiedNode.fieldName]
-                           [sfFinalFields.fieldName][jss::Flags]
-                               .asUInt();
+            auto const node =
+                affected[expectedArrayIndex][sfModifiedNode.fieldName];
+            if (!BEAST_EXPECT(
+                    node[sfLedgerEntryType.fieldName] == "RippleState"))
+                return 0;
+            return node[sfFinalFields.fieldName][jss::Flags].asUInt();
         }
 
-        return affected[expectedArrayIndex][sfCreatedNode.fieldName]
-                       [sfNewFields.fieldName][jss::Flags]
-                           .asUInt();
+        auto const node = affected[expectedArrayIndex][sfCreatedNode.fieldName];
+        if (!BEAST_EXPECT(node[sfLedgerEntryType.fieldName] == "RippleState"))
+            return 0;
+        return node[sfNewFields.fieldName][jss::Flags].asUInt();
     }
 
     // Helper function that returns the index of the next check on account
@@ -1938,12 +1932,11 @@ public:
         auto const sa = supported_amendments();
         testAll(sa - featureFlowCross - featureDeepFreeze);
         testAll(sa - featureFlowCross);
+        testAll(sa - featureTouch);
         testAll(sa - featureDeepFreeze);
         testAll(sa);
     }
 };
 
 BEAST_DEFINE_TESTSUITE(Freeze, app, ripple);
-
-}  // namespace test
 }  // namespace ripple

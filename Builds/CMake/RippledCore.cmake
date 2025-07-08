@@ -914,6 +914,7 @@ if (tests)
     src/test/jtx/impl/seq.cpp
     src/test/jtx/impl/sig.cpp
     src/test/jtx/impl/tag.cpp
+    src/test/jtx/impl/TestHelpers.cpp
     src/test/jtx/impl/ticket.cpp
     src/test/jtx/impl/token.cpp
     src/test/jtx/impl/trust.cpp

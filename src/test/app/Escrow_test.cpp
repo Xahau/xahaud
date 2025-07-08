@@ -4072,7 +4072,89 @@ struct Escrow_test : public beast::unit_test::suite
                 fee(1500));
             env.close();
         }
+
+        // test Deep Freeze
+        {
+            // Env Setup
+            Env env{*this, features};
+            auto const baseFee = env.current()->fees().base;
+            env.fund(XRP(10'000), alice, bob, gw);
+            // env(fset(gw, asfAllowTrustLineLocking));
+            env.close();
+            env(trust(alice, USD(100'000)));
+            env(trust(bob, USD(100'000)));
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env(pay(gw, bob, USD(10'000)));
+            env.close();
+
+            // set freeze on alice trustline
+            env(trust(gw, USD(10'000), alice, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // setup transaction
+            auto seq1 = env.seq(alice);
+            auto const delta = USD(125);
+
+            // create escrow fails - frozen trustline
+            env(escrow::create(alice, bob, delta),
+                escrow::condition(cb1),
+                escrow::finish_time(env.now() + 1s),
+                fee(baseFee * 150),
+                ter(tecFROZEN));
+            env.close();
+
+            // clear freeze on alice trustline
+            env(trust(
+                gw, USD(10'000), alice, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            // create escrow success
+            seq1 = env.seq(alice);
+            env(escrow::create(alice, bob, delta),
+                escrow::condition(cb1),
+                escrow::finish_time(env.now() + 1s),
+                fee(baseFee * 150));
+            env.close();
+
+            // set freeze on bob trustline
+            env(trust(gw, USD(10'000), bob, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // bob finish escrow fails because of deep frozen assets
+            env(escrow::finish(bob, alice, seq1),
+                escrow::condition(cb1),
+                escrow::fulfillment(fb1),
+                fee(baseFee * 150),
+                ter(tecFROZEN));
+            env.close();
+
+            // reset freeze on alice and bob trustline
+            env(trust(
+                gw, USD(10'000), alice, tfClearFreeze | tfClearDeepFreeze));
+            env(trust(gw, USD(10'000), bob, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            // create escrow success
+            seq1 = env.seq(alice);
+            env(escrow::create(alice, bob, delta),
+                escrow::condition(cb1),
+                escrow::cancel_time(env.now() + 1s),
+                fee(baseFee * 150));
+            env.close();
+
+            // set freeze on bob trustline
+            env(trust(gw, USD(10'000), bob, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // bob cancel escrow fails because of deep frozen assets
+            env(escrow::cancel(bob, alice, seq1),
+                fee(baseFee),
+                ter(tesSUCCESS));
+            env.close();
+        }
     }
+
     void
     testIOUTLINSF(FeatureBitset features)
     {

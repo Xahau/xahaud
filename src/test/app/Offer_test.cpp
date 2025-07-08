@@ -42,42 +42,6 @@ class Offer0_test : public beast::unit_test::suite
     }
 
     static auto
-    xrpMinusFee(jtx::Env const& env, std::int64_t xrpAmount)
-        -> jtx::PrettyAmount
-    {
-        using namespace jtx;
-        auto feeDrops = env.current()->fees().base;
-        return drops(dropsPerXRP * xrpAmount - feeDrops);
-    }
-
-    static auto
-    ledgerEntryState(
-        jtx::Env& env,
-        jtx::Account const& acct_a,
-        jtx::Account const& acct_b,
-        std::string const& currency)
-    {
-        Json::Value jvParams;
-        jvParams[jss::ledger_index] = "current";
-        jvParams[jss::ripple_state][jss::currency] = currency;
-        jvParams[jss::ripple_state][jss::accounts] = Json::arrayValue;
-        jvParams[jss::ripple_state][jss::accounts].append(acct_a.human());
-        jvParams[jss::ripple_state][jss::accounts].append(acct_b.human());
-        return env.rpc(
-            "json", "ledger_entry", to_string(jvParams))[jss::result];
-    }
-
-    static auto
-    ledgerEntryRoot(jtx::Env& env, jtx::Account const& acct)
-    {
-        Json::Value jvParams;
-        jvParams[jss::ledger_index] = "current";
-        jvParams[jss::account_root] = acct.human();
-        return env.rpc(
-            "json", "ledger_entry", to_string(jvParams))[jss::result];
-    }
-
-    static auto
     ledgerEntryOffer(
         jtx::Env& env,
         jtx::Account const& acct,
