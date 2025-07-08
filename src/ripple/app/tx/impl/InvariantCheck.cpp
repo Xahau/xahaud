@@ -24,6 +24,7 @@
 #include <ripple/basics/FeeUnits.h>
 #include <ripple/basics/Log.h>
 #include <ripple/ledger/ReadView.h>
+#include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/SystemParameters.h>
@@ -693,7 +694,7 @@ TransfersNotFrozen::isValidEntry(
 
     if (after->getType() == ltACCOUNT_ROOT)
     {
-        possibleIssuers_.emplace(after->at(sfAccount), after);
+        possibleIssuers_.emplace(after->getAccountID(sfAccount), after);
         return false;
     }
 
@@ -714,8 +715,8 @@ TransfersNotFrozen::calculateBalanceChange(
     bool isDelete)
 {
     auto const getBalance = [](auto const& line, auto const& other, bool zero) {
-        STAmount amt =
-            line ? line->at(sfBalance) : other->at(sfBalance).zeroed();
+        STAmount amt = line ? line->getFieldAmount(sfBalance)
+                            : other->getFieldAmount(sfBalance).zeroed();
         return zero ? amt.zeroed() : amt;
     };
 
@@ -753,16 +754,16 @@ TransfersNotFrozen::recordBalanceChanges(
     STAmount const& balanceChange)
 {
     auto const balanceChangeSign = balanceChange.signum();
-    auto const currency = after->at(sfBalance).getCurrency();
+    auto const currency = after->getFieldAmount(sfBalance).getCurrency();
 
     // Change from low account's perspective, which is trust line default
     recordBalance(
-        {currency, after->at(sfHighLimit).getIssuer()},
+        {currency, after->getFieldAmount(sfHighLimit).getIssuer()},
         {after, balanceChangeSign});
 
     // Change from high account's perspective, which reverses the sign.
     recordBalance(
-        {currency, after->at(sfLowLimit).getIssuer()},
+        {currency, after->getFieldAmount(sfLowLimit).getIssuer()},
         {after, -balanceChangeSign});
 }
 
@@ -807,8 +808,9 @@ TransfersNotFrozen::validateIssuerChanges(
     {
         for (auto const& change : actors)
         {
-            bool const high = change.line->at(sfLowLimit).getIssuer() ==
-                issuer->at(sfAccount);
+            bool const high =
+                change.line->getFieldAmount(sfLowLimit).getIssuer() ==
+                issuer->getAccountID(sfAccount);
 
             if (!validateFrozenState(
                     change, high, tx, j, enforce, globalFreeze))
