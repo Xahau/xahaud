@@ -78,6 +78,9 @@ hasExpired(ReadView const& view, std::optional<std::uint32_t> const& exp);
 /** Controls the treatment of frozen account balances */
 enum FreezeHandling { fhIGNORE_FREEZE, fhZERO_IF_FROZEN };
 
+/** Controls the treatment of locked balances */
+enum LockHandling { lhLOCKING, lhUNLOCKING_RETURN, lhUNLOCKING_FORWARD };
+
 [[nodiscard]] bool
 isGlobalFrozen(ReadView const& view, AccountID const& issuer);
 
@@ -529,8 +532,12 @@ trustAdjustLockedBalance(
 
     // check for freezes & auth
     {
-        TER const result =
-            trustTransferAllowed(view, parties, deltaAmt.issue(), j);
+        TER const result = trustTransferAllowed(
+            view,
+            parties,
+            deltaAmt.issue(),
+            j,
+            deltaLockCount == 1 ? lhLOCKING : lhUNLOCKING_RETURN);
 
         JLOG(j.trace())
             << "trustAdjustLockedBalance: trustTransferAllowed result="
@@ -633,7 +640,8 @@ trustTransferAllowed(
     V& view,
     std::vector<AccountID> const& parties,
     Issue const& issue,
-    beast::Journal const& j)
+    beast::Journal const& j,
+    LockHandling lockHandling = lhUNLOCKING_FORWARD)
 {
     static_assert(
         std::is_same<V, ReadView const>::value ||
@@ -669,7 +677,8 @@ trustTransferAllowed(
         if (p == issue.account)
             continue;
 
-        if (isDeepFrozen(view, p, issue.currency, issue.account))
+        if (lockHandling != lhUNLOCKING_RETURN &&
+            isDeepFrozen(view, p, issue.currency, issue.account))
         {
             JLOG(j.trace()) << "trustTransferAllowed: "
                             // << "parties=[" << parties << "], "

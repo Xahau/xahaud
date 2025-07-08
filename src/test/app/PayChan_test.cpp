@@ -5361,6 +5361,22 @@ struct PayChan_test : public beast::unit_test::suite
                 ter(tecFROZEN));
             env.close();
 
+            // clear freeze on alice trustline
+            env(trust(
+                gw, USD(100000), alice, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            // alice close paychan success
+            env(paychan::claim(alice, chan, reqBal, authAmt),
+                txflags(tfClose),
+                ter(tesSUCCESS));
+            env.close();
+
+            // create paychan success
+            chan = channel(alice, bob, env.seq(alice));
+            env(paychan::create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+
             // clear freeze on bob trustline
             env(trust(gw, USD(100000), bob, tfClearFreeze | tfClearDeepFreeze));
             // clear freeze on alice trustline

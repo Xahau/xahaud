@@ -273,7 +273,7 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
         // between these accounts for this asset
         {
             TER const result = trustTransferAllowed(
-                ctx.view, {account, dst}, amount.issue(), ctx.j);
+                ctx.view, {account, dst}, amount.issue(), ctx.j, lhLOCKING);
             JLOG(ctx.j.trace())
                 << "PayChanCreate::preclaim trustTransferAllowed result="
                 << result;
