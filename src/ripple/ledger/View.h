@@ -532,7 +532,6 @@ trustAdjustLockedBalance(
 
     // check for freezes & auth
     {
-
         TER const result = trustTransferAllowed(
             view,
             parties,
