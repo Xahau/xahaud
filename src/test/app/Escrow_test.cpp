@@ -4147,7 +4147,8 @@ struct Escrow_test : public beast::unit_test::suite
             env(trust(gw, USD(10'000), bob, tfSetFreeze | tfSetDeepFreeze));
             env.close();
 
-            // bob cancel escrow fails because of deep frozen assets
+            // bob cancel escrow succeeds despite deep frozen assets (unlocking
+            // return is allowed)
             env(escrow::cancel(bob, alice, seq1),
                 fee(baseFee),
                 ter(tesSUCCESS));
