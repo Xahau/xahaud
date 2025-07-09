@@ -241,7 +241,7 @@ EscrowCreate::doApply()
             {account, ctx_.tx[sfDestination]},
             amount.issue(),
             ctx_.journal,
-            true);
+            lhLOCKING);
 
         JLOG(ctx_.journal.trace())
             << "EscrowCreate::doApply trustTransferAllowed result=" << result;
