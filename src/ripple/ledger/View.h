@@ -670,9 +670,9 @@ trustTransferAllowed(
 
     uint32_t issuerFlags = sleIssuerAcc->getFieldU32(sfFlags);
 
-    // reject the creation of a locked balance (isLocking) if the
+    // reject the creation of a locked balance (lhLOCKING) if the
     // issuer has enabled clawback
-    if (isLocking && view.rules().enabled(featureClawback) &&
+    if (lockHandling == lhLOCKING && view.rules().enabled(featureClawback) &&
         issuerFlags & lsfAllowTrustLineClawback)
         return tecNO_PERMISSION;
 
