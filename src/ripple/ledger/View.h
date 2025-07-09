@@ -78,11 +78,21 @@ hasExpired(ReadView const& view, std::optional<std::uint32_t> const& exp);
 /** Controls the treatment of frozen account balances */
 enum FreezeHandling { fhIGNORE_FREEZE, fhZERO_IF_FROZEN };
 
+/** Controls the treatment of locked balances */
+enum LockHandling { lhLOCKING, lhUNLOCKING_RETURN, lhUNLOCKING_FORWARD };
+
 [[nodiscard]] bool
 isGlobalFrozen(ReadView const& view, AccountID const& issuer);
 
 [[nodiscard]] bool
 isFrozen(
+    ReadView const& view,
+    AccountID const& account,
+    Currency const& currency,
+    AccountID const& issuer);
+
+[[nodiscard]] bool
+isDeepFrozen(
     ReadView const& view,
     AccountID const& account,
     Currency const& currency,
@@ -343,6 +353,7 @@ trustCreate(
     const bool bAuth,           // --> authorize account.
     const bool bNoRipple,       // --> others cannot ripple through
     const bool bFreeze,         // --> funds cannot leave
+    bool bDeepFreeze,           // --> can neither receive nor send funds
     STAmount const& saBalance,  // --> balance of account being set.
                                 // Issuer should be noAccount()
     STAmount const& saLimit,    // --> limit for account being set.
@@ -521,8 +532,12 @@ trustAdjustLockedBalance(
 
     // check for freezes & auth
     {
-        TER const result =
-            trustTransferAllowed(view, parties, deltaAmt.issue(), j);
+        TER const result = trustTransferAllowed(
+            view,
+            parties,
+            deltaAmt.issue(),
+            j,
+            deltaLockCount == 1 ? lhLOCKING : lhUNLOCKING_RETURN);
 
         JLOG(j.trace())
             << "trustAdjustLockedBalance: trustTransferAllowed result="
@@ -625,7 +640,8 @@ trustTransferAllowed(
     V& view,
     std::vector<AccountID> const& parties,
     Issue const& issue,
-    beast::Journal const& j)
+    beast::Journal const& j,
+    LockHandling lockHandling = lhUNLOCKING_FORWARD)
 {
     static_assert(
         std::is_same<V, ReadView const>::value ||
@@ -660,6 +676,16 @@ trustTransferAllowed(
     {
         if (p == issue.account)
             continue;
+
+        if (lockHandling != lhUNLOCKING_RETURN &&
+            isDeepFrozen(view, p, issue.currency, issue.account))
+        {
+            JLOG(j.trace()) << "trustTransferAllowed: "
+                            // << "parties=[" << parties << "], "
+                            << "issuer: " << issue.account << " "
+                            << "has deep freeze on party: " << p;
+            return tecFROZEN;
+        }
 
         auto const line =
             view.read(keylet::line(p, issue.account, issue.currency));
@@ -971,6 +997,7 @@ trustTransferLockedBalance(
                         false,                          // authorize account
                         (sleDstAcc->getFlags() & lsfDefaultRipple) == 0,
                         false,                          // freeze trust line
+                        false,                          // deep freeze trust line
                         dstAmt,                         // initial balance
                         Issue(currency, dstAccID),      // limit of zero
                         0,                              // quality in

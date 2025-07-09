@@ -751,6 +751,7 @@ if (tests)
     src/test/app/Path_test.cpp
     src/test/app/PayChan_test.cpp
     src/test/app/PayStrand_test.cpp
+    src/test/app/PreviousTxn_test.cpp
     src/test/app/PseudoTx_test.cpp
     src/test/app/RCLCensorshipDetector_test.cpp
     src/test/app/RCLValidations_test.cpp
@@ -913,6 +914,7 @@ if (tests)
     src/test/jtx/impl/seq.cpp
     src/test/jtx/impl/sig.cpp
     src/test/jtx/impl/tag.cpp
+    src/test/jtx/impl/TestHelpers.cpp
     src/test/jtx/impl/ticket.cpp
     src/test/jtx/impl/token.cpp
     src/test/jtx/impl/trust.cpp
