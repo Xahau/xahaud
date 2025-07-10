@@ -65,9 +65,12 @@ public:
             return {};
 
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        if (transactionMap_.empty())
-            return std::nullopt;
-        return transactionMap_.begin()->second.second->getLgrSeq();
+        for (const auto& [ledgerSeq, ledgerData] : ledgers_)
+        {
+            if (!ledgerData.transactions.empty())
+                return ledgerSeq;
+        }
+        return std::nullopt;
     }
 
     std::optional<LedgerIndex>
