@@ -15,7 +15,6 @@
 #include <boost/thread/csbl/memory/allocator_arg.hpp>
 
 #include <condition_variable>
-#include <functional>
 #include <mutex>
 #include <thread>
 #include <vector>

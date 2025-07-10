@@ -25,7 +25,6 @@
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/TxFlags.h>
 
 namespace ripple {

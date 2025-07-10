@@ -26,6 +26,8 @@
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/SystemParameters.h>
 
+#include <set>
+
 namespace ripple {
 
 using LedgerHash = uint256;

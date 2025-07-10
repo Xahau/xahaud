@@ -39,6 +39,7 @@
 #include <boost/iostreams/filtering_stream.hpp>
 
 #include <functional>
+#include <set>
 #include <stack>
 #include <vector>
 
