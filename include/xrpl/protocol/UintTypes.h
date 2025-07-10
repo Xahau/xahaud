@@ -25,6 +25,8 @@
 #include <xrpl/beast/utility/Zero.h>
 #include <xrpl/protocol/AccountID.h>
 
+#include <set>
+
 namespace ripple {
 namespace detail {
 

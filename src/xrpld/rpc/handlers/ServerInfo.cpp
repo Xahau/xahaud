@@ -32,8 +32,6 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include <unordered_map>
-
 namespace ripple {
 
 Json::Value

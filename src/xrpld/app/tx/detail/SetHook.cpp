@@ -46,7 +46,6 @@
 #include <functional>
 #include <optional>
 #include <ostream>
-#include <stack>
 #include <string>
 #include <tuple>
 #include <utility>

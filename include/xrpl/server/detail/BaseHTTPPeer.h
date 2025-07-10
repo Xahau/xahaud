@@ -43,7 +43,6 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <type_traits>
 #include <vector>
 
 namespace ripple {
