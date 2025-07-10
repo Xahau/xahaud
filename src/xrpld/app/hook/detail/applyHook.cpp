@@ -497,12 +497,90 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttCLAWBACK: {
             auto const amount = tx.getFieldAmount(sfAmount);
-            ADD_TSH(amount.getIssuer(), tshWEAK);
+
+            if (amount.holds<MPTIssue>())
+            {
+                if (!tx.isFieldPresent(sfHolder))
+                    return {};
+                auto const holder = tx.getAccountID(sfHolder);
+                ADD_TSH(holder, tshWEAK);
+            }
+            else
+                ADD_TSH(amount.getIssuer(), tshWEAK);
+
             break;
         }
-
-        default:
-            return {};
+        case ttAMM_CREATE:
+        case ttAMM_DEPOSIT:
+        case ttAMM_WITHDRAW:
+        case ttAMM_VOTE:
+        case ttAMM_BID:
+        case ttAMM_DELETE:
+        case ttAMM_CLAWBACK: {
+            // The issuer or holder of tokens related to AMM is weakTSH with
+            // IOUIssuerWeakTSH Amendment.
+            break;
+        }
+        case ttORACLE_SET:
+        case ttORACLE_DELETE: {
+            break;
+        }
+        case ttXCHAIN_CREATE_CLAIM_ID:
+        case ttXCHAIN_COMMIT:
+        case ttXCHAIN_CLAIM:
+        case ttXCHAIN_ACCOUNT_CREATE_COMMIT:
+        case ttXCHAIN_ADD_CLAIM_ATTESTATION:
+        case ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION:
+        case ttXCHAIN_MODIFY_BRIDGE:
+        case ttXCHAIN_CREATE_BRIDGE: {
+            // TODO: Implement if needed
+            break;
+        }
+        case ttDID_SET:
+        case ttDID_DELETE: {
+            // TODO: Implement if needed
+            break;
+        }
+        case ttLEDGER_STATE_FIX: {
+            // TODO: Implement if needed
+            break;
+        }
+        case ttMPTOKEN_ISSUANCE_CREATE:
+        case ttMPTOKEN_ISSUANCE_DESTROY:
+        case ttMPTOKEN_ISSUANCE_SET:
+        case ttMPTOKEN_AUTHORIZE: {
+            // TODO: Implement if needed
+            break;
+        }
+        case ttCREDENTIAL_CREATE:
+        case ttCREDENTIAL_ACCEPT:
+        case ttCREDENTIAL_DELETE: {
+            // TODO: Implement if needed
+            break;
+        }
+        case ttNFTOKEN_MODIFY: {
+            // TODO: Implement if needed
+            break;
+        }
+        case ttPERMISSIONED_DOMAIN_SET:
+        case ttPERMISSIONED_DOMAIN_DELETE: {
+            // TODO: Implement if needed
+            break;
+        }
+        case ttREMARKS_SET: {
+            break;
+        }
+        // pseudo transactions
+        case ttAMENDMENT:
+        case ttFEE:
+        case ttUNL_MODIFY:
+        case ttEMIT_FAILURE:
+        case ttUNL_REPORT: {
+            break;
+        }
+        default: {
+            UNREACHABLE("Unknown transaction type");
+        }
     }
 
     std::vector<std::pair<AccountID, bool>> ret{tshEntries.size()};
