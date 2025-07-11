@@ -313,24 +313,9 @@ AMMWithdraw::applyGuts(Sandbox& sb)
     // might not match the LP's trustline balance
 
     if (auto const res =
-            isOnlyLiquidityProvider(sb, lpTokens.issue(), account_);
+            verifyAndAdjustLPTokenBalance(sb, lpTokens, ammSle, account_);
         !res)
         return {res.error(), false};
-    else if (res.value())
-    {
-        if (withinRelativeDistance(
-                lpTokens,
-                ammSle->getFieldAmount(sfLPTokenBalance),
-                Number{1, -3}))
-        {
-            ammSle->setFieldAmount(sfLPTokenBalance, lpTokens);
-            sb.update(ammSle);
-        }
-        else
-        {
-            return {tecAMM_INVALID_TOKENS, false};
-        }
-    }
 
     auto const tfee = getTradingFee(ctx_.view(), *ammSle, account_);
 
