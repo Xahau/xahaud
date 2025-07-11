@@ -151,16 +151,19 @@ AMMClawback::applyGuts(Sandbox& sb)
     if (!accountSle)
         return tecINTERNAL;  // LCOV_EXCL_LINE
 
-    // retrieve LP token balance inside the amendment gate to avoid
-    // inconsistent error behavior
-    auto const lpTokenBalance = ammLPHolds(sb, *ammSle, holder, j_);
-    if (lpTokenBalance == beast::zero)
-        return tecAMM_BALANCE;
+    if (sb.rules().enabled(fixAMMClawbackRounding))
+    {
+        // retrieve LP token balance inside the amendment gate to avoid
+        // inconsistent error behavior
+        auto const lpTokenBalance = ammLPHolds(sb, *ammSle, holder, j_);
+        if (lpTokenBalance == beast::zero)
+            return tecAMM_BALANCE;
 
-    if (auto const res =
-            verifyAndAdjustLPTokenBalance(sb, lpTokenBalance, ammSle, holder);
-        !res)
-        return res.error();  // LCOV_EXCL_LINE
+        if (auto const res = verifyAndAdjustLPTokenBalance(
+                sb, lpTokenBalance, ammSle, holder);
+            !res)
+            return res.error();  // LCOV_EXCL_LINE
+    }
 
     auto const expected = ammHolds(
         sb,
@@ -259,6 +262,7 @@ AMMClawback::equalWithdrawMatchingOneAmount(
     STAmount const& amount)
 {
     auto frac = Number{amount} / amountBalance;
+    auto amount2Withdraw = amount2Balance * frac;
 
     auto const lpTokensWithdraw =
         toSTAmount(lptAMMBalance.issue(), lptAMMBalance * frac);
@@ -284,32 +288,53 @@ AMMClawback::equalWithdrawMatchingOneAmount(
             ctx_.journal);
 
     auto const& rules = sb.rules();
+    if (rules.enabled(fixAMMClawbackRounding))
+    {
+        auto tokensAdj =
+            getRoundedLPTokens(rules, lptAMMBalance, frac, IsDeposit::No);
 
-    auto tokensAdj =
-        getRoundedLPTokens(rules, lptAMMBalance, frac, IsDeposit::No);
+        // LCOV_EXCL_START
+        if (tokensAdj == beast::zero)
+            return {
+                tecAMM_INVALID_TOKENS, STAmount{}, STAmount{}, std::nullopt};
+        // LCOV_EXCL_STOP
 
-    // LCOV_EXCL_START
-    if (tokensAdj == beast::zero)
-        return {tecAMM_INVALID_TOKENS, STAmount{}, STAmount{}, std::nullopt};
-    // LCOV_EXCL_STOP
+        frac = adjustFracByTokens(rules, lptAMMBalance, tokensAdj, frac);
+        auto amount2Rounded =
+            getRoundedAsset(rules, amount2Balance, frac, IsDeposit::No);
 
-    frac = adjustFracByTokens(rules, lptAMMBalance, tokensAdj, frac);
-    auto amount2Rounded =
-        getRoundedAsset(rules, amount2Balance, frac, IsDeposit::No);
+        auto amountRounded =
+            getRoundedAsset(rules, amountBalance, frac, IsDeposit::No);
 
-    auto amountRounded =
-        getRoundedAsset(rules, amountBalance, frac, IsDeposit::No);
+        return AMMWithdraw::withdraw(
+            sb,
+            ammSle,
+            ammAccount,
+            holder,
+            amountBalance,
+            amountRounded,
+            amount2Rounded,
+            lptAMMBalance,
+            tokensAdj,
+            0,
+            FreezeHandling::fhIGNORE_FREEZE,
+            WithdrawAll::No,
+            mPriorBalance,
+            ctx_.journal);
+    }
 
+    // Because we are doing a two-asset withdrawal,
+    // tfee is actually not used, so pass tfee as 0.
     return AMMWithdraw::withdraw(
         sb,
         ammSle,
         ammAccount,
         holder,
         amountBalance,
-        amountRounded,
-        amount2Rounded,
+        amount,
+        toSTAmount(amount2Balance.issue(), amount2Withdraw),
         lptAMMBalance,
-        tokensAdj,
+        toSTAmount(lptAMMBalance.issue(), lptAMMBalance * frac),
         0,
         FreezeHandling::fhIGNORE_FREEZE,
         WithdrawAll::No,
