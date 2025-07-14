@@ -61,6 +61,10 @@ using duration = NetClock::duration;
 
 #define CATL 0x4C544143UL /*"CATL" in LE*/
 
+// Special serialization markers (not part of SHAMapNodeType)
+static constexpr uint8_t CATALOGUE_NODE_REMOVE = 0xFE;   // Marks a removed node
+static constexpr uint8_t CATALOGUE_NODE_TERMINAL = 0xFF; // Marks end of stream
+
 // Replace the current version constant
 static constexpr uint16_t CATALOGUE_VERSION = 1;
 
@@ -305,6 +309,362 @@ public:
         return formatBytesIEC(bytes);
     }
 };
+
+// Replacement serialization functions that use only SHAMap's public API
+
+static size_t serializeSHAMapToStream(
+    SHAMap const& shaMap,
+    boost::iostreams::filtering_ostream& stream,
+    SHAMapNodeType nodeType,
+    std::optional<std::reference_wrapper<const SHAMap>> prevMap = std::nullopt)
+{
+    // Local byte counter
+    uint64_t localBytesWritten = 0;
+    
+    // Single lambda that uses compile-time check for flush method existence
+    auto tryFlush = [](auto& s) {
+        if constexpr (requires(decltype(s) str) { str.flush(); })
+        {
+            s.flush();
+        }
+        // No-op if flush doesn't exist - compiler will optimize this branch out
+    };
+
+    // Helper to check if we need to flush
+    constexpr uint64_t flushThreshold = 256 * 1024 * 1024;
+    auto checkFlush = [&localBytesWritten, &tryFlush, &stream]() {
+        if (localBytesWritten >= flushThreshold)
+        {
+            tryFlush(stream);
+            localBytesWritten = 0;
+        }
+    };
+
+    // Helper lambda to serialize a leaf node
+    auto serializeLeaf = [&stream, &localBytesWritten, &checkFlush](
+                            SHAMapItem const& item, SHAMapNodeType nodeType) -> bool {
+        // write the node type
+        stream.write(reinterpret_cast<char const*>(&nodeType), 1);
+        localBytesWritten += 1;
+
+        // write the key
+        auto const key = item.key();
+        stream.write(reinterpret_cast<char const*>(key.data()), 32);
+        localBytesWritten += 32;
+
+        // write the data size
+        auto data = item.slice();
+        uint32_t size = data.size();
+        stream.write(reinterpret_cast<char const*>(&size), 4);
+        localBytesWritten += 4;
+
+        // write the data
+        stream.write(reinterpret_cast<char const*>(data.data()), size);
+        localBytesWritten += size;
+
+        checkFlush();
+        return !stream.fail();
+    };
+
+    // Helper lambda to serialize a removed leaf
+    auto serializeRemovedLeaf = [&stream, &localBytesWritten, &checkFlush](
+                                   uint256 const& key) -> bool {
+        // to indicate a node is removed it is written with a removal type
+        auto t = CATALOGUE_NODE_REMOVE;
+        stream.write(reinterpret_cast<char const*>(&t), 1);
+        localBytesWritten += 1;
+
+        // write the key
+        stream.write(reinterpret_cast<char const*>(key.data()), 32);
+        localBytesWritten += 32;
+
+        checkFlush();
+        return !stream.fail();
+    };
+
+    std::size_t nodeCount = 0;
+
+    // If we have a previous map, compute differences
+    if (prevMap && prevMap->get().getHash() != shaMap.getHash())
+    {
+        SHAMap::Delta differences;
+        
+        if (shaMap.compare(prevMap->get(), differences, std::numeric_limits<int>::max()))
+        {
+            // Process each difference
+            for (auto const& [key, deltaItem] : differences)
+            {
+                auto const& newItem = deltaItem.first;
+                auto const& oldItem = deltaItem.second;
+                
+                if (!oldItem && newItem)
+                {
+                    // Added item
+                    if (serializeLeaf(*newItem, nodeType))
+                        ++nodeCount;
+                }
+                else if (oldItem && !newItem)
+                {
+                    // Removed item
+                    if (serializeRemovedLeaf(key))
+                        ++nodeCount;
+                }
+                else if (oldItem && newItem && oldItem->slice() != newItem->slice())
+                {
+                    // Modified item
+                    if (serializeLeaf(*newItem, nodeType))
+                        ++nodeCount;
+                }
+            }
+        }
+    }
+    else
+    {
+        // No previous map or maps are identical - serialize all items
+        for (auto const& item : shaMap)
+        {
+            if (serializeLeaf(item, nodeType))
+                ++nodeCount;
+        }
+    }
+
+    // write a terminal symbol to indicate the map stream has ended
+    auto t = CATALOGUE_NODE_TERMINAL;
+    stream.write(reinterpret_cast<char const*>(&t), 1);
+    localBytesWritten += 1;
+
+    // Final flush if needed
+    if (localBytesWritten > 0)
+    {
+        tryFlush(stream);
+    }
+
+    return nodeCount;
+}
+
+// Replacement deserialization functions that use only SHAMap's public API
+
+// Note: The original SHAMap::deserializeFromStream() checked that the map was in
+// either Modifying or Synching state before allowing deserialization. We don't 
+// perform this check here because:
+// 1. We don't have access to the private state_ member
+// 2. In catalogue loading, we always work with freshly created maps that are modifiable
+// 3. This function is only called from doCatalogueLoad with appropriate maps
+// If called with an immutable map, it will fail at the first addGiveItem/delItem call.
+static bool deserializeStateMap(
+    SHAMap& stateMap,
+    boost::iostreams::filtering_istream& stream,
+    beast::Journal const& j)
+{
+    try
+    {
+        // Define a lambda to deserialize a leaf node
+        auto deserializeLeaf = [&stateMap, &stream, &j](
+            SHAMapNodeType& nodeType /* out */) -> bool {
+            stream.read(reinterpret_cast<char*>(&nodeType), 1);
+
+            if (nodeType == CATALOGUE_NODE_TERMINAL)
+            {
+                // end of map
+                return false;
+            }
+
+            uint256 key;
+            uint32_t size{0};
+
+            stream.read(reinterpret_cast<char*>(key.data()), 32);
+
+            if (stream.fail())
+            {
+                JLOG(j.error())
+                    << "Deserialization: stream stopped unexpectedly "
+                    << "while trying to read key of next entry";
+                return false;
+            }
+
+            if (nodeType == CATALOGUE_NODE_REMOVE)
+            {
+                // deletion
+                if (!stateMap.hasItem(key))
+                {
+                    JLOG(j.error())
+                        << "Deserialization: removal of key " << to_string(key)
+                        << " but key is already absent.";
+                    return false;
+                }
+                stateMap.delItem(key);
+                return true;
+            }
+
+            stream.read(reinterpret_cast<char*>(&size), 4);
+
+            if (stream.fail())
+            {
+                JLOG(j.error())
+                    << "Deserialization: stream stopped unexpectedly"
+                    << " while trying to read size of data for key "
+                    << to_string(key);
+                return false;
+            }
+
+            if (size > 1024 * 1024 * 1024)
+            {
+                JLOG(j.error())
+                    << "Deserialization: size of " << to_string(key)
+                    << " is suspiciously large (" << size
+                    << " bytes), bailing.";
+                return false;
+            }
+
+            std::vector<uint8_t> data;
+            data.resize(size);
+
+            stream.read(reinterpret_cast<char*>(data.data()), size);
+            if (stream.fail())
+            {
+                JLOG(j.error())
+                    << "Deserialization: Unexpected EOF while reading data for "
+                    << to_string(key);
+                return false;
+            }
+
+            auto item = make_shamapitem(key, makeSlice(data));
+            
+            // For state map, always use tnACCOUNT_STATE
+            if (stateMap.hasItem(key))
+                return stateMap.updateGiveItem(SHAMapNodeType::tnACCOUNT_STATE, std::move(item));
+
+            return stateMap.addGiveItem(SHAMapNodeType::tnACCOUNT_STATE, std::move(item));
+        };
+
+        SHAMapNodeType lastParsed;
+        while (!stream.eof() && deserializeLeaf(lastParsed))
+            ;
+
+        if (lastParsed != CATALOGUE_NODE_TERMINAL)
+        {
+            JLOG(j.error())
+                << "Deserialization: Unexpected EOF, terminal node not found.";
+            return false;
+        }
+
+        // Flush any dirty nodes and update hashes
+        stateMap.flushDirty(hotACCOUNT_NODE);
+
+        return true;
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.error())
+            << "Exception during deserialization: " << e.what();
+        return false;
+    }
+}
+
+// See deserializeStateMap comment about state checks
+static bool deserializeTxMap(
+    SHAMap& txMap,
+    boost::iostreams::filtering_istream& stream,
+    beast::Journal const& j)
+{
+    try
+    {
+        // Define a lambda to deserialize a leaf node
+        auto deserializeLeaf = [&txMap, &stream, &j](
+            SHAMapNodeType& nodeType /* out */) -> bool {
+            stream.read(reinterpret_cast<char*>(&nodeType), 1);
+
+            if (nodeType == CATALOGUE_NODE_TERMINAL)
+            {
+                // end of map
+                return false;
+            }
+
+            uint256 key;
+            uint32_t size{0};
+
+            stream.read(reinterpret_cast<char*>(key.data()), 32);
+
+            if (stream.fail())
+            {
+                JLOG(j.error())
+                    << "Deserialization: stream stopped unexpectedly "
+                    << "while trying to read key of next entry";
+                return false;
+            }
+
+            if (nodeType == CATALOGUE_NODE_REMOVE)
+            {
+                // deletion - shouldn't happen for tx map
+                JLOG(j.error())
+                    << "Deserialization: unexpected removal in tx map";
+                return false;
+            }
+
+            stream.read(reinterpret_cast<char*>(&size), 4);
+
+            if (stream.fail())
+            {
+                JLOG(j.error())
+                    << "Deserialization: stream stopped unexpectedly"
+                    << " while trying to read size of data for key "
+                    << to_string(key);
+                return false;
+            }
+
+            if (size > 1024 * 1024 * 1024)
+            {
+                JLOG(j.error())
+                    << "Deserialization: size of " << to_string(key)
+                    << " is suspiciously large (" << size
+                    << " bytes), bailing.";
+                return false;
+            }
+
+            std::vector<uint8_t> data;
+            data.resize(size);
+
+            stream.read(reinterpret_cast<char*>(data.data()), size);
+            if (stream.fail())
+            {
+                JLOG(j.error())
+                    << "Deserialization: Unexpected EOF while reading data for "
+                    << to_string(key);
+                return false;
+            }
+
+            auto item = make_shamapitem(key, makeSlice(data));
+            
+            // For tx map, always use tnTRANSACTION_MD
+            if (txMap.hasItem(key))
+                return txMap.updateGiveItem(SHAMapNodeType::tnTRANSACTION_MD, std::move(item));
+
+            return txMap.addGiveItem(SHAMapNodeType::tnTRANSACTION_MD, std::move(item));
+        };
+
+        SHAMapNodeType lastParsed;
+        while (!stream.eof() && deserializeLeaf(lastParsed))
+            ;
+
+        if (lastParsed != CATALOGUE_NODE_TERMINAL)
+        {
+            JLOG(j.error())
+                << "Deserialization: Unexpected EOF, terminal node not found.";
+            return false;
+        }
+
+        // Flush any dirty nodes and update hashes
+        txMap.flushDirty(hotTRANSACTION_NODE);
+
+        return true;
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.error())
+            << "Exception during deserialization: " << e.what();
+        return false;
+    }
+}
 
 // Helper function to generate status JSON
 // IMPORTANT: Caller must hold at least a shared (read) lock on
@@ -679,9 +1039,11 @@ doCatalogueCreate(RPC::JsonContext& context)
             }
 
             size_t stateNodesWritten =
-                ledger->stateMap().serializeToStream(*compStream, prevStateMap);
+                serializeSHAMapToStream(ledger->stateMap(), *compStream, 
+                    SHAMapNodeType::tnACCOUNT_STATE, prevStateMap);
             size_t txNodesWritten =
-                ledger->txMap().serializeToStream(*compStream);
+                serializeSHAMapToStream(ledger->txMap(), *compStream,
+                    SHAMapNodeType::tnTRANSACTION_MD);
 
             predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
@@ -1191,7 +1553,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             ledger->setLedgerInfo(info);
 
             // Deserialize the complete state map from leaf nodes
-            if (!ledger->stateMap().deserializeFromStream(*decompStream))
+            if (!deserializeStateMap(ledger->stateMap(), *decompStream, context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to deserialize base ledger state";
@@ -1217,7 +1579,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 *snapshot);
 
             // Apply delta (only leaf-node changes)
-            if (!ledger->stateMap().deserializeFromStream(*decompStream))
+            if (!deserializeStateMap(ledger->stateMap(), *decompStream, context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to apply delta to ledger " << info.seq;
@@ -1226,7 +1588,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // pull in the tx map
-        if (!ledger->txMap().deserializeFromStream(*decompStream))
+        if (!deserializeTxMap(ledger->txMap(), *decompStream, context.j))
         {
             JLOG(context.j.error())
                 << "Failed to apply delta to ledger " << info.seq;
