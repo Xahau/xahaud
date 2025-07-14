@@ -62,8 +62,8 @@ using duration = NetClock::duration;
 #define CATL 0x4C544143UL /*"CATL" in LE*/
 
 // Special serialization markers (not part of SHAMapNodeType)
-static constexpr uint8_t CATALOGUE_NODE_REMOVE = 0xFE;   // Marks a removed node
-static constexpr uint8_t CATALOGUE_NODE_TERMINAL = 0xFF; // Marks end of stream
+static constexpr uint8_t CATALOGUE_NODE_REMOVE = 0xFE;  // Marks a removed node
+static constexpr uint8_t CATALOGUE_NODE_TERMINAL = 0xFF;  // Marks end of stream
 
 // Replace the current version constant
 static constexpr uint16_t CATALOGUE_VERSION = 1;
@@ -312,7 +312,8 @@ public:
 
 // Replacement serialization functions that use only SHAMap's public API
 
-static size_t serializeSHAMapToStream(
+static size_t
+serializeSHAMapToStream(
     SHAMap const& shaMap,
     boost::iostreams::filtering_ostream& stream,
     SHAMapNodeType nodeType,
@@ -320,7 +321,7 @@ static size_t serializeSHAMapToStream(
 {
     // Local byte counter
     uint64_t localBytesWritten = 0;
-    
+
     // Single lambda that uses compile-time check for flush method existence
     auto tryFlush = [](auto& s) {
         if constexpr (requires(decltype(s) str) { str.flush(); })
@@ -342,7 +343,8 @@ static size_t serializeSHAMapToStream(
 
     // Helper lambda to serialize a leaf node
     auto serializeLeaf = [&stream, &localBytesWritten, &checkFlush](
-                            SHAMapItem const& item, SHAMapNodeType nodeType) -> bool {
+                             SHAMapItem const& item,
+                             SHAMapNodeType nodeType) -> bool {
         // write the node type
         stream.write(reinterpret_cast<char const*>(&nodeType), 1);
         localBytesWritten += 1;
@@ -367,8 +369,8 @@ static size_t serializeSHAMapToStream(
     };
 
     // Helper lambda to serialize a removed leaf
-    auto serializeRemovedLeaf = [&stream, &localBytesWritten, &checkFlush](
-                                   uint256 const& key) -> bool {
+    auto serializeRemovedLeaf =
+        [&stream, &localBytesWritten, &checkFlush](uint256 const& key) -> bool {
         // to indicate a node is removed it is written with a removal type
         auto t = CATALOGUE_NODE_REMOVE;
         stream.write(reinterpret_cast<char const*>(&t), 1);
@@ -388,15 +390,16 @@ static size_t serializeSHAMapToStream(
     if (prevMap && prevMap->get().getHash() != shaMap.getHash())
     {
         SHAMap::Delta differences;
-        
-        if (shaMap.compare(prevMap->get(), differences, std::numeric_limits<int>::max()))
+
+        if (shaMap.compare(
+                prevMap->get(), differences, std::numeric_limits<int>::max()))
         {
             // Process each difference
             for (auto const& [key, deltaItem] : differences)
             {
                 auto const& newItem = deltaItem.first;
                 auto const& oldItem = deltaItem.second;
-                
+
                 if (!oldItem && newItem)
                 {
                     // Added item
@@ -409,7 +412,8 @@ static size_t serializeSHAMapToStream(
                     if (serializeRemovedLeaf(key))
                         ++nodeCount;
                 }
-                else if (oldItem && newItem && oldItem->slice() != newItem->slice())
+                else if (
+                    oldItem && newItem && oldItem->slice() != newItem->slice())
                 {
                     // Modified item
                     if (serializeLeaf(*newItem, nodeType))
@@ -444,14 +448,17 @@ static size_t serializeSHAMapToStream(
 
 // Replacement deserialization functions that use only SHAMap's public API
 
-// Note: The original SHAMap::deserializeFromStream() checked that the map was in
-// either Modifying or Synching state before allowing deserialization. We don't 
-// perform this check here because:
+// Note: The original SHAMap::deserializeFromStream() checked that the map was
+// in either Modifying or Synching state before allowing deserialization. We
+// don't perform this check here because:
 // 1. We don't have access to the private state_ member
-// 2. In catalogue loading, we always work with freshly created maps that are modifiable
+// 2. In catalogue loading, we always work with freshly created maps that are
+// modifiable
 // 3. This function is only called from doCatalogueLoad with appropriate maps
-// If called with an immutable map, it will fail at the first addGiveItem/delItem call.
-static bool deserializeSHAMapFromStream(
+// If called with an immutable map, it will fail at the first
+// addGiveItem/delItem call.
+static bool
+deserializeSHAMapFromStream(
     SHAMap& shaMap,
     boost::iostreams::filtering_istream& stream,
     SHAMapNodeType nodeType,
@@ -462,8 +469,9 @@ static bool deserializeSHAMapFromStream(
     try
     {
         // Define a lambda to deserialize a leaf node
-        auto deserializeLeaf = [&shaMap, &stream, &j, nodeType, allowRemoval](
-            SHAMapNodeType& parsedType /* out */) -> bool {
+        auto deserializeLeaf =
+            [&shaMap, &stream, &j, nodeType, allowRemoval](
+                SHAMapNodeType& parsedType /* out */) -> bool {
             stream.read(reinterpret_cast<char*>(&parsedType), 1);
 
             if (parsedType == CATALOGUE_NODE_TERMINAL)
@@ -490,11 +498,11 @@ static bool deserializeSHAMapFromStream(
                 // deletion
                 if (!allowRemoval)
                 {
-                    JLOG(j.error())
-                        << "Deserialization: unexpected removal in this map type";
+                    JLOG(j.error()) << "Deserialization: unexpected removal in "
+                                       "this map type";
                     return false;
                 }
-                
+
                 if (!shaMap.hasItem(key))
                 {
                     JLOG(j.error())
@@ -519,10 +527,9 @@ static bool deserializeSHAMapFromStream(
 
             if (size > 1024 * 1024 * 1024)
             {
-                JLOG(j.error())
-                    << "Deserialization: size of " << to_string(key)
-                    << " is suspiciously large (" << size
-                    << " bytes), bailing.";
+                JLOG(j.error()) << "Deserialization: size of " << to_string(key)
+                                << " is suspiciously large (" << size
+                                << " bytes), bailing.";
                 return false;
             }
 
@@ -539,7 +546,7 @@ static bool deserializeSHAMapFromStream(
             }
 
             auto item = make_shamapitem(key, makeSlice(data));
-            
+
             if (shaMap.hasItem(key))
                 return shaMap.updateGiveItem(nodeType, std::move(item));
 
@@ -564,14 +571,14 @@ static bool deserializeSHAMapFromStream(
     }
     catch (std::exception const& e)
     {
-        JLOG(j.error())
-            << "Exception during deserialization: " << e.what();
+        JLOG(j.error()) << "Exception during deserialization: " << e.what();
         return false;
     }
 }
 
 // Convenience wrappers for specific map types
-static bool deserializeStateMap(
+static bool
+deserializeStateMap(
     SHAMap& stateMap,
     boost::iostreams::filtering_istream& stream,
     beast::Journal const& j)
@@ -585,7 +592,8 @@ static bool deserializeStateMap(
         j);
 }
 
-static bool deserializeTxMap(
+static bool
+deserializeTxMap(
     SHAMap& txMap,
     boost::iostreams::filtering_istream& stream,
     beast::Journal const& j)
@@ -971,12 +979,13 @@ doCatalogueCreate(RPC::JsonContext& context)
                 return false;
             }
 
-            size_t stateNodesWritten =
-                serializeSHAMapToStream(ledger->stateMap(), *compStream, 
-                    SHAMapNodeType::tnACCOUNT_STATE, prevStateMap);
-            size_t txNodesWritten =
-                serializeSHAMapToStream(ledger->txMap(), *compStream,
-                    SHAMapNodeType::tnTRANSACTION_MD);
+            size_t stateNodesWritten = serializeSHAMapToStream(
+                ledger->stateMap(),
+                *compStream,
+                SHAMapNodeType::tnACCOUNT_STATE,
+                prevStateMap);
+            size_t txNodesWritten = serializeSHAMapToStream(
+                ledger->txMap(), *compStream, SHAMapNodeType::tnTRANSACTION_MD);
 
             predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
@@ -1486,7 +1495,8 @@ doCatalogueLoad(RPC::JsonContext& context)
             ledger->setLedgerInfo(info);
 
             // Deserialize the complete state map from leaf nodes
-            if (!deserializeStateMap(ledger->stateMap(), *decompStream, context.j))
+            if (!deserializeStateMap(
+                    ledger->stateMap(), *decompStream, context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to deserialize base ledger state";
@@ -1512,7 +1522,8 @@ doCatalogueLoad(RPC::JsonContext& context)
                 *snapshot);
 
             // Apply delta (only leaf-node changes)
-            if (!deserializeStateMap(ledger->stateMap(), *decompStream, context.j))
+            if (!deserializeStateMap(
+                    ledger->stateMap(), *decompStream, context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to apply delta to ledger " << info.seq;
