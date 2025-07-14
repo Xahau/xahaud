@@ -451,19 +451,22 @@ static size_t serializeSHAMapToStream(
 // 2. In catalogue loading, we always work with freshly created maps that are modifiable
 // 3. This function is only called from doCatalogueLoad with appropriate maps
 // If called with an immutable map, it will fail at the first addGiveItem/delItem call.
-static bool deserializeStateMap(
-    SHAMap& stateMap,
+static bool deserializeSHAMapFromStream(
+    SHAMap& shaMap,
     boost::iostreams::filtering_istream& stream,
+    SHAMapNodeType nodeType,
+    NodeObjectType flushType,
+    bool allowRemoval,
     beast::Journal const& j)
 {
     try
     {
         // Define a lambda to deserialize a leaf node
-        auto deserializeLeaf = [&stateMap, &stream, &j](
-            SHAMapNodeType& nodeType /* out */) -> bool {
-            stream.read(reinterpret_cast<char*>(&nodeType), 1);
+        auto deserializeLeaf = [&shaMap, &stream, &j, nodeType, allowRemoval](
+            SHAMapNodeType& parsedType /* out */) -> bool {
+            stream.read(reinterpret_cast<char*>(&parsedType), 1);
 
-            if (nodeType == CATALOGUE_NODE_TERMINAL)
+            if (parsedType == CATALOGUE_NODE_TERMINAL)
             {
                 // end of map
                 return false;
@@ -482,17 +485,24 @@ static bool deserializeStateMap(
                 return false;
             }
 
-            if (nodeType == CATALOGUE_NODE_REMOVE)
+            if (parsedType == CATALOGUE_NODE_REMOVE)
             {
                 // deletion
-                if (!stateMap.hasItem(key))
+                if (!allowRemoval)
+                {
+                    JLOG(j.error())
+                        << "Deserialization: unexpected removal in this map type";
+                    return false;
+                }
+                
+                if (!shaMap.hasItem(key))
                 {
                     JLOG(j.error())
                         << "Deserialization: removal of key " << to_string(key)
                         << " but key is already absent.";
                     return false;
                 }
-                stateMap.delItem(key);
+                shaMap.delItem(key);
                 return true;
             }
 
@@ -530,11 +540,10 @@ static bool deserializeStateMap(
 
             auto item = make_shamapitem(key, makeSlice(data));
             
-            // For state map, always use tnACCOUNT_STATE
-            if (stateMap.hasItem(key))
-                return stateMap.updateGiveItem(SHAMapNodeType::tnACCOUNT_STATE, std::move(item));
+            if (shaMap.hasItem(key))
+                return shaMap.updateGiveItem(nodeType, std::move(item));
 
-            return stateMap.addGiveItem(SHAMapNodeType::tnACCOUNT_STATE, std::move(item));
+            return shaMap.addGiveItem(nodeType, std::move(item));
         };
 
         SHAMapNodeType lastParsed;
@@ -549,7 +558,7 @@ static bool deserializeStateMap(
         }
 
         // Flush any dirty nodes and update hashes
-        stateMap.flushDirty(hotACCOUNT_NODE);
+        shaMap.flushDirty(flushType);
 
         return true;
     }
@@ -561,109 +570,33 @@ static bool deserializeStateMap(
     }
 }
 
-// See deserializeStateMap comment about state checks
+// Convenience wrappers for specific map types
+static bool deserializeStateMap(
+    SHAMap& stateMap,
+    boost::iostreams::filtering_istream& stream,
+    beast::Journal const& j)
+{
+    return deserializeSHAMapFromStream(
+        stateMap,
+        stream,
+        SHAMapNodeType::tnACCOUNT_STATE,
+        hotACCOUNT_NODE,
+        true,  // Allow removal for state maps
+        j);
+}
+
 static bool deserializeTxMap(
     SHAMap& txMap,
     boost::iostreams::filtering_istream& stream,
     beast::Journal const& j)
 {
-    try
-    {
-        // Define a lambda to deserialize a leaf node
-        auto deserializeLeaf = [&txMap, &stream, &j](
-            SHAMapNodeType& nodeType /* out */) -> bool {
-            stream.read(reinterpret_cast<char*>(&nodeType), 1);
-
-            if (nodeType == CATALOGUE_NODE_TERMINAL)
-            {
-                // end of map
-                return false;
-            }
-
-            uint256 key;
-            uint32_t size{0};
-
-            stream.read(reinterpret_cast<char*>(key.data()), 32);
-
-            if (stream.fail())
-            {
-                JLOG(j.error())
-                    << "Deserialization: stream stopped unexpectedly "
-                    << "while trying to read key of next entry";
-                return false;
-            }
-
-            if (nodeType == CATALOGUE_NODE_REMOVE)
-            {
-                // deletion - shouldn't happen for tx map
-                JLOG(j.error())
-                    << "Deserialization: unexpected removal in tx map";
-                return false;
-            }
-
-            stream.read(reinterpret_cast<char*>(&size), 4);
-
-            if (stream.fail())
-            {
-                JLOG(j.error())
-                    << "Deserialization: stream stopped unexpectedly"
-                    << " while trying to read size of data for key "
-                    << to_string(key);
-                return false;
-            }
-
-            if (size > 1024 * 1024 * 1024)
-            {
-                JLOG(j.error())
-                    << "Deserialization: size of " << to_string(key)
-                    << " is suspiciously large (" << size
-                    << " bytes), bailing.";
-                return false;
-            }
-
-            std::vector<uint8_t> data;
-            data.resize(size);
-
-            stream.read(reinterpret_cast<char*>(data.data()), size);
-            if (stream.fail())
-            {
-                JLOG(j.error())
-                    << "Deserialization: Unexpected EOF while reading data for "
-                    << to_string(key);
-                return false;
-            }
-
-            auto item = make_shamapitem(key, makeSlice(data));
-            
-            // For tx map, always use tnTRANSACTION_MD
-            if (txMap.hasItem(key))
-                return txMap.updateGiveItem(SHAMapNodeType::tnTRANSACTION_MD, std::move(item));
-
-            return txMap.addGiveItem(SHAMapNodeType::tnTRANSACTION_MD, std::move(item));
-        };
-
-        SHAMapNodeType lastParsed;
-        while (!stream.eof() && deserializeLeaf(lastParsed))
-            ;
-
-        if (lastParsed != CATALOGUE_NODE_TERMINAL)
-        {
-            JLOG(j.error())
-                << "Deserialization: Unexpected EOF, terminal node not found.";
-            return false;
-        }
-
-        // Flush any dirty nodes and update hashes
-        txMap.flushDirty(hotTRANSACTION_NODE);
-
-        return true;
-    }
-    catch (std::exception const& e)
-    {
-        JLOG(j.error())
-            << "Exception during deserialization: " << e.what();
-        return false;
-    }
+    return deserializeSHAMapFromStream(
+        txMap,
+        stream,
+        SHAMapNodeType::tnTRANSACTION_MD,
+        hotTRANSACTION_NODE,
+        false,  // No removal for tx maps
+        j);
 }
 
 // Helper function to generate status JSON
