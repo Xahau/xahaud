@@ -1083,6 +1083,10 @@ message(STATUS "Reporting mode build: rippled renamed ${BIN_NAME}")
   target_compile_definitions(rippled PRIVATE RIPPLED_REPORTING)
 endif()
 
+# Always define IS_XAHAUD=1 for xahaud builds
+target_compile_definitions(rippled PRIVATE IS_XAHAUD=1)
+message(STATUS "Building with IS_XAHAUD=1")
+
 # any files that don't play well with unity should be added here
 if (tests)
   set_source_files_properties(

@@ -17,6 +17,9 @@
 */
 //==============================================================================
 
+// Define IS_XAHAUD to be false for rippled build
+
+#if IS_XAHAUD
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/LedgerToJson.h>
@@ -35,6 +38,30 @@
 #include <ripple/rpc/impl/RPCHelpers.h>
 #include <ripple/rpc/impl/Tuning.h>
 #include <ripple/shamap/SHAMapItem.h>
+#else
+// rippled includes
+#include <xrpl/basics/Log.h>
+#include <xrpl/basics/Slice.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/LedgerFormats.h>
+#include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/LedgerToJson.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/nodestore/NodeObject.h>
+#include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/Role.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpld/rpc/detail/Tuning.h>
+#include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapItem.h>
+#include <xrpld/shamap/SHAMapTreeNode.h>
+// Note: rippled doesn't have GRPCHandlers.h
+#endif
 
 #include <atomic>
 #include <condition_variable>
@@ -61,9 +88,33 @@ using duration = NetClock::duration;
 
 #define CATL 0x4C544143UL /*"CATL" in LE*/
 
+// Helper macro for RPC errors
+#if IS_XAHAUD
+#define CATALOGUE_RPC_ERROR(code, msg) rpcError(code, msg)
+#else
+#define CATALOGUE_RPC_ERROR(code, msg) RPC::make_error(code, msg)
+#endif
+
 // Special serialization markers (not part of SHAMapNodeType)
 static constexpr uint8_t CATALOGUE_NODE_REMOVE = 0xFE;  // Marks a removed node
 static constexpr uint8_t CATALOGUE_NODE_TERMINAL = 0xFF;  // Marks end of stream
+
+// Self-contained JSON field names for catalogue operations
+namespace catalogue_jss {
+static constexpr auto job_status = "job_status";
+static constexpr auto current_ledger = "current_ledger";
+static constexpr auto percent_complete = "percent_complete";
+static constexpr auto elapsed_seconds = "elapsed_seconds";
+static constexpr auto estimated_time_remaining = "estimated_time_remaining";
+static constexpr auto start_time = "start_time";
+static constexpr auto job_type = "job_type";
+static constexpr auto file = "file";
+static constexpr auto file_size_estimated_human = "file_size_estimated_human";
+static constexpr auto input_file = "input_file";
+static constexpr auto ignore_hash = "ignore_hash";
+static constexpr auto ledger_count = "ledger_count";
+static constexpr auto ledgers_loaded = "ledgers_loaded";
+}  // namespace catalogue_jss
 
 // Replace the current version constant
 static constexpr uint16_t CATALOGUE_VERSION = 1;
@@ -474,7 +525,11 @@ deserializeSHAMapFromStream(
                 SHAMapNodeType& parsedType /* out */) -> bool {
             stream.read(reinterpret_cast<char*>(&parsedType), 1);
 
+#if IS_XAHAUD
             if (parsedType == CATALOGUE_NODE_TERMINAL)
+#else
+            if (static_cast<uint8_t>(parsedType) == CATALOGUE_NODE_TERMINAL)
+#endif
             {
                 // end of map
                 return false;
@@ -493,7 +548,11 @@ deserializeSHAMapFromStream(
                 return false;
             }
 
+#if IS_XAHAUD
             if (parsedType == CATALOGUE_NODE_REMOVE)
+#else
+            if (static_cast<uint8_t>(parsedType) == CATALOGUE_NODE_REMOVE)
+#endif
             {
                 // deletion
                 if (!allowRemoval)
@@ -557,7 +616,11 @@ deserializeSHAMapFromStream(
         while (!stream.eof() && deserializeLeaf(lastParsed))
             ;
 
+#if IS_XAHAUD
         if (lastParsed != CATALOGUE_NODE_TERMINAL)
+#else
+        if (static_cast<uint8_t>(lastParsed) != CATALOGUE_NODE_TERMINAL)
+#endif
         {
             JLOG(j.error())
                 << "Deserialization: Unexpected EOF, terminal node not found.";
@@ -617,10 +680,10 @@ generateStatusJson(bool includeErrorInfo = false)
 
     if (catalogueRunStatus.isRunning)
     {
-        jvResult[jss::job_status] = "job_in_progress";
+        jvResult[catalogue_jss::job_status] = "job_in_progress";
         jvResult[jss::min_ledger] = catalogueRunStatus.minLedger;
         jvResult[jss::max_ledger] = catalogueRunStatus.maxLedger;
-        jvResult[jss::current_ledger] = catalogueRunStatus.ledgerUpto;
+        jvResult[catalogue_jss::current_ledger] = catalogueRunStatus.ledgerUpto;
 
         // Calculate percentage complete - FIX: Handle ledgerUpto = 0 case
         // properly
@@ -638,14 +701,15 @@ generateStatusJson(bool includeErrorInfo = false)
         int percentage = (total_ledgers > 0)
             ? static_cast<int>((processed_ledgers * 100) / total_ledgers)
             : 0;
-        jvResult[jss::percent_complete] = percentage;
+        jvResult[catalogue_jss::percent_complete] = percentage;
 
         // Calculate elapsed time
         auto now = std::chrono::system_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                            now - catalogueRunStatus.started)
                            .count();
-        jvResult[jss::elapsed_seconds] = static_cast<Json::UInt>(elapsed);
+        jvResult[catalogue_jss::elapsed_seconds] =
+            static_cast<Json::UInt>(elapsed);
 
         // Calculate estimated time remaining
         if (processed_ledgers > 0 && total_ledgers > processed_ledgers)
@@ -691,16 +755,17 @@ generateStatusJson(bool includeErrorInfo = false)
                         " second" +
                         (estimated_seconds_remaining > 1 ? "s" : "");
                 }
-                jvResult[jss::estimated_time_remaining] = time_remaining;
+                jvResult[catalogue_jss::estimated_time_remaining] =
+                    time_remaining;
             }
             else
             {
-                jvResult[jss::estimated_time_remaining] = "unknown";
+                jvResult[catalogue_jss::estimated_time_remaining] = "unknown";
             }
         }
         else
         {
-            jvResult[jss::estimated_time_remaining] = "unknown";
+            jvResult[catalogue_jss::estimated_time_remaining] = "unknown";
         }
 
         // Add start time as ISO 8601 string
@@ -710,16 +775,16 @@ generateStatusJson(bool includeErrorInfo = false)
         char time_buffer[30];
         std::strftime(
             time_buffer, sizeof(time_buffer), "%Y-%m-%dT%H:%M:%SZ", tm_started);
-        jvResult[jss::start_time] = time_buffer;
+        jvResult[catalogue_jss::start_time] = time_buffer;
 
         // Add job type
-        jvResult[jss::job_type] =
+        jvResult[catalogue_jss::job_type] =
             (catalogueRunStatus.jobType == CatalogueJobType::CREATE)
             ? "catalogue_create"
             : "catalogue_load";
 
         // Add filename
-        jvResult[jss::file] = catalogueRunStatus.filename;
+        jvResult[catalogue_jss::file] = catalogueRunStatus.filename;
 
         // Add compression level if applicable
         if (catalogueRunStatus.compressionLevel > 0)
@@ -744,7 +809,7 @@ generateStatusJson(bool includeErrorInfo = false)
         }
 
         // Add estimated filesize ("unknown" if not available)
-        jvResult[jss::file_size_estimated_human] =
+        jvResult[catalogue_jss::file_size_estimated_human] =
             catalogueRunStatus.fileSizeEstimated;
 
         if (includeErrorInfo)
@@ -756,7 +821,7 @@ generateStatusJson(bool includeErrorInfo = false)
     }
     else
     {
-        jvResult[jss::job_status] = "no_job_running";
+        jvResult[catalogue_jss::job_status] = "no_job_running";
     }
 
     return jvResult;
@@ -809,7 +874,7 @@ doCatalogueCreate(RPC::JsonContext& context)
 
     if (!context.params.isMember(jss::min_ledger) ||
         !context.params.isMember(jss::max_ledger))
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINVALID_PARAMS, "expected min_ledger and max_ledger");
 
     std::string filepath;
@@ -819,7 +884,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     if (!context.params.isMember(jss::output_file) ||
         (filepath = context.params[jss::output_file].asString()).empty() ||
         filepath.front() != '/')
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINVALID_PARAMS,
             "expected output_file: <absolute writeable filepath>");
 
@@ -849,18 +914,18 @@ doCatalogueCreate(RPC::JsonContext& context)
         if (stat(filepath.c_str(), &st) == 0)
         {  // file exists
             if (st.st_size > 0)
-                return rpcError(
+                return CATALOGUE_RPC_ERROR(
                     rpcINVALID_PARAMS,
                     "output_file already exists and is non-empty");
         }
         else if (errno != ENOENT)
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL,
                 "cannot stat output_file: " + std::string(strerror(errno)));
 
         std::ofstream testWrite(filepath.c_str(), std::ios::out);
         if (testWrite.fail())
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL,
                 "output_file location is not writeable: " +
                     std::string(strerror(errno)));
@@ -869,7 +934,7 @@ doCatalogueCreate(RPC::JsonContext& context)
 
     std::ofstream outfile(filepath.c_str(), std::ios::out | std::ios::binary);
     if (outfile.fail())
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL,
             "failed to open output_file: " + std::string(strerror(errno)));
 
@@ -877,7 +942,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     uint32_t max_ledger = context.params[jss::max_ledger].asUInt();
 
     if (min_ledger > max_ledger)
-        return rpcError(rpcINVALID_PARAMS, "min_ledger must be <= max_ledger");
+        return CATALOGUE_RPC_ERROR(
+            rpcINVALID_PARAMS, "min_ledger must be <= max_ledger");
 
     // Initialize status tracking
     {
@@ -905,7 +971,7 @@ doCatalogueCreate(RPC::JsonContext& context)
 
     outfile.write(reinterpret_cast<const char*>(&header), sizeof(CATLHeader));
     if (outfile.fail())
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL,
             "failed to write header: " + std::string(strerror(errno)));
 
@@ -1017,13 +1083,19 @@ doCatalogueCreate(RPC::JsonContext& context)
         UPDATE_CATALOGUE_STATUS(ledgerUpto, min_ledger);
 
         // Load the first ledger
+#if IS_XAHAUD
         if (auto error = RPC::getLedger(currLedger, min_ledger, context))
-            return rpcError(error.toErrorCode(), error.message());
+            return CATALOGUE_RPC_ERROR(error.toErrorCode(), error.message());
         if (!currLedger)
-            return rpcError(rpcLEDGER_MISSING);
+            return CATALOGUE_RPC_ERROR(rpcLGR_NOT_FOUND, "Ledger not found");
+#else
+        currLedger = context.ledgerMaster.getLedgerBySeq(min_ledger);
+        if (!currLedger)
+            return CATALOGUE_RPC_ERROR(rpcLGR_NOT_FOUND, "Ledger not found");
+#endif
 
         if (!outputLedger(currLedger))
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL, "Error occurred while processing first ledger");
 
         ledgers_written++;
@@ -1042,14 +1114,20 @@ doCatalogueCreate(RPC::JsonContext& context)
 
         // Load the next ledger
         currLedger = nullptr;  // Release any previous current ledger
+#if IS_XAHAUD
         if (auto error = RPC::getLedger(currLedger, ledger_seq, context))
-            return rpcError(error.toErrorCode(), error.message());
+            return CATALOGUE_RPC_ERROR(error.toErrorCode(), error.message());
         if (!currLedger)
-            return rpcError(rpcLEDGER_MISSING);
+            return CATALOGUE_RPC_ERROR(rpcLGR_NOT_FOUND, "Ledger not found");
+#else
+        currLedger = context.ledgerMaster.getLedgerBySeq(ledger_seq);
+        if (!currLedger)
+            return CATALOGUE_RPC_ERROR(rpcLGR_NOT_FOUND, "Ledger not found");
+#endif
 
         // Process with diff against previous ledger
         if (!outputLedger(currLedger, prevLedger->stateMap()))
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL, "Error occurred while processing ledgers");
 
         UPDATE_CATALOGUE_STATUS(
@@ -1077,7 +1155,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     {
         JLOG(context.j.warn())
             << "Could not get file size: " << std::strerror(errno);
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL, "failed to get file size for header update");
     }
 
@@ -1091,7 +1169,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     std::fstream updateFileSizeFile(
         filepath.c_str(), std::ios::in | std::ios::out | std::ios::binary);
     if (updateFileSizeFile.fail())
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL,
             "cannot open file for updating filesize: " +
                 std::string(strerror(errno)));
@@ -1106,7 +1184,7 @@ doCatalogueCreate(RPC::JsonContext& context)
 
     std::ifstream hashFile(filepath.c_str(), std::ios::in | std::ios::binary);
     if (hashFile.fail())
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL,
             "cannot open file for hashing: " + std::string(strerror(errno)));
 
@@ -1119,7 +1197,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     // Read and process the header portion
     hashFile.read(buffer.data(), sizeof(CATLHeader));
     if (hashFile.gcount() != sizeof(CATLHeader))
-        return rpcError(rpcINTERNAL, "failed to read header for hashing");
+        return CATALOGUE_RPC_ERROR(
+            rpcINTERNAL, "failed to read header for hashing");
 
     // Zero out the hash portion in the buffer for hash calculation
     std::fill(
@@ -1147,7 +1226,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     std::fstream updateFile(
         filepath.c_str(), std::ios::in | std::ios::out | std::ios::binary);
     if (updateFile.fail())
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL,
             "cannot open file for updating hash: " +
                 std::string(strerror(errno)));
@@ -1214,17 +1293,17 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
     } opCleanup;
 
-    if (!context.params.isMember(jss::input_file))
-        return rpcError(rpcINVALID_PARAMS, "expected input_file");
+    if (!context.params.isMember(catalogue_jss::input_file))
+        return CATALOGUE_RPC_ERROR(rpcINVALID_PARAMS, "expected input_file");
 
     // Check for ignore_hash parameter
     bool ignore_hash = false;
-    if (context.params.isMember(jss::ignore_hash))
-        ignore_hash = context.params[jss::ignore_hash].asBool();
+    if (context.params.isMember(catalogue_jss::ignore_hash))
+        ignore_hash = context.params[catalogue_jss::ignore_hash].asBool();
 
-    std::string filepath = context.params[jss::input_file].asString();
+    std::string filepath = context.params[catalogue_jss::input_file].asString();
     if (filepath.empty() || filepath.front() != '/')
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINVALID_PARAMS,
             "expected input_file: <absolute readable filepath>");
 
@@ -1233,7 +1312,7 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Check file size before attempting to read
     struct stat st;
     if (stat(filepath.c_str(), &st) != 0)
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL,
             "cannot stat input_file: " + std::string(strerror(errno)));
 
@@ -1241,7 +1320,7 @@ doCatalogueLoad(RPC::JsonContext& context)
 
     // Minimal size check: at least a header must be present
     if (file_size < sizeof(CATLHeader))
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINVALID_PARAMS,
             "input_file too small (only " + std::to_string(file_size) +
                 " bytes), must be at least " +
@@ -1252,7 +1331,7 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Check if file exists and is readable
     std::ifstream infile(filepath.c_str(), std::ios::in | std::ios::binary);
     if (infile.fail())
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINTERNAL,
             "cannot open input_file: " + std::string(strerror(errno)));
 
@@ -1262,10 +1341,12 @@ doCatalogueLoad(RPC::JsonContext& context)
     CATLHeader header;
     infile.read(reinterpret_cast<char*>(&header), sizeof(CATLHeader));
     if (infile.fail())
-        return rpcError(rpcINTERNAL, "failed to read catalogue header");
+        return CATALOGUE_RPC_ERROR(
+            rpcINTERNAL, "failed to read catalogue header");
 
     if (header.magic != CATL)
-        return rpcError(rpcINVALID_PARAMS, "invalid catalogue file magic");
+        return CATALOGUE_RPC_ERROR(
+            rpcINVALID_PARAMS, "invalid catalogue file magic");
 
     // Save the hash from the header
     std::array<uint8_t, 64> stored_hash = header.hash;
@@ -1297,12 +1378,12 @@ doCatalogueLoad(RPC::JsonContext& context)
 
     // Check version compatibility
     if (version > 1)  // Only checking base version number
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINVALID_PARAMS,
             "unsupported catalogue version: " + std::to_string(version));
 
     if (header.network_id != context.app.config().NETWORK_ID)
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINVALID_PARAMS,
             "catalogue network ID mismatch: " +
                 std::to_string(header.network_id));
@@ -1314,7 +1395,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             << "Catalogue file size mismatch. Header indicates "
             << header.filesize << " bytes, but actual file size is "
             << file_size << " bytes";
-        return rpcError(
+        return CATALOGUE_RPC_ERROR(
             rpcINVALID_PARAMS,
             "catalogue file size mismatch: expected " +
                 std::to_string(header.filesize) + " bytes, got " +
@@ -1334,7 +1415,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         std::ifstream hashFile(
             filepath.c_str(), std::ios::in | std::ios::binary);
         if (hashFile.fail())
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL,
                 "cannot reopen file for hash verification: " +
                     std::string(strerror(errno)));
@@ -1378,7 +1459,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             JLOG(context.j.error())
                 << "Catalogue hash verification failed. Expected: " << hash_hex
                 << ", Computed: " << computed_hex;
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINVALID_PARAMS, "catalogue hash verification failed");
         }
 
@@ -1387,7 +1468,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         // Reopen file for reading
         infile.open(filepath.c_str(), std::ios::in | std::ios::binary);
         if (infile.fail())
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL,
                 "cannot reopen file after hash verification: " +
                     std::string(strerror(errno)));
@@ -1461,7 +1542,8 @@ doCatalogueLoad(RPC::JsonContext& context)
                 << "Catalogue load expected but could not "
                 << "read the next ledger header at seq=" << expected_seq << ". "
                 << "Ledgers prior to this in the file (if any) were loaded.";
-            return rpcError(rpcINTERNAL, "Unexpected end of catalogue file.");
+            return CATALOGUE_RPC_ERROR(
+                rpcINTERNAL, "Unexpected end of catalogue file.");
         }
 
         info.closeTime = time_point{duration{closeTime}};
@@ -1475,7 +1557,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         {
             JLOG(context.j.error())
                 << "Expected ledger " << expected_seq << ", bailing";
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL,
                 "Unexpected ledger out of sequence in catalogue file");
         }
@@ -1500,7 +1582,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             {
                 JLOG(context.j.error())
                     << "Failed to deserialize base ledger state";
-                return rpcError(
+                return CATALOGUE_RPC_ERROR(
                     rpcINTERNAL, "Failed to load base ledger state");
             }
         }
@@ -1510,16 +1592,18 @@ doCatalogueLoad(RPC::JsonContext& context)
             if (!prevLedger)
             {
                 JLOG(context.j.error()) << "Missing previous ledger for delta";
-                return rpcError(rpcINTERNAL, "Missing previous ledger");
+                return CATALOGUE_RPC_ERROR(
+                    rpcINTERNAL, "Missing previous ledger");
             }
 
-            auto snapshot = prevLedger->stateMap().snapShot(true);
+            // For delta ledgers, we need to start with previous ledger's state
+            // Both xahaud and rippled use similar approaches here
+            // Create a new ledger that starts as a copy of the previous ledger
+            ledger = std::make_shared<Ledger>(*prevLedger, info.closeTime);
 
-            ledger = std::make_shared<Ledger>(
-                info,
-                context.app.config(),
-                context.app.getNodeFamily(),
-                *snapshot);
+            // Now update the ledger info to match what we loaded from the
+            // catalogue
+            ledger->setLedgerInfo(info);
 
             // Apply delta (only leaf-node changes)
             if (!deserializeStateMap(
@@ -1527,7 +1611,8 @@ doCatalogueLoad(RPC::JsonContext& context)
             {
                 JLOG(context.j.error())
                     << "Failed to apply delta to ledger " << info.seq;
-                return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
+                return CATALOGUE_RPC_ERROR(
+                    rpcINTERNAL, "Failed to apply ledger delta");
             }
         }
 
@@ -1536,7 +1621,8 @@ doCatalogueLoad(RPC::JsonContext& context)
         {
             JLOG(context.j.error())
                 << "Failed to apply delta to ledger " << info.seq;
-            return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
+            return CATALOGUE_RPC_ERROR(
+                rpcINTERNAL, "Failed to apply ledger delta");
         }
 
         // Finalize the ledger
@@ -1549,7 +1635,11 @@ doCatalogueLoad(RPC::JsonContext& context)
             info.closeFlags & sLCF_NoConsensusTime);
 
         ledger->setValidated();
+#if IS_XAHAUD
         ledger->setCloseFlags(info.closeFlags);
+#else
+        // rippled doesn't have setCloseFlags - it's set during setAccepted
+#endif
         ledger->setImmutable(true);
 
         // we can double check the computed hashes now, since setImmutable
@@ -1562,7 +1652,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                    "match. "
                 << "This ledger was not saved, and ledger loading from this "
                    "catalogue file ended here.";
-            return rpcError(
+            return CATALOGUE_RPC_ERROR(
                 rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
         }
 
@@ -1570,7 +1660,11 @@ doCatalogueLoad(RPC::JsonContext& context)
         pendSaveValidated(context.app, ledger, false, false);
 
         // Store in ledger master
+#if IS_XAHAUD
         context.app.getLedgerMaster().storeLedger(ledger, true);
+#else
+        context.app.getLedgerMaster().storeLedger(ledger);
+#endif
 
         if (info.seq == header.max_ledger &&
             context.app.getLedgerMaster().getClosedLedger()->info().seq <
@@ -1580,8 +1674,13 @@ doCatalogueLoad(RPC::JsonContext& context)
             context.app.getLedgerMaster().switchLCL(ledger);
         }
 
+#if IS_XAHAUD
         context.app.getLedgerMaster().setLedgerRangePresent(
             header.min_ledger, info.seq, true);
+#else
+        context.app.getLedgerMaster().setLedgerRangePresent(
+            header.min_ledger, info.seq);
+#endif
 
         // Store the ledger
         prevLedger = ledger;
@@ -1598,15 +1697,16 @@ doCatalogueLoad(RPC::JsonContext& context)
     Json::Value jvResult;
     jvResult[jss::ledger_min] = header.min_ledger;
     jvResult[jss::ledger_max] = header.max_ledger;
-    jvResult[jss::ledger_count] =
+    jvResult[catalogue_jss::ledger_count] =
         static_cast<Json::UInt>(header.max_ledger - header.min_ledger + 1);
-    jvResult[jss::ledgers_loaded] = static_cast<Json::UInt>(ledgersLoaded);
+    jvResult[catalogue_jss::ledgers_loaded] =
+        static_cast<Json::UInt>(ledgersLoaded);
     jvResult[jss::file_size_human] = formatBytesIEC(file_size);
     jvResult[jss::file_size] = std::to_string(file_size);
     jvResult[jss::status] = jss::success;
     jvResult[jss::compression_level] = compressionLevel;
     jvResult[jss::hash] = hash_hex;
-    jvResult[jss::ignore_hash] = ignore_hash;
+    jvResult[catalogue_jss::ignore_hash] = ignore_hash;
 
     return jvResult;
 }
