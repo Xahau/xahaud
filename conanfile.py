@@ -26,7 +26,6 @@ class Xrpl(ConanFile):
     }
 
     requires = [
-        'doctest/2.4.11',
         'grpc/1.50.1',
         'libarchive/3.7.6',
         'magic_enum/0.9.5',
@@ -34,6 +33,10 @@ class Xrpl(ConanFile):
         'openssl/3.6.0',
         'soci/4.0.3@xahaud/stable',
         'zlib/1.3.1',
+    ]
+
+    test_requires = [
+        'doctest/2.4.11',
     ]
 
     tool_requires = [
@@ -91,12 +94,13 @@ class Xrpl(ConanFile):
     }
 
     def set_version(self):
-        path = f'{self.recipe_folder}/src/libxrpl/protocol/BuildInfo.cpp'
-        regex = r'versionString\s?=\s?\"(.*)\"'
-        with open(path, 'r') as file:
-            matches = (re.search(regex, line) for line in file)
-            match = next(m for m in matches if m)
-            self.version = match.group(1)
+        if self.version is None:
+            path = f'{self.recipe_folder}/src/libxrpl/protocol/BuildInfo.cpp'
+            regex = r'versionString\s?=\s?\"(.*)\"'
+            with open(path, encoding='utf-8') as file:
+                matches = (re.search(regex, line) for line in file)
+                match = next(m for m in matches if m)
+                self.version = match.group(1)
 
     def build_requirements(self):
         # These provide build tools (protoc, grpc plugins) that run during build
@@ -157,6 +161,8 @@ class Xrpl(ConanFile):
         tc.variables['static'] = self.options.static
         tc.variables['unity'] = self.options.unity
         tc.variables['xrpld'] = self.options.xrpld
+        if self.settings.compiler == 'clang' and self.settings.compiler.version == 16:
+            tc.extra_cxxflags = ["-DBOOST_ASIO_DISABLE_CONCEPTS"]
         tc.generate()
 
     def build(self):
