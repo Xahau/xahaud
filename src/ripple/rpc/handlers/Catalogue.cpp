@@ -438,7 +438,9 @@ serializeSHAMapToStream(
     std::size_t nodeCount = 0;
 
     // If we have a previous map, compute differences
-    if (prevMap && prevMap->get().getHash() != shaMap.getHash())
+    // State maps are always different between ledgers due to at least the
+    // skiplist updates
+    if (prevMap)
     {
         SHAMap::Delta differences;
 
@@ -525,11 +527,7 @@ deserializeSHAMapFromStream(
                 SHAMapNodeType& parsedType /* out */) -> bool {
             stream.read(reinterpret_cast<char*>(&parsedType), 1);
 
-#if IS_XAHAUD
-            if (parsedType == CATALOGUE_NODE_TERMINAL)
-#else
             if (static_cast<uint8_t>(parsedType) == CATALOGUE_NODE_TERMINAL)
-#endif
             {
                 // end of map
                 return false;
@@ -548,11 +546,7 @@ deserializeSHAMapFromStream(
                 return false;
             }
 
-#if IS_XAHAUD
-            if (parsedType == CATALOGUE_NODE_REMOVE)
-#else
             if (static_cast<uint8_t>(parsedType) == CATALOGUE_NODE_REMOVE)
-#endif
             {
                 // deletion
                 if (!allowRemoval)
@@ -616,11 +610,7 @@ deserializeSHAMapFromStream(
         while (!stream.eof() && deserializeLeaf(lastParsed))
             ;
 
-#if IS_XAHAUD
-        if (lastParsed != CATALOGUE_NODE_TERMINAL)
-#else
         if (static_cast<uint8_t>(lastParsed) != CATALOGUE_NODE_TERMINAL)
-#endif
         {
             JLOG(j.error())
                 << "Deserialization: Unexpected EOF, terminal node not found.";
@@ -1638,7 +1628,19 @@ doCatalogueLoad(RPC::JsonContext& context)
 #if IS_XAHAUD
         ledger->setCloseFlags(info.closeFlags);
 #else
-        // rippled doesn't have setCloseFlags - it's set during setAccepted
+        // rippled doesn't have setCloseFlags method - close flags are set
+        // during setAccepted Currently only sLCF_NoConsensusTime (0x01) exists,
+        // which setAccepted() handles properly This check is future-proofing in
+        // case additional close flags are added later
+        if (info.closeFlags & ~sLCF_NoConsensusTime)
+        {
+            throw std::runtime_error(
+                "Catalogue contains close flags that rippled cannot handle. "
+                "closeFlags=0x" +
+                std::to_string(info.closeFlags) +
+                " but rippled only supports sLCF_NoConsensusTime via "
+                "setAccepted()");
+        }
 #endif
         ledger->setImmutable(true);
 
