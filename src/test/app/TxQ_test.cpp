@@ -5128,7 +5128,7 @@ public:
         // differ from run to run, which breaks tests that assert balances
         // depending on that order (e.g. unexpected balance change).
         FeatureBitset const all{
-            supported_amendments() - featureXahauGenesis - featureRNG};
+            testable_amendments() - featureXahauGenesis - featureRNG};
         testQueueSeq(all);
         testQueueTicket(all);
         testTecResult(all);
@@ -5163,7 +5163,7 @@ public:
         // differ from run to run, which breaks tests that assert balances
         // depending on that order (e.g. unexpected balance change).
         FeatureBitset const all{
-            supported_amendments() - featureXahauGenesis - featureRNG};
+            testable_amendments() - featureXahauGenesis - featureRNG};
         testAcctInQueueButEmpty(all);
         testRPC(all);
         testExpirationReplacement(all);

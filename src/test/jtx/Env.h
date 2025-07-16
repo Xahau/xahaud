@@ -91,6 +91,27 @@ supported_amendments()
     return ids;
 }
 
+inline FeatureBitset
+testable_amendments()
+{
+    static FeatureBitset const ids = [] {
+        auto const& sa = allAmendments();
+        std::vector<uint256> feats;
+        feats.reserve(sa.size());
+        for (auto const& [s, vote] : sa)
+        {
+            (void)vote;
+            if (auto const f = getRegisteredFeature(s))
+                feats.push_back(*f);
+            else
+                Throw<std::runtime_error>(
+                    "Unknown feature: " + s + "  in allAmendments.");
+        }
+        return FeatureBitset(feats);
+    }();
+    return ids;
+}
+
 //------------------------------------------------------------------------------
 
 class SuiteLogs : public Logs
@@ -236,7 +257,7 @@ public:
         beast::severities::Severity thresh = beast::severities::kError)
         : Env(suite_,
               std::move(config),
-              supported_amendments(),
+              testable_amendments(),
               std::move(logs),
               thresh)
     {

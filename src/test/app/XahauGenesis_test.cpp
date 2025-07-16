@@ -4696,8 +4696,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
         using namespace std::chrono_literals;
         testcase("test claim reward elapsed_since_last == 1");
 
+        FeatureBitset supportedFeatures;
+        foreachFeature(features, [&](uint256 const& feature) {
+            std::string featureName = featureToName(feature);
+            if (ripple::detail::supportedAmendments().contains(featureName))
+                supportedFeatures.set(featureToBitsetIndex(feature));
+        });
+
         Env env{
-            *this, makeNetworkConfig(21337), features - featureXahauGenesis};
+            *this,
+            makeNetworkConfig(21337),
+            supportedFeatures - featureXahauGenesis};
 
         double const rateDrops = 0.00333333333 * 1'000'000;
         STAmount const feesXRP = XRP(1);
@@ -4778,8 +4787,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
         using namespace std::chrono_literals;
         testcase("test claim reward elapsed_since_last == 0");
 
+        FeatureBitset supportedFeatures;
+        foreachFeature(features, [&](uint256 const& feature) {
+            std::string featureName = featureToName(feature);
+            if (ripple::detail::supportedAmendments().contains(featureName))
+                supportedFeatures.set(featureToBitsetIndex(feature));
+        });
+
         Env env{
-            *this, makeNetworkConfig(21337), features - featureXahauGenesis};
+            *this,
+            makeNetworkConfig(21337),
+            supportedFeatures - featureXahauGenesis};
 
         STAmount const feesXRP = XRP(1);
 
@@ -4969,18 +4987,26 @@ struct XahauGenesis_test : public beast::unit_test::suite
     {
         using namespace jtx;
         using namespace std::chrono_literals;
+
         testcase("test claim reward elapsed_since_last < 0");
+
+        FeatureBitset supportedFeatures;
+        foreachFeature(features, [&](uint256 const& feature) {
+            std::string featureName = featureToName(feature);
+            if (ripple::detail::supportedAmendments().contains(featureName))
+                supportedFeatures.set(featureToBitsetIndex(feature));
+        });
 
         Env env{
             *this,
             makeGenesisConfig(
-                features - featureXahauGenesis,
+                supportedFeatures - featureXahauGenesis,
                 21337,
                 "10",
                 "1000000",
                 "200000",
                 0),
-            features - featureXahauGenesis};
+            supportedFeatures - featureXahauGenesis};
 
         STAmount const feesXRP = XRP(1);
 
@@ -5908,7 +5934,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = testable_amendments();
         testGovernHookWithFeats(sa);
         testRewardHookWithFeats(sa);
         testRewardHookWithFeats(sa - fix240819);

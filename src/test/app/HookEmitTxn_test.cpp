@@ -1004,7 +1004,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        testCreateLedgerEntry(supported_amendments());
+        testCreateLedgerEntry(testable_amendments());
     }
 };
 

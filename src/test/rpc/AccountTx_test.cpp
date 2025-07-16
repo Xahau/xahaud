@@ -126,7 +126,7 @@ class AccountTx_test : public beast::unit_test::suite
                 cfg->FEES.reference_fee = 10;
                 return cfg;
             }),
-            supported_amendments() - featureXahauGenesis - fixHookAPI20251128);
+            testable_amendments() - featureXahauGenesis - fixHookAPI20251128);
         Account A1{"A1"};
         env.fund(XRP(10000), A1);
         env.close();
@@ -429,7 +429,7 @@ class AccountTx_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::chrono_literals;
 
-        Env env(*this, supported_amendments() - featureXahauGenesis);
+        Env env(*this, testable_amendments() - featureXahauGenesis);
         Account const alice{"alice"};
         Account const alie{"alie"};
         Account const gw{"gw"};
@@ -821,7 +821,7 @@ class AccountTx_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::chrono_literals;
 
-        Env env(*this, supported_amendments() - featureXahauGenesis);
+        Env env(*this, testable_amendments() - featureXahauGenesis);
         Account const alice{"alice"};
         Account const becky{"becky"};
 
@@ -955,8 +955,7 @@ class AccountTx_test : public beast::unit_test::suite
 
         auto cfg = makeConfig();
         cfg->FEES.reference_fee = 10;
-        Env env(
-            *this, std::move(cfg), supported_amendments() | featureMPTokensV1);
+        Env env(*this, std::move(cfg));
 
         Account const alice{"alice"};
         Account const bob{"bob"};

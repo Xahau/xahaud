@@ -1507,7 +1507,7 @@ struct JsonTx_test : public beast::unit_test::suite
     run() override
     {
         using namespace jtx;
-        auto const all = supported_amendments();
+        auto const all = testable_amendments();
 
         testDisabled(all);
         testActivationBoundary(all);

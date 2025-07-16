@@ -500,7 +500,7 @@ public:
         Env env(
             *this,
             std::move(cfg),
-            supported_amendments() - featureXahauGenesis -
+            testable_amendments() - featureXahauGenesis -
                 fixProvisionalDoubleThreading - fixHookAPI20251128);
 
         Json::Value jv;

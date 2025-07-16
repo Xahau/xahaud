@@ -462,7 +462,7 @@ class UNLReport_test : public beast::unit_test::suite
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = testable_amendments();
         testWithFeats(sa);
     }
 };
@@ -474,7 +474,7 @@ class UNLReportNoAmendment_test : public beast::unit_test::suite
     {
         testcase("No UNL report amendment");
 
-        jtx::Env env(*this, jtx::supported_amendments() - featureXahauGenesis);
+        jtx::Env env(*this, jtx::testable_amendments() - featureXahauGenesis);
         std::vector<PublicKey> publicKeys = createUNLRPublicKeys(1);
         // genesis ledger
         auto l = std::make_shared<Ledger>(
@@ -662,7 +662,7 @@ struct URNetworkHistory
         : env(suite,
               p.withVL ? jtx::network::makeNetworkVLConfig(21337, keys)
                        : jtx::envconfig(),
-              jtx::supported_amendments() | featureNegativeUNL)
+              jtx::testable_amendments())
         , param(p)
         , validations(env.app().getValidations())
     {

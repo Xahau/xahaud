@@ -975,9 +975,9 @@ public:
         forAllApiVersions(std::bind_front(
             &Transaction_test::testBinaryRequest,
             this,
-            supported_amendments() - featureXahauGenesis - fixHookAPI20251128));
+            testable_amendments() - featureXahauGenesis - fixHookAPI20251128));
         return;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{testable_amendments()};
         testWithFeats(all);
     }
 

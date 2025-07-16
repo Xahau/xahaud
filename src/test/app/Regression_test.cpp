@@ -338,7 +338,7 @@ struct Regression_test : public beast::unit_test::suite
     run() override
     {
         using namespace test::jtx;
-        auto const all{jtx::supported_amendments() - featureXahauGenesis};
+        auto const all{jtx::testable_amendments() - featureXahauGenesis};
         testOffer1(all);
         testLowBalanceDestroy(all);
         testSecp256r1key(all);

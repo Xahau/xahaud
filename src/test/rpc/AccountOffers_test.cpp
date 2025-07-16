@@ -350,7 +350,7 @@ public:
     run() override
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{testable_amendments()};
         testSequential(all, true);
         testSequential(all, false);
         testBadInput(all);

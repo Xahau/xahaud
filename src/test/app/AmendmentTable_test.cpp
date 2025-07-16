@@ -1361,7 +1361,7 @@ public:
     void
     run() override
     {
-        FeatureBitset const all{test::jtx::supported_amendments()};
+        FeatureBitset const all{test::jtx::testable_amendments()};
         FeatureBitset const fixMajorityCalc{fixAmendmentMajorityCalc};
 
         testConstruct();

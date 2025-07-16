@@ -1551,9 +1551,7 @@ public:
     void
     run() override
     {
-        FeatureBitset const all{
-            jtx::supported_amendments() | featureCredentials |
-            featurePermissionedDomains | featurePermissionedDEX};
+        FeatureBitset const all{jtx::testable_amendments()};
 
         // Test domain offer (w/o hyrbid)
         testOfferCreate(all);
