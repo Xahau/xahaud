@@ -161,7 +161,7 @@ class TransactionEntry_test : public beast::unit_test::suite
                 cfg->FEES.reference_fee = 10;
                 return cfg;
             }),
-            supported_amendments() - featureXahauGenesis - featureTouch -
+            testable_amendments() - featureXahauGenesis - featureTouch -
                 fixHookAPI20251128,
         };
 

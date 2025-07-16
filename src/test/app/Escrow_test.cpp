@@ -345,7 +345,7 @@ struct Escrow_test : public beast::unit_test::suite
 
         {
             // Respect the "asfDisallowXRP" account flag:
-            Env env(*this, supported_amendments() - featureDepositAuth);
+            Env env(*this, testable_amendments() - featureDepositAuth);
 
             env.fund(XRP(5000), "bob", "george");
             env(fset("george", asfDisallowXRP));
@@ -373,7 +373,7 @@ struct Escrow_test : public beast::unit_test::suite
         {
             testcase("Implied Finish Time (without fix1571)");
 
-            Env env(*this, supported_amendments() - fix1571);
+            Env env(*this, testable_amendments() - fix1571);
             auto const baseFee = env.current()->fees().base;
             env.fund(XRP(5000), "alice", "bob", "carol");
             env.close();
@@ -1865,7 +1865,7 @@ struct Escrow_test : public beast::unit_test::suite
 
         {
             // Respect the "asfDisallowXRP" account flag:
-            Env env(*this, supported_amendments() - featureDepositAuth);
+            Env env(*this, testable_amendments() - featureDepositAuth);
             env.fund(XRP(5000), bob, george, gw);
             env.close();
             env.trust(USD(10000), bob, george);
@@ -1901,7 +1901,7 @@ struct Escrow_test : public beast::unit_test::suite
         {
             testcase("IOU Implied Finish Time (without fix1571)");
 
-            Env env(*this, supported_amendments() - fix1571);
+            Env env(*this, testable_amendments() - fix1571);
             auto const alice = Account("alice");
             auto const bob = Account("bob");
             auto const carol = Account("carol");
@@ -4854,7 +4854,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() | featureCredentials};
+        FeatureBitset const all{testable_amendments()};
         testWithFeats(all - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
         testIOUWithFeats(all - featureClawback);

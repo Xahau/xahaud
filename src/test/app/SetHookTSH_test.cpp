@@ -8538,6 +8538,9 @@ public:
     run(std::uint32_t instance, bool last = false)
     {
         using namespace test::jtx;
+        // using `supported_amendments()` instead of new `testable_amendments()`
+        // in testTSH to fail tests when amendments become supported without
+        // transaction tests implemented
         static FeatureBitset const all{supported_amendments()};
 
         static std::array<FeatureBitset, 4> const feats{

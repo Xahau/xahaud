@@ -5120,7 +5120,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{testable_amendments() - featureXahauGenesis};
         testQueueSeq(all);
         testQueueTicket(all);
         testTecResult(all);
@@ -5147,7 +5147,7 @@ public:
     runMetaInfo()
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{testable_amendments() - featureXahauGenesis};
         testAcctInQueueButEmpty(all);
         testRPC(all);
         testExpirationReplacement(all);

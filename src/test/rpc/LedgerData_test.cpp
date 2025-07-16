@@ -308,8 +308,8 @@ public:
 
         // Make sure fixInnerObjTemplate doesn't break amendments.
         for (FeatureBitset const& features :
-             {supported_amendments() - fixInnerObjTemplate,
-              supported_amendments() | fixInnerObjTemplate})
+             {testable_amendments() - fixInnerObjTemplate,
+              testable_amendments() | fixInnerObjTemplate})
         {
             using namespace std::chrono;
 
