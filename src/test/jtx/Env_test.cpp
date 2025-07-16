@@ -1031,7 +1031,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{testable_amendments() - featureXahauGenesis};
         testAccount();
         testAmount();
         testEnv(all);

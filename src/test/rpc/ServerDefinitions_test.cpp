@@ -168,7 +168,7 @@ public:
         testcase("Default Env: config-forced, none on-ledger");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, supported_amendments()};
 
         std::map<std::string, VoteBehavior> const& votes =
             ripple::detail::supportedAmendments();
@@ -279,7 +279,7 @@ public:
         testcase("With Majorities");
 
         using namespace test::jtx;
-        Env env{*this, envconfig(validator, "")};
+        Env env{*this, envconfig(validator, ""), supported_amendments()};
 
         auto jrr = env.rpc("server_definitions")[jss::result];
         if (!BEAST_EXPECT(jrr.isMember(jss::features)))
@@ -501,7 +501,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = testable_amendments();
         testServerDefinitions(sa);
         testServerFeatures(sa);
     }

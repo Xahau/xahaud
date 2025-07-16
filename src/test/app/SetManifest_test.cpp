@@ -803,7 +803,7 @@ public:
         // RH TODO: re-add these when the amendment is ready for supported::yes
         /*
                 using namespace test::jtx;
-                auto const sa = supported_amendments();
+                auto const sa = testable_amendments();
                 testSubmission(sa);
                 testUpdate(sa);
                 testRevocation(sa);

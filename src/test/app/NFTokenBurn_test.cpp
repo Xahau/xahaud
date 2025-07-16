@@ -1386,7 +1386,7 @@ protected:
     {
         using namespace test::jtx;
         static FeatureBitset const all{
-            supported_amendments() - featureXahauGenesis};
+            testable_amendments() - featureXahauGenesis};
         static FeatureBitset const fixNFTV1_2{fixNonFungibleTokensV1_2};
         static FeatureBitset const fixNFTDir{fixNFTokenDirV1};
         static FeatureBitset const fixNFTRemint{fixNFTokenRemint};

@@ -1408,7 +1408,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = testable_amendments();
         testAllTxns(sa);
         testAllTxns(sa - fixHookAPI20251128);
         testAllTxns(sa - featureTouch - fixHookAPI20251128);

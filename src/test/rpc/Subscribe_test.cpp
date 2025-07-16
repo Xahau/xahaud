@@ -171,7 +171,7 @@ public:
     {
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this, supported_amendments() - featureXahauGenesis);
+        Env env(*this, testable_amendments() - featureXahauGenesis);
         auto baseFee = env.current()->fees().base.drops();
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream;
@@ -325,7 +325,7 @@ public:
                 cfg->FEES.reference_fee = 10;
                 return cfg;
             }),
-            supported_amendments() - featureXahauGenesis - featureTouch);
+            testable_amendments() - featureXahauGenesis - featureTouch);
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream{Json::objectValue};
 
@@ -1512,9 +1512,7 @@ public:
         testcase("SubBookChanges");
         using namespace jtx;
         using namespace std::chrono_literals;
-        FeatureBitset const all{
-            jtx::supported_amendments() | featurePermissionedDomains |
-            featureCredentials | featurePermissionedDEX};
+        FeatureBitset const all{jtx::testable_amendments()};
 
         Env env(*this, all);
         PermissionedDEX permDex(env);
@@ -1783,7 +1781,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{testable_amendments()};
         FeatureBitset const xrpFees{featureXRPFees};
 
         testServer();

@@ -90,16 +90,12 @@ class Path_test : public beast::unit_test::suite
         // different from the current defaults. This function creates an env
         // with the search parameters that the tests were written for.
         using namespace jtx;
-        return Env(
-            *this,
-            envconfig([](std::unique_ptr<Config> cfg) {
-                cfg->PATH_SEARCH_OLD = 7;
-                cfg->PATH_SEARCH = 7;
-                cfg->PATH_SEARCH_MAX = 10;
-                return cfg;
-            }),
-            supported_amendments() | featureCredentials | featureAMM |
-                featurePermissionedDomains | featurePermissionedDEX);
+        return Env(*this, envconfig([](std::unique_ptr<Config> cfg) {
+            cfg->PATH_SEARCH_OLD = 7;
+            cfg->PATH_SEARCH = 7;
+            cfg->PATH_SEARCH_MAX = 10;
+            return cfg;
+        }));
     }
 
 public:

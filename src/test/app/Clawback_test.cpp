@@ -962,7 +962,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() | featureMPTokensV1};
+        FeatureBitset const all{testable_amendments()};
 
         testWithFeats(all - featureMPTokensV1);
         testWithFeats(all);

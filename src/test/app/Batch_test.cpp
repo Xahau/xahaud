@@ -3831,10 +3831,7 @@ class Batch_test : public beast::unit_test::suite
         // this also makes sure tfInnerBatchTxn won't block delegated
         // MPTokenIssuanceSet with granular permission
         {
-            test::jtx::Env env{
-                *this,
-                envconfig(),
-                features | featureMPTokensV1 | featurePermissionDelegation};
+            test::jtx::Env env{*this, envconfig(), features};
             Account alice{"alice"};
             Account bob{"bob"};
             env.fund(XRP(100000), alice, bob);
@@ -4181,7 +4178,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments() | featureBatch;
+        auto const sa = testable_amendments();
         testWithFeats(sa);
     }
 };
