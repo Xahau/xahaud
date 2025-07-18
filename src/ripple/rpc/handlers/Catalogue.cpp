@@ -924,6 +924,19 @@ doCatalogueLoad(RPC::JsonContext& context)
             rpcINVALID_PARAMS,
             "expected input_file: <absolute readable filepath>");
 
+    bool do_pinning = true;
+    bool do_save_synchronous = false;  // Default: asynchronous saves
+
+    // Parse diagnostic options if provided
+    if (context.params.isMember(jss::do_pinning))
+        do_pinning = context.params[jss::do_pinning].asBool();
+
+    if (context.params.isMember(jss::do_save_synchronous))
+        do_save_synchronous = context.params[jss::do_save_synchronous].asBool();
+
+    JLOG(context.j.info()) << "Diagnostic options: do_pinning=" << do_pinning
+                           << ", do_save_synchronous=" << do_save_synchronous;
+
     JLOG(context.j.info()) << "Opening catalogue file: " << filepath;
 
     // Check file size before attempting to read
@@ -1261,10 +1274,10 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // Save in database
-        pendSaveValidated(context.app, ledger, false, false);
+        pendSaveValidated(context.app, ledger, do_save_synchronous, false);
 
         // Store in ledger master
-        context.app.getLedgerMaster().storeLedger(ledger, true);
+        context.app.getLedgerMaster().storeLedger(ledger, do_pinning);
 
         if (info.seq == header.max_ledger &&
             context.app.getLedgerMaster().getClosedLedger()->info().seq <
@@ -1275,7 +1288,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         context.app.getLedgerMaster().setLedgerRangePresent(
-            header.min_ledger, info.seq, true);
+            header.min_ledger, info.seq, do_pinning);
 
         // Store the ledger
         prevLedger = ledger;

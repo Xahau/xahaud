@@ -201,7 +201,7 @@ saveValidatedLedger(
     if (!ledger->info().accountHash.isNonZero())
     {
         JLOG(j.fatal()) << "AH is zero: " << getJson({*ledger, {}});
-        assert(false);
+        Throw<std::runtime_error>("Cannot save ledger with zero account hash");
     }
 
     if (ledger->info().accountHash != ledger->stateMap().getHash().as_uint256())
@@ -210,7 +210,7 @@ saveValidatedLedger(
                         << " != " << ledger->stateMap().getHash();
         JLOG(j.fatal()) << "saveAcceptedLedger: seq=" << seq
                         << ", current=" << current;
-        assert(false);
+        Throw<std::runtime_error>("Ledger account hash mismatch");
     }
 
     assert(ledger->info().txHash == ledger->txMap().getHash().as_uint256());
@@ -266,76 +266,130 @@ saveValidatedLedger(
 
             soci::transaction tr(*db);
 
-            *db << boost::str(deleteTrans1 % seq);
-            *db << boost::str(deleteTrans2 % seq);
+            // Combine both DELETEs into one query for better performance.
+            // This removes all existing transaction data for this ledger
+            // sequence.
+            *db << boost::str(
+                boost::format(
+                    "DELETE FROM Transactions WHERE LedgerSeq = %u;"
+                    "DELETE FROM AccountTransactions WHERE LedgerSeq = %u;") %
+                seq % seq);
 
             std::string const ledgerSeq(std::to_string(seq));
 
+            // Build bulk insert statements for all transactions in this ledger.
+            // This dramatically reduces database round-trips from 2N to 2,
+            // where N is the number of transactions.
+            std::string
+                accountTxBulk;  // Will hold: INSERT INTO AccountTransactions
+                                // VALUES (...),(...),(...)
+            std::string metadataBulk;  // Will hold: INSERT INTO Transactions
+                                       // VALUES (...),(...),(...)
+            bool firstAcctTx = true;
+            bool firstMeta = true;
+
+            // Pre-allocate string memory to avoid reallocations during
+            // concatenation. Estimates: ~256 bytes per account entry,
+            // ~512 bytes per metadata entry.
+            accountTxBulk.reserve(aLedger->size() * 256);
+            metadataBulk.reserve(aLedger->size() * 512);
+
+            // First pass: build all SQL statements without executing them.
+            // We iterate through all transactions to construct two bulk INSERT
+            // statements.
             for (auto const& acceptedLedgerTx : *aLedger)
             {
                 uint256 transactionID = acceptedLedgerTx->getTransactionID();
-
                 std::string const txnId(to_string(transactionID));
                 std::string const txnSeq(
                     std::to_string(acceptedLedgerTx->getTxnSeq()));
 
-                *db << boost::str(deleteAcctTrans % transactionID);
+                // IMPORTANT: Removed redundant DELETE by TransID that was here.
+                // We already deleted ALL AccountTransactions for this ledger
+                // above, so deleting by individual TransID was wasted work
+                // (N unnecessary DELETEs where N = number of transactions).
 
                 auto const& accts = acceptedLedgerTx->getAffected();
 
-                if (!accts.empty())
+                // Build VALUES clause for all accounts affected by this
+                // transaction. Each transaction can affect multiple accounts
+                // (sender, receiver, etc).
+                for (auto const& account : accts)
                 {
-                    std::string sql(
-                        "INSERT INTO AccountTransactions "
-                        "(TransID, Account, LedgerSeq, TxnSeq) VALUES ");
-
-                    // Try to make an educated guess on how much space we'll
-                    // need for our arguments. In argument order we have: 64
-                    // + 34 + 10 + 10 = 118 + 10 extra = 128 bytes
-                    sql.reserve(sql.length() + (accts.size() * 128));
-
-                    bool first = true;
-                    for (auto const& account : accts)
+                    if (firstAcctTx)
                     {
-                        if (!first)
-                            sql += ", ('";
-                        else
-                        {
-                            sql += "('";
-                            first = false;
-                        }
-
-                        sql += txnId;
-                        sql += "','";
-                        sql += toBase58(account);
-                        sql += "',";
-                        sql += ledgerSeq;
-                        sql += ",";
-                        sql += txnSeq;
-                        sql += ")";
+                        accountTxBulk =
+                            "INSERT INTO AccountTransactions "
+                            "(TransID, Account, LedgerSeq, TxnSeq) VALUES ";
+                        firstAcctTx = false;
                     }
-                    sql += ";";
-                    JLOG(j.trace()) << "ActTx: " << sql;
-                    *db << sql;
+                    else
+                    {
+                        accountTxBulk += ",";
+                    }
+
+                    accountTxBulk += "('";
+                    accountTxBulk += txnId;
+                    accountTxBulk += "','";
+                    accountTxBulk += toBase58(account);
+                    accountTxBulk += "',";
+                    accountTxBulk += ledgerSeq;
+                    accountTxBulk += ",";
+                    accountTxBulk += txnSeq;
+                    accountTxBulk += ")";
                 }
-                else if (auto const& sleTxn = acceptedLedgerTx->getTxn();
-                         !isPseudoTx(*sleTxn))
+
+                if (accts.empty() && !isPseudoTx(*acceptedLedgerTx->getTxn()))
                 {
-                    // It's okay for pseudo transactions to not affect any
-                    // accounts.  But otherwise...
                     JLOG(j.warn()) << "Transaction in ledger " << seq
                                    << " affects no accounts";
-                    JLOG(j.warn()) << sleTxn->getJson(JsonOptions::none);
+                    JLOG(j.warn()) << acceptedLedgerTx->getTxn()->getJson(
+                        JsonOptions::none);
                 }
 
-                *db
-                    << (STTx::getMetaSQLInsertReplaceHeader() +
-                        acceptedLedgerTx->getTxn()->getMetaSQL(
-                            seq, acceptedLedgerTx->getEscMeta()) +
-                        ";");
+                // Build metadata insert
+                if (firstMeta)
+                {
+                    metadataBulk = STTx::getMetaSQLInsertReplaceHeader();
+                    firstMeta = false;
+                }
+                else
+                {
+                    metadataBulk += ",";
+                }
 
+                metadataBulk += acceptedLedgerTx->getTxn()->getMetaSQL(
+                    seq, acceptedLedgerTx->getEscMeta());
+            }
+
+            // Execute bulk inserts - this is where the performance gain
+            // happens. Instead of N individual INSERT statements per
+            // transaction type, we execute just 2 bulk statements for the
+            // entire ledger.
+            if (!firstAcctTx)
+            {
+                accountTxBulk += ";";
+                JLOG(j.trace())
+                    << "Bulk ActTx: " << accountTxBulk.size() << " bytes";
+                *db << accountTxBulk;
+            }
+
+            if (!firstMeta)
+            {
+                metadataBulk += ";";
+                JLOG(j.trace())
+                    << "Bulk Metadata: " << metadataBulk.size() << " bytes";
+                *db << metadataBulk;
+            }
+
+            // Second pass: update MasterTransaction cache after DB inserts
+            // complete. This maintains the original order of operations - the
+            // cache update happens AFTER the database contains the transaction
+            // data.
+            for (auto const& acceptedLedgerTx : *aLedger)
+            {
                 app.getMasterTransaction().inLedger(
-                    transactionID,
+                    acceptedLedgerTx->getTransactionID(),
                     seq,
                     acceptedLedgerTx->getTxnSeq(),
                     app.config().NETWORK_ID);
