@@ -186,8 +186,6 @@ Export our [Conan recipe for RocksDB](./external/rocksdb).
 It does not override paths to dependencies when building with Visual Studio.
 
    ```
-   # Conan 1.x
-   conan export external/rocksdb rocksdb/6.29.5@
    # Conan 2.x
    conan export --version 6.29.5 external/rocksdb
    ```
@@ -203,17 +201,6 @@ It patches their CMake to correctly import its dependencies.
 
    ```
    conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable
-   ```
-
-Export our [Conan recipe for NuDB](./external/nudb).
-It fixes some source files to add missing `#include`s.
-
-
-   ```
-   # Conan 1.x
-   conan export external/nudb nudb/2.0.8@
-   # Conan 2.x
-   conan export --version 2.0.8 external/nudb
    ```
 
 ### Build and Test
