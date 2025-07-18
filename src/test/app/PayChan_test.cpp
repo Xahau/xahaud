@@ -5955,6 +5955,6 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(PayChan, app, ripple);
+BEAST_DEFINE_TESTSUITE_PRIO(PayChan, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple

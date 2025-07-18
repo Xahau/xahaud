@@ -5193,7 +5193,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(XChain, app, ripple);
-BEAST_DEFINE_TESTSUITE(XChainSim, app, ripple);
+BEAST_DEFINE_TESTSUITE_PRIO(XChain, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(XChainSim, app, ripple, 2);
 
 }  // namespace ripple::test

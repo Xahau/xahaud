@@ -6559,7 +6559,7 @@ private:
     }
 };
 
-BEAST_DEFINE_TESTSUITE_PRIO(AMM, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(AMM, app, ripple, 3);
 
 }  // namespace test
 }  // namespace ripple
