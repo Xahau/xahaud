@@ -3302,6 +3302,13 @@ private:
                 ter(tecNO_PERMISSION));
         });
 
+        // Can't pay into AMM with Remit.
+        testAMM([&](AMM& ammAlice, Env& env) {
+            env(remit::remit(carol, ammAlice.ammAccount()),
+                remit::amts({XRP(1)}),
+                ter(tecNO_PERMISSION));
+        });
+
         // Pay amounts close to one side of the pool
         testAMM(
             [&](AMM& ammAlice, Env& env) {

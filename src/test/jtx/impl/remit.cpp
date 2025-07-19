@@ -27,15 +27,15 @@ namespace remit {
 
 Json::Value
 remit(
-    jtx::Account const& account,
-    jtx::Account const& dest,
+    AccountID const& account,
+    AccountID const& dest,
     std::optional<std::uint32_t> const& dstTag)
 {
     using namespace jtx;
     Json::Value jv;
     jv[jss::TransactionType] = jss::Remit;
-    jv[jss::Account] = account.human();
-    jv[jss::Destination] = dest.human();
+    jv[jss::Account] = to_string(account);
+    jv[jss::Destination] = to_string(dest);
     if (dstTag)
         jv[sfDestinationTag.jsonName] = *dstTag;
     return jv;

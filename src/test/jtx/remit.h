@@ -32,8 +32,8 @@ namespace remit {
 
 Json::Value
 remit(
-    jtx::Account const& account,
-    jtx::Account const& dest,
+    AccountID const& account,
+    AccountID const& dest,
     std::optional<std::uint32_t> const& dstTag = std::nullopt);
 
 /** Sets the optional Amount on a JTx. */
