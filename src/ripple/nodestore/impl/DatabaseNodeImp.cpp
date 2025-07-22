@@ -33,9 +33,26 @@ DatabaseNodeImp::store(
 {
     storeStats(1, data.size());
 
+    // Check if this is an uncached type
+    bool skipCache = false;
+    if (type == hotACCOUNT_NODE_UNCACHED)
+    {
+        type = hotACCOUNT_NODE;
+        skipCache = true;
+        JLOG(j_.info()) << "Storing uncached ACCOUNT_NODE, hash: " << hash;
+    }
+    else if (type == hotTRANSACTION_NODE_UNCACHED)
+    {
+        type = hotTRANSACTION_NODE;
+        skipCache = true;
+        JLOG(j_.info()) << "Storing uncached TRANSACTION_NODE, hash: " << hash;
+    }
+
     auto obj = NodeObject::createObject(type, std::move(data), hash);
     backend_->store(obj);
-    if (cache_)
+
+    // Only add to cache if it's not an uncached type
+    if (cache_ && !skipCache)
     {
         // After the store, replace a negative cache entry if there is one
         cache_->canonicalize(
