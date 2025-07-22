@@ -537,13 +537,16 @@ LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
 {
     bool validated = ledger->info().validated;
     // Returns true if we already had the ledger
-    if (!mLedgerHistory.insert(std::move(ledger), validated))
+    if (!pin && !mLedgerHistory.insert(std::move(ledger), validated))
         return false;
 
     if (pin)
     {
         uint32_t seq = ledger->info().seq;
-        mPinnedLedgers.insert(range(seq, seq));
+        {
+            std::lock_guard sl(mCompleteLock);
+            mPinnedLedgers.insert(range(seq, seq));
+        }
         JLOG(m_journal.info()) << "Pinned ledger : " << seq;
     }
     return true;
@@ -614,6 +617,13 @@ LedgerMaster::clearLedger(std::uint32_t seq)
     }
 
     mCompleteLedgers.erase(seq);
+}
+
+bool
+LedgerMaster::isPinned(std::uint32_t seq)
+{
+    std::lock_guard sl(mCompleteLock);
+    return boost::icl::contains(mPinnedLedgers, seq);
 }
 
 // returns Ledgers we have all the nodes for

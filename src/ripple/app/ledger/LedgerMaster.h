@@ -227,6 +227,8 @@ public:
     void
     clearLedger(std::uint32_t seq);
     bool
+    isPinned(std::uint32_t seq);
+    bool
     getValidatedRange(std::uint32_t& minVal, std::uint32_t& maxVal);
     bool
     getFullValidatedRange(std::uint32_t& minVal, std::uint32_t& maxVal);

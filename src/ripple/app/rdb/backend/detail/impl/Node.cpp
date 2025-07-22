@@ -231,8 +231,13 @@ saveValidatedLedger(
         if (!aLedger)
         {
             aLedger = std::make_shared<AcceptedLedger>(ledger, app);
-            app.getAcceptedLedgerCache().canonicalize_replace_client(
-                ledger->info().hash, aLedger);
+
+            // Only cache if the ledger is NOT in the pinned range
+            if (!app.getLedgerMaster().isPinned(ledger->info().seq))
+            {
+                app.getAcceptedLedgerCache().canonicalize_replace_client(
+                    ledger->info().hash, aLedger);
+            }
         }
     }
     catch (std::exception const&)
