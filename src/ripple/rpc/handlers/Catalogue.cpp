@@ -473,6 +473,8 @@ doCatalogueStatus(RPC::JsonContext& context)
 Json::Value
 doCatalogueCreate(RPC::JsonContext& context)
 {
+    auto j = context.app.logs().journal("CatalogueTools");
+
     // Try to acquire write lock to check if an operation is running
     {
         std::unique_lock<std::shared_mutex> writeLock(
@@ -611,8 +613,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     auto compStream = std::make_unique<boost::iostreams::filtering_ostream>();
     if (compressionLevel > 0)
     {
-        JLOG(context.j.info())
-            << "Setting up compression with level " << (int)compressionLevel;
+        JLOG(j.info()) << "Setting up compression with level "
+                       << (int)compressionLevel;
 
         boost::iostreams::zlib_params params((int)compressionLevel);
         params.window_bits = 15;
@@ -621,8 +623,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     }
     else
     {
-        JLOG(context.j.info())
-            << "No compression (level 0), using direct output";
+        JLOG(j.info()) << "No compression (level 0), using direct output";
     }
 
     ByteCounterFilter byteCounter;
@@ -631,11 +632,11 @@ doCatalogueCreate(RPC::JsonContext& context)
     compStream->push(boost::ref(outfile));
 
     // Process ledgers with local processor implementation
-    auto writeToFile = [&compStream, &context](const void* data, size_t size) {
+    auto writeToFile = [&j, &compStream](const void* data, size_t size) {
         compStream->write(reinterpret_cast<const char*>(data), size);
         if (compStream->fail())
         {
-            JLOG(context.j.error())
+            JLOG(j.error())
                 << "Failed to write to output file: " << std::strerror(errno);
             return false;
         }
@@ -647,8 +648,8 @@ doCatalogueCreate(RPC::JsonContext& context)
 
     // Modified outputLedger to work with individual ledgers instead of a vector
     auto outputLedger =
-        [&writeToFile, &context, &compStream, &predictor, &byteCounter](
-            std::shared_ptr<Ledger const> ledger,
+        [&j, &writeToFile, &compStream, &predictor, &byteCounter](
+            const std::shared_ptr<Ledger const>& ledger,
             std::optional<std::reference_wrapper<const SHAMap>> prevStateMap =
                 std::nullopt) -> bool {
         try
@@ -685,16 +686,16 @@ doCatalogueCreate(RPC::JsonContext& context)
 
             predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
-            JLOG(context.j.info()) << "Ledger " << info.seq << ": Wrote "
-                                   << stateNodesWritten << " state nodes, "
-                                   << "and " << txNodesWritten << " tx nodes";
+            JLOG(j.info()) << "Ledger " << info.seq << ": Wrote "
+                           << stateNodesWritten << " state nodes, "
+                           << "and " << txNodesWritten << " tx nodes";
 
             return true;
         }
         catch (std::exception const& e)
         {
-            JLOG(context.j.error()) << "Error processing ledger "
-                                    << ledger->info().seq << ": " << e.what();
+            JLOG(j.error()) << "Error processing ledger " << ledger->info().seq
+                            << ": " << e.what();
             return false;
         }
     };
@@ -705,8 +706,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     std::shared_ptr<Ledger const> currLedger = nullptr;
     uint32_t ledgers_written = 0;
 
-    JLOG(context.j.info()) << "Starting to stream ledgers from " << min_ledger
-                           << " to " << max_ledger;
+    JLOG(j.info()) << "Starting to stream ledgers from " << min_ledger << " to "
+                   << max_ledger;
 
     // Process the first ledger completely
     {
@@ -771,8 +772,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     // Get the file size and update it in the header
     if (stat(filepath.c_str(), &st) != 0)
     {
-        JLOG(context.j.warn())
-            << "Could not get file size: " << std::strerror(errno);
+        JLOG(j.warn()) << "Could not get file size: " << std::strerror(errno);
         return rpcError(
             rpcINTERNAL, "failed to get file size for header update");
     }
@@ -780,8 +780,8 @@ doCatalogueCreate(RPC::JsonContext& context)
     file_size = st.st_size;
 
     // Update header with filesize
-    JLOG(context.j.info()) << "Updating file size in header: "
-                           << std::to_string(file_size) << " bytes";
+    JLOG(j.info()) << "Updating file size in header: "
+                   << std::to_string(file_size) << " bytes";
 
     header.filesize = file_size;
     std::fstream updateFileSizeFile(
@@ -798,7 +798,7 @@ doCatalogueCreate(RPC::JsonContext& context)
     updateFileSizeFile.close();
 
     // Now compute the hash over the entire file
-    JLOG(context.j.info()) << "Computing catalogue hash...";
+    JLOG(j.info()) << "Computing catalogue hash...";
 
     std::ifstream hashFile(filepath.c_str(), std::ios::in | std::ios::binary);
     if (hashFile.fail())
@@ -877,6 +877,8 @@ doCatalogueCreate(RPC::JsonContext& context)
 Json::Value
 doCatalogueLoad(RPC::JsonContext& context)
 {
+    auto j = context.app.logs().journal("CatalogueTools");
+
     // Try to acquire write lock to check if an operation is running
     {
         std::unique_lock<std::shared_mutex> writeLock(
@@ -926,6 +928,7 @@ doCatalogueLoad(RPC::JsonContext& context)
 
     bool do_pinning = true;
     bool do_save_synchronous = false;  // Default: asynchronous saves
+    bool no_db = false;                // Default: save to database
 
     // Parse diagnostic options if provided
     if (context.params.isMember(jss::do_pinning))
@@ -934,10 +937,18 @@ doCatalogueLoad(RPC::JsonContext& context)
     if (context.params.isMember(jss::do_save_synchronous))
         do_save_synchronous = context.params[jss::do_save_synchronous].asBool();
 
-    JLOG(context.j.info()) << "Diagnostic options: do_pinning=" << do_pinning
-                           << ", do_save_synchronous=" << do_save_synchronous;
+    // 'sync' is a shorthand for do_save_synchronous=true
+    if (context.params.isMember(jss::sync))
+        do_save_synchronous = context.params[jss::sync].asBool();
 
-    JLOG(context.j.info()) << "Opening catalogue file: " << filepath;
+    if (context.params.isMember(jss::no_db))
+        no_db = context.params[jss::no_db].asBool();
+
+    JLOG(j.info()) << "Diagnostic options: do_pinning=" << do_pinning
+                   << ", do_save_synchronous=" << do_save_synchronous
+                   << ", no_db=" << no_db;
+
+    JLOG(j.info()) << "Opening catalogue file: " << filepath;
 
     // Check file size before attempting to read
     struct stat st;
@@ -956,7 +967,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 " bytes), must be at least " +
                 std::to_string(sizeof(CATLHeader)) + " bytes");
 
-    JLOG(context.j.info()) << "Catalogue file size: " << file_size << " bytes";
+    JLOG(j.info()) << "Catalogue file size: " << file_size << " bytes";
 
     // Check if file exists and is readable
     std::ifstream infile(filepath.c_str(), std::ios::in | std::ios::binary);
@@ -965,7 +976,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             rpcINTERNAL,
             "cannot open input_file: " + std::string(strerror(errno)));
 
-    JLOG(context.j.info()) << "Reading catalogue header...";
+    JLOG(j.info()) << "Reading catalogue header...";
 
     // Read and validate header
     CATLHeader header;
@@ -1000,9 +1011,9 @@ doCatalogueLoad(RPC::JsonContext& context)
         catalogueRunStatus.filesize = header.filesize;
     }
 
-    JLOG(context.j.info()) << "Catalogue version: " << (int)version;
-    JLOG(context.j.info()) << "Compression level: " << (int)compressionLevel;
-    JLOG(context.j.info()) << "Catalogue hash: " << hash_hex;
+    JLOG(j.info()) << "Catalogue version: " << (int)version;
+    JLOG(j.info()) << "Compression level: " << (int)compressionLevel;
+    JLOG(j.info()) << "Catalogue hash: " << hash_hex;
 
     // Check version compatibility
     if (version > 1)  // Only checking base version number
@@ -1019,10 +1030,9 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Check if actual filesize matches the one in the header
     if (file_size != header.filesize)
     {
-        JLOG(context.j.error())
-            << "Catalogue file size mismatch. Header indicates "
-            << header.filesize << " bytes, but actual file size is "
-            << file_size << " bytes";
+        JLOG(j.error()) << "Catalogue file size mismatch. Header indicates "
+                        << header.filesize << " bytes, but actual file size is "
+                        << file_size << " bytes";
         return rpcError(
             rpcINVALID_PARAMS,
             "catalogue file size mismatch: expected " +
@@ -1030,13 +1040,12 @@ doCatalogueLoad(RPC::JsonContext& context)
                 std::to_string(file_size) + " bytes");
     }
 
-    JLOG(context.j.info()) << "Catalogue file size verified: " << file_size
-                           << " bytes";
+    JLOG(j.info()) << "Catalogue file size verified: " << file_size << " bytes";
 
     // Verify hash if not ignored
     if (!ignore_hash && file_size > sizeof(CATLHeader))
     {
-        JLOG(context.j.info()) << "Verifying catalogue hash...";
+        JLOG(j.info()) << "Verifying catalogue hash...";
 
         // Close and reopen file for hash verification
         infile.close();
@@ -1084,14 +1093,14 @@ doCatalogueLoad(RPC::JsonContext& context)
         {
             std::string computed_hex =
                 toHexString(computed_hash.data(), computed_hash.size());
-            JLOG(context.j.error())
+            JLOG(j.error())
                 << "Catalogue hash verification failed. Expected: " << hash_hex
                 << ", Computed: " << computed_hex;
             return rpcError(
                 rpcINVALID_PARAMS, "catalogue hash verification failed");
         }
 
-        JLOG(context.j.info()) << "Catalogue hash verified successfully";
+        JLOG(j.info()) << "Catalogue hash verified successfully";
 
         // Reopen file for reading
         infile.open(filepath.c_str(), std::ios::in | std::ios::binary);
@@ -1109,8 +1118,8 @@ doCatalogueLoad(RPC::JsonContext& context)
     auto decompStream = std::make_unique<boost::iostreams::filtering_istream>();
     if (compressionLevel > 0)
     {
-        JLOG(context.j.info())
-            << "Setting up decompression with level " << (int)compressionLevel;
+        JLOG(j.info()) << "Setting up decompression with level "
+                       << (int)compressionLevel;
         boost::iostreams::zlib_params params((int)compressionLevel);
         params.window_bits = 15;
         params.noheader = false;
@@ -1118,7 +1127,7 @@ doCatalogueLoad(RPC::JsonContext& context)
     }
     else
     {
-        JLOG(context.j.info())
+        JLOG(j.info())
             << "No decompression needed (level 0), using direct input";
     }
     decompStream->push(boost::ref(infile));
@@ -1166,7 +1175,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 reinterpret_cast<char*>(&parentCloseTime),
                 sizeof(parentCloseTime)))
         {
-            JLOG(context.j.warn())
+            JLOG(j.warn())
                 << "Catalogue load expected but could not "
                 << "read the next ledger header at seq=" << expected_seq << ". "
                 << "Ledgers prior to this in the file (if any) were loaded.";
@@ -1178,11 +1187,11 @@ doCatalogueLoad(RPC::JsonContext& context)
         info.closeTimeResolution = duration{closeTimeResolution};
         info.drops = drops;
 
-        JLOG(context.j.info()) << "Found ledger " << info.seq << "...";
+        JLOG(j.info()) << "Found ledger " << info.seq << "...";
 
         if (info.seq != expected_seq++)
         {
-            JLOG(context.j.error())
+            JLOG(j.error())
                 << "Expected ledger " << expected_seq << ", bailing";
             return rpcError(
                 rpcINTERNAL,
@@ -1206,8 +1215,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             // Deserialize the complete state map from leaf nodes
             if (!ledger->stateMap().deserializeFromStream(*decompStream))
             {
-                JLOG(context.j.error())
-                    << "Failed to deserialize base ledger state";
+                JLOG(j.error()) << "Failed to deserialize base ledger state";
                 return rpcError(
                     rpcINTERNAL, "Failed to load base ledger state");
             }
@@ -1217,7 +1225,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             // Delta ledger - start with a copy of the previous ledger
             if (!prevLedger)
             {
-                JLOG(context.j.error()) << "Missing previous ledger for delta";
+                JLOG(j.error()) << "Missing previous ledger for delta";
                 return rpcError(rpcINTERNAL, "Missing previous ledger");
             }
 
@@ -1232,7 +1240,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             // Apply delta (only leaf-node changes)
             if (!ledger->stateMap().deserializeFromStream(*decompStream))
             {
-                JLOG(context.j.error())
+                JLOG(j.error())
                     << "Failed to apply delta to ledger " << info.seq;
                 return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
             }
@@ -1241,14 +1249,19 @@ doCatalogueLoad(RPC::JsonContext& context)
         // pull in the tx map
         if (!ledger->txMap().deserializeFromStream(*decompStream))
         {
-            JLOG(context.j.error())
-                << "Failed to apply delta to ledger " << info.seq;
+            JLOG(j.error()) << "Failed to apply delta to ledger " << info.seq;
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
         }
 
         // Finalize the ledger
-        ledger->stateMap().flushDirty(hotACCOUNT_NODE);
-        ledger->txMap().flushDirty(hotTRANSACTION_NODE);
+        // Only flush to NodeStore if we're saving to database
+        if (!no_db)
+        {
+            // During catalogue loading, use uncached types to bypass the cache
+            // This prevents memory buildup from NodeObject accumulation
+            ledger->stateMap().flushDirty(hotACCOUNT_NODE_UNCACHED);
+            ledger->txMap().flushDirty(hotTRANSACTION_NODE_UNCACHED);
+        }
 
         ledger->setAccepted(
             info.closeTime,
@@ -1263,7 +1276,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         // recomputes the hashes
         if (ledger->info().hash != info.hash)
         {
-            JLOG(context.j.error())
+            JLOG(j.error())
                 << "Ledger seq=" << info.seq
                 << " was loaded from catalogue, but computed hash does not "
                    "match. "
@@ -1273,10 +1286,14 @@ doCatalogueLoad(RPC::JsonContext& context)
                 rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
         }
 
-        // Save in database
-        pendSaveValidated(context.app, ledger, do_save_synchronous, false);
+        // Save in database (unless no_db option is set)
+        // TODO: what if this fails? It's currently asynchronous and not really
+        // possible to know if it fails.
+        if (!no_db)
+            pendSaveValidated(context.app, ledger, do_save_synchronous, false);
 
         // Store in ledger master
+        // Pinning
         context.app.getLedgerMaster().storeLedger(ledger, do_pinning);
 
         if (info.seq == header.max_ledger &&
@@ -1293,14 +1310,22 @@ doCatalogueLoad(RPC::JsonContext& context)
         // Store the ledger
         prevLedger = ledger;
         ledgersLoaded++;
+
+        // Periodically sweep the NodeStore cache to prevent memory buildup
+        // during large catalogue loads
+        if (ledgersLoaded % 100 == 0)
+        {
+            JLOG(j.info()) << "Sweeping NodeStore cache at ledger " << info.seq
+                           << " (loaded " << ledgersLoaded << " ledgers)";
+            context.app.getNodeStore().sweep();
+        }
     }
 
     decompStream->reset();
     infile.close();
 
-    JLOG(context.j.info()) << "Catalogue load complete! Loaded "
-                           << ledgersLoaded << " ledgers from file size "
-                           << file_size << " bytes";
+    JLOG(j.info()) << "Catalogue load complete! Loaded " << ledgersLoaded
+                   << " ledgers from file size " << file_size << " bytes";
 
     Json::Value jvResult;
     jvResult[jss::ledger_min] = header.min_ledger;

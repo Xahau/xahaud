@@ -280,6 +280,7 @@ JSS(deprecated);              // out
 JSS(descending);              // in: AccountTx*
 JSS(do_pinning);              // in: catalogue_load
 JSS(do_save_synchronous);     // in: catalogue_load
+JSS(no_db);                   // in: catalogue_load
 JSS(description);             // in/out: Reservations
 JSS(destination);             // in: nft_buy_offers, nft_sell_offers
 JSS(destination_account);     // in: PathRequest, RipplePathFind, account_lines
@@ -672,6 +673,7 @@ JSS(sub_index);             // in: LedgerEntry
 JSS(subcommand);            // in: PathFind
 JSS(success);               // rpc
 JSS(supported);             // out: AmendmentTableImpl
+JSS(sync);                  // in: catalogue_load
 JSS(system_time_offset);    // out: NetworkOPs
 JSS(tag);                   // out: Peers
 JSS(taker);                 // in: Subscribe, BookOffers
