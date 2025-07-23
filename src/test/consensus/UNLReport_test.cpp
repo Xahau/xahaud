@@ -207,7 +207,8 @@ class UNLReport_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
@@ -239,7 +240,8 @@ class UNLReport_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
@@ -260,7 +262,8 @@ class UNLReport_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
@@ -317,7 +320,8 @@ class UNLReport_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
@@ -349,7 +353,8 @@ class UNLReport_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
@@ -373,7 +378,8 @@ class UNLReport_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
@@ -432,7 +438,8 @@ class UNLReport_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });

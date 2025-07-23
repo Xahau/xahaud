@@ -1533,7 +1533,7 @@ hook::finalizeHookResult(
             auto& id = tpTrans->getID();
             JLOG(j.trace()) << "HookEmit[" << HR_ACC() << "]: " << id;
 
-            applyCtx.app.getHashRouter().setFlags(id, SF_EMITTED);
+            applyCtx.app.getHashRouter().setFlags(id, HashRouterFlags::EMITTED);
 
             std::shared_ptr<ripple::STTx const> ptr =
                 tpTrans->getSTransaction();
