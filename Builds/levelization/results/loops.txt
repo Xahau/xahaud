@@ -26,7 +26,7 @@ Loop: xrpld.app xrpld.nodestore
   xrpld.app > xrpld.nodestore
 
 Loop: xrpld.app xrpld.overlay
-  xrpld.overlay ~= xrpld.app
+  xrpld.overlay > xrpld.app
 
 Loop: xrpld.app xrpld.peerfinder
   xrpld.peerfinder ~= xrpld.app

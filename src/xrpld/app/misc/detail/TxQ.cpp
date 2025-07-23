@@ -1482,7 +1482,9 @@ TxQ::accept(Application& app, OpenView& view)
             for (STTx const& txn : debugTxInjectQueue)
             {
                 auto txnHash = txn.getTransactionID();
-                app.getHashRouter().setFlags(txnHash, SF_EMITTED | SF_PRIVATE2);
+                app.getHashRouter().setFlags(
+                    txnHash,
+                    HashRouterFlags::EMITTED | HashRouterFlags::PRIVATE2);
 
                 auto const& emitted =
                     const_cast<ripple::STTx&>(txn).downcast<STObject>();
@@ -1553,8 +1555,8 @@ TxQ::accept(Application& app, OpenView& view)
             auto s = std::make_shared<ripple::Serializer>();
             cronTx.add(*s);
 
-            app.getHashRouter().setFlags(txID, SF_PRIVATE2);
-            app.getHashRouter().setFlags(txID, SF_EMITTED);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::PRIVATE2);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::EMITTED);
             view.rawTxInsert(txID, std::move(s), nullptr);
             ledgerChanged = true;
         }
@@ -1641,7 +1643,8 @@ TxQ::accept(Application& app, OpenView& view)
                     auto seq = view.info().seq;
                     auto txnHash = stpTrans->getTransactionID();
 
-                    app.getHashRouter().setFlags(txnHash, SF_EMITTED);
+                    app.getHashRouter().setFlags(
+                        txnHash, HashRouterFlags::EMITTED);
 
                     if (stpTrans->getFieldU32(sfLastLedgerSequence) < seq)
                     {
@@ -1670,8 +1673,10 @@ TxQ::accept(Application& app, OpenView& view)
 
                         auto s = std::make_shared<ripple::Serializer>();
                         efTx.add(*s);
-                        app.getHashRouter().setFlags(txID, SF_PRIVATE2);
-                        app.getHashRouter().setFlags(txID, SF_EMITTED);
+                        app.getHashRouter().setFlags(
+                            txID, HashRouterFlags::PRIVATE2);
+                        app.getHashRouter().setFlags(
+                            txID, HashRouterFlags::EMITTED);
                         view.rawTxInsert(txID, std::move(s), nullptr);
                         ledgerChanged = true;
 
@@ -1691,7 +1696,8 @@ TxQ::accept(Application& app, OpenView& view)
                     // set
                     if (fls >= view.info().seq)
                     {
-                        app.getHashRouter().setFlags(txnHash, SF_PRIVATE2);
+                        app.getHashRouter().setFlags(
+                            txnHash, HashRouterFlags::PRIVATE2);
                         view.rawTxInsert(
                             stpTrans->getTransactionID(),
                             std::move(s),
