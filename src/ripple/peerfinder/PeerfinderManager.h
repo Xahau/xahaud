@@ -140,6 +140,13 @@ class Manager : public beast::PropertyStream::Source
 protected:
     Manager() noexcept;
 
+    std::map<
+        beast::IP::Endpoint /* udp endpoint */,
+        uint32_t /* unixtime last seen */>
+        m_udp_highway_peers;
+
+    std::mutex m_udp_highway_mutex;
+
 public:
     /** Destroy the object.
         Any pending source fetch operations are aborted.
