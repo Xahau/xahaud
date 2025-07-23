@@ -92,6 +92,7 @@ enum AccountFlags : uint32_t {
     asfDisallowIncomingPayChan = 14,
     asfDisallowIncomingTrustline = 15,
     asfDisallowIncomingRemit = 16,
+    asfAllowTrustLineClawback = 17,
 };
 
 // OfferCreate flags:
@@ -120,10 +121,12 @@ enum TrustSetFlags : uint32_t {
     tfClearNoRipple = 0x00040000,
     tfSetFreeze = 0x00100000,
     tfClearFreeze = 0x00200000,
+    tfSetDeepFreeze = 0x00400000,
+    tfClearDeepFreeze = 0x00800000
 };
 constexpr std::uint32_t tfTrustSetMask =
     ~(tfUniversal | tfSetfAuth | tfSetNoRipple | tfClearNoRipple | tfSetFreeze |
-      tfClearFreeze);
+      tfClearFreeze | tfSetDeepFreeze | tfClearDeepFreeze);
 
 // EnableAmendment flags:
 enum EnableAmendmentFlags : std::uint32_t {
@@ -193,6 +196,9 @@ constexpr std::uint32_t const tfClaimRewardMask = ~(tfUniversal | tfOptOut);
 
 // Remarks flags:
 constexpr std::uint32_t const tfImmutable = 1;
+
+// Clawback flags:
+constexpr std::uint32_t const tfClawbackMask = ~tfUniversal;
 
 // clang-format on
 

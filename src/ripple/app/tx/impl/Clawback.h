@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
   This file is part of rippled: https://github.com/ripple/rippled
-  Copyright (c) 2021 Ripple Labs Inc.
+  Copyright (c) 2023 Ripple Labs Inc.
 
   Permission to use, copy, modify, and/or distribute this software for any
   purpose  with  or without fee is hereby granted, provided that the above
@@ -17,39 +17,19 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_NFTOKENACCEPTOFFER_H_INCLUDED
-#define RIPPLE_TX_NFTOKENACCEPTOFFER_H_INCLUDED
+#ifndef RIPPLE_TX_CLAWBACK_H_INCLUDED
+#define RIPPLE_TX_CLAWBACK_H_INCLUDED
 
 #include <ripple/app/tx/impl/Transactor.h>
 
 namespace ripple {
 
-class NFTokenAcceptOffer : public Transactor
+class Clawback : public Transactor
 {
-private:
-    TER
-    pay(AccountID const& from, AccountID const& to, STAmount const& amount);
-
-    TER
-    acceptOffer(std::shared_ptr<SLE> const& offer);
-
-    TER
-    bridgeOffers(
-        std::shared_ptr<SLE> const& buy,
-        std::shared_ptr<SLE> const& sell);
-
-    static TER
-    checkAcceptAsset(
-        ReadView const& view,
-        ApplyFlags const flags,
-        AccountID const id,
-        beast::Journal const j,
-        Issue const& issue);
-
 public:
     static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
 
-    explicit NFTokenAcceptOffer(ApplyContext& ctx) : Transactor(ctx)
+    explicit Clawback(ApplyContext& ctx) : Transactor(ctx)
     {
     }
 

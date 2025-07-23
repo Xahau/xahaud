@@ -287,6 +287,8 @@ enum LedgerSpecificFlags {
         0x40000000,               // True, has minted tokens in the past
     lsfDisallowIncomingRemit =    // True, no remits allowed to this account
         0x80000000,
+    lsfAllowTrustLineClawback = 
+        0x00001000,               // True, enable clawback 
 
     // ltOFFER
     lsfPassive = 0x00010000,
@@ -299,8 +301,10 @@ enum LedgerSpecificFlags {
     lsfHighAuth = 0x00080000,
     lsfLowNoRipple = 0x00100000,
     lsfHighNoRipple = 0x00200000,
-    lsfLowFreeze = 0x00400000,   // True, low side has set freeze flag
-    lsfHighFreeze = 0x00800000,  // True, high side has set freeze flag
+    lsfLowFreeze = 0x00400000,      // True, low side has set freeze flag
+    lsfHighFreeze = 0x00800000,     // True, high side has set freeze flag
+    lsfLowDeepFreeze = 0x02000000,  // True, low side has set deep freeze flag
+    lsfHighDeepFreeze = 0x04000000, // True, high side has set deep freeze flag
 
     // ltSIGNER_LIST
     lsfOneOwnerCount = 0x00010000,  // True, uses only one OwnerCount

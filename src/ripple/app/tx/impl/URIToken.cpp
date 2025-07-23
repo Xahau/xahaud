@@ -832,6 +832,7 @@ URIToken::doApply()
                             false,                          // authorize account
                             (sleOwner->getFlags() & lsfDefaultRipple) == 0,
                             false,                          // freeze trust line
+                            false,                          // deepfreeze trust line
                             *dstAmt,                        // initial balance zero
                             Issue(
                                 purchaseAmount.getCurrency(), 

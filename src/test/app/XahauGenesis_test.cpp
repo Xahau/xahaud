@@ -923,6 +923,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     beast::zero));
                 if (!shouldFail)
                 {
+                    // Once the user is removed from the table their votes are
+                    // also removed
+                    if (topic1 == 'S' && actioned &&
+                        strHex(vecFromAcc(acc)) == strHex(old_data))
+                    {
+                        BEAST_EXPECT(!entry);
+                        return;
+                    }
                     BEAST_REQUIRE(!!entry);
                     auto lgr_data = entry->getFieldVL(sfHookStateData);
                     BEAST_EXPECT(lgr_data.size() == vote_data.size());
@@ -5707,7 +5715,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
     }
 };
 
-BEAST_DEFINE_TESTSUITE(XahauGenesis, app, ripple);
+BEAST_DEFINE_TESTSUITE_PRIO(XahauGenesis, app, ripple, 2);
 
 }  // namespace test
 }  // namespace ripple

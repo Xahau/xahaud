@@ -5303,6 +5303,103 @@ struct PayChan_test : public beast::unit_test::suite
                 bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
             env.close();
         }
+        // test Deep Freeze
+        {
+            // Env Setup
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, gw);
+            env.close();
+            env(trust(alice, USD(100000)));
+            env(trust(bob, USD(100000)));
+            env.close();
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env.close();
+
+            // set freeze on alice trustline
+            env(trust(gw, USD(100000), alice, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // setup transaction
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto chan = channel(alice, bob, env.seq(alice));
+
+            // create paychan fails - frozen trustline
+            env(paychan::create(alice, bob, USD(1000), settleDelay, pk),
+                ter(tecFROZEN));
+            env.close();
+
+            // clear freeze on alice trustline
+            env(trust(
+                gw, USD(100000), alice, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            // create paychan success
+            chan = channel(alice, bob, env.seq(alice));
+            env(paychan::create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+
+            // set freeze on alice trustline
+            env(trust(gw, USD(100000), alice, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+
+            // paychan fields
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            auto const delta = USD(10);
+            auto reqBal = chanBal + delta;
+            auto authAmt = reqBal + USD(100);
+
+            // alice claim paychan fails - frozen trustline
+            env(paychan::claim(alice, chan, reqBal, authAmt), ter(tecFROZEN));
+
+            // bob claim paychan fails - frozen trustline
+            auto sig = signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(paychan::claim(
+                    bob, chan, reqBal, authAmt, Slice(sig), alice.pk()),
+                ter(tecFROZEN));
+            env.close();
+
+            // clear freeze on alice trustline
+            env(trust(
+                gw, USD(100000), alice, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            // alice close paychan success
+            env(paychan::claim(alice, chan, reqBal, authAmt),
+                txflags(tfClose),
+                ter(tesSUCCESS));
+            env.close();
+
+            // create paychan success
+            chan = channel(alice, bob, env.seq(alice));
+            env(paychan::create(alice, bob, USD(1000), settleDelay, pk));
+            env.close();
+
+            // clear freeze on bob trustline
+            env(trust(gw, USD(100000), bob, tfClearFreeze | tfClearDeepFreeze));
+            // clear freeze on alice trustline
+            env(trust(
+                gw, USD(100000), alice, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+
+            // alice claim paychan success
+            env(paychan::claim(alice, chan, reqBal, authAmt));
+            env.close();
+
+            // paychan fields
+            chanBal = channelBalance(*env.current(), chan);
+            chanAmt = channelAmount(*env.current(), chan);
+            reqBal = chanBal + delta;
+            authAmt = reqBal + USD(100);
+
+            // bob claim paychan success
+            sig = signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
+            env(paychan::claim(
+                bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
+            env.close();
+        }
     }
 
     void
@@ -5520,6 +5617,53 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testIOUClawback(FeatureBitset features)
+    {
+        testcase("IOU Clawback");
+        using namespace test::jtx;
+        using namespace std::chrono;
+
+        Env env(*this, features);
+        Account alice{"alice"};
+        Account bob{"bob"};
+        Account gw{"gw"};
+
+        env.fund(XRP(1000), alice, bob, gw);
+        env.close();
+
+        auto const USD = gw["USD"];
+
+        // gw sets asfAllowTrustLineClawback
+        env(fset(gw, asfAllowTrustLineClawback));
+        env.close();
+
+        bool const clawbackEnabled = features[featureClawback];
+        if (clawbackEnabled)
+        {
+            env.require(flags(gw, asfAllowTrustLineClawback));
+        }
+        else
+        {
+            env.require(nflags(gw, asfAllowTrustLineClawback));
+        }
+
+        // gw issues 1000 USD to alice
+        env.trust(USD(1000), alice);
+        env(pay(gw, alice, USD(1000)));
+        env.close();
+
+        BEAST_EXPECT(env.balance(alice, USD) == USD(1000));
+        BEAST_EXPECT(env.balance(bob, USD) == USD(0));
+
+        // alice paychan token fails; cannot escrow clawable tokens
+        auto const createResult =
+            clawbackEnabled ? ter(tecNO_PERMISSION) : ter(tesSUCCESS);
+        env(paychan::create(alice, bob, USD(10), 100s, alice.pk()),
+            ter(createResult));
+        env.close();
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testSimple(features);
@@ -5575,6 +5719,7 @@ struct PayChan_test : public beast::unit_test::suite
         testIOUTLINSF(features);
         testIOUMismatchFunding(features);
         testIOUPrecisionLoss(features);
+        testIOUClawback(features);
     }
 
 public:
@@ -5588,6 +5733,7 @@ public:
             all - disallowIncoming - featurePaychanAndEscrowForTokens);
         testWithFeats(all);
         testIOUWithFeats(all - disallowIncoming);
+        testIOUWithFeats(all - featureClawback);
         testIOUWithFeats(all);
     }
 };
