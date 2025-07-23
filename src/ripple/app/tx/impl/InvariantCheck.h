@@ -243,6 +243,114 @@ public:
 };
 
 /**
+ * @brief Invariant: Trust lines with deep freeze flag are not allowed if normal
+ * freeze flag is not set.
+ *
+ * We iterate all the trust lines created by this transaction and ensure
+ * that they don't have deep freeze flag set without normal freeze flag set.
+ */
+class NoDeepFreezeTrustLinesWithoutFreeze
+{
+    bool deepFreezeWithoutFreeze_ = false;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
+/**
+ * @brief Invariant: frozen trust line balance change is not allowed.
+ *
+ * We iterate all affected trust lines and ensure that they don't have
+ * unexpected change of balance if they're frozen.
+ */
+class TransfersNotFrozen
+{
+    struct BalanceChange
+    {
+        std::shared_ptr<SLE const> const line;
+        int const balanceChangeSign;
+    };
+
+    struct IssuerChanges
+    {
+        std::vector<BalanceChange> senders;
+        std::vector<BalanceChange> receivers;
+    };
+
+    using ByIssuer = std::map<Issue, IssuerChanges>;
+    ByIssuer balanceChanges_;
+
+    std::map<AccountID, std::shared_ptr<SLE const> const> possibleIssuers_;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+
+private:
+    bool
+    isValidEntry(
+        std::shared_ptr<SLE const> const& before,
+        std::shared_ptr<SLE const> const& after);
+
+    STAmount
+    calculateBalanceChange(
+        std::shared_ptr<SLE const> const& before,
+        std::shared_ptr<SLE const> const& after,
+        bool isDelete);
+
+    void
+    recordBalance(Issue const& issue, BalanceChange change);
+
+    void
+    recordBalanceChanges(
+        std::shared_ptr<SLE const> const& after,
+        STAmount const& balanceChange);
+
+    std::shared_ptr<SLE const>
+    findIssuer(AccountID const& issuerID, ReadView const& view);
+
+    bool
+    validateIssuerChanges(
+        std::shared_ptr<SLE const> const& issuer,
+        IssuerChanges const& changes,
+        STTx const& tx,
+        beast::Journal const& j,
+        bool enforce);
+
+    bool
+    validateFrozenState(
+        BalanceChange const& change,
+        bool high,
+        STTx const& tx,
+        beast::Journal const& j,
+        bool enforce,
+        bool globalFreeze);
+};
+
+/**
  * @brief Invariant: offers should be for non-negative amounts and must not
  *                   be XRP to XRP.
  *
@@ -390,6 +498,34 @@ public:
         beast::Journal const&);
 };
 
+/**
+ * @brief Invariant: Token holder's trustline balance cannot be negative after
+ * Clawback.
+ *
+ * We iterate all the trust lines affected by this transaction and ensure
+ * that no more than one trustline is modified, and also holder's balance is
+ * non-negative.
+ */
+class ValidClawback
+{
+    std::uint32_t trustlinesChanged = 0;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
 // additional invariant checks can be declared above and then added to this
 // tuple
 using InvariantChecks = std::tuple<
@@ -399,11 +535,14 @@ using InvariantChecks = std::tuple<
     XRPBalanceChecks,
     XRPNotCreated,
     NoXRPTrustLines,
+    NoDeepFreezeTrustLinesWithoutFreeze,
+    TransfersNotFrozen,
     NoBadOffers,
     NoZeroEscrow,
     ValidNewAccountRoot,
     ValidNFTokenPage,
-    NFTokenCountTracking>;
+    NFTokenCountTracking,
+    ValidClawback>;
 
 /**
  * @brief get a tuple of all invariant checks

@@ -139,6 +139,9 @@ enum TxType : std::uint16_t
     /** This transaction accepts an existing offer to buy or sell an existing  NFT. */
     ttNFTOKEN_ACCEPT_OFFER = 29,
 
+    /** This transaction claws back issued tokens. */
+    ttCLAWBACK = 30,
+
     /** This transaction mints/burns/buys/sells a URI TOKEN */
     ttURITOKEN_MINT = 45,
     ttURITOKEN_BURN = 46,

@@ -95,6 +95,13 @@ public:
                     continue;
                 }
 
+                if (flag == asfAllowTrustLineClawback)
+                {
+                    // The asfAllowTrustLineClawback flag can't be cleared.  It
+                    // is tested elsewhere.
+                    continue;
+                }
+
                 if (std::find(goodFlags.begin(), goodFlags.end(), flag) !=
                     goodFlags.end())
                 {

@@ -56,6 +56,7 @@ JSS(CheckCancel);        // transaction type.
 JSS(CheckCash);          // transaction type.
 JSS(CheckCreate);        // transaction type.
 JSS(ClaimReward);        // transaction type.
+JSS(Clawback);           // transaction type.
 JSS(ClearFlag);          // field.
 JSS(CreateCode);         // field.
 JSS(DeliverMin);         // in: TransactionSign
@@ -344,6 +345,8 @@ JSS(force);                 // in: catalogue
 JSS(forward);               // in: AccountTx
 JSS(freeze);                // out: AccountLines
 JSS(freeze_peer);           // out: AccountLines
+JSS(deep_freeze);           // out: AccountLines
+JSS(deep_freeze_peer);      // out: AccountLines
 JSS(frozen_balances);       // out: GatewayBalances
 JSS(full);                  // in: LedgerClearer, handlers/Ledger
 JSS(full_reply);            // out: PathFind
