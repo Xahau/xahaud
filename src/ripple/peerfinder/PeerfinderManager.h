@@ -148,6 +148,15 @@ protected:
     std::mutex m_udp_highway_mutex;
 
 public:
+    void
+    add_highway_peers(std::vector<beast::IP::Endpoint> addresses)
+    {
+        std::lock_guard<std::mutex> lock(m_udp_highway_mutex);
+        uint32_t t = static_cast<uint32_t>(std::time(nullptr));
+        for (auto const& a : addresses)
+            m_udp_highway_peers.emplace(a, t);
+    }
+
     /** Destroy the object.
         Any pending source fetch operations are aborted.
         There may be some listener calls made before the

@@ -244,6 +244,12 @@ public:
      */
     virtual Json::Value
     txMetrics() const = 0;
+
+    /** Process incoming Xahau UDP Super Highway message */
+    virtual void
+    processXUSH(
+        std::string const& message,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint) = 0;
 };
 
 }  // namespace ripple

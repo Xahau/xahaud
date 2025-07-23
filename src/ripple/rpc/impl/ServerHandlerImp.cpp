@@ -374,17 +374,13 @@ ServerHandlerImp::onUDPMessage(
     if (is_peer[port] == 0 /* not yet known */)
     {
         is_peer[port] = p.has_peer() ? 1 : 2;
-        std::cout << "set port " << port << " to " << ('0' + is_peer[port]) << "\n";
+        std::cout << "set port " << port << " to " << ('0' + is_peer[port])
+                  << "\n";
     }
-    
-    
+
+    // udp messages arriving on peer protocol ports are sent back to overlay
     if (is_peer[port] == 1)
-    {
-        // offload to peer processing
-        // RHUPTO udp peer processing here
-        std::cout << "offload to peer processing\n";
-    }
-    
+        return app_.overlay().processXUSH(message, remoteEndpoint);
 
     Json::Value jv;
     if (message.size() > RPC::Tuning::maxRequestSize ||
@@ -466,9 +462,9 @@ logDuration(
     beast::Journal& journal)
 {
     using namespace std::chrono_literals;
-    auto const level = (duration >= 10s)
-        ? journal.error()
-        : (duration >= 1s) ? journal.warn() : journal.debug();
+    auto const level = (duration >= 10s) ? journal.error()
+        : (duration >= 1s)               ? journal.warn()
+                                         : journal.debug();
 
     JLOG(level) << "RPC request processing duration = "
                 << std::chrono::duration_cast<std::chrono::microseconds>(

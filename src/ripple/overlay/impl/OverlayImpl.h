@@ -454,6 +454,11 @@ public:
         txMetrics_.addMetrics(args...);
     }
 
+    void
+    processXUSH(
+        std::string const& message,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint) override;
+
 private:
     void
     squelch(
