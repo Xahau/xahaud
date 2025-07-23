@@ -19,14 +19,73 @@
 
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/beast/unit_test.h>
+#include <ripple/beast/utility/temp_dir.h>
+#include <ripple/core/ConfigSections.h>
 #include <ripple/protocol/jss.h>
 #include <boost/filesystem.hpp>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <test/jtx.h>
 #include <thread>
 
 namespace ripple {
+
+namespace {
+
+// Parameters for polling ledger retrieval
+struct LedgerRetryParams
+{
+    test::jtx::Env& env;
+    std::uint32_t seq = 0;
+    std::chrono::milliseconds pollInterval = std::chrono::milliseconds(500);
+    std::chrono::milliseconds maxWaitTime = std::chrono::milliseconds(10000);
+    bool requireValidated = false;
+};
+
+// Poll for ledger availability with retry logic
+// Returns nullptr if ledger cannot be retrieved within the timeout period
+std::shared_ptr<Ledger const>
+getLedgerWithRetry(const LedgerRetryParams& params)
+{
+    auto start = std::chrono::steady_clock::now();
+
+    while (true)
+    {
+        // First try to get the hash for this sequence
+        auto hash = params.env.app().getLedgerMaster().getHashBySeq(params.seq);
+
+        if (hash.isNonZero())
+        {
+            // Hash found, now try to get the ledger
+            auto ledger =
+                params.env.app().getLedgerMaster().getLedgerByHash(hash);
+
+            if (ledger)
+            {
+                // If we don't require validation, or if it's already validated,
+                // return it
+                if (!params.requireValidated || ledger->info().validated)
+                {
+                    return ledger;
+                }
+                // Otherwise continue polling until it becomes validated
+            }
+        }
+
+        // Check if we've exceeded the timeout
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed >= params.maxWaitTime)
+        {
+            return nullptr;
+        }
+
+        // Wait before next attempt
+        std::this_thread::sleep_for(params.pollInterval);
+    }
+}
+
+}  // anonymous namespace
 
 #pragma pack(push, 1)  // pack the struct tightly
 struct TestCATLHeader
@@ -313,10 +372,18 @@ class Catalogue_test : public beast::unit_test::suite
             BEAST_EXPECT(result[jss::status] == jss::success);
         }
 
-        // Create a new environment for loading with unique port
+        // Create a new environment for loading the catalogue
+        // We use a separate environment with incremented ports to avoid
+        // conflicts Note: The default RWDB backend works fine - the key insight
+        // is that pinned ledgers bypass the cache, so we need to poll for
+        // availability as the async publishAcqLedger jobs complete
         Env loadEnv{
             *this,
-            test::jtx::envconfig(test::jtx::port_increment, 3),
+            envconfig([](std::unique_ptr<Config> cfg) {
+                // Increment port to avoid conflicts
+                cfg = test::jtx::port_increment(std::move(cfg), 3);
+                return cfg;
+            }),
             features,
         };
 
@@ -331,7 +398,6 @@ class Catalogue_test : public beast::unit_test::suite
         BEAST_EXPECT(result[jss::ledger_min] == minLedger);
         BEAST_EXPECT(result[jss::ledger_max] == maxLedger);
         BEAST_EXPECT(result[jss::ledger_count] == (maxLedger - minLedger + 1));
-
         // Verify complete_ledgers reflects loaded ledgers
         auto const newCompleteLedgers =
             loadEnv.app().getLedgerMaster().getCompleteLedgers();
@@ -346,13 +412,21 @@ class Catalogue_test : public beast::unit_test::suite
         // Compare all ledgers from 3 to 16 inclusive
         for (std::uint32_t seq = 3; seq <= 16; ++seq)
         {
-            auto const sourceLedger =
-                env.app().getLedgerMaster().getLedgerByHash(
-                    env.app().getLedgerMaster().getHashBySeq(seq));
+            // Get the source ledger (doesn't need to be validated)
+            auto const sourceLedger = getLedgerWithRetry(
+                {.env = env,
+                 .seq = seq,
+                 .pollInterval = std::chrono::milliseconds(100),
+                 .maxWaitTime = std::chrono::milliseconds(5000),
+                 .requireValidated = false});
 
-            auto const loadedLedger =
-                loadEnv.app().getLedgerMaster().getLedgerByHash(
-                    loadEnv.app().getLedgerMaster().getHashBySeq(seq));
+            // Get the loaded ledger (must be validated)
+            auto const loadedLedger = getLedgerWithRetry(
+                {.env = loadEnv,
+                 .seq = seq,
+                 .pollInterval = std::chrono::milliseconds(500),
+                 .maxWaitTime = std::chrono::milliseconds(30000),
+                 .requireValidated = true});
 
             if (!sourceLedger || !loadedLedger)
             {
