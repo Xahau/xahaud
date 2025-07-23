@@ -1549,7 +1549,7 @@ checkXUSHTransaction(
             (stx->getFieldU32(sfLastLedgerSequence) <
              app.getLedgerMaster().getValidLedgerIndex()))
         {
-            app.getHashRouter().setFlags(txID, SF_BAD);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
             usage.charge(Resource::feeUselessData, "XUSH expired tx");
             return;
         }
@@ -1578,7 +1578,7 @@ checkXUSHTransaction(
                 << "XUSH: transaction " << txID << " failed checks: " << reason;
             if (validity == Validity::Refused)
                 return;
-            app.getHashRouter().setFlags(txID, SF_BAD);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
             usage.charge(Resource::feeInvalidSignature, "XUSH tx signature");
             return;
         }
@@ -1589,7 +1589,7 @@ checkXUSHTransaction(
         {
             JLOG(j.trace())
                 << "XUSH: transaction " << txID << " is invalid: " << why;
-            app.getHashRouter().setFlags(txID, SF_BAD);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
             usage.charge(Resource::feeInvalidSignature, "XUSH tx (impossible)");
             return;
         }
@@ -1601,7 +1601,7 @@ checkXUSHTransaction(
     {
         JLOG(j.warn()) << "XUSH: exception checking transaction " << txID
                        << ": " << ex.what();
-        app.getHashRouter().setFlags(txID, SF_BAD);
+        app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
         usage.charge(Resource::feeInvalidData, "XUSH tx exception");
     }
 }
@@ -1744,12 +1744,12 @@ OverlayImpl::onXUSHTransaction(
         return;
     }
 
-    int flags;
+    HashRouterFlags flags;
     if (!app_.getHashRouter().shouldProcess(
             txID, 0, flags, std::chrono::seconds(10)))
     {
         // We have seen this transaction recently
-        if (flags & SF_BAD)
+        if ((flags & HashRouterFlags::BAD) == HashRouterFlags::BAD)
             usage.charge(Resource::feeUselessData, "XUSH known bad tx");
         return;
     }

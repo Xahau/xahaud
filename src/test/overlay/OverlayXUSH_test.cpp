@@ -226,7 +226,8 @@ class OverlayXUSH_test : public beast::unit_test::suite
         isBad(uint256 const& txid)
         {
             env.app().getJobQueue().rendezvous();
-            return env.app().getHashRouter().getFlags(txid) & SF_BAD;
+            return (env.app().getHashRouter().getFlags(txid) &
+                    HashRouterFlags::BAD) == HashRouterFlags::BAD;
         }
     };
 

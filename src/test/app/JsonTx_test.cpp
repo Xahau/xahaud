@@ -259,7 +259,9 @@ struct JsonTx_test : public beast::unit_test::suite
         BEAST_EXPECT(
             checkValidity(router, tx, before, env.app().config()).first ==
             Validity::Refused);
-        BEAST_EXPECT(router.getFlags(tx.getTransactionID()) == 0);
+        BEAST_EXPECT(
+            router.getFlags(tx.getTransactionID()) ==
+            HashRouterFlags::UNDEFINED);
         BEAST_EXPECT(
             checkValidity(
                 router, tx, env.current()->rules(), env.app().config())
@@ -277,7 +279,8 @@ struct JsonTx_test : public beast::unit_test::suite
         BEAST_EXPECT(transaction->getResult() == temDISABLED);
         auto& disabledRouter = disabled.app().getHashRouter();
         BEAST_EXPECT(
-            (disabledRouter.getFlags(tx.getTransactionID()) & SF_BAD) == 0);
+            (disabledRouter.getFlags(tx.getTransactionID()) &
+             HashRouterFlags::BAD) == HashRouterFlags::UNDEFINED);
         BEAST_EXPECT(
             checkValidity(
                 disabledRouter,
@@ -295,7 +298,9 @@ struct JsonTx_test : public beast::unit_test::suite
                 router, bad, env.current()->rules(), env.app().config())
                 .first == Validity::SigBad);
         BEAST_EXPECT(
-            router.getFlags(bad.getTransactionID()) & SF_PRIVATE1);  // SIGBAD
+            (router.getFlags(bad.getTransactionID()) &
+             HashRouterFlags::PRIVATE1) ==
+            HashRouterFlags::PRIVATE1);  // SIGBAD
     }
 
     void

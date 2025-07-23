@@ -859,7 +859,7 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(
             (expensive.app().getHashRouter().getFlags(
                  ordinaryTx->getTransactionID()) &
-             SF_BAD) == 0);
+             HashRouterFlags::BAD) == HashRouterFlags::UNDEFINED);
         BEAST_EXPECT(
             applyDirect(expensive, ordinaryTx) == telMANIFEST_FEE_MISMATCH);
 
