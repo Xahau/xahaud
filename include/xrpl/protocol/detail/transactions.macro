@@ -904,6 +904,7 @@ TRANSACTION(ttVAULT_WITHDRAW, 78, VaultWithdraw,
     {sfVaultID, soeREQUIRED},
     {sfAmount, soeREQUIRED, soeMPTSupported},
     {sfDestination, soeOPTIONAL},
+    {sfDestinationTag, soeOPTIONAL},
 }))
 
 /** This transaction claws back tokens from a vault. */
