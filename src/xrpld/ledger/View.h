@@ -926,11 +926,6 @@ trustTransferAllowed(
         std::is_same<V, ReadView const>::value ||
         std::is_same<V, ApplyView>::value || std::is_same<V, Sandbox>::value);
 
-    typedef typename std::conditional<
-        std::is_same<V, ApplyView>::value,
-        std::shared_ptr<SLE>,
-        std::shared_ptr<SLE const>>::type SLEPtr;
-
     if (isBadCurrency(issue.currency))
         return tecNO_PERMISSION;
 
