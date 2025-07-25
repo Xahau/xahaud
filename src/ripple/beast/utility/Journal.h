@@ -21,7 +21,15 @@
 #define BEAST_UTILITY_JOURNAL_H_INCLUDED
 
 #include <cassert>
+#include <cstring>
 #include <sstream>
+#ifdef _WIN32
+#include <io.h>
+#define isatty _isatty
+#define STDERR_FILENO 2
+#else
+#include <unistd.h>
+#endif
 
 namespace beast {
 
@@ -149,6 +157,15 @@ private:
         template <typename T>
         ScopedStream(Stream const& stream, T const& t);
 
+#ifdef LOG_LINE_NUMBERS
+        template <typename T>
+        ScopedStream(
+            Stream const& stream,
+            T const& t,
+            const char* file,
+            int line);
+#endif
+
         ScopedStream(Stream const& stream, std::ostream& manip(std::ostream&));
 
         ScopedStream&
@@ -253,6 +270,12 @@ public:
         template <typename T>
         ScopedStream
         operator<<(T const& t) const;
+
+#ifdef LOG_LINE_NUMBERS
+        template <typename T>
+        ScopedStream
+        writeWithLocation(T const& t, const char* file, int line) const;
+#endif
         /** @} */
 
     private:
@@ -361,6 +384,84 @@ Journal::ScopedStream::ScopedStream(Journal::Stream const& stream, T const& t)
     m_ostream << t;
 }
 
+namespace detail {
+// Helper to strip source root path from __FILE__ at compile time
+constexpr const char*
+stripSourceRoot(const char* file)
+{
+#ifdef SOURCE_ROOT_PATH
+    constexpr const char* sourceRoot = SOURCE_ROOT_PATH;
+    constexpr auto strlen_constexpr = [](const char* s) constexpr
+    {
+        const char* p = s;
+        while (*p)
+            ++p;
+        return p - s;
+    };
+    constexpr auto strncmp_constexpr =
+        [](const char* a, const char* b, size_t n) constexpr
+    {
+        for (size_t i = 0; i < n; ++i)
+        {
+            if (a[i] != b[i])
+                return a[i] - b[i];
+            if (a[i] == '\0')
+                break;
+        }
+        return 0;
+    };
+    constexpr size_t sourceRootLen = strlen_constexpr(sourceRoot);
+    return (strncmp_constexpr(file, sourceRoot, sourceRootLen) == 0)
+        ? file + sourceRootLen
+        : file;
+#else
+    return file;
+#endif
+}
+
+// Check if we should use colors - cached at startup
+inline bool
+shouldUseColors()
+{
+    static const bool useColors = []() {
+        // Honor NO_COLOR environment variable (standard)
+        if (std::getenv("NO_COLOR"))
+            return false;
+
+        // Honor FORCE_COLOR to override terminal detection
+        if (std::getenv("FORCE_COLOR"))
+            return true;
+
+        // Check if stderr is a terminal
+        return isatty(STDERR_FILENO) != 0;
+    }();
+    return useColors;
+}
+}  // namespace detail
+
+#ifdef LOG_LINE_NUMBERS
+template <typename T>
+Journal::ScopedStream::ScopedStream(
+    Journal::Stream const& stream,
+    T const& t,
+    const char* file,
+    int line)
+    : ScopedStream(stream.sink(), stream.level())
+{
+    // Use constexpr path stripping and conditional color codes
+    if (detail::shouldUseColors())
+    {
+        m_ostream << "\033[36m[" << detail::stripSourceRoot(file) << ":" << line
+                  << "]\033[0m " << t;
+    }
+    else
+    {
+        m_ostream << "[" << detail::stripSourceRoot(file) << ":" << line << "] "
+                  << t;
+    }
+}
+#endif
+
 template <typename T>
 std::ostream&
 Journal::ScopedStream::operator<<(T const& t) const
@@ -377,6 +478,15 @@ Journal::Stream::operator<<(T const& t) const
 {
     return ScopedStream(*this, t);
 }
+
+#ifdef LOG_LINE_NUMBERS
+template <typename T>
+Journal::ScopedStream
+Journal::Stream::writeWithLocation(T const& t, const char* file, int line) const
+{
+    return ScopedStream(*this, t, file, line);
+}
+#endif
 
 namespace detail {
 

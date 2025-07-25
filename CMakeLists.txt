@@ -33,6 +33,24 @@ if(Git_FOUND)
     endif()
 endif() #git
 
+# make SOURCE_ROOT_PATH define available for logging
+set(SOURCE_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/")
+add_definitions(-DSOURCE_ROOT_PATH="${SOURCE_ROOT_PATH}")
+
+# LOG_LINE_NUMBERS option - default to ON for Debug builds, OFF for Release
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    option(LOG_LINE_NUMBERS "Include file and line numbers in log messages" ON)
+else()
+    option(LOG_LINE_NUMBERS "Include file and line numbers in log messages" OFF)
+endif()
+
+if(LOG_LINE_NUMBERS)
+    add_definitions(-DLOG_LINE_NUMBERS=1)
+    message(STATUS "Log line numbers enabled")
+else()
+    message(STATUS "Log line numbers disabled")
+endif()
+
 if(thread_safety_analysis)
   add_compile_options(-Wthread-safety -D_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS -DRIPPLE_ENABLE_THREAD_SAFETY_ANNOTATIONS)
   add_compile_options("-stdlib=libc++")
