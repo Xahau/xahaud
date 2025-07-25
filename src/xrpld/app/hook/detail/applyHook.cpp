@@ -1526,7 +1526,7 @@ hook::finalizeHookResult(
 
     if (doEmit)
     {
-        DBG_PRINTF("emitted txn count: %d\n", hookResult.emittedTxn.size());
+        DBG_PRINTF("emitted txn count: %zu\n", hookResult.emittedTxn.size());
         for (; hookResult.emittedTxn.size() > 0; hookResult.emittedTxn.pop())
         {
             auto& tpTrans = hookResult.emittedTxn.front();
