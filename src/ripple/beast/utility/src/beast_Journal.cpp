@@ -157,4 +157,30 @@ Journal::Stream::operator<<(std::ostream& manip(std::ostream&)) const
     return ScopedStream(*this, manip);
 }
 
+#ifdef LOG_LINE_NUMBERS
+//------------------------------------------------------------------------------
+
+Journal::ScopedStream
+Journal::StreamWithLocation::operator<<(
+    std::ostream& manip(std::ostream&)) const
+{
+    // Create a ScopedStream and inject the location info first
+    ScopedStream scoped(stream_.sink(), stream_.level());
+
+    if (detail::shouldUseColors())
+    {
+        scoped.ostream() << "\033[36m[" << detail::stripSourceRoot(file_) << ":"
+                         << line_ << "]\033[0m ";
+    }
+    else
+    {
+        scoped.ostream() << "[" << detail::stripSourceRoot(file_) << ":"
+                         << line_ << "] ";
+    }
+
+    scoped.ostream() << manip;
+    return scoped;
+}
+#endif
+
 }  // namespace beast

@@ -255,7 +255,7 @@ private:
     {           \
     }           \
     else        \
-        (x).writeWithLocation("", __FILE__, __LINE__)
+        (x).withLocation(__FILE__, __LINE__)
 #else
 #define JLOG(x) \
     if (!(x))   \

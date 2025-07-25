@@ -21,13 +21,9 @@
 #define BEAST_UTILITY_JOURNAL_H_INCLUDED
 
 #include <cassert>
-#include <cstring>
 #include <sstream>
-#ifdef _WIN32
-#include <io.h>
-#define isatty _isatty
-#define STDERR_FILENO 2
-#else
+#ifdef LOG_LINE_NUMBERS
+#include <cstdlib>
 #include <unistd.h>
 #endif
 
@@ -157,15 +153,6 @@ private:
         template <typename T>
         ScopedStream(Stream const& stream, T const& t);
 
-#ifdef LOG_LINE_NUMBERS
-        template <typename T>
-        ScopedStream(
-            Stream const& stream,
-            T const& t,
-            const char* file,
-            int line);
-#endif
-
         ScopedStream(Stream const& stream, std::ostream& manip(std::ostream&));
 
         ScopedStream&
@@ -208,6 +195,33 @@ private:
     //--------------------------------------------------------------------------
 public:
     /** Provide a light-weight way to check active() before string formatting */
+
+#ifdef LOG_LINE_NUMBERS
+    /** Stream with location information that prepends file:line to the first
+     * message */
+    class StreamWithLocation
+    {
+    public:
+        StreamWithLocation(Stream const& stream, const char* file, int line)
+            : file_(file), line_(line), stream_(stream)
+        {
+        }
+
+        /** Override to inject file:line before the first output */
+        template <typename T>
+        ScopedStream
+        operator<<(T const& t) const;
+
+        ScopedStream
+        operator<<(std::ostream& manip(std::ostream&)) const;
+
+    private:
+        const char* file_;
+        int line_;
+        const Stream& stream_;
+    };
+#endif
+
     class Stream
     {
     public:
@@ -270,13 +284,16 @@ public:
         template <typename T>
         ScopedStream
         operator<<(T const& t) const;
+        /** @} */
 
 #ifdef LOG_LINE_NUMBERS
-        template <typename T>
-        ScopedStream
-        writeWithLocation(T const& t, const char* file, int line) const;
+        /** Create a StreamWithLocation that prepends file:line info */
+        StreamWithLocation
+        withLocation(const char* file, int line) const
+        {
+            return StreamWithLocation(*this, file, line);
+        }
 #endif
-        /** @} */
 
     private:
         Sink& m_sink;
@@ -377,13 +394,7 @@ static_assert(std::is_nothrow_destructible<Journal>::value == true, "");
 
 //------------------------------------------------------------------------------
 
-template <typename T>
-Journal::ScopedStream::ScopedStream(Journal::Stream const& stream, T const& t)
-    : ScopedStream(stream.sink(), stream.level())
-{
-    m_ostream << t;
-}
-
+#ifdef LOG_LINE_NUMBERS
 namespace detail {
 // Helper to strip source root path from __FILE__ at compile time
 constexpr const char*
@@ -438,29 +449,16 @@ shouldUseColors()
     return useColors;
 }
 }  // namespace detail
+#endif
 
-#ifdef LOG_LINE_NUMBERS
+//------------------------------------------------------------------------------
+
 template <typename T>
-Journal::ScopedStream::ScopedStream(
-    Journal::Stream const& stream,
-    T const& t,
-    const char* file,
-    int line)
+Journal::ScopedStream::ScopedStream(Journal::Stream const& stream, T const& t)
     : ScopedStream(stream.sink(), stream.level())
 {
-    // Use constexpr path stripping and conditional color codes
-    if (detail::shouldUseColors())
-    {
-        m_ostream << "\033[36m[" << detail::stripSourceRoot(file) << ":" << line
-                  << "]\033[0m " << t;
-    }
-    else
-    {
-        m_ostream << "[" << detail::stripSourceRoot(file) << ":" << line << "] "
-                  << t;
-    }
+    m_ostream << t;
 }
-#endif
 
 template <typename T>
 std::ostream&
@@ -480,12 +478,30 @@ Journal::Stream::operator<<(T const& t) const
 }
 
 #ifdef LOG_LINE_NUMBERS
+//------------------------------------------------------------------------------
+
 template <typename T>
 Journal::ScopedStream
-Journal::Stream::writeWithLocation(T const& t, const char* file, int line) const
+Journal::StreamWithLocation::operator<<(T const& t) const
 {
-    return ScopedStream(*this, t, file, line);
+    // Create a ScopedStream and inject the location info first
+    ScopedStream scoped(stream_.sink(), stream_.level());
+
+    if (detail::shouldUseColors())
+    {
+        scoped.ostream() << "\033[36m[" << detail::stripSourceRoot(file_) << ":"
+                         << line_ << "]\033[0m ";
+    }
+    else
+    {
+        scoped.ostream() << "[" << detail::stripSourceRoot(file_) << ":"
+                         << line_ << "] ";
+    }
+
+    scoped.ostream() << t;
+    return scoped;
 }
+
 #endif
 
 namespace detail {
