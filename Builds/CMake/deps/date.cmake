@@ -20,7 +20,7 @@ if (NOT TARGET date::date)
   FetchContent_Declare(
     hh_date_src
     GIT_REPOSITORY https://github.com/HowardHinnant/date.git
-    GIT_TAG        v3.0.4
+    GIT_TAG        v3.0.3
   )
   FetchContent_MakeAvailable(hh_date_src)
   
