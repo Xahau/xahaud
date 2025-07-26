@@ -39,7 +39,7 @@ get_log_highlight_escape();
 // IMPORTANT: This MUST stay in the header as constexpr for compile-time
 // evaluation!
 constexpr const char*
-stripSourceRoot(const char* file)
+strip_source_root(const char* file)
 {
 #ifdef SOURCE_ROOT_PATH
     constexpr const char* sourceRoot = SOURCE_ROOT_PATH;

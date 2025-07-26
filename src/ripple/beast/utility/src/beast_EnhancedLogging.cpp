@@ -112,11 +112,11 @@ log_write_location_string(std::ostream& os, const char* file, int line)
     if (detail::should_log_use_colors())
     {
         os << detail::get_log_highlight_escape() << "["
-           << detail::stripSourceRoot(file) << ":" << line << "]\033[0m";
+           << detail::strip_source_root(file) << ":" << line << "]\033[0m";
     }
     else
     {
-        os << "[" << detail::stripSourceRoot(file) << ":" << line << "]";
+        os << "[" << detail::strip_source_root(file) << ":" << line << "]";
     }
 }
 
