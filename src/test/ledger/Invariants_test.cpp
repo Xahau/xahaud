@@ -91,20 +91,21 @@ class Invariants_test : public beast::unit_test::suite
         {
             terActual = ac.checkInvariants(terActual, fee);
             BEAST_EXPECT(terExpect == terActual);
-            // Handle both with and without LOG_LINE_NUMBERS
+            // Handle both with and without BEAST_ENHANCED_LOGGING
             auto const msg = sink.messages().str();
             bool hasExpectedPrefix = false;
 
-#ifdef LOG_LINE_NUMBERS
-            // When LOG_LINE_NUMBERS is enabled, messages may include ANSI color
-            // codes and start with [file:line]. Just search for the message
-            // content.
+#ifdef BEAST_ENHANCED_LOGGING
+            // When BEAST_ENHANCED_LOGGING is enabled, messages may include ANSI
+            // color codes and start with [file:line]. Just search for the
+            // message content.
             hasExpectedPrefix =
                 msg.find("Invariant failed:") != std::string::npos ||
                 msg.find("Transaction caused an exception") !=
                     std::string::npos;
 #else
-            // Without LOG_LINE_NUMBERS, messages start directly with the text
+            // Without BEAST_ENHANCED_LOGGING, messages start directly with the
+            // text
             hasExpectedPrefix = msg.starts_with("Invariant failed:") ||
                 msg.starts_with("Transaction caused an exception");
 #endif

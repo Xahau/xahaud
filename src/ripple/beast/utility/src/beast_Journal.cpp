@@ -19,10 +19,10 @@
 
 #include <ripple/beast/utility/Journal.h>
 #include <cassert>
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
+#include <ripple/beast/utility/EnhancedLogging.h>
 #include <cstdlib>
 #include <cstring>
-#include <unistd.h>
 #endif
 
 namespace beast {
@@ -136,112 +136,7 @@ Journal::ScopedStream::ScopedStream(
     m_ostream << manip;
 }
 
-#ifdef LOG_LINE_NUMBERS
-//------------------------------------------------------------------------------
-
-namespace detail {
-
-// Location position enum
-enum class LocationPosition { PREFIX, SUFFIX, NONE };
-
-// Get configured position - cached at startup
-LocationPosition
-getLocationPosition()
-{
-    static const LocationPosition position = []() {
-        const char* env = std::getenv("LOG_LOCATION_POSITION");
-        if (!env)
-            return LocationPosition::SUFFIX;  // Default to suffix for better
-                                              // readability
-
-        if (std::strcmp(env, "suffix") == 0 || std::strcmp(env, "end") == 0)
-            return LocationPosition::SUFFIX;
-        if (std::strcmp(env, "prefix") == 0 || std::strcmp(env, "start") == 0)
-            return LocationPosition::PREFIX;
-        if (std::strcmp(env, "none") == 0)
-            return LocationPosition::NONE;
-
-        return LocationPosition::PREFIX;
-    }();
-    return position;
-}
-
-// Helper to write location string (no leading/trailing space)
-void
-writeLocationString(std::ostream& os, const char* file, int line)
-{
-    if (detail::shouldUseColors())
-    {
-        os << detail::getLocationEscape() << "["
-           << detail::stripSourceRoot(file) << ":" << line << "]\033[0m";
-    }
-    else
-    {
-        os << "[" << detail::stripSourceRoot(file) << ":" << line << "]";
-    }
-}
-
-// Check if we should use colors - cached at startup
-bool
-shouldUseColors()
-{
-    static const bool useColors = []() {
-        // Honor NO_COLOR environment variable (standard)
-        if (std::getenv("NO_COLOR"))
-            return false;
-
-        // Honor FORCE_COLOR to override terminal detection
-        if (std::getenv("FORCE_COLOR"))
-            return true;
-
-        // Check if stderr is a terminal
-        return isatty(STDERR_FILENO) != 0;
-    }();
-    return useColors;
-}
-
-// Get the location escape sequence - can be overridden via LOG_LOCATION_ESCAPE
-const char*
-getLocationEscape()
-{
-    static const char* escape = []() {
-        const char* env = std::getenv("LOG_LOCATION_ESCAPE");
-        if (!env)
-            return "\033[36m";  // Default: cyan
-
-        // Simple map of color names to escape sequences
-        if (std::strcmp(env, "red") == 0)
-            return "\033[31m";
-        if (std::strcmp(env, "green") == 0)
-            return "\033[32m";
-        if (std::strcmp(env, "yellow") == 0)
-            return "\033[33m";
-        if (std::strcmp(env, "blue") == 0)
-            return "\033[34m";
-        if (std::strcmp(env, "magenta") == 0)
-            return "\033[35m";
-        if (std::strcmp(env, "cyan") == 0)
-            return "\033[36m";
-        if (std::strcmp(env, "white") == 0)
-            return "\033[37m";
-        if (std::strcmp(env, "gray") == 0 || std::strcmp(env, "grey") == 0)
-            return "\033[90m";  // Bright black (gray)
-        if (std::strcmp(env, "orange") == 0)
-            return "\033[93m";  // Bright yellow (appears orange-ish)
-        if (std::strcmp(env, "none") == 0)
-            return "";
-
-        // Default to cyan if unknown color name
-        return "\033[36m";
-    }();
-    return escape;
-}
-
-}  // namespace detail
-
-#endif
-
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
 Journal::ScopedStream::ScopedStream(
     Sink& sink,
     Severity level,
@@ -254,9 +149,9 @@ Journal::ScopedStream::ScopedStream(
 
     // Write prefix if configured
     if (file_ &&
-        detail::getLocationPosition() == detail::LocationPosition::PREFIX)
+        detail::get_log_location_position() == detail::LocationPosition::PREFIX)
     {
-        detail::writeLocationString(m_ostream, file_, line_);
+        detail::log_write_location_string(m_ostream, file_, line_);
         m_ostream << " ";
     }
 }
@@ -266,17 +161,18 @@ Journal::ScopedStream::~ScopedStream()
 {
     std::string s(m_ostream.str());
 
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
     // Add suffix if configured
     if (file_ &&
-        detail::getLocationPosition() == detail::LocationPosition::SUFFIX &&
+        detail::get_log_location_position() ==
+            detail::LocationPosition::SUFFIX &&
         !s.empty() && s != "\n")
     {
         std::ostringstream combined;
         combined << s;
         if (!s.empty() && s.back() != ' ')
             combined << " ";
-        detail::writeLocationString(combined, file_, line_);
+        detail::log_write_location_string(combined, file_, line_);
         s = combined.str();
     }
 #endif
@@ -304,7 +200,7 @@ Journal::Stream::operator<<(std::ostream& manip(std::ostream&)) const
     return ScopedStream(*this, manip);
 }
 
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
 
 // Implementation moved to use new constructor
 Journal::ScopedStream

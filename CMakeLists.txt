@@ -37,15 +37,15 @@ endif() #git
 set(SOURCE_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 add_definitions(-DSOURCE_ROOT_PATH="${SOURCE_ROOT_PATH}")
 
-# LOG_LINE_NUMBERS option - default to ON for Debug builds, OFF for Release
+# BEAST_ENHANCED_LOGGING option - default to ON for Debug builds, OFF for Release
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    option(LOG_LINE_NUMBERS "Include file and line numbers in log messages" ON)
+    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" ON)
 else()
-    option(LOG_LINE_NUMBERS "Include file and line numbers in log messages" OFF)
+    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" OFF)
 endif()
 
-if(LOG_LINE_NUMBERS)
-    add_definitions(-DLOG_LINE_NUMBERS=1)
+if(BEAST_ENHANCED_LOGGING)
+    add_definitions(-DBEAST_ENHANCED_LOGGING=1)
     message(STATUS "Log line numbers enabled")
 else()
     message(STATUS "Log line numbers disabled")

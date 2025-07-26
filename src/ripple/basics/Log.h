@@ -249,7 +249,7 @@ private:
 // Wraps a Journal::Stream to skip evaluation of
 // expensive argument lists if the stream is not active.
 #ifndef JLOG
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
 #define JLOG(x) \
     if (!(x))   \
     {           \

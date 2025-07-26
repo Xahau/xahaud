@@ -146,7 +146,7 @@ private:
 
         ScopedStream(Sink& sink, Severity level);
 
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
         ScopedStream(Sink& sink, Severity level, const char* file, int line);
 #endif
 
@@ -177,7 +177,7 @@ private:
         Sink& m_sink;
         Severity const m_level;
         std::ostringstream mutable m_ostream;
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
         const char* file_ = nullptr;
         int line_ = 0;
 #endif
@@ -200,7 +200,7 @@ private:
 public:
     /** Provide a light-weight way to check active() before string formatting */
 
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
     /** Stream with location information that prepends file:line to the first
      * message */
     class StreamWithLocation
@@ -290,7 +290,7 @@ public:
         operator<<(T const& t) const;
         /** @} */
 
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
         /** Create a StreamWithLocation that prepends file:line info */
         StreamWithLocation
         withLocation(const char* file, int line) const
@@ -398,54 +398,6 @@ static_assert(std::is_nothrow_destructible<Journal>::value == true, "");
 
 //------------------------------------------------------------------------------
 
-#ifdef LOG_LINE_NUMBERS
-namespace detail {
-// Helper to strip source root path from __FILE__ at compile time
-// IMPORTANT: This MUST stay in the header as constexpr for compile-time
-// evaluation!
-constexpr const char*
-stripSourceRoot(const char* file)
-{
-#ifdef SOURCE_ROOT_PATH
-    constexpr const char* sourceRoot = SOURCE_ROOT_PATH;
-    constexpr auto strlen_constexpr = [](const char* s) constexpr
-    {
-        const char* p = s;
-        while (*p)
-            ++p;
-        return p - s;
-    };
-    constexpr auto strncmp_constexpr =
-        [](const char* a, const char* b, size_t n) constexpr
-    {
-        for (size_t i = 0; i < n; ++i)
-        {
-            if (a[i] != b[i])
-                return a[i] - b[i];
-            if (a[i] == '\0')
-                break;
-        }
-        return 0;
-    };
-    constexpr size_t sourceRootLen = strlen_constexpr(sourceRoot);
-    return (strncmp_constexpr(file, sourceRoot, sourceRootLen) == 0)
-        ? file + sourceRootLen
-        : file;
-#else
-    return file;
-#endif
-}
-
-// Check if we should use colors - cached at startup
-bool
-shouldUseColors();
-
-// Get the location escape sequence - can be overridden via LOG_LOCATION_ESCAPE
-const char*
-getLocationEscape();
-}  // namespace detail
-#endif
-
 //------------------------------------------------------------------------------
 
 template <typename T>
@@ -472,7 +424,7 @@ Journal::Stream::operator<<(T const& t) const
     return ScopedStream(*this, t);
 }
 
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
 //------------------------------------------------------------------------------
 
 template <typename T>

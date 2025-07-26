@@ -23,6 +23,7 @@
 #include <ripple/basics/Log.h>
 #include <ripple/basics/chrono.h>
 #include <ripple/basics/contract.h>
+#include <ripple/beast/utility/EnhancedLogging.h>
 #include <boost/algorithm/string.hpp>
 #include <cassert>
 #include <cstring>
@@ -321,7 +322,7 @@ Logs::format(
 {
     output.reserve(message.size() + partition.size() + 100);
 
-#ifdef LOG_LINE_NUMBERS
+#ifdef BEAST_ENHANCED_LOGGING
     static const char* fmt = []() {
         const char* env = std::getenv("LOG_DATE_FORMAT");
         return env ? env : "%Y-%b-%d %T %Z";  // Default format
@@ -351,7 +352,12 @@ Logs::format(
         output += " ";
 
     if (!partition.empty())
+    {
+#ifdef BEAST_ENHANCED_LOGGING
+        output += beast::detail::get_log_highlight_escape();
+#endif
         output += partition + ":";
+    }
 
     using namespace beast::severities;
     switch (severity)
@@ -378,6 +384,10 @@ Logs::format(
             output += "FTL ";
             break;
     }
+
+#ifdef BEAST_ENHANCED_LOGGING
+    output += "\033[0m";
+#endif
 
     output += message;
 
