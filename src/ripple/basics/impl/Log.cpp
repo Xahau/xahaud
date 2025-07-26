@@ -354,7 +354,7 @@ Logs::format(
     if (!partition.empty())
     {
 #ifdef BEAST_ENHANCED_LOGGING
-        output += beast::detail::get_log_highlight_escape();
+        output += beast::detail::get_log_highlight_color();
 #endif
         output += partition + ":";
     }

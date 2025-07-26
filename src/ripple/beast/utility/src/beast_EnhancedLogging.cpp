@@ -45,13 +45,13 @@ should_log_use_colors()
     return use_colors;
 }
 
-// Get the log location escape sequence - can be overridden via
-// LOG_LOCATION_ESCAPE
+// Get the log highlight color - can be overridden via
+// LOG_HIGHLIGHT_COLOR
 const char*
-get_log_highlight_escape()
+get_log_highlight_color()
 {
     static const char* escape = []() {
-        const char* env = std::getenv("LOG_HIGHLIGHT_ESCAPE");
+        const char* env = std::getenv("LOG_HIGHLIGHT_COLOR");
         if (!env)
             return "\033[36m";  // Default: cyan
 
@@ -111,7 +111,7 @@ log_write_location_string(std::ostream& os, const char* file, int line)
 {
     if (detail::should_log_use_colors())
     {
-        os << detail::get_log_highlight_escape() << "["
+        os << detail::get_log_highlight_color() << "["
            << detail::strip_source_root(file) << ":" << line << "]\033[0m";
     }
     else

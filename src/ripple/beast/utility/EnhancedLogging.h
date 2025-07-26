@@ -30,10 +30,10 @@ namespace detail {
 bool
 should_log_use_colors();
 
-// Get the log location escape sequence - can be overridden via
-// LOG_LOCATION_ESCAPE
+// Get the log highlight color - can be overridden via
+// LOG_HIGHLIGHT_COLOR
 const char*
-get_log_highlight_escape();
+get_log_highlight_color();
 
 // Strip source root path from __FILE__ at compile time
 // IMPORTANT: This MUST stay in the header as constexpr for compile-time
