@@ -35,7 +35,7 @@ class Xrpl(ConanFile):
         'snappy/1.1.10',
         'soci/4.0.3',
         'sqlite3/3.42.0',
-        'zlib/1.2.13',
+        'zlib/1.3.1',
         'wasmedge/0.11.2',
     ]
 
@@ -52,7 +52,7 @@ class Xrpl(ConanFile):
         'unity': False,
 
         'cassandra-cpp-driver:shared': False,
-        'date:header_only': True,
+        'date:header_only': False,
         'grpc:shared': False,
         'grpc:secure': True,
         'libarchive:shared': False,

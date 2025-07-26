@@ -136,36 +136,50 @@ Journal::ScopedStream::ScopedStream(
     m_ostream << manip;
 }
 
-Journal::ScopedStream::~ScopedStream()
-{
-    std::string const& s(m_ostream.str());
-    if (!s.empty())
-    {
-        if (s == "\n")
-            m_sink.write(m_level, "");
-        else
-            m_sink.write(m_level, s);
-    }
-}
-
-std::ostream&
-Journal::ScopedStream::operator<<(std::ostream& manip(std::ostream&)) const
-{
-    return m_ostream << manip;
-}
-
-//------------------------------------------------------------------------------
-
-Journal::ScopedStream
-Journal::Stream::operator<<(std::ostream& manip(std::ostream&)) const
-{
-    return ScopedStream(*this, manip);
-}
-
 #ifdef LOG_LINE_NUMBERS
 //------------------------------------------------------------------------------
 
 namespace detail {
+
+// Location position enum
+enum class LocationPosition { PREFIX, SUFFIX, NONE };
+
+// Get configured position - cached at startup
+LocationPosition
+getLocationPosition()
+{
+    static const LocationPosition position = []() {
+        const char* env = std::getenv("LOG_LOCATION_POSITION");
+        if (!env)
+            return LocationPosition::SUFFIX;  // Default to suffix for better
+                                              // readability
+
+        if (std::strcmp(env, "suffix") == 0 || std::strcmp(env, "end") == 0)
+            return LocationPosition::SUFFIX;
+        if (std::strcmp(env, "prefix") == 0 || std::strcmp(env, "start") == 0)
+            return LocationPosition::PREFIX;
+        if (std::strcmp(env, "none") == 0)
+            return LocationPosition::NONE;
+
+        return LocationPosition::PREFIX;
+    }();
+    return position;
+}
+
+// Helper to write location string (no leading/trailing space)
+void
+writeLocationString(std::ostream& os, const char* file, int line)
+{
+    if (detail::shouldUseColors())
+    {
+        os << detail::getLocationEscape() << "["
+           << detail::stripSourceRoot(file) << ":" << line << "]\033[0m";
+    }
+    else
+    {
+        os << "[" << detail::stripSourceRoot(file) << ":" << line << "]";
+    }
+}
 
 // Check if we should use colors - cached at startup
 bool
@@ -225,30 +239,80 @@ getLocationEscape()
 
 }  // namespace detail
 
-// Implementation of writeLocationPrefix helper
-void
-Journal::StreamWithLocation::writeLocationPrefix(ScopedStream& s) const
+#endif
+
+#ifdef LOG_LINE_NUMBERS
+Journal::ScopedStream::ScopedStream(
+    Sink& sink,
+    Severity level,
+    const char* file,
+    int line)
+    : m_sink(sink), m_level(level), file_(file), line_(line)
 {
-    if (detail::shouldUseColors())
+    // Modifiers applied from all ctors
+    m_ostream << std::boolalpha << std::showbase;
+
+    // Write prefix if configured
+    if (file_ &&
+        detail::getLocationPosition() == detail::LocationPosition::PREFIX)
     {
-        s.ostream() << detail::getLocationEscape() << "["
-                    << detail::stripSourceRoot(file_) << ":" << line_
-                    << "]\033[0m ";
+        detail::writeLocationString(m_ostream, file_, line_);
+        m_ostream << " ";
     }
-    else
+}
+#endif
+
+Journal::ScopedStream::~ScopedStream()
+{
+    std::string s(m_ostream.str());
+
+#ifdef LOG_LINE_NUMBERS
+    // Add suffix if configured
+    if (file_ &&
+        detail::getLocationPosition() == detail::LocationPosition::SUFFIX &&
+        !s.empty() && s != "\n")
     {
-        s.ostream() << "[" << detail::stripSourceRoot(file_) << ":" << line_
-                    << "] ";
+        std::ostringstream combined;
+        combined << s;
+        if (!s.empty() && s.back() != ' ')
+            combined << " ";
+        detail::writeLocationString(combined, file_, line_);
+        s = combined.str();
+    }
+#endif
+
+    if (!s.empty())
+    {
+        if (s == "\n")
+            m_sink.write(m_level, "");
+        else
+            m_sink.write(m_level, s);
     }
 }
 
+std::ostream&
+Journal::ScopedStream::operator<<(std::ostream& manip(std::ostream&)) const
+{
+    return m_ostream << manip;
+}
+
+//------------------------------------------------------------------------------
+
+Journal::ScopedStream
+Journal::Stream::operator<<(std::ostream& manip(std::ostream&)) const
+{
+    return ScopedStream(*this, manip);
+}
+
+#ifdef LOG_LINE_NUMBERS
+
+// Implementation moved to use new constructor
 Journal::ScopedStream
 Journal::StreamWithLocation::operator<<(
     std::ostream& manip(std::ostream&)) const
 {
-    // Create a ScopedStream and inject the location info first
-    ScopedStream scoped(stream_.sink(), stream_.level());
-    writeLocationPrefix(scoped);
+    // Create a ScopedStream with location info
+    ScopedStream scoped(stream_.sink(), stream_.level(), file_, line_);
     scoped.ostream() << manip;
     return scoped;
 }

@@ -17,11 +17,16 @@
 */
 //==============================================================================
 
+#include <date/date.h>
+#include <date/tz.h>
+
 #include <ripple/basics/Log.h>
 #include <ripple/basics/chrono.h>
 #include <ripple/basics/contract.h>
 #include <boost/algorithm/string.hpp>
 #include <cassert>
+#include <cstring>
+#include <ctime>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -316,9 +321,35 @@ Logs::format(
 {
     output.reserve(message.size() + partition.size() + 100);
 
-    output = to_string(std::chrono::system_clock::now());
+#ifdef LOG_LINE_NUMBERS
+    static const char* fmt = []() {
+        const char* env = std::getenv("LOG_DATE_FORMAT");
+        return env ? env : "%Y-%b-%d %T %Z";  // Default format
+    }();
 
-    output += " ";
+    // Check if we should use local time
+    static const bool useLocalTime = []() {
+        const char* env = std::getenv("LOG_DATE_LOCAL");
+        return env && std::strcmp(env, "1") == 0;
+    }();
+
+    if (useLocalTime)
+    {
+        auto now = std::chrono::system_clock::now();
+        auto local = date::make_zoned(date::current_zone(), now);
+        output = date::format(fmt, local);
+    }
+    else
+    {
+        output = date::format(fmt, std::chrono::system_clock::now());
+    }
+#else
+    output = to_string(std::chrono::system_clock::now());
+#endif
+
+    if (!output.empty())  // Allow setting date format to an empty string
+        output += " ";
+
     if (!partition.empty())
         output += partition + ":";
 

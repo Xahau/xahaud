@@ -9,6 +9,9 @@
 
 find_package (date QUIET)
 if (NOT TARGET date::date)
+  # Tell date to build the timezone library
+  set(BUILD_TZ_LIB ON CACHE BOOL "Build date-tz library")
+  
   FetchContent_Declare(
     hh_date_src
     GIT_REPOSITORY https://github.com/HowardHinnant/date.git

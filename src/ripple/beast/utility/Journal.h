@@ -146,6 +146,10 @@ private:
 
         ScopedStream(Sink& sink, Severity level);
 
+#ifdef LOG_LINE_NUMBERS
+        ScopedStream(Sink& sink, Severity level, const char* file, int line);
+#endif
+
         template <typename T>
         ScopedStream(Stream const& stream, T const& t);
 
@@ -173,6 +177,10 @@ private:
         Sink& m_sink;
         Severity const m_level;
         std::ostringstream mutable m_ostream;
+#ifdef LOG_LINE_NUMBERS
+        const char* file_ = nullptr;
+        int line_ = 0;
+#endif
     };
 
 #ifndef __INTELLISENSE__
@@ -212,11 +220,6 @@ public:
         operator<<(std::ostream& manip(std::ostream&)) const;
 
     private:
-        // Helper to write the location prefix (implemented after detail
-        // namespace)
-        void
-        writeLocationPrefix(ScopedStream& s) const;
-
         const char* file_;
         int line_;
         const Stream& stream_;
@@ -398,6 +401,8 @@ static_assert(std::is_nothrow_destructible<Journal>::value == true, "");
 #ifdef LOG_LINE_NUMBERS
 namespace detail {
 // Helper to strip source root path from __FILE__ at compile time
+// IMPORTANT: This MUST stay in the header as constexpr for compile-time
+// evaluation!
 constexpr const char*
 stripSourceRoot(const char* file)
 {
@@ -474,9 +479,8 @@ template <typename T>
 Journal::ScopedStream
 Journal::StreamWithLocation::operator<<(T const& t) const
 {
-    // Create a ScopedStream and inject the location info first
-    ScopedStream scoped(stream_.sink(), stream_.level());
-    writeLocationPrefix(scoped);
+    // Create a ScopedStream with location info
+    ScopedStream scoped(stream_.sink(), stream_.level(), file_, line_);
     scoped.ostream() << t;
     return scoped;
 }
