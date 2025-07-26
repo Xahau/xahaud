@@ -19,6 +19,11 @@
 
 #include <ripple/beast/utility/Journal.h>
 #include <cassert>
+#ifdef LOG_LINE_NUMBERS
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
+#endif
 
 namespace beast {
 
@@ -160,24 +165,90 @@ Journal::Stream::operator<<(std::ostream& manip(std::ostream&)) const
 #ifdef LOG_LINE_NUMBERS
 //------------------------------------------------------------------------------
 
+namespace detail {
+
+// Check if we should use colors - cached at startup
+bool
+shouldUseColors()
+{
+    static const bool useColors = []() {
+        // Honor NO_COLOR environment variable (standard)
+        if (std::getenv("NO_COLOR"))
+            return false;
+
+        // Honor FORCE_COLOR to override terminal detection
+        if (std::getenv("FORCE_COLOR"))
+            return true;
+
+        // Check if stderr is a terminal
+        return isatty(STDERR_FILENO) != 0;
+    }();
+    return useColors;
+}
+
+// Get the location escape sequence - can be overridden via LOG_LOCATION_ESCAPE
+const char*
+getLocationEscape()
+{
+    static const char* escape = []() {
+        const char* env = std::getenv("LOG_LOCATION_ESCAPE");
+        if (!env)
+            return "\033[36m";  // Default: cyan
+
+        // Simple map of color names to escape sequences
+        if (std::strcmp(env, "red") == 0)
+            return "\033[31m";
+        if (std::strcmp(env, "green") == 0)
+            return "\033[32m";
+        if (std::strcmp(env, "yellow") == 0)
+            return "\033[33m";
+        if (std::strcmp(env, "blue") == 0)
+            return "\033[34m";
+        if (std::strcmp(env, "magenta") == 0)
+            return "\033[35m";
+        if (std::strcmp(env, "cyan") == 0)
+            return "\033[36m";
+        if (std::strcmp(env, "white") == 0)
+            return "\033[37m";
+        if (std::strcmp(env, "gray") == 0 || std::strcmp(env, "grey") == 0)
+            return "\033[90m";  // Bright black (gray)
+        if (std::strcmp(env, "orange") == 0)
+            return "\033[93m";  // Bright yellow (appears orange-ish)
+        if (std::strcmp(env, "none") == 0)
+            return "";
+
+        // Default to cyan if unknown color name
+        return "\033[36m";
+    }();
+    return escape;
+}
+
+}  // namespace detail
+
+// Implementation of writeLocationPrefix helper
+void
+Journal::StreamWithLocation::writeLocationPrefix(ScopedStream& s) const
+{
+    if (detail::shouldUseColors())
+    {
+        s.ostream() << detail::getLocationEscape() << "["
+                    << detail::stripSourceRoot(file_) << ":" << line_
+                    << "]\033[0m ";
+    }
+    else
+    {
+        s.ostream() << "[" << detail::stripSourceRoot(file_) << ":" << line_
+                    << "] ";
+    }
+}
+
 Journal::ScopedStream
 Journal::StreamWithLocation::operator<<(
     std::ostream& manip(std::ostream&)) const
 {
     // Create a ScopedStream and inject the location info first
     ScopedStream scoped(stream_.sink(), stream_.level());
-
-    if (detail::shouldUseColors())
-    {
-        scoped.ostream() << "\033[36m[" << detail::stripSourceRoot(file_) << ":"
-                         << line_ << "]\033[0m ";
-    }
-    else
-    {
-        scoped.ostream() << "[" << detail::stripSourceRoot(file_) << ":"
-                         << line_ << "] ";
-    }
-
+    writeLocationPrefix(scoped);
     scoped.ostream() << manip;
     return scoped;
 }

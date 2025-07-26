@@ -22,10 +22,6 @@
 
 #include <cassert>
 #include <sstream>
-#ifdef LOG_LINE_NUMBERS
-#include <cstdlib>
-#include <unistd.h>
-#endif
 
 namespace beast {
 
@@ -216,6 +212,11 @@ public:
         operator<<(std::ostream& manip(std::ostream&)) const;
 
     private:
+        // Helper to write the location prefix (implemented after detail
+        // namespace)
+        void
+        writeLocationPrefix(ScopedStream& s) const;
+
         const char* file_;
         int line_;
         const Stream& stream_;
@@ -431,23 +432,12 @@ stripSourceRoot(const char* file)
 }
 
 // Check if we should use colors - cached at startup
-inline bool
-shouldUseColors()
-{
-    static const bool useColors = []() {
-        // Honor NO_COLOR environment variable (standard)
-        if (std::getenv("NO_COLOR"))
-            return false;
+bool
+shouldUseColors();
 
-        // Honor FORCE_COLOR to override terminal detection
-        if (std::getenv("FORCE_COLOR"))
-            return true;
-
-        // Check if stderr is a terminal
-        return isatty(STDERR_FILENO) != 0;
-    }();
-    return useColors;
-}
+// Get the location escape sequence - can be overridden via LOG_LOCATION_ESCAPE
+const char*
+getLocationEscape();
 }  // namespace detail
 #endif
 
@@ -486,18 +476,7 @@ Journal::StreamWithLocation::operator<<(T const& t) const
 {
     // Create a ScopedStream and inject the location info first
     ScopedStream scoped(stream_.sink(), stream_.level());
-
-    if (detail::shouldUseColors())
-    {
-        scoped.ostream() << "\033[36m[" << detail::stripSourceRoot(file_) << ":"
-                         << line_ << "]\033[0m ";
-    }
-    else
-    {
-        scoped.ostream() << "[" << detail::stripSourceRoot(file_) << ":"
-                         << line_ << "] ";
-    }
-
+    writeLocationPrefix(scoped);
     scoped.ostream() << t;
     return scoped;
 }
