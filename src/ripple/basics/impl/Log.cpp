@@ -23,7 +23,9 @@
 #include <ripple/basics/Log.h>
 #include <ripple/basics/chrono.h>
 #include <ripple/basics/contract.h>
+#ifdef BEAST_ENHANCED_LOGGING
 #include <ripple/beast/utility/EnhancedLogging.h>
+#endif
 #include <boost/algorithm/string.hpp>
 #include <cassert>
 #include <cstring>
