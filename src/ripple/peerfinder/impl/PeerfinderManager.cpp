@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/main/Application.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/peerfinder/PeerfinderManager.h>
 #include <ripple/peerfinder/impl/Checker.h>
@@ -35,6 +36,9 @@ namespace PeerFinder {
 
 class ManagerImp : public Manager
 {
+protected:
+    Application& app_;
+
 public:
     boost::asio::io_service& io_service_;
     std::optional<boost::asio::io_service::work> work_;
@@ -53,8 +57,9 @@ public:
         beast::Journal journal,
         BasicConfig const& config,
         beast::insight::Collector::ptr const& collector,
-        bool useSqLiteStore)
-        : Manager()
+        bool useSqLiteStore,
+        Application& app)
+        : Manager(app)
         , io_service_(io_service)
         , work_(std::in_place, std::ref(io_service_))
         , m_clock(clock)
@@ -65,6 +70,7 @@ public:
         , checker_(io_service_)
         , m_logic(clock, *m_store, checker_, journal)
         , m_config(config)
+        , app_(app)
         , m_stats(std::bind(&ManagerImp::collect_metrics, this), collector)
     {
     }
@@ -410,7 +416,8 @@ private:
 
 //------------------------------------------------------------------------------
 
-Manager::Manager() noexcept : beast::PropertyStream::Source("peerfinder")
+Manager::Manager(Application& app) noexcept
+    : beast::PropertyStream::Source("peerfinder"), app_(app)
 {
 }
 
@@ -421,10 +428,11 @@ make_Manager(
     beast::Journal journal,
     BasicConfig const& config,
     beast::insight::Collector::ptr const& collector,
-    bool useSqLiteStore)
+    bool useSqLiteStore,
+    Application& app)
 {
     return std::make_unique<ManagerImp>(
-        io_service, clock, journal, config, collector, useSqLiteStore);
+        io_service, clock, journal, config, collector, useSqLiteStore, app);
 }
 
 }  // namespace PeerFinder

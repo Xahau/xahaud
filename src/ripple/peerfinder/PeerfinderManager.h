@@ -20,11 +20,13 @@
 #ifndef RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
 #define RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
 
+#include <ripple/app/main/Application.h>
 #include <ripple/beast/clock/abstract_clock.h>
 #include <ripple/beast/utility/PropertyStream.h>
 #include <ripple/core/Config.h>
 #include <ripple/peerfinder/Slot.h>
 #include <boost/asio/ip/tcp.hpp>
+#include <ranges>
 
 namespace ripple {
 namespace PeerFinder {
@@ -138,7 +140,7 @@ enum class Result { duplicate, full, success };
 class Manager : public beast::PropertyStream::Source
 {
 protected:
-    Manager() noexcept;
+    Manager(Application& app) noexcept;
 
     std::map<
         beast::IP::Endpoint /* udp endpoint */,
@@ -146,6 +148,8 @@ protected:
         m_udp_highway_peers;
 
     std::mutex m_udp_highway_mutex;
+
+    Application& app_;
 
 public:
     void
@@ -155,6 +159,125 @@ public:
         uint32_t t = static_cast<uint32_t>(std::time(nullptr));
         for (auto const& a : addresses)
             m_udp_highway_peers.emplace(a, t);
+    }
+
+    /* send a transaction over datagram to a large random subset of highway
+     * peers */
+    void
+    machine_gun_highway_peers(Slice const& tx, uint256 const& txid)
+    {
+        constexpr size_t kMaxDatagram = 65535;
+        constexpr size_t kUDPHeader = 8;
+        constexpr size_t kIPv4Header = 20;
+        constexpr size_t kIPv6Header = 40;
+        constexpr size_t kHeaderSize = 52;
+
+        // Create sockets once
+        static thread_local int udp4_sock = [this]() {
+            int s = ::socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(app_.config().UDP_HIGHWAY_PORT);
+            addr.sin_addr.s_addr = INADDR_ANY;
+            ::bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+            return s;
+        }();
+
+        static thread_local int udp6_sock = [this]() {
+            int s = ::socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+            sockaddr_in6 addr{};
+            addr.sin6_family = AF_INET6;
+            addr.sin6_port = htons(app_.config().UDP_HIGHWAY_PORT);
+            addr.sin6_addr = in6addr_any;
+            ::bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+            return s;
+        }();
+
+        std::lock_guard<std::mutex> lock(m_udp_highway_mutex);
+        if (m_udp_highway_peers.empty())
+            return;
+
+        // Select ~50% of peers randomly
+        static thread_local std::mt19937 rng{std::random_device{}()};
+        std::vector<beast::IP::Endpoint> targets;
+
+        auto sample_peers = [&](auto& map, auto& targets, auto& rng) {
+            auto n = map.size();
+            if (n == 0)
+                return;
+            auto k = n / 2 + 1;
+            std::vector<beast::IP::Endpoint> keys;
+            keys.reserve(n);
+            for (auto const& p : map)
+                keys.push_back(p.first);
+            std::shuffle(keys.begin(), keys.end(), rng);
+            targets.assign(keys.begin(), keys.begin() + std::min(k, n));
+        };
+
+        sample_peers(m_udp_highway_peers, targets, rng);
+
+        // Determine max payload size based on endpoint types
+        size_t max_data_v4 =
+            kMaxDatagram - kIPv4Header - kUDPHeader - kHeaderSize;
+        size_t max_data_v6 =
+            kMaxDatagram - kIPv6Header - kUDPHeader - kHeaderSize;
+
+        bool has_v6 = std::any_of(targets.begin(), targets.end(), [](auto& ep) {
+            return ep.address().is_v6();
+        });
+        size_t max_data_size = has_v6 ? max_data_v6 : max_data_v4;
+
+        uint32_t num_fragments =
+            (tx.size() + max_data_size - 1) / max_data_size;
+
+        for (uint32_t i = 0; i < num_fragments; ++i)
+        {
+            size_t offset = i * max_data_size;
+            size_t chunk_size = std::min(max_data_size, tx.size() - offset);
+
+            std::vector<uint8_t> packet(kHeaderSize + chunk_size);
+            std::memcpy(packet.data(), "XUSHTXNF", 8);
+            std::memcpy(packet.data() + 8, txid.data(), 32);
+            *reinterpret_cast<uint32_t*>(packet.data() + 40) = htonl(tx.size());
+            *reinterpret_cast<uint32_t*>(packet.data() + 44) =
+                htonl(num_fragments);
+            *reinterpret_cast<uint32_t*>(packet.data() + 48) = htonl(i);
+            std::memcpy(packet.data() + 52, tx.data() + offset, chunk_size);
+
+            for (auto& endpoint : targets)
+            {
+                if (endpoint.address().is_v4())
+                {
+                    sockaddr_in addr{};
+                    addr.sin_family = AF_INET;
+                    addr.sin_port = htons(endpoint.port());
+                    addr.sin_addr.s_addr =
+                        htonl(endpoint.address().to_v4().to_uint());
+                    ::sendto(
+                        udp4_sock,
+                        packet.data(),
+                        packet.size(),
+                        0,
+                        reinterpret_cast<sockaddr*>(&addr),
+                        sizeof(addr));
+                }
+                else
+                {
+                    sockaddr_in6 addr{};
+                    addr.sin6_family = AF_INET6;
+                    addr.sin6_port = htons(endpoint.port());
+                    auto bytes = endpoint.address().to_v6().to_bytes();
+                    std::memcpy(&addr.sin6_addr, bytes.data(), 16);
+                    ::sendto(
+                        udp6_sock,
+                        packet.data(),
+                        packet.size(),
+                        0,
+                        reinterpret_cast<sockaddr*>(&addr),
+                        sizeof(addr));
+                }
+            }
+        }
     }
 
     /** Destroy the object.

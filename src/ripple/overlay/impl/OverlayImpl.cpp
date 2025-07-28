@@ -24,6 +24,7 @@
 #include <ripple/app/misc/ValidatorSite.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/app/rdb/Wallet.h>
+#include <ripple/app/tx/apply.h>
 #include <ripple/basics/base64.h>
 #include <ripple/basics/make_SSLContext.h>
 #include <ripple/basics/random.h>
@@ -141,7 +142,8 @@ OverlayImpl::OverlayImpl(
           app.config().section(SECTION_RELATIONAL_DB).empty() ||
               !boost::iequals(
                   get(app.config().section(SECTION_RELATIONAL_DB), "backend"),
-                  "rwdb")))
+                  "rwdb"),
+          app))
     , m_resolver(resolver)
     , next_id_(1)
     , timer_count_(0)
@@ -1520,8 +1522,6 @@ OverlayImpl::processXUSH(
     std::string const& message,
     boost::asio::ip::tcp::endpoint const& remoteEndpoint)
 {
-    // auto& pf = app_.overlay().peerFinder();
-
     // Fragment tracking: txid -> {endpoint, timestamp, total_size,
     // fragments_received, data_map}
     struct FragmentInfo
@@ -1532,7 +1532,7 @@ OverlayImpl::processXUSH(
         uint32_t num_fragments;
         std::map<uint32_t, std::string> fragments;
     };
-    static std::map<std::string, FragmentInfo> fragment_map;
+    static std::map<uint256, FragmentInfo> fragment_map;
     static std::map<boost::asio::ip::tcp::endpoint, uint32_t> bad_sender_score;
     static std::mt19937 rng{std::random_device{}()};
 
@@ -1626,7 +1626,8 @@ OverlayImpl::processXUSH(
     // XUSHTXNF packet (fragmented transaction)
     else if (message.size() >= 52 && std::memcmp(data, "XUSHTXNF", 8) == 0)
     {
-        std::string txid(reinterpret_cast<const char*>(data + 8), 32);
+        uint256 txid{
+            uint256::fromVoid(reinterpret_cast<const char*>(data + 8))};
         uint32_t total_size =
             ntohl(*reinterpret_cast<const uint32_t*>(data + 40));
         uint32_t num_fragments =
@@ -1634,8 +1635,8 @@ OverlayImpl::processXUSH(
         uint32_t fragment_num =
             ntohl(*reinterpret_cast<const uint32_t*>(data + 48));
 
-        if (fragment_num >= num_fragments || total_size > 1048576)
-            return;  // 1MB limit
+        if (fragment_num >= num_fragments || total_size > 1048576 * 2)
+            return;  // 2MB limit
 
         // Mute bad senders progressively
         if (bad_sender_score[remoteEndpoint] > 10)
@@ -1652,6 +1653,15 @@ OverlayImpl::processXUSH(
             info.timestamp = now;
             info.total_size = total_size;
             info.num_fragments = num_fragments;
+        }
+
+        int flags = app_.getHashRouter().getFlags(txid);
+
+        if (flags & SF_BAD)
+        {
+            bad_sender_score[remoteEndpoint]++;
+            fragment_map.erase(txid);
+            return;
         }
 
         // Store fragment
@@ -1671,10 +1681,76 @@ OverlayImpl::processXUSH(
             if (complete_tx.size() == info.total_size)
             {
                 // Process complete transaction
-                // processTransaction(txid, complete_tx);
-                // RH UPTO
+
+                Slice txSlice(complete_tx.data(), complete_tx.size());
+                SerialIter sit(txSlice);
+
+                try
+                {
+                    auto stx = std::make_shared<STTx const>(sit);
+                    uint256 computedTxid = stx->getTransactionID();
+
+                    // if txn is corrupt (wrong txid) or an emitted txn, or
+                    // can't make it into a ledger bill the sender and drop
+                    if (txid != computedTxid ||
+                        stx->isFieldPresent(sfEmitDetails) ||
+                        (stx->isFieldPresent(sfLastLedgerSequence) &&
+                         (stx->getFieldU32(sfLastLedgerSequence) <
+                          app_.getLedgerMaster().getValidLedgerIndex())))
+                    {
+                        bad_sender_score[remoteEndpoint]++;
+                        fragment_map.erase(txid);
+                        return;
+                    }
+
+                    // Check the signature
+                    if (auto [valid, validReason] = checkValidity(
+                            app_.getHashRouter(),
+                            *stx,
+                            app_.getLedgerMaster().getValidatedRules(),
+                            app_.config());
+                        valid != Validity::Valid)
+                    {
+                        if (!validReason.empty())
+                        {
+                            JLOG(journal_.trace())
+                                << "Exception checking transaction: "
+                                << validReason;
+                        }
+
+                        app_.getHashRouter().setFlags(
+                            stx->getTransactionID(), SF_BAD);
+                        bad_sender_score[remoteEndpoint]++;
+                        fragment_map.erase(txid);
+                        return;
+                    }
+
+                    // execution to here means the txn passed basic checks
+                    // machine gun it to peers over the highway
+
+                    m_peerFinder->machine_gun_highway_peers(txSlice, txid);
+
+                    // add it to our own node for processing
+                    std::string reason;
+                    auto tpTrans =
+                        std::make_shared<Transaction>(stx, reason, app_);
+                    if (tpTrans->getStatus() != NEW)
+                        return;
+
+                    app_.getOPs().processTransaction(tpTrans, false, false);
+
+                    return;
+                }
+                catch (std::exception const& ex)
+                {
+                    JLOG(journal_.warn())
+                        << "Transaction invalid: " << strHex(txSlice)
+                        << ". Exception: " << ex.what();
+                }
             }
 
+            // successful reconstruction would have returned before here
+            bad_sender_score[remoteEndpoint]++;
             fragment_map.erase(txid);
         }
     }

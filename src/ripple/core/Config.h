@@ -174,6 +174,7 @@ public:
 
     // Network parameters
     uint32_t NETWORK_ID = 0;
+    uint16_t UDP_HIGHWAY_PORT = 0;  // this will be the first peer port
 
     // DEPRECATED - Fee units for a reference transction.
     // Only provided for backwards compatibility in a couple of places

@@ -301,7 +301,9 @@ public:
         sink.threshold(beast::severities::Severity::kAll);
         beast::Journal journal{sink};
         TestHandler handler;
-        auto s = make_Server(handler, thread.get_io_service(), journal);
+        jtx::Env env{*this};
+        auto s =
+            make_Server(handler, thread.get_io_service(), journal, env.app());
         std::vector<Port> serverPort(1);
         serverPort.back().ip =
             beast::IP::Address::from_string(getEnvLocalhostAddr()),
@@ -382,10 +384,12 @@ public:
         SuiteJournal journal("Server_test", *this);
 
         NullHandler h;
+        jtx::Env env{*this};
         for (int i = 0; i < 1000; ++i)
         {
             TestThread thread;
-            auto s = make_Server(h, thread.get_io_service(), journal);
+            auto s =
+                make_Server(h, thread.get_io_service(), journal, env.app());
             std::vector<Port> serverPort(1);
             serverPort.back().ip =
                 beast::IP::Address::from_string(getEnvLocalhostAddr()),

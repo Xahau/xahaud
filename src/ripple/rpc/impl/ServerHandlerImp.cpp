@@ -112,7 +112,7 @@ ServerHandlerImp::ServerHandlerImp(
     , m_resourceManager(resourceManager)
     , m_journal(app_.journal("Server"))
     , m_networkOPs(networkOPs)
-    , m_server(make_Server(*this, io_service, app_.journal("Server")))
+    , m_server(make_Server(*this, io_service, app_.journal("Server"), app))
     , m_jobQueue(jobQueue)
 {
     auto const& group(cm.group("rpc"));
