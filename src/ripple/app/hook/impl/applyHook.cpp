@@ -1003,11 +1003,88 @@ GetLengthOfAlreadyValidatedJSIntArrayOrHexString(
     return (len / 2);
 }
 
-inline std::optional<std::vector<uint8_t>>
-FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
+enum class JSByteConversionError : uint8_t {
+    Success = 0,
+    InvalidType,  // Not an array or string
+    EmptyInput,   // Empty array/string (might not be an error in some cases)
+    ExceedsMaxLength,       // Input length exceeds max_len
+    InvalidArrayElement,    // Array contains non-number element
+    ByteOutOfRange,         // Byte value not in [0, 255]
+    StringParseError,       // Failed to parse JS string
+    StringLengthMismatch,   // String length doesn't match size
+    InvalidHexCharacter,    // Non-hex character in string
+    StringTerminationError  // Unexpected null terminator
+};
+
+struct JSByteConversionOptions
+{
+    uint32_t max_len;
+    bool truncate = false;
+
+    JSByteConversionOptions(int len)
+        : max_len(len), truncate(false)  // NOLINT(*-explicit-constructor)
+    {
+    }
+};
+
+struct JSByteConversionResult
+{
+    std::optional<std::vector<uint8_t>> data;
+    JSByteConversionError error;
+    size_t input_byte_count =
+        0;  // Normalized to bytes for both arrays and hex strings
+
+    // Convenience methods
+    bool
+    ok() const
+    {
+        return error == JSByteConversionError::Success;
+    }
+    bool
+    has_value() const
+    {
+        return data.has_value();
+    }
+    operator bool() const
+    {
+        return ok();
+    }
+
+    // Computed properties
+    size_t
+    bytes_processed() const
+    {
+        return data ? data->size() : 0;
+    }
+    bool
+    was_truncated() const
+    {
+        return data && data->size() < input_byte_count;
+    }
+
+    const std::vector<uint8_t>&
+    value() const
+    {
+        if (!data.has_value())
+            throw std::runtime_error("No data available");
+        return *data;
+    }
+
+    std::vector<uint8_t>
+    value_or(std::vector<uint8_t> default_val) const
+    {
+        return data.value_or(std::move(default_val));
+    }
+};
+
+inline JSByteConversionResult
+FromJSIntArrayOrHexStringWithError(
+    JSContext* ctx,
+    JSValueConst& v,
+    JSByteConversionOptions options)
 {
     std::vector<uint8_t> out;
-    out.reserve(max_len);
+    out.reserve(options.max_len);
 
     auto const a = JS_IsArray(ctx, v);
     auto const s = JS_IsString(v);
@@ -1019,32 +1096,56 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
         int64_t n = 0;
         js_get_length64(ctx, &n, v);
 
-        if (n == 0)
-            return out;
+        size_t original_n = n;  // Store original array length
 
-        if (n > max_len)
-            return {};
+        if (n == 0)
+            return {out, JSByteConversionError::EmptyInput, 0};
+
+        if (n > options.max_len)
+        {
+            if (options.truncate)
+                n = options.max_len;  // Truncate to max_len
+            else
+                return {
+                    std::nullopt,
+                    JSByteConversionError::ExceedsMaxLength,
+                    original_n};
+        }
 
         for (int64_t i = 0; i < n; ++i)
         {
             JSValue x = JS_GetPropertyInt64(ctx, v, i);
             if (!JS_IsNumber(x))
-                return {};
+            {
+                JS_FreeValue(ctx, x);
+                return {
+                    std::nullopt,
+                    JSByteConversionError::InvalidArrayElement,
+                    original_n};
+            }
 
             int64_t byte = 0;
             JS_ToInt64(ctx, &byte, x);
-            if (byte > 256 || byte < 0)
-                return {};
+            JS_FreeValue(ctx, x);
+
+            if (byte > 255 || byte < 0)  // Fixed: should be 255, not 256
+                return {
+                    std::nullopt,
+                    JSByteConversionError::ByteOutOfRange,
+                    original_n};
 
             out.push_back((uint8_t)byte);
         }
 
-        return out;
+        return {out, JSByteConversionError::Success, original_n};
     }
 
     if (JS_IsString(v))
     {
-        auto [len, str] = FromJSString(ctx, v, max_len << 1U);
+        auto [len, str] = FromJSString(ctx, v, options.max_len << 1U);
+
+        size_t original_byte_count =
+            (len + 1) / 2;  // Round up for odd-length strings
 
         // std::cout << "Debug FromJSIAOHS: len=" << len << ", str=";
 
@@ -1054,16 +1155,28 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
         //     std::cout << "<no string>\n";
 
         if (!str)
-            return {};
+            return {std::nullopt, JSByteConversionError::StringParseError, 0};
 
         if (len <= 0)
-            return out;
+            return {out, JSByteConversionError::EmptyInput, 0};
 
-        if (len > (max_len << 1U))
-            return {};
+        if (len > (options.max_len << 1U))
+        {
+            if (options.truncate)
+                len = options.max_len
+                    << 1U;  // Truncate to max_len * 2 (hex chars)
+            else
+                return {
+                    std::nullopt,
+                    JSByteConversionError::ExceedsMaxLength,
+                    original_byte_count};
+        }
 
         if (len != str->size())
-            return {};
+            return {
+                std::nullopt,
+                JSByteConversionError::StringLengthMismatch,
+                original_byte_count};
 
         auto const parseHexNibble = [](uint8_t a) -> std::optional<uint8_t> {
             if (a >= '0' && a <= '9')
@@ -1085,26 +1198,47 @@ FromJSIntArrayOrHexString(JSContext* ctx, JSValueConst& v, int max_len)
         {
             auto first = parseHexNibble(*cstr++);
             if (!first.has_value())
-                return {};
+                return {
+                    std::nullopt,
+                    JSByteConversionError::InvalidHexCharacter,
+                    original_byte_count};
 
-            out[i++] = *first;
+            out.push_back(*first);  // Fixed: was using uninitialized out[i++]
+            i++;
         }
 
-        for (; i < len && *cstr != '\0'; ++i)
+        for (; i < len && *cstr != '\0';
+             i += 2)  // Fixed: increment by 2 for hex pairs
         {
+            // Check if we've reached max_len bytes
+            if (options.truncate && out.size() >= options.max_len)
+                break;
+
             auto a = parseHexNibble(*cstr++);
             auto b = parseHexNibble(*cstr++);
 
             if (!a.has_value() || !b.has_value())
-                return {};
+                return {
+                    std::nullopt,
+                    JSByteConversionError::InvalidHexCharacter,
+                    original_byte_count};
 
             out.push_back((*a << 4U) | (*b));
         }
 
-        return out;
+        return {out, JSByteConversionError::Success, original_byte_count};
     }
 
-    return {};
+    return {std::nullopt, JSByteConversionError::InvalidType, 0};
+}
+
+inline std::optional<std::vector<uint8_t>>
+FromJSIntArrayOrHexString(
+    JSContext* ctx,
+    JSValueConst& v,
+    JSByteConversionOptions options)
+{
+    return FromJSIntArrayOrHexStringWithError(ctx, v, options).data;
 }
 
 inline int32_t
