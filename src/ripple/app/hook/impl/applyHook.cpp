@@ -1003,7 +1003,8 @@ GetLengthOfAlreadyValidatedJSIntArrayOrHexString(
     return (len / 2);
 }
 
-enum class JSByteConversionError : uint8_t {
+namespace jshook {
+enum class ByteConversionError : uint8_t {
     Success = 0,
     InvalidType,  // Not an array or string
     EmptyInput,   // Empty array/string (might not be an error in some cases)
@@ -1016,21 +1017,21 @@ enum class JSByteConversionError : uint8_t {
     StringTerminationError  // Unexpected null terminator
 };
 
-struct JSByteConversionOptions
+struct ByteConversionOptions
 {
     uint32_t max_len;
     bool truncate = false;
 
-    JSByteConversionOptions(int len)
+    ByteConversionOptions(int len)
         : max_len(len), truncate(false)  // NOLINT(*-explicit-constructor)
     {
     }
 };
 
-struct JSByteConversionResult
+struct ByteConversionResult
 {
     std::optional<std::vector<uint8_t>> data;
-    JSByteConversionError error;
+    ByteConversionError error;
     size_t input_byte_count =
         0;  // Normalized to bytes for both arrays and hex strings
 
@@ -1038,7 +1039,7 @@ struct JSByteConversionResult
     bool
     ok() const
     {
-        return error == JSByteConversionError::Success;
+        return error == ByteConversionError::Success;
     }
     bool
     has_value() const
@@ -1077,11 +1078,11 @@ struct JSByteConversionResult
     }
 };
 
-inline JSByteConversionResult
+inline ByteConversionResult
 FromJSIntArrayOrHexStringWithError(
     JSContext* ctx,
     JSValueConst& v,
-    JSByteConversionOptions options)
+    ByteConversionOptions options)
 {
     std::vector<uint8_t> out;
     out.reserve(options.max_len);
@@ -1099,7 +1100,7 @@ FromJSIntArrayOrHexStringWithError(
         size_t original_n = n;  // Store original array length
 
         if (n == 0)
-            return {out, JSByteConversionError::EmptyInput, 0};
+            return {out, ByteConversionError::Success, 0};
 
         if (n > options.max_len)
         {
@@ -1108,7 +1109,7 @@ FromJSIntArrayOrHexStringWithError(
             else
                 return {
                     std::nullopt,
-                    JSByteConversionError::ExceedsMaxLength,
+                    ByteConversionError::ExceedsMaxLength,
                     original_n};
         }
 
@@ -1120,7 +1121,7 @@ FromJSIntArrayOrHexStringWithError(
                 JS_FreeValue(ctx, x);
                 return {
                     std::nullopt,
-                    JSByteConversionError::InvalidArrayElement,
+                    ByteConversionError::InvalidArrayElement,
                     original_n};
             }
 
@@ -1131,13 +1132,13 @@ FromJSIntArrayOrHexStringWithError(
             if (byte > 255 || byte < 0)  // Fixed: should be 255, not 256
                 return {
                     std::nullopt,
-                    JSByteConversionError::ByteOutOfRange,
+                    ByteConversionError::ByteOutOfRange,
                     original_n};
 
             out.push_back((uint8_t)byte);
         }
 
-        return {out, JSByteConversionError::Success, original_n};
+        return {out, ByteConversionError::Success, original_n};
     }
 
     if (JS_IsString(v))
@@ -1155,10 +1156,10 @@ FromJSIntArrayOrHexStringWithError(
         //     std::cout << "<no string>\n";
 
         if (!str)
-            return {std::nullopt, JSByteConversionError::StringParseError, 0};
+            return {std::nullopt, ByteConversionError::StringParseError, 0};
 
         if (len <= 0)
-            return {out, JSByteConversionError::EmptyInput, 0};
+            return {out, ByteConversionError::Success, 0};
 
         if (len > (options.max_len << 1U))
         {
@@ -1168,14 +1169,14 @@ FromJSIntArrayOrHexStringWithError(
             else
                 return {
                     std::nullopt,
-                    JSByteConversionError::ExceedsMaxLength,
+                    ByteConversionError::ExceedsMaxLength,
                     original_byte_count};
         }
 
         if (len != str->size())
             return {
                 std::nullopt,
-                JSByteConversionError::StringLengthMismatch,
+                ByteConversionError::StringLengthMismatch,
                 original_byte_count};
 
         auto const parseHexNibble = [](uint8_t a) -> std::optional<uint8_t> {
@@ -1200,7 +1201,7 @@ FromJSIntArrayOrHexStringWithError(
             if (!first.has_value())
                 return {
                     std::nullopt,
-                    JSByteConversionError::InvalidHexCharacter,
+                    ByteConversionError::InvalidHexCharacter,
                     original_byte_count};
 
             out.push_back(*first);  // Fixed: was using uninitialized out[i++]
@@ -1220,25 +1221,137 @@ FromJSIntArrayOrHexStringWithError(
             if (!a.has_value() || !b.has_value())
                 return {
                     std::nullopt,
-                    JSByteConversionError::InvalidHexCharacter,
+                    ByteConversionError::InvalidHexCharacter,
                     original_byte_count};
 
             out.push_back((*a << 4U) | (*b));
         }
 
-        return {out, JSByteConversionError::Success, original_byte_count};
+        return {out, ByteConversionError::Success, original_byte_count};
     }
 
-    return {std::nullopt, JSByteConversionError::InvalidType, 0};
+    return {std::nullopt, ByteConversionError::InvalidType, 0};
 }
+
+// Validation result wrapper
+template <typename T>
+struct ValidationResult
+{
+    T value;
+    int64_t error_code;
+
+    bool
+    has_error() const
+    {
+        return error_code != 0;
+    }
+};
+
+// Core validation function
+template <typename Validator>
+inline ValidationResult<std::optional<std::vector<uint8_t>>>
+validate_js_bytes_with(
+    JSContext* ctx,
+    JSValueConst& v,
+    ByteConversionOptions options,
+    Validator&& validator,
+    bool allow_undefined = false)
+{
+    // Handle undefined for optional case
+    if (JS_IsUndefined(v))
+    {
+        if (allow_undefined)
+            return {std::nullopt, 0};
+        else
+            return {{}, INVALID_ARGUMENT};
+    }
+
+    // Convert with full error information
+    auto result = FromJSIntArrayOrHexStringWithError(ctx, v, options);
+
+    // Let validator process the full result with error info
+    int64_t validation_error = validator(result);
+    if (validation_error != 0)
+        return {{}, validation_error};
+
+    return {std::move(result.data), 0};
+}
+
+// Validator definitions
+inline auto validate_state_data = [](const ByteConversionResult& r) -> int64_t {
+    if (r.input_byte_count > hook::maxHookStateDataSize())
+        return TOO_BIG;
+
+    if (!r.ok())
+        return INVALID_ARGUMENT;
+
+    return 0;
+};
+
+inline auto validate_state_key = [](const ByteConversionResult& r) -> int64_t {
+    if (r.input_byte_count > 32)
+        return TOO_BIG;
+
+    if (!r.ok())
+        return INVALID_ARGUMENT;
+
+    assert(r.has_value());
+    if (r.data->empty())
+        return TOO_SMALL;
+
+    return 0;
+};
+
+inline auto validate_namespace = [](const ByteConversionResult& r) -> int64_t {
+    if (!r.ok())
+        return INVALID_ARGUMENT;
+
+    assert(r.has_value());
+    if (r.data->size() != 32)
+        return INVALID_ARGUMENT;
+
+    return 0;
+};
+
+inline auto validate_account_id = [](const ByteConversionResult& r) -> int64_t {
+    if (!r.ok())
+        return INVALID_ARGUMENT;
+
+    // If provided, must be exactly 20 bytes
+    assert(r.has_value());
+    if (r.data->size() != 20)
+        return INVALID_ARGUMENT;
+
+    return 0;
+};
+}  // namespace jshook
+
+// Single macro that works for both optional and required cases
+#define VALIDATE_JS_BYTES(var_name, js_val, max_len, validator, ...) \
+    auto var_name##_result = jshook::validate_js_bytes_with(         \
+        ctx,                                                         \
+        js_val,                                                      \
+        jshook::ByteConversionOptions(max_len),                      \
+        validator,                                                   \
+        ##__VA_ARGS__);                                              \
+    if (var_name##_result.has_error())                               \
+        returnJS(var_name##_result.error_code);                      \
+    auto& var_name = var_name##_result.value
+
+// Convenience macros
+#define VALIDATE_JS_BYTES_REQUIRED(var_name, js_val, max_len, validator) \
+    VALIDATE_JS_BYTES(var_name, js_val, max_len, validator, false)
+
+#define VALIDATE_JS_BYTES_OPTIONAL(var_name, js_val, max_len, validator) \
+    VALIDATE_JS_BYTES(var_name, js_val, max_len, validator, true)
 
 inline std::optional<std::vector<uint8_t>>
 FromJSIntArrayOrHexString(
     JSContext* ctx,
     JSValueConst& v,
-    JSByteConversionOptions options)
+    jshook::ByteConversionOptions options)
 {
-    return FromJSIntArrayOrHexStringWithError(ctx, v, options).data;
+    return jshook::FromJSIntArrayOrHexStringWithError(ctx, v, options).data;
 }
 
 inline int32_t
@@ -2450,69 +2563,39 @@ DEFINE_JS_FUNCTION(
 {
     JS_HOOK_SETUP();
 
-    auto val = FromJSIntArrayOrHexString(ctx, raw_val, 0x10000);
-    auto key_in = FromJSIntArrayOrHexString(ctx, raw_key, 0x10000);
-    auto ns_in = FromJSIntArrayOrHexString(ctx, raw_ns, 0x10000);
-    auto acc_in = FromJSIntArrayOrHexString(ctx, raw_acc, 0x10000);
+    // Validate all inputs using macros - much cleaner!
+    VALIDATE_JS_BYTES_OPTIONAL(
+        val,
+        raw_val,
+        hook::maxHookStateDataSize(),
+        jshook::validate_state_data);
+    VALIDATE_JS_BYTES_REQUIRED(key, raw_key, 32, jshook::validate_state_key);
+    VALIDATE_JS_BYTES_OPTIONAL(ns, raw_ns, 32, jshook::validate_namespace);
+    VALIDATE_JS_BYTES_OPTIONAL(acc, raw_acc, 20, jshook::validate_account_id);
 
-    if (!val.has_value() && !JS_IsUndefined(raw_val))
-        returnJS(INVALID_ARGUMENT);
+    // Extract values with defaults
+    uint256 namespace_id = ns.has_value() ? uint256::fromVoid(ns->data())
+                                          : hookCtx.result.hookNamespace;
 
-    if (!ns_in.has_value() && !JS_IsUndefined(raw_ns))
-        returnJS(INVALID_ARGUMENT);
+    AccountID account_id = acc.has_value() ? AccountID::fromVoid(acc->data())
+                                           : hookCtx.result.account;
 
-    if (!acc_in.has_value() && !JS_IsUndefined(raw_acc))
-        returnJS(INVALID_ARGUMENT);
-
-    // val may be populated and empty, this is a delete operation...
-
-    if (val.has_value())
-    {
-        if (val->size() > hook::maxHookStateDataSize())
-            returnJS(TOO_BIG);
-    }
-
-    if (key_in.has_value())
-    {
-        if (key_in->size() > 32)
-            returnJS(TOO_BIG);
-
-        if (key_in->size() < 1)
-            // FromJSIntArrayOrHexString() does not return data of length 0.
-            returnJS(TOO_SMALL);
-    }
-    else
-    {
-        returnJS(INVALID_ARGUMENT);
-    }
-
-    if (ns_in.has_value() && ns_in->size() != 32)
-        returnJS(INVALID_ARGUMENT);
-
-    if (acc_in.has_value() && acc_in->size() != 20)
-        returnJS(INVALID_ARGUMENT);
-
-    uint256 ns = ns_in.has_value() ? uint256::fromVoid(ns_in->data())
-                                   : hookCtx.result.hookNamespace;
-
-    AccountID acc = acc_in.has_value() ? AccountID::fromVoid(acc_in->data())
-                                       : hookCtx.result.account;
-
-    auto key = make_state_key(
-        std::string_view{(const char*)(key_in->data()), key_in->size()});
+    auto state_key = make_state_key(
+        std::string_view{(const char*)(key->data()), key->size()});
 
     auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
     if (!sleAccount)
         returnJS(tefINTERNAL);
 
-    if (!key)
+    if (!state_key)
         returnJS(INTERNAL_ERROR);
 
     ripple::Blob data;
     if (val.has_value())
         data = ripple::Blob(val->data(), val->data() + val->size());
 
-    returnJS(__state_foreign_set(hookCtx, applyCtx, j, data, *key, ns, acc));
+    returnJS(__state_foreign_set(
+        hookCtx, applyCtx, j, data, *state_key, namespace_id, account_id));
 
     JS_HOOK_TEARDOWN();
 }
