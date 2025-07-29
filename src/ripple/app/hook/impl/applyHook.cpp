@@ -1327,23 +1327,23 @@ inline auto validate_account_id = [](const ByteConversionResult& r) -> int64_t {
 }  // namespace jshook
 
 // Single macro that works for both optional and required cases
-#define VALIDATE_JS_BYTES(var_name, js_val, max_len, validator, ...) \
-    auto var_name##_result = jshook::validate_js_bytes_with(         \
-        ctx,                                                         \
-        js_val,                                                      \
-        jshook::ByteConversionOptions(max_len),                      \
-        validator,                                                   \
-        ##__VA_ARGS__);                                              \
-    if (var_name##_result.has_error())                               \
-        returnJS(var_name##_result.error_code);                      \
+#define JS_BYTES(var_name, js_val, max_len, validator, ...)  \
+    auto var_name##_result = jshook::validate_js_bytes_with( \
+        ctx,                                                 \
+        js_val,                                              \
+        jshook::ByteConversionOptions(max_len),              \
+        validator,                                           \
+        ##__VA_ARGS__);                                      \
+    if (var_name##_result.has_error())                       \
+        returnJS(var_name##_result.error_code);              \
     auto& var_name = var_name##_result.value
 
 // Convenience macros
-#define VALIDATE_JS_BYTES_REQUIRED(var_name, js_val, max_len, validator) \
-    VALIDATE_JS_BYTES(var_name, js_val, max_len, validator, false)
+#define JS_BYTES_REQUIRED(var_name, js_val, max_len, validator) \
+    JS_BYTES(var_name, js_val, max_len, validator, false)
 
-#define VALIDATE_JS_BYTES_OPTIONAL(var_name, js_val, max_len, validator) \
-    VALIDATE_JS_BYTES(var_name, js_val, max_len, validator, true)
+#define JS_BYTES_OPTIONAL(var_name, js_val, max_len, validator) \
+    JS_BYTES(var_name, js_val, max_len, validator, true)
 
 inline std::optional<std::vector<uint8_t>>
 FromJSIntArrayOrHexString(
@@ -2564,14 +2564,14 @@ DEFINE_JS_FUNCTION(
     JS_HOOK_SETUP();
 
     // Validate all inputs using macros - much cleaner!
-    VALIDATE_JS_BYTES_OPTIONAL(
+    JS_BYTES_OPTIONAL(
         val,
         raw_val,
         hook::maxHookStateDataSize(),
         jshook::validate_state_data);
-    VALIDATE_JS_BYTES_REQUIRED(key, raw_key, 32, jshook::validate_state_key);
-    VALIDATE_JS_BYTES_OPTIONAL(ns, raw_ns, 32, jshook::validate_namespace);
-    VALIDATE_JS_BYTES_OPTIONAL(acc, raw_acc, 20, jshook::validate_account_id);
+    JS_BYTES_REQUIRED(key, raw_key, 32, jshook::validate_state_key);
+    JS_BYTES_OPTIONAL(ns, raw_ns, 32, jshook::validate_namespace);
+    JS_BYTES_OPTIONAL(acc, raw_acc, 20, jshook::validate_account_id);
 
     // Extract values with defaults
     uint256 namespace_id = ns.has_value() ? uint256::fromVoid(ns->data())
