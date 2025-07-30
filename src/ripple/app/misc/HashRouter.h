@@ -27,6 +27,8 @@
 #include <ripple/beast/container/aged_unordered_map.h>
 
 #include <optional>
+#include <set>
+#include <shared_mutex>
 
 namespace ripple {
 
@@ -195,6 +197,12 @@ public:
     int
     getFlags(uint256 const& key);
 
+    void
+    setTouchedKeys(uint256 const& id, std::set<uint256>&& k);
+
+    std::optional<std::reference_wrapper<const std::set<uint256>>>
+    getTouchedKeys(uint256 const& id);
+
     /** Determines whether the hashed item should be relayed.
 
         Effects:
@@ -216,6 +224,9 @@ private:
     emplace(uint256 const&);
 
     std::mutex mutable mutex_;
+
+    mutable std::shared_mutex touchedKeysMutex_;
+    std::map<uint256, std::set<uint256>> touchedKeysMap_;
 
     // Stores all suppressed hashes and their expiration time
     beast::aged_unordered_map<

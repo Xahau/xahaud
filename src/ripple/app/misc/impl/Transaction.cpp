@@ -34,7 +34,269 @@
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/CTID.h>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <iomanip>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#define ENABLE_PERFORMANCE_TRACKING 0
+
 namespace ripple {
+
+#if ENABLE_PERFORMANCE_TRACKING
+
+// Performance monitoring statistics
+namespace {
+// Design: Uses thread-local storage for most stats to avoid contention.
+// Only global concurrency tracking uses atomics, as it requires cross-thread
+// visibility. Statistics are aggregated using dirty reads for minimal
+// performance impact.
+
+// Thread-local statistics - no synchronization needed!
+struct ThreadLocalStats
+{
+    uint64_t executionCount = 0;
+    uint64_t totalTimeNanos = 0;
+    uint64_t totalKeys = 0;
+    uint32_t currentlyExecuting = 0;  // 0 or 1 for this thread
+    std::thread::id threadId = std::this_thread::get_id();
+
+    // For global registry
+    ThreadLocalStats* next = nullptr;
+
+    ThreadLocalStats();
+    ~ThreadLocalStats();
+};
+
+// Global registry of thread-local stats (only modified during thread
+// creation/destruction)
+struct GlobalRegistry
+{
+    std::atomic<ThreadLocalStats*> head{nullptr};
+    std::atomic<uint64_t> globalExecutions{0};
+    std::atomic<uint32_t> globalConcurrent{
+        0};  // Current global concurrent executions
+    std::atomic<uint32_t> maxGlobalConcurrent{0};  // Max observed
+
+    // For tracking concurrency samples
+    std::vector<uint32_t> concurrencySamples;
+    std::mutex sampleMutex;  // Only used during printing
+
+    std::chrono::steady_clock::time_point startTime =
+        std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point lastPrintTime =
+        std::chrono::steady_clock::now();
+
+    static constexpr auto PRINT_INTERVAL = std::chrono::seconds(10);
+    static constexpr uint64_t PRINT_EVERY_N_CALLS = 1000;
+
+    void
+    registerThread(ThreadLocalStats* stats)
+    {
+        // Add to linked list atomically
+        ThreadLocalStats* oldHead = head.load();
+        do
+        {
+            stats->next = oldHead;
+        } while (!head.compare_exchange_weak(oldHead, stats));
+    }
+
+    void
+    unregisterThread(ThreadLocalStats* stats)
+    {
+        // In production, you'd want proper removal logic
+        // For this example, we'll just leave it in the list
+        // (threads typically live for the process lifetime anyway)
+    }
+
+    void
+    checkAndPrint(uint64_t localCount)
+    {
+        // Update approximate global count
+        uint64_t approxGlobal =
+            globalExecutions.fetch_add(localCount) + localCount;
+
+        auto now = std::chrono::steady_clock::now();
+        if (approxGlobal % PRINT_EVERY_N_CALLS < localCount ||
+            (now - lastPrintTime) >= PRINT_INTERVAL)
+        {
+            // Only one thread prints at a time
+            static std::atomic<bool> printing{false};
+            bool expected = false;
+            if (printing.compare_exchange_strong(expected, true))
+            {
+                // Double-check timing
+                now = std::chrono::steady_clock::now();
+                if ((now - lastPrintTime) >= PRINT_INTERVAL)
+                {
+                    printStats();
+                    lastPrintTime = now;
+                }
+                printing = false;
+            }
+        }
+    }
+
+    void
+    printStats()
+    {
+        // Dirty read of all thread-local stats
+        uint64_t totalExecs = 0;
+        uint64_t totalNanos = 0;
+        uint64_t totalKeyCount = 0;
+        uint32_t currentConcurrent = globalConcurrent.load();
+        uint32_t maxConcurrent = maxGlobalConcurrent.load();
+        std::unordered_map<
+            std::thread::id,
+            std::tuple<uint64_t, uint64_t, uint64_t>>
+            threadData;
+
+        // Walk the linked list of thread-local stats
+        ThreadLocalStats* current = head.load();
+        while (current)
+        {
+            // Dirty reads - no synchronization!
+            uint64_t execs = current->executionCount;
+            if (execs > 0)
+            {
+                uint64_t nanos = current->totalTimeNanos;
+                uint64_t keys = current->totalKeys;
+
+                totalExecs += execs;
+                totalNanos += nanos;
+                totalKeyCount += keys;
+
+                threadData[current->threadId] = {execs, nanos, keys};
+            }
+            current = current->next;
+        }
+
+        if (totalExecs == 0)
+            return;
+
+        double avgTimeUs =
+            static_cast<double>(totalNanos) / totalExecs / 1000.0;
+        double avgKeys = static_cast<double>(totalKeyCount) / totalExecs;
+        double totalTimeMs = static_cast<double>(totalNanos) / 1000000.0;
+
+        // Calculate wall clock time elapsed
+        auto now = std::chrono::steady_clock::now();
+        auto wallTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              now - startTime)
+                              .count();
+        double effectiveParallelism = wallTimeMs > 0
+            ? totalTimeMs / static_cast<double>(wallTimeMs)
+            : 0.0;
+
+        std::cout
+            << "\n=== Transaction::tryDirectApply Performance Stats ===\n";
+        std::cout << "Total executions: ~" << totalExecs << " (dirty read)\n";
+        std::cout << "Wall clock time: " << wallTimeMs << " ms\n";
+        std::cout << "Total CPU time: " << std::fixed << std::setprecision(2)
+                  << totalTimeMs << " ms\n";
+        std::cout << "Effective parallelism: " << std::fixed
+                  << std::setprecision(2) << effectiveParallelism << "x\n";
+        std::cout << "Average time: " << std::fixed << std::setprecision(2)
+                  << avgTimeUs << " μs\n";
+        std::cout << "Average keys touched: " << std::fixed
+                  << std::setprecision(2) << avgKeys << "\n";
+        std::cout << "Current concurrent executions: " << currentConcurrent
+                  << "\n";
+        std::cout << "Max concurrent observed: " << maxConcurrent << "\n";
+        std::cout << "Active threads: " << threadData.size() << "\n";
+
+        std::cout << "Thread distribution:\n";
+
+        // Sort threads by total time spent (descending)
+        std::vector<std::pair<
+            std::thread::id,
+            std::tuple<uint64_t, uint64_t, uint64_t>>>
+            sortedThreads(threadData.begin(), threadData.end());
+        std::sort(
+            sortedThreads.begin(),
+            sortedThreads.end(),
+            [](const auto& a, const auto& b) {
+                return std::get<1>(a.second) >
+                    std::get<1>(b.second);  // Sort by time
+            });
+
+        for (const auto& [tid, data] : sortedThreads)
+        {
+            auto [count, time, keys] = data;
+            double percentage =
+                (static_cast<double>(count) / totalExecs) * 100.0;
+            double avgThreadTimeUs = static_cast<double>(time) / count / 1000.0;
+            double totalThreadTimeMs = static_cast<double>(time) / 1000000.0;
+            double timePercentage =
+                (static_cast<double>(time) / totalNanos) * 100.0;
+            std::cout << "  Thread " << tid << ": " << count << " executions ("
+                      << std::fixed << std::setprecision(1) << percentage
+                      << "%), total " << std::setprecision(2)
+                      << totalThreadTimeMs << " ms (" << std::setprecision(1)
+                      << timePercentage << "% of time), avg "
+                      << std::setprecision(2) << avgThreadTimeUs << " μs\n";
+        }
+
+        std::cout << "Hardware concurrency: "
+                  << std::thread::hardware_concurrency() << "\n";
+        std::cout << "===================================================\n\n";
+        std::cout.flush();
+    }
+};
+
+static GlobalRegistry globalRegistry;
+
+// Thread-local instance
+thread_local ThreadLocalStats tlStats;
+
+// Constructor/destructor for thread registration
+ThreadLocalStats::ThreadLocalStats()
+{
+    globalRegistry.registerThread(this);
+}
+
+ThreadLocalStats::~ThreadLocalStats()
+{
+    globalRegistry.unregisterThread(this);
+}
+
+// RAII class to track concurrent executions (global)
+class ConcurrentExecutionTracker
+{
+    // Note: This introduces minimal atomic contention to track true global
+    // concurrency. The alternative would miss concurrent executions between
+    // print intervals.
+public:
+    ConcurrentExecutionTracker()
+    {
+        tlStats.currentlyExecuting = 1;
+
+        // Update global concurrent count
+        uint32_t current = globalRegistry.globalConcurrent.fetch_add(1) + 1;
+
+        // Update max if needed (only contends when setting new maximum)
+        uint32_t currentMax = globalRegistry.maxGlobalConcurrent.load();
+        while (current > currentMax &&
+               !globalRegistry.maxGlobalConcurrent.compare_exchange_weak(
+                   currentMax, current))
+        {
+            // Loop until we successfully update or current is no longer >
+            // currentMax
+        }
+    }
+
+    ~ConcurrentExecutionTracker()
+    {
+        tlStats.currentlyExecuting = 0;
+        globalRegistry.globalConcurrent.fetch_sub(1);
+    }
+};
+}  // namespace
+
+#endif  // ENABLE_PERFORMANCE_TRACKING
 
 Transaction::Transaction(
     std::shared_ptr<STTx const> const& stx,
@@ -45,6 +307,38 @@ Transaction::Transaction(
     try
     {
         mTransactionID = mTransaction->getTransactionID();
+
+        OpenView sandbox(*app.openLedger().current());
+
+        sandbox.getAndResetKeysTouched();
+
+        ApplyFlags flags{0};
+
+#if ENABLE_PERFORMANCE_TRACKING
+        ConcurrentExecutionTracker concurrentTracker;
+        auto startTime = std::chrono::steady_clock::now();
+#endif
+
+        if (auto directApplied =
+                app.getTxQ().tryDirectApply(app, sandbox, stx, flags, j_))
+            keysTouched = sandbox.getAndResetKeysTouched();
+
+#if ENABLE_PERFORMANCE_TRACKING
+        auto endTime = std::chrono::steady_clock::now();
+        auto elapsedNanos =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                endTime - startTime)
+                .count();
+
+        tlStats.executionCount++;
+        tlStats.totalTimeNanos += elapsedNanos;
+        tlStats.totalKeys += keysTouched.size();
+
+        if (tlStats.executionCount % 100 == 0)
+        {
+            globalRegistry.checkAndPrint(100);
+        }
+#endif
     }
     catch (std::exception& e)
     {

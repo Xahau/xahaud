@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <limits>
 #include <numeric>
+#include <set>
 
 namespace ripple {
 
@@ -739,10 +740,20 @@ TxQ::apply(
     STAmountSO stAmountSO{view.rules().enabled(fixSTAmountCanonicalize)};
     NumberSO stNumberSO{view.rules().enabled(fixUniversalNumber)};
 
+    auto const transactionID = tx->getTransactionID();
+
     // See if the transaction paid a high enough fee that it can go straight
     // into the ledger.
+
+    view.getAndResetKeysTouched();
     if (auto directApplied = tryDirectApply(app, view, tx, flags, j))
+    {
+        app.getHashRouter().setTouchedKeys(
+            transactionID, view.getAndResetKeysTouched());
         return *directApplied;
+    }
+
+    return {telCAN_NOT_QUEUE, false};
 
     // If we get past tryDirectApply() without returning then we expect
     // one of the following to occur:
@@ -757,6 +768,47 @@ TxQ::apply(
     auto const pfresult = preflight(app, view.rules(), *tx, flags, j);
     if (!isTesSuccess(pfresult.ter))
         return {pfresult.ter, false};
+
+    bool const isReplayNetwork = (app.config().NETWORK_ID == 65534);
+
+    if (isReplayNetwork)
+    {
+        // in the replay network everything is always queued no matter what
+
+        std::lock_guard lock(mutex_);
+        auto const metricsSnapshot = feeMetrics_.getSnapshot();
+        auto const feeLevelPaid =
+            getRequiredFeeLevel(view, flags, metricsSnapshot, lock);
+
+        auto const account = (*tx)[sfAccount];
+        AccountMap::iterator accountIter = byAccount_.find(account);
+        bool const accountIsInQueue = accountIter != byAccount_.end();
+
+        if (!accountIsInQueue)
+        {
+            // Create a new TxQAccount object and add the byAccount lookup.
+            bool created;
+            std::tie(accountIter, created) =
+                byAccount_.emplace(account, TxQAccount(tx));
+            (void)created;
+            assert(created);
+        }
+
+        flags &= ~tapRETRY;
+
+        auto& candidate = accountIter->second.add(
+            {tx, transactionID, feeLevelPaid, flags, pfresult});
+
+        // Then index it into the byFee lookup.
+        byFee_.insert(candidate);
+        JLOG(j_.debug()) << "Added transaction " << candidate.txID
+                         << " with result " << transToken(pfresult.ter)
+                         << " from " << (accountIsInQueue ? "existing" : "new")
+                         << " account " << candidate.account << " to queue."
+                         << " Flags: " << flags;
+
+        return {terQUEUED, false};
+    }
 
     // If the account is not currently in the ledger, don't queue its tx.
     auto const account = (*tx)[sfAccount];
@@ -841,7 +893,6 @@ TxQ::apply(
     // is allowed in the TxQ:
     //  1. If the account's queue is empty or
     //  2. If the blocker replaces the only entry in the account's queue.
-    auto const transactionID = tx->getTransactionID();
     if (pfresult.consequences.isBlocker())
     {
         if (acctTxCount > 1)
@@ -1148,11 +1199,11 @@ TxQ::apply(
                 (potentialTotalSpend == XRPAmount{0} &&
                  multiTxn->applyView.fees().base == 0));
             sleBump->setFieldAmount(sfBalance, balance - potentialTotalSpend);
-            // The transaction's sequence/ticket will be valid when the other
-            // transactions in the queue have been processed. If the tx has a
-            // sequence, set the account to match it. If it has a ticket, use
-            // the next queueable sequence, which is the closest approximation
-            // to the most successful case.
+            // The transaction's sequence/ticket will be valid when the
+            // other transactions in the queue have been processed. If the
+            // tx has a sequence, set the account to match it. If it has a
+            // ticket, use the next queueable sequence, which is the closest
+            // approximation to the most successful case.
             sleBump->at(sfSequence) = txSeqProx.isSeq()
                 ? txSeqProx.value()
                 : nextQueuableSeqImpl(sleAccount, lock).value();
@@ -1207,6 +1258,8 @@ TxQ::apply(
     {
         OpenView sandbox(open_ledger, &view, view.rules());
 
+        sandbox.getAndResetKeysTouched();
+
         auto result = tryClearAccountQueueUpThruTx(
             app,
             sandbox,
@@ -1219,6 +1272,10 @@ TxQ::apply(
             flags,
             metricsSnapshot,
             j);
+
+        app.getHashRouter().setTouchedKeys(
+            transactionID, sandbox.getAndResetKeysTouched());
+
         if (result.second)
         {
             sandbox.apply(view);
@@ -1657,11 +1714,16 @@ TxQ::accept(Application& app, OpenView& view)
             JLOG(j_.trace()) << "Applying queued transaction "
                              << candidateIter->txID << " to open ledger.";
 
+            view.getAndResetKeysTouched();
+
             auto const [txnResult, didApply] =
                 candidateIter->apply(app, view, j_);
 
             if (didApply)
             {
+                app.getHashRouter().setTouchedKeys(
+                    candidateIter->txID, view.getAndResetKeysTouched());
+
                 // Remove the candidate from the queue
                 JLOG(j_.debug())
                     << "Queued transaction " << candidateIter->txID
@@ -1868,13 +1930,15 @@ TxQ::tryDirectApply(
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
+    bool const isReplayNetwork = (app.config().NETWORK_ID == 65534);
+
     // Don't attempt to direct apply if the account is not in the ledger.
-    if (!sleAccount && !isFirstImport)
+    if (!sleAccount && !isFirstImport && !isReplayNetwork)
         return {};
 
     std::optional<SeqProxy> txSeqProx;
 
-    if (!isFirstImport)
+    if (!isFirstImport && !isReplayNetwork)
     {
         SeqProxy const acctSeqProx =
             SeqProxy::sequence((*sleAccount)[sfSequence]);
@@ -1887,7 +1951,7 @@ TxQ::tryDirectApply(
     }
 
     FeeLevel64 const requiredFeeLevel =
-        isFirstImport ? FeeLevel64{0} : [this, &view, flags]() {
+        (isFirstImport || isReplayNetwork) ? FeeLevel64{0} : [this, &view, flags]() {
             std::lock_guard lock(mutex_);
             return getRequiredFeeLevel(
                 view, flags, feeMetrics_.getSnapshot(), lock);
@@ -1897,7 +1961,7 @@ TxQ::tryDirectApply(
     // transaction straight into the ledger.
     FeeLevel64 const feeLevelPaid = getFeeLevelPaid(view, *tx);
 
-    if (feeLevelPaid >= requiredFeeLevel)
+    if (feeLevelPaid >= requiredFeeLevel || isReplayNetwork)
     {
         // Attempt to apply the transaction directly.
         auto const transactionID = tx->getTransactionID();

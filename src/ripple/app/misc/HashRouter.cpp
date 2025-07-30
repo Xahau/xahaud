@@ -128,4 +128,20 @@ HashRouter::shouldRelay(uint256 const& key)
     return s.releasePeerSet();
 }
 
+void
+HashRouter::setTouchedKeys(uint256 const& id, std::set<uint256>&& k)
+{
+    std::unique_lock<std::shared_mutex> lock(touchedKeysMutex_);
+    touchedKeysMap_.insert_or_assign(id, std::move(k));
+}
+
+std::optional<std::reference_wrapper<const std::set<uint256>>>
+HashRouter::getTouchedKeys(uint256 const& id)
+{
+    std::shared_lock<std::shared_mutex> lock(touchedKeysMutex_);
+    if (auto it = touchedKeysMap_.find(id); it != touchedKeysMap_.end())
+        return std::cref(it->second);
+    return std::nullopt;
+}
+
 }  // namespace ripple

@@ -167,6 +167,9 @@ Import::preflight(PreflightContext const& ctx)
     if (!xpop)
         return temMALFORMED;
 
+    if (ctx.app.config().NETWORK_ID == 65534 /* replay network */)
+        return tesSUCCESS;
+
     // we will check if we recognise the vl key in preclaim because it may be
     // from on-ledger object
     std::optional<PublicKey> masterVLKey;
@@ -270,7 +273,9 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (stpTrans->getFieldU32(sfOperationLimit) != ctx.app.config().NETWORK_ID)
+    const auto nid = ctx.app.config().NETWORK_ID;
+    if (stpTrans->getFieldU32(sfOperationLimit) != nid &&
+        nid != 65534 /* replay network */)
     {
         JLOG(ctx.j.warn()) << "Import: Wrong network ID for OperationLimit in "
                               "inner txn. outer txid: "
@@ -1307,8 +1312,8 @@ Import::doApply()
             view().rules().enabled(featureXahauGenesis)
                 ? view().info().parentCloseTime.time_since_epoch().count()
                 : view().rules().enabled(featureDeletableAccounts)
-                    ? view().seq()
-                    : 1};
+                ? view().seq()
+                : 1};
 
         sle = std::make_shared<SLE>(keylet::account(id));
         sle->setAccountID(sfAccount, id);

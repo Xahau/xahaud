@@ -458,11 +458,24 @@ Change::activateXahauGenesis()
     bool const isTest =
         (ctx_.tx.getFlags() & tfTestSuite) && ctx_.app.config().standalone();
 
-    // RH NOTE: we'll only configure xahau governance structure on networks that
-    // begin with 2133... so production xahau: 21337 and its testnet 21338
-    // with 21330-21336 and 21339 also valid and reserved for dev nets etc.
-    // all other Network IDs will be conventionally configured.
-    if ((ctx_.app.config().NETWORK_ID / 10) != 2133 && !isTest)
+    // RH NOTE: we'll only configure xahau governance structure on certain
+    // network ids
+
+    const auto nid = ctx_.app.config().NETWORK_ID;
+
+    if (nid >= 65520)
+    {
+        // networks 65520 - 65535 are are also configured as xahau gov
+    }
+    else if (isTest)
+    {
+        // test is configured like this too
+    }
+    else if (nid / 10 == 2133)
+    {
+        // networks 2133X are the valid xahau prod dev and testnets
+    }
+    else
         return;
 
     auto [ng_entries, l1_entries, l2_entries, gov_params] =

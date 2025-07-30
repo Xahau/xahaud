@@ -49,7 +49,7 @@ LogicError(std::string const& s) noexcept
 {
     JLOG(debugLog().fatal()) << s;
     std::cerr << "Logic error: " << s << std::endl;
-    detail::accessViolation();
+    //detail::accessViolation();
 }
 
 }  // namespace ripple
