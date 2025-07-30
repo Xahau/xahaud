@@ -1522,6 +1522,7 @@ OverlayImpl::processXUSH(
     std::string const& message,
     boost::asio::ip::tcp::endpoint const& remoteEndpoint)
 {
+    std::cout << "processXUSH\n";
     // Fragment tracking: txid -> {endpoint, timestamp, total_size,
     // fragments_received, data_map}
     struct FragmentInfo
@@ -1564,6 +1565,7 @@ OverlayImpl::processXUSH(
     // XUSHPEER packet
     if (message.size() >= 10 && std::memcmp(data, "XUSHPEER", 8) == 0)
     {
+        std::cout << "\tXUSHPEER packet\n";
         uint8_t ipv4_count = data[8];
         uint8_t ipv6_count = data[9];
         size_t expected_size = 10 + ipv4_count * 8 + ipv6_count * 20;
@@ -1626,6 +1628,7 @@ OverlayImpl::processXUSH(
     // XUSHTXNF packet (fragmented transaction)
     else if (message.size() >= 52 && std::memcmp(data, "XUSHTXNF", 8) == 0)
     {
+        std::cout << "\tXUSHTXNF packet\n";
         uint256 txid{
             uint256::fromVoid(reinterpret_cast<const char*>(data + 8))};
         uint32_t total_size =
@@ -1689,6 +1692,9 @@ OverlayImpl::processXUSH(
                 {
                     auto stx = std::make_shared<STTx const>(sit);
                     uint256 computedTxid = stx->getTransactionID();
+
+                    std::cout << "XUSH txn complete " << strHex(computedTxid)
+                              << "\n";
 
                     // if txn is corrupt (wrong txid) or an emitted txn, or
                     // can't make it into a ledger bill the sender and drop

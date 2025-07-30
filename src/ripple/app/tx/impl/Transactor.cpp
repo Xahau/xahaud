@@ -926,6 +926,7 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
 
         if (ctx.app.config().NETWORK_ID == 65534)
         {
+            std::cout << "(success)\n";
             // replay network allows transactions to create missing accounts
             // implicitly and in this event we will just pass the txn
             return tesSUCCESS;

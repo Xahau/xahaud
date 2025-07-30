@@ -820,6 +820,7 @@ TxQ::apply(
         if (tx->getTxnType() == ttIMPORT)
             return {telCAN_NOT_QUEUE_IMPORT, false};
 
+        std::cout << "TxQ.cpp:823 NO_ACCOUNT\n";
         return {terNO_ACCOUNT, false};
     }
 
@@ -1950,12 +1951,13 @@ TxQ::tryDirectApply(
             return {};
     }
 
-    FeeLevel64 const requiredFeeLevel =
-        (isFirstImport || isReplayNetwork) ? FeeLevel64{0} : [this, &view, flags]() {
-            std::lock_guard lock(mutex_);
-            return getRequiredFeeLevel(
-                view, flags, feeMetrics_.getSnapshot(), lock);
-        }();
+    FeeLevel64 const requiredFeeLevel = (isFirstImport || isReplayNetwork)
+        ? FeeLevel64{0}
+        : [this, &view, flags]() {
+              std::lock_guard lock(mutex_);
+              return getRequiredFeeLevel(
+                  view, flags, feeMetrics_.getSnapshot(), lock);
+          }();
 
     // If the transaction's fee is high enough we may be able to put the
     // transaction straight into the ledger.
