@@ -331,6 +331,11 @@ if (tests)
     DESTINATION include/ripple/beast/unit_test/detail)
 endif () #tests
 #[===================================================================[
+   JS Hooks integration 
+#]===================================================================]
+include(Builds/CMake/jshooks/JSHooks.cmake)
+
+#[===================================================================[
    rippled executable
 #]===================================================================]
 
@@ -1065,6 +1070,11 @@ if (tests)
          subdir: unit_test
     #]===============================]
     src/test/unit_test/multi_runner.cpp)
+endif () #tests
+
+# Add JS hooks support to rippled when tests are enabled
+if (tests)
+  target_add_jshooks(rippled)
 endif () #tests
 
 target_link_libraries (rippled

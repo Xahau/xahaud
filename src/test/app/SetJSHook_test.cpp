@@ -1561,6 +1561,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_compare
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -1656,6 +1657,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_divide
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -1949,6 +1951,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_int
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -2051,6 +2054,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_invert
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -2114,6 +2118,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_log
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -2160,6 +2165,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_mantissa
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -2329,6 +2335,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_mulratio
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -2465,6 +2472,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_multiply
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -2860,6 +2868,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook emit
             const INVALID_ARGUMENT = -7
             const PREREQUISITE_NOT_MET = -9
             const EMISSION_FAILURE = -11
@@ -3163,6 +3172,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook etxn_details
             const TOO_SMALL = -4
             const OUT_OF_BOUNDS = -1
             const PREREQUISITE_NOT_MET = -9
@@ -3207,6 +3217,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook etxn_fee_base
             const TOO_SMALL = -4
             const OUT_OF_BOUNDS = -1
             const PREREQUISITE_NOT_MET = -9
@@ -3252,6 +3263,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook etxn_nonce
             const TOO_SMALL = -4
             const OUT_OF_BOUNDS = -1
             const TOO_MANY_NONCES = -12
@@ -3301,6 +3313,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook etxn_reserve
             const TOO_BIG = -3
             const TOO_SMALL = -4
             const ALREADY_SET = -8
@@ -3344,6 +3357,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook fee_base
             const ASSERT = (x) => {
                 if (!x) rollback(x.toString(), 0)
             }
@@ -3377,6 +3391,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook otxn_field
             const INVALID_FIELD = -17
             const sfAccount = 0x80001
 
@@ -3427,6 +3442,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook ledger_keylet
             const ASSERT = (x) => {
                 if (!x) rollback(x.toString(), 0)
             }
@@ -3509,6 +3525,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_negate
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback(x.toString(), 0)
@@ -3561,6 +3578,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_one
                 var Hook = (arg) => {
                 const f = float_one()
                 f === 6089866696204910592n ? accept('', 2) : rollback('', 1)
@@ -3592,6 +3610,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_root
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback('ASSERT.error', 0)
@@ -3636,6 +3655,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_set
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback('ASSERT.error', 0)
@@ -3702,6 +3722,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_sign
                 var ASSERT = (x) => {
                 if (!x) {
                     rollback('ASSERT.error', 0)
@@ -3867,6 +3888,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_sto
                 const INVALID_FLOAT = -10024
                 const INVALID_ARGUMENT = -7
                 const ASSERT = (x) => {
@@ -4038,6 +4060,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_sto_set
                 const NOT_AN_OBJECT = -23
                 const ASSERT = (x) => {
                    if (!x) rollback(x.toString(), 1)
@@ -4148,6 +4171,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook float_sum
                 const float_exponent = (f) => Number(((f >> 54n) & 0xffn) - 97n)
                 const ASSERT_EQUAL = (x, y) => {
                     const px = x
@@ -4353,6 +4377,7 @@ public:
 
             TestHook hook = jswasm[
                 R"[test.hook](
+                // @hook hook_account
                 const ASSERT = (x, code) => {
                 if (!x) {
                     rollback(x.toString(), code)
@@ -4488,6 +4513,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook hook_again
             const PREREQUISITE_NOT_MET = -9
             const ALREADY_SET = -8
 
@@ -4557,6 +4583,7 @@ public:
             env.fund(XRP(10000), bob);
 
             TestHook hook = jswasm[R"[test.hook](
+                // @hook hook_hash
                 const ASSERT = (x, code) => {
                 if (!x) {
                     rollback(x.toString(), code)
@@ -4619,6 +4646,7 @@ public:
             }
 
             TestHook hook2 = jswasm[R"[test.hook](
+                // @hook hook_hash 2
                 const ASSERT = (x, code) => {
                 if (!x) {
                     rollback(x.toString(), code)
@@ -4731,6 +4759,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook hook_param
             var ASSERT = (x) => {
             if (!x) {
                 rollback(x.toString(), 0)
@@ -4845,6 +4874,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook checker_wasm = jswasm[R"[test.hook](
+            // @hook hook_param_set
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -4897,6 +4927,7 @@ public:
         )[test.hook]"];
 
         TestHook setter_wasm = jswasm[R"[test.hook](
+            // @hook hook_param_set 2
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -5021,6 +5052,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook hook_pos
             const Hook = (arg) => {
             return accept('', hook_pos())
             }
@@ -5073,6 +5105,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook skip_wasm = jswasm[R"[test.hook](
+            // @hook hook_skip
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -5118,6 +5151,7 @@ public:
         )[test.hook]"];
 
         TestHook pos_wasm = jswasm[R"[test.hook](
+            // @hook hook_skip 2
             const Hook = (arg) => {
             return accept('', 255)
             }
@@ -5175,6 +5209,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook ledger_last_hash
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -5252,6 +5287,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook ledger_last_time
             const Hook = (arg) => {
             return accept('', ledger_last_time())
             }
@@ -5313,6 +5349,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
         TestHook hook = jswasm[R"[test.hook](
+            // @hook ledger_nonce
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -5415,6 +5452,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook ledger_seq
             const Hook = (arg) => {
             return accept('', ledger_seq())
             }
@@ -5468,6 +5506,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook meta_slot
             const PREREQUISITE_NOT_MET = -9
             const ASSERT = (x) => {
                 if (!x) rollback(x.toString(), 0)
@@ -5544,6 +5583,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook xpop_slot
             const ttIMPORT = 97
             const DOESNT_EXIST = -5
             const NO_FREE_SLOTS = -6
@@ -5637,6 +5677,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook otxn_id
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -5685,6 +5726,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook otxn_slot
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -5739,6 +5781,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook otxn_type
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -5793,6 +5836,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook otxn_param
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -5911,6 +5955,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook otxn_json
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -5963,6 +6008,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6023,6 +6069,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_clear
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6065,6 +6112,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_count
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6110,6 +6158,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_float
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6157,6 +6206,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_set
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6242,6 +6292,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_size
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6293,6 +6344,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_subarray
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6398,6 +6450,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_subfield
             var ASSERT = (x) => {
             if (!x) {
                 rollback(x.toString(), 0)
@@ -6471,6 +6524,7 @@ public:
         env(trust(alice, bob["USD"](600)));
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_type
             var ASSERT = (x) => {
             if (!x) {
                 rollback(x.toString(), 0)
@@ -6546,6 +6600,7 @@ public:
         env(trust(alice, bob["USD"](600)));
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook slot_json
             var ASSERT = (x) => {
             if (!x) {
                 rollback(x.toString(), 0)
@@ -6620,6 +6675,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook state
                 const ASSERT = (x, code) => {
                 if (!x) {
                     trace('error', 0, false)
@@ -6667,6 +6723,7 @@ public:
         // objects
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook state 2
                 const ASSERT = (x, code) => {
                 if (!x) {
                     trace('error', 0, false)
@@ -6722,6 +6779,7 @@ public:
 
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook state_foreign
                 var ASSERT = (x, code) => {
                 if (!x) {
                     trace('error', 0, false)
@@ -6756,6 +6814,7 @@ public:
         // set a second hook on bob that will read the state objects from alice
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook state_foreign 2
                 var ASSERT = (x, code) => {
                 if (!x) {
                     trace('error', 0, false)
@@ -6832,6 +6891,7 @@ public:
         env.fund(XRP(2600), eve);
 
         TestHook grantee_wasm = jswasm[R"[test.hook](
+            // @hook state_foreign_set
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -6911,6 +6971,7 @@ public:
 
         // this is the grantor
         TestHook grantor_wasm = jswasm[R"[test.hook](
+            // @hook state_foreign_set 2
             var ASSERT = (x, code) => {
             if (!x) {
                 trace('error', 0, false)
@@ -7157,6 +7218,7 @@ public:
 
         // check reserve exhaustion
         TestHook exhaustion_wasm = jswasm[R"[test.hook](
+            // @hook state_foreign_set 3
             var ASSERT = (x, code) => {
             if (!x) {
                 trace('error', 0, false)
@@ -7311,6 +7373,7 @@ public:
         // alice
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook state_set
                 var ASSERT = (x, line) => {
                 if (!x) {
                     trace('line', line, false)
@@ -7457,6 +7520,7 @@ public:
         // existing state
         {
             TestHook hook = jswasm[R"[test.hook](
+                // @hook state_set 2
                 var ASSERT = (x, line) => {
                 if (!x) {
                     trace('line', line, false)
@@ -7477,6 +7541,7 @@ public:
             )[test.hook]"];
 
             TestHook hook2 = jswasm[R"[test.hook](
+                // @hook state_set 3
                 var ASSERT = (x, line) => {
                 if (!x) {
                     trace('line', line, false)
@@ -7512,6 +7577,7 @@ public:
             // taken because bob's hooks will execute first if bob's is the
             // otxn. therefore we will flip to a payment from alice to bob here
             TestHook hook3 = jswasm[R"[test.hook](
+                // @hook state_set 4
                 var ASSERT = (x, line) => {
                 if (!x) {
                     trace('line', line, false)
@@ -7595,6 +7661,7 @@ public:
         // strong side is rolled back
         {
             TestHook hook = jswasm[R"[test.hook](
+            // @hook state_set 5
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -7683,6 +7750,7 @@ public:
 
         // check reserve exhaustion
         TestHook exhaustion_wasm = jswasm[R"[test.hook](
+            // @hook state_set 6
             var ASSERT = (x, line) => {
             if (!x) {
                 trace('line', line, false)
@@ -7809,6 +7877,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook trace
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -7837,6 +7906,7 @@ public:
     void
     test_util_accid(FeatureBitset features)
     {
+        testcase("Test util_accid");
         using namespace jtx;
         Env env{*this, features};
 
@@ -7846,6 +7916,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook util_accid
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -8405,6 +8476,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook util_keylet
             const ASSERT = (x, code) => {
             if (!x) {
                 trace('error', 0, false)
@@ -8782,6 +8854,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook util_raddr
             const ASSERT = (x, code) => {
             if (!x) {
                 rollback(x.toString(), code)
@@ -9705,6 +9778,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook util_sha512h
             const ASSERT = (x, code) => {
             if (!x) {
                 trace('error', 0, false)
@@ -10321,6 +10395,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook util_verify
             const ASSERT = (x, code) => {
             if (!x) {
                 trace('error', 0, false)
@@ -10400,6 +10475,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook sto_emplace
             var ASSERT = (x) => {
               if (!x) {
                 rollback(x.toString(), 0)
@@ -10518,6 +10594,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook sto_erase
             const ASSERT = (x) => {
             if (!x) rollback(x.toString(), 0)
             }
@@ -10608,6 +10685,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook sto_subarray
             const DOESNT_EXIST = -5
             const INVALID_ARGUMENT = -7
 
@@ -10669,6 +10747,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook sto_subfield
             const DOESNT_EXIST = -5
             const INVALID_ARGUMENT = -7
             const ASSERT = (x) => {
@@ -10741,6 +10820,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook sto_validate
             const INVALID_ARGUMENT = -7
             const ASSERT = (x) => {
               if (!x) rollback(x.toString(), 0)
@@ -10808,6 +10888,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook sto_to_json
             const INVALID_ARGUMENT = -7
             const ASSERT = (x) => {
                 if (!x) rollback(x.toString(), 0)
@@ -10893,6 +10974,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook sto_from_json
             const INVALID_ARGUMENT = -7
             const ASSERT = (x) => {
                 if (!x) rollback(x.toString(), 0)
@@ -10974,6 +11056,7 @@ public:
         env.fund(XRP(10000), bob);
 
         TestHook hook = jswasm[R"[test.hook](
+            // @hook JS Date
             const ASSERT = (x) => {
                 if (!x) rollback(x.toString(), -1)
             }
@@ -11149,6 +11232,7 @@ private:
     TestHook accept_wasm =  // WASM: 0
         jswasm[
             R"[test.hook](
+            // @hook accept_wasm shared fixture
             const Hook = (arg) => {
             return accept("0", 0);
             }
@@ -11159,6 +11243,7 @@ private:
     TestHook rollback_wasm =  // WASM: 1
         jswasm[
             R"[test.hook](
+            // @hook rollback_wasm shared fixture
             const Hook = (arg) => {
             return rollback("0", 0);
             }
@@ -11169,6 +11254,7 @@ private:
     TestHook illegalfunc_wasm =  // WASM: 3
         jswasm[
             R"[test.hook](
+            // @hook illegalfunc_wasm shared fixture
             const Hook = (arg) => {
             console.log("HERE");
             return accept(ret, 0);
@@ -11178,6 +11264,7 @@ private:
     TestHook long_wasm =  // WASM: 4
         jswasm[
             R"[test.hook](
+            // @hook long_wasm shared fixture
             const M_REPEAT_10 = (X) => X.repeat(10);
             const M_REPEAT_100 = (X) => M_REPEAT_10(X).repeat(10);
             const M_REPEAT_1000 = (X) => M_REPEAT_100(X).repeat(10);
@@ -11190,6 +11277,7 @@ private:
     TestHook makestate_wasm =  // WASM: 5
         jswasm[
             R"[test.hook](
+            // @hook makestate_wasm shared fixture
             const Hook = (arg) => {
             const test_key = "0000000000000000000000000000000000000000000000006b657900";
             const test_value = "76616C756500";
@@ -11203,6 +11291,7 @@ private:
     TestHook accept2_wasm =  // WASM: 6
         jswasm[
             R"[test.hook](
+            // @hook accept2_wasm shared fixture
             const Hook = (arg) => {
             return accept("0", 2);
             }
