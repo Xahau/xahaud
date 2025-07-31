@@ -4,7 +4,7 @@ on:
   push:
     branches: ["dev", "candidate", "release"]
   pull_request:
-    branches: ["dev", "candidate", "release"]
+    branches: ["dev", "candidate", "release", "jshooks"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
