@@ -133,7 +133,8 @@ public:
     TxMeta
     generateProvisionalMeta()
     {
-        return view_->generateProvisionalMeta(base_, tx, parentBatchId_, journal);
+        return view_->generateProvisionalMeta(
+            base_, tx, parentBatchId_, journal);
     }
 
     /** Applies all invariant checkers one by one.

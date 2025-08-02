@@ -24,15 +24,15 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/safe_cast.h>
-#include <xrpl/hook/Enum.h>
-#include <xrpl/json/to_string.h>
-#include <xrpl/protocol/Feature.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/beast/utility/Zero.h>
 #include <xrpl/beast/utility/instrumentation.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/json/json_value.h>
+#include <xrpl/json/to_string.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Batch.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -371,8 +371,7 @@ singleSignHelper(
         return Unexpected("Cannot both single- and multi-sign.");
 
     // wildcard network gets a free pass on all signatures
-    bool const isWildcardNetwork =
-        signer.isFieldPresent(sfNetworkID) &&
+    bool const isWildcardNetwork = signer.isFieldPresent(sfNetworkID) &&
         signer.getFieldU32(sfNetworkID) == 65535;
 
     bool validSig = false;
@@ -452,8 +451,7 @@ multiSignHelper(
     // Signers must be in sorted order by AccountID.
     AccountID lastAccountID(beast::zero);
 
-    bool const isWildcardNetwork =
-        signerObj.isFieldPresent(sfNetworkID) &&
+    bool const isWildcardNetwork = signerObj.isFieldPresent(sfNetworkID) &&
         signerObj.getFieldU32(sfNetworkID) == 65535;
 
     for (auto const& signer : signers)

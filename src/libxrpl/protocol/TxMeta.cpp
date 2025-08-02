@@ -79,7 +79,7 @@ TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, STObject const& obj)
     if (obj.isFieldPresent(sfHookEmissions))
         setHookEmissions(obj.getFieldArray(sfHookEmissions));
 
-if (obj.isFieldPresent(sfParentBatchID))
+    if (obj.isFieldPresent(sfParentBatchID))
         setParentBatchId(obj.getFieldH256(sfParentBatchID));
 }
 

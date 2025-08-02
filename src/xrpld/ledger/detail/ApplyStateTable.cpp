@@ -318,8 +318,8 @@ ApplyStateTable::apply(
     if (!to.open() || isDryRun)
     {
         // generate meta
-        auto [meta, newMod] =
-            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, parentBatchId, j);
+        auto [meta, newMod] = generateTxMeta(
+            to, tx, deliver, hookExecution, hookEmission, parentBatchId, j);
 
         if (!isDryRun)
         {

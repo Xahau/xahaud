@@ -52,15 +52,15 @@ preflight0(PreflightContext const& ctx)
     if (isPseudoTx(ctx.tx) && ctx.tx.isFlag(tfInnerBatchTxn))
     {
         JLOG(ctx.j.warn()) << "Pseudo transactions cannot contain the "
-                            "tfInnerBatchTxn flag.";
+                              "tfInnerBatchTxn flag.";
         return temINVALID_FLAG;
     }
 
     if (ctx.tx.isFieldPresent(sfEmitDetails) ||
         ctx.tx.isFlag(tfInnerBatchTxn) || isPseudoTx(ctx.tx))
     {
-        // all emitted and inner, pseudo transactions are free to pass, do not need
-        // network id
+        // all emitted and inner, pseudo transactions are free to pass, do not
+        // need network id
     }
     else
     {

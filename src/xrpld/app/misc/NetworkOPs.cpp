@@ -1512,7 +1512,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 bool const isEmitted =
                     hook::isEmittedTxn(*(e.transaction->getSTransaction()));
                 if (auto const sttx = *(e.transaction->getSTransaction());
-                    toSkip && !isEmitted && 
+                    toSkip && !isEmitted &&
                     // Skip relaying if it's an inner batch txn and batch
                     // feature is enabled
                     !(sttx.isFlag(tfInnerBatchTxn) &&
