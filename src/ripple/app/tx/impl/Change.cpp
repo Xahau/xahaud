@@ -23,6 +23,7 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
+#include <ripple/app/misc/replayNetworkAccIDs.h>
 #include <ripple/app/tx/impl/Change.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
@@ -463,6 +464,8 @@ Change::activateXahauGenesis()
 
     const auto nid = ctx_.app.config().NETWORK_ID;
 
+    const bool isReplayNetwork = (nid == 65534);
+
     if (nid >= 65520)
     {
         // networks 65520 - 65535 are are also configured as xahau gov
@@ -519,18 +522,29 @@ Change::activateXahauGenesis()
     sle->setFieldAmount(sfBalance, GenesisAmount);
 
     // Step 2: mint genesis distribution
-    auto mint = [&](std::string const& account, XRPAmount const& amount) {
-        auto accid_raw = parseBase58<AccountID>(account);
-        if (!accid_raw)
+    auto mint = [&](auto const& account, XRPAmount const& amount) {
+        AccountID accid;
+
+        if constexpr (std::is_same_v<
+                          std::decay_t<decltype(account)>,
+                          std::string>)
         {
-            JLOG(j_.warn())
-                << "featureXahauGenesis could not parse an r-address: "
-                << account;
-            return;
+            // String path - parse it
+            auto accid_raw = parseBase58<AccountID>(account);
+            if (!accid_raw)
+            {
+                JLOG(j_.warn())
+                    << "featureXahauGenesis could not parse an r-address: "
+                    << account;
+                return;
+            }
+            accid = *accid_raw;
         }
-
-        auto accid = *accid_raw;
-
+        else
+        {
+            // Direct AccountID
+            accid = account;
+        }
         auto const kl = keylet::account(accid);
 
         auto sle = sb.peek(kl);
@@ -568,6 +582,21 @@ Change::activateXahauGenesis()
     // l1 seat distributions
     for (auto const& [account, amount] : l1_entries)
         mint(account, amount);
+
+    // on the replay network (nid=65534) private keys 0 through 19999
+    // are populated for stress testing purposes, or they would be
+    // if the rest of the codebase allowed this, so we're only using 5000
+    // for now.
+    if (isReplayNetwork)
+    {
+        for (int i = 0; i < 5000; ++i)
+        {
+            uint8_t const* entry = replayNetworkAccIDs[i];
+            AccountID const acc = AccountID::fromVoid(entry);
+            JLOG(j_.info()) << "Replay Network AccID: " << acc;
+            mint(acc, XRPAmount{100});
+        }
+    }
 
     // Step 3: blackhole genesis
     sle->setAccountID(sfRegularKey, noAccount());
