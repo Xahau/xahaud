@@ -52,14 +52,14 @@ jobs:
       - name: Set Cleanup Script Path
         run: |
           echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
-          sudo "echo we have sudo"
-          if sudo -n true 2>/dev/null; then
-            echo "HAS_SUDO=true" >> $GITHUB_ENV
-            echo "we have sudo"
-          else
-            echo "HAS_SUDO=false" >> $GITHUB_ENV
-            echo "we don't have sudo"
-          fi
+#          sudo "echo we have sudo"
+#          if sudo -n true 2>/dev/null; then
+#            echo "HAS_SUDO=true" >> $GITHUB_ENV
+#            echo "we have sudo"
+#          else
+#            echo "HAS_SUDO=false" >> $GITHUB_ENV
+#            echo "we don't have sudo"
+#          fi
           DISTRO=$([ -f /etc/os-release ] && . /etc/os-release && echo $ID || echo "unknown")
           echo "using distro: $DISTRO"
 
