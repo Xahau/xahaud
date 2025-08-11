@@ -62,6 +62,7 @@ jobs:
           fi
           DISTRO=$([ -f /etc/os-release ] && . /etc/os-release && echo $ID || echo "unknown")
           echo "using distro: $DISTRO"
+          cat /etc/os-release
 
 #      - name: Build using Docker
 #        run: /bin/bash release-builder.sh
