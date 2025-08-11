@@ -5,7 +5,6 @@ platforms: Linux, macOS, or Windows.
 
 [BUILD.md]: ../../BUILD.md
 
-
 ## Linux
 
 Package ecosystems vary across Linux distributions,
