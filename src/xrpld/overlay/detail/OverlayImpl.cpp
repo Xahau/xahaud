@@ -27,6 +27,7 @@
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/ConnectAttempt.h>
 #include <xrpld/overlay/detail/PeerImp.h>
+#include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/overlay/predicates.h>
 #include <xrpld/peerfinder/make_Manager.h>
@@ -41,8 +42,6 @@
 #include <xrpl/server/SimpleWriter.h>
 
 #include <boost/algorithm/string/predicate.hpp>
-
-#include "xrpld/overlay/detail/TrafficCount.h"
 
 namespace ripple {
 
@@ -274,8 +273,8 @@ OverlayImpl::onHandoff(
             if (result != PeerFinder::Result::success)
             {
                 m_peerFinder->on_closed(slot);
-                JLOG(journal.debug())
-                    << "Peer " << remote_endpoint << " redirected, slots full";
+                JLOG(journal.debug()) << "Peer " << remote_endpoint
+                                      << " redirected, " << to_string(result);
                 handoff.moved = false;
                 handoff.response = makeRedirectResponse(
                     slot, request, remote_endpoint.address());
