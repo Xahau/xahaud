@@ -135,13 +135,12 @@ class Xrpl(ConanFile):
         self.requires('xxhash/0.8.3', **transitive_headers_opt)
 
     exports_sources = (
-        "CMakeLists.txt",
-        "bin/getRippledInfo",
-        "cfg/*",
-        "cmake/*",
-        "external/*",
-        "include/*",
-        "src/*",
+        'CMakeLists.txt',
+        'cfg/*',
+        'cmake/*',
+        'external/*',
+        'include/*',
+        'src/*',
     )
 
     def layout(self):
