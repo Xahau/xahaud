@@ -52,36 +52,46 @@ jobs:
       - name: Set Cleanup Script Path
         run: |
           echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
-
-      - name: Build using Docker
-        run: /bin/bash release-builder.sh
-
-      - name: Stop Container (Cleanup)
-        if: always()
-        run: |
-          echo "Running cleanup script: $JOB_CLEANUP_SCRIPT"
-          /bin/bash -e -x "$JOB_CLEANUP_SCRIPT"
-          CLEANUP_EXIT_CODE=$?
-
-          if [[ "$CLEANUP_EXIT_CODE" -eq 0 ]]; then
-            echo "Cleanup script succeeded."
-            rm -f "$JOB_CLEANUP_SCRIPT"
-            echo "Cleanup script removed."
+          sudo "echo we have sudo"
+          if sudo -n true 2>/dev/null; then
+            echo "HAS_SUDO=true" >> $GITHUB_ENV
+            echo "we have sudo"
           else
-            echo "⚠️ Cleanup script failed! Keeping for debugging: $JOB_CLEANUP_SCRIPT"
+            echo "HAS_SUDO=false" >> $GITHUB_ENV
+            echo "we don't have sudo"
           fi
+          DISTRO=$([ -f /etc/os-release ] && . /etc/os-release && echo $ID || echo "unknown")
+          echo "using distro: $DISTRO"
 
-          if [[ "${DEBUG_BUILD_CONTAINERS_AFTER_CLEANUP}" == "1" ]]; then
-            echo "🔍 Checking for leftover containers..."
-            BUILD_CONTAINERS=$(docker ps --format '{{.Names}}' | grep '^xahaud_cached_builder' || echo "")
-
-            if [[ -n "$BUILD_CONTAINERS" ]]; then
-              echo "⚠️ WARNING: Some build containers are still running"
-              echo "$BUILD_CONTAINERS"
-            else
-              echo "✅ No build containers found"
-            fi
-          fi
+#      - name: Build using Docker
+#        run: /bin/bash release-builder.sh
+#
+#      - name: Stop Container (Cleanup)
+#        if: always()
+#        run: |
+#          echo "Running cleanup script: $JOB_CLEANUP_SCRIPT"
+#          /bin/bash -e -x "$JOB_CLEANUP_SCRIPT"
+#          CLEANUP_EXIT_CODE=$?
+#
+#          if [[ "$CLEANUP_EXIT_CODE" -eq 0 ]]; then
+#            echo "Cleanup script succeeded."
+#            rm -f "$JOB_CLEANUP_SCRIPT"
+#            echo "Cleanup script removed."
+#          else
+#            echo "⚠️ Cleanup script failed! Keeping for debugging: $JOB_CLEANUP_SCRIPT"
+#          fi
+#
+#          if [[ "${DEBUG_BUILD_CONTAINERS_AFTER_CLEANUP}" == "1" ]]; then
+#            echo "🔍 Checking for leftover containers..."
+#            BUILD_CONTAINERS=$(docker ps --format '{{.Names}}' | grep '^xahaud_cached_builder' || echo "")
+#
+#            if [[ -n "$BUILD_CONTAINERS" ]]; then
+#              echo "⚠️ WARNING: Some build containers are still running"
+#              echo "$BUILD_CONTAINERS"
+#            else
+#              echo "✅ No build containers found"
+#            fi
+#          fi
 
   tests:
     runs-on: [self-hosted, vanity]
