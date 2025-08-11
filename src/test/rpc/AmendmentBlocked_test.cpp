@@ -800,6 +800,6 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(AmendmentBlocked, app, ripple);
+BEAST_DEFINE_TESTSUITE(AmendmentBlocked, rpc, ripple);
 
 }  // namespace ripple

@@ -667,6 +667,6 @@ public:
     }
 };  // namespace ripple
 
-BEAST_DEFINE_TESTSUITE_PRIO(LedgerData, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(LedgerData, rpc, ripple, 1);
 
 }  // namespace ripple
