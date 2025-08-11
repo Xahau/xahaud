@@ -2,7 +2,7 @@ name: Build using Docker
 
 on:
   push:
-    branches: ["dev", "candidate", "release", "jshooks"]
+    branches: ["dev", "candidate", "release", "ci-experiments"]
   pull_request:
     branches: ["dev", "candidate", "release", "ci-experiments"]
 
