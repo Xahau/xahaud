@@ -64,6 +64,7 @@ jobs:
           echo "using distro: $DISTRO"
           cat /etc/os-release
           lsb_release -a
+          echo 'ok'
 
 #      - name: Build using Docker
 #        run: /bin/bash release-builder.sh
