@@ -2,7 +2,6 @@
 
 For more details on operating the Xahau server securely, please visit https://docs.xahau.network/infrastructure/building-xahau.
 
-
 # Security Policy
 
 ## Supported Versions
