@@ -56,11 +56,11 @@ jobs:
       - name: Install Conan
         run: |
           pipx install "conan<2.0"
-          $HOME/.local/bin/conan --version # PATH doesn't seem to be set correctly
+          /root/.local/bin/conan --version # PATH doesn't seem to be set correctly
 
       - name: Verify Gitea
         run: |
-          PATH="$HOME/.local/bin:$PATH" python .ci/gitea.py verify --debug
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug
 
 #      - name: Build using Docker
 #        run: /bin/bash release-builder.sh
