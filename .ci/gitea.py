@@ -770,6 +770,7 @@ SHOW_FOOTER_VERSION = false
 
         # Test package name
         test_package = "zlib/1.3.1"
+        package_name = test_package.split('/')[0]  # Extract just the package name
         self.logger.info(f"  → Testing with package: {test_package}")
         self.logger.info(f"  → Running test in container on {self.network} network")
 
@@ -785,10 +786,10 @@ SHOW_FOOTER_VERSION = false
             conan install {test_package}@ --build={test_package}
             
             echo '→ Uploading to Gitea...'
-            conan upload '{test_package}/*' --all -r gitea-local --confirm
+            conan upload '{package_name}/*' --all -r gitea-local --confirm
             
             echo '→ Removing local copy...'
-            conan remove '{test_package}/*' -f
+            conan remove '{package_name}/*' -f
             
             echo '→ Downloading from Gitea...'
             conan install {test_package}@ -r gitea-local
