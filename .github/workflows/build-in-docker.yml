@@ -58,20 +58,21 @@ jobs:
           pipx install "conan<2.0"
           /root/.local/bin/conan --version # PATH doesn't seem to be set correctly
 
-      - name: Teardown && Verify Gitea
+      - name: Setup network and Gitea
         run: |
-          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug || true 
+          # Create network for container communication (idempotent)
+          docker network create conan-net 2>/dev/null || true
+          
+          # Setup Gitea
           PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug || PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
-
-      - name: Setup network
-        run: |
-          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug || true 
-          PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug || PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
+          
+          # Connect Gitea to the network (idempotent)
+          docker network connect conan-net gitea-conan-persistent 2>/dev/null || true
 
       - name: Test Gitea from build container
         run: |
-          docker run --rm conanio/gcc11 bash -xec "
-            # Configure Conan to use Gitea
+          docker run --rm --network conan-net conanio/gcc11 bash -xec "
+            # Configure Conan to use Gitea (using container name on shared network)
             conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
             conan user -p conan-pass-2024 -r gitea-local conan
           
@@ -80,9 +81,7 @@ jobs:
             conan upload 'zlib/*' --all -r gitea-local --confirm
             conan remove 'zlib/*' -f
             conan install zlib/1.3.1@ -r gitea-local
-            echo '✅ Container-to-container test successful!'
-          "
-#      - name: Build using Docker
+            echo '✅ Container-to-container test successful!'#      - name: Build using Docker
 #        run: /bin/bash release-builder.sh
 #
 #      - name: Stop Container (Cleanup)
