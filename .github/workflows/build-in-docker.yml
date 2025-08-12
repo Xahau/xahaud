@@ -64,7 +64,6 @@ jobs:
           docker network create conan-net 2>/dev/null || true
           
           # Setup Gitea
-#          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug
           PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
 
           # Connect Gitea to the network (idempotent)

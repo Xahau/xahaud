@@ -10,30 +10,44 @@ Persistent Gitea for Conan on Self-Hosted GA Runner
 What This Script Uses Conan For
 --------------------------------
 This script uses Conan only for testing and verification:
-- Configures conan client to add Gitea as a remote repository
-- Tests the repository by uploading/downloading a sample package (zlib)
+- Optionally configures host's conan client (if available) 
+- Runs container-based tests to verify the repository works
+- Tests upload/download of a sample package (zlib) in a container
 - Verifies authentication and package management work correctly
 - Does NOT build or manage your actual project dependencies
 
-Your actual Conan package building happens in GitHub Actions workflows,
-not in this setup script. This script just ensures the repository is ready.
+The test command runs in a Docker container on the same network as Gitea,
+exactly mimicking how your GitHub Actions workflows will use it.
 
 Docker Networking
 -----------------
-The Gitea container can be accessed two ways:
+Gitea is configured with ROOT_URL using the container name for consistency.
+A Docker network (default: conan-net) is used for container-to-container communication.
 
-1. From the host machine (where this script runs):
-   http://localhost:3000
+Access methods:
 
-2. From other Docker containers (e.g., GitHub Actions jobs):
-   http://gitea-conan-persistent:3000
-   
-   Containers can reach Gitea by its container name through Docker's
-   default bridge network. No network configuration changes needed.
+1. From the host machine:
+   - The host uses http://localhost:3000 (port mapping)
+   - Host's Conan configuration uses localhost
 
-Example in GitHub Actions workflow running in a container:
-  conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
-  conan user -p conan-pass-2024 -r gitea-local conan
+2. From Docker containers (tests and CI/CD):
+   - Containers use http://gitea-conan-persistent:3000
+   - Containers must be on the same network (default: conan-net)
+   - The test command automatically handles network setup
+
+The script automatically:
+- Creates the Docker network if needed
+- Connects Gitea to the network
+- Runs tests in containers on the same network
+
+Example in GitHub Actions workflow:
+  docker network create conan-net
+  docker network connect conan-net gitea-conan-persistent
+  docker run --network conan-net <your-build-container> bash -c "
+    conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
+    conan user -p conan-pass-2024 -r gitea-local conan
+    conan config set general.revisions_enabled=1  # Required for Conan v1
+  "
 """
 
 import argparse
@@ -115,6 +129,8 @@ class PersistentGiteaConan:
         self.email = os.getenv("GITEA_EMAIL", "conan@localhost")
         # Persistent data location on the runner
         self.data_dir = os.getenv("GITEA_DATA_DIR", "/opt/gitea")
+        # Docker network for container communication
+        self.network = os.getenv("GITEA_NETWORK", "conan-net")
         # Behavior flags
         self.print_credentials = os.getenv("GITEA_PRINT_CREDENTIALS", "0") == "1"
         self.startup_timeout = int(os.getenv("GITEA_STARTUP_TIMEOUT", "120"))
@@ -546,6 +562,16 @@ SHOW_FOOTER_VERSION = false
         if not self._is_healthy():
             raise RuntimeError("Gitea is not responding properly")
         self.logger.info("✅ Gitea is healthy")
+    
+    def _ensure_network(self):
+        """Ensure Docker network exists and Gitea is connected to it"""
+        # Create network if it doesn't exist (idempotent)
+        self.run(f"docker network create {self.network} 2>/dev/null || true", check=False)
+        
+        # Connect Gitea to the network if not already connected (idempotent)
+        self.run(f"docker network connect {self.network} {self.container} 2>/dev/null || true", check=False)
+        
+        self.logger.debug(f"Ensured {self.container} is connected to {self.network} network")
 
     # ---------- Conan helpers ----------
     def _resolve_conan_prefix(self) -> Optional[str]:
@@ -664,20 +690,22 @@ SHOW_FOOTER_VERSION = false
 
     def _configure_conan(self):
         """Configure Conan client (idempotent)"""
-        self.logger.info("🔧 Configuring Conan client...")
+        self.logger.info("🔧 Configuring Conan client on host...")
 
         # Ensure Conan is available and determine execution context
         if self._resolve_conan_prefix() is None:
-            self.logger.warning("⚠️  Conan CLI not available. Skipping client configuration.")
+            self.logger.warning("⚠️  Conan CLI not available on host. Skipping client configuration.")
+            self.logger.info("   Note: Tests will still work using container-based Conan.")
             return
 
-        # Gitea Conan URL
+        # For host-based Conan, we still use localhost since the host can't resolve container names
+        # Container-based tests will use gitea-conan-persistent directly
         conan_url = f"http://localhost:{self.port}/api/packages/{self.user}/conan"
 
         # Remove old remote if exists (ignore errors)
         self._run_conan("remote remove gitea-local 2>/dev/null", check=False)
 
-        # Add Gitea as remote (localhost only)
+        # Add Gitea as remote
         self._run_conan(f"remote add gitea-local {conan_url}")
 
         # Authenticate (mark as sensitive even though Conan masks password in process list)
@@ -686,7 +714,8 @@ SHOW_FOOTER_VERSION = false
         # Enable revisions if not already
         self._run_conan("config set general.revisions_enabled=1", check=False)
 
-        self.logger.info(f"✅ Conan configured with remote: gitea-local")
+        self.logger.info(f"✅ Host Conan configured with remote: gitea-local (via localhost)")
+        self.logger.info(f"   Container tests will use: http://gitea-conan-persistent:{self.port}")
 
     def verify(self):
         """Verify everything is working"""
@@ -728,54 +757,52 @@ SHOW_FOOTER_VERSION = false
                 self.logger.info(f"  Disk usage: {size}")
 
     def test(self):
-        """Test Conan package upload/download"""
-        self.logger.info("🧪 Testing Conan with Gitea...")
+        """Test Conan package upload/download in a container"""
+        self.logger.info("🧪 Testing Conan with Gitea (container-based test)...")
 
         # Ensure everything is set up
         if not self.is_running():
             self.logger.error("❌ Gitea not running. Run 'setup' first.")
             return False
 
+        # Ensure network exists and Gitea is connected
+        self._ensure_network()
+
         # Test package name
         test_package = "zlib/1.3.1"
-
         self.logger.info(f"  → Testing with package: {test_package}")
+        self.logger.info(f"  → Running test in container on {self.network} network")
 
-        # Ensure Conan execution context is resolved
-        if self._resolve_conan_prefix() is None:
-            self.logger.error("❌ Conan CLI not available. Cannot run test.")
-            return False
+        # Run test in a container (same environment as production)
+        test_cmd = f"""docker run --rm --network {self.network} conanio/gcc11 bash -ec "
+            # Configure Conan to use Gitea
+            conan remote add gitea-local http://gitea-conan-persistent:{self.port}/api/packages/{self.user}/conan
+            conan user -p {self.passwd} -r gitea-local {self.user}
+            conan config set general.revisions_enabled=1
+            
+            # Test package upload/download
+            echo '→ Building {test_package} from source...'
+            conan install {test_package}@ --build={test_package}
+            
+            echo '→ Uploading to Gitea...'
+            conan upload '{test_package}/*' --all -r gitea-local --confirm
+            
+            echo '→ Removing local copy...'
+            conan remove '{test_package}/*' -f
+            
+            echo '→ Downloading from Gitea...'
+            conan install {test_package}@ -r gitea-local
+            
+            echo '✅ Container-based test successful!'
+        " """
 
-        # Remove any existing package
-        self.logger.info(f"  → Cleaning local cache...")
-        self._run_conan(f"remove '{test_package}' -f", check=False)
-
-        # Install and build from source
-        self.logger.info(f"  → Installing {test_package} from Conan Center...")
-        result = self._run_conan(f"install {test_package}@ --build={test_package}", check=False)
-        if result.returncode != 0:
-            self.logger.error(f"❌ Failed to install package")
-            return False
-
-        # Upload to Gitea
-        self.logger.info(f"  → Uploading to Gitea...")
-        result = self._run_conan(f"upload '{test_package}' --all -r gitea-local --confirm", check=False)
-        if result.returncode != 0:
-            self.logger.error(f"❌ Failed to upload package")
-            return False
-
-        # Remove local copy
-        self.logger.info(f"  → Removing local copy...")
-        self._run_conan(f"remove '{test_package}' -f", check=False)
-
-        # Download from Gitea
-        self.logger.info(f"  → Downloading from Gitea...")
-        result = self._run_conan(f"install {test_package}@ -r gitea-local", check=False)
+        result = self.run(test_cmd, check=False, sensitive=False)  # Temporarily show output for debugging
+        
         if result.returncode == 0:
-            self.logger.info(f"✅ Test successful! Package uploaded and downloaded from Gitea.")
+            self.logger.info("✅ Test successful! Package uploaded and downloaded from Gitea.")
             return True
         else:
-            self.logger.error(f"❌ Failed to download from Gitea")
+            self.logger.error("❌ Test failed. Check the output above for details.")
             return False
 
     def teardown(self):
