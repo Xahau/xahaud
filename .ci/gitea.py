@@ -6,6 +6,34 @@ Persistent Gitea for Conan on Self-Hosted GA Runner
 - Idempotent - safe to run multiple times
 - Reuses existing container if already running
 - Uses pre-baked app.ini to bypass web setup wizard
+
+What This Script Uses Conan For
+--------------------------------
+This script uses Conan only for testing and verification:
+- Configures conan client to add Gitea as a remote repository
+- Tests the repository by uploading/downloading a sample package (zlib)
+- Verifies authentication and package management work correctly
+- Does NOT build or manage your actual project dependencies
+
+Your actual Conan package building happens in GitHub Actions workflows,
+not in this setup script. This script just ensures the repository is ready.
+
+Docker Networking
+-----------------
+The Gitea container can be accessed two ways:
+
+1. From the host machine (where this script runs):
+   http://localhost:3000
+
+2. From other Docker containers (e.g., GitHub Actions jobs):
+   http://gitea-conan-persistent:3000
+   
+   Containers can reach Gitea by its container name through Docker's
+   default bridge network. No network configuration changes needed.
+
+Example in GitHub Actions workflow running in a container:
+  conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
+  conan user -p conan-pass-2024 -r gitea-local conan
 """
 
 import argparse
@@ -97,6 +125,9 @@ class PersistentGiteaConan:
         self.log_streamer: Optional[DockerLogStreamer] = None
         # Conan execution context cache
         self._conan_prefix: Optional[str] = None  # '' for direct, full sudo+shell for delegated; None if unavailable
+        
+        # Track sensitive values that should be masked in logs
+        self._sensitive_values: set = {self.passwd}  # Start with password
 
     def _setup_logging(self, debug: bool, verbose: bool):
         # Determine level: debug > verbose > default WARNING
@@ -111,20 +142,51 @@ class PersistentGiteaConan:
         # Be slightly quieter for noisy libs
         logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-    def run(self, cmd, check=True, env=None):
-        """Run command with minimal output"""
+    def _mask_sensitive(self, text: str) -> str:
+        """Mask any sensitive values in text for safe logging"""
+        if not text:
+            return text
+        masked = text
+        for sensitive in self._sensitive_values:
+            if sensitive and sensitive in masked:
+                masked = masked.replace(sensitive, "***REDACTED***")
+        return masked
+
+    def run(self, cmd, check=True, env=None, sensitive=False):
+        """Run command with minimal output
+        
+        Args:
+            cmd: Command to run
+            check: Raise exception on non-zero exit
+            env: Environment variables
+            sensitive: If True, command and output are completely hidden
+        """
         run_env = os.environ.copy()
         if env:
             run_env.update(env)
-        self.logger.debug(f"EXEC: {cmd}")
+        
+        # Log command (masked or hidden based on sensitivity)
+        if sensitive:
+            self.logger.debug("EXEC: [sensitive command hidden]")
+        else:
+            self.logger.debug(f"EXEC: {self._mask_sensitive(cmd)}")
+        
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, env=run_env)
-        if result.stdout:
-            self.logger.debug(f"STDOUT: {result.stdout.strip()}"[:1000])
-        if result.stderr:
-            self.logger.debug(f"STDERR: {result.stderr.strip()}"[:1000])
+        
+        # Log output (masked or hidden based on sensitivity)
+        if not sensitive:
+            if result.stdout:
+                self.logger.debug(f"STDOUT: {self._mask_sensitive(result.stdout.strip())}"[:1000])
+            if result.stderr:
+                self.logger.debug(f"STDERR: {self._mask_sensitive(result.stderr.strip())}"[:1000])
+        
         if result.returncode != 0 and check:
-            self.logger.error(f"Command failed ({result.returncode}) for: {cmd}")
-            raise RuntimeError(f"Command failed: {result.stderr}")
+            if sensitive:
+                self.logger.error(f"Command failed ({result.returncode})")
+                raise RuntimeError("Command failed (details hidden for security)")
+            else:
+                self.logger.error(f"Command failed ({result.returncode}) for: {self._mask_sensitive(cmd)}")
+                raise RuntimeError(f"Command failed: {self._mask_sensitive(result.stderr)}")
         return result
 
     def is_running(self):
@@ -183,8 +245,12 @@ class PersistentGiteaConan:
     def _generate_secret(self, secret_type):
         """Generate a secret using Gitea's built-in generator"""
         cmd = f"docker run --rm gitea/gitea:latest gitea generate secret {secret_type}"
-        result = self.run(cmd)
-        return result.stdout.strip()
+        result = self.run(cmd, sensitive=True)  # Don't log the output
+        secret = result.stdout.strip()
+        if secret:
+            self._sensitive_values.add(secret)  # Track this secret for masking
+            self.logger.debug(f"Generated {secret_type} successfully")
+        return secret
 
     def _create_app_ini(self, gitea_conf_dir):
         """Create a pre-configured app.ini file"""
@@ -546,6 +612,18 @@ SHOW_FOOTER_VERSION = false
             self.logger.error("❌ Conan CLI is not available. Skipping command: conan " + inner_args)
             return Dummy()
         return self.run(full_cmd, check=check)
+    
+    def _run_conan_sensitive(self, inner_args: str, check: bool = False):
+        """Run a sensitive Conan subcommand (e.g., with passwords) using the resolved execution context."""
+        full_cmd = self._build_conan_cmd(inner_args)
+        if full_cmd is None:
+            class Dummy:
+                returncode = 127
+                stdout = ''
+                stderr = 'conan: not found'
+            self.logger.error("❌ Conan CLI is not available. Skipping sensitive command")
+            return Dummy()
+        return self.run(full_cmd, check=check, sensitive=True)
 
     def _create_user(self):
         """Create Conan user (idempotent)"""
@@ -569,7 +647,7 @@ SHOW_FOOTER_VERSION = false
                 --email {self.email} \
                 --admin \
                 --must-change-password=false"""
-            create_res = self.run(create_cmd, check=False)
+            create_res = self.run(create_cmd, check=False, sensitive=True)
             if create_res.returncode == 0:
                 self.logger.info(f"✅ Created admin user: {self.user}")
                 return
@@ -602,8 +680,8 @@ SHOW_FOOTER_VERSION = false
         # Add Gitea as remote (localhost only)
         self._run_conan(f"remote add gitea-local {conan_url}")
 
-        # Authenticate (Conan masks password in process list)
-        self._run_conan(f"user -p {self.passwd} -r gitea-local {self.user}")
+        # Authenticate (mark as sensitive even though Conan masks password in process list)
+        self._run_conan_sensitive(f"user -p {self.passwd} -r gitea-local {self.user}")
 
         # Enable revisions if not already
         self._run_conan("config set general.revisions_enabled=1", check=False)

@@ -58,8 +58,14 @@ jobs:
           pipx install "conan<2.0"
           /root/.local/bin/conan --version # PATH doesn't seem to be set correctly
 
-      - name: Verify Gitea
+      - name: Teardown && Verify Gitea
         run: |
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug || true 
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug || PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
+
+      - name: Setup network
+        run: |
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug || true 
           PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug || PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
 
       - name: Test Gitea from build container
