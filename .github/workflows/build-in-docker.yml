@@ -64,7 +64,7 @@ jobs:
           docker network create conan-net 2>/dev/null || true
           
           # Setup Gitea
-          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug 
+#          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug
           PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
 
           # Connect Gitea to the network (idempotent)
@@ -73,42 +73,42 @@ jobs:
           # Verify it's connected
           docker inspect gitea-conan-persistent -f '{{range $net,$v := .NetworkSettings.Networks}}{{$net}} {{end}}'
 
-      - name: Test Gitea from build container
-        run: |
-          # Show conan-net details
-          echo "=== Docker network 'conan-net' details ==="
-          docker network inspect conan-net
-    
-          # Show what networks Gitea is connected to
-          echo "=== Gitea container networks ==="
-          docker inspect gitea-conan-persistent -f '{{json .NetworkSettings.Networks}}' | python -m json.tool
-          
-          # Check if DNS resolution works without adding to conan-net
-          docker run --rm alpine nslookup gitea-conan-persistent || echo "⚠️ DNS resolution failed without conan-net"
-          
-          docker run --rm --network conan-net alpine sh -c "
-            # First verify connectivity works
-            apk add --no-cache curl >/dev/null 2>&1
-            echo 'Testing DNS resolution...'
-            nslookup gitea-conan-persistent
-            echo 'Testing HTTP connection...'
-            curl -s http://gitea-conan-persistent:3000 | head -n1
-          "
-          docker run --rm --network conan-net conanio/gcc11 bash -xec "
-            # Configure Conan using the resolved IP
-            conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
-            conan user -p conan-pass-2024 -r gitea-local conan
-          
-            # Enable revisions to match the server expectation
-            conan config set general.revisions_enabled=1
-          
-            # Test package upload/download
-            conan install zlib/1.3.1@ --build=zlib
-            conan upload 'zlib/*' --all -r gitea-local --confirm
-            conan remove 'zlib/*' -f
-            conan install zlib/1.3.1@ -r gitea-local
-            echo '✅ Container-to-container test successful!'#      - name: Build using Docker
-          "
+#      - name: Test Gitea from build container
+#        run: |
+#          # Show conan-net details
+#          echo "=== Docker network 'conan-net' details ==="
+#          docker network inspect conan-net
+#
+#          # Show what networks Gitea is connected to
+#          echo "=== Gitea container networks ==="
+#          docker inspect gitea-conan-persistent -f '{{json .NetworkSettings.Networks}}' | python -m json.tool
+#
+#          # Check if DNS resolution works without adding to conan-net
+#          docker run --rm alpine nslookup gitea-conan-persistent || echo "⚠️ DNS resolution failed without conan-net"
+#
+#          docker run --rm --network conan-net alpine sh -c "
+#            # First verify connectivity works
+#            apk add --no-cache curl >/dev/null 2>&1
+#            echo 'Testing DNS resolution...'
+#            nslookup gitea-conan-persistent
+#            echo 'Testing HTTP connection...'
+#            curl -s http://gitea-conan-persistent:3000 | head -n1
+#          "
+#          docker run --rm --network conan-net conanio/gcc11 bash -xec "
+#            # Configure Conan using the resolved IP
+#            conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
+#            conan user -p conan-pass-2024 -r gitea-local conan
+#
+#            # Enable revisions to match the server expectation
+#            conan config set general.revisions_enabled=1
+#
+#            # Test package upload/download
+#            conan install zlib/1.3.1@ --build=zlib
+#            conan upload 'zlib/*' --all -r gitea-local --confirm
+#            conan remove 'zlib/*' -f
+#            conan install zlib/1.3.1@ -r gitea-local
+#            echo '✅ Container-to-container test successful!'#      - name: Build using Docker
+#          "
 #        run: /bin/bash release-builder.sh
 #
 #      - name: Stop Container (Cleanup)
@@ -146,7 +146,7 @@ jobs:
         working-directory: ${{ needs.checkout.outputs.checkout_path }}
     steps:
       - name: Unit tests
-        run: echo /bin/bash docker-unit-tests.sh
+        run: PATH="/root/.local/bin:$PATH" python .ci/gitea.py test --debug
 
   cleanup:
     runs-on: [self-hosted, vanity]
