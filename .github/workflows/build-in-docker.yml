@@ -49,10 +49,19 @@ jobs:
       run:
         working-directory: ${{ needs.checkout.outputs.checkout_path }}
     steps:
-      - name: Set Cleanup Script Path
+      - name: Install Python & pipx
         run: |
-          echo "JOB_CLEANUP_SCRIPT=$(mktemp)" >> $GITHUB_ENV
-          sudo echo "we have sudo"
+          sudo apt update && sudo apt install -y python3 python3-pip pipx python-is-python3
+          pipx ensurepath
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Conan
+        run: |
+          pipx install "conan<2.0"
+          conan --version  # Now in PATH  
+
+      - name: Setup Gitea
+        run: |
           sudo python .ci/gitea.py verify --debug
 
 #      - name: Build using Docker
