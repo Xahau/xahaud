@@ -286,13 +286,13 @@ RUN_USER = git
 RUN_MODE = prod
 
 [server]
-ROOT_URL = http://127.0.0.1:{self.port}/
+ROOT_URL = http://gitea-conan-persistent:{self.port}/
 HTTP_ADDR = 0.0.0.0
 HTTP_PORT = 3000
 DISABLE_SSH = true
 START_SSH_SERVER = false
 OFFLINE_MODE = true
-DOMAIN = localhost
+DOMAIN = gitea-conan-persistent
 LFS_START_SERVER = false
 
 [database]
