@@ -52,17 +52,15 @@ jobs:
       - name: Install Python & pipx
         run: |
           sudo apt update && sudo apt install -y python3 python3-pip pipx python-is-python3
-          pipx ensurepath
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install Conan
         run: |
           pipx install "conan<2.0"
-          conan --version  # Now in PATH  
+          $HOME/.local/bin/conan --version # PATH doesn't seem to be set correctly
 
-      - name: Setup Gitea
+      - name: Verify Gitea
         run: |
-          sudo python .ci/gitea.py verify --debug
+          PATH="$HOME/.local/bin:$PATH" python .ci/gitea.py verify --debug
 
 #      - name: Build using Docker
 #        run: /bin/bash release-builder.sh
