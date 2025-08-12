@@ -83,6 +83,9 @@ jobs:
           echo "=== Gitea container networks ==="
           docker inspect gitea-conan-persistent -f '{{json .NetworkSettings.Networks}}' | python -m json.tool
           
+          # Check if DNS resolution works without adding to conan-net
+          docker run --rm alpine nslookup gitea-conan-persistent || echo "⚠️ DNS resolution failed without conan-net"
+          
           docker run --rm --network conan-net alpine sh -c "
             # First verify connectivity works
             apk add --no-cache curl >/dev/null 2>&1
