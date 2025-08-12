@@ -156,6 +156,6 @@ jobs:
       - name: Cleanup workspace
         run: |
           CHECKOUT_PATH="${{ needs.checkout.outputs.checkout_path }}"
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug
           echo "Cleaning workspace for ${CHECKOUT_PATH}"
           rm -rf "${{ github.workspace }}/${CHECKOUT_PATH}"
-          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug
