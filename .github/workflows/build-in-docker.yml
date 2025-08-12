@@ -91,12 +91,7 @@ jobs:
             echo 'Testing HTTP connection...'
             curl -s http://gitea-conan-persistent:3000 | head -n1
           "
-
           docker run --rm --network conan-net conanio/gcc11 bash -xec "
-#            # Get Gitea's IP from inside the container
-#            GITEA_IP=\$(python -c 'import socket; print(socket.gethostbyname(\"gitea-conan-persistent\"))')
-#            echo \"Gitea IP resolved inside container: \$GITEA_IP\"
-    
             # Configure Conan using the resolved IP
             conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
             conan user -p conan-pass-2024 -r gitea-local conan
