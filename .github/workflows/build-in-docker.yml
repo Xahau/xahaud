@@ -93,11 +93,12 @@ jobs:
           "
 
           docker run --rm --network conan-net conanio/gcc11 bash -xec "
-            # Can we ping it?
-            ping -c 1 gitea-conan-persistent || true
-
-            # Configure Conan to use Gitea (using container name on shared network)
-            conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
+            # Get Gitea's IP from inside the container
+            GITEA_IP=\$(python -c 'import socket; print(socket.gethostbyname(\"gitea-conan-persistent\"))')
+            echo \"Gitea IP resolved inside container: \$GITEA_IP\"
+    
+            # Configure Conan using the resolved IP
+            conan remote add gitea-local http://\$GITEA_IP:3000/api/packages/conan/conan
             conan user -p conan-pass-2024 -r gitea-local conan
           
             # Test package upload/download
