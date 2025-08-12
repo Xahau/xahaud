@@ -60,6 +60,7 @@ jobs:
 
       - name: Verify Gitea
         run: |
+          gcc --version
           PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug
 
 #      - name: Build using Docker
