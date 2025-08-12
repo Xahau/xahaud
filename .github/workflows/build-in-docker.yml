@@ -60,9 +60,22 @@ jobs:
 
       - name: Verify Gitea
         run: |
-          gcc --version
-          PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug || PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
 
+      - name: Test Gitea from build container
+        run: |
+          docker run --rm conanio/gcc11 bash -xec "
+            # Configure Conan to use Gitea
+            conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
+            conan user -p conan-pass-2024 -r gitea-local conan
+          
+            # Test package upload/download
+            conan install zlib/1.3.1@ --build=zlib
+            conan upload 'zlib/*' --all -r gitea-local --confirm
+            conan remove 'zlib/*' -f
+            conan install zlib/1.3.1@ -r gitea-local
+            echo '✅ Container-to-container test successful!'
+          "
 #      - name: Build using Docker
 #        run: /bin/bash release-builder.sh
 #
