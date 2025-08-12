@@ -64,14 +64,38 @@ jobs:
           docker network create conan-net 2>/dev/null || true
           
           # Setup Gitea
-          PATH="/root/.local/bin:$PATH" python .ci/gitea.py verify --debug || PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
-          
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py teardown --debug 
+          PATH="/root/.local/bin:$PATH" python .ci/gitea.py setup --debug
+
           # Connect Gitea to the network (idempotent)
           docker network connect conan-net gitea-conan-persistent 2>/dev/null || true
+          
+          # Verify it's connected
+          docker inspect gitea-conan-persistent -f '{{range $net,$v := .NetworkSettings.Networks}}{{$net}} {{end}}'
 
       - name: Test Gitea from build container
         run: |
+          # Show conan-net details
+          echo "=== Docker network 'conan-net' details ==="
+          docker network inspect conan-net
+    
+          # Show what networks Gitea is connected to
+          echo "=== Gitea container networks ==="
+          docker inspect gitea-conan-persistent -f '{{json .NetworkSettings.Networks}}' | python -m json.tool
+          
+          docker run --rm --network conan-net alpine sh -c "
+            # First verify connectivity works
+            apk add --no-cache curl >/dev/null 2>&1
+            echo 'Testing DNS resolution...'
+            nslookup gitea-conan-persistent
+            echo 'Testing HTTP connection...'
+            curl -s http://gitea-conan-persistent:3000 | head -n1
+          "
+
           docker run --rm --network conan-net conanio/gcc11 bash -xec "
+            # Can we ping it?
+            ping -c 1 gitea-conan-persistent || true
+
             # Configure Conan to use Gitea (using container name on shared network)
             conan remote add gitea-local http://gitea-conan-persistent:3000/api/packages/conan/conan
             conan user -p conan-pass-2024 -r gitea-local conan
