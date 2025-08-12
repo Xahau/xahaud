@@ -827,6 +827,15 @@ SHOW_FOOTER_VERSION = false
         else:
             self.logger.info("  → No data directory to remove")
 
+        # Remove Docker network if it exists
+        network_check = self.run(f"docker network ls --format '{{{{.Name}}}}' | grep '^{self.network}$'", check=False)
+        if network_check.stdout.strip():
+            self.logger.info(f"  → Removing Docker network: {self.network}")
+            self.run(f"docker network rm {self.network}", check=False)
+            self.logger.info("  ✓ Network removed")
+        else:
+            self.logger.info(f"  → No network '{self.network}' to remove")
+
         self.logger.info("  ✅ Teardown complete!")
 
 
