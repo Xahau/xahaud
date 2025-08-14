@@ -246,7 +246,9 @@ verifyHandshake(
         if (!beast::lexicalCastChecked(nid, std::string(iter->value())))
             throw std::runtime_error("Invalid peer network identifier");
 
-        if (!networkID && nid != 0 || networkID && nid != *networkID)
+        // Reject if network IDs don't match, treating absent/empty as default
+        // network 0
+        if (networkID.value_or(0) != nid)
             throw std::runtime_error("Peer is on a different network");
     }
 
