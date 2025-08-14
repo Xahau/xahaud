@@ -8,4 +8,4 @@ if [[ "$GITHUB_REPOSITORY" == "" ]]; then
 fi
 
 echo "Mounting $(pwd)/io in ubuntu and running unit tests"
-docker run --rm -i -v $(pwd):/io -e BUILD_CORES=$BUILD_CORES ubuntu sh -c '/io/release-build/xahaud --unittest-jobs $BUILD_CORES -u'
+docker run --rm -i -v $(pwd):/io --platform=linux/amd64 -e BUILD_CORES=$BUILD_CORES ubuntu sh -c '/io/release-build/xahaud --unittest-jobs $BUILD_CORES -u'
