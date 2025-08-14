@@ -29,7 +29,7 @@ jobs:
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
-      CACHE_VERSION: 1
+      CACHE_VERSION: 2
       MAIN_BRANCH_NAME: dev
     steps:
       - name: Checkout
