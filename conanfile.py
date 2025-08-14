@@ -29,7 +29,7 @@ class Xrpl(ConanFile):
         'libarchive/3.7.6',
         'nudb/2.0.8',
         'openssl/1.1.1v',
-        'soci/4.0.3',
+        'soci/4.0.3@xahaud/stable',
         'xxhash/0.8.2',
         'wasmedge/0.11.2',
         'zlib/1.3.1',

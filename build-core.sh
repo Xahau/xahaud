@@ -5,8 +5,6 @@
 # debugging.
 set -ex
 
-set -e
-
 echo "START INSIDE CONTAINER - CORE"
 
 echo "-- BUILD CORES:       $3"
@@ -27,7 +25,8 @@ if [[ "$?" -ne "0" ]]; then
   exit 127
 fi
 
-perl -i -pe "s/^(\\s*)-DBUILD_SHARED_LIBS=OFF/\\1-DBUILD_SHARED_LIBS=OFF\\n\\1-DROCKSDB_BUILD_SHARED=OFF/g" cmake/deps/Rocksdb.cmake &&
+BUILD_TYPE=Release
+
 mv cmake/deps/WasmEdge.cmake cmake/deps/WasmEdge.old &&
 echo "find_package(LLVM REQUIRED CONFIG)
 message(STATUS \"Found LLVM \${LLVM_PACKAGE_VERSION}\")
@@ -38,20 +37,37 @@ target_link_libraries (ripple_libs INTERFACE wasmedge)
 add_library (wasmedge::wasmedge ALIAS wasmedge)
 message(\"WasmEdge DONE\")
 " > cmake/deps/WasmEdge.cmake &&
+
+export LDFLAGS="-static-libstdc++"
+export CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
+export CMAKE_STATIC_LINKER_FLAGS="-static-libstdc++"
+
+git config --global --add safe.directory /io &&
 git checkout src/libxrpl/protocol/BuildInfo.cpp &&
-sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4\"/g src/libxrpl/protocol/BuildInfo.cpp &&
+sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)$(if [ -n "$4" ]; then echo "+$4"; fi)\"/g src/libxrpl/protocol/BuildInfo.cpp &&
+conan export external/snappy snappy/1.1.10@xahaud/stable &&
+conan export external/soci soci/4.0.3@xahaud/stable &&
 cd release-build &&
-which cmake &&
-cmake --version &&
-cmake .. -DCMAKE_BUILD_TYPE=Release -DBoost_NO_BOOST_CMAKE=ON -DLLVM_DIR=/usr/lib64/llvm13/lib/cmake/llvm/ -DLLVM_LIBRARY_DIR=/usr/lib64/llvm13/lib/ -DWasmEdge_LIB=/usr/local/lib64/libwasmedge.a &&
-make -j$3 VERBOSE=1 &&
-strip -s rippled &&
+conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE &&
+cmake .. -G Ninja \
+  -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+  -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
+  -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++" \
+  -DLLVM_DIR=$LLVM_DIR \
+  -DWasmEdge_LIB=$WasmEdge_LIB \
+  -Dxrpld=TRUE \
+  -Dtests=TRUE &&
+ccache -z &&
+ninja -j $3 &&
+ccache -s &&
+strip -s rippled &&	
 mv rippled xahaud &&
+libcheck xahaud &&
 echo "Build host: `hostname`" > release.info &&
 echo "Build date: `date`" >> release.info &&
 echo "Build md5: `md5sum xahaud`" >> release.info &&
 echo "Git remotes:" >> release.info && 
-git remote -v >> release.info 
+git remote -v >> release.info &&
 echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
@@ -71,8 +87,8 @@ fi
 cd ..;
 
 mv src/xrpld/net/detail/RegisterSSLCerts.cpp.old src/xrpld/net/detail/RegisterSSLCerts.cpp;
-mv cmake/deps/Rocksdb.cmake.old cmake/deps/Rocksdb.cmake;
 mv cmake/deps/WasmEdge.old cmake/deps/WasmEdge.cmake;
-
+rm src/certs/certbundle.h;
+git checkout src/libxrpl/protocol/BuildInfo.cpp;
 
 echo "END INSIDE CONTAINER - CORE"

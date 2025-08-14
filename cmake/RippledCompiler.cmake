@@ -149,6 +149,16 @@ if (use_mold)
     ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
   if ("${LD_VERSION}" MATCHES "mold")
     target_link_libraries (common INTERFACE -fuse-ld=mold)
+  else ()
+    # Checking for mold linker (< GCC 12.1.0)
+    execute_process (
+      COMMAND ${CMAKE_CXX_COMPILER} -B/usr/libexec/mold -Wl,--version
+      OUTPUT_VARIABLE LD_VERSION_OUT
+      ERROR_VARIABLE LD_VERSION_ERR)
+    set(LD_VERSION "${LD_VERSION_OUT}${LD_VERSION_ERR}")
+    if ("${LD_VERSION}" MATCHES "mold")
+      target_link_libraries (common INTERFACE -B/usr/libexec/mold)
+    endif ()
   endif ()
   unset (LD_VERSION)
 elseif (use_gold AND is_gcc)

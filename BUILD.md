@@ -168,7 +168,7 @@ which allows you to statically link it with GCC, if you want.
 
    ```
    # Conan 1.x
-   conan export external/snappy snappy/1.1.10@
+   conan export external/snappy snappy/1.1.10@xahaud/stable
    # Conan 2.x
    conan export --version 1.1.10 external/snappy
    ```
@@ -188,7 +188,7 @@ It patches their CMake to correctly import its dependencies.
 
    ```
    # Conan 1.x
-   conan export external/soci soci/4.0.3@
+   conan export external/soci soci/4.0.3@xahaud/stable
    # Conan 2.x
    conan export --version 4.0.3 external/soci
    ```
