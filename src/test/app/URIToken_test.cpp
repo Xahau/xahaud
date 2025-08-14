@@ -1932,31 +1932,135 @@ struct URIToken_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(1000)));
             env.close();
 
-            // set freeze on alice trustline
-            env(trust(gw, USD(10000), bob, tfSetFreeze));
+            {
+                // IOU bob(frozen) -> alice
+
+                // set freeze on bob trustline
+                env(trust(gw, USD(10000), bob, tfSetFreeze));
+                env.close();
+
+                // setup mint
+                std::string const uri(maxTokenURILength, '?');
+                auto const tid = uritoken::tokenid(alice, uri);
+                std::string const hexid{strHex(tid)};
+                env(uritoken::mint(alice, uri));
+                env(uritoken::sell(alice, hexid), uritoken::amt(USD(10)));
+                env.close();
+
+                // buy uritoken fails - frozen trustline
+                env(uritoken::buy(bob, hexid),
+                    uritoken::amt(USD(10)),
+                    ter(tecINSUFFICIENT_FUNDS));
+                env.close();
+
+                // clear freeze on bob trustline
+                env(trust(gw, USD(10000), bob, tfClearFreeze));
+                env.close();
+
+                // buy uri success
+                env(uritoken::buy(bob, hexid), uritoken::amt(USD(10)));
+                env.close();
+            }
+            {
+                // IOU alice -> bob(frozen)
+
+                // set freeze on bob trustline
+                env(trust(gw, USD(10000), bob, tfSetFreeze));
+                env.close();
+
+                // setup mint
+                std::string const uri(maxTokenURILength, '?');
+                auto const tid = uritoken::tokenid(bob, uri);
+                std::string const hexid{strHex(tid)};
+                env(uritoken::mint(bob, uri));
+                env(uritoken::sell(bob, hexid), uritoken::amt(USD(10)));
+                env.close();
+
+                // buy uritoken fails - frozen trustline
+                env(uritoken::buy(alice, hexid),
+                    uritoken::amt(USD(10)),
+                    ter(tecFROZEN));
+                env.close();
+
+                // clear freeze on bob trustline
+                env(trust(gw, USD(10000), bob, tfClearFreeze));
+                env.close();
+
+                // buy uri success
+                env(uritoken::buy(alice, hexid), uritoken::amt(USD(10)));
+                env.close();
+            }
+        }
+        // test DeepFreeze
+        {
+            // Env Setup
+            Env env{*this, features};
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(1000)));
+            env(pay(gw, bob, USD(1000)));
             env.close();
 
-            // setup mint
-            std::string const uri(maxTokenURILength, '?');
-            auto const tid = uritoken::tokenid(alice, uri);
-            std::string const hexid{strHex(tid)};
-            env(uritoken::mint(alice, uri));
-            env(uritoken::sell(alice, hexid), uritoken::amt(USD(10)));
-            env.close();
+            {
+                // set freeze on bob trustline
+                env(trust(gw, USD(10000), bob, tfSetFreeze | tfSetDeepFreeze));
+                env.close();
 
-            // buy uritoken fails - frozen trustline
-            env(uritoken::buy(bob, hexid),
-                uritoken::amt(USD(10)),
-                ter(tecINSUFFICIENT_FUNDS));
-            env.close();
+                // IOU bob(frozen) -> alice
+                // setup mint
+                std::string const uri(maxTokenURILength, '?');
+                auto const tid = uritoken::tokenid(alice, uri);
+                std::string const hexid{strHex(tid)};
+                env(uritoken::mint(alice, uri));
+                env(uritoken::sell(alice, hexid), uritoken::amt(USD(10)));
+                env.close();
 
-            // clear freeze on alice trustline
-            env(trust(gw, USD(10000), bob, tfClearFreeze));
-            env.close();
+                // buy uritoken fails - frozen trustline
+                env(uritoken::buy(bob, hexid),
+                    uritoken::amt(USD(10)),
+                    ter(tecINSUFFICIENT_FUNDS));
+                env.close();
 
-            // buy uri success
-            env(uritoken::buy(bob, hexid), uritoken::amt(USD(10)));
-            env.close();
+                // clear freeze on bob trustline
+                env(trust(
+                    gw, USD(10000), bob, tfClearFreeze | tfClearDeepFreeze));
+                env.close();
+
+                // buy uri success
+                env(uritoken::buy(bob, hexid), uritoken::amt(USD(10)));
+                env.close();
+            }
+            {
+                // set freeze on bob trustline
+                env(trust(gw, USD(10000), bob, tfSetFreeze | tfSetDeepFreeze));
+                env.close();
+
+                // IOU alice -> bob(frozen)
+                // setup mint
+                std::string const uri(maxTokenURILength, '?');
+                auto const tid = uritoken::tokenid(bob, uri);
+                std::string const hexid{strHex(tid)};
+                env(uritoken::mint(bob, uri));
+                env(uritoken::sell(bob, hexid), uritoken::amt(USD(10)));
+                env.close();
+
+                // buy uritoken fails - frozen trustline
+                env(uritoken::buy(alice, hexid),
+                    uritoken::amt(USD(10)),
+                    ter(tecFROZEN));
+                env.close();
+
+                // clear freeze on bob trustline
+                env(trust(
+                    gw, USD(10000), bob, tfClearFreeze | tfClearDeepFreeze));
+                env.close();
+
+                // buy uri success
+                env(uritoken::buy(alice, hexid), uritoken::amt(USD(10)));
+                env.close();
+            }
         }
     }
 

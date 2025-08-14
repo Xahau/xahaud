@@ -1277,7 +1277,8 @@ CreateOffer::doApply()
     if (result.second)
     {
         sb.apply(ctx_.rawView());
-        addWeakTSHFromSandbox(sb);
+        if (!view().rules().enabled(featureIOUIssuerWeakTSH))
+            addWeakTSHFromBalanceChanges(sb);
     }
     else
         sbCancel.apply(ctx_.rawView());

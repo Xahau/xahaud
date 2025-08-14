@@ -274,6 +274,7 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
         {
             TER const result = trustTransferAllowed(
                 ctx.view, {account, dst}, amount.issue(), ctx.j, lhLOCKING);
+
             JLOG(ctx.j.trace())
                 << "PayChanCreate::preclaim trustTransferAllowed result="
                 << result;

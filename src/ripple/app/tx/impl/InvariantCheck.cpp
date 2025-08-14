@@ -1145,4 +1145,62 @@ NFTokenCountTracking::finalize(
     return true;
 }
 
+//------------------------------------------------------------------------------
+
+void
+ValidClawback::visitEntry(
+    bool,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const&)
+{
+    if (before && before->getType() == ltRIPPLE_STATE)
+        trustlinesChanged++;
+}
+
+bool
+ValidClawback::finalize(
+    STTx const& tx,
+    TER const result,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    if (tx.getTxnType() != ttCLAWBACK)
+        return true;
+
+    if (result == tesSUCCESS)
+    {
+        if (trustlinesChanged > 1)
+        {
+            JLOG(j.fatal())
+                << "Invariant failed: more than one trustline changed.";
+            return false;
+        }
+
+        AccountID const issuer = tx.getAccountID(sfAccount);
+        STAmount const amount = tx.getFieldAmount(sfAmount);
+        AccountID const& holder = amount.getIssuer();
+        STAmount const holderBalance = accountHolds(
+            view, holder, amount.getCurrency(), issuer, fhIGNORE_FREEZE, j);
+
+        if (holderBalance.signum() < 0)
+        {
+            JLOG(j.fatal())
+                << "Invariant failed: trustline balance is negative";
+            return false;
+        }
+    }
+    else
+    {
+        if (trustlinesChanged != 0)
+        {
+            JLOG(j.fatal()) << "Invariant failed: some trustlines were changed "
+                               "despite failure of the transaction.";
+            return false;
+        }
+    }
+
+    return true;
+}
+
 }  // namespace ripple
