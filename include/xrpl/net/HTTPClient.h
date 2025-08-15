@@ -20,8 +20,6 @@
 #ifndef RIPPLE_NET_HTTPCLIENT_H_INCLUDED
 #define RIPPLE_NET_HTTPCLIENT_H_INCLUDED
 
-#include <xrpld/core/Config.h>
-
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/beast/utility/Journal.h>
 
@@ -45,7 +43,11 @@ public:
     static constexpr auto maxClientHeaderBytes = kilobytes(32);
 
     static void
-    initializeSSLContext(Config const& config, beast::Journal j);
+    initializeSSLContext(
+        std::string const& sslVerifyDir,
+        std::string const& sslVerifyFile,
+        bool sslVerify,
+        beast::Journal j);
 
     static void
     get(bool bSSL,

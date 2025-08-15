@@ -19,11 +19,11 @@
 
 #include <test/jtx.h>
 
-#include <xrpld/net/HTTPClient.h>
-#include <xrpld/net/RPCCall.h>
+#include <xrpld/rpc/RPCCall.h>
 
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/make_SSLContext.h>
+#include <xrpl/net/HTTPClient.h>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ip/tcp.hpp>

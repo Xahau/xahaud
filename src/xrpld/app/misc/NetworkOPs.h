@@ -26,7 +26,7 @@
 #include <xrpld/app/misc/StateAccounting.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/ledger/ReadView.h>
-#include <xrpld/net/InfoSub.h>
+#include <xrpld/rpc/InfoSub.h>
 
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
