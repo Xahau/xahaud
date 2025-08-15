@@ -21,7 +21,7 @@
 
 #include <xrpld/core/Job.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/net/RPCSub.h>
+#include <xrpld/rpc/RPCSub.h>
 
 #include <xrpl/json/json_value.h>
 
