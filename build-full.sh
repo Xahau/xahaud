@@ -17,10 +17,10 @@ umask 0000
 ####
 
 cd /io
-mkdir -p src/certs
-curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o src/certs/certbundle.h
-if [ "$(grep certbundle.h src/xrpld/net/detail/RegisterSSLCerts.cpp | wc -l)" -eq "0" ]; then
-  cp src/xrpld/net/detail/RegisterSSLCerts.cpp src/xrpld/net/detail/RegisterSSLCerts.cpp.old
+mkdir -p include/xrpl/net/certs
+curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o include/xrpl/net/certs/certbundle.h
+if [ "$(grep certbundle.h src/libxrpl/net/RegisterSSLCerts.cpp | wc -l)" -eq "0" ]; then
+  cp src/libxrpl/net/RegisterSSLCerts.cpp src/libxrpl/net/RegisterSSLCerts.cpp.old
   perl -i -pe "s/^{/{
     #ifdef EMBEDDED_CA_BUNDLE
     BIO *cbio = BIO_new_mem_buf(ca_bundle.data(), ca_bundle.size());
@@ -60,8 +60,8 @@ if [ "$(grep certbundle.h src/xrpld/net/detail/RegisterSSLCerts.cpp | wc -l)" -e
             BIO_free(cbio);
         }
     }
-    #endif/g" src/xrpld/net/detail/RegisterSSLCerts.cpp &&
-    sed -i "s/#include <xrpld\/net\/RegisterSSLCerts.h>/\0\n#include <certs\/certbundle.h>/g" src/xrpld/net/detail/RegisterSSLCerts.cpp
+    #endif/g" src/libxrpl/net/RegisterSSLCerts.cpp &&
+    sed -i "s/#include <xrpl\/net\/RegisterSSLCerts.h>/\0\n#include <xrpl\/net\/certs\/certbundle.h>/g" src/libxrpl/net/RegisterSSLCerts.cpp
 fi
 # Environment setup moved to Dockerfile in release-builder.sh
 source /opt/rh/gcc-toolset-11/enable
