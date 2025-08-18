@@ -95,13 +95,26 @@ runs:
         # Configure C++ standard library if specified
         # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
         # libcxx can be used with clang-17+ which has full C++20 support
-        # Configure C++ standard library
+        CMAKE_CXX_FLAGS=""
         if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
           CMAKE_CXX_FLAGS="-stdlib=libstdc++"
         elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
           CMAKE_CXX_FLAGS="-stdlib=libc++"
-        else
-          CMAKE_CXX_FLAGS=""
+        fi
+        
+        # Configure GCC toolchain for Clang if specified
+        if [ -n "${{ inputs.clang_gcc_toolchain }}" ] && [[ "${{ inputs.cxx }}" == clang* ]]; then
+          # Extract Clang version from compiler executable name (e.g., clang++-14 -> 14)
+          clang_version=$(echo "${{ inputs.cxx }}" | grep -oE '[0-9]+$')
+          
+          if [ -n "$clang_version" ] && [ "$clang_version" -ge "16" ]; then
+            # Clang 16+ uses --gcc-install-dir (canonical, precise)
+            CMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}"
+          else
+            # Clang 14-15 uses --gcc-toolchain (deprecated but necessary)
+            # Note: This still uses discovery, so we hide newer GCC versions in the workflow
+            CMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS --gcc-toolchain=/usr"
+          fi
         fi
         
         # Run CMake configure

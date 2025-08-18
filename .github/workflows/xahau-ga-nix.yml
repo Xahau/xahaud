@@ -67,39 +67,35 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          # If using Clang with specific GCC toolchain that's NOT 14, remove GCC 14 first
-          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.clang_gcc_toolchain }}" != "14" ]; then
-            echo "=== Removing GCC 14 to use GCC ${{ matrix.clang_gcc_toolchain }} ==="
-            # Remove ALL GCC 14 related packages including headers
-            sudo apt-get remove -y gcc-14 g++-14 cpp-14 libgcc-14-dev libstdc++-14-dev gcc-14-base || true
-            
-            # Hold packages to prevent them from being installed as dependencies
-            sudo apt-mark hold gcc-14 g++-14 cpp-14 libgcc-14-dev libstdc++-14-dev gcc-14-base || true
-          fi
-          
-          # Now update and install required packages
           sudo apt-get update
           sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
           
-          # Install specific GCC toolchain for Clang if specified (but not 14 which is already there)
-          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.clang_gcc_toolchain }}" != "14" ]; then
-            echo "=== Installing GCC ${{ matrix.clang_gcc_toolchain }} toolchain for Clang ==="
-            sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }}
+          # For Clang with specific GCC toolchain, hide newer GCC versions
+          # This is needed for Clang 14 which uses --gcc-toolchain and still picks the highest version
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" = "14" ]; then
+            echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
+            target_version=${{ matrix.clang_gcc_toolchain }}
+            for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
+              if [ -d "$dir" ]; then
+                version=$(basename "$dir")
+                # Check if version is numeric and greater than target
+                if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
+                  echo "Hiding GCC $version"
+                  sudo mv "$dir" "${dir%/}.bak"
+                fi
+              fi
+            done
           fi
           
           # Verify what Clang will use
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
-            echo "=== Verifying GCC configuration ==="
-            gcc --version
-            which gcc
-            ls -la /usr/bin/gcc*
-            ls -la /usr/bin/g++*
+            echo "=== Verifying GCC toolchain selection ==="
+            echo "Available GCC versions:"
+            ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d.*[0-9]+$" || true
             
-            echo "=== Available C++ include directories ==="
-            ls -la /usr/include/c++/ || true
-            
-            echo "=== Checking what headers Clang will use ==="
-            ${{ matrix.cxx }} -E -x c++ - -v < /dev/null 2>&1 | grep "^ /"
+            echo ""
+            echo "Clang's detected GCC installation:"
+            ${{ matrix.cxx }} -v -E -x c++ /dev/null -o /dev/null 2>&1 | grep "Found candidate GCC installation" || true
           fi
           
           # Install libc++ dev packages if using libc++ (not needed for libstdc++)
