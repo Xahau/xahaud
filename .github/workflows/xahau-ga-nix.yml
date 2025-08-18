@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc]
+        compiler: [gcc, clang]
         configuration: [Debug]
         include:
           - compiler: gcc
@@ -26,6 +26,11 @@ jobs:
             cxx: g++-13
             compiler_id: gcc-13
             compiler_version: 13
+          - compiler: clang
+            cc: clang-16
+            cxx: clang++-16
+            compiler_id: clang-16
+            compiler_version: 16
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
@@ -38,7 +43,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
+          else
+            sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          fi
           # Install specific Conan version needed
           pip install --upgrade "conan<2"
 
@@ -54,7 +63,11 @@ jobs:
           conan profile new default --detect || true # Ignore error if profile exists
           conan profile update settings.compiler.cppstd=20 default
           conan profile update settings.compiler=${{ matrix.compiler }} default
-          conan profile update settings.compiler.libcxx=libstdc++11 default
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            conan profile update settings.compiler.libcxx=libc++ default
+          else
+            conan profile update settings.compiler.libcxx=libstdc++11 default
+          fi
           conan profile update env.CC=/usr/bin/${{ matrix.cc }} default
           conan profile update env.CXX=/usr/bin/${{ matrix.cxx }} default
           conan profile update conf.tools.build:compiler_executables='{"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}' default
