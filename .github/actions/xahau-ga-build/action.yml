@@ -36,6 +36,10 @@ inputs:
     description: 'Main branch name for restore keys'
     required: false
     default: 'dev'
+  clang_use_libstdcpp:
+    description: 'Force clang to use libstdc++ instead of libc++ (workaround for clang-16)'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -81,10 +85,19 @@ runs:
           CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
         fi
         
+        # Configure libstdc++ override for clang if requested
+        # This works around clang-16 missing lexicographical_compare_three_way in libc++
+        # which is only available in LLVM 17+. Can be removed when upgrading to clang-17+
+        STDLIB_ARGS=""
+        if [ "${{ inputs.clang_use_libstdcpp }}" = "true" ] && [[ "${{ inputs.cxx }}" == *"clang"* ]]; then
+          STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libstdc++"
+        fi
+        
         # Run CMake configure
         cmake .. \
           -G "${{ inputs.generator }}" \
           $CCACHE_ARGS \
+          $STDLIB_ARGS \
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
           -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
 

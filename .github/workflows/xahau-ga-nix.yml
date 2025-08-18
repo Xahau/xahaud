@@ -35,6 +35,9 @@ jobs:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
       CACHE_VERSION: 2
+      # Force clang to use libstdc++ instead of libc++ for compatibility with clang-16
+      # Can be disabled when upgrading to clang-17+ which has lexicographical_compare_three_way in libc++
+      CLANG_USE_LIBSTDCPP: true
       MAIN_BRANCH_NAME: dev
     steps:
       - name: Checkout
@@ -63,7 +66,10 @@ jobs:
           conan profile new default --detect || true # Ignore error if profile exists
           conan profile update settings.compiler.cppstd=20 default
           conan profile update settings.compiler=${{ matrix.compiler }} default
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
+          # Use libstdc++11 for clang when CLANG_USE_LIBSTDCPP is enabled, otherwise use libc++
+          if [ "${{ matrix.compiler }}" = "clang" ] && [ "${{ env.CLANG_USE_LIBSTDCPP }}" = "true" ]; then
+            conan profile update settings.compiler.libcxx=libstdc++11 default
+          elif [ "${{ matrix.compiler }}" = "clang" ]; then
             conan profile update settings.compiler.libcxx=libc++ default
           else
             conan profile update settings.compiler.libcxx=libstdc++11 default
@@ -109,6 +115,7 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          clang_use_libstdcpp: ${{ env.CLANG_USE_LIBSTDCPP }}
 
       - name: Set artifact name
         id: set-artifact-name
