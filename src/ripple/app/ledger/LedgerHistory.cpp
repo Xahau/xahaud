@@ -339,7 +339,7 @@ LedgerHistory::handleMismatch(
 
     assert(builtLedger->info().seq == validLedger->info().seq);
 
-    if (auto stream = j_.debug())
+    if (auto stream = j_.error())
     {
         stream << "Built: " << getJson({*builtLedger, {}});
         stream << "Valid: " << getJson({*validLedger, {}});
