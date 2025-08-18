@@ -19,7 +19,6 @@
 
 #include <ripple/app/main/Application.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
-#include <ripple/app/rdb/backend/FlatmapDatabase.h>
 #include <ripple/app/rdb/backend/RWDBDatabase.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/nodestore/DatabaseShard.h>
@@ -41,7 +40,6 @@ RelationalDatabase::init(
     bool use_sqlite = false;
     bool use_postgres = false;
     bool use_rwdb = false;
-    bool use_flatmap = false;
 
     if (config.reporting())
     {
@@ -59,10 +57,6 @@ RelationalDatabase::init(
             else if (boost::iequals(get(rdb_section, "backend"), "rwdb"))
             {
                 use_rwdb = true;
-            }
-            else if (boost::iequals(get(rdb_section, "backend"), "flatmap"))
-            {
-                use_flatmap = true;
             }
             else
             {
@@ -88,10 +82,6 @@ RelationalDatabase::init(
     else if (use_rwdb)
     {
         return getRWDBDatabase(app, config, jobQueue);
-    }
-    else if (use_flatmap)
-    {
-        return getFlatmapDatabase(app, config, jobQueue);
     }
 
     return std::unique_ptr<RelationalDatabase>();

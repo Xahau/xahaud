@@ -363,7 +363,7 @@ public:
             (!section("node_db").empty() &&
              (boost::beast::iequals(get(section("node_db"), "type"), "rwdb") ||
               boost::beast::iequals(
-                  get(section("node_db"), "type"), "flatmap")));
+                  get(section("node_db"), "type"), "memory")));
         // RHNOTE: memory type is not selected for here because it breaks
         // tests
         return isMem;
