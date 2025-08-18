@@ -206,6 +206,8 @@ public:
         auto const firstSeq = waitForReady(env);
         auto lastRotated = firstSeq - 1;
 
+        // Create ledgers 4-11 with transactions (8 ledgers)
+        // These transactions will survive the first rotation but not the second
         for (auto i = firstSeq + 1; i < deleteInterval + firstSeq; ++i)
         {
             env.fund(XRP(10000), noripple("test" + std::to_string(i)));
@@ -218,6 +220,47 @@ public:
 
         SQLiteDatabase* const db =
             dynamic_cast<SQLiteDatabase*>(&env.app().getRelationalDatabase());
+
+        // Simple helper to show what's in the database
+        auto showDBState = [&env, &db](
+                               const std::string& when,
+                               const std::string& expectation = "") {
+            auto [ledgerCount, firstLedger, lastLedger] =
+                db->getLedgerCountMinMax();
+            auto txCount = db->getTransactionCount();
+            auto accTxCount = db->getAccountTransactionCount();
+
+            std::cout << "\n" << when << ":" << std::endl;
+            std::cout << "  Ledgers: " << firstLedger << "-" << lastLedger
+                      << " (keeping " << ledgerCount << " ledgers)"
+                      << std::endl;
+            std::cout << "  Transactions: " << txCount;
+            std::cout << ", Account Transactions: " << accTxCount;
+            if (!expectation.empty())
+            {
+                std::cout << " " << expectation;
+            }
+            std::cout << std::endl;
+
+            // Also show RPC counts to see in-memory objects
+            auto const result = env.rpc("get_counts")[jss::result];
+            if (result.isMember("ripple::STTx") ||
+                result.isMember("ripple::Transaction"))
+            {
+                std::cout << "  In-memory objects: "
+                          << "STTx="
+                          << (result.isMember("ripple::STTx")
+                                  ? result["ripple::STTx"].asInt()
+                                  : 0)
+                          << ", Transaction="
+                          << (result.isMember("ripple::Transaction")
+                                  ? result["ripple::Transaction"].asInt()
+                                  : 0)
+                          << std::endl;
+            }
+        };
+
+        showDBState("Initial state");
         BEAST_EXPECT(*db->getTransactionsMinLedgerSeq() == 3);
 
         for (auto i = 3; i < deleteInterval + lastRotated; ++i)
@@ -229,9 +272,17 @@ public:
                 getHash(ledgers[i]).length());
         }
 
+        // After creating 8 more ledgers with transactions
+        showDBState("Before first rotation");
+
+        // Verify expected state
         ledgerCheck(env, deleteInterval + 1, 2);
         transactionCheck(env, deleteInterval);
         accountTransactionCheck(env, 2 * deleteInterval);
+
+        // Additional verification
+        BEAST_EXPECT(db->getTransactionCount() == deleteInterval);
+        BEAST_EXPECT(db->getAccountTransactionCount() == 2 * deleteInterval);
 
         {
             // Closing one more ledger triggers a rotate
@@ -248,10 +299,20 @@ public:
         lastRotated = store.getLastRotated();
         BEAST_EXPECT(lastRotated == 11);
 
-        // That took care of the fake hashes
+        showDBState(
+            "After FIRST rotation",
+            "(EXPECTED: still have 8 txns from ledgers 3-11)");
+
+        // First rotation: Deleted ledgers 1-2, kept 3-11
+        // Transactions from ledgers 3-11 should STILL EXIST
         ledgerCheck(env, deleteInterval + 1, 3);
-        transactionCheck(env, deleteInterval);
+        transactionCheck(env, deleteInterval);  // Still have transactions!
         accountTransactionCheck(env, 2 * deleteInterval);
+
+        // Additional verification
+        BEAST_EXPECT(db->getTransactionCount() == deleteInterval);
+        BEAST_EXPECT(db->getAccountTransactionCount() == 2 * deleteInterval);
+        BEAST_EXPECT(*db->getTransactionsMinLedgerSeq() == 3);
 
         // The last iteration of this loop should trigger a rotate
         for (auto i = lastRotated - 1; i < lastRotated + deleteInterval - 1;
@@ -276,9 +337,18 @@ public:
 
         BEAST_EXPECT(store.getLastRotated() == deleteInterval + lastRotated);
 
+        showDBState(
+            "After SECOND rotation",
+            "(EXPECTED: 0 txns - ledgers 3-11 were deleted)");
+
         ledgerCheck(env, deleteInterval + 1, lastRotated);
-        transactionCheck(env, 0);
-        accountTransactionCheck(env, 0);
+        transactionCheck(env, 0);         // NOW transactions should be gone!
+        accountTransactionCheck(env, 0);  // Account transactions too!
+
+        // Additional verification - all transactions should be gone
+        BEAST_EXPECT(db->getTransactionCount() == 0);
+        BEAST_EXPECT(db->getAccountTransactionCount() == 0);
+        BEAST_EXPECT(!db->getTransactionsMinLedgerSeq().has_value());
     }
 
     void

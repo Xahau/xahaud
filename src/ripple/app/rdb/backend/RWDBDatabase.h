@@ -28,9 +28,8 @@ private:
 
     struct AccountTxData
     {
-        AccountTxs transactions;
-        std::map<uint32_t, std::map<uint32_t, size_t>>
-            ledgerTxMap;  // ledgerSeq -> txSeq -> index in transactions
+        std::map<uint32_t, std::vector<AccountTx>>
+            ledgerTxMap;  // ledgerSeq -> vector of transactions
     };
 
     Application& app_;
@@ -166,14 +165,6 @@ public:
             {
                 txIt = accountData.ledgerTxMap.erase(txIt);
             }
-            accountData.transactions.erase(
-                std::remove_if(
-                    accountData.transactions.begin(),
-                    accountData.transactions.end(),
-                    [ledgerSeq](const AccountTx& tx) {
-                        return tx.second->getLgrSeq() < ledgerSeq;
-                    }),
-                accountData.transactions.end());
         }
     }
     std::size_t
@@ -196,7 +187,10 @@ public:
         std::size_t count = 0;
         for (const auto& [_, accountData] : accountTxMap_)
         {
-            count += accountData.transactions.size();
+            for (const auto& [_, txVector] : accountData.ledgerTxMap)
+            {
+                count += txVector.size();
+            }
         }
         return count;
     }
@@ -296,10 +290,7 @@ public:
                         accountTxMap_[account] = AccountTxData();
 
                     auto& accountData = accountTxMap_[account];
-                    accountData.transactions.push_back(accTx);
-                    accountData
-                        .ledgerTxMap[seq][acceptedLedgerTx->getTxnSeq()] =
-                        accountData.transactions.size() - 1;
+                    accountData.ledgerTxMap[seq].push_back(accTx);
                 }
 
                 app_.getMasterTransaction().inLedger(
@@ -466,11 +457,9 @@ public:
         for (const auto& [_, accountData] : accountTxMap_)
         {
             size += sizeof(AccountID) + sizeof(AccountTxData);
-            size += accountData.transactions.size() * sizeof(AccountTx);
-            for (const auto& [_, innerMap] : accountData.ledgerTxMap)
+            for (const auto& [_, txVector] : accountData.ledgerTxMap)
             {
-                size += sizeof(uint32_t) +
-                    innerMap.size() * (sizeof(uint32_t) + sizeof(size_t));
+                size += sizeof(uint32_t) + txVector.size() * sizeof(AccountTx);
             }
         }
         return size / 1024;
@@ -499,11 +488,9 @@ public:
         for (const auto& [_, accountData] : accountTxMap_)
         {
             size += sizeof(AccountID) + sizeof(AccountTxData);
-            size += accountData.transactions.size() * sizeof(AccountTx);
-            for (const auto& [_, innerMap] : accountData.ledgerTxMap)
+            for (const auto& [_, txVector] : accountData.ledgerTxMap)
             {
-                size += sizeof(uint32_t) +
-                    innerMap.size() * (sizeof(uint32_t) + sizeof(size_t));
+                size += sizeof(uint32_t) + txVector.size() * sizeof(AccountTx);
             }
         }
         return size / 1024;
@@ -608,14 +595,13 @@ public:
              (options.bUnlimited || result.size() < options.limit);
              ++txIt)
         {
-            for (const auto& [txSeq, txIndex] : txIt->second)
+            for (const auto& accountTx : txIt->second)
             {
                 if (skipped < options.offset)
                 {
                     ++skipped;
                     continue;
                 }
-                AccountTx const accountTx = accountData.transactions[txIndex];
                 std::uint32_t const inLedger = rangeCheckedCast<std::uint32_t>(
                     accountTx.second->getLgrSeq());
                 accountTx.first->setStatus(COMMITTED);
@@ -660,8 +646,7 @@ public:
                     ++skipped;
                     continue;
                 }
-                AccountTx const accountTx =
-                    accountData.transactions[innerRIt->second];
+                AccountTx const accountTx = *innerRIt;
                 std::uint32_t const inLedger = rangeCheckedCast<std::uint32_t>(
                     accountTx.second->getLgrSeq());
                 accountTx.first->setLedger(inLedger);
@@ -695,14 +680,14 @@ public:
              (options.bUnlimited || result.size() < options.limit);
              ++txIt)
         {
-            for (const auto& [txSeq, txIndex] : txIt->second)
+            for (const auto& accountTx : txIt->second)
             {
                 if (skipped < options.offset)
                 {
                     ++skipped;
                     continue;
                 }
-                const auto& [txn, txMeta] = accountData.transactions[txIndex];
+                const auto& [txn, txMeta] = accountTx;
                 result.emplace_back(
                     txn->getSTransaction()->getSerializer().peekData(),
                     txMeta->getAsObject().getSerializer().peekData(),
@@ -746,8 +731,7 @@ public:
                     ++skipped;
                     continue;
                 }
-                const auto& [txn, txMeta] =
-                    accountData.transactions[innerRIt->second];
+                const auto& [txn, txMeta] = *innerRIt;
                 result.emplace_back(
                     txn->getSTransaction()->getSerializer().peekData(),
                     txMeta->getAsObject().getSerializer().peekData(),
@@ -819,11 +803,9 @@ public:
             for (; txIt != txEnd; ++txIt)
             {
                 std::uint32_t const ledgerSeq = txIt->first;
-                for (auto seqIt = txIt->second.begin();
-                     seqIt != txIt->second.end();
-                     ++seqIt)
+                std::uint32_t txnSeq = 0;
+                for (const auto& accountTx : txIt->second)
                 {
-                    const auto& [txnSeq, index] = *seqIt;
                     if (lookingForMarker)
                     {
                         if (findLedger == ledgerSeq && findSeq == txnSeq)
@@ -831,7 +813,10 @@ public:
                             lookingForMarker = false;
                         }
                         else
+                        {
+                            ++txnSeq;
                             continue;
+                        }
                     }
                     else if (numberOfResults == 0)
                     {
@@ -840,12 +825,10 @@ public:
                         return {newmarker, total};
                     }
 
-                    Blob rawTxn = accountData.transactions[index]
-                                      .first->getSTransaction()
+                    Blob rawTxn = accountTx.first->getSTransaction()
                                       ->getSerializer()
                                       .peekData();
-                    Blob rawMeta = accountData.transactions[index]
-                                       .second->getAsObject()
+                    Blob rawMeta = accountTx.second->getAsObject()
                                        .getSerializer()
                                        .peekData();
 
@@ -859,6 +842,7 @@ public:
                         std::move(rawMeta));
                     --numberOfResults;
                     ++total;
+                    ++txnSeq;
                 }
             }
         }
@@ -874,11 +858,11 @@ public:
             for (; rtxIt != rtxEnd; ++rtxIt)
             {
                 std::uint32_t const ledgerSeq = rtxIt->first;
+                std::uint32_t txnSeq = rtxIt->second.size() - 1;
                 for (auto innerRIt = rtxIt->second.rbegin();
                      innerRIt != rtxIt->second.rend();
                      ++innerRIt)
                 {
-                    const auto& [txnSeq, index] = *innerRIt;
                     if (lookingForMarker)
                     {
                         if (findLedger == ledgerSeq && findSeq == txnSeq)
@@ -886,7 +870,10 @@ public:
                             lookingForMarker = false;
                         }
                         else
+                        {
+                            --txnSeq;
                             continue;
+                        }
                     }
                     else if (numberOfResults == 0)
                     {
@@ -895,12 +882,11 @@ public:
                         return {newmarker, total};
                     }
 
-                    Blob rawTxn = accountData.transactions[index]
-                                      .first->getSTransaction()
+                    const auto& accountTx = *innerRIt;
+                    Blob rawTxn = accountTx.first->getSTransaction()
                                       ->getSerializer()
                                       .peekData();
-                    Blob rawMeta = accountData.transactions[index]
-                                       .second->getAsObject()
+                    Blob rawMeta = accountTx.second->getAsObject()
                                        .getSerializer()
                                        .peekData();
 
@@ -914,6 +900,7 @@ public:
                         std::move(rawMeta));
                     --numberOfResults;
                     ++total;
+                    --txnSeq;
                 }
             }
         }
