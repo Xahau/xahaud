@@ -997,6 +997,11 @@ if (tests)
     src/test/resource/Logic_test.cpp
     #[===============================[
        test sources:
+         subdir: rdb
+    #]===============================]
+    src/test/rdb/RelationalDatabase_test.cpp
+    #[===============================[
+       test sources:
          subdir: rpc
     #]===============================]
     src/test/rpc/AccountCurrencies_test.cpp
