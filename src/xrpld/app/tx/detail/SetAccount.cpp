@@ -184,6 +184,19 @@ SetAccount::preflight(PreflightContext const& ctx)
             return temMALFORMED;
     }
 
+    // HookStateScale
+    if (tx.isFieldPresent(sfHookStateScale))
+    {
+        if (!ctx.rules.enabled(featureExtendedHookState))
+            return temMALFORMED;
+
+        uint16_t scale = tx.getFieldU16(sfHookStateScale);
+        if (scale == 0 ||
+            scale > hook::maxHookStateScale())  // Min: 1, Max: 16 (256
+                                                // * 16 = 4096 bytes)
+            return temMALFORMED;
+    }
+
     return preflight2(ctx);
 }
 
@@ -246,6 +259,20 @@ SetAccount::preclaim(PreclaimContext const& ctx)
                     << "Can't set NoFreeze if clawback is enabled";
                 return tecNO_PERMISSION;
             }
+        }
+    }
+
+    // HookStateScale
+    if (ctx.tx.isFieldPresent(sfHookStateScale))
+    {
+        uint16_t const newScale = ctx.tx.getFieldU16(sfHookStateScale);
+        uint16_t const currentScale = sle->getFieldU16(sfHookStateScale);
+        uint32_t const stateCount = sle->getFieldU32(sfHookStateCount);
+        if (stateCount > 0 && newScale < currentScale)
+        {
+            JLOG(ctx.j.trace())
+                << "Cannot decrease HookStateScale if state count is not zero.";
+            return tecHAS_HOOK_STATE;
         }
     }
 
@@ -628,6 +655,50 @@ SetAccount::doApply()
 
     if (uFlagsIn != uFlagsOut)
         sle->setFieldU32(sfFlags, uFlagsOut);
+
+    // HookStateScale
+    if (tx.isFieldPresent(sfHookStateScale))
+    {
+        uint16_t const newScale = tx.getFieldU16(sfHookStateScale);
+        uint16_t const oldScale = sle->isFieldPresent(sfHookStateScale)
+            ? sle->getFieldU16(sfHookStateScale)
+            : 1;
+        if (newScale == oldScale)
+        {
+            // do nothing
+        }
+        else if (newScale == 1)
+        {
+            sle->makeFieldAbsent(sfHookStateScale);
+        }
+        else
+        {
+            // increase OwnerCount
+            uint32_t const stateCount = sle->getFieldU32(sfHookStateCount);
+            uint32_t const oldOwnerCount = sle->getFieldU32(sfOwnerCount);
+
+            uint32_t const newOwnerCount = oldOwnerCount -
+                (oldScale * stateCount) + (newScale * stateCount);
+
+            // sanity check
+            if (newOwnerCount < oldOwnerCount)
+                return tecINTERNAL;
+
+            if (newOwnerCount != oldOwnerCount)
+            {
+                STAmount const balance = STAmount((*sle)[sfBalance]).xrp();
+                XRPAmount const reserve =
+                    view().fees().accountReserve(newOwnerCount);
+                if (balance < reserve)
+                    return tecINSUFFICIENT_RESERVE;
+
+                adjustOwnerCount(
+                    view(), sle, newOwnerCount - oldOwnerCount, j_);
+            }
+
+            sle->setFieldU16(sfHookStateScale, newScale);
+        }
+    }
 
     ctx_.view().update(sle);
 

@@ -429,6 +429,7 @@ private:
         addFlagsToJson<NFTokenMintFlags>(ret, "NFTokenMint");
         addFlagsToJson<NFTokenCreateOfferFlags>(ret, "NFTokenCreateOffer");
         addFlagsToJson<ClaimRewardFlags>(ret, "ClaimReward");
+        addFlagsToJson<CronSetFlags>(ret, "CronSet");
         addFlagsToJson<BridgeModifyFlags>(ret, "XChainModifyBridge");
         addFlagsToJson<MPTokenIssuanceCreateFlags>(
             ret, "MPTokenIssuanceCreate");

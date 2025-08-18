@@ -1497,6 +1497,64 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    // Inject cron transactions, if any
+    if (view.rules().enabled(featureCron))
+    {
+        uint32_t currentTime =
+            view.parentCloseTime().time_since_epoch().count();
+        uint256 klStart = keylet::cron(0, AccountID(beast::zero)).key;
+        uint256 const klEnd =
+            keylet::cron(currentTime + 1, AccountID(beast::zero)).key;
+
+        std::set<AccountID> cronAccs;
+
+        auto counter = 0;
+        // include max 128 cron txns in the ledger
+        while (++counter < 129 && klStart < klEnd)
+        {
+            std::optional<uint256 const> next = view.succ(klStart, klEnd);
+            if (!next.has_value())
+                break;
+
+            Keylet kl{ltANY, *next};
+
+            if (view.exists(kl))
+            {
+                auto sle = view.read(kl);
+                if (safe_cast<LedgerEntryType>(
+                        sle->getFieldU16(sfLedgerEntryType)) == ltCRON)
+                {
+                    // valid cron object, add it to the list
+                    cronAccs.emplace(sle->getAccountID(sfOwner));
+                }
+            }
+
+            klStart = *next;
+        }
+
+        auto const seq = view.info().seq;
+
+        // insert Cron pseudos for each of the accs we need to ping
+        for (AccountID const& id : cronAccs)
+        {
+            STTx cronTx(ttCRON, [=](auto& obj) {
+                obj[sfAccount] = AccountID();
+                obj[sfLedgerSequence] = seq;
+                obj[sfOwner] = id;
+            });
+
+            uint256 txID = cronTx.getTransactionID();
+
+            auto s = std::make_shared<ripple::Serializer>();
+            cronTx.add(*s);
+
+            app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+            app.getHashRouter().setFlags(txID, SF_EMITTED);
+            view.rawTxInsert(txID, std::move(s), nullptr);
+            ledgerChanged = true;
+        }
+    }
+
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
         do

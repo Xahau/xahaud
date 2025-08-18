@@ -2787,6 +2787,88 @@ public:
     }
 
     void
+    testLedgerEntryCron()
+    {
+        testcase("ledger_entry Request Cron");
+        using namespace test::jtx;
+
+        Env env{*this};
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const startTime =
+            env.current()->parentCloseTime().time_since_epoch().count() + 100;
+        env(cron::set(alice),
+            cron::startTime(startTime),
+            cron::delay(100),
+            cron::repeat(200),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        uint256 const cronIndex{keylet::cron(startTime, alice).key};
+        {
+            // Request the cron using its index.
+            Json::Value jvParams;
+            jvParams[jss::cron] = to_string(cronIndex);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfStartTime.jsonName] == startTime);
+            BEAST_EXPECT(jrr[jss::node][sfDelaySeconds.jsonName] == 100);
+            BEAST_EXPECT(jrr[jss::node][sfRepeatCount.jsonName] == 200);
+        }
+        {
+            // Request the cron using its owner and time.
+            Json::Value jvParams;
+            jvParams[jss::cron] = Json::objectValue;
+            jvParams[jss::cron][jss::owner] = alice.human();
+            jvParams[jss::cron][jss::time] = startTime;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfStartTime.jsonName] == startTime);
+            BEAST_EXPECT(jrr[jss::node][sfDelaySeconds.jsonName] == 100);
+            BEAST_EXPECT(jrr[jss::node][sfRepeatCount.jsonName] == 200);
+        }
+        {
+            // Malformed uritoken object.  Missing owner member.
+            Json::Value jvParams;
+            jvParams[jss::cron] = Json::objectValue;
+            jvParams[jss::cron][jss::time] = startTime;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed uritoken object. Missing time member.
+            Json::Value jvParams;
+            jvParams[jss::cron] = Json::objectValue;
+            jvParams[jss::cron][jss::owner] = alice.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Request an index that is not a uritoken.
+            Json::Value jvParams;
+            jvParams[jss::cron] = ledgerHash;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
+        }
+    }
+
+    void
     testLedgerEntryDID()
     {
         testcase("ledger_entry Request DID");

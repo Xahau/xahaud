@@ -18,11 +18,13 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/Oracle.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
+#include <chrono>
 #include <sstream>
 
 namespace ripple {
@@ -493,6 +495,19 @@ struct SetRemarks_test : public beast::unit_test::suite
         {
             auto const id = keylet::check(alice, env.seq(alice)).key;
             env(check::create(alice, bob, XRP(10)), fee(XRP(1)));
+            env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
+            env.close();
+            validateRemarks(*env.current(), id, marks);
+        }
+        // ltORACLE
+        {
+            auto const id = keylet::oracle(alice, 1).key;
+            oracle::CreateArg arg = {
+                .owner = alice,
+                .documentID = 1,
+                .series = {{"XAH", "USD", 740, 1}}};
+            env.close(std::chrono::seconds(300));
+            oracle::Oracle oracle(env, arg);
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
             validateRemarks(*env.current(), id, marks);

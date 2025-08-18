@@ -78,6 +78,12 @@ target_link_libraries(xrpl.libxrpl.beast PUBLIC
   xrpl.libpb
 )
 
+# Conditionally add enhanced logging source when BEAST_ENHANCED_LOGGING is enabled
+if(DEFINED BEAST_ENHANCED_LOGGING AND BEAST_ENHANCED_LOGGING)
+  target_sources(xrpl.libxrpl.beast PRIVATE
+    src/libxrpl/beast/utility/src/beast_EnhancedLogging.cpp)
+endif()
+
 # Level 02
 add_module(xrpl basics)
 target_link_libraries(xrpl.libxrpl.basics PUBLIC xrpl.libxrpl.beast)

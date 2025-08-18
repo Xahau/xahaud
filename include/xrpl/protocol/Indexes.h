@@ -306,6 +306,9 @@ import_vlseq(PublicKey const& key) noexcept;
 Keylet
 uritoken(AccountID const& issuer, Blob const& uri);
 
+Keylet
+cron(uint32_t timestamp, AccountID const& id);
+
 /** AMM entry */
 Keylet
 amm(Asset const& issue1, Asset const& issue2) noexcept;

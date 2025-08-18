@@ -596,6 +596,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltNFTOKEN_PAGE:
             case ltNFTOKEN_OFFER:
             case ltURI_TOKEN:
+            case ltCRON:
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
             case ltAMM:

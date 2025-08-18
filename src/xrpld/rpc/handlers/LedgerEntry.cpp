@@ -993,6 +993,35 @@ parseUriToken(Json::Value const& uriTokenJson, Json::Value& jvResult)
     return std::nullopt;
 }
 
+std::optional<uint256>
+parseCron(Json::Value const& cronJson, Json::Value& jvResult)
+{
+    if (!cronJson.isObject())
+    {
+        uint256 uNodeIndex;
+        if (!uNodeIndex.parseHex(cronJson.asString()))
+        {
+            jvResult[jss::error] = "malformedRequest";
+            return std::nullopt;
+        }
+        return uNodeIndex;
+    }
+    else if (!cronJson.isMember(jss::owner) || !cronJson.isMember(jss::time))
+    {
+        jvResult[jss::error] = "malformedRequest";
+    }
+    else
+    {
+        auto const id = parseBase58<AccountID>(cronJson[jss::owner].asString());
+        if (!id)
+            jvResult[jss::error] = "malformedAddress";
+        else
+            return keylet::cron(cronJson[jss::time].asUInt(), *id).key;
+    }
+    jvResult[jss::error] = "malformedRequest";
+    return std::nullopt;
+}
+
 static std::optional<uint256>
 parsePermissionedDomains(Json::Value const& pd, Json::Value& jvResult)
 {
@@ -1090,6 +1119,7 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::state, parseRippleState, ltRIPPLE_STATE},
         {jss::ticket, parseTicket, ltTICKET},
         {jss::uri_token, parseUriToken, ltURI_TOKEN},
+        {jss::cron, parseCron, ltCRON},
         {jss::xchain_owned_claim_id,
          parseXChainOwnedClaimID,
          ltXCHAIN_OWNED_CLAIM_ID},

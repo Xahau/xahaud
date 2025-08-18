@@ -54,6 +54,20 @@ LEDGER_ENTRY(ltNFTOKEN_OFFER, 0x0037, NFTokenOffer, nft_offer, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** A ledger object representing a scheduled cron execution on an account.
+  
+    \sa keylet::cron
+*/
+LEDGER_ENTRY_DUPLICATE(ltCRON, 0x0041, Cron, cron, ({
+    {sfOwner,                soeREQUIRED},
+    {sfStartTime,            soeREQUIRED},
+    {sfDelaySeconds,         soeREQUIRED},
+    {sfRepeatCount,          soeREQUIRED},
+    {sfOwnerNode,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED}
+}))
+
 /** A ledger object which describes a check.
 
     \sa keylet::check
@@ -241,6 +255,8 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfGovernanceMarks,      soeOPTIONAL},
     {sfAccountIndex,         soeOPTIONAL},
     {sfTouchCount,           soeOPTIONAL},
+    {sfHookStateScale,       soeOPTIONAL},
+    {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
 }))
 

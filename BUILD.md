@@ -36,7 +36,7 @@ See [System Requirements](https://xrpl.org/system-requirements.html).
 Building rippled generally requires git, Python, Conan, CMake, and a C++ compiler. Some guidance on setting up such a [C++ development environment can be found here](./docs/build/environment.md).
 
 - [Python 3.7](https://www.python.org/downloads/)
-- [Conan 1.60](https://conan.io/downloads.html)[^1]
+- [Conan 2.x](https://conan.io/downloads)
 - [CMake 3.16](https://cmake.org/download/)
 
 [^1]: It is possible to build with Conan 2.x,
@@ -89,13 +89,24 @@ If you are unfamiliar with Conan, then please read [this crash course](./docs/bu
 You'll need at least one Conan profile:
 
    ```
-   conan profile new default --detect
+   conan profile detect --force
    ```
 
 Update the compiler settings:
 
+   For Conan 2, you can edit the profile directly at `~/.conan2/profiles/default`,
+   or use the Conan CLI. Ensure C++20 is set:
+
    ```
-   conan profile update settings.compiler.cppstd=20 default
+   conan profile show
+   ```
+
+   Look for `compiler.cppstd=20` in the output. If it's not set, edit the profile:
+
+   ```
+   # Edit ~/.conan2/profiles/default and ensure these settings exist:
+   [settings]
+   compiler.cppstd=20
    ```
 
 Configure Conan (1.x only) to use recipe revisions:
@@ -110,7 +121,9 @@ If you are linking with libstdc++ (see profile setting `compiler.libcxx`),
 then you will need to choose the `libstdc++11` ABI:
 
    ```
-   conan profile update settings.compiler.libcxx=libstdc++11 default
+   # In ~/.conan2/profiles/default, ensure:
+   [settings]
+   compiler.libcxx=libstdc++11
    ```
 
 
@@ -135,73 +148,50 @@ Prompt" for the version of Visual Studio that you have installed.
    architecture:
 
    ```
-   conan profile update settings.arch=x86_64 default
+   # In ~/.conan2/profiles/default, ensure:
+   [settings]
+   arch=x86_64
    ```
 
-### Multiple compilers
-
-When `/usr/bin/g++` exists on a platform, it is the default cpp compiler. This
-default works for some users.
-
-However, if this compiler cannot build rippled or its dependencies, then you can
-install another compiler and set Conan and CMake to use it.
-Update the `conf.tools.build:compiler_executables` setting in order to set the correct variables (`CMAKE_<LANG>_COMPILER`) in the
-generated CMake toolchain file.
-For example, on Ubuntu 20, you may have gcc at `/usr/bin/gcc` and g++ at `/usr/bin/g++`; if that is the case, you can select those compilers with:
-```
-conan profile update 'conf.tools.build:compiler_executables={"c": "/usr/bin/gcc", "cpp": "/usr/bin/g++"}' default
-```
-
-Replace `/usr/bin/gcc` and `/usr/bin/g++` with paths to the desired compilers.
-
-It should choose the compiler for dependencies as well,
-but not all of them have a Conan recipe that respects this setting (yet).
-For the rest, you can set these environment variables.
-Replace `<path>` with paths to the desired compilers:
-
-- `conan profile update env.CC=<path> default`
-- `conan profile update env.CXX=<path> default`
-
-Export our [Conan recipe for Snappy](./external/snappy).
-It does not explicitly link the C++ standard library,
-which allows you to statically link it with GCC, if you want.
+3. (Optional) If you have multiple compilers installed on your platform,
+   make sure that Conan and CMake select the one you want to use.
+   This setting will set the correct variables (`CMAKE_<LANG>_COMPILER`)
+   in the generated CMake toolchain file.
 
    ```
-   # Conan 1.x
-   conan export external/snappy snappy/1.1.10@xahaud/stable
-   # Conan 2.x
-   conan export --version 1.1.10 external/snappy
+   # In ~/.conan2/profiles/default, add under [conf] section:
+   [conf]
+   tools.build:compiler_executables={"c": "<path>", "cpp": "<path>"}
+   ```
+
+   For setting environment variables for dependencies:
+
+   ```
+   # In ~/.conan2/profiles/default, add under [buildenv] section:
+   [buildenv]
+   CC=<path>
+   CXX=<path>
+   ```
+
+4. Export our [Conan recipe for Snappy](./external/snappy).
+   It doesn't explicitly link the C++ standard library,
+   which allows you to statically link it with GCC, if you want.
+
+   ```
+   conan export external/snappy --version 1.1.10 --user xahaud --channel stable
    ```
 
 Export our [Conan recipe for RocksDB](./external/rocksdb).
 It does not override paths to dependencies when building with Visual Studio.
 
    ```
-   # Conan 1.x
-   conan export external/rocksdb rocksdb/6.29.5@
-   # Conan 2.x
-   conan export --version 6.29.5 external/rocksdb
+   conan export external/soci --version 4.0.3 --user xahaud --channel stable
    ```
 
-Export our [Conan recipe for SOCI](./external/soci).
-It patches their CMake to correctly import its dependencies.
+6. Export our [Conan recipe for WasmEdge](./external/wasmedge).
 
    ```
-   # Conan 1.x
-   conan export external/soci soci/4.0.3@xahaud/stable
-   # Conan 2.x
-   conan export --version 4.0.3 external/soci
-   ```
-
-Export our [Conan recipe for NuDB](./external/nudb).
-It fixes some source files to add missing `#include`s.
-
-
-   ```
-   # Conan 1.x
-   conan export external/nudb nudb/2.0.8@
-   # Conan 2.x
-   conan export --version 2.0.8 external/nudb
+   conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable
    ```
 
 ### Build and Test
@@ -401,40 +391,26 @@ and can be helpful for detecting `#include` omissions.
 If you have trouble building dependencies after changing Conan settings,
 try removing the Conan cache.
 
+For Conan 2:
 ```
-rm -rf ~/.conan/data
-```
-
-
-### 'protobuf/port_def.inc' file not found
-
-If `cmake --build .` results in an error due to a missing a protobuf file, then you might have generated CMake files for a different `build_type` than the `CMAKE_BUILD_TYPE` you passed to conan.
-
-```
-/rippled/.build/pb-xrpl.libpb/xrpl/proto/ripple.pb.h:10:10: fatal error: 'google/protobuf/port_def.inc' file not found
-   10 | #include <google/protobuf/port_def.inc>
-      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1 error generated.
+rm -rf ~/.conan2/p
 ```
 
-For example, if you want to build Debug:
+Or clear the entire Conan 2 cache:
+```
+conan cache clean "*"
+```
 
-1. For conan install, pass `--settings build_type=Debug`
-2. For cmake, pass `-DCMAKE_BUILD_TYPE=Debug`
 
+### macOS compilation with Apple Clang 17+
 
-### no std::result_of
+If you're on macOS with Apple Clang 17 or newer, you need to add a compiler flag to work around a compilation error in gRPC dependencies.
 
-If your compiler version is recent enough to have removed `std::result_of` as
-part of C++20, e.g. Apple Clang 15.0, then you might need to add a preprocessor
-definition to your build.
+Edit `~/.conan2/profiles/default` and add under the `[conf]` section:
 
 ```
-conan profile update 'options.boost:extra_b2_flags="define=BOOST_ASIO_HAS_STD_INVOKE_RESULT"' default
-conan profile update 'env.CFLAGS="-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"' default
-conan profile update 'env.CXXFLAGS="-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"' default
-conan profile update 'conf.tools.build:cflags+=["-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"]' default
-conan profile update 'conf.tools.build:cxxflags+=["-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"]' default
+[conf]
+tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
 ```
 
 

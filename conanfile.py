@@ -21,6 +21,8 @@ class Xrpl(ConanFile):
         'tests': [True, False],
         'unity': [True, False],
         'xrpld': [True, False],
+        'with_wasmedge': [True, False],
+        'tool_requires_b2': [True, False],
     }
 
     requires = [
@@ -28,15 +30,14 @@ class Xrpl(ConanFile):
         'grpc/1.50.1',
         'libarchive/3.7.6',
         'nudb/2.0.8',
-        'openssl/1.1.1v',
+        'openssl/3.6.0',
         'soci/4.0.3@xahaud/stable',
         'xxhash/0.8.2',
-        'wasmedge/0.11.2',
         'zlib/1.3.1',
     ]
 
     tool_requires = [
-        'protobuf/3.21.9',
+        'protobuf/3.21.12',
     ]
 
     default_options = {
@@ -49,9 +50,11 @@ class Xrpl(ConanFile):
         'static': True,
         'tests': False,
         'unity': False,
+        'with_wasmedge': True,
+        'tool_requires_b2': False,
         'xrpld': False,
 
-        'date/*:header_only': True,
+        'date/*:header_only': False,
         'grpc/*:shared': False,
         'grpc/*:secure': True,
         'libarchive/*:shared': False,
@@ -95,15 +98,28 @@ class Xrpl(ConanFile):
             match = next(m for m in matches if m)
             self.version = match.group(1)
 
+    def build_requirements(self):
+        self.tool_requires('grpc/1.50.1')
+        # Explicitly require b2 (e.g. for building from source for glibc compatibility)
+        if self.options.tool_requires_b2:
+            self.tool_requires('b2/5.3.2')
+
     def configure(self):
         if self.settings.compiler == 'apple-clang':
-            self.options['boost'].visibility = 'global'
+            self.options['boost/*'].visibility = 'global'
 
     def requirements(self):
-        self.requires('boost/1.86.0', force=True)
+        # Force boost version for all dependencies to avoid conflicts
+        self.requires('boost/1.86.0', override=True)
         self.requires('lz4/1.10.0', force=True)
         self.requires('protobuf/3.21.9', force=True)
-        self.requires('sqlite3/3.47.0', force=True)
+        # Force sqlite3 version to avoid conflicts with soci
+        self.requires('sqlite3/3.47.0', override=True)
+        # Force our custom snappy build for all dependencies
+        self.requires('snappy/1.1.10@xahaud/stable', override=True)
+
+        if self.options.with_wasmedge:
+            self.requires('wasmedge/0.11.2@xahaud/stable')
         if self.options.jemalloc:
             self.requires('jemalloc/5.3.0')
         if self.options.rocksdb:

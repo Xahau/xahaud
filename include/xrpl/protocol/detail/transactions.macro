@@ -73,6 +73,7 @@ TRANSACTION(ttACCOUNT_SET, 3, AccountSet, ({
     {sfClearFlag, soeOPTIONAL},
     {sfTickSize, soeOPTIONAL},
     {sfNFTokenMinter, soeOPTIONAL},
+    {sfHookStateScale, soeOPTIONAL},
 }))
 
 /** This transaction type cancels an existing escrow. */
@@ -498,6 +499,20 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet, ({
 TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
+
+/* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
+TRANSACTION(ttCRON, 92, Cron, ({
+    {sfOwner, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+}))
+
+/* Sechedule an alarm for later */
+TRANSACTION(ttCRON_SET, 93, CronSet, ({
+    {sfDelaySeconds, soeOPTIONAL},
+    {sfRepeatCount, soeOPTIONAL},
+    {sfStartTime, soeOPTIONAL},
+}))
+
 
 /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
 TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({

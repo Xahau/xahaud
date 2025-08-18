@@ -162,34 +162,22 @@ deserializeManifest(Slice s, beast::Journal journal)
     }
 }
 
-template <class Stream>
-Stream&
-logMftAct(
-    Stream& s,
-    std::string const& action,
-    PublicKey const& pk,
-    std::uint32_t seq)
-{
-    s << "Manifest: " << action
-      << ";Pk: " << toBase58(TokenType::NodePublic, pk) << ";Seq: " << seq
-      << ";";
-    return s;
-}
+// Helper macros to format manifest log messages while preserving line numbers
+#define LOG_MANIFEST_ACTION(stream, action, pk, seq)                   \
+    do                                                                 \
+    {                                                                  \
+        JLOG(stream) << "Manifest: " << action                         \
+                     << ";Pk: " << toBase58(TokenType::NodePublic, pk) \
+                     << ";Seq: " << seq << ";";                        \
+    } while (0)
 
-template <class Stream>
-Stream&
-logMftAct(
-    Stream& s,
-    std::string const& action,
-    PublicKey const& pk,
-    std::uint32_t seq,
-    std::uint32_t oldSeq)
-{
-    s << "Manifest: " << action
-      << ";Pk: " << toBase58(TokenType::NodePublic, pk) << ";Seq: " << seq
-      << ";OldSeq: " << oldSeq << ";";
-    return s;
-}
+#define LOG_MANIFEST_ACTION_WITH_OLD(stream, action, pk, seq, oldSeq)    \
+    do                                                                   \
+    {                                                                    \
+        JLOG(stream) << "Manifest: " << action                           \
+                     << ";Pk: " << toBase58(TokenType::NodePublic, pk)   \
+                     << ";Seq: " << seq << ";OldSeq: " << oldSeq << ";"; \
+    } while (0)
 
 bool
 Manifest::verify() const
@@ -402,7 +390,7 @@ ManifestCache::applyManifest(Manifest m)
             // several cases including when we receive manifests from a peer who
             // doesn't have the latest data.
             if (auto stream = j_.debug())
-                logMftAct(
+                LOG_MANIFEST_ACTION_WITH_OLD(
                     stream,
                     "Stale",
                     m.masterKey,
@@ -414,7 +402,7 @@ ManifestCache::applyManifest(Manifest m)
         if (checkSignature && !m.verify())
         {
             if (auto stream = j_.warn())
-                logMftAct(stream, "Invalid", m.masterKey, m.sequence);
+                LOG_MANIFEST_ACTION(stream, "Invalid", m.masterKey, m.sequence);
             return ManifestDisposition::invalid;
         }
 
@@ -428,7 +416,7 @@ ManifestCache::applyManifest(Manifest m)
         bool const revoked = m.revoked();
 
         if (auto stream = j_.warn(); stream && revoked)
-            logMftAct(stream, "Revoked", m.masterKey, m.sequence);
+            LOG_MANIFEST_ACTION(stream, "Revoked", m.masterKey, m.sequence);
 
         // Sanity check: the master key of this manifest should not be used as
         // the ephemeral key of another manifest:
@@ -506,7 +494,7 @@ ManifestCache::applyManifest(Manifest m)
     if (iter == map_.end())
     {
         if (auto stream = j_.info())
-            logMftAct(stream, "AcceptedNew", m.masterKey, m.sequence);
+            LOG_MANIFEST_ACTION(stream, "AcceptedNew", m.masterKey, m.sequence);
 
         if (!revoked)
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
@@ -519,7 +507,7 @@ ManifestCache::applyManifest(Manifest m)
     // An ephemeral key was revoked and superseded by a new key. This is
     // expected, but should happen infrequently.
     if (auto stream = j_.info())
-        logMftAct(
+        LOG_MANIFEST_ACTION_WITH_OLD(
             stream,
             "AcceptedUpdate",
             m.masterKey,
@@ -614,4 +602,9 @@ ManifestCache::save(
 
     saveManifests(*db, dbTable, isTrusted, map_, j_);
 }
+
+// Clean up macros to avoid namespace pollution
+#undef LOG_MANIFEST_ACTION
+#undef LOG_MANIFEST_ACTION_WITH_OLD
+
 }  // namespace ripple

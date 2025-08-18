@@ -103,6 +103,10 @@ test.protocol > test.toplevel
 test.protocol > xrpl.basics
 test.protocol > xrpl.json
 test.protocol > xrpl.protocol
+test.rdb > test.jtx
+test.rdb > test.toplevel
+test.rdb > xrpld.app
+test.rdb > xrpld.core
 test.resource > test.unit_test
 test.resource > xrpl.basics
 test.resource > xrpl.resource

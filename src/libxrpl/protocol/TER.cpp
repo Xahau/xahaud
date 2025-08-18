@@ -98,6 +98,7 @@ transResults()
         MAKE_ERROR(tecINSUF_RESERVE_SELLER,          "The seller of an object has insufficient reserves, and thus cannot complete the sale."),
         MAKE_ERROR(tecIMMUTABLE,                     "The remark is marked immutable on the object, and therefore cannot be updated."),
         MAKE_ERROR(tecTOO_MANY_REMARKS,              "The number of remarks on the object would exceed the limit of 32."),
+        MAKE_ERROR(tecHAS_HOOK_STATE,                "Delete all hook state before reducing scale"),
         MAKE_ERROR(tecINCOMPLETE,                    "Some work was completed, but more submissions required to finish."),
         MAKE_ERROR(tecXCHAIN_BAD_TRANSFER_ISSUE,     "Bad xchain transfer issue."),
         MAKE_ERROR(tecXCHAIN_NO_CLAIM_ID,            "No such xchain claim id."),

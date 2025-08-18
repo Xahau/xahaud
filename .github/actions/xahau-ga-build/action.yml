@@ -21,7 +21,7 @@ inputs:
     required: false
     default: ''
   compiler-id:
-    description: 'Unique identifier for compiler/version combination used for cache keys'
+    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx)'
     required: false
     default: ''
   cache_version:
@@ -36,6 +36,17 @@ inputs:
     description: 'Main branch name for restore keys'
     required: false
     default: 'dev'
+  stdlib:
+    description: 'C++ standard library to use'
+    required: true
+    type: choice
+    options:
+      - libstdcxx
+      - libcxx
+  clang_gcc_toolchain:
+    description: 'GCC version to use for Clang toolchain (e.g. 11, 13)'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -48,18 +59,28 @@ runs:
         SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
-    - name: Restore ccache directory
+    - name: Restore ccache directory for default branch
       if: inputs.ccache_enabled == 'true'
       id: ccache-restore
       uses: actions/cache/restore@v4
       with:
-        path: ~/.ccache
+        path: ~/.ccache-main
+        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+
+    - name: Restore ccache directory for current branch
+      if: inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
+      id: ccache-restore-current-branch
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.ccache-current
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
         restore-keys: |
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-
 
     - name: Configure project
       shell: bash
@@ -76,16 +97,54 @@ runs:
           export CXX="${{ inputs.cxx }}"
         fi
         
+        
         # Configure ccache launcher args
         CCACHE_ARGS=""
         if [ "${{ inputs.ccache_enabled }}" = "true" ]; then
           CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
         fi
         
+        # Configure C++ standard library if specified
+        # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
+        # libcxx can be used with clang-17+ which has full C++20 support
+        # Note: -stdlib flag is Clang-specific, GCC always uses libstdc++
+        CMAKE_CXX_FLAGS=""
+        if [[ "${{ inputs.cxx }}" == clang* ]]; then
+          # Only Clang needs the -stdlib flag
+          if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
+            CMAKE_CXX_FLAGS="-stdlib=libstdc++"
+          elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
+            CMAKE_CXX_FLAGS="-stdlib=libc++"
+          fi
+        fi
+        # GCC always uses libstdc++ and doesn't need/support the -stdlib flag
+        
+        # Configure GCC toolchain for Clang if specified
+        if [ -n "${{ inputs.clang_gcc_toolchain }}" ] && [[ "${{ inputs.cxx }}" == clang* ]]; then
+          # Extract Clang version from compiler executable name (e.g., clang++-14 -> 14)
+          clang_version=$(echo "${{ inputs.cxx }}" | grep -oE '[0-9]+$')
+          
+          # Clang 16+ supports --gcc-install-dir (precise path specification)
+          # Clang <16 only has --gcc-toolchain (uses discovery heuristics)
+          if [ -n "$clang_version" ] && [ "$clang_version" -ge "16" ]; then
+            # Clang 16+ uses --gcc-install-dir (canonical, precise)
+            CMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}"
+          else
+            # Clang 14-15 uses --gcc-toolchain (deprecated but necessary)
+            # Note: This still uses discovery, so we hide newer GCC versions in the workflow
+            CMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS --gcc-toolchain=/usr"
+          fi
+        fi
+        
         # Run CMake configure
+        # Note: conanfile.py hardcodes 'build/generators' as the output path.
+        # If we're in a 'build' folder, Conan detects this and uses just 'generators/'
+        # If we're in '.build' (non-standard), Conan adds the full 'build/generators/'
+        # So we get: .build/build/generators/ with our non-standard folder name
         cmake .. \
           -G "${{ inputs.generator }}" \
           $CCACHE_ARGS \
+          ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
           -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} \
           -Dtests=TRUE \
@@ -102,9 +161,16 @@ runs:
       shell: bash
       run: ccache -s
 
-    - name: Save ccache directory
-      if: inputs.ccache_enabled == 'true'
+    - name: Save ccache directory for default branch
+      if: always() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
       uses: actions/cache/save@v4
       with:
-        path: ~/.ccache
+        path: ~/.ccache-main
         key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
+
+    - name: Save ccache directory for current branch
+      if: always() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.ccache-current
+        key: ${{ steps.ccache-restore-current-branch.outputs.cache-primary-key }}

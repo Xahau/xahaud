@@ -12,6 +12,13 @@ echo "-- GITHUB_REPOSITORY: $1"
 echo "-- GITHUB_SHA:        $2"
 echo "-- GITHUB_RUN_NUMBER: $4"
 
+# Use mounted filesystem for temp files to avoid container space limits
+export TMPDIR=/io/tmp
+export TEMP=/io/tmp
+export TMP=/io/tmp
+mkdir -p /io/tmp
+echo "=== Using temp directory: /io/tmp ==="
+
 umask 0000;
 
 cd /io/ &&
@@ -45,10 +52,17 @@ export CMAKE_STATIC_LINKER_FLAGS="-static-libstdc++"
 git config --global --add safe.directory /io &&
 git checkout src/libxrpl/protocol/BuildInfo.cpp &&
 sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)$(if [ -n "$4" ]; then echo "+$4"; fi)\"/g src/libxrpl/protocol/BuildInfo.cpp &&
-conan export external/snappy snappy/1.1.10@xahaud/stable &&
-conan export external/soci soci/4.0.3@xahaud/stable &&
+conan export external/snappy --version 1.1.10 --user xahaud --channel stable &&
+conan export external/soci --version 4.0.3 --user xahaud --channel stable &&
+conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable &&
 cd release-build &&
-conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE &&
+# Install dependencies - tool_requires in conanfile.py handles glibc 2.28 compatibility
+# for build tools (protoc, grpc plugins, b2) in HBB environment
+# The tool_requires('b2/5.3.2') in conanfile.py should force b2 to build from source
+# with the correct toolchain, avoiding the GLIBCXX_3.4.29 issue
+echo "=== Installing dependencies ===" &&
+conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE \
+  -o with_wasmedge=False -o tool_requires_b2=True &&
 cmake .. -G Ninja \
   -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
   -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
@@ -58,10 +72,13 @@ cmake .. -G Ninja \
   -Dxrpld=TRUE \
   -Dtests=TRUE &&
 ccache -z &&
-ninja -j $3 &&
+ninja -j $3 && echo "=== Re-running final link with verbose output ===" && rm -f rippled && ninja -v rippled &&
 ccache -s &&
-strip -s rippled &&	
+strip -s rippled &&
 mv rippled xahaud &&
+echo "=== Full ldd output ===" &&
+ldd xahaud &&
+echo "=== Running libcheck ===" &&
 libcheck xahaud &&
 echo "Build host: `hostname`" > release.info &&
 echo "Build date: `date`" >> release.info &&

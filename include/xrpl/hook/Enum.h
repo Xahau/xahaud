@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <map>
 #include <set>
 #include <string>
@@ -28,6 +29,8 @@ enum HookEmissionFlags : uint16_t {
 };
 }  // namespace ripple
 
+using namespace ripple;
+
 namespace hook {
 // RH TODO: put these somewhere better, and allow rules to be fed in
 inline uint32_t
@@ -42,10 +45,26 @@ maxHookParameterValueSize(void)
     return 256;
 }
 
-inline uint32_t
-maxHookStateDataSize(void)
+inline uint16_t
+maxHookStateScale(void)
 {
-    return 256U;
+    return 16;
+}
+
+inline uint32_t
+maxHookStateDataSize(uint16_t hookStateScale)
+{
+    if (hookStateScale == 0)
+    {
+        // should not happen, but just in case
+        return 256U;
+    }
+    if (hookStateScale > maxHookStateScale())
+    {
+        // should not happen, but just in case
+        return 256 * maxHookStateScale();
+    }
+    return 256U * hookStateScale;
 }
 
 inline uint32_t
@@ -259,8 +278,7 @@ enum keylet_code : uint32_t {
     NFT_OFFER = 23,
     HOOK_DEFINITION = 24,
     HOOK_STATE_DIR = 25,
-    LAST_KLTYPE_V0 = HOOK_DEFINITION,
-    LAST_KLTYPE_V1 = HOOK_STATE_DIR,
+    CRON = 26
 };
 }
 
