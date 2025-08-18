@@ -313,6 +313,55 @@ public:
         // Overwrite Current Ledger
         ledgers_[seq] = std::move(ledgerData);
         ledgerHashToSeq_[ledger->info().hash] = seq;
+
+        // Automatic cleanup based on LEDGER_HISTORY (ported from
+        // FlatmapDatabase)
+        if (current)
+        {
+            auto const cutoffSeq =
+                ledger->info().seq > app_.config().LEDGER_HISTORY
+                ? ledger->info().seq - app_.config().LEDGER_HISTORY
+                : 0;
+
+            if (cutoffSeq > 0)
+            {
+                // Delete old ledgers before cutoff
+                auto it = ledgers_.begin();
+                while (it != ledgers_.end() && it->first < cutoffSeq)
+                {
+                    // Clean up transactions from this ledger
+                    for (const auto& [txHash, _] : it->second.transactions)
+                    {
+                        transactionMap_.erase(txHash);
+                    }
+                    ledgerHashToSeq_.erase(it->second.info.hash);
+                    it = ledgers_.erase(it);
+                }
+
+                // Clean up account transactions before cutoff
+                for (auto& [_, accountData] : accountTxMap_)
+                {
+                    auto txIt = accountData.ledgerTxMap.begin();
+                    while (txIt != accountData.ledgerTxMap.end() &&
+                           txIt->first < cutoffSeq)
+                    {
+                        txIt = accountData.ledgerTxMap.erase(txIt);
+                    }
+                    // Clean up transactions vector
+                    accountData.transactions.erase(
+                        std::remove_if(
+                            accountData.transactions.begin(),
+                            accountData.transactions.end(),
+                            [cutoffSeq](const AccountTx& tx) {
+                                return tx.second->getLgrSeq() < cutoffSeq;
+                            }),
+                        accountData.transactions.end());
+                }
+
+                app_.getLedgerMaster().clearPriorLedgers(cutoffSeq);
+            }
+        }
+
         return true;
     }
 
