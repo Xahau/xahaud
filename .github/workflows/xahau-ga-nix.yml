@@ -72,21 +72,30 @@ jobs:
           
           # For Clang with specific GCC toolchain, hide newer GCC versions
           # This is needed for Clang 14 which uses --gcc-toolchain and still picks the highest version
-          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" = "14" ]; then
-            echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
-            target_version=${{ matrix.clang_gcc_toolchain }}
-            counter=1
-            for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
-              if [ -d "$dir" ]; then
-                version=$(basename "$dir")
-                # Check if version is numeric and greater than target
-                if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
-                  echo "Hiding GCC $version -> renaming to $counter"
-                  sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
-                  counter=$((counter + 1))
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
+            echo "=== GCC versions present before any changes ==="
+            ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d"
+            
+            # Install the target GCC version if not present
+            echo "=== Ensuring GCC ${{ matrix.clang_gcc_toolchain }} is installed ==="
+            sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }} libstdc++-${{ matrix.clang_gcc_toolchain }}-dev
+            
+            if [ "${{ matrix.compiler_version }}" = "14" ]; then
+              echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
+              target_version=${{ matrix.clang_gcc_toolchain }}
+              counter=1
+              for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
+                if [ -d "$dir" ]; then
+                  version=$(basename "$dir")
+                  # Check if version is numeric and greater than target
+                  if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
+                    echo "Hiding GCC $version -> renaming to $counter"
+                    sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                    counter=$((counter + 1))
+                  fi
                 fi
-              fi
-            done
+              done
+            fi
           fi
           
           # Verify what Clang will use
