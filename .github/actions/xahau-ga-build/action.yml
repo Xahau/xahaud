@@ -43,6 +43,10 @@ inputs:
     options:
       - libstdcxx
       - libcxx
+  clang_gcc_toolchain:
+    description: 'GCC version to use for Clang toolchain (e.g. 11, 13)'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -93,7 +97,14 @@ runs:
         # libcxx can be used with clang-17+ which has full C++20 support
         STDLIB_ARGS=""
         if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
-          STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libstdc++"
+          # Add gcc-toolchain flag if specified (for Clang to use specific GCC version headers)
+          if [ -n "${{ inputs.clang_gcc_toolchain }}" ]; then
+            # Use gcc-install-dir to point to specific GCC version
+            # This ensures Clang uses the right headers even with multiple GCC versions installed
+            STDLIB_ARGS="-DCMAKE_CXX_FLAGS='-stdlib=libstdc++ --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}'"
+          else
+            STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libstdc++"
+          fi
         elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
           STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libc++"
         fi
