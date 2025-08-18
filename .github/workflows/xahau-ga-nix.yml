@@ -72,18 +72,29 @@ jobs:
             ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d"
           fi
           
-          # For Clang 14 with --gcc-toolchain, hide newer GCC versions
+          # For Clang < 16 with --gcc-toolchain, hide newer GCC versions
           # This is needed because --gcc-toolchain still picks the highest version
+          # 
+          # THE GREAT GCC HIDING TRICK (for Clang < 16):
+          # Clang versions before 16 don't have --gcc-install-dir, only --gcc-toolchain
+          # which is deprecated and still uses discovery heuristics that ALWAYS pick 
+          # the highest version number. So we play a sneaky game...
+          #
+          # We rename newer GCC versions to very low integers (1, 2, 3...) which makes
+          # Clang think they're ancient GCC versions. Since 11 > 3 > 2 > 1, Clang will
+          # pick GCC 11 over our renamed versions. It's dumb but it works!
+          #
+          # Example: GCC 12→1, GCC 13→2, GCC 14→3, so Clang picks 11 (highest number)
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" = "14" ]; then
             echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
             target_version=${{ matrix.clang_gcc_toolchain }}
-            counter=1
+            counter=1  # Start with 1 - these will be seen as "GCC version 1, 2, 3" etc
             for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
               if [ -d "$dir" ]; then
                 version=$(basename "$dir")
                 # Check if version is numeric and greater than target
                 if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
-                  echo "Hiding GCC $version -> renaming to $counter"
+                  echo "Hiding GCC $version -> renaming to $counter (will be seen as GCC version $counter)"
                   sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
                   counter=$((counter + 1))
                 fi
