@@ -95,25 +95,27 @@ runs:
         # Configure C++ standard library if specified
         # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
         # libcxx can be used with clang-17+ which has full C++20 support
-        STDLIB_ARGS=""
+        # Configure C++ standard library and toolchain
         if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
           # Add gcc-toolchain flag if specified (for Clang to use specific GCC version headers)
           if [ -n "${{ inputs.clang_gcc_toolchain }}" ]; then
             # Use gcc-install-dir to point to specific GCC version
             # This ensures Clang uses the right headers even with multiple GCC versions installed
-            STDLIB_ARGS="-DCMAKE_CXX_FLAGS='-stdlib=libstdc++ --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}'"
+            CMAKE_CXX_FLAGS="-stdlib=libstdc++ --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}"
           else
-            STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libstdc++"
+            CMAKE_CXX_FLAGS="-stdlib=libstdc++"
           fi
         elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
-          STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libc++"
+          CMAKE_CXX_FLAGS="-stdlib=libc++"
+        else
+          CMAKE_CXX_FLAGS=""
         fi
         
         # Run CMake configure
         cmake .. \
           -G "${{ inputs.generator }}" \
           $CCACHE_ARGS \
-          $STDLIB_ARGS \
+          ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
           -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
 
