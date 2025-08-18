@@ -27,19 +27,19 @@ jobs:
           #   cxx: g++-13
           #   compiler_id: gcc-13
           #   compiler_version: 13
-          #   force_libstdcpp: false
+          #   stdlib: libstdcxx
           - compiler: clang
             cc: clang-14
             cxx: clang++-14
             compiler_id: clang-14
             compiler_version: 14
-            force_libstdcpp: true  # Required for clang-14 compatibility
+            stdlib: libstdcxx  # Required for clang-14 compatibility
           - compiler: clang
             cc: clang-16
             cxx: clang++-16
             compiler_id: clang-16
             compiler_version: 16
-            force_libstdcpp: true  # Workaround for missing lexicographical_compare_three_way in libc++
+            stdlib: libstdcxx  # Workaround for missing lexicographical_compare_three_way in libc++
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
@@ -72,13 +72,11 @@ jobs:
           conan profile new default --detect || true # Ignore error if profile exists
           conan profile update settings.compiler.cppstd=20 default
           conan profile update settings.compiler=${{ matrix.compiler }} default
-          # Use libstdc++11 for clang when force_libstdcpp is enabled, otherwise use libc++
-          if [ "${{ matrix.compiler }}" = "clang" ] && [ "${{ matrix.force_libstdcpp }}" = "true" ]; then
+          # Set the C++ standard library based on matrix configuration
+          if [ "${{ matrix.stdlib }}" = "libstdcxx" ]; then
             conan profile update settings.compiler.libcxx=libstdc++11 default
-          elif [ "${{ matrix.compiler }}" = "clang" ]; then
+          elif [ "${{ matrix.stdlib }}" = "libcxx" ]; then
             conan profile update settings.compiler.libcxx=libc++ default
-          else
-            conan profile update settings.compiler.libcxx=libstdc++11 default
           fi
           conan profile update env.CC=/usr/bin/${{ matrix.cc }} default
           conan profile update env.CXX=/usr/bin/${{ matrix.cxx }} default
@@ -109,7 +107,7 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
-          stdlib_choice: ${{ matrix.force_libstdcpp }}
+          stdlib: ${{ matrix.stdlib }}
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -122,7 +120,7 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
-          clang_use_libstdcpp: ${{ matrix.force_libstdcpp }}
+          stdlib: ${{ matrix.stdlib }}
 
       - name: Set artifact name
         id: set-artifact-name

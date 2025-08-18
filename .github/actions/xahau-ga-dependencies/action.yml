@@ -25,10 +25,13 @@ inputs:
     description: 'Main branch name for restore keys'
     required: false
     default: 'dev'
-  stdlib_choice:
-    description: 'Standard library choice (affects cache key for different stdlib builds)'
-    required: false
-    default: 'default'
+  stdlib:
+    description: 'C++ standard library - affects cache key'
+    required: true
+    type: choice
+    options:
+      - libstdcxx
+      - libcxx
 
 outputs:
   cache-hit:
@@ -54,10 +57,10 @@ runs:
         path: |
           ~/.conan
           ~/.conan2
-        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.stdlib_choice }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
+        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.stdlib }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
         restore-keys: |
-          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.stdlib_choice }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
-          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.stdlib_choice }}-
+          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.stdlib }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
+          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.stdlib }}-
 
     - name: Export custom recipes
       shell: bash

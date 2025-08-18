@@ -36,10 +36,13 @@ inputs:
     description: 'Main branch name for restore keys'
     required: false
     default: 'dev'
-  clang_use_libstdcpp:
-    description: 'Force clang to use libstdc++ instead of libc++ (workaround for clang-16)'
-    required: false
-    default: 'false'
+  stdlib:
+    description: 'C++ standard library to use'
+    required: true
+    type: choice
+    options:
+      - libstdcxx
+      - libcxx
 
 runs:
   using: 'composite'
@@ -85,12 +88,14 @@ runs:
           CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
         fi
         
-        # Configure libstdc++ override for clang if requested
-        # This works around clang-16 missing lexicographical_compare_three_way in libc++
-        # which is only available in LLVM 17+. Can be removed when upgrading to clang-17+
+        # Configure C++ standard library if specified
+        # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
+        # libcxx can be used with clang-17+ which has full C++20 support
         STDLIB_ARGS=""
-        if [ "${{ inputs.clang_use_libstdcpp }}" = "true" ] && [[ "${{ inputs.cxx }}" == *"clang"* ]]; then
+        if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
           STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libstdc++"
+        elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
+          STDLIB_ARGS="-DCMAKE_CXX_FLAGS=-stdlib=libc++"
         fi
         
         # Run CMake configure
