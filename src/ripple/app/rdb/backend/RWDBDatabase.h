@@ -65,17 +65,12 @@ public:
             return {};
 
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        LedgerIndex minSeq = std::numeric_limits<LedgerIndex>::max();
-        if (transactionMap_.empty())
-            return std::nullopt;
-        for (const auto& [_, txMeta] : transactionMap_)
+        for (const auto& [ledgerSeq, ledgerData] : ledgers_)
         {
-            if (txMeta.second && txMeta.second->getLgrSeq() < minSeq)
-                minSeq = txMeta.second->getLgrSeq();
+            if (!ledgerData.transactions.empty())
+                return ledgerSeq;
         }
-        return minSeq == std::numeric_limits<LedgerIndex>::max()
-            ? std::nullopt
-            : std::optional<LedgerIndex>(minSeq);
+        return std::nullopt;
     }
 
     std::optional<LedgerIndex>
