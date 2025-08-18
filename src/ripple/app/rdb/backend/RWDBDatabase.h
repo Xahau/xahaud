@@ -28,7 +28,8 @@ private:
 
     struct AccountTxData
     {
-        std::map<uint32_t, AccountTxs> ledgerTxMap;  // ledgerSeq -> vector of AccountTx
+        std::map<uint32_t, AccountTxs>
+            ledgerTxMap;  // ledgerSeq -> vector of AccountTx
     };
 
     Application& app_;
