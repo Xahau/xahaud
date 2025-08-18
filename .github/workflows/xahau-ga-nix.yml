@@ -75,13 +75,15 @@ jobs:
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" = "14" ]; then
             echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
             target_version=${{ matrix.clang_gcc_toolchain }}
+            counter=1
             for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
               if [ -d "$dir" ]; then
                 version=$(basename "$dir")
                 # Check if version is numeric and greater than target
                 if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
-                  echo "Hiding GCC $version"
-                  sudo mv "$dir" "${dir%/}.bak"
+                  echo "Hiding GCC $version -> renaming to $counter"
+                  sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                  counter=$((counter + 1))
                 fi
               fi
             done
