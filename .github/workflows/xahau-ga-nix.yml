@@ -24,7 +24,7 @@ jobs:
         # - cc/cxx: Actual compiler executables
         # - compiler_version: Version number for Conan
         # - stdlib: Standard library (libstdcxx/libcxx) for Conan/CMake configuration
-        compiler_id: [clang-14-libstdcxx, clang-16-libstdcxx]  # Temporarily disabled: gcc-13-libstdcxx
+        compiler_id: [clang-14-libstdcxx-gcc13, clang-16-libstdcxx-gcc13]  # Temporarily disabled: gcc-13-libstdcxx
         configuration: [Debug]
         include:
           # - compiler_id: gcc-13-libstdcxx
@@ -33,14 +33,14 @@ jobs:
           #   cxx: g++-13
           #   compiler_version: 13
           #   stdlib: libstdcxx
-          - compiler_id: clang-14-libstdcxx
+          - compiler_id: clang-14-libstdcxx-gcc13
             compiler: clang
             cc: clang-14
             cxx: clang++-14
             compiler_version: 14
             stdlib: libstdcxx  # Required for clang-14 compatibility
-            clang_gcc_toolchain: 11  # Use GCC 11 headers with Clang 14
-          - compiler_id: clang-16-libstdcxx
+            clang_gcc_toolchain: 13  # Use GCC 13 headers with Clang 14 (GCC 14 too new)
+          - compiler_id: clang-16-libstdcxx-gcc13
             compiler: clang
             cc: clang-16
             cxx: clang++-16
@@ -65,6 +65,17 @@ jobs:
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
             echo "Installing GCC ${{ matrix.clang_gcc_toolchain }} toolchain for Clang"
             sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }}
+            
+            # Set the specified GCC version as the system default using update-alternatives
+            echo "Setting GCC ${{ matrix.clang_gcc_toolchain }} as the default compiler"
+            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${{ matrix.clang_gcc_toolchain }} 100
+            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${{ matrix.clang_gcc_toolchain }} 100
+            sudo update-alternatives --set gcc /usr/bin/gcc-${{ matrix.clang_gcc_toolchain }}
+            sudo update-alternatives --set g++ /usr/bin/g++-${{ matrix.clang_gcc_toolchain }}
+            
+            # Verify the change
+            gcc --version
+            g++ --version
           fi
           
           # Install libc++ dev packages if using libc++ (not needed for libstdc++)

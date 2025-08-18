@@ -95,16 +95,9 @@ runs:
         # Configure C++ standard library if specified
         # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
         # libcxx can be used with clang-17+ which has full C++20 support
-        # Configure C++ standard library and toolchain
+        # Configure C++ standard library
         if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
-          # Add gcc-toolchain flag if specified (for Clang to use specific GCC version headers)
-          if [ -n "${{ inputs.clang_gcc_toolchain }}" ]; then
-            # Use gcc-install-dir to point to specific GCC version
-            # This ensures Clang uses the right headers even with multiple GCC versions installed
-            CMAKE_CXX_FLAGS="-stdlib=libstdc++ --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}"
-          else
-            CMAKE_CXX_FLAGS="-stdlib=libstdc++"
-          fi
+          CMAKE_CXX_FLAGS="-stdlib=libstdc++"
         elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
           CMAKE_CXX_FLAGS="-stdlib=libc++"
         else
