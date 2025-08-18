@@ -26,7 +26,7 @@ jobs:
         # - compiler_version: Version number for Conan
         # - stdlib: Standard library (libstdcxx/libcxx) for Conan/CMake configuration
         # - clang_gcc_toolchain: GCC version for Clang to use (11, 13, 14) when using libstdc++
-        compiler_id: [clang-14-libstdcxx-gcc11, clang-14-libstdcxx-gcc13, clang-16-libstdcxx-gcc13]  # Temporarily disabled: gcc-13-libstdcxx
+        compiler_id: [clang-14-libstdcxx-gcc11, clang-16-libstdcxx-gcc13]  # Temporarily disabled: gcc-13-libstdcxx
         configuration: [Debug]
         include:
           # - compiler_id: gcc-13-libstdcxx
@@ -42,13 +42,6 @@ jobs:
             compiler_version: 14
             stdlib: libstdcxx  # Required for clang-14 compatibility
             clang_gcc_toolchain: 11  # Use GCC 11 headers with Clang 14
-          - compiler_id: clang-14-libstdcxx-gcc13
-            compiler: clang
-            cc: clang-14
-            cxx: clang++-14
-            compiler_version: 14
-            stdlib: libstdcxx  # Required for clang-14 compatibility
-            clang_gcc_toolchain: 13  # Use GCC 13 headers with Clang 14 (GCC 14 too new)
           - compiler_id: clang-16-libstdcxx-gcc13
             compiler: clang
             cc: clang-16
@@ -70,32 +63,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
           
-          # For Clang with specific GCC toolchain, hide newer GCC versions
-          # This is needed for Clang 14 which uses --gcc-toolchain and still picks the highest version
+          # Install the specific GCC version needed for Clang
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
-            echo "=== GCC versions present before any changes ==="
-            ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d"
-            
-            # Install the target GCC version if not present
-            echo "=== Ensuring GCC ${{ matrix.clang_gcc_toolchain }} is installed ==="
+            echo "=== Installing GCC ${{ matrix.clang_gcc_toolchain }} for Clang ==="
             sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }} libstdc++-${{ matrix.clang_gcc_toolchain }}-dev
             
-            if [ "${{ matrix.compiler_version }}" = "14" ]; then
-              echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
-              target_version=${{ matrix.clang_gcc_toolchain }}
-              counter=1
-              for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
-                if [ -d "$dir" ]; then
-                  version=$(basename "$dir")
-                  # Check if version is numeric and greater than target
-                  if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
-                    echo "Hiding GCC $version -> renaming to $counter"
-                    sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
-                    counter=$((counter + 1))
-                  fi
+            echo "=== GCC versions available after installation ==="
+            ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d"
+          fi
+          
+          # For Clang 14 with --gcc-toolchain, hide newer GCC versions
+          # This is needed because --gcc-toolchain still picks the highest version
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" = "14" ]; then
+            echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
+            target_version=${{ matrix.clang_gcc_toolchain }}
+            counter=1
+            for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
+              if [ -d "$dir" ]; then
+                version=$(basename "$dir")
+                # Check if version is numeric and greater than target
+                if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
+                  echo "Hiding GCC $version -> renaming to $counter"
+                  sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                  counter=$((counter + 1))
                 fi
-              done
-            fi
+              fi
+            done
           fi
           
           # Verify what Clang will use
