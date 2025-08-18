@@ -250,6 +250,10 @@ public:
     processXUSH(
         std::string const& message,
         boost::asio::ip::tcp::endpoint const& remoteEndpoint) = 0;
+
+    /** Send the txn to UDP Super Highway peers **/
+    virtual void
+    publishTxXUSH(Slice const& tx, uint256 const& txid) = 0;
 };
 
 }  // namespace ripple

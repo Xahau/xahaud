@@ -102,6 +102,7 @@ OverlayImpl::Timer::on_timer(error_code ec)
         return;
     }
 
+    std::cout << "on_timer\n";
     overlay_.m_peerFinder->once_per_second();
     overlay_.sendEndpoints();
     overlay_.autoConnect();
@@ -1760,6 +1761,12 @@ OverlayImpl::processXUSH(
             fragment_map.erase(txid);
         }
     }
+}
+
+void
+OverlayImpl::publishTxXUSH(Slice const& tx, uint256 const& txid)
+{
+    m_peerFinder->machine_gun_highway_peers(tx, txid);
 }
 
 //------------------------------------------------------------------------------

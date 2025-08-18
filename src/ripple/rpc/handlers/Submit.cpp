@@ -23,6 +23,7 @@
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/net/RPCErr.h>
+#include <ripple/overlay/Overlay.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/resource/Fees.h>
 #include <ripple/rpc/Context.h>
@@ -108,6 +109,11 @@ processSingleTransaction(
     try
     {
         stpTrans = std::make_shared<STTx const>(std::ref(sitTrans));
+
+        // RH TODO: basic signature check here to prevent abuse
+        // send over the UDP superhighway if it parsed correctly
+        context.app.overlay().publishTxXUSH(
+            makeSlice(*ret), stpTrans->getTransactionID());
     }
     catch (std::exception& e)
     {
