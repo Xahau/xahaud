@@ -28,9 +28,7 @@ private:
 
     struct AccountTxData
     {
-        AccountTxs transactions;
-        std::map<uint32_t, std::map<uint32_t, size_t>>
-            ledgerTxMap;  // ledgerSeq -> txSeq -> index in transactions
+        std::map<uint32_t, AccountTxs> ledgerTxMap;  // ledgerSeq -> vector of AccountTx
     };
 
     Application& app_;
@@ -166,14 +164,6 @@ public:
             {
                 txIt = accountData.ledgerTxMap.erase(txIt);
             }
-            accountData.transactions.erase(
-                std::remove_if(
-                    accountData.transactions.begin(),
-                    accountData.transactions.end(),
-                    [ledgerSeq](const AccountTx& tx) {
-                        return tx.second->getLgrSeq() < ledgerSeq;
-                    }),
-                accountData.transactions.end());
         }
     }
     std::size_t
@@ -196,7 +186,10 @@ public:
         std::size_t count = 0;
         for (const auto& [_, accountData] : accountTxMap_)
         {
-            count += accountData.transactions.size();
+            for (const auto& [_, txVector] : accountData.ledgerTxMap)
+            {
+                count += txVector.size();
+            }
         }
         return count;
     }
@@ -296,10 +289,7 @@ public:
                         accountTxMap_[account] = AccountTxData();
 
                     auto& accountData = accountTxMap_[account];
-                    accountData.transactions.push_back(accTx);
-                    accountData
-                        .ledgerTxMap[seq][acceptedLedgerTx->getTxnSeq()] =
-                        accountData.transactions.size() - 1;
+                    accountData.ledgerTxMap[seq].push_back(accTx);
                 }
 
                 app_.getMasterTransaction().inLedger(
@@ -515,11 +505,9 @@ public:
         for (const auto& [_, accountData] : accountTxMap_)
         {
             size += sizeof(AccountID) + sizeof(AccountTxData);
-            size += accountData.transactions.size() * sizeof(AccountTx);
-            for (const auto& [_, innerMap] : accountData.ledgerTxMap)
+            for (const auto& [_, txVector] : accountData.ledgerTxMap)
             {
-                size += sizeof(uint32_t) +
-                    innerMap.size() * (sizeof(uint32_t) + sizeof(size_t));
+                size += sizeof(uint32_t) + txVector.size() * sizeof(AccountTx);
             }
         }
         return size / 1024;
@@ -548,11 +536,9 @@ public:
         for (const auto& [_, accountData] : accountTxMap_)
         {
             size += sizeof(AccountID) + sizeof(AccountTxData);
-            size += accountData.transactions.size() * sizeof(AccountTx);
-            for (const auto& [_, innerMap] : accountData.ledgerTxMap)
+            for (const auto& [_, txVector] : accountData.ledgerTxMap)
             {
-                size += sizeof(uint32_t) +
-                    innerMap.size() * (sizeof(uint32_t) + sizeof(size_t));
+                size += sizeof(uint32_t) + txVector.size() * sizeof(AccountTx);
             }
         }
         return size / 1024;
@@ -657,14 +643,13 @@ public:
              (options.bUnlimited || result.size() < options.limit);
              ++txIt)
         {
-            for (const auto& [txSeq, txIndex] : txIt->second)
+            for (const auto& accountTx : txIt->second)
             {
                 if (skipped < options.offset)
                 {
                     ++skipped;
                     continue;
                 }
-                AccountTx const accountTx = accountData.transactions[txIndex];
                 std::uint32_t const inLedger = rangeCheckedCast<std::uint32_t>(
                     accountTx.second->getLgrSeq());
                 accountTx.first->setStatus(COMMITTED);
@@ -709,8 +694,7 @@ public:
                     ++skipped;
                     continue;
                 }
-                AccountTx const accountTx =
-                    accountData.transactions[innerRIt->second];
+                const AccountTx& accountTx = *innerRIt;
                 std::uint32_t const inLedger = rangeCheckedCast<std::uint32_t>(
                     accountTx.second->getLgrSeq());
                 accountTx.first->setLedger(inLedger);
