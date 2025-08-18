@@ -18,26 +18,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [clang]
+        # Matrix configuration:
+        # - compiler_id: Full identifier with stdlib (e.g. clang-14-libstdcxx) for cache keys
+        # - compiler: Base compiler family (gcc/clang) for Conan settings
+        # - cc/cxx: Actual compiler executables
+        # - compiler_version: Version number for Conan
+        # - stdlib: Standard library (libstdcxx/libcxx) for Conan/CMake configuration
+        compiler_id: [clang-14-libstdcxx, clang-16-libstdcxx]  # Temporarily disabled: gcc-13-libstdcxx
         configuration: [Debug]
         include:
-          # Temporarily disabled for clang testing
-          # - compiler: gcc
+          # - compiler_id: gcc-13-libstdcxx
+          #   compiler: gcc
           #   cc: gcc-13
           #   cxx: g++-13
-          #   compiler_id: gcc-13
           #   compiler_version: 13
           #   stdlib: libstdcxx
-          - compiler: clang
+          - compiler_id: clang-14-libstdcxx
+            compiler: clang
             cc: clang-14
             cxx: clang++-14
-            compiler_id: clang-14
             compiler_version: 14
             stdlib: libstdcxx  # Required for clang-14 compatibility
-          - compiler: clang
+          - compiler_id: clang-16-libstdcxx
+            compiler: clang
             cc: clang-16
             cxx: clang++-16
-            compiler_id: clang-16
             compiler_version: 16
             stdlib: libstdcxx  # Workaround for missing lexicographical_compare_three_way in libc++
     env:

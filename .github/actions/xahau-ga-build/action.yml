@@ -21,7 +21,7 @@ inputs:
     required: false
     default: ''
   compiler-id:
-    description: 'Unique identifier for compiler/version combination used for cache keys'
+    description: 'Unique identifier including compiler/version/stdlib (e.g. clang-14-libstdcxx)'
     required: false
     default: ''
   cache_version:
