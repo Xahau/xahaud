@@ -65,17 +65,28 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # If using Clang with specific GCC toolchain, remove GCC 14 FIRST
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
+            echo "=== Removing GCC 14 before installing other versions ==="
+            # Remove ALL GCC 14 related packages including headers
+            sudo apt-get remove -y gcc-14 g++-14 cpp-14 libgcc-14-dev libstdc++-14-dev gcc-14-base || true
+            
+            # Hold packages to prevent them from being installed as dependencies
+            sudo apt-mark hold gcc-14 g++-14 cpp-14 libgcc-14-dev libstdc++-14-dev gcc-14-base || true
+            
+            # Clear apt cache to prevent any cached GCC 14 packages
+            sudo apt-get clean
+            sudo apt-get autoclean
+          fi
+          
+          # Now update and install required packages
           sudo apt-get update
           sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
           
           # Install specific GCC toolchain for Clang if specified
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
-            echo "Installing GCC ${{ matrix.clang_gcc_toolchain }} toolchain for Clang"
+            echo "=== Installing GCC ${{ matrix.clang_gcc_toolchain }} toolchain for Clang ==="
             sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }}
-            
-            # Remove GCC 14 to prevent Clang from finding it
-            echo "Removing GCC 14 to prevent conflicts"
-            sudo apt-get remove -y gcc-14 g++-14 || true
             
             # Set the specified GCC version as the system default using update-alternatives
             echo "Setting GCC ${{ matrix.clang_gcc_toolchain }} as the default compiler"
@@ -84,13 +95,25 @@ jobs:
             sudo update-alternatives --set gcc /usr/bin/gcc-${{ matrix.clang_gcc_toolchain }}
             sudo update-alternatives --set g++ /usr/bin/g++-${{ matrix.clang_gcc_toolchain }}
             
+            # Create symlinks for cpp as well
+            sudo update-alternatives --install /usr/bin/cpp cpp /usr/bin/cpp-${{ matrix.clang_gcc_toolchain }} 100
+            sudo update-alternatives --set cpp /usr/bin/cpp-${{ matrix.clang_gcc_toolchain }}
+            
             # Verify the change
+            echo "=== Verifying GCC configuration ==="
             gcc --version
             g++ --version
+            which gcc
+            ls -la /usr/bin/gcc*
+            ls -la /usr/bin/g++*
+            
+            # Show what include paths exist
+            echo "=== Available C++ include directories ==="
+            ls -la /usr/include/c++/ || true
             
             # Show what Clang will use
-            echo "Checking what headers Clang will use:"
-            clang++ -E -x c++ - -v < /dev/null 2>&1 | grep "^ /"
+            echo "=== Checking what headers Clang will use ==="
+            ${{ matrix.cxx }} -E -x c++ - -v < /dev/null 2>&1 | grep "^ /"
           fi
           
           # Install libc++ dev packages if using libc++ (not needed for libstdc++)
