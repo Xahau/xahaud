@@ -27,6 +27,7 @@ jobs:
           #   cxx: g++-13
           #   compiler_id: gcc-13
           #   compiler_version: 13
+          #   force_libstdcpp: false
           - compiler: clang
             cc: clang-14
             cxx: clang++-14
@@ -72,7 +73,7 @@ jobs:
           conan profile update settings.compiler.cppstd=20 default
           conan profile update settings.compiler=${{ matrix.compiler }} default
           # Use libstdc++11 for clang when force_libstdcpp is enabled, otherwise use libc++
-          if [ "${{ matrix.compiler }}" = "clang" ] && [ "${{ matrix.force_libstdcpp || 'false' }}" = "true" ]; then
+          if [ "${{ matrix.compiler }}" = "clang" ] && [ "${{ matrix.force_libstdcpp }}" = "true" ]; then
             conan profile update settings.compiler.libcxx=libstdc++11 default
           elif [ "${{ matrix.compiler }}" = "clang" ]; then
             conan profile update settings.compiler.libcxx=libc++ default
@@ -108,6 +109,7 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib_choice: ${{ matrix.force_libstdcpp }}
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -120,7 +122,7 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
-          clang_use_libstdcpp: ${{ matrix.force_libstdcpp || 'false' }}
+          clang_use_libstdcpp: ${{ matrix.force_libstdcpp }}
 
       - name: Set artifact name
         id: set-artifact-name
