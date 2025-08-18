@@ -19,11 +19,13 @@ jobs:
       fail-fast: false
       matrix:
         # Matrix configuration:
-        # - compiler_id: Full identifier with stdlib (e.g. clang-14-libstdcxx) for cache keys
+        # - compiler_id: Full identifier including compiler, version, stdlib, and GCC version if applicable
+        #                (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx) for cache keys
         # - compiler: Base compiler family (gcc/clang) for Conan settings
         # - cc/cxx: Actual compiler executables
         # - compiler_version: Version number for Conan
         # - stdlib: Standard library (libstdcxx/libcxx) for Conan/CMake configuration
+        # - clang_gcc_toolchain: GCC version for Clang to use (11, 13, 14) when using libstdc++
         compiler_id: [clang-14-libstdcxx-gcc11, clang-14-libstdcxx-gcc13, clang-16-libstdcxx-gcc13]  # Temporarily disabled: gcc-13-libstdcxx
         configuration: [Debug]
         include:
