@@ -85,8 +85,8 @@ jobs:
           # pick GCC 11 over our renamed versions. It's dumb but it works!
           #
           # Example: GCC 12→1, GCC 13→2, GCC 14→3, so Clang picks 11 (highest number)
-          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" = "14" ]; then
-            echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang 14 ==="
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" -lt "16" ]; then
+            echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang < 16 ==="
             target_version=${{ matrix.clang_gcc_toolchain }}
             counter=1  # Start with 1 - these will be seen as "GCC version 1, 2, 3" etc
             for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do

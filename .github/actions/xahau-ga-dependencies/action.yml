@@ -10,7 +10,7 @@ inputs:
     required: false
     default: '.build'
   compiler-id:
-    description: 'Unique identifier including compiler/version/stdlib (e.g. clang-14-libstdcxx)'
+    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx)'
     required: false
     default: ''
   cache_version:
@@ -57,7 +57,7 @@ runs:
         path: |
           ~/.conan
           ~/.conan2
-        # Note: compiler-id includes stdlib by convention (e.g. clang-14-libstdcxx)
+        # Note: compiler-id format is compiler-version-stdlib[-gccversion]
         key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
         restore-keys: |
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-

@@ -21,7 +21,7 @@ inputs:
     required: false
     default: ''
   compiler-id:
-    description: 'Unique identifier including compiler/version/stdlib (e.g. clang-14-libstdcxx)'
+    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx)'
     required: false
     default: ''
   cache_version:
