@@ -118,19 +118,6 @@ SHAMapStoreImp::SHAMapStoreImp(
 
     get_if_exists(section, "online_delete", deleteInterval_);
 
-    // RWDB (in-memory backend) requires online_delete to prevent OOM
-    // Exception: standalone mode (used by tests) doesn't need online_delete
-    // since tests run for short durations
-    if (config.mem_backend() && !deleteInterval_ && !config.standalone())
-    {
-        Throw<std::runtime_error>(
-            "RWDB (in-memory backend) requires online_delete to be configured. "
-            "Without online_delete, memory usage will grow unbounded until "
-            "OOM. "
-            "Add [node_db] with online_delete setting to enable automatic "
-            "cleanup.");
-    }
-
     if (deleteInterval_)
     {
         if (app_.config().reporting())
@@ -748,4 +735,5 @@ make_SHAMapStore(
 {
     return std::make_unique<SHAMapStoreImp>(app, scheduler, journal);
 }
+
 }  // namespace ripple
