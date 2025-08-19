@@ -1,5 +1,5 @@
 name: patch-conan-post-setup
-description: 'Apply post-setup patches to Conan configuration'
+description: 'Apply post-setup patches to Conan configuration (e.g., add support for newer compiler versions)'
 
 inputs:
   compiler-id:
@@ -36,22 +36,20 @@ runs:
         print(f"Conan home: {conan_home}")
         print(f"Settings path: {settings_path}")
         
-        # Debug: List contents of Conan home
-        if conan_home.exists():
-            print(f"Contents of {conan_home}:")
-            for item in conan_home.iterdir():
-                print(f"  - {item.name}")
-        
-        # Check if settings.yml exists, if not, try to initialize it
+        # Check if settings.yml exists
+        # Note: Conan 1 uses embedded defaults until 'conan config init' is called
+        # The settings.yml file is only created on disk when explicitly requested
         if not settings_path.exists():
-            print(f"Settings.yml not found, checking for default location...")
-            # Conan 1 might need explicit initialization
+            print(f"Settings.yml not found at {settings_path}")
+            print("Running 'conan config init' to create default config files...")
+            # This creates settings.yml from Conan's internal templates
+            # Safe to run - won't overwrite existing files without --force
             subprocess.run(['conan', 'config', 'init'], check=False)
             
             if not settings_path.exists():
-                print(f"ERROR: Conan settings.yml still not found at {settings_path}")
-                print("Conan must be initialized before patching settings")
+                print(f"ERROR: Failed to create settings.yml at {settings_path}")
                 exit(1)
+            print("Created default settings.yml")
         
         with open(settings_path, 'r') as f:
             settings = yaml.safe_load(f)
