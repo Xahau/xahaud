@@ -118,16 +118,10 @@ SHAMapStoreImp::SHAMapStoreImp(
 
     get_if_exists(section, "online_delete", deleteInterval_);
 
-    auto actual_standalone = config.standalone();
-    auto effective_standalone =
-        get(section,
-            "_online_delete_standalone_override",
-            actual_standalone ? "true" : "false") != "false";
-
     // RWDB (in-memory backend) requires online_delete to prevent OOM
     // Exception: standalone mode (used by tests) doesn't need online_delete
     // since tests run for short durations
-    if (config.mem_backend() && !deleteInterval_ && !effective_standalone)
+    if (config.mem_backend() && !deleteInterval_ && !config.standalone())
     {
         Throw<std::runtime_error>(
             "RWDB (in-memory backend) requires online_delete to be configured. "
