@@ -251,7 +251,7 @@ jobs:
           conan profile show default
 
       - name: Patch Conan for newer Clang versions
-        uses: ./.github/actions/xahau-patch-conan-clang-versions
+        uses: ./.github/actions/xahau-patch-conan-post-setup
         with:
           compiler-id: ${{ matrix.compiler_id }}
 

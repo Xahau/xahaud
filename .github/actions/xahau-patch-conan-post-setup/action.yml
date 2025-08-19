@@ -1,5 +1,5 @@
-name: patch-conan-clang-versions
-description: 'Patch Conan settings.yml to support newer Clang versions'
+name: patch-conan-post-setup
+description: 'Apply post-setup patches to Conan configuration'
 
 inputs:
   compiler-id:
@@ -15,6 +15,7 @@ runs:
       run: |
         import yaml
         import re
+        import subprocess
         from pathlib import Path
         
         # Extract Clang version from compiler-id (e.g., "clang-18-libcxx" -> "18")
@@ -28,13 +29,29 @@ runs:
         clang_version = match.group(1)
         print(f"Detected Clang version {clang_version} from compiler-id")
         
-        settings_path = Path.home() / '.conan' / 'settings.yml'
+        # Get Conan home directory
+        result = subprocess.run(['conan', 'config', 'home'], capture_output=True, text=True)
+        conan_home = Path(result.stdout.strip())
+        settings_path = conan_home / 'settings.yml'
+        print(f"Conan home: {conan_home}")
+        print(f"Settings path: {settings_path}")
         
-        # Check if settings.yml exists
+        # Debug: List contents of Conan home
+        if conan_home.exists():
+            print(f"Contents of {conan_home}:")
+            for item in conan_home.iterdir():
+                print(f"  - {item.name}")
+        
+        # Check if settings.yml exists, if not, try to initialize it
         if not settings_path.exists():
-            print(f"ERROR: Conan settings.yml not found at {settings_path}")
-            print("Conan must be initialized before patching settings")
-            exit(1)
+            print(f"Settings.yml not found, checking for default location...")
+            # Conan 1 might need explicit initialization
+            subprocess.run(['conan', 'config', 'init'], check=False)
+            
+            if not settings_path.exists():
+                print(f"ERROR: Conan settings.yml still not found at {settings_path}")
+                print("Conan must be initialized before patching settings")
+                exit(1)
         
         with open(settings_path, 'r') as f:
             settings = yaml.safe_load(f)
