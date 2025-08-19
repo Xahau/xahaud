@@ -361,8 +361,7 @@ public:
              boost::beast::iequals(
                  get(section(SECTION_RELATIONAL_DB), "backend"), "rwdb")) ||
             (!section("node_db").empty() &&
-             (boost::beast::iequals(get(section("node_db"), "type"), "rwdb") ||
-              boost::beast::iequals(get(section("node_db"), "type"), "memory")));
+             boost::beast::iequals(get(section("node_db"), "type"), "rwdb"));
         // RHNOTE: memory type is not selected for here because it breaks
         // tests
         return isMem;
