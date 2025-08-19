@@ -113,8 +113,8 @@ jobs:
               use_full = True
           elif event_name == "pull_request":
               # For PRs, base_ref is just the branch name (e.g., "dev", not "refs/heads/dev")
-              # Check if the PR targets a main branch
-              use_full = base_ref in ["dev", "release", "candidate"]
+              # Check if the PR targets release or candidate (more critical branches)
+              use_full = base_ref in ["release", "candidate"]
           else:
               # For pushes, ref is the full reference (e.g., "refs/heads/dev")
               use_full = ref in main_branches

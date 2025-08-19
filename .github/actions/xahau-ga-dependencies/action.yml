@@ -71,25 +71,23 @@ runs:
 
     - name: Add Clang version support to Conan if needed
       if: contains(inputs.compiler-id, 'clang-')
-      shell: bash
+      shell: python
       run: |
-        # Extract Clang version from compiler-id (e.g., "clang-18-libcxx" -> "18")
-        COMPILER_ID="${{ inputs.compiler-id }}"
-        CLANG_VERSION=$(echo "$COMPILER_ID" | sed -n 's/^clang-\([0-9]\+\).*/\1/p')
-        
-        if [ -n "$CLANG_VERSION" ]; then
-          echo "Detected Clang version $CLANG_VERSION from compiler-id"
-          pip install PyYAML
-          python << EOF
         import yaml
+        import re
         from pathlib import Path
-        import os
         
-        clang_version = os.environ.get('CLANG_VERSION', '')
-        if not clang_version:
-            print("No Clang version detected")
+        # Extract Clang version from compiler-id (e.g., "clang-18-libcxx" -> "18")
+        compiler_id = "${{ inputs.compiler-id }}"
+        match = re.match(r'^clang-(\d+)', compiler_id)
+        
+        if not match:
+            print(f"No Clang version found in compiler-id: {compiler_id}")
             exit(0)
             
+        clang_version = match.group(1)
+        print(f"Detected Clang version {clang_version} from compiler-id")
+        
         settings_path = Path.home() / '.conan' / 'settings.yml'
         with open(settings_path, 'r') as f:
             settings = yaml.safe_load(f)
@@ -106,11 +104,6 @@ runs:
             print(f"Added Clang {clang_version} support to Conan settings")
         else:
             print(f"Clang {clang_version} already supported in Conan settings")
-        EOF
-          export CLANG_VERSION
-        else
-          echo "No Clang version found in compiler-id: $COMPILER_ID"
-        fi
 
     - name: Install dependencies
       shell: bash
