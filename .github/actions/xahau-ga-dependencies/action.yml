@@ -76,6 +76,7 @@ runs:
         import yaml
         import re
         from pathlib import Path
+        import subprocess
         
         # Extract Clang version from compiler-id (e.g., "clang-18-libcxx" -> "18")
         compiler_id = "${{ inputs.compiler-id }}"
@@ -89,6 +90,12 @@ runs:
         print(f"Detected Clang version {clang_version} from compiler-id")
         
         settings_path = Path.home() / '.conan' / 'settings.yml'
+        
+        # Initialize Conan if settings.yml doesn't exist yet
+        if not settings_path.exists():
+            print("Conan not initialized, creating default profile...")
+            subprocess.run(['conan', 'profile', 'new', 'default', '--detect'], check=False)
+        
         with open(settings_path, 'r') as f:
             settings = yaml.safe_load(f)
         
