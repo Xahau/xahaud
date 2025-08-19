@@ -521,12 +521,87 @@ public:
         lastRotated = ledgerSeq - 1;
     }
 
+    static std::unique_ptr<Config>
+    rwdbNoDelete()
+    {
+        // RWDB without online_delete, but keep standalone override = true
+        // (default)
+        auto cfg = test::jtx::envconfig();
+        cfg->section(ConfigSection::nodeDatabase()).set("type", "rwdb");
+        cfg->section(ConfigSection::nodeDatabase()).set("path", "main");
+        // Keep the default standalone override value of "true" from
+        // envconfig.cpp
+        return cfg;
+    }
+
+    static std::unique_ptr<Config>
+    rwdbNoDeleteEnforced()
+    {
+        // RWDB without online_delete and force enforcement
+        auto cfg = test::jtx::envconfig();
+        cfg->section(ConfigSection::nodeDatabase()).set("type", "rwdb");
+        cfg->section(ConfigSection::nodeDatabase()).set("path", "main");
+        cfg->section(ConfigSection::nodeDatabase())
+            .set("_online_delete_standalone_override", "false");
+        return cfg;
+    }
+
+    static std::unique_ptr<Config>
+    rwdbWithDeleteEnforced()
+    {
+        // RWDB with online_delete and force enforcement
+        auto cfg = test::jtx::envconfig();
+        cfg->section(ConfigSection::nodeDatabase()).set("type", "rwdb");
+        cfg->section(ConfigSection::nodeDatabase()).set("path", "main");
+        cfg->section(ConfigSection::nodeDatabase()).set("online_delete", "256");
+        cfg->section(ConfigSection::nodeDatabase())
+            .set("_online_delete_standalone_override", "false");
+        return cfg;
+    }
+
+    void
+    testRWDBOnlineDeleteEnforcement()
+    {
+        testcase("RWDB online_delete enforcement");
+
+        // Test 1: RWDB without online_delete but with standalone override =
+        // true (should succeed)
+        {
+            test::jtx::Env env{*this, rwdbNoDelete()};
+            pass();
+        }
+
+        // Test 2: RWDB without online_delete and standalone override = false
+        // (should throw)
+        try
+        {
+            test::jtx::Env env{*this, rwdbNoDeleteEnforced()};
+            fail("Expected exception for RWDB without online_delete");
+        }
+        catch (std::runtime_error const& e)
+        {
+            BEAST_EXPECT(
+                std::string(e.what()).find(
+                    "RWDB (in-memory backend) requires online_delete") !=
+                std::string::npos);
+            pass();
+        }
+
+        // Test 3: RWDB with online_delete and standalone override = false
+        // (should succeed)
+        {
+            test::jtx::Env env{*this, rwdbWithDeleteEnforced()};
+            pass();
+        }
+    }
+
     void
     run() override
     {
         testClear();
         testAutomatic();
         testCanDelete();
+        testRWDBOnlineDeleteEnforcement();
     }
 };
 

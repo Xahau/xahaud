@@ -51,6 +51,10 @@ setupConfigForUnitTests(Config& cfg)
 
     cfg.overwrite(ConfigSection::nodeDatabase(), "type", "rwdb");
     cfg.overwrite(ConfigSection::nodeDatabase(), "path", "main");
+    cfg.overwrite(
+        ConfigSection::nodeDatabase(),
+        "_online_delete_standalone_override",
+        "true");
     cfg.overwrite(SECTION_RELATIONAL_DB, "backend", "rwdb");
     cfg.deprecatedClearSection(ConfigSection::importNodeDatabase());
     cfg.legacy("database_path", "");
