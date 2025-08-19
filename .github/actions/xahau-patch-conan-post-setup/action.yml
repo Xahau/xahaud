@@ -44,7 +44,7 @@ runs:
             print("Running 'conan config init' to create default config files...")
             # This creates settings.yml from Conan's internal templates
             # Safe to run - won't overwrite existing files without --force
-            subprocess.run(['conan', 'config', 'init'], check=False)
+            subprocess.run(['conan', 'config', 'init'], check=True)
             
             if not settings_path.exists():
                 print(f"ERROR: Failed to create settings.yml at {settings_path}")

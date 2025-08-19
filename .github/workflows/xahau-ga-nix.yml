@@ -197,7 +197,13 @@ jobs:
                 # Check if version is numeric and greater than target
                 if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
                   echo "Hiding GCC $version -> renaming to $counter (will be seen as GCC version $counter)"
-                  sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                  # Safety check: ensure target doesn't already exist
+                  if [ ! -e "/usr/lib/gcc/x86_64-linux-gnu/$counter" ]; then
+                    sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                  else
+                    echo "ERROR: Cannot rename GCC $version - /usr/lib/gcc/x86_64-linux-gnu/$counter already exists"
+                    exit 1
+                  fi
                   counter=$((counter + 1))
                 fi
               fi

@@ -112,6 +112,8 @@ runs:
           # Extract Clang version from compiler executable name (e.g., clang++-14 -> 14)
           clang_version=$(echo "${{ inputs.cxx }}" | grep -oE '[0-9]+$')
           
+          # Clang 16+ supports --gcc-install-dir (precise path specification)
+          # Clang <16 only has --gcc-toolchain (uses discovery heuristics)
           if [ -n "$clang_version" ] && [ "$clang_version" -ge "16" ]; then
             # Clang 16+ uses --gcc-install-dir (canonical, precise)
             CMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}"
