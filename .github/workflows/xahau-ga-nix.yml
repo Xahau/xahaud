@@ -250,6 +250,11 @@ jobs:
           # Display profile for verification
           conan profile show default
 
+      - name: Patch Conan for newer Clang versions
+        uses: ./.github/actions/xahau-patch-conan-clang-versions
+        with:
+          compiler-id: ${{ matrix.compiler_id }}
+
       - name: Check environment
         run: |
           echo "PATH:"

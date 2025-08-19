@@ -1,0 +1,53 @@
+name: patch-conan-clang-versions
+description: 'Patch Conan settings.yml to support newer Clang versions'
+
+inputs:
+  compiler-id:
+    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. clang-18-libcxx)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Add Clang version support to Conan if needed
+      if: contains(inputs.compiler-id, 'clang-')
+      shell: python
+      run: |
+        import yaml
+        import re
+        from pathlib import Path
+        
+        # Extract Clang version from compiler-id (e.g., "clang-18-libcxx" -> "18")
+        compiler_id = "${{ inputs.compiler-id }}"
+        match = re.match(r'^clang-(\d+)', compiler_id)
+        
+        if not match:
+            print(f"No Clang version found in compiler-id: {compiler_id}")
+            exit(0)
+            
+        clang_version = match.group(1)
+        print(f"Detected Clang version {clang_version} from compiler-id")
+        
+        settings_path = Path.home() / '.conan' / 'settings.yml'
+        
+        # Check if settings.yml exists
+        if not settings_path.exists():
+            print(f"ERROR: Conan settings.yml not found at {settings_path}")
+            print("Conan must be initialized before patching settings")
+            exit(1)
+        
+        with open(settings_path, 'r') as f:
+            settings = yaml.safe_load(f)
+        
+        # Add the detected version to clang versions if not already there
+        clang_versions = settings['compiler']['clang']['version']
+        if clang_version not in clang_versions:
+            clang_versions.append(clang_version)
+            # Sort versions numerically
+            clang_versions.sort(key=lambda x: int(x) if x.isdigit() else float('inf'))
+            
+            with open(settings_path, 'w') as f:
+                yaml.dump(settings, f, default_flow_style=False, sort_keys=False)
+            print(f"Added Clang {clang_version} support to Conan settings")
+        else:
+            print(f"Clang {clang_version} already supported in Conan settings")

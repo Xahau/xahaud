@@ -69,49 +69,6 @@ runs:
         conan export external/snappy snappy/1.1.10@xahaud/stable
         conan export external/soci soci/4.0.3@xahaud/stable
 
-    - name: Add Clang version support to Conan if needed
-      if: contains(inputs.compiler-id, 'clang-')
-      shell: python
-      run: |
-        import yaml
-        import re
-        from pathlib import Path
-        import subprocess
-        
-        # Extract Clang version from compiler-id (e.g., "clang-18-libcxx" -> "18")
-        compiler_id = "${{ inputs.compiler-id }}"
-        match = re.match(r'^clang-(\d+)', compiler_id)
-        
-        if not match:
-            print(f"No Clang version found in compiler-id: {compiler_id}")
-            exit(0)
-            
-        clang_version = match.group(1)
-        print(f"Detected Clang version {clang_version} from compiler-id")
-        
-        settings_path = Path.home() / '.conan' / 'settings.yml'
-        
-        # Initialize Conan if settings.yml doesn't exist yet
-        if not settings_path.exists():
-            print("Conan not initialized, creating default profile...")
-            subprocess.run(['conan', 'profile', 'new', 'default', '--detect'], check=False)
-        
-        with open(settings_path, 'r') as f:
-            settings = yaml.safe_load(f)
-        
-        # Add the detected version to clang versions if not already there
-        clang_versions = settings['compiler']['clang']['version']
-        if clang_version not in clang_versions:
-            clang_versions.append(clang_version)
-            # Sort versions numerically
-            clang_versions.sort(key=lambda x: int(x) if x.isdigit() else float('inf'))
-            
-            with open(settings_path, 'w') as f:
-                yaml.dump(settings, f, default_flow_style=False, sort_keys=False)
-            print(f"Added Clang {clang_version} support to Conan settings")
-        else:
-            print(f"Clang {clang_version} already supported in Conan settings")
-
     - name: Install dependencies
       shell: bash
       run: |
