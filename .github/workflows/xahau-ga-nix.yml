@@ -26,7 +26,7 @@ jobs:
         # - compiler_version: Version number for Conan
         # - stdlib: Standard library (libstdcxx/libcxx) for Conan/CMake configuration
         # - clang_gcc_toolchain: GCC version for Clang to use (11, 13, 14) when using libstdc++
-        compiler_id: [gcc-11-libstdcxx, gcc-13-libstdcxx, clang-14-libstdcxx-gcc11, clang-16-libstdcxx-gcc13]
+        compiler_id: [gcc-11-libstdcxx, gcc-13-libstdcxx, clang-14-libstdcxx-gcc11, clang-16-libstdcxx-gcc13, clang-17-libcxx]
         configuration: [Debug]
         include:
           - compiler_id: gcc-11-libstdcxx
@@ -55,6 +55,12 @@ jobs:
             compiler_version: 16
             stdlib: libstdcxx  # Workaround for missing lexicographical_compare_three_way in libc++
             clang_gcc_toolchain: 13  # Use GCC 13 headers with Clang 16
+          - compiler_id: clang-17-libcxx
+            compiler: clang
+            cc: clang-17
+            cxx: clang++-17
+            compiler_version: 17
+            stdlib: libcxx  # Native LLVM libc++ - has full C++20 support including lexicographical_compare_three_way
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
