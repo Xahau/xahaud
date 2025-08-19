@@ -42,53 +42,6 @@ private:
     std::map<uint256, AccountTx> transactionMap_;
     std::map<AccountID, AccountTxData> accountTxMap_;
 
-    // Private cleanup helpers that assume lock is already held
-    void
-    doNoLockDeleteTransactionsBeforeLedgerSeq(LedgerIndex ledgerSeq)
-    {
-        if (!useTxTables_)
-            return;
-
-        auto it = ledgers_.begin();
-        while (it != ledgers_.end() && it->first < ledgerSeq)
-        {
-            for (const auto& [txHash, _] : it->second.transactions)
-            {
-                transactionMap_.erase(txHash);
-            }
-            it->second.transactions.clear();
-            ++it;
-        }
-    }
-
-    void
-    doNoLockDeleteAccountTransactionsBeforeLedgerSeq(LedgerIndex ledgerSeq)
-    {
-        if (!useTxTables_)
-            return;
-
-        for (auto& [_, accountData] : accountTxMap_)
-        {
-            auto txIt = accountData.ledgerTxMap.begin();
-            while (txIt != accountData.ledgerTxMap.end() &&
-                   txIt->first < ledgerSeq)
-            {
-                txIt = accountData.ledgerTxMap.erase(txIt);
-            }
-        }
-    }
-
-    void
-    doNoLockDeleteBeforeLedgerSeq(LedgerIndex ledgerSeq)
-    {
-        auto it = ledgers_.begin();
-        while (it != ledgers_.end() && it->first < ledgerSeq)
-        {
-            ledgerHashToSeq_.erase(it->second.info.hash);
-            it = ledgers_.erase(it);
-        }
-    }
-
 public:
     RWDBDatabase(Application& app, Config const& config, JobQueue& jobQueue)
         : app_(app), useTxTables_(config.useTxTables())
@@ -170,7 +123,12 @@ public:
     deleteBeforeLedgerSeq(LedgerIndex ledgerSeq) override
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        doNoLockDeleteBeforeLedgerSeq(ledgerSeq);
+        auto it = ledgers_.begin();
+        while (it != ledgers_.end() && it->first < ledgerSeq)
+        {
+            ledgerHashToSeq_.erase(it->second.info.hash);
+            it = ledgers_.erase(it);
+        }
     }
 
     void
@@ -180,7 +138,16 @@ public:
             return;
 
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        doNoLockDeleteTransactionsBeforeLedgerSeq(ledgerSeq);
+        auto it = ledgers_.begin();
+        while (it != ledgers_.end() && it->first < ledgerSeq)
+        {
+            for (const auto& [txHash, _] : it->second.transactions)
+            {
+                transactionMap_.erase(txHash);
+            }
+            it->second.transactions.clear();
+            ++it;
+        }
     }
 
     void
@@ -190,7 +157,15 @@ public:
             return;
 
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        doNoLockDeleteAccountTransactionsBeforeLedgerSeq(ledgerSeq);
+        for (auto& [_, accountData] : accountTxMap_)
+        {
+            auto txIt = accountData.ledgerTxMap.begin();
+            while (txIt != accountData.ledgerTxMap.end() &&
+                   txIt->first < ledgerSeq)
+            {
+                txIt = accountData.ledgerTxMap.erase(txIt);
+            }
+        }
     }
     std::size_t
     getTransactionCount() override
@@ -329,38 +304,6 @@ public:
         // Overwrite Current Ledger
         ledgers_[seq] = std::move(ledgerData);
         ledgerHashToSeq_[ledger->info().hash] = seq;
-
-        // Automatic cleanup based on LEDGER_HISTORY
-        if (current && app_.config().LEDGER_HISTORY > 0)
-        {
-            // Example: LEDGER_HISTORY = 256, validated ledger seq = 325
-            // We want to keep exactly 256 ledgers: 70-325
-            // So we need to delete ledgers 1-69 (inclusive)
-            //
-            // lastDropSeq = 325 - 256 = 69 (last/highest ledger to drop)
-            // keepSeq = 69 + 1 = 70 (first/lowest ledger to keep)
-            //
-            // deleteBeforeLedgerSeq(70) deletes < 70 (i.e., 1-69)
-            // clearPriorLedgers(70) clears 0-69 (same result)
-
-            auto const lastDropSeq = seq > app_.config().LEDGER_HISTORY
-                ? seq - app_.config().LEDGER_HISTORY
-                : 0;
-
-            if (lastDropSeq > 0)
-            {
-                auto const keepSeq = lastDropSeq + 1;
-
-                // Use no-lock helpers since we already hold the lock
-                doNoLockDeleteTransactionsBeforeLedgerSeq(keepSeq);
-                doNoLockDeleteAccountTransactionsBeforeLedgerSeq(keepSeq);
-                doNoLockDeleteBeforeLedgerSeq(keepSeq);
-
-                // Also clear prior ledgers from LedgerMaster
-                app_.getLedgerMaster().clearPriorLedgers(keepSeq);
-            }
-        }
-
         return true;
     }
 
