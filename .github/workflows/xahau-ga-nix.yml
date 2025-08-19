@@ -100,8 +100,16 @@ jobs:
           commit_message = """${{ github.event.head_commit.message }}"""
           pr_title = """${{ github.event.pull_request.title }}"""
           
+          # Debug logging
+          print(f"Event: {event_name}")
+          print(f"Ref: {ref}")
+          print(f"Base ref: {base_ref}")
+          print(f"PR title: {pr_title}")
+          print(f"Commit message: {commit_message}")
+          
           # Check for override tags in commit message or PR title
           force_full = "[ci-nix-full-matrix]" in commit_message or "[ci-nix-full-matrix]" in pr_title
+          print(f"Force full matrix: {force_full}")
           
           # Check if this is targeting a main branch
           # For PRs: check base_ref (target branch)
