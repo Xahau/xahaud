@@ -24,7 +24,7 @@ jobs:
           import json
           import os
           
-          # Full matrix with all 5 compiler configurations
+          # Full matrix with all 6 compiler configurations
           # Each configuration includes all parameters needed by the build job
           full_matrix = [
               {
@@ -73,13 +73,24 @@ jobs:
                   "compiler_version": 17,
                   "stdlib": "libcxx",
                   "configuration": "Debug"
+              },
+              {
+                  # Clang 18 - testing if it's faster than Clang 17 with libc++
+                  # Requires patching Conan v1 settings.yml to add version 18
+                  "compiler_id": "clang-18-libcxx",
+                  "compiler": "clang",
+                  "cc": "clang-18",
+                  "cxx": "clang++-18",
+                  "compiler_version": 18,
+                  "stdlib": "libcxx",
+                  "configuration": "Debug"
               }
           ]
           
-          # Minimal matrix for PRs and feature branches (newest gcc + newest clang)
+          # Minimal matrix for PRs and feature branches
           minimal_matrix = [
-              full_matrix[1],  # gcc-13
-              full_matrix[4]   # clang-17
+              full_matrix[1],  # gcc-13 (middle-ground gcc)
+              full_matrix[2]   # clang-14 (mature, stable clang)
           ]
           
           # Determine which matrix to use based on the target branch
@@ -111,9 +122,9 @@ jobs:
           # Select the appropriate matrix
           if use_full:
               if force_full:
-                  print(f"Using FULL matrix (5 configs) - forced by [ci-nix-full-matrix] tag")
+                  print(f"Using FULL matrix (6 configs) - forced by [ci-nix-full-matrix] tag")
               else:
-                  print(f"Using FULL matrix (5 configs) - targeting main branch")
+                  print(f"Using FULL matrix (6 configs) - targeting main branch")
               matrix = full_matrix
           else:
               print(f"Using MINIMAL matrix (2 configs) - feature branch/PR")

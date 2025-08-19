@@ -69,6 +69,49 @@ runs:
         conan export external/snappy snappy/1.1.10@xahaud/stable
         conan export external/soci soci/4.0.3@xahaud/stable
 
+    - name: Add Clang version support to Conan if needed
+      if: contains(inputs.compiler-id, 'clang-')
+      shell: bash
+      run: |
+        # Extract Clang version from compiler-id (e.g., "clang-18-libcxx" -> "18")
+        COMPILER_ID="${{ inputs.compiler-id }}"
+        CLANG_VERSION=$(echo "$COMPILER_ID" | sed -n 's/^clang-\([0-9]\+\).*/\1/p')
+        
+        if [ -n "$CLANG_VERSION" ]; then
+          echo "Detected Clang version $CLANG_VERSION from compiler-id"
+          pip install PyYAML
+          python << EOF
+        import yaml
+        from pathlib import Path
+        import os
+        
+        clang_version = os.environ.get('CLANG_VERSION', '')
+        if not clang_version:
+            print("No Clang version detected")
+            exit(0)
+            
+        settings_path = Path.home() / '.conan' / 'settings.yml'
+        with open(settings_path, 'r') as f:
+            settings = yaml.safe_load(f)
+        
+        # Add the detected version to clang versions if not already there
+        clang_versions = settings['compiler']['clang']['version']
+        if clang_version not in clang_versions:
+            clang_versions.append(clang_version)
+            # Sort versions numerically
+            clang_versions.sort(key=lambda x: int(x) if x.isdigit() else float('inf'))
+            
+            with open(settings_path, 'w') as f:
+                yaml.dump(settings, f, default_flow_style=False, sort_keys=False)
+            print(f"Added Clang {clang_version} support to Conan settings")
+        else:
+            print(f"Clang {clang_version} already supported in Conan settings")
+        EOF
+          export CLANG_VERSION
+        else
+          echo "No Clang version found in compiler-id: $COMPILER_ID"
+        fi
+
     - name: Install dependencies
       shell: bash
       run: |
