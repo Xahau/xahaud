@@ -11,56 +11,126 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-job:
+  matrix-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate build matrix
+        id: set-matrix
+        shell: python
+        run: |
+          import json
+          import os
+          
+          # Full matrix with all 5 compiler configurations
+          # Each configuration includes all parameters needed by the build job
+          full_matrix = [
+              {
+                  "compiler_id": "gcc-11-libstdcxx",
+                  "compiler": "gcc",
+                  "cc": "gcc-11",
+                  "cxx": "g++-11",
+                  "compiler_version": 11,
+                  "stdlib": "libstdcxx",
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "gcc-13-libstdcxx",
+                  "compiler": "gcc",
+                  "cc": "gcc-13",
+                  "cxx": "g++-13",
+                  "compiler_version": 13,
+                  "stdlib": "libstdcxx",
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "clang-14-libstdcxx-gcc11",
+                  "compiler": "clang",
+                  "cc": "clang-14",
+                  "cxx": "clang++-14",
+                  "compiler_version": 14,
+                  "stdlib": "libstdcxx",
+                  "clang_gcc_toolchain": 11,
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "clang-16-libstdcxx-gcc13",
+                  "compiler": "clang",
+                  "cc": "clang-16",
+                  "cxx": "clang++-16",
+                  "compiler_version": 16,
+                  "stdlib": "libstdcxx",
+                  "clang_gcc_toolchain": 13,
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "clang-17-libcxx",
+                  "compiler": "clang",
+                  "cc": "clang-17",
+                  "cxx": "clang++-17",
+                  "compiler_version": 17,
+                  "stdlib": "libcxx",
+                  "configuration": "Debug"
+              }
+          ]
+          
+          # Minimal matrix for PRs and feature branches (newest gcc + newest clang)
+          minimal_matrix = [
+              full_matrix[1],  # gcc-13
+              full_matrix[4]   # clang-17
+          ]
+          
+          # Determine which matrix to use based on the target branch
+          ref = "${{ github.ref }}"
+          base_ref = "${{ github.base_ref }}"  # For PRs, this is the target branch
+          event_name = "${{ github.event_name }}"
+          commit_message = """${{ github.event.head_commit.message }}"""
+          pr_title = """${{ github.event.pull_request.title }}"""
+          
+          # Check for override tags in commit message or PR title
+          force_full = "[ci-nix-full-matrix]" in commit_message or "[ci-nix-full-matrix]" in pr_title
+          
+          # Check if this is targeting a main branch
+          # For PRs: check base_ref (target branch)
+          # For pushes: check ref (current branch)
+          main_branches = ["refs/heads/dev", "refs/heads/release", "refs/heads/candidate"]
+          
+          if force_full:
+              # Override: always use full matrix if tag is present
+              use_full = True
+          elif event_name == "pull_request":
+              # For PRs, base_ref is just the branch name (e.g., "dev", not "refs/heads/dev")
+              # Check if the PR targets a main branch
+              use_full = base_ref in ["dev", "release", "candidate"]
+          else:
+              # For pushes, ref is the full reference (e.g., "refs/heads/dev")
+              use_full = ref in main_branches
+          
+          # Select the appropriate matrix
+          if use_full:
+              if force_full:
+                  print(f"Using FULL matrix (5 configs) - forced by [ci-nix-full-matrix] tag")
+              else:
+                  print(f"Using FULL matrix (5 configs) - targeting main branch")
+              matrix = full_matrix
+          else:
+              print(f"Using MINIMAL matrix (2 configs) - feature branch/PR")
+              matrix = minimal_matrix
+          
+          # Output the matrix as JSON
+          output = json.dumps({"include": matrix})
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"matrix={output}\n")
+
+  build:
+    needs: matrix-setup
     runs-on: ubuntu-latest
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:
       fail-fast: false
-      matrix:
-        # Matrix configuration:
-        # - compiler_id: Full identifier including compiler, version, stdlib, and GCC version if applicable
-        #                (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx) for cache keys
-        # - compiler: Base compiler family (gcc/clang) for Conan settings
-        # - cc/cxx: Actual compiler executables
-        # - compiler_version: Version number for Conan
-        # - stdlib: Standard library (libstdcxx/libcxx) for Conan/CMake configuration
-        # - clang_gcc_toolchain: GCC version for Clang to use (11, 13, 14) when using libstdc++
-        compiler_id: [gcc-11-libstdcxx, gcc-13-libstdcxx, clang-14-libstdcxx-gcc11, clang-16-libstdcxx-gcc13, clang-17-libcxx]
-        configuration: [Debug]
-        include:
-          - compiler_id: gcc-11-libstdcxx
-            compiler: gcc
-            cc: gcc-11
-            cxx: g++-11
-            compiler_version: 11
-            stdlib: libstdcxx
-          - compiler_id: gcc-13-libstdcxx
-            compiler: gcc
-            cc: gcc-13
-            cxx: g++-13
-            compiler_version: 13
-            stdlib: libstdcxx
-          - compiler_id: clang-14-libstdcxx-gcc11
-            compiler: clang
-            cc: clang-14
-            cxx: clang++-14
-            compiler_version: 14
-            stdlib: libstdcxx  # Required for clang-14 compatibility
-            clang_gcc_toolchain: 11  # Use GCC 11 headers with Clang 14
-          - compiler_id: clang-16-libstdcxx-gcc13
-            compiler: clang
-            cc: clang-16
-            cxx: clang++-16
-            compiler_version: 16
-            stdlib: libstdcxx  # Workaround for missing lexicographical_compare_three_way in libc++
-            clang_gcc_toolchain: 13  # Use GCC 13 headers with Clang 16
-          - compiler_id: clang-17-libcxx
-            compiler: clang
-            cc: clang-17
-            cxx: clang++-17
-            compiler_version: 17
-            stdlib: libcxx  # Native LLVM libc++ - has full C++20 support including lexicographical_compare_three_way
+      matrix: ${{ fromJSON(needs.matrix-setup.outputs.matrix) }}
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.

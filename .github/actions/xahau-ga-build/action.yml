@@ -95,12 +95,17 @@ runs:
         # Configure C++ standard library if specified
         # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
         # libcxx can be used with clang-17+ which has full C++20 support
+        # Note: -stdlib flag is Clang-specific, GCC always uses libstdc++
         CMAKE_CXX_FLAGS=""
-        if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
-          CMAKE_CXX_FLAGS="-stdlib=libstdc++"
-        elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
-          CMAKE_CXX_FLAGS="-stdlib=libc++"
+        if [[ "${{ inputs.cxx }}" == clang* ]]; then
+          # Only Clang needs the -stdlib flag
+          if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
+            CMAKE_CXX_FLAGS="-stdlib=libstdc++"
+          elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
+            CMAKE_CXX_FLAGS="-stdlib=libc++"
+          fi
         fi
+        # GCC always uses libstdc++ and doesn't need/support the -stdlib flag
         
         # Configure GCC toolchain for Clang if specified
         if [ -n "${{ inputs.clang_gcc_toolchain }}" ] && [[ "${{ inputs.cxx }}" == clang* ]]; then
