@@ -46,6 +46,7 @@ InnerObjectFormats::InnerObjectFormats()
             {sfAccount, soeREQUIRED},
             {sfSigningPubKey, soeREQUIRED},
             {sfTxnSignature, soeREQUIRED},
+            {sfSigners, soeOPTIONAL},
         });
 
     add(sfMajority.jsonName.c_str(),
