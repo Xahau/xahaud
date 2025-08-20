@@ -565,10 +565,12 @@ public:
         if (backend == "rwdb")
         {
             // RWDB reports actual data memory (rounded down to KB)
-            // Initially should be < 1KB, so rounds to 0
-            BEAST_EXPECT(allKB == 0);
-            BEAST_EXPECT(ledgerKB == 0);
-            BEAST_EXPECT(txKB == 0);
+            // Initially should be < 1KB, so rounds down to 0
+            // Note: These are 0 due to rounding, not because there's literally
+            // no data
+            BEAST_EXPECT(allKB == 0);     // < 1024 bytes rounds to 0 KB
+            BEAST_EXPECT(ledgerKB == 0);  // < 1024 bytes rounds to 0 KB
+            BEAST_EXPECT(txKB == 0);      // < 1024 bytes rounds to 0 KB
         }
         else
         {
