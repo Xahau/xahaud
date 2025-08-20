@@ -445,55 +445,108 @@ public:
         return true;  // In-memory database always has space
     }
 
+    // Red-black tree node overhead per map entry
+    static constexpr size_t MAP_NODE_OVERHEAD = 40;
+
+private:
+    std::uint64_t
+    getBytesUsedLedger_unlocked() const
+    {
+        std::uint64_t size = 0;
+
+        // Count structural overhead of ledger storage including map node
+        // overhead Note: sizeof(LedgerData) includes the map container for
+        // transactions, but not the actual transaction data
+        size += ledgers_.size() *
+            (sizeof(LedgerIndex) + sizeof(LedgerData) + MAP_NODE_OVERHEAD);
+
+        // Add the transaction map nodes inside each ledger (ledger's view of
+        // its transactions)
+        for (const auto& [_, ledgerData] : ledgers_)
+        {
+            size += ledgerData.transactions.size() *
+                (sizeof(uint256) + sizeof(AccountTx) + MAP_NODE_OVERHEAD);
+        }
+
+        // Count the ledger hash to sequence lookup map
+        size += ledgerHashToSeq_.size() *
+            (sizeof(uint256) + sizeof(LedgerIndex) + MAP_NODE_OVERHEAD);
+
+        return size;
+    }
+
+    std::uint64_t
+    getBytesUsedTransaction_unlocked() const
+    {
+        if (!useTxTables_)
+            return 0;
+
+        std::uint64_t size = 0;
+
+        // Count structural overhead of transaction map
+        // sizeof(AccountTx) is just the size of two shared_ptrs (~32 bytes)
+        size += transactionMap_.size() *
+            (sizeof(uint256) + sizeof(AccountTx) + MAP_NODE_OVERHEAD);
+
+        // Add actual transaction and metadata data sizes
+        for (const auto& [_, accountTx] : transactionMap_)
+        {
+            if (accountTx.first)
+                size += accountTx.first->getSTransaction()
+                            ->getSerializer()
+                            .peekData()
+                            .size();
+            if (accountTx.second)
+                size += accountTx.second->getAsObject()
+                            .getSerializer()
+                            .peekData()
+                            .size();
+        }
+
+        // Count structural overhead of account transaction index
+        // The actual transaction data is already counted above from
+        // transactionMap_
+        for (const auto& [accountId, accountData] : accountTxMap_)
+        {
+            size +=
+                sizeof(accountId) + sizeof(AccountTxData) + MAP_NODE_OVERHEAD;
+            for (const auto& [ledgerSeq, txVector] : accountData.ledgerTxMap)
+            {
+                // Use capacity() to account for actual allocated memory
+                size += sizeof(ledgerSeq) + MAP_NODE_OVERHEAD;
+                size += txVector.capacity() * sizeof(AccountTx);
+            }
+        }
+
+        return size;
+    }
+
+public:
     std::uint32_t
     getKBUsedAll() override
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        std::uint32_t size = sizeof(*this);
-        size += ledgers_.size() * (sizeof(LedgerIndex) + sizeof(LedgerData));
-        size +=
-            ledgerHashToSeq_.size() * (sizeof(uint256) + sizeof(LedgerIndex));
-        size += transactionMap_.size() * (sizeof(uint256) + sizeof(AccountTx));
-        for (const auto& [_, accountData] : accountTxMap_)
-        {
-            size += sizeof(AccountID) + sizeof(AccountTxData);
-            for (const auto& [_, txVector] : accountData.ledgerTxMap)
-            {
-                size += sizeof(uint32_t) + txVector.size() * sizeof(AccountTx);
-            }
-        }
-        return size / 1024;
+
+        // Total = base object + ledger infrastructure + transaction data
+        std::uint64_t size = sizeof(*this) + getBytesUsedLedger_unlocked() +
+            getBytesUsedTransaction_unlocked();
+
+        return static_cast<std::uint32_t>(size / 1024);
     }
 
     std::uint32_t
     getKBUsedLedger() override
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        std::uint32_t size = 0;
-        size += ledgers_.size() * (sizeof(LedgerIndex) + sizeof(LedgerData));
-        size +=
-            ledgerHashToSeq_.size() * (sizeof(uint256) + sizeof(LedgerIndex));
-        return size / 1024;
+        return static_cast<std::uint32_t>(getBytesUsedLedger_unlocked() / 1024);
     }
 
     std::uint32_t
     getKBUsedTransaction() override
     {
-        if (!useTxTables_)
-            return 0;
-
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        std::uint32_t size = 0;
-        size += transactionMap_.size() * (sizeof(uint256) + sizeof(AccountTx));
-        for (const auto& [_, accountData] : accountTxMap_)
-        {
-            size += sizeof(AccountID) + sizeof(AccountTxData);
-            for (const auto& [_, txVector] : accountData.ledgerTxMap)
-            {
-                size += sizeof(uint32_t) + txVector.size() * sizeof(AccountTx);
-            }
-        }
-        return size / 1024;
+        return static_cast<std::uint32_t>(
+            getBytesUsedTransaction_unlocked() / 1024);
     }
 
     void

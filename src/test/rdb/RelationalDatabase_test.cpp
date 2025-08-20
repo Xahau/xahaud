@@ -542,9 +542,9 @@ public:
         auto newLedgerKB = sqliteDb->getKBUsedLedger();
         auto newTxKB = sqliteDb->getKBUsedTransaction();
 
-        BEAST_EXPECT(newAllKB == 1);
+        BEAST_EXPECT(newAllKB == 2);
         BEAST_EXPECT(newLedgerKB == 0);
-        BEAST_EXPECT(newTxKB == 0);
+        BEAST_EXPECT(newTxKB == 1);
 
         // Test database closure operations (should not throw)
         try
