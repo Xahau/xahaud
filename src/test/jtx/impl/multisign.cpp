@@ -66,14 +66,30 @@ signers(Account const& account, none_t)
 
 //------------------------------------------------------------------------------
 
-msig::msig(std::vector<msig::Reg> signers_) : signers(std::move(signers_))
+msig::msig(std::vector<msig::SignerPtr> signers_) : signers(std::move(signers_))
 {
     // Signatures must be applied in sorted order.
     std::sort(
         signers.begin(),
         signers.end(),
-        [](msig::Reg const& lhs, msig::Reg const& rhs) {
-            return lhs.acct.id() < rhs.acct.id();
+        [](SignerPtr const& lhs, SignerPtr const& rhs) {
+            return lhs->id() < rhs->id();
+        });
+}
+
+msig::msig(std::vector<msig::Reg> signers_)
+{
+    // Convert Reg vector to SignerPtr vector for backward compatibility
+    signers.reserve(signers_.size());
+    for (auto const& s : signers_)
+        signers.push_back(s.toSigner());
+
+    // Sort
+    std::sort(
+        signers.begin(),
+        signers.end(),
+        [](SignerPtr const& lhs, SignerPtr const& rhs) {
+            return lhs->id() < rhs->id();
         });
 }
 
@@ -93,19 +109,53 @@ msig::operator()(Env& env, JTx& jt) const
             env.test.log << pretty(jtx.jv) << std::endl;
             Rethrow();
         }
+
+        // Recursive function to build signer JSON
+        std::function<Json::Value(SignerPtr const&)> buildSignerJson;
+        buildSignerJson = [&](SignerPtr const& signer) -> Json::Value {
+            Json::Value jo;
+            jo[jss::Account] = signer->acct.human();
+
+            if (signer->isNested())
+            {
+                // This is a nested signer - add subsigners
+                auto sortedNested = signer->nested;
+                std::sort(
+                    sortedNested.begin(),
+                    sortedNested.end(),
+                    [](SignerPtr const& lhs, SignerPtr const& rhs) {
+                        return lhs->id() < rhs->id();
+                    });
+
+                auto& subJs = jo[sfSigners.getJsonName()];
+                for (std::size_t i = 0; i < sortedNested.size(); ++i)
+                {
+                    auto& subJo = subJs[i][sfSigner.getJsonName()];
+                    subJo = buildSignerJson(sortedNested[i]);
+                }
+            }
+            else
+            {
+                // This is a leaf signer - add signature
+                jo[jss::SigningPubKey] = strHex(signer->sig.pk().slice());
+
+                Serializer ss{buildMultiSigningData(*st, signer->acct.id())};
+                auto const sig = ripple::sign(
+                    *publicKeyType(signer->sig.pk().slice()),
+                    signer->sig.sk(),
+                    ss.slice());
+                jo[sfTxnSignature.getJsonName()] =
+                    strHex(Slice{sig.data(), sig.size()});
+            }
+
+            return jo;
+        };
+
         auto& js = jtx[sfSigners.getJsonName()];
         for (std::size_t i = 0; i < mySigners.size(); ++i)
         {
-            auto const& e = mySigners[i];
             auto& jo = js[i][sfSigner.getJsonName()];
-            jo[jss::Account] = e.acct.human();
-            jo[jss::SigningPubKey] = strHex(e.sig.pk().slice());
-
-            Serializer ss{buildMultiSigningData(*st, e.acct.id())};
-            auto const sig = ripple::sign(
-                *publicKeyType(e.sig.pk().slice()), e.sig.sk(), ss.slice());
-            jo[sfTxnSignature.getJsonName()] =
-                strHex(Slice{sig.data(), sig.size()});
+            jo = buildSignerJson(mySigners[i]);
         }
     };
 }
