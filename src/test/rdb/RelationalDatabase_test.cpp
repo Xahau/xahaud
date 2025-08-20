@@ -699,10 +699,12 @@ public:
         // Valid backends
         static const std::set<std::string> validBackends = {"sqlite", "rwdb"};
 
+        // Default to all valid backends if no arg specified
+        if (unittest_arg.empty())
+            return {validBackends.begin(), validBackends.end()};
+
         std::set<std::string> backends;  // Use set to avoid duplicates
-        std::string argStr =
-            unittest_arg.empty() ? "sqlite,rwdb" : unittest_arg;
-        std::stringstream ss(argStr);
+        std::stringstream ss(unittest_arg);
         std::string backend;
 
         while (std::getline(ss, backend, ','))
