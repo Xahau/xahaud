@@ -56,17 +56,6 @@ jobs:
                   "configuration": "Debug"
               },
               {
-                  # Test if Clang 14 actually works with GCC 13
-                  "compiler_id": "clang-14-libstdcxx-gcc13",
-                  "compiler": "clang",
-                  "cc": "clang-14",
-                  "cxx": "clang++-14",
-                  "compiler_version": 14,
-                  "stdlib": "libstdcxx",
-                  "clang_gcc_toolchain": 13,
-                  "configuration": "Debug"
-              },
-              {
                   "compiler_id": "clang-16-libstdcxx-gcc13",
                   "compiler": "clang",
                   "cc": "clang-16",
