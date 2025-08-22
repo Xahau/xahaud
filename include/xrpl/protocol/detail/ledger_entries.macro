@@ -654,4 +654,3 @@ LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
 
 #undef LEDGER_ENTRY_EXPAND
 #undef LEDGER_ENTRY_DUPLICATE
-

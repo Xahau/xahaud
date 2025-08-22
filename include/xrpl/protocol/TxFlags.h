@@ -294,7 +294,7 @@ enum BatchFlags : uint32_t {
 };
 /**
  * @note If nested Batch transactions are supported in the future, the tfInnerBatchTxn flag
- *  will need to be removed from this mask to allow Batch transaction to be inside 
+ *  will need to be removed from this mask to allow Batch transaction to be inside
  *  the sfRawTransactions array.
  */
 constexpr std::uint32_t const tfBatchMask =
