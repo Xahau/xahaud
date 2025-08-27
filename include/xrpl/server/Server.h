@@ -24,7 +24,15 @@
 #include <xrpl/beast/utility/PropertyStream.h>
 #include <xrpl/server/Port.h>
 #include <xrpl/server/detail/ServerImpl.h>
+<<<<<<< HEAD
 #include <boost/asio/io_service.hpp>
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+
+#include <boost/asio/io_service.hpp>
+=======
+
+#include <boost/asio/io_context.hpp>
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
 namespace ripple {
 
@@ -33,10 +41,10 @@ template <class Handler>
 std::unique_ptr<Server>
 make_Server(
     Handler& handler,
-    boost::asio::io_service& io_service,
+    boost::asio::io_context& io_context,
     beast::Journal journal)
 {
-    return std::make_unique<ServerImpl<Handler>>(handler, io_service, journal);
+    return std::make_unique<ServerImpl<Handler>>(handler, io_context, journal);
 }
 
 }  // namespace ripple

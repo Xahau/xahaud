@@ -325,8 +325,16 @@ verifyHandshake(
     if (auto const iter = headers.find("Local-IP"); iter != headers.end())
     {
         boost::system::error_code ec;
+<<<<<<< HEAD
         auto const local_ip = boost::asio::ip::address::from_string(
             std::string(iter->value()), ec);
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+        auto const local_ip =
+            boost::asio::ip::address::from_string(iter->value(), ec);
+=======
+        auto const local_ip =
+            boost::asio::ip::make_address(std::string_view(iter->value()), ec);
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
         if (ec)
             throw std::runtime_error("Invalid Local-IP");
@@ -340,8 +348,16 @@ verifyHandshake(
     if (auto const iter = headers.find("Remote-IP"); iter != headers.end())
     {
         boost::system::error_code ec;
+<<<<<<< HEAD
         auto const remote_ip = boost::asio::ip::address::from_string(
             std::string(iter->value()), ec);
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+        auto const remote_ip =
+            boost::asio::ip::address::from_string(iter->value(), ec);
+=======
+        auto const remote_ip =
+            boost::asio::ip::make_address(std::string_view(iter->value()), ec);
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
         if (ec)
             throw std::runtime_error("Invalid Remote-IP");

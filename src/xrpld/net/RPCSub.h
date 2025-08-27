@@ -21,7 +21,17 @@
 #define RIPPLE_NET_RPCSUB_H_INCLUDED
 
 #include <xrpld/core/JobQueue.h>
+<<<<<<< HEAD:src/xrpld/net/RPCSub.h
 #include <xrpld/net/InfoSub.h>
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCSub.h
+#include <xrpld/rpc/InfoSub.h>
+
+#include <boost/asio/io_service.hpp>
+=======
+#include <xrpld/rpc/InfoSub.h>
+
+#include <boost/asio/io_context.hpp>
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCSub.h
 
 namespace ripple {
 
@@ -38,9 +48,21 @@ protected:
     explicit RPCSub(InfoSub::Source& source);
 };
 
+<<<<<<< HEAD:src/xrpld/net/RPCSub.h
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCSub.h
+// VFALCO Why is the io_service needed?
+=======
+// VFALCO Why is the io_context needed?
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCSub.h
 std::shared_ptr<RPCSub>
 make_RPCSub(
     InfoSub::Source& source,
+<<<<<<< HEAD:src/xrpld/net/RPCSub.h
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCSub.h
+    boost::asio::io_service& io_service,
+=======
+    boost::asio::io_context& io_context,
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCSub.h
     JobQueue& jobQueue,
     std::string const& strUrl,
     std::string const& strUsername,

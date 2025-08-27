@@ -23,7 +23,17 @@
 #include <xrpld/core/Config.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/json/json_value.h>
+<<<<<<< HEAD:src/xrpld/net/RPCCall.h
 #include <boost/asio/io_service.hpp>
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCCall.h
+
+#include <boost/asio/io_service.hpp>
+
+=======
+
+#include <boost/asio/io_context.hpp>
+
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCCall.h
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -49,7 +59,7 @@ fromCommandLine(
 
 void
 fromNetwork(
-    boost::asio::io_service& io_service,
+    boost::asio::io_context& io_context,
     std::string const& strIp,
     const std::uint16_t iPort,
     std::string const& strUsername,

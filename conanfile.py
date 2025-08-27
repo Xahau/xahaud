@@ -108,15 +108,35 @@ class Xrpl(ConanFile):
 
     def configure(self):
         if self.settings.compiler == 'apple-clang':
+<<<<<<< HEAD
             self.options['boost/*'].visibility = 'global'
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+            self.options['boost'].visibility = 'global'
+=======
+            self.options['boost'].visibility = 'global'
+        if self.settings.compiler in ['clang', 'gcc']:
+            self.options['boost'].without_cobalt = True
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
     def requirements(self):
+<<<<<<< HEAD
         # Force sqlite3 version to avoid conflicts with soci
         self.requires('sqlite3/3.47.0', override=True)
         # Force our custom snappy build for all dependencies
         self.requires('snappy/1.1.10@xahaud/stable', override=True)
         # Force boost version for all dependencies to avoid conflicts
         self.requires('boost/1.86.0', override=True)
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+        # Conan 2 requires transitive headers to be specified
+        transitive_headers_opt = {'transitive_headers': True} if conan_version.split('.')[0] == '2' else {}
+        self.requires('boost/1.86.0', force=True, **transitive_headers_opt)
+        self.requires('date/3.0.4', **transitive_headers_opt)
+=======
+        # Conan 2 requires transitive headers to be specified
+        transitive_headers_opt = {'transitive_headers': True} if conan_version.split('.')[0] == '2' else {}
+        self.requires('boost/1.88.0', force=True, **transitive_headers_opt)
+        self.requires('date/3.0.4', **transitive_headers_opt)
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
         self.requires('lz4/1.10.0', force=True)
 
         if self.options.with_wasmedge:
@@ -179,7 +199,34 @@ class Xrpl(ConanFile):
         # `include/`, not `include/ripple/proto/`.
         libxrpl.includedirs = ['include', 'include/ripple/proto']
         libxrpl.requires = [
+<<<<<<< HEAD
             'boost::boost',
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+            'boost::headers',
+            'boost::chrono',
+            'boost::container',
+            'boost::coroutine',
+            'boost::date_time',
+            'boost::filesystem',
+            'boost::json',
+            'boost::program_options',
+            'boost::regex',
+            'boost::system',
+            'boost::thread',
+=======
+            'boost::headers',
+            'boost::chrono',
+            'boost::container',
+            'boost::coroutine',
+            'boost::date_time',
+            'boost::filesystem',
+            'boost::json',
+            'boost::program_options',
+            'boost::process',
+            'boost::regex',
+            'boost::system',
+            'boost::thread',
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
             'date::date',
             'grpc::grpc++',
             'libarchive::libarchive',

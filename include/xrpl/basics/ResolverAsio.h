@@ -22,7 +22,15 @@
 
 #include <xrpl/basics/Resolver.h>
 #include <xrpl/beast/utility/Journal.h>
+<<<<<<< HEAD
 #include <boost/asio/io_service.hpp>
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+
+#include <boost/asio/io_service.hpp>
+=======
+
+#include <boost/asio/io_context.hpp>
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
 namespace ripple {
 
@@ -32,7 +40,7 @@ public:
     explicit ResolverAsio() = default;
 
     static std::unique_ptr<ResolverAsio>
-    New(boost::asio::io_service&, beast::Journal);
+    New(boost::asio::io_context&, beast::Journal);
 };
 
 }  // namespace ripple

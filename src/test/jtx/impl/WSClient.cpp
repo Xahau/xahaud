@@ -23,6 +23,15 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/server/Port.h>
+<<<<<<< HEAD
+||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+
+=======
+
+#include <boost/asio/executor_work_guard.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/strand.hpp>
+>>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/beast/websocket.hpp>
 
@@ -91,9 +100,11 @@ class WSClientImpl : public WSClient
         return s;
     }
 
-    boost::asio::io_service ios_;
-    std::optional<boost::asio::io_service::work> work_;
-    boost::asio::io_service::strand strand_;
+    boost::asio::io_context ios_;
+    std::optional<boost::asio::executor_work_guard<
+        boost::asio::io_context::executor_type>>
+        work_;
+    boost::asio::strand<boost::asio::io_context::executor_type> strand_;
     std::thread thread_;
     boost::asio::ip::tcp::socket stream_;
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket&> ws_;
@@ -116,14 +127,24 @@ class WSClientImpl : public WSClient
     void
     cleanup()
     {
-        ios_.post(strand_.wrap([this] {
-            if (!peerClosed_)
-            {
-                ws_.async_close({}, strand_.wrap([&](error_code ec) {
-                    stream_.cancel(ec);
-                }));
-            }
-        }));
+        boost::asio::post(
+            ios_, boost::asio::bind_executor(strand_, [this] {
+                if (!peerClosed_)
+                {
+                    ws_.async_close(
+                        {},
+                        boost::asio::bind_executor(strand_, [&](error_code) {
+                            try
+                            {
+                                stream_.cancel();
+                            }
+                            catch (boost::system::system_error const&)
+                            {
+                                // ignored
+                            }
+                        }));
+                }
+            }));
         work_ = std::nullopt;
         thread_.join();
     }
@@ -134,8 +155,8 @@ public:
         bool v2,
         unsigned rpc_version,
         std::unordered_map<std::string, std::string> const& headers = {})
-        : work_(ios_)
-        , strand_(ios_)
+        : work_(std::in_place, boost::asio::make_work_guard(ios_))
+        , strand_(boost::asio::make_strand(ios_))
         , thread_([&] { ios_.run(); })
         , stream_(ios_)
         , ws_(stream_)
@@ -155,8 +176,12 @@ public:
                 "/");
             ws_.async_read(
                 rb_,
-                strand_.wrap(std::bind(
-                    &WSClientImpl::on_read_msg, this, std::placeholders::_1)));
+                boost::asio::bind_executor(
+                    strand_,
+                    std::bind(
+                        &WSClientImpl::on_read_msg,
+                        this,
+                        std::placeholders::_1)));
         }
         catch (std::exception&)
         {
@@ -286,8 +311,10 @@ private:
         }
         ws_.async_read(
             rb_,
-            strand_.wrap(std::bind(
-                &WSClientImpl::on_read_msg, this, std::placeholders::_1)));
+            boost::asio::bind_executor(
+                strand_,
+                std::bind(
+                    &WSClientImpl::on_read_msg, this, std::placeholders::_1)));
     }
 
     // Called when the read op terminates
