@@ -98,6 +98,12 @@
 # 2024-04-03, Bronek Kozicki
 #     - add support for output formats: jacoco, clover, lcov
 #
+# 2025-05-12, Jingchen Wu
+#     - add -fprofile-update=atomic to ensure atomic profile generation
+#
+# 2025-08-28, Bronek Kozicki
+#     - fix "At least one COMMAND must be given" CMake warning from policy CMP0175
+#
 # USAGE:
 #
 # 1. Copy this file into your cmake modules path.
@@ -432,7 +438,7 @@ function(setup_target_for_coverage_gcovr)
 
     # Show info where to find the report
     add_custom_command(TARGET ${Coverage_NAME} POST_BUILD
-        COMMAND ;
+        COMMAND echo
         COMMENT "Code coverage report saved in ${GCOVR_OUTPUT_FILE} formatted as ${Coverage_FORMAT}"
     )
 endfunction() # setup_target_for_coverage_gcovr
