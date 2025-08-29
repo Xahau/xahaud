@@ -104,7 +104,7 @@ class GetObjectByHash_test : public beast::unit_test::suite
             boost::asio::ip::make_address("172.16.0.2"));
         PublicKey const key(std::get<0>(randomKeyPair(KeyType::ed25519)));
         auto consumer = overlay.resourceManager().newInboundEndpoint(remote);
-        auto slot = overlay.peerFinder().new_inbound_slot(local, remote);
+        auto [slot, _] = overlay.peerFinder().new_inbound_slot(local, remote);
         auto peer = std::make_shared<PeerTest>(
             env.app(),
             slot,
