@@ -88,6 +88,9 @@ std::uint16_t constexpr maxTransferFee = 50000;
 /** The maximum length of a URI inside an NFT */
 std::size_t constexpr maxTokenURILength = 256;
 
+/** The maximum length of a URI inside an URIToken */
+std::size_t constexpr maxURITokenURILength = 256;
+
 /** The maximum length of a Data element inside a DID */
 std::size_t constexpr maxDIDDocumentLength = 256;
 

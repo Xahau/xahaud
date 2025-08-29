@@ -96,11 +96,15 @@ JSS(isVLEncoded);         // out: RPC server_definitions
                           // matches definitions.json format
 JSS(Invalid);                  //
 JSS(Issuer);                   // in: Credential transactions
+JSS(IssuingChainDoor);         // field.
+JSS(IssuingChainIssue);        // field.
 JSS(InvoiceID);                // field
 JSS(LastLedgerSequence);       // in: TransactionSign; field
 JSS(FirstLedgerSequence);      // in: TransactionSign; field
 JSS(LastUpdateTime);           // field.
 JSS(LimitAmount);              // field.
+JSS(LockingChainDoor);         // field.
+JSS(LockingChainIssue);        // field.
 JSS(NetworkID);                // field.
 JSS(LPTokenOut);               // in: AMM Liquidity Provider deposit tokens
 JSS(LPTokenIn);                // in: AMM Liquidity Provider withdraw tokens

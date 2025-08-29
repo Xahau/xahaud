@@ -96,7 +96,7 @@ URIToken::preflight(PreflightContext const& ctx)
     {
         auto const uri = ctx.tx.getFieldVL(sfURI);
 
-        if (uri.size() < 1 || uri.size() > 256)
+        if (uri.size() < 1 || uri.size() > maxURITokenURILength)
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction. URI must be at least 1 "
