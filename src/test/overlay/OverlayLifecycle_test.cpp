@@ -159,7 +159,7 @@ class OverlayLifecycle_test : public beast::unit_test::suite
     {
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
         auto const remote = beast::IPAddressConversion::from_asio(endpoint);
-        auto slot = overlay.peerFinder().new_outbound_slot(remote);
+        auto [slot, _] = overlay.peerFinder().new_outbound_slot(remote);
         if (!BEAST_EXPECT(slot != nullptr))
             return {};
         return std::make_shared<ConnectAttempt>(
@@ -338,7 +338,7 @@ class OverlayLifecycle_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(handshakes == 2))
             return;
 
-        auto slot = overlay.peerFinder().new_outbound_slot(endpoint);
+        auto [slot, _] = overlay.peerFinder().new_outbound_slot(endpoint);
         if (!BEAST_EXPECT(slot != nullptr))
             return;
         if (!BEAST_EXPECT(overlay.peerFinder().onConnected(slot, local)))
