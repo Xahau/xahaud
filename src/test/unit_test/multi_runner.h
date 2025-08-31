@@ -332,6 +332,7 @@ multi_runner_child::run_multi(Pred pred)
     {
         if (!pred(*t))
             continue;
+
         try
         {
             failed = run(*t) || failed;

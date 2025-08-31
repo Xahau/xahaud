@@ -561,7 +561,6 @@ public:
                 "json",
                 "submit_multisigned",
                 to_string(jv_submit))[jss::result];
-            std::cout << to_string(jrr) << "\n";
             BEAST_EXPECT(jrr[jss::status] == "success");
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
@@ -1719,7 +1718,12 @@ public:
             henry,
             f1,
             f2,
-            f3);
+            f3,
+            phase,
+            jinni,
+            acc10,
+            acc11,
+            acc12);
         env.close();
 
         auto const baseFee = env.current()->fees().base;
@@ -1777,10 +1781,15 @@ public:
             // Test 1c: cheri's nested signers must meet her quorum
             aliceSeq = env.seq(alice);
             env(noop(alice),
-                msig({msigner(
-                    cheri, msigner(haunt))}),  // haunt has weight 2, needs 3
+                msig(
+                    {msigner(
+                         becky,
+                         msigner(bogie),
+                         msigner(demon)),  // becky has a satisified quorum
+                     msigner(cheri, msigner(haunt))}),  // but cheri does not
+                                                        // (needs jinni too)
                 L(),
-                fee(4 * baseFee),
+                fee(5 * baseFee),
                 ter(tefBAD_QUORUM));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
@@ -1792,7 +1801,7 @@ public:
                     {msigner(cheri, msigner(haunt), msigner(jinni)),
                      msigner(daria)}),
                 L(),
-                fee(4 * baseFee));
+                fee(5 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
