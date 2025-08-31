@@ -561,6 +561,7 @@ public:
                 "json",
                 "submit_multisigned",
                 to_string(jv_submit))[jss::result];
+            std::cout << to_string(jrr) << "\n";
             BEAST_EXPECT(jrr[jss::status] == "success");
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
@@ -1664,8 +1665,36 @@ public:
     {
         testcase("Nested MultiSign");
 
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+#define LINE_TO_HEX_STRING                                                \
+    []() -> std::string {                                                 \
+        const char* line = TOSTRING(__LINE__);                            \
+        int len = 0;                                                      \
+        while (line[len])                                                 \
+            len++;                                                        \
+        std::string result;                                               \
+        if (len % 2 == 1)                                                 \
+        {                                                                 \
+            result += (char)(0x00 * 16 + (line[0] - '0'));                \
+            line++;                                                       \
+        }                                                                 \
+        for (int i = 0; line[i]; i += 2)                                  \
+        {                                                                 \
+            result += (char)((line[i] - '0') * 16 + (line[i + 1] - '0')); \
+        }                                                                 \
+        return result;                                                    \
+    }()
+
+#define M(m) memo(m, "", "")
+#define L() memo(LINE_TO_HEX_STRING, "", "")
+
         using namespace jtx;
-        Env env{*this, features};
+        Env env{
+            *this,
+            envconfig(),
+            features};  //, nullptr, beast::severities::kWarn};
 
         Account const alice{"alice", KeyType::secp256k1};
         Account const becky{"becky", KeyType::ed25519};
@@ -1705,8 +1734,9 @@ public:
             std::uint32_t f1Seq = env.seq(f1);
             env(noop(f1),
                 msig({msigner(f2, msigner(f3))}),
+                L(),
                 fee(3 * baseFee),
-                ter(temMALFORMED));
+                ter(temINVALID));
             env.close();
             BEAST_EXPECT(env.seq(f1) == f1Seq);
             return;
@@ -1727,7 +1757,8 @@ public:
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({msigner(becky, msigner(bogie), msigner(demon))}),
-                fee(3 * baseFee),
+                L(),
+                fee(4 * baseFee),
                 ter(tefBAD_QUORUM));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
@@ -1738,7 +1769,8 @@ public:
                 msig(
                     {msigner(becky, msigner(bogie), msigner(demon)),
                      msigner(daria)}),
-                fee(4 * baseFee));
+                L(),
+                fee(5 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
 
@@ -1747,7 +1779,8 @@ public:
             env(noop(alice),
                 msig({msigner(
                     cheri, msigner(haunt))}),  // haunt has weight 2, needs 3
-                fee(2 * baseFee),
+                L(),
+                fee(4 * baseFee),
                 ter(tefBAD_QUORUM));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
@@ -1755,9 +1788,11 @@ public:
             // Test 1d: cheri with both signers meets her quorum
             aliceSeq = env.seq(alice);
             env(noop(alice),
-                msig({msigner(
-                    cheri, msigner(haunt), msigner(jinni))}),  // 2+2 >= 3
-                fee(3 * baseFee));
+                msig(
+                    {msigner(cheri, msigner(haunt), msigner(jinni)),
+                     msigner(daria)}),
+                L(),
+                fee(4 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
@@ -1791,6 +1826,7 @@ public:
                                 msigner(acc11))),  // phase quorum: 1+1 = 2 ✓
                         msigner(shade))  // jinni quorum: 3+2 = 5 >= 4 ✓
                 }),                      // edgar quorum: 1+0 = 1 < 2 ✗
+                L(),
                 fee(5 * baseFee),
                 ter(tefBAD_QUORUM));
             env.close();
@@ -1807,6 +1843,7 @@ public:
                             msigner(phase, msigner(acc10), msigner(acc11))),
                         msigner(bogie))  // edgar quorum: 1+1 = 2 ✓
                 }),
+                L(),
                 fee(5 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
@@ -1826,6 +1863,7 @@ public:
                         msigner(
                             spook))  // jinni would have 3+2+1=6 but phase fails
                 }),
+                L(),
                 fee(5 * baseFee),
                 ter(tefBAD_QUORUM));
             env.close();
@@ -1869,6 +1907,7 @@ public:
                     msigner(grace, msigner(bogie), msigner(demon))  // weight 2,
                                                                     // 2-level
                 }),
+                L(),
                 fee(5 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
@@ -1883,6 +1922,7 @@ public:
                      msigner(
                          henry,  // weight 2, 3-level
                          msigner(becky, msigner(bogie), msigner(demon)))}),
+                L(),
                 fee(5 * baseFee),
                 ter(tefBAD_QUORUM));  // grace didn't meet quorum
             env.close();
@@ -1898,6 +1938,7 @@ public:
                         msigner(becky, msigner(bogie), msigner(demon))),
                     msigner(edgar, msigner(bogie), msigner(demon))  // weight 2
                 }),
+                L(),
                 fee(6 * baseFee));  // Total weight: 1+2+2 = 5 ✓
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
@@ -1942,6 +1983,7 @@ public:
                         msigner(demon)),
                     msigner(grace)  // weight 3, direct
                 }),
+                L(),
                 fee(10 * baseFee));  // Total weight: 3+3+3+3+3 = 15 ✓
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
@@ -1967,6 +2009,7 @@ public:
                          msigner(
                              jinni,
                              msigner(phase, msigner(acc10), msigner(acc11))))}),
+                L(),
                 fee(10 * baseFee),
                 ter(tefBAD_QUORUM));  // becky's quorum not met
             env.close();
@@ -1983,6 +2026,7 @@ public:
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({msigner(becky, msigner(demon), msigner(ghost))}),
+                L(),
                 fee(3 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
@@ -2001,6 +2045,7 @@ public:
                         msigner(
                             jinni,
                             msigner(phase, msigner(acc10), msigner(acc11)))))}),
+                L(),
                 fee(3 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);

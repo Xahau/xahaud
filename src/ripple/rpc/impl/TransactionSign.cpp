@@ -1183,12 +1183,32 @@ transactionSubmitMultiSigned(
     // The Signers array may only contain Signer objects.
     if (std::find_if_not(
             signers.begin(), signers.end(), [](STObject const& obj) {
-                return (
-                    // A Signer object always contains these fields and no
-                    // others.
-                    obj.isFieldPresent(sfAccount) &&
-                    obj.isFieldPresent(sfSigningPubKey) &&
-                    obj.isFieldPresent(sfTxnSignature) && obj.getCount() == 3);
+                if (obj.getCount() != 4 || !obj.isFieldPresent(sfAccount))
+                    return false;
+                // leaf signer
+                if (obj.isFieldPresent(sfSigningPubKey) &&
+                    obj.isFieldPresent(sfTxnSignature) &&
+                    !obj.isFieldPresent(sfSigners))
+                    return true;
+
+                // nested signer
+                if (!obj.isFieldPresent(sfSigningPubKey) &&
+                    !obj.isFieldPresent(sfTxnSignature) &&
+                    obj.isFieldPresent(sfSigners))
+                    return true;
+
+                /*
+                std::cout << "Error caused by:\n" <<
+                obj.getJson(JsonOptions::none) << "\n"
+                << "obj.isFieldPresent(sfAccount) = " <<
+                (obj.isFieldPresent(sfAccount) ? "t" : "f") << "\n"
+                << "obj.isFieldPresent(sfSigningPubKey) = " <<
+                (obj.isFieldPresent(sfSigningPubKey) ? "t" : "f") << "\n"
+                << "obj.isFieldPresent(sfTxnSignature) = " <<
+                (obj.isFieldPresent(sfTxnSignature) ? "t" : "f") << "\n"
+                << "obj.getCount() = " << obj.getCount() << "\n\n";
+                */
+                return false;
             }) != signers.end())
     {
         return RPC::make_param_error(
