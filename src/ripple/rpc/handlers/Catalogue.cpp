@@ -21,6 +21,9 @@
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/LedgerToJson.h>
 #include <ripple/app/main/Application.h>
+#include <ripple/app/misc/SHAMapStoreImp.h>
+#include <ripple/app/rdb/backend/SQLiteDatabase.h>
+#include <ripple/app/rdb/backend/detail/Node.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>
@@ -1132,6 +1135,65 @@ doCatalogueLoad(RPC::JsonContext& context)
     }
     decompStream->push(boost::ref(infile));
 
+    // Structures for parallel save processing
+    struct LedgerSaveJob
+    {
+        std::shared_ptr<Ledger> ledger;  // Non-const so we can flush
+        std::shared_ptr<SHAMap> stateMapSnapshot;
+
+        void
+        execute(Application& app, beast::Journal journal)
+        {
+            auto j = journal;
+            JLOG(j.trace())
+                << "Executing save job for ledger " << ledger->info().seq;
+
+            // 1. Flush the state map snapshot and the ledger's own tx map
+            stateMapSnapshot->flushDirty(hotACCOUNT_NODE_UNCACHED);
+            ledger->txMap().flushDirty(hotTRANSACTION_NODE_UNCACHED);
+
+            // 2. Save to SQLite database using the proper interface
+            auto const db =
+                dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
+            if (!db)
+            {
+                JLOG(j.error()) << "Failed to get database for ledger "
+                                << ledger->info().seq;
+                return;
+            }
+
+            // This handles the existence check and calls
+            // detail::saveValidatedLedger
+            if (!db->saveValidatedLedger(ledger, false))
+            {
+                JLOG(j.error())
+                    << "Failed to save ledger " << ledger->info().seq;
+                return;
+            }
+
+            JLOG(j.trace())
+                << "Completed save job for ledger " << ledger->info().seq;
+        }
+    };
+
+    // Shared state for concurrent save management
+    struct SaveState
+    {
+        std::atomic<int> pendingSaves{0};
+        std::atomic<int> totalPendingJobs{0};
+        std::mutex completionMutex;
+        std::condition_variable completionCV;
+        RangeSet<uint32_t> completedSaves;
+        std::mutex completedSavesMutex;
+    };
+
+    auto saveState = std::make_shared<SaveState>();
+
+    static constexpr int MAX_CONCURRENT_SAVES =
+        1000;  // Allow even more parallel saves
+    static constexpr int BATCH_UPDATE_INTERVAL =
+        100;  // Update ranges every N ledgers
+
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
     uint32_t expected_seq = header.min_ledger;
@@ -1254,15 +1316,6 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // Finalize the ledger
-        // Only flush to NodeStore if we're saving to database
-        if (!no_db)
-        {
-            // During catalogue loading, use uncached types to bypass the cache
-            // This prevents memory buildup from NodeObject accumulation
-            ledger->stateMap().flushDirty(hotACCOUNT_NODE_UNCACHED);
-            ledger->txMap().flushDirty(hotTRANSACTION_NODE_UNCACHED);
-        }
-
         ledger->setAccepted(
             info.closeTime,
             info.closeTimeResolution,
@@ -1286,11 +1339,63 @@ doCatalogueLoad(RPC::JsonContext& context)
                 rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
         }
 
-        // Save in database (unless no_db option is set)
-        // TODO: what if this fails? It's currently asynchronous and not really
-        // possible to know if it fails.
+        // Queue save job for parallel processing
         if (!no_db)
-            pendSaveValidated(context.app, ledger, do_save_synchronous, false);
+        {
+            // Create snapshot of the state map (txMap is unique per ledger, no
+            // snapshot needed)
+            auto stateSnapshot = ledger->stateMap().snapShot(false);
+
+            // Wait if we're at the concurrent save limit
+            {
+                std::unique_lock<std::mutex> lock(saveState->completionMutex);
+                if (saveState->pendingSaves >= MAX_CONCURRENT_SAVES)
+                {
+                    JLOG(j.trace()) << "Waiting for save slots, pending="
+                                    << saveState->pendingSaves.load();
+                    saveState->completionCV.wait(lock, [&saveState]() {
+                        return saveState->pendingSaves < MAX_CONCURRENT_SAVES;
+                    });
+                }
+            }
+
+            // Queue the bundled save job
+            saveState->pendingSaves++;
+            saveState->totalPendingJobs++;
+
+            JLOG(j.trace()) << "Queueing save job for ledger " << ledger->seq()
+                            << ", pending=" << saveState->pendingSaves.load();
+
+            bool jobQueued = context.app.getJobQueue().addJob(
+                jtPUBOLDLEDGER,
+                "cat-save-" + std::to_string(ledger->seq()),
+                [job = LedgerSaveJob{ledger, stateSnapshot},
+                 saveState,
+                 app = &context.app,
+                 j,
+                 seq = ledger->info().seq]() mutable {
+                    job.execute(*app, j);
+
+                    // Track this ledger as successfully saved
+                    {
+                        std::lock_guard lock(saveState->completedSavesMutex);
+                        saveState->completedSaves.insert(seq);
+                    }
+
+                    saveState->pendingSaves--;
+                    saveState->totalPendingJobs--;
+                    saveState->completionCV.notify_all();
+                });
+
+            if (!jobQueued)
+            {
+                JLOG(j.error())
+                    << "Failed to queue save job for ledger " << ledger->seq();
+                saveState->pendingSaves--;
+                saveState->totalPendingJobs--;
+                return rpcError(rpcINTERNAL, "Failed to queue save job");
+            }
+        }
 
         // Store in ledger master
         // Pinning
@@ -1304,17 +1409,52 @@ doCatalogueLoad(RPC::JsonContext& context)
             context.app.getLedgerMaster().switchLCL(ledger);
         }
 
-        context.app.getLedgerMaster().setLedgerRangePresent(
-            header.min_ledger, info.seq, do_pinning);
-
         // Store the ledger
         prevLedger = ledger;
         ledgersLoaded++;
 
-        // Periodically sweep the NodeStore cache to prevent memory buildup
-        // during large catalogue loads
-        if (ledgersLoaded % 100 == 0)
+        // Periodically update ranges and sweep cache
+        if (ledgersLoaded % BATCH_UPDATE_INTERVAL == 0)
         {
+            // Wait for pending saves to complete
+            {
+                std::unique_lock<std::mutex> lock(saveState->completionMutex);
+                saveState->completionCV.wait(lock, [&saveState]() {
+                    return saveState->pendingSaves == 0;
+                });
+            }
+
+            // Update ledger ranges for all completed saves
+            {
+                std::lock_guard lock(saveState->completedSavesMutex);
+                if (!saveState->completedSaves.empty())
+                {
+                    // Get all ranges that have been saved
+                    // RangeSet uses interval_set, iterate through intervals
+                    for (auto const& interval : saveState->completedSaves)
+                    {
+                        auto first = interval.lower();
+                        auto last = interval.upper();
+                        context.app.getLedgerMaster().setLedgerRangePresent(
+                            first, last, do_pinning);
+                        JLOG(j.info())
+                            << "Updated ledger range: " << first << "-" << last;
+                    }
+                    // Clear for next batch
+                    saveState->completedSaves.clear();
+                }
+            }
+
+            // Save pinned ranges to database if pinning is enabled
+            if (do_pinning && !no_db)
+            {
+                JLOG(j.info()) << "Saving pinned ledger ranges to database";
+                auto& shaMapStore =
+                    dynamic_cast<SHAMapStoreImp&>(context.app.getSHAMapStore());
+                shaMapStore.savePinnedRanges(
+                    context.app.getLedgerMaster().getPinnedLedgersRangeSet());
+            }
+
             JLOG(j.info()) << "Sweeping NodeStore cache at ledger " << info.seq
                            << " (loaded " << ledgersLoaded << " ledgers)";
             context.app.getNodeStore().sweep();
@@ -1323,6 +1463,46 @@ doCatalogueLoad(RPC::JsonContext& context)
 
     decompStream->reset();
     infile.close();
+
+    // Wait for all pending save jobs to complete
+    if (!no_db)
+    {
+        JLOG(j.info()) << "Waiting for " << saveState->totalPendingJobs.load()
+                       << " pending save jobs to complete...";
+
+        std::unique_lock<std::mutex> lock(saveState->completionMutex);
+        saveState->completionCV.wait(
+            lock, [&saveState]() { return saveState->totalPendingJobs == 0; });
+
+        JLOG(j.info()) << "All save jobs completed";
+
+        // Update ledger ranges for any remaining completed saves
+        {
+            std::lock_guard lock2(saveState->completedSavesMutex);
+            if (!saveState->completedSaves.empty())
+            {
+                for (auto const& interval : saveState->completedSaves)
+                {
+                    auto first = interval.lower();
+                    auto last = interval.upper();
+                    context.app.getLedgerMaster().setLedgerRangePresent(
+                        first, last, do_pinning);
+                    JLOG(j.info()) << "Final update ledger range: " << first
+                                   << "-" << last;
+                }
+            }
+        }
+    }
+
+    // Save pinned ranges to database if pinning was enabled
+    if (do_pinning && !no_db)
+    {
+        JLOG(j.info()) << "Saving pinned ledger ranges to database";
+        auto& shaMapStore =
+            dynamic_cast<SHAMapStoreImp&>(context.app.getSHAMapStore());
+        shaMapStore.savePinnedRanges(
+            context.app.getLedgerMaster().getPinnedLedgersRangeSet());
+    }
 
     JLOG(j.info()) << "Catalogue load complete! Loaded " << ledgersLoaded
                    << " ledgers from file size " << file_size << " bytes";

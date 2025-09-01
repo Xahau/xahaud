@@ -135,6 +135,9 @@ SHAMapStoreImp::SHAMapStoreImp(
 
     get_if_exists(section, "online_delete", deleteInterval_);
 
+    // Always initialize state database for pinned ranges persistence
+    state_db_.init(config, dbName_);
+
     if (deleteInterval_)
     {
         if (app_.config().reporting())
@@ -176,29 +179,6 @@ SHAMapStoreImp::SHAMapStoreImp(
                 "online_delete must not be less than ledger_history "
                 "(currently " +
                 std::to_string(config.LEDGER_HISTORY) + ")");
-        }
-
-        state_db_.init(config, dbName_);
-
-        // Load pinned ranges from database
-        {
-            auto rangesStr = state_db_.getPinnedRanges();
-            if (!rangesStr.empty())
-            {
-                RangeSet<std::uint32_t> pinnedRanges;
-                if (from_string(pinnedRanges, rangesStr))
-                {
-                    JLOG(journal_.info())
-                        << "Loaded pinned ranges from database: " << rangesStr;
-                    app_.getLedgerMaster().setPinnedLedgersRangeSet(
-                        pinnedRanges);
-                }
-                else
-                {
-                    JLOG(journal_.warn())
-                        << "Failed to parse pinned ranges: " << rangesStr;
-                }
-            }
         }
 
         if (!config.mem_backend())
@@ -316,6 +296,27 @@ SHAMapStoreImp::copyNode(std::uint64_t& nodeCount, SHAMapTreeNode const& node)
     }
 
     return true;
+}
+
+void
+SHAMapStoreImp::loadPinnedRanges()
+{
+    auto rangesStr = state_db_.getPinnedRanges();
+    if (!rangesStr.empty())
+    {
+        RangeSet<std::uint32_t> pinnedRanges;
+        if (from_string(pinnedRanges, rangesStr))
+        {
+            JLOG(journal_.info())
+                << "Loaded pinned ranges from database: " << rangesStr;
+            app_.getLedgerMaster().setPinnedLedgersRangeSet(pinnedRanges);
+        }
+        else
+        {
+            JLOG(journal_.warn())
+                << "Failed to parse pinned ranges: " << rangesStr;
+        }
+    }
 }
 
 void

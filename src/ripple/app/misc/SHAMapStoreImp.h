@@ -24,6 +24,7 @@
 #include <ripple/app/misc/SHAMapStore.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/app/rdb/State.h>
+#include <ripple/basics/RangeSet.h>
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/nodestore/DatabaseRotating.h>
 
@@ -175,11 +176,9 @@ public:
     void
     savePinnedRanges(RangeSet<std::uint32_t> const& ranges)
     {
-        if (deleteInterval_)
-        {
-            std::string rangesStr = to_string(ranges);
-            state_db_.setPinnedRanges(rangesStr);
-        }
+        // Always save pinned ranges, not just when online_delete is enabled
+        std::string rangesStr = to_string(ranges);
+        state_db_.setPinnedRanges(rangesStr);
     }
 
     void
@@ -247,10 +246,16 @@ private:
     [[nodiscard]] HealthResult
     healthWait();
 
+    void
+    loadPinnedRanges();
+
 public:
     void
     start() override
     {
+        // Always load pinned ranges on startup
+        loadPinnedRanges();
+
         if (deleteInterval_)
             thread_ = std::thread(&SHAMapStoreImp::run, this);
     }
