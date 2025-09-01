@@ -67,6 +67,10 @@ private:
         setState(SavedState const& state);
         void
         setLastRotated(LedgerIndex seq);
+        std::string
+        getPinnedRanges();
+        void
+        setPinnedRanges(std::string const& ranges);
     };
 
     Application& app_;
@@ -167,6 +171,16 @@ public:
 
     void
     onLedgerClosed(std::shared_ptr<Ledger const> const& ledger) override;
+
+    void
+    savePinnedRanges(RangeSet<std::uint32_t> const& ranges)
+    {
+        if (deleteInterval_)
+        {
+            std::string rangesStr = to_string(ranges);
+            state_db_.setPinnedRanges(rangesStr);
+        }
+    }
 
     void
     rendezvous() const override;

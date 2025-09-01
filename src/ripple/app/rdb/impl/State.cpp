@@ -43,6 +43,11 @@ initStateDB(
                "  CanDeleteSeq           INTEGER"
                ");";
 
+    session << "CREATE TABLE IF NOT EXISTS PinnedLedgers ("
+               "  Key                    INTEGER PRIMARY KEY,"
+               "  RangeSet               TEXT"
+               ");";
+
     std::int64_t count = 0;
     {
         // SOCI requires boost::optional (not std::optional) as the parameter.
@@ -74,6 +79,17 @@ initStateDB(
     if (!count)
     {
         session << "INSERT INTO CanDelete VALUES (1, 0);";
+    }
+
+    // Initialize PinnedLedgers table with empty range if not exists
+    {
+        boost::optional<std::int64_t> countO;
+        session << "SELECT COUNT(Key) FROM PinnedLedgers WHERE Key = 1;",
+            soci::into(countO);
+        if (!countO || *countO == 0)
+        {
+            session << "INSERT INTO PinnedLedgers VALUES (1, '');";
+        }
     }
 }
 
@@ -125,6 +141,25 @@ setLastRotated(soci::session& session, LedgerIndex seq)
     session << "UPDATE DbState SET LastRotatedLedger = :seq"
                " WHERE Key = 1;",
         soci::use(seq);
+}
+
+std::string
+getPinnedRanges(soci::session& session)
+{
+    boost::optional<std::string> rangeStr;
+    session << "SELECT RangeSet FROM PinnedLedgers WHERE Key = 1;",
+        soci::into(rangeStr);
+
+    if (rangeStr)
+        return *rangeStr;
+    return "";
+}
+
+void
+setPinnedRanges(soci::session& session, std::string const& ranges)
+{
+    session << "UPDATE PinnedLedgers SET RangeSet = :ranges WHERE Key = 1;",
+        soci::use(ranges);
 }
 
 }  // namespace ripple

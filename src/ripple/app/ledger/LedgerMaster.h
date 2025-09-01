@@ -161,6 +161,9 @@ public:
     RangeSet<std::uint32_t>
     getPinnedLedgersRangeSet();
 
+    void
+    setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set);
+
     /** Apply held transactions to the open ledger
         This is normally called as we close the ledger.
         The open ledger remains open to handle new transactions

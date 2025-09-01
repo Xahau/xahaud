@@ -83,6 +83,20 @@ SHAMapStoreImp::SavedStateDB::setLastRotated(LedgerIndex seq)
     ripple::setLastRotated(sqlDb_, seq);
 }
 
+std::string
+SHAMapStoreImp::SavedStateDB::getPinnedRanges()
+{
+    std::lock_guard lock(mutex_);
+    return ripple::getPinnedRanges(sqlDb_);
+}
+
+void
+SHAMapStoreImp::SavedStateDB::setPinnedRanges(std::string const& ranges)
+{
+    std::lock_guard lock(mutex_);
+    ripple::setPinnedRanges(sqlDb_, ranges);
+}
+
 //------------------------------------------------------------------------------
 
 SHAMapStoreImp::SHAMapStoreImp(
@@ -165,6 +179,28 @@ SHAMapStoreImp::SHAMapStoreImp(
         }
 
         state_db_.init(config, dbName_);
+
+        // Load pinned ranges from database
+        {
+            auto rangesStr = state_db_.getPinnedRanges();
+            if (!rangesStr.empty())
+            {
+                RangeSet<std::uint32_t> pinnedRanges;
+                if (from_string(pinnedRanges, rangesStr))
+                {
+                    JLOG(journal_.info())
+                        << "Loaded pinned ranges from database: " << rangesStr;
+                    app_.getLedgerMaster().setPinnedLedgersRangeSet(
+                        pinnedRanges);
+                }
+                else
+                {
+                    JLOG(journal_.warn())
+                        << "Failed to parse pinned ranges: " << rangesStr;
+                }
+            }
+        }
+
         if (!config.mem_backend())
             dbPaths();
     }

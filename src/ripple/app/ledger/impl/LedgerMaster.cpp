@@ -1763,6 +1763,18 @@ LedgerMaster::getPinnedLedgersRangeSet()
     return mPinnedLedgers;
 }
 
+void
+LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
+{
+    std::lock_guard sl(mCompleteLock);
+    if (!mPinnedLedgers.empty())
+    {
+        Throw<std::runtime_error>(
+            "Expected mPinnedLedgers to be empty on startup");
+    }
+    mPinnedLedgers.assign(range_set);
+}
+
 std::optional<NetClock::time_point>
 LedgerMaster::getCloseTimeBySeq(LedgerIndex ledgerIndex)
 {
