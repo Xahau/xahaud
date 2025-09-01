@@ -31,6 +31,9 @@
 #include <ripple/shamap/SHAMapMissingNode.h>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/process.hpp>
+
+#include <ripple/json/json_reader.h>
 
 namespace ripple {
 void
@@ -526,17 +529,72 @@ SHAMapStoreImp::makeBackendRotating(std::string path)
     Section section{app_.config().section(ConfigSection::nodeDatabase())};
     boost::filesystem::path newPath;
 
-    if (path.size())
+    // Check for rotation command FIRST
+    std::string rotateCommand =
+        get(section, "online_delete_rotate_to_command", "");
+
+    if (!rotateCommand.empty() && path.empty())
+    {
+        JLOG(journal_.info()) << "Using rotation command: " << rotateCommand;
+
+        auto pinnedRanges = app_.getLedgerMaster().getPinnedLedgersRangeSet();
+        std::string pinnedStr = to_string(pinnedRanges);
+
+        // Execute rotation command
+        namespace bp = boost::process;
+        bp::ipstream pipe_stream;
+        bp::child c(
+            rotateCommand,
+            "--pinned-ledgers=" + pinnedStr,
+            bp::std_out > pipe_stream,
+            bp::std_err > bp::null  // Ignore stderr or capture if needed
+        );
+
+        std::string output;
+        std::getline(pipe_stream, output);
+        c.wait();
+
+        if (c.exit_code() != 0)
+        {
+            JLOG(journal_.error())
+                << "Rotation command failed with exit code: " << c.exit_code();
+            if (!output.empty())
+            {
+                Json::Reader reader;
+                Json::Value error;
+                if (reader.parse(output, error))
+                    throw std::runtime_error(
+                        "Rotation failed: " + error["error"].asString());
+            }
+            throw std::runtime_error("Rotation command failed");
+        }
+
+        // Parse JSON response
+        Json::Reader reader;
+        Json::Value result;
+        if (!reader.parse(output, result))
+            throw std::runtime_error(
+                "Invalid JSON from rotation command: " + output);
+
+        newPath = result["path"].asString();
+        if (newPath.empty())
+            throw std::runtime_error("No path returned from rotation command");
+
+        JLOG(journal_.info()) << "Rotation command returned: " << newPath;
+    }
+    else if (!path.empty())
     {
         newPath = path;
     }
     else
     {
+        // Original behavior - create new empty backend
         boost::filesystem::path p = get(section, "path");
         p /= dbPrefix_;
         p += ".%%%%";
         newPath = boost::filesystem::unique_path(p);
     }
+
     section.set("path", newPath.string());
 
     auto backend{NodeStore::Manager::instance().make_Backend(
