@@ -117,14 +117,14 @@ can't build earlier Boost versions.
    which allows you to statically link it with GCC, if you want.
 
    ```
-   conan export external/snappy snappy/1.1.9@
+   conan export external/snappy snappy/1.1.10@xahaud/stable
    ```
 
 5. Export our [Conan recipe for SOCI](./external/soci).
    It patches their CMake to correctly import its dependencies.
 
    ```
-   conan export external/soci soci/4.0.3@
+   conan export external/soci soci/4.0.3@xahaud/stable
    ```
 
 ### Build and Test
