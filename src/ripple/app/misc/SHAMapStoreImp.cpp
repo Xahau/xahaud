@@ -301,6 +301,18 @@ SHAMapStoreImp::copyNode(std::uint64_t& nodeCount, SHAMapTreeNode const& node)
 void
 SHAMapStoreImp::loadPinnedRanges()
 {
+    // Config option largely for testing and diagnostics
+    Section& section{app_.config().section(ConfigSection::nodeDatabase())};
+    bool loadPinned = true;
+    get_if_exists(section, "load_complete_ledgers_pinned", loadPinned);
+
+    if (!loadPinned)
+    {
+        JLOG(journal_.info()) << "Skipping pinned ranges load "
+                                 "(load_complete_ledgers_pinned=false)";
+        return;
+    }
+
     auto rangesStr = state_db_.getPinnedRanges();
     if (!rangesStr.empty())
     {
