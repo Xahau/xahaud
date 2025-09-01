@@ -186,6 +186,10 @@ test.protocol > ripple.crypto
 test.protocol > ripple.json
 test.protocol > ripple.protocol
 test.protocol > test.toplevel
+test.rdb > ripple.app
+test.rdb > ripple.core
+test.rdb > test.jtx
+test.rdb > test.toplevel
 test.resource > ripple.basics
 test.resource > ripple.beast
 test.resource > ripple.resource

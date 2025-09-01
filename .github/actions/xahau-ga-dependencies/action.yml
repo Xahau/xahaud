@@ -54,13 +54,12 @@ runs:
         restore-keys: |
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
-          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-
 
     - name: Export custom recipes
       shell: bash
       run: |
-        conan export external/snappy snappy/1.1.9@
-        conan export external/soci soci/4.0.3@
+        conan export external/snappy snappy/1.1.10@xahaud/stable
+        conan export external/soci soci/4.0.3@xahaud/stable
 
     - name: Install dependencies
       shell: bash
