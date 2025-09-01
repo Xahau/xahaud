@@ -892,7 +892,7 @@ private:
         return jvRequest;
     }
 
-    // catalogue_load <input_file> [ignore_hash] [sync] [no_db]
+    // catalogue_load <input_file> [ignore_hash] [no_pin]
     Json::Value
     parseCatalogueLoad(Json::Value const& jvParams)
     {
@@ -910,13 +910,9 @@ private:
                 {
                     jvRequest[jss::ignore_hash] = true;
                 }
-                else if (boost::iequals(param, "sync"))
+                else if (boost::iequals(param, "no_pin"))
                 {
-                    jvRequest[jss::sync] = true;
-                }
-                else if (boost::iequals(param, "no_db"))
-                {
-                    jvRequest[jss::no_db] = true;
+                    jvRequest[jss::pin] = false;
                 }
             }
         }

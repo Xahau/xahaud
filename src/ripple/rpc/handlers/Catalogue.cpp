@@ -930,26 +930,10 @@ doCatalogueLoad(RPC::JsonContext& context)
             "expected input_file: <absolute readable filepath>");
 
     bool do_pinning = true;
-    bool do_save_synchronous = false;  // Default: asynchronous saves
-    bool no_db = false;                // Default: save to database
 
-    // Parse diagnostic options if provided
-    if (context.params.isMember(jss::do_pinning))
-        do_pinning = context.params[jss::do_pinning].asBool();
-
-    if (context.params.isMember(jss::do_save_synchronous))
-        do_save_synchronous = context.params[jss::do_save_synchronous].asBool();
-
-    // 'sync' is a shorthand for do_save_synchronous=true
-    if (context.params.isMember(jss::sync))
-        do_save_synchronous = context.params[jss::sync].asBool();
-
-    if (context.params.isMember(jss::no_db))
-        no_db = context.params[jss::no_db].asBool();
-
-    JLOG(j.info()) << "Diagnostic options: do_pinning=" << do_pinning
-                   << ", do_save_synchronous=" << do_save_synchronous
-                   << ", no_db=" << no_db;
+    // Parse pinning option if provided
+    if (context.params.isMember(jss::pin))
+        do_pinning = context.params[jss::pin].asBool();
 
     JLOG(j.info()) << "Opening catalogue file: " << filepath;
 
@@ -1340,7 +1324,6 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // Queue save job for parallel processing
-        if (!no_db)
         {
             // Create snapshot of the state map (txMap is unique per ledger, no
             // snapshot needed)
@@ -1446,7 +1429,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             }
 
             // Save pinned ranges to database if pinning is enabled
-            if (do_pinning && !no_db)
+            if (do_pinning)
             {
                 JLOG(j.info()) << "Saving pinned ledger ranges to database";
                 auto& shaMapStore =
@@ -1465,37 +1448,34 @@ doCatalogueLoad(RPC::JsonContext& context)
     infile.close();
 
     // Wait for all pending save jobs to complete
-    if (!no_db)
+    JLOG(j.info()) << "Waiting for " << saveState->totalPendingJobs.load()
+                   << " pending save jobs to complete...";
+
+    std::unique_lock<std::mutex> lock(saveState->completionMutex);
+    saveState->completionCV.wait(
+        lock, [&saveState]() { return saveState->totalPendingJobs == 0; });
+
+    JLOG(j.info()) << "All save jobs completed";
+
+    // Update ledger ranges for any remaining completed saves
     {
-        JLOG(j.info()) << "Waiting for " << saveState->totalPendingJobs.load()
-                       << " pending save jobs to complete...";
-
-        std::unique_lock<std::mutex> lock(saveState->completionMutex);
-        saveState->completionCV.wait(
-            lock, [&saveState]() { return saveState->totalPendingJobs == 0; });
-
-        JLOG(j.info()) << "All save jobs completed";
-
-        // Update ledger ranges for any remaining completed saves
+        std::lock_guard lock2(saveState->completedSavesMutex);
+        if (!saveState->completedSaves.empty())
         {
-            std::lock_guard lock2(saveState->completedSavesMutex);
-            if (!saveState->completedSaves.empty())
+            for (auto const& interval : saveState->completedSaves)
             {
-                for (auto const& interval : saveState->completedSaves)
-                {
-                    auto first = interval.lower();
-                    auto last = interval.upper();
-                    context.app.getLedgerMaster().setLedgerRangePresent(
-                        first, last, do_pinning);
-                    JLOG(j.info()) << "Final update ledger range: " << first
-                                   << "-" << last;
-                }
+                auto first = interval.lower();
+                auto last = interval.upper();
+                context.app.getLedgerMaster().setLedgerRangePresent(
+                    first, last, do_pinning);
+                JLOG(j.info())
+                    << "Final update ledger range: " << first << "-" << last;
             }
         }
     }
 
     // Save pinned ranges to database if pinning was enabled
-    if (do_pinning && !no_db)
+    if (do_pinning)
     {
         JLOG(j.info()) << "Saving pinned ledger ranges to database";
         auto& shaMapStore =

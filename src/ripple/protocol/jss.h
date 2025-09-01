@@ -278,9 +278,6 @@ JSS(deposit_authorized);      // out: deposit_authorized
 JSS(deposit_preauth);         // in: AccountObjects, LedgerData
 JSS(deprecated);              // out
 JSS(descending);              // in: AccountTx*
-JSS(do_pinning);              // in: catalogue_load
-JSS(do_save_synchronous);     // in: catalogue_load
-JSS(no_db);                   // in: catalogue_load
 JSS(description);             // in/out: Reservations
 JSS(destination);             // in: nft_buy_offers, nft_sell_offers
 JSS(destination_account);     // in: PathRequest, RipplePathFind, account_lines
@@ -569,6 +566,7 @@ JSS(peer_disconnects_resources);  // Severed peer connections because of
                                   // excess resource consumption.
 JSS(percent_complete);
 JSS(phash);
+JSS(pin);               // in: catalogue_load
 JSS(port);              // in: Connect
 JSS(previous);          // out: Reservations
 JSS(previous_ledger);   // out: LedgerPropose
