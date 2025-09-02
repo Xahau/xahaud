@@ -1834,14 +1834,37 @@ LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
     //
     // This means:
     // - On startup: complete_ledgers is empty, complete_ledgers_pinned shows
-    // ranges
+    //   ranges
     // - After first validation: complete_ledgers shows both pinned and active
-    // ranges
-    // - Historical pinned ledgers become immediately queryable via RPC
+    //   ranges
+    // - Historical pinned ledgers become queryable via RPC once the node is
+    //   synced with the network
+    //
+    // RPC ACCESS BLOCKING CONDITIONS (returns rpcNO_NETWORK/rpcNOT_SYNCED):
+    //
+    // 1. STARTUP BLOCKING (all ledgers blocked):
+    //    - mValidLedgerSeq starts at 0
+    //    - mValidLedgerSign starts at 0 (stores close time as epoch seconds)
+    //    - getValidatedLedgerAge() returns 2 WEEKS when mValidLedgerSign is 0
+    //    - isValidatedOld() returns true (> 2 minutes)
+    //    - Result: ALL ledger queries blocked until first validation
+    //
+    // 2. HISTORICAL LEDGER BLOCKING (seq > validated):
+    //    - Requested ledger seq > mValidLedgerSeq AND
+    //    - isValidatedOld() is true
+    //    - Even if ledger is fully in database
+    //
+    // 3. STALE CURRENT/CLOSED BLOCKING:
+    //    - Current/closed ledger > 10 sequences behind validated
+    //    - Prevents serving very stale "current" state
+    //
+    // 4. NO NETWORK BLOCKING:
+    //    - When validated ledger becomes > 2 minutes old
+    //    - All queries blocked until re-sync
     //
     // In findNewLedgersToPublish(), we subtract pinned ledgers from the publish
     // set to avoid memory bloat in standalone mode when loading large
-    // catalogues.
+    // catalogues and only publish the latest validated ledger.
 
     JLOG(m_journal.info()) << "Added pinned ranges to complete ledgers: "
                            << to_string(range_set);
