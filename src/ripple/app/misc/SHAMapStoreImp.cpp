@@ -376,6 +376,22 @@ SHAMapStoreImp::loadPinnedRanges()
 void
 SHAMapStoreImp::performStartupCleanup()
 {
+    // WARNING: This feature performs AGGRESSIVE bulk deletion on startup!
+    //
+    // This can be surprising behavior as it immediately deletes ALL ledgers
+    // that fall outside the retention policy (deleteInterval + pinned ranges)
+    // without the usual gradual deletion with pauses.
+    //
+    // TODO: Consider:
+    // - Making this opt-in rather than opt-out
+    // - Adding a config option instead of just env var
+    // - Showing a warning and waiting for confirmation
+    // - Rate limiting even during startup
+    // - Only cleaning up if the gap is "large enough" to warrant it
+    //
+    // For now, users can disable with SKIP_SHAMAPSTORE_STARTUP_CLEANUP=1
+    // but they need to know about it first!
+
     // Check environment variable to skip startup cleanup
     if (std::getenv("SKIP_SHAMAPSTORE_STARTUP_CLEANUP"))
     {
@@ -384,6 +400,7 @@ SHAMapStoreImp::performStartupCleanup()
         return;
     }
 
+    // TODO: Maybe this should be a warning level log so it's more visible?
     JLOG(journal_.info()) << "Beginning startup cleanup of unpinned ledgers";
 
     // Get database connection
