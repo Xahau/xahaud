@@ -223,7 +223,8 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             << (state.archiveDb.empty() ? "(empty)" : state.archiveDb)
             << ", lastRotated: " << state.lastRotated;
 
-        // Allow override of delete interval for testing via environment variable
+        // Allow override of delete interval for testing via environment
+        // variable
         if (auto overrideInterval = std::getenv("OVERRIDE_ROTATE_INTERVAL"))
         {
             try
@@ -233,14 +234,16 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
                 {
                     JLOG(journal_.warn())
                         << "Overriding deleteInterval from " << deleteInterval_
-                        << " to " << newInterval << " (via OVERRIDE_ROTATE_INTERVAL)";
+                        << " to " << newInterval
+                        << " (via OVERRIDE_ROTATE_INTERVAL)";
                     deleteInterval_ = newInterval;
                 }
             }
             catch (std::exception const&)
             {
                 JLOG(journal_.warn())
-                    << "Invalid OVERRIDE_ROTATE_INTERVAL value: " << overrideInterval;
+                    << "Invalid OVERRIDE_ROTATE_INTERVAL value: "
+                    << overrideInterval;
             }
         }
 
