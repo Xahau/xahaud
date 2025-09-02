@@ -1398,8 +1398,14 @@ LedgerMaster::findNewLedgersToPublish(
     RangeSet<std::uint32_t> toPublish;
     toPublish.insert(range(pubSeq, valSeq));
 
-    // Subtract pinned ledgers (except the most recent) to avoid memory bloat
-    // Pinned ledgers are already saved and don't need publishing
+    // IMPORTANT: This RangeSet subtraction is critical for standalone mode when
+    // loading large catalogue files (millions of ledgers). Standalone mode is NOT
+    // just for tests - it's used for loading catalogue packs without consensus
+    // stealing resources. Without this optimization, tryAdvance would attempt to
+    // publish ALL pinned ledgers, keeping them and their SHAMap nodes in memory
+    // forever, causing massive memory bloat. By subtracting pinned ledgers (except
+    // the most recent), we only publish what's necessary. Pinned ledgers are
+    // already persisted to disk and don't need publishing.
     {
         std::lock_guard sll(mCompleteLock);
         RangeSet<std::uint32_t> pinnedExceptLast = mPinnedLedgers;
