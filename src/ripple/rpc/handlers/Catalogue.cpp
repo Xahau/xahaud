@@ -21,12 +21,14 @@
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/LedgerToJson.h>
 #include <ripple/app/main/Application.h>
+#include <ripple/app/main/CollectorManager.h>
 #include <ripple/app/misc/SHAMapStoreImp.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/app/rdb/backend/detail/Node.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/Slice.h>
+#include <ripple/core/JobQueue.h>
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <ripple/protocol/LedgerFormats.h>
@@ -1119,6 +1121,52 @@ doCatalogueLoad(RPC::JsonContext& context)
     }
     decompStream->push(boost::ref(infile));
 
+    // Create a temporary JobQueue for parallel saves
+    // Use the same thread count logic as the main JobQueue
+    auto getCatalogueThreads = [&context]() {
+        auto& config = context.app.config();
+
+        // If WORKERS is explicitly configured, use that
+        if (config.WORKERS)
+            return config.WORKERS;
+
+        auto count = static_cast<int>(std::thread::hardware_concurrency());
+
+        // Use the same scaling as the main JobQueue
+        if (config.NODE_SIZE >= 4 && count >= 16)
+            count = 6 + std::min(count, 8);
+        else if (config.NODE_SIZE >= 3 && count >= 8)
+            count = 4 + std::min(count, 6);
+        else
+            count = 2 + std::min(count, 4);
+
+        // For catalogue loading, we want good parallelism
+        // but don't override standalone mode thread limits
+        return count;
+    };
+
+    // Use the application's existing CollectorManager and resources
+    auto tempJobQueue = std::make_unique<JobQueue>(
+        getCatalogueThreads(),
+        context.app.getCollectorManager().group("catalogue"),
+        context.app.logs().journal("CatalogueJQ"),
+        context.app.logs(),
+        context.app.getPerfLog());
+
+    // Ensure proper cleanup on exit
+    struct JobQueueCleanup
+    {
+        std::unique_ptr<JobQueue>& jq;
+        ~JobQueueCleanup()
+        {
+            if (jq)
+            {
+                jq->stop();
+                jq.reset();
+            }
+        }
+    } jqCleanup{tempJobQueue};
+
     // Structures for parallel save processing
     struct LedgerSaveJob
     {
@@ -1323,7 +1371,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
         }
 
-        // Queue save job for parallel processing
+        // Queue save job for parallel processing using our temporary JobQueue
         {
             // Create snapshot of the state map (txMap is unique per ledger, no
             // snapshot needed)
@@ -1349,7 +1397,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             JLOG(j.trace()) << "Queueing save job for ledger " << ledger->seq()
                             << ", pending=" << saveState->pendingSaves.load();
 
-            bool jobQueued = context.app.getJobQueue().addJob(
+            bool jobQueued = tempJobQueue->addJob(
                 jtPUBOLDLEDGER,
                 "cat-save-" + std::to_string(ledger->seq()),
                 [job = LedgerSaveJob{ledger, stateSnapshot},
@@ -1381,18 +1429,15 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // Store in ledger master
-        // Pinning
+        // IMPORTANT: When do_pinning is true (default), storeLedger
+        // deliberately does NOT insert the ledger into mLedgerHistory to avoid
+        // memory bloat. With millions of ledgers, keeping them all in the
+        // history cache would prevent garbage collection of SHAMap nodes,
+        // causing massive memory usage. We only mark the ledger as pinned for
+        // persistence purposes.
         context.app.getLedgerMaster().storeLedger(ledger, do_pinning);
 
-        if (info.seq == header.max_ledger &&
-            context.app.getLedgerMaster().getClosedLedger()->info().seq <
-                info.seq)
-        {
-            // Set as current ledger if this is the latest
-            context.app.getLedgerMaster().switchLCL(ledger);
-        }
-
-        // Store the ledger
+        // Store the ledger reference for later use
         prevLedger = ledger;
         ledgersLoaded++;
 
@@ -1448,14 +1493,17 @@ doCatalogueLoad(RPC::JsonContext& context)
     infile.close();
 
     // Wait for all pending save jobs to complete
-    JLOG(j.info()) << "Waiting for " << saveState->totalPendingJobs.load()
-                   << " pending save jobs to complete...";
+    if (saveState->totalPendingJobs > 0)
+    {
+        JLOG(j.info()) << "Waiting for " << saveState->totalPendingJobs.load()
+                       << " pending save jobs to complete...";
 
-    std::unique_lock<std::mutex> lock(saveState->completionMutex);
-    saveState->completionCV.wait(
-        lock, [&saveState]() { return saveState->totalPendingJobs == 0; });
+        std::unique_lock<std::mutex> lock(saveState->completionMutex);
+        saveState->completionCV.wait(
+            lock, [&saveState]() { return saveState->totalPendingJobs == 0; });
 
-    JLOG(j.info()) << "All save jobs completed";
+        JLOG(j.info()) << "All save jobs completed";
+    }
 
     // Update ledger ranges for any remaining completed saves
     {
@@ -1482,6 +1530,30 @@ doCatalogueLoad(RPC::JsonContext& context)
             dynamic_cast<SHAMapStoreImp&>(context.app.getSHAMapStore());
         shaMapStore.savePinnedRanges(
             context.app.getLedgerMaster().getPinnedLedgersRangeSet());
+    }
+
+    // Stop the temporary JobQueue and ensure all jobs are done
+    JLOG(j.info()) << "Stopping temporary job queue...";
+    tempJobQueue->stop();
+    tempJobQueue.reset();  // This ensures complete shutdown
+
+    // Now that all ledgers are saved and job queue is stopped, advance to the
+    // latest one
+    if (prevLedger && prevLedger->info().seq == header.max_ledger)
+    {
+        // CRITICAL: Insert the last ledger into mLedgerHistory for publishing.
+        // During bulk loading, we avoided inserting ledgers into history to
+        // prevent memory bloat. But switchLCL -> tryAdvance ->
+        // findNewLedgersToPublish needs to find the ledger in history to
+        // publish it properly. We use pin=false here to force insertion into
+        // mLedgerHistory. The modified findNewLedgersToPublish will skip
+        // publishing other pinned ledgers (they're already saved), but will
+        // always publish the most recent.
+        context.app.getLedgerMaster().storeLedger(prevLedger, false);
+
+        JLOG(j.info()) << "Setting current ledger to seq "
+                       << prevLedger->info().seq;
+        context.app.getLedgerMaster().switchLCL(prevLedger);
     }
 
     JLOG(j.info()) << "Catalogue load complete! Loaded " << ledgersLoaded

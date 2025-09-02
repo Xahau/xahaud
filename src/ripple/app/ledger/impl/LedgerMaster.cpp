@@ -537,6 +537,10 @@ LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
 {
     bool validated = ledger->info().validated;
     // Returns true if we already had the ledger
+    // NOTE: When pinning is enabled, we skip inserting into history to avoid
+    // memory bloat when loading millions of ledgers (e.g., from catalogue
+    // files). The caller must manually insert critical ledgers (like the last
+    // one) into history if needed for switchLCL/tryAdvance to work correctly.
     if (!pin && !mLedgerHistory.insert(std::move(ledger), validated))
         return false;
 
@@ -1390,51 +1394,72 @@ LedgerMaster::findNewLedgersToPublish(
     auto valLedger = mValidLedger.get();
     std::uint32_t valSeq = valLedger->info().seq;
 
+    // Create a range of ledgers we need to publish
+    RangeSet<std::uint32_t> toPublish;
+    toPublish.insert(range(pubSeq, valSeq));
+
+    // Subtract pinned ledgers (except the most recent) to avoid memory bloat
+    // Pinned ledgers are already saved and don't need publishing
+    {
+        std::lock_guard sll(mCompleteLock);
+        RangeSet<std::uint32_t> pinnedExceptLast = mPinnedLedgers;
+        // Remove the most recent from the pinned set so we always publish it
+        if (boost::icl::contains(pinnedExceptLast, valSeq))
+            pinnedExceptLast.erase(range(valSeq, valSeq));
+        // Subtract pinned ledgers from the set to publish
+        toPublish -= pinnedExceptLast;
+    }
+
     ScopedUnlock sul{sl};
     try
     {
-        for (std::uint32_t seq = pubSeq; seq <= valSeq; ++seq)
+        for (auto const& interval : toPublish)
         {
-            JLOG(m_journal.trace())
-                << "Trying to fetch/publish valid ledger " << seq;
+            for (std::uint32_t seq = interval.first(); seq <= interval.last();
+                 ++seq)
+            {
+                JLOG(m_journal.trace())
+                    << "Trying to fetch/publish valid ledger " << seq;
 
-            std::shared_ptr<Ledger const> ledger;
-            // This can throw
-            auto hash = hashOfSeq(*valLedger, seq, m_journal);
-            // VFALCO TODO Restructure this code so that zero is not
-            // used.
-            if (!hash)
-                hash = beast::zero;  // kludge
-            if (seq == valSeq)
-            {
-                // We need to publish the ledger we just fully validated
-                ledger = valLedger;
-            }
-            else if (hash->isZero())
-            {
-                JLOG(m_journal.fatal()) << "Ledger: " << valSeq
-                                        << " does not have hash for " << seq;
-                assert(false);
-            }
-            else
-            {
-                ledger = mLedgerHistory.getLedgerByHash(*hash);
-            }
+                std::shared_ptr<Ledger const> ledger;
+                // This can throw
+                auto hash = hashOfSeq(*valLedger, seq, m_journal);
+                // VFALCO TODO Restructure this code so that zero is not
+                // used.
+                if (!hash)
+                    hash = beast::zero;  // kludge
+                if (seq == valSeq)
+                {
+                    // We need to publish the ledger we just fully validated
+                    ledger = valLedger;
+                }
+                else if (hash->isZero())
+                {
+                    JLOG(m_journal.fatal())
+                        << "Ledger: " << valSeq << " does not have hash for "
+                        << seq;
+                    assert(false);
+                }
+                else
+                {
+                    ledger = mLedgerHistory.getLedgerByHash(*hash);
+                }
 
-            if (!app_.config().LEDGER_REPLAY)
-            {
-                // Can we try to acquire the ledger we need?
-                if (!ledger && (++acqCount < ledger_fetch_size_))
-                    ledger = app_.getInboundLedgers().acquire(
-                        *hash, seq, InboundLedger::Reason::GENERIC);
-            }
+                if (!app_.config().LEDGER_REPLAY)
+                {
+                    // Can we try to acquire the ledger we need?
+                    if (!ledger && (++acqCount < ledger_fetch_size_))
+                        ledger = app_.getInboundLedgers().acquire(
+                            *hash, seq, InboundLedger::Reason::GENERIC);
+                }
 
-            // Did we acquire the next ledger we need to publish?
-            if (ledger && (ledger->info().seq == pubSeq))
-            {
-                ledger->setValidated();
-                ret.push_back(ledger);
-                ++pubSeq;
+                // Did we acquire the next ledger we need to publish?
+                if (ledger && (ledger->info().seq == pubSeq))
+                {
+                    ledger->setValidated();
+                    ret.push_back(ledger);
+                    ++pubSeq;
+                }
             }
         }
 
