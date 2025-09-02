@@ -216,8 +216,25 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
         }
         SavedState state = state_db_.getState();
 
-        auto writableBackend = makeBackendRotating(state.writableDb);
-        auto archiveBackend = makeBackendRotating(state.archiveDb);
+        JLOG(journal_.trace())
+            << "Loading saved state - writableDb: "
+            << (state.writableDb.empty() ? "(empty)" : state.writableDb)
+            << ", archiveDb: "
+            << (state.archiveDb.empty() ? "(empty)" : state.archiveDb)
+            << ", lastRotated: " << state.lastRotated;
+
+        // HACK: Set tiny interval for testing rotation
+        if (deleteInterval_ > 0)
+        {
+            JLOG(journal_.warn()) << "HACK: Overriding deleteInterval from "
+                                  << deleteInterval_ << " to 4 for testing!";
+            deleteInterval_ = 4;  // Rotate every 4 ledgers
+        }
+
+        // Pass true for isInitialRotation since this is called from
+        // makeNodeStore
+        auto writableBackend = makeBackendRotating(state.writableDb, true);
+        auto archiveBackend = makeBackendRotating(state.archiveDb, true);
         if (!state.writableDb.size())
         {
             state.writableDb = writableBackend->getName();
@@ -582,7 +599,7 @@ SHAMapStoreImp::dbPaths()
 }
 
 std::unique_ptr<NodeStore::Backend>
-SHAMapStoreImp::makeBackendRotating(std::string path)
+SHAMapStoreImp::makeBackendRotating(std::string path, bool isInitialRotation)
 {
     Section section{app_.config().section(ConfigSection::nodeDatabase())};
     boost::filesystem::path newPath;
@@ -591,7 +608,8 @@ SHAMapStoreImp::makeBackendRotating(std::string path)
     std::string rotateCommand =
         get(section, "online_delete_rotate_to_command", "");
 
-    if (!rotateCommand.empty() && path.empty())
+    // Skip rotation command on initial creation (from makeNodeStore)
+    if (!rotateCommand.empty() && path.empty() && !isInitialRotation)
     {
         JLOG(journal_.info()) << "Using rotation command: " << rotateCommand;
 
@@ -601,15 +619,24 @@ SHAMapStoreImp::makeBackendRotating(std::string path)
         // Execute rotation command
         namespace bp = boost::process;
         bp::ipstream pipe_stream;
+        bp::ipstream err_stream;
         bp::child c(
             rotateCommand,
             "--pinned-ledgers=" + pinnedStr,
             bp::std_out > pipe_stream,
-            bp::std_err > bp::null  // Ignore stderr or capture if needed
-        );
+            bp::std_err > err_stream);
 
+        // Read stdout (JSON response)
         std::string output;
         std::getline(pipe_stream, output);
+
+        // Read and log stderr
+        std::string err_line;
+        while (std::getline(err_stream, err_line))
+        {
+            JLOG(journal_.trace()) << "Rotation script stderr: " << err_line;
+        }
+
         c.wait();
 
         if (c.exit_code() != 0)
@@ -668,51 +695,77 @@ SHAMapStoreImp::makeBackendRotating(std::string path)
 void
 SHAMapStoreImp::clearSql(
     LedgerIndex lastRotated,
+    RangeSet<std::uint32_t> const& pinnedLedgers,
     std::string const& TableName,
     std::function<std::optional<LedgerIndex>()> const& getMinSeq,
     std::function<void(LedgerIndex)> const& deleteBeforeSeq)
 {
     assert(deleteInterval_);
-    LedgerIndex min = std::numeric_limits<LedgerIndex>::max();
+    LedgerIndex minSeq;
 
     {
         JLOG(journal_.trace())
-            << "Begin: Look up lowest value of: " << TableName;
+            << "Begin: Look up lowest sequence in: " << TableName;
         auto m = getMinSeq();
-        JLOG(journal_.trace()) << "End: Look up lowest value of: " << TableName;
+        JLOG(journal_.trace())
+            << "End: Look up lowest sequence in: " << TableName;
         if (!m)
-            return;
-        min = *m;
+            return;  // Table is empty
+        minSeq = *m;
     }
 
-    if (min > lastRotated || healthWait() == stopping)
+    if (minSeq >= lastRotated || healthWait() == stopping)
         return;
-    if (min == lastRotated)
+
+    // The potential range to delete is [minSeq, lastRotated)
+    RangeSet<std::uint32_t> deletableRange;
+    deletableRange.insert(range(minSeq, lastRotated - 1));
+
+    // Subtract the pinned ranges. The result is a set of disjoint
+    // intervals that are safe to delete.
+    deletableRange -= pinnedLedgers;
+
+    if (deletableRange.empty())
     {
-        // Micro-optimization mainly to clarify logs
-        JLOG(journal_.trace()) << "Nothing to delete from " << TableName;
+        JLOG(journal_.trace()) << "Nothing to delete from " << TableName
+                               << " after considering pinned ledgers.";
         return;
     }
 
-    JLOG(journal_.debug()) << "start deleting in: " << TableName << " from "
-                           << min << " to " << lastRotated;
-    while (min < lastRotated)
+    JLOG(journal_.debug()) << "Pruning " << TableName << ". Deleting ranges: "
+                           << to_string(deletableRange);
+
+    // Process each deletable interval in batches
+    for (auto const& interval : deletableRange)
     {
-        min = std::min(lastRotated, min + deleteBatch_);
-        JLOG(journal_.trace())
-            << "Begin: Delete up to " << deleteBatch_
-            << " rows with LedgerSeq < " << min << " from: " << TableName;
-        deleteBeforeSeq(min);
-        JLOG(journal_.trace())
-            << "End: Delete up to " << deleteBatch_ << " rows with LedgerSeq < "
-            << min << " from: " << TableName;
-        if (healthWait() == stopping)
-            return;
-        if (min < lastRotated)
-            std::this_thread::sleep_for(backOff_);
-        if (healthWait() == stopping)
-            return;
+        LedgerIndex current = interval.lower();
+        LedgerIndex const end = interval.upper() + 1;  // Make it exclusive
+
+        JLOG(journal_.debug()) << "Deleting in " << TableName << " from "
+                               << current << " to " << end;
+        while (current < end)
+        {
+            if (healthWait() == stopping)
+                return;
+
+            current = std::min(end, current + deleteBatch_);
+            JLOG(journal_.trace()) << "Begin: Delete up to " << deleteBatch_
+                                   << " rows with LedgerSeq < " << current
+                                   << " from: " << TableName;
+            deleteBeforeSeq(current);
+            JLOG(journal_.trace()) << "End: Delete up to " << deleteBatch_
+                                   << " rows with LedgerSeq < " << current
+                                   << " from: " << TableName;
+
+            if (current < end)
+            {
+                if (healthWait() == stopping)
+                    return;
+                std::this_thread::sleep_for(backOff_);
+            }
+        }
     }
+
     JLOG(journal_.debug()) << "finished deleting from: " << TableName;
 }
 
@@ -742,6 +795,15 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
             "Reporting does not support online_delete. Remove "
             "online_delete info from config");
     }
+
+    // Get pinned ranges to exclude from deletion
+    auto pinnedRanges = app_.getLedgerMaster().getPinnedLedgersRangeSet();
+    if (!pinnedRanges.empty())
+    {
+        JLOG(journal_.info())
+            << "Online delete with pinned ranges: " << to_string(pinnedRanges);
+    }
+
     // Do not allow ledgers to be acquired from the network
     // that are about to be deleted.
     minimumOnline_ = lastRotated + 1;
@@ -763,6 +825,7 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
     {
         clearSql(
             lastRotated,
+            pinnedRanges,
             "Transactions",
             [&db]() -> std::optional<LedgerIndex> {
                 return db->getTransactionsMinLedgerSeq();
@@ -775,6 +838,7 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
 
         clearSql(
             lastRotated,
+            pinnedRanges,
             "AccountTransactions",
             [&db]() -> std::optional<LedgerIndex> {
                 return db->getAccountTransactionsMinLedgerSeq();
@@ -788,6 +852,7 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
 
     clearSql(
         lastRotated,
+        pinnedRanges,
         "Ledgers",
         [db]() -> std::optional<LedgerIndex> { return db->getMinLedgerSeq(); },
         [db](LedgerIndex min) -> void { db->deleteBeforeLedgerSeq(min); });

@@ -137,6 +137,12 @@ public:
                                : fetch_depth;
     }
 
+    bool
+    isOnlineDeleteEnabled() const
+    {
+        return deleteInterval_ > 0;
+    }
+
     std::unique_ptr<NodeStore::Database>
     makeNodeStore(int readThreads) override;
 
@@ -199,7 +205,9 @@ private:
     dbPaths();
 
     std::unique_ptr<NodeStore::Backend>
-    makeBackendRotating(std::string path = std::string());
+    makeBackendRotating(
+        std::string path = std::string(),
+        bool isInitialRotation = false);
 
     template <class CacheInstance>
     bool
@@ -225,6 +233,7 @@ private:
     void
     clearSql(
         LedgerIndex lastRotated,
+        RangeSet<std::uint32_t> const& pinnedLedgers,
         std::string const& TableName,
         std::function<std::optional<LedgerIndex>()> const& getMinSeq,
         std::function<void(LedgerIndex)> const& deleteBeforeSeq);

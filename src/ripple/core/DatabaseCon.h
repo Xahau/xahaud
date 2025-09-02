@@ -24,6 +24,7 @@
 #include <ripple/core/Config.h>
 #include <ripple/core/SociDB.h>
 #include <boost/filesystem/path.hpp>
+#include <cstdlib>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -117,13 +118,23 @@ public:
         std::array<char const*, N> const& pragma,
         std::array<char const*, M> const& initSQL)
         // Use temporary files or regular DB files?
+        // SQLITE_FORCE_FILES environment variable can override default
+        // behavior:
+        // - When set, always uses file-based databases
+        // - In standalone mode, prefixes DB names with "standalone-" for
+        // separation
+        // - Useful for testing catalogue loading with persistent databases
         : DatabaseCon(
-              setup.standAlone && !setup.reporting &&
-                      setup.startUp != Config::LOAD &&
-                      setup.startUp != Config::LOAD_FILE &&
-                      setup.startUp != Config::REPLAY
-                  ? ""
-                  : (setup.dataDir / dbName),
+              std::getenv("SQLITE_FORCE_FILES")
+                  ? (setup.dataDir /
+                     (setup.standAlone ? std::string("standalone-") + dbName
+                                       : dbName))
+                  : (setup.standAlone && !setup.reporting &&
+                             setup.startUp != Config::LOAD &&
+                             setup.startUp != Config::LOAD_FILE &&
+                             setup.startUp != Config::REPLAY
+                         ? ""
+                         : (setup.dataDir / dbName)),
               setup.commonPragma(),
               pragma,
               initSQL)

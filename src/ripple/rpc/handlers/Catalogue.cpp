@@ -884,6 +884,24 @@ doCatalogueLoad(RPC::JsonContext& context)
 {
     auto j = context.app.logs().journal("CatalogueTools");
 
+    // Check if online_delete is configured - catalogue loading is incompatible
+    // with online_delete. The proper workflow is:
+    // 1. Load catalogues WITHOUT online_delete to prepare a snapshot
+    // 2. Configure online_delete with the shell command to use that snapshot
+    // 3. Run normally with the pinned ranges
+    auto& shaMapStore =
+        dynamic_cast<SHAMapStoreImp&>(context.app.getSHAMapStore());
+    if (shaMapStore.isOnlineDeleteEnabled())
+    {
+        return rpcError(
+            rpcINVALID_PARAMS,
+            "catalogue_load is incompatible with online_delete. "
+            "Please disable online_delete in the configuration, load "
+            "catalogues "
+            "to prepare a snapshot, then configure online_delete to use that "
+            "snapshot.");
+    }
+
     // Try to acquire write lock to check if an operation is running
     {
         std::unique_lock<std::shared_mutex> writeLock(

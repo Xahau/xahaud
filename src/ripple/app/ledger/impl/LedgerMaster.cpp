@@ -1405,13 +1405,20 @@ LedgerMaster::findNewLedgersToPublish(
 
     // IMPORTANT: This RangeSet subtraction is critical for standalone mode when
     // loading large catalogue files (millions of ledgers). Standalone mode is
-    // NOT just for tests - it's used for loading catalogue packs without
-    // consensus stealing resources. Without this optimization, tryAdvance would
-    // attempt to publish ALL pinned ledgers, keeping them and their SHAMap
-    // nodes in memory forever, causing massive memory bloat. By subtracting
-    // pinned ledgers (except the most recent), we only publish what's
-    // necessary. Pinned ledgers are already persisted to disk and don't need
-    // publishing.
+    // NOT just for tests - it's the optimal environment for loading catalogue
+    // packs without consensus/network overhead stealing resources. Without this
+    // optimization, tryAdvance would attempt to publish ALL pinned ledgers,
+    // keeping them and their SHAMap nodes in memory forever, causing massive
+    // memory bloat. By subtracting pinned ledgers (except the most recent), we
+    // only publish what's necessary. Pinned ledgers are already persisted to
+    // disk and don't need publishing.
+    //
+    // TODO: Standalone mode database contamination issue:
+    // When SQLITE_FORCE_FILES env var is set, standalone mode uses persistent
+    // databases prefixed with "standalone-" to separate them from network mode.
+    // However, standalone mode automatically creates ledger 2 (genesis) on
+    // startup, contaminating the database. This needs a proper solution for
+    // production catalogue loading in standalone mode.
     {
         std::lock_guard sll(mCompleteLock);
         RangeSet<std::uint32_t> pinnedExceptLast = mPinnedLedgers;
