@@ -1952,30 +1952,8 @@ SQLiteDatabaseImp::deleteLedgersInRange(
         return 0;
 
     auto db = checkoutLedger();
-
-    std::string sql;
-    if (limit)
-    {
-        sql =
-            "DELETE FROM Ledgers WHERE rowid IN (SELECT rowid FROM Ledgers "
-            "WHERE LedgerSeq >= " +
-            std::to_string(minSeq) +
-            " AND LedgerSeq <= " + std::to_string(maxSeq) +
-            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
-    }
-    else
-    {
-        sql =
-            "DELETE FROM Ledgers WHERE LedgerSeq >= " + std::to_string(minSeq) +
-            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
-    }
-
-    *db << sql;
-
-    // Get the number of rows deleted
-    long changes = 0;
-    *db << "SELECT changes();", soci::into(changes);
-    return static_cast<std::size_t>(changes);
+    return detail::deleteRange(
+        *db, detail::TableType::Ledgers, minSeq, maxSeq, limit);
 }
 
 std::size_t
@@ -1988,30 +1966,8 @@ SQLiteDatabaseImp::deleteTransactionsInRange(
         return 0;
 
     auto db = checkoutTransaction();
-
-    std::string sql;
-    if (limit)
-    {
-        sql =
-            "DELETE FROM Transactions WHERE rowid IN (SELECT rowid FROM "
-            "Transactions WHERE LedgerSeq >= " +
-            std::to_string(minSeq) +
-            " AND LedgerSeq <= " + std::to_string(maxSeq) +
-            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
-    }
-    else
-    {
-        sql = "DELETE FROM Transactions WHERE LedgerSeq >= " +
-            std::to_string(minSeq) +
-            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
-    }
-
-    *db << sql;
-
-    // Get the number of rows deleted
-    long changes = 0;
-    *db << "SELECT changes();", soci::into(changes);
-    return static_cast<std::size_t>(changes);
+    return detail::deleteRange(
+        *db, detail::TableType::Transactions, minSeq, maxSeq, limit);
 }
 
 std::size_t
@@ -2024,30 +1980,8 @@ SQLiteDatabaseImp::deleteAccountTransactionsInRange(
         return 0;
 
     auto db = checkoutTransaction();
-
-    std::string sql;
-    if (limit)
-    {
-        sql =
-            "DELETE FROM AccountTransactions WHERE rowid IN (SELECT rowid FROM "
-            "AccountTransactions WHERE LedgerSeq >= " +
-            std::to_string(minSeq) +
-            " AND LedgerSeq <= " + std::to_string(maxSeq) +
-            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
-    }
-    else
-    {
-        sql = "DELETE FROM AccountTransactions WHERE LedgerSeq >= " +
-            std::to_string(minSeq) +
-            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
-    }
-
-    *db << sql;
-
-    // Get the number of rows deleted
-    long changes = 0;
-    *db << "SELECT changes();", soci::into(changes);
-    return static_cast<std::size_t>(changes);
+    return detail::deleteRange(
+        *db, detail::TableType::AccountTransactions, minSeq, maxSeq, limit);
 }
 
 void

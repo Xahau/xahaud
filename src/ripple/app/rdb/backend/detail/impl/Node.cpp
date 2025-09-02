@@ -305,6 +305,40 @@ deleteRange(
 }
 
 std::size_t
+deleteRange(
+    soci::session& session,
+    TableType type,
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq,
+    std::optional<std::size_t> limit)
+{
+    std::string sql;
+    if (limit)
+    {
+        // SQLite doesn't support DELETE...LIMIT unless compiled with
+        // SQLITE_ENABLE_UPDATE_DELETE_LIMIT. Use subquery workaround.
+        sql = "DELETE FROM " + to_string(type) +
+            " WHERE rowid IN (SELECT rowid FROM " + to_string(type) +
+            " WHERE LedgerSeq >= " + std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) +
+            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
+    }
+    else
+    {
+        sql = "DELETE FROM " + to_string(type) +
+            " WHERE LedgerSeq >= " + std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
+    }
+
+    session << sql;
+
+    // Get the number of rows deleted
+    long changes = 0;
+    session << "SELECT changes();", soci::into(changes);
+    return static_cast<std::size_t>(changes);
+}
+
+std::size_t
 getRows(soci::session& session, TableType type)
 {
     std::size_t rows;
