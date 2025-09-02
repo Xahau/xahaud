@@ -563,33 +563,37 @@ public:
     }
 
     std::size_t
-    deleteLedgersInRange(
+    countOrDeleteLedgersInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override
+        bool doDelete) override
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = ledgers_.lower_bound(minSeq);
         auto end = ledgers_.upper_bound(maxSeq);
-
+        
         std::size_t count = 0;
-        while (it != end)
+        if (doDelete)
         {
-            if (limit && count >= *limit)
-                break;
-
-            ledgerHashToSeq_.erase(it->second.info.hash);
-            it = ledgers_.erase(it);
-            ++count;
+            while (it != end)
+            {
+                ledgerHashToSeq_.erase(it->second.info.hash);
+                it = ledgers_.erase(it);
+                ++count;
+            }
+        }
+        else
+        {
+            count = std::distance(it, end);
         }
         return count;
     }
 
     std::size_t
-    deleteTransactionsInRange(
+    countOrDeleteTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override
+        bool doDelete) override
     {
         if (!useTxTables_)
             return 0;
@@ -597,55 +601,56 @@ public:
         std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = ledgers_.lower_bound(minSeq);
         auto end = ledgers_.upper_bound(maxSeq);
-
+        
         std::size_t count = 0;
         while (it != end)
         {
-            for (const auto& [txHash, _] : it->second.transactions)
+            count += it->second.transactions.size();
+            if (doDelete)
             {
-                if (limit && count >= *limit)
-                    return count;
-
-                transactionMap_.erase(txHash);
-                ++count;
+                for (const auto& [txHash, _] : it->second.transactions)
+                {
+                    transactionMap_.erase(txHash);
+                }
+                it->second.transactions.clear();
             }
-            it->second.transactions.clear();
             ++it;
         }
         return count;
     }
 
     std::size_t
-    deleteAccountTransactionsInRange(
+    countOrDeleteAccountTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override
+        bool doDelete) override
     {
         if (!useTxTables_)
             return 0;
 
         std::unique_lock<std::shared_mutex> lock(mutex_);
         std::size_t count = 0;
-
+        
         for (auto& [_, accountData] : accountTxMap_)
         {
             auto txIt = accountData.ledgerTxMap.lower_bound(minSeq);
             auto txEnd = accountData.ledgerTxMap.upper_bound(maxSeq);
-
-            while (txIt != txEnd)
+            
+            if (doDelete)
             {
-                std::size_t toDelete = txIt->second.size();
-                if (limit && count + toDelete > *limit)
+                while (txIt != txEnd)
                 {
-                    // Partial deletion from this ledger
-                    toDelete = *limit - count;
-                    txIt->second.resize(txIt->second.size() - toDelete);
-                    count += toDelete;
-                    return count;
+                    count += txIt->second.size();
+                    txIt = accountData.ledgerTxMap.erase(txIt);
                 }
-
-                count += toDelete;
-                txIt = accountData.ledgerTxMap.erase(txIt);
+            }
+            else
+            {
+                while (txIt != txEnd)
+                {
+                    count += txIt->second.size();
+                    ++txIt;
+                }
             }
         }
         return count;

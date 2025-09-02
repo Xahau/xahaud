@@ -100,22 +100,22 @@ public:
     deleteAccountTransactionsBeforeLedgerSeq(LedgerIndex ledgerSeq) override;
 
     std::size_t
-    deleteLedgersInRange(
+    countOrDeleteLedgersInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override;
+        bool doDelete) override;
 
     std::size_t
-    deleteTransactionsInRange(
+    countOrDeleteTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override;
+        bool doDelete) override;
 
     std::size_t
-    deleteAccountTransactionsInRange(
+    countOrDeleteAccountTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override;
+        bool doDelete) override;
 
     std::size_t
     getTransactionCount() override;
@@ -1943,85 +1943,102 @@ SQLiteDatabaseImp::closeLedgerDB()
 }
 
 std::size_t
-SQLiteDatabaseImp::deleteLedgersInRange(
+SQLiteDatabaseImp::countOrDeleteLedgersInRange(
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit)
+    bool doDelete)
 {
     if (!existsLedger())
         return 0;
 
     auto db = checkoutLedger();
-
-    std::string sql =
-        "DELETE FROM Ledgers WHERE LedgerSeq >= " + std::to_string(minSeq) +
-        " AND LedgerSeq <= " + std::to_string(maxSeq);
-
-    if (limit)
-        sql += " LIMIT " + std::to_string(*limit);
-
-    sql += ";";
-
-    *db << sql;
-
-    // Get the number of rows deleted
-    long changes = 0;
-    *db << "SELECT changes();", soci::into(changes);
-    return static_cast<std::size_t>(changes);
+    
+    if (doDelete)
+    {
+        // First count what we're about to delete
+        std::size_t count = 0;
+        *db << "SELECT COUNT(*) FROM Ledgers WHERE LedgerSeq >= " << minSeq
+            << " AND LedgerSeq <= " << maxSeq << ";",
+            soci::into(count);
+        
+        // Then delete
+        detail::deleteRange(*db, detail::TableType::Ledgers, minSeq, maxSeq);
+        return count;
+    }
+    else
+    {
+        std::size_t count = 0;
+        *db << "SELECT COUNT(*) FROM Ledgers WHERE LedgerSeq >= " << minSeq
+            << " AND LedgerSeq <= " << maxSeq << ";",
+            soci::into(count);
+        return count;
+    }
 }
 
 std::size_t
-SQLiteDatabaseImp::deleteTransactionsInRange(
+SQLiteDatabaseImp::countOrDeleteTransactionsInRange(
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit)
+    bool doDelete)
 {
     if (!existsTransaction())
         return 0;
 
     auto db = checkoutTransaction();
-
-    std::string sql = "DELETE FROM Transactions WHERE LedgerSeq >= " +
-        std::to_string(minSeq) + " AND LedgerSeq <= " + std::to_string(maxSeq);
-
-    if (limit)
-        sql += " LIMIT " + std::to_string(*limit);
-
-    sql += ";";
-
-    *db << sql;
-
-    // Get the number of rows deleted
-    long changes = 0;
-    *db << "SELECT changes();", soci::into(changes);
-    return static_cast<std::size_t>(changes);
+    
+    if (doDelete)
+    {
+        // First count what we're about to delete
+        std::size_t count = 0;
+        *db << "SELECT COUNT(*) FROM Transactions WHERE LedgerSeq >= " << minSeq
+            << " AND LedgerSeq <= " << maxSeq << ";",
+            soci::into(count);
+        
+        // Then delete
+        detail::deleteRange(*db, detail::TableType::Transactions, minSeq, maxSeq);
+        return count;
+    }
+    else
+    {
+        std::size_t count = 0;
+        *db << "SELECT COUNT(*) FROM Transactions WHERE LedgerSeq >= " << minSeq
+            << " AND LedgerSeq <= " << maxSeq << ";",
+            soci::into(count);
+        return count;
+    }
 }
 
 std::size_t
-SQLiteDatabaseImp::deleteAccountTransactionsInRange(
+SQLiteDatabaseImp::countOrDeleteAccountTransactionsInRange(
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit)
+    bool doDelete)
 {
     if (!existsTransaction())
         return 0;
 
     auto db = checkoutTransaction();
-
-    std::string sql = "DELETE FROM AccountTransactions WHERE LedgerSeq >= " +
-        std::to_string(minSeq) + " AND LedgerSeq <= " + std::to_string(maxSeq);
-
-    if (limit)
-        sql += " LIMIT " + std::to_string(*limit);
-
-    sql += ";";
-
-    *db << sql;
-
-    // Get the number of rows deleted
-    long changes = 0;
-    *db << "SELECT changes();", soci::into(changes);
-    return static_cast<std::size_t>(changes);
+    
+    if (doDelete)
+    {
+        // First count what we're about to delete
+        std::size_t count = 0;
+        *db << "SELECT COUNT(*) FROM AccountTransactions WHERE LedgerSeq >= " << minSeq
+            << " AND LedgerSeq <= " << maxSeq << ";",
+            soci::into(count);
+        
+        // Then delete
+        detail::deleteRange(*db, detail::TableType::AccountTransactions, minSeq, maxSeq);
+        return count;
+    }
+    else
+    {
+        std::size_t count = 0;
+        *db << "SELECT COUNT(*) FROM AccountTransactions WHERE LedgerSeq >= " << minSeq
+            << " AND LedgerSeq <= " << maxSeq << ";",
+            soci::into(count);
+        return count;
+    }
 }
 
 void
