@@ -262,6 +262,9 @@ private:
     void
     loadPinnedRanges();
 
+    void
+    performStartupCleanup();
+
 public:
     void
     start() override
@@ -270,7 +273,10 @@ public:
         loadPinnedRanges();
 
         if (deleteInterval_)
+        {
+            performStartupCleanup();
             thread_ = std::thread(&SHAMapStoreImp::run, this);
+        }
     }
 
     void

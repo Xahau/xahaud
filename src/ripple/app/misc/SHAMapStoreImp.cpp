@@ -374,6 +374,128 @@ SHAMapStoreImp::loadPinnedRanges()
 }
 
 void
+SHAMapStoreImp::performStartupCleanup()
+{
+    // Check environment variable to skip startup cleanup
+    if (std::getenv("SKIP_SHAMAPSTORE_STARTUP_CLEANUP"))
+    {
+        JLOG(journal_.info()) << "Skipping startup cleanup "
+                                 "(SKIP_SHAMAPSTORE_STARTUP_CLEANUP set)";
+        return;
+    }
+
+    JLOG(journal_.info()) << "Beginning startup cleanup of unpinned ledgers";
+
+    // Get database connection
+    auto db = dynamic_cast<SQLiteDatabase*>(&app_.getRelationalDatabase());
+    if (!db)
+    {
+        JLOG(journal_.warn())
+            << "Database is not SQLiteDatabase, skipping startup cleanup";
+        return;
+    }
+
+    // Find what actually exists in the database
+    auto ledgerInfo = db->getLedgerCountMinMax();
+    if (ledgerInfo.numberOfRows == 0)
+    {
+        JLOG(journal_.debug()) << "No ledgers in database, nothing to clean up";
+        return;
+    }
+
+    // Use the maximum ledger in the database as our reference point
+    LedgerIndex maxLedger = ledgerInfo.maxLedgerSequence;
+    JLOG(journal_.trace()) << "Using maximum database ledger as reference: "
+                           << maxLedger;
+
+    // Determine what we want to keep (recent history from the end of what we
+    // have)
+    auto minOnline =
+        maxLedger > deleteInterval_ ? maxLedger - deleteInterval_ + 1 : 1;
+
+    JLOG(journal_.trace()) << "Minimum online ledger to keep: " << minOnline
+                           << " (based on deleteInterval: " << deleteInterval_
+                           << ")";
+
+    // Build the set of ranges we want to keep
+    RangeSet<std::uint32_t> keepRanges;
+
+    // Keep recent history
+    keepRanges.insert(range(minOnline, maxLedger));
+    JLOG(journal_.trace()) << "Keeping recent history: [" << minOnline << ", "
+                           << maxLedger << "]";
+
+    // Keep pinned ranges
+    auto pinnedRanges = app_.getLedgerMaster().getPinnedLedgersRangeSet();
+    if (!pinnedRanges.empty())
+    {
+        keepRanges += pinnedRanges;  // Use += operator for RangeSet
+        JLOG(journal_.trace())
+            << "Keeping pinned ranges: " << to_string(pinnedRanges);
+    }
+
+    JLOG(journal_.debug()) << "Total ranges to keep: " << to_string(keepRanges);
+
+    JLOG(journal_.trace()) << "Database contains " << ledgerInfo.numberOfRows
+                           << " ledgers, range ["
+                           << ledgerInfo.minLedgerSequence << ", "
+                           << ledgerInfo.maxLedgerSequence << "]";
+
+    // Compute what exists
+    RangeSet<std::uint32_t> existingLedgers;
+    existingLedgers.insert(
+        range(ledgerInfo.minLedgerSequence, ledgerInfo.maxLedgerSequence));
+
+    // Compute what to delete: everything that exists minus what we keep
+    RangeSet<std::uint32_t> deleteRanges = existingLedgers - keepRanges;
+
+    if (deleteRanges.empty())
+    {
+        JLOG(journal_.info())
+            << "No ledgers need cleanup, database is already optimal";
+        return;
+    }
+
+    JLOG(journal_.info()) << "Startup cleanup will delete ledgers in ranges: "
+                          << to_string(deleteRanges);
+
+    // Perform bulk deletion (no limits during startup)
+    std::size_t totalDeleted = 0;
+
+    for (auto const& interval : deleteRanges)
+    {
+        JLOG(journal_.debug()) << "Deleting range [" << interval.lower() << ", "
+                               << interval.upper() << "]";
+
+        // Delete from Transactions table
+        JLOG(journal_.trace()) << "Deleting from Transactions table...";
+        auto deletedTx = db->deleteTransactionsInRange(
+            interval.lower(), interval.upper(), std::nullopt);
+        JLOG(journal_.trace())
+            << "Deleted " << deletedTx << " rows from Transactions";
+
+        // Delete from AccountTransactions table
+        JLOG(journal_.trace()) << "Deleting from AccountTransactions table...";
+        auto deletedAcctTx = db->deleteAccountTransactionsInRange(
+            interval.lower(), interval.upper(), std::nullopt);
+        JLOG(journal_.trace())
+            << "Deleted " << deletedAcctTx << " rows from AccountTransactions";
+
+        // Delete from Ledgers table
+        JLOG(journal_.trace()) << "Deleting from Ledgers table...";
+        auto deletedLedgers = db->deleteLedgersInRange(
+            interval.lower(), interval.upper(), std::nullopt);
+        JLOG(journal_.trace())
+            << "Deleted " << deletedLedgers << " rows from Ledgers";
+
+        totalDeleted += deletedLedgers;
+    }
+
+    JLOG(journal_.info()) << "Startup cleanup complete: removed "
+                          << totalDeleted << " ledgers from database";
+}
+
+void
 SHAMapStoreImp::run()
 {
     if (app_.config().reporting())
