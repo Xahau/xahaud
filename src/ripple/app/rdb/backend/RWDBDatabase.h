@@ -8,6 +8,7 @@
 #include <ripple/app/ledger/TransactionMaster.h>
 #include <ripple/app/misc/impl/AccountTxPaging.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
+#include <ripple/basics/RangeSet.h>
 #include <algorithm>
 #include <map>
 #include <mutex>
@@ -559,6 +560,95 @@ public:
     closeTransactionDB() override
     {
         // No-op for in-memory database
+    }
+
+    std::size_t
+    deleteLedgersInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) override
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        auto it = ledgers_.lower_bound(minSeq);
+        auto end = ledgers_.upper_bound(maxSeq);
+
+        std::size_t count = 0;
+        while (it != end)
+        {
+            if (limit && count >= *limit)
+                break;
+
+            ledgerHashToSeq_.erase(it->second.info.hash);
+            it = ledgers_.erase(it);
+            ++count;
+        }
+        return count;
+    }
+
+    std::size_t
+    deleteTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) override
+    {
+        if (!useTxTables_)
+            return 0;
+
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        auto it = ledgers_.lower_bound(minSeq);
+        auto end = ledgers_.upper_bound(maxSeq);
+
+        std::size_t count = 0;
+        while (it != end)
+        {
+            for (const auto& [txHash, _] : it->second.transactions)
+            {
+                if (limit && count >= *limit)
+                    return count;
+
+                transactionMap_.erase(txHash);
+                ++count;
+            }
+            it->second.transactions.clear();
+            ++it;
+        }
+        return count;
+    }
+
+    std::size_t
+    deleteAccountTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) override
+    {
+        if (!useTxTables_)
+            return 0;
+
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        std::size_t count = 0;
+
+        for (auto& [_, accountData] : accountTxMap_)
+        {
+            auto txIt = accountData.ledgerTxMap.lower_bound(minSeq);
+            auto txEnd = accountData.ledgerTxMap.upper_bound(maxSeq);
+
+            while (txIt != txEnd)
+            {
+                std::size_t toDelete = txIt->second.size();
+                if (limit && count + toDelete > *limit)
+                {
+                    // Partial deletion from this ledger
+                    toDelete = *limit - count;
+                    txIt->second.resize(txIt->second.size() - toDelete);
+                    count += toDelete;
+                    return count;
+                }
+
+                count += toDelete;
+                txIt = accountData.ledgerTxMap.erase(txIt);
+            }
+        }
+        return count;
     }
 
     ~RWDBDatabase()

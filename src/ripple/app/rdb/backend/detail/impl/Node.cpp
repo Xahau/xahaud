@@ -292,6 +292,18 @@ deleteBeforeLedgerSeq(
             << ledgerSeq << ";";
 }
 
+void
+deleteRange(
+    soci::session& session,
+    TableType type,
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq)
+{
+    session << "DELETE FROM " << to_string(type)
+            << " WHERE LedgerSeq >= " << minSeq
+            << " AND LedgerSeq <= " << maxSeq << ";";
+}
+
 std::size_t
 getRows(soci::session& session, TableType type)
 {

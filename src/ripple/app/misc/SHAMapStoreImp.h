@@ -24,6 +24,7 @@
 #include <ripple/app/misc/SHAMapStore.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/app/rdb/State.h>
+#include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/basics/RangeSet.h>
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/nodestore/DatabaseRotating.h>
@@ -231,12 +232,15 @@ private:
      *  Call with mutex object unlocked.
      */
     void
-    clearSql(
+    clearSqlRanges(
         LedgerIndex lastRotated,
-        RangeSet<std::uint32_t> const& pinnedLedgers,
-        std::string const& TableName,
+        RangeSet<std::uint32_t> const& pinned,
+        std::string const& tableName,
         std::function<std::optional<LedgerIndex>()> const& getMinSeq,
-        std::function<void(LedgerIndex)> const& deleteBeforeSeq);
+        std::function<void(RangeSet<std::uint32_t> const&)> const&
+            deleteInRanges,
+        std::optional<RangeSet<std::uint32_t>> const& complete = std::nullopt);
+
     void
     clearCaches(LedgerIndex validatedSeq);
     void

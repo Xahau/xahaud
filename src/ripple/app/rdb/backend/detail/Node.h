@@ -101,6 +101,21 @@ deleteBeforeLedgerSeq(
     LedgerIndex ledgerSeq);
 
 /**
+ * @brief deleteRange Deletes all entries in given table
+ *        for the ledgers within the specified range (inclusive).
+ * @param session Session with database.
+ * @param type Table ID from which entries will be deleted.
+ * @param minSeq Minimum ledger sequence (inclusive).
+ * @param maxSeq Maximum ledger sequence (inclusive).
+ */
+void
+deleteRange(
+    soci::session& session,
+    TableType type,
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq);
+
+/**
  * @brief getRows Returns number of rows in given table.
  * @param session Session with database.
  * @param type Table ID for which the result is returned.

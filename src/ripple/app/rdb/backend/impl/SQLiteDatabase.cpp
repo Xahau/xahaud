@@ -27,6 +27,7 @@
 #include <ripple/app/rdb/backend/detail/Node.h>
 #include <ripple/app/rdb/backend/detail/Shard.h>
 #include <ripple/basics/BasicConfig.h>
+#include <ripple/basics/RangeSet.h>
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/core/SociDB.h>
@@ -97,6 +98,24 @@ public:
 
     void
     deleteAccountTransactionsBeforeLedgerSeq(LedgerIndex ledgerSeq) override;
+
+    std::size_t
+    deleteLedgersInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) override;
+
+    std::size_t
+    deleteTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) override;
+
+    std::size_t
+    deleteAccountTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) override;
 
     std::size_t
     getTransactionCount() override;
@@ -1921,6 +1940,88 @@ void
 SQLiteDatabaseImp::closeLedgerDB()
 {
     lgrdb_.reset();
+}
+
+std::size_t
+SQLiteDatabaseImp::deleteLedgersInRange(
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq,
+    std::optional<std::size_t> limit)
+{
+    if (!existsLedger())
+        return 0;
+
+    auto db = checkoutLedger();
+
+    std::string sql =
+        "DELETE FROM Ledgers WHERE LedgerSeq >= " + std::to_string(minSeq) +
+        " AND LedgerSeq <= " + std::to_string(maxSeq);
+
+    if (limit)
+        sql += " LIMIT " + std::to_string(*limit);
+
+    sql += ";";
+
+    *db << sql;
+
+    // Get the number of rows deleted
+    long changes = 0;
+    *db << "SELECT changes();", soci::into(changes);
+    return static_cast<std::size_t>(changes);
+}
+
+std::size_t
+SQLiteDatabaseImp::deleteTransactionsInRange(
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq,
+    std::optional<std::size_t> limit)
+{
+    if (!existsTransaction())
+        return 0;
+
+    auto db = checkoutTransaction();
+
+    std::string sql = "DELETE FROM Transactions WHERE LedgerSeq >= " +
+        std::to_string(minSeq) + " AND LedgerSeq <= " + std::to_string(maxSeq);
+
+    if (limit)
+        sql += " LIMIT " + std::to_string(*limit);
+
+    sql += ";";
+
+    *db << sql;
+
+    // Get the number of rows deleted
+    long changes = 0;
+    *db << "SELECT changes();", soci::into(changes);
+    return static_cast<std::size_t>(changes);
+}
+
+std::size_t
+SQLiteDatabaseImp::deleteAccountTransactionsInRange(
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq,
+    std::optional<std::size_t> limit)
+{
+    if (!existsTransaction())
+        return 0;
+
+    auto db = checkoutTransaction();
+
+    std::string sql = "DELETE FROM AccountTransactions WHERE LedgerSeq >= " +
+        std::to_string(minSeq) + " AND LedgerSeq <= " + std::to_string(maxSeq);
+
+    if (limit)
+        sql += " LIMIT " + std::to_string(*limit);
+
+    sql += ";";
+
+    *db << sql;
+
+    // Get the number of rows deleted
+    long changes = 0;
+    *db << "SELECT changes();", soci::into(changes);
+    return static_cast<std::size_t>(changes);
 }
 
 void

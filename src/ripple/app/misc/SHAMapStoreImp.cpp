@@ -706,80 +706,47 @@ SHAMapStoreImp::makeBackendRotating(std::string path, bool isInitialRotation)
 }
 
 void
-SHAMapStoreImp::clearSql(
+SHAMapStoreImp::clearSqlRanges(
     LedgerIndex lastRotated,
-    RangeSet<std::uint32_t> const& pinnedLedgers,
-    std::string const& TableName,
+    RangeSet<std::uint32_t> const& pinned,
+    std::string const& tableName,
     std::function<std::optional<LedgerIndex>()> const& getMinSeq,
-    std::function<void(LedgerIndex)> const& deleteBeforeSeq)
+    std::function<void(RangeSet<std::uint32_t> const&)> const& deleteInRanges,
+    std::optional<RangeSet<std::uint32_t>> const& complete)
 {
     assert(deleteInterval_);
-    LedgerIndex minSeq;
+    auto m = getMinSeq();
+    if (!m)
+        return;
 
-    {
-        JLOG(journal_.trace())
-            << "Begin: Look up lowest sequence in: " << TableName;
-        auto m = getMinSeq();
-        JLOG(journal_.trace())
-            << "End: Look up lowest sequence in: " << TableName;
-        if (!m)
-            return;  // Table is empty
-        minSeq = *m;
-    }
-
+    LedgerIndex minSeq = *m;
     if (minSeq >= lastRotated || healthWait() == stopping)
         return;
 
-    // The potential range to delete is [minSeq, lastRotated)
-    RangeSet<std::uint32_t> deletableRange;
-    deletableRange.insert(range(minSeq, lastRotated - 1));
+    // base window [minSeq, lastRotated-1]
+    RangeSet<std::uint32_t> base;
+    base.insert(range(minSeq, lastRotated - 1));
 
-    // Subtract the pinned ranges. The result is a set of disjoint
-    // intervals that are safe to delete.
-    deletableRange -= pinnedLedgers;
+    // optional: limit to what we believe exists
+    RangeSet<std::uint32_t> target = complete ? (base & *complete) : base;
 
-    if (deletableRange.empty())
+    // subtract pins -> disjoint deletable intervals
+    target -= pinned;
+    if (target.empty())
     {
-        JLOG(journal_.trace()) << "Nothing to delete from " << TableName
-                               << " after considering pinned ledgers.";
+        JLOG(journal_.trace()) << "Nothing to delete from " << tableName
+                               << " after considering pins.";
         return;
     }
 
-    JLOG(journal_.debug()) << "Pruning " << TableName << ". Deleting ranges: "
-                           << to_string(deletableRange);
+    JLOG(journal_.debug()) << "Pruning " << tableName
+                           << ". Target ranges: " << to_string(target);
 
-    // Process each deletable interval in batches
-    for (auto const& interval : deletableRange)
-    {
-        LedgerIndex current = interval.lower();
-        LedgerIndex const end = interval.upper() + 1;  // Make it exclusive
+    // Process each interval with binary partitioning
+    // The deleteInRanges lambda will handle the actual database operations
+    deleteInRanges(target);
 
-        JLOG(journal_.debug()) << "Deleting in " << TableName << " from "
-                               << current << " to " << end;
-        while (current < end)
-        {
-            if (healthWait() == stopping)
-                return;
-
-            current = std::min(end, current + deleteBatch_);
-            JLOG(journal_.trace()) << "Begin: Delete up to " << deleteBatch_
-                                   << " rows with LedgerSeq < " << current
-                                   << " from: " << TableName;
-            deleteBeforeSeq(current);
-            JLOG(journal_.trace()) << "End: Delete up to " << deleteBatch_
-                                   << " rows with LedgerSeq < " << current
-                                   << " from: " << TableName;
-
-            if (current < end)
-            {
-                if (healthWait() == stopping)
-                    return;
-                std::this_thread::sleep_for(backOff_);
-            }
-        }
-    }
-
-    JLOG(journal_.debug()) << "finished deleting from: " << TableName;
+    JLOG(journal_.debug()) << "finished deleting from: " << tableName;
 }
 
 void
@@ -836,39 +803,99 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
 
     if (app_.config().useTxTables())
     {
-        clearSql(
+        clearSqlRanges(
             lastRotated,
             pinnedRanges,
             "Transactions",
             [&db]() -> std::optional<LedgerIndex> {
                 return db->getTransactionsMinLedgerSeq();
             },
-            [&db](LedgerIndex min) -> void {
-                db->deleteTransactionsBeforeLedgerSeq(min);
-            });
+            [this, &db](RangeSet<std::uint32_t> const& ranges) -> void {
+                for (auto const& interval : ranges)
+                {
+                    // Simple delete loop with LIMIT
+                    while (true)
+                    {
+                        if (healthWait() == stopping)
+                            return;
+
+                        auto deleted = db->deleteTransactionsInRange(
+                            interval.lower(), interval.upper(), deleteBatch_);
+
+                        if (deleted == 0)
+                            break;
+
+                        JLOG(journal_.trace()) << "Deleted " << deleted
+                                               << " rows from Transactions";
+                        std::this_thread::sleep_for(backOff_);
+                    }
+                }
+            },
+            std::nullopt);
         if (healthWait() == stopping)
             return;
 
-        clearSql(
+        clearSqlRanges(
             lastRotated,
             pinnedRanges,
             "AccountTransactions",
             [&db]() -> std::optional<LedgerIndex> {
                 return db->getAccountTransactionsMinLedgerSeq();
             },
-            [&db](LedgerIndex min) -> void {
-                db->deleteAccountTransactionsBeforeLedgerSeq(min);
-            });
+            [this, &db](RangeSet<std::uint32_t> const& ranges) -> void {
+                for (auto const& interval : ranges)
+                {
+                    // Simple delete loop with LIMIT
+                    while (true)
+                    {
+                        if (healthWait() == stopping)
+                            return;
+
+                        auto deleted = db->deleteAccountTransactionsInRange(
+                            interval.lower(), interval.upper(), deleteBatch_);
+
+                        if (deleted == 0)
+                            break;
+
+                        JLOG(journal_.trace())
+                            << "Deleted " << deleted
+                            << " rows from AccountTransactions";
+                        std::this_thread::sleep_for(backOff_);
+                    }
+                }
+            },
+            std::nullopt);
         if (healthWait() == stopping)
             return;
     }
 
-    clearSql(
+    clearSqlRanges(
         lastRotated,
         pinnedRanges,
         "Ledgers",
         [db]() -> std::optional<LedgerIndex> { return db->getMinLedgerSeq(); },
-        [db](LedgerIndex min) -> void { db->deleteBeforeLedgerSeq(min); });
+        [this, db](RangeSet<std::uint32_t> const& ranges) -> void {
+            for (auto const& interval : ranges)
+            {
+                // Simple delete loop with LIMIT
+                while (true)
+                {
+                    if (healthWait() == stopping)
+                        return;
+
+                    auto deleted = db->deleteLedgersInRange(
+                        interval.lower(), interval.upper(), deleteBatch_);
+
+                    if (deleted == 0)
+                        break;
+
+                    JLOG(journal_.trace())
+                        << "Deleted " << deleted << " rows from Ledgers";
+                    std::this_thread::sleep_for(backOff_);
+                }
+            }
+        },
+        std::nullopt);
     if (healthWait() == stopping)
         return;
 }

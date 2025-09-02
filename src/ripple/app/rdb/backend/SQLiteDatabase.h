@@ -21,6 +21,7 @@
 #define RIPPLE_APP_RDB_BACKEND_SQLITEDATABASE_H_INCLUDED
 
 #include <ripple/app/rdb/RelationalDatabase.h>
+#include <ripple/basics/RangeSet.h>
 
 namespace ripple {
 
@@ -296,6 +297,47 @@ public:
     getKBUsedTransaction() = 0;
 
     /**
+     * @brief deleteLedgersInRange Deletes ledgers within the specified range.
+     * @param minSeq Minimum ledger sequence (inclusive).
+     * @param maxSeq Maximum ledger sequence (inclusive).
+     * @param limit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
+     */
+    virtual std::size_t
+    deleteLedgersInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) = 0;
+
+    /**
+     * @brief deleteTransactionsInRange Deletes transactions within the
+     *        specified ledger sequence range.
+     * @param minSeq Minimum ledger sequence (inclusive).
+     * @param maxSeq Maximum ledger sequence (inclusive).
+     * @param limit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
+     */
+    virtual std::size_t
+    deleteTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) = 0;
+
+    /**
+     * @brief deleteAccountTransactionsInRange Deletes account transactions
+     *        within the specified ledger sequence range.
+     * @param minSeq Minimum ledger sequence (inclusive).
+     * @param maxSeq Maximum ledger sequence (inclusive).
+     * @param limit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
+     */
+    virtual std::size_t
+    deleteAccountTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) = 0;
+
+    /**
      * @brief Closes the ledger database
      */
     virtual void
@@ -306,6 +348,45 @@ public:
      */
     virtual void
     closeTransactionDB() = 0;
+
+    /**
+     * @brief checkHasExtents Verifies if the database contains the boundary
+     *        ledgers of the specified range.
+     *
+     * This method provides a fast O(1) check at startup to validate that pinned
+     * ledger ranges have at least their extent boundaries in the database.
+     * It only checks if the minimum and maximum ledgers exist, not the entire
+     * range. This is efficient and often sufficient to detect major issues
+     * like:
+     * - Pinned ranges that were never downloaded
+     * - Ranges outside the available data
+     * - Misconfigured range boundaries
+     *
+     * @param minSeq Minimum ledger sequence to check (inclusive)
+     * @param maxSeq Maximum ledger sequence to check (inclusive)
+     * @return Pair of (hasMin, hasMax) where:
+     *         - hasMin: true if the minimum ledger sequence exists
+     *         - hasMax: true if the maximum ledger sequence exists
+     *
+     * Example usage at startup:
+     *   for (auto const& interval : pinnedRanges) {
+     *       auto [hasMin, hasMax] = db->checkHasExtents(
+     *           interval.lower(), interval.upper());
+     *       if (!hasMin || !hasMax) {
+     *           JLOG(j.warn()) << "Pinned range [" << interval.lower()
+     *                          << ", " << interval.upper()
+     *                          << "] has missing boundaries in database"
+     *                          << " (hasMin=" << hasMin
+     *                          << ", hasMax=" << hasMax << ")";
+     *       }
+     *   }
+     *
+     * Implementation would be:
+     *   SELECT EXISTS(SELECT 1 FROM Ledgers WHERE LedgerSeq = minSeq),
+     *          EXISTS(SELECT 1 FROM Ledgers WHERE LedgerSeq = maxSeq);
+     */
+    // virtual std::pair<bool, bool>
+    // checkHasExtents(LedgerIndex minSeq, LedgerIndex maxSeq) = 0;
 };
 
 }  // namespace ripple
