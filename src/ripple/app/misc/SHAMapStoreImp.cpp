@@ -771,10 +771,11 @@ SHAMapStoreImp::deleteRangeBinaryPartition(
     // Calculate data density to decide if it's worth partitioning
     LedgerIndex rangeSize = hi - lo + 1;
     double density = static_cast<double>(count) / rangeSize;
-    
-    // If data is relatively dense (>1% of slots filled), just delete it
-    // since the database can handle it efficiently
-    if (density > 0.01)
+
+    // If data is relatively dense (>1% of slots filled) AND within our
+    // manageable threshold, delete it directly
+    // This uses the same threshold as above (10 batches worth)
+    if (density > 0.01 && count <= deleteBatch_ * manageableThreshold)
     {
         JLOG(journal_.trace()) << "Range [" << lo << ", " << hi << "] has " 
                                << count << " rows with density " << (density * 100) 
