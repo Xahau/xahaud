@@ -1953,14 +1953,22 @@ SQLiteDatabaseImp::deleteLedgersInRange(
 
     auto db = checkoutLedger();
 
-    std::string sql =
-        "DELETE FROM Ledgers WHERE LedgerSeq >= " + std::to_string(minSeq) +
-        " AND LedgerSeq <= " + std::to_string(maxSeq);
-
+    std::string sql;
     if (limit)
-        sql += " LIMIT " + std::to_string(*limit);
-
-    sql += ";";
+    {
+        sql =
+            "DELETE FROM Ledgers WHERE rowid IN (SELECT rowid FROM Ledgers "
+            "WHERE LedgerSeq >= " +
+            std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) +
+            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
+    }
+    else
+    {
+        sql =
+            "DELETE FROM Ledgers WHERE LedgerSeq >= " + std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
+    }
 
     *db << sql;
 
@@ -1981,13 +1989,22 @@ SQLiteDatabaseImp::deleteTransactionsInRange(
 
     auto db = checkoutTransaction();
 
-    std::string sql = "DELETE FROM Transactions WHERE LedgerSeq >= " +
-        std::to_string(minSeq) + " AND LedgerSeq <= " + std::to_string(maxSeq);
-
+    std::string sql;
     if (limit)
-        sql += " LIMIT " + std::to_string(*limit);
-
-    sql += ";";
+    {
+        sql =
+            "DELETE FROM Transactions WHERE rowid IN (SELECT rowid FROM "
+            "Transactions WHERE LedgerSeq >= " +
+            std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) +
+            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
+    }
+    else
+    {
+        sql = "DELETE FROM Transactions WHERE LedgerSeq >= " +
+            std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
+    }
 
     *db << sql;
 
@@ -2008,13 +2025,22 @@ SQLiteDatabaseImp::deleteAccountTransactionsInRange(
 
     auto db = checkoutTransaction();
 
-    std::string sql = "DELETE FROM AccountTransactions WHERE LedgerSeq >= " +
-        std::to_string(minSeq) + " AND LedgerSeq <= " + std::to_string(maxSeq);
-
+    std::string sql;
     if (limit)
-        sql += " LIMIT " + std::to_string(*limit);
-
-    sql += ";";
+    {
+        sql =
+            "DELETE FROM AccountTransactions WHERE rowid IN (SELECT rowid FROM "
+            "AccountTransactions WHERE LedgerSeq >= " +
+            std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) +
+            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
+    }
+    else
+    {
+        sql = "DELETE FROM AccountTransactions WHERE LedgerSeq >= " +
+            std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
+    }
 
     *db << sql;
 
