@@ -706,107 +706,6 @@ SHAMapStoreImp::makeBackendRotating(std::string path, bool isInitialRotation)
 }
 
 void
-SHAMapStoreImp::deleteRangeBinaryPartition(
-    SQLiteDatabase* db,
-    std::string const& tableName,
-    LedgerIndex lo,
-    LedgerIndex hi,
-    std::function<std::size_t(LedgerIndex, LedgerIndex, bool)> const& countOrDelete)
-{
-    // Check for health/stopping
-    if (healthWait() == stopping)
-        return;
-    
-    // First, count how many rows are in this range
-    std::size_t count = countOrDelete(lo, hi, false);
-    
-    if (count == 0)
-    {
-        // Range is empty, nothing to delete
-        JLOG(journal_.trace()) << "Range [" << lo << ", " << hi 
-                               << "] in " << tableName << " is empty, skipping";
-        return;
-    }
-    
-    if (count <= deleteBatch_)
-    {
-        // Range is small enough to delete in one batch
-        JLOG(journal_.trace()) << "Deleting " << count << " rows from " 
-                               << tableName << " in range [" << lo << ", " << hi << "]";
-        
-        std::size_t deleted = countOrDelete(lo, hi, true);
-        
-        if (deleted > 0)
-        {
-            JLOG(journal_.trace()) << "Deleted " << deleted << " rows from " << tableName;
-            // Only sleep if we actually deleted something
-            std::this_thread::sleep_for(backOff_);
-        }
-        return;
-    }
-    
-    // Check if count is manageable (e.g., less than 10 batches worth)
-    // In this case, just delete sequentially rather than binary partition
-    constexpr std::size_t manageableThreshold = 10;  // Max batches before using binary partition
-    if (count <= deleteBatch_ * manageableThreshold)
-    {
-        // For manageable counts, we can afford to just delete the whole range
-        // The SQLite query optimizer will handle it efficiently with the index
-        // This avoids excessive subdivision for cases like 253 rows
-        JLOG(journal_.trace()) << "Deleting " << count << " rows from " 
-                               << tableName << " in range [" << lo << ", " << hi 
-                               << "] (manageable count, direct delete)";
-        
-        std::size_t deleted = countOrDelete(lo, hi, true);
-        
-        if (deleted > 0)
-        {
-            JLOG(journal_.trace()) << "Deleted " << deleted << " rows from " << tableName;
-            std::this_thread::sleep_for(backOff_);
-        }
-        return;
-    }
-    
-    // For truly large counts or very sparse data, use binary partitioning
-    // Calculate data density to decide if it's worth partitioning
-    LedgerIndex rangeSize = hi - lo + 1;
-    double density = static_cast<double>(count) / rangeSize;
-    
-    // If data is relatively dense (>1% of slots filled), just delete it
-    // since the database can handle it efficiently
-    if (density > 0.01)
-    {
-        JLOG(journal_.trace()) << "Range [" << lo << ", " << hi << "] has " 
-                               << count << " rows with density " << (density * 100) 
-                               << "%, deleting directly";
-        
-        std::size_t deleted = countOrDelete(lo, hi, true);
-        
-        if (deleted > 0)
-        {
-            JLOG(journal_.trace()) << "Deleted " << deleted << " rows from " << tableName;
-            std::this_thread::sleep_for(backOff_);
-        }
-        return;
-    }
-    
-    // Data is sparse, use binary partitioning to find clusters
-    LedgerIndex mid = lo + (hi - lo) / 2;
-    
-    JLOG(journal_.trace()) << "Range [" << lo << ", " << hi << "] has " << count 
-                           << " sparse rows (density " << (density * 100) 
-                           << "%), splitting at " << mid;
-    
-    // Recursively process each half
-    deleteRangeBinaryPartition(db, tableName, lo, mid, countOrDelete);
-    
-    if (healthWait() == stopping)
-        return;
-        
-    deleteRangeBinaryPartition(db, tableName, mid + 1, hi, countOrDelete);
-}
-
-void
 SHAMapStoreImp::clearSqlRanges(
     LedgerIndex lastRotated,
     RangeSet<std::uint32_t> const& pinned,
@@ -914,14 +813,22 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
             [this, &db](RangeSet<std::uint32_t> const& ranges) -> void {
                 for (auto const& interval : ranges)
                 {
-                    deleteRangeBinaryPartition(
-                        db,
-                        "Transactions",
-                        interval.lower(),
-                        interval.upper(),
-                        [&db](LedgerIndex lo, LedgerIndex hi, bool doDelete) {
-                            return db->countOrDeleteTransactionsInRange(lo, hi, doDelete);
-                        });
+                    // Simple delete loop with LIMIT
+                    while (true)
+                    {
+                        if (healthWait() == stopping)
+                            return;
+
+                        auto deleted = db->deleteTransactionsInRange(
+                            interval.lower(), interval.upper(), deleteBatch_);
+
+                        if (deleted == 0)
+                            break;
+
+                        JLOG(journal_.trace()) << "Deleted " << deleted
+                                               << " rows from Transactions";
+                        std::this_thread::sleep_for(backOff_);
+                    }
                 }
             },
             std::nullopt);
@@ -938,14 +845,23 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
             [this, &db](RangeSet<std::uint32_t> const& ranges) -> void {
                 for (auto const& interval : ranges)
                 {
-                    deleteRangeBinaryPartition(
-                        db,
-                        "AccountTransactions",
-                        interval.lower(),
-                        interval.upper(),
-                        [&db](LedgerIndex lo, LedgerIndex hi, bool doDelete) {
-                            return db->countOrDeleteAccountTransactionsInRange(lo, hi, doDelete);
-                        });
+                    // Simple delete loop with LIMIT
+                    while (true)
+                    {
+                        if (healthWait() == stopping)
+                            return;
+
+                        auto deleted = db->deleteAccountTransactionsInRange(
+                            interval.lower(), interval.upper(), deleteBatch_);
+
+                        if (deleted == 0)
+                            break;
+
+                        JLOG(journal_.trace())
+                            << "Deleted " << deleted
+                            << " rows from AccountTransactions";
+                        std::this_thread::sleep_for(backOff_);
+                    }
                 }
             },
             std::nullopt);
@@ -961,14 +877,22 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
         [this, db](RangeSet<std::uint32_t> const& ranges) -> void {
             for (auto const& interval : ranges)
             {
-                deleteRangeBinaryPartition(
-                    db,
-                    "Ledgers",
-                    interval.lower(),
-                    interval.upper(),
-                    [db](LedgerIndex lo, LedgerIndex hi, bool doDelete) {
-                        return db->countOrDeleteLedgersInRange(lo, hi, doDelete);
-                    });
+                // Simple delete loop with LIMIT
+                while (true)
+                {
+                    if (healthWait() == stopping)
+                        return;
+
+                    auto deleted = db->deleteLedgersInRange(
+                        interval.lower(), interval.upper(), deleteBatch_);
+
+                    if (deleted == 0)
+                        break;
+
+                    JLOG(journal_.trace())
+                        << "Deleted " << deleted << " rows from Ledgers";
+                    std::this_thread::sleep_for(backOff_);
+                }
             }
         },
         std::nullopt);

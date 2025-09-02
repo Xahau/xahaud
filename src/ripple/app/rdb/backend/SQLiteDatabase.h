@@ -297,46 +297,45 @@ public:
     getKBUsedTransaction() = 0;
 
     /**
-     * @brief countOrDeleteLedgersInRange Counts or deletes ledgers within 
-     *        the specified range.
+     * @brief deleteLedgersInRange Deletes ledgers within the specified range.
      * @param minSeq Minimum ledger sequence (inclusive).
      * @param maxSeq Maximum ledger sequence (inclusive).
-     * @param doDelete If true, delete the rows; if false, just count them.
-     * @return Number of rows counted (if doDelete=false) or deleted (if doDelete=true).
+     * @param limit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
      */
     virtual std::size_t
-    countOrDeleteLedgersInRange(
+    deleteLedgersInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        bool doDelete) = 0;
+        std::optional<std::size_t> limit = std::nullopt) = 0;
 
     /**
-     * @brief countOrDeleteTransactionsInRange Counts or deletes transactions 
+     * @brief deleteTransactionsInRange Deletes transactions within the
+     *        specified ledger sequence range.
+     * @param minSeq Minimum ledger sequence (inclusive).
+     * @param maxSeq Maximum ledger sequence (inclusive).
+     * @param limit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
+     */
+    virtual std::size_t
+    deleteTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> limit = std::nullopt) = 0;
+
+    /**
+     * @brief deleteAccountTransactionsInRange Deletes account transactions
      *        within the specified ledger sequence range.
      * @param minSeq Minimum ledger sequence (inclusive).
      * @param maxSeq Maximum ledger sequence (inclusive).
-     * @param doDelete If true, delete the rows; if false, just count them.
-     * @return Number of rows counted (if doDelete=false) or deleted (if doDelete=true).
+     * @param limit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
      */
     virtual std::size_t
-    countOrDeleteTransactionsInRange(
+    deleteAccountTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        bool doDelete) = 0;
-
-    /**
-     * @brief countOrDeleteAccountTransactionsInRange Counts or deletes account 
-     *        transactions within the specified ledger sequence range.
-     * @param minSeq Minimum ledger sequence (inclusive).
-     * @param maxSeq Maximum ledger sequence (inclusive).
-     * @param doDelete If true, delete the rows; if false, just count them.
-     * @return Number of rows counted (if doDelete=false) or deleted (if doDelete=true).
-     */
-    virtual std::size_t
-    countOrDeleteAccountTransactionsInRange(
-        LedgerIndex minSeq,
-        LedgerIndex maxSeq,
-        bool doDelete) = 0;
+        std::optional<std::size_t> limit = std::nullopt) = 0;
 
     /**
      * @brief Closes the ledger database

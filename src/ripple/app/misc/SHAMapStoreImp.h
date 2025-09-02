@@ -240,18 +240,6 @@ private:
         std::function<void(RangeSet<std::uint32_t> const&)> const&
             deleteInRanges,
         std::optional<RangeSet<std::uint32_t>> const& complete = std::nullopt);
-    
-    /** Binary partitioning helper for efficient range deletion.
-     *  Recursively subdivides ranges to find and delete only non-empty sections.
-     *  Respects batch size limits and health checks.
-     */
-    void
-    deleteRangeBinaryPartition(
-        SQLiteDatabase* db,
-        std::string const& tableName,
-        LedgerIndex lo,
-        LedgerIndex hi,
-        std::function<std::size_t(LedgerIndex, LedgerIndex, bool)> const& countOrDelete);
 
     void
     clearCaches(LedgerIndex validatedSeq);
