@@ -37,6 +37,142 @@
 namespace ripple {
 namespace detail {
 
+namespace {
+
+/**
+ * @brief Manages bulk SQL INSERT statement construction with automatic batching
+ *
+ * This class handles the construction of bulk INSERT statements while ensuring
+ * they don't exceed SQLite's maximum query length limit (default 1MB).
+ * It automatically executes batches when they approach the size limit.
+ */
+class BulkSQLQueryBuilder
+{
+private:
+    static constexpr size_t SQLITE_MAX_SQL_LENGTH =
+        1048576;  // 1MB default limit
+
+    soci::session& db_;
+    beast::Journal j_;
+    std::string insertHeader_;
+    std::string currentBatch_;
+    size_t maxBatchSize_;
+    size_t estimatedEntrySize_;
+    bool firstEntry_ = true;
+    std::string queryName_;
+
+public:
+    /**
+     * @param db Database session to execute queries on
+     * @param j Journal for logging
+     * @param insertHeader The INSERT statement header (e.g., "INSERT INTO Table
+     * (columns) VALUES ")
+     * @param maxBatchSize Maximum size before executing a batch (should be <
+     * SQLITE_MAX_SQL_LENGTH)
+     * @param estimatedEntrySize Estimated size of each entry for safety checks
+     * @param queryName Name for logging purposes
+     */
+    BulkSQLQueryBuilder(
+        soci::session& db,
+        beast::Journal j,
+        std::string insertHeader,
+        size_t maxBatchSize,
+        size_t estimatedEntrySize,
+        std::string queryName)
+        : db_(db)
+        , j_(j)
+        , insertHeader_(std::move(insertHeader))
+        , maxBatchSize_(maxBatchSize)
+        , estimatedEntrySize_(estimatedEntrySize)
+        , queryName_(std::move(queryName))
+    {
+        // Ensure we have safety margin
+        assert(maxBatchSize_ + estimatedEntrySize_ < SQLITE_MAX_SQL_LENGTH);
+        currentBatch_.reserve(maxBatchSize_);
+    }
+
+    /**
+     * @brief Add an entry to the current batch
+     *
+     * This will automatically execute the current batch if adding this entry
+     * would exceed the size limit.
+     *
+     * @param entry The VALUES clause entry (without leading comma)
+     * @param actualSize If provided, the actual size of the entry (for entries
+     * with BLOBs)
+     */
+    void
+    addEntry(
+        const std::string& entry,
+        std::optional<size_t> actualSize = std::nullopt)
+    {
+        size_t entrySize = actualSize.value_or(entry.size());
+
+        // Check if we need to execute current batch before adding this entry
+        if (!firstEntry_ && (currentBatch_.size() + entrySize > maxBatchSize_))
+        {
+            executeBatch();
+        }
+
+        // Start a new batch if needed
+        if (firstEntry_)
+        {
+            currentBatch_ = insertHeader_;
+            firstEntry_ = false;
+        }
+        else
+        {
+            currentBatch_ += ",";
+        }
+
+        currentBatch_ += entry;
+    }
+
+    /**
+     * @brief Execute any remaining entries in the batch
+     */
+    void
+    finish()
+    {
+        if (!firstEntry_)
+        {
+            executeBatch();
+        }
+    }
+
+    /**
+     * @brief Get the number of bytes currently in the batch
+     */
+    size_t
+    getCurrentBatchSize() const
+    {
+        return currentBatch_.size();
+    }
+
+private:
+    void
+    executeBatch()
+    {
+        if (currentBatch_.empty())
+            return;
+
+        currentBatch_ += ";";
+
+        JLOG(j_.trace()) << queryName_ << " batch: " << currentBatch_.size()
+                         << " bytes";
+
+        // Execute within the existing transaction context
+        // If this fails, the transaction will roll back
+        db_ << currentBatch_;
+
+        // Reset for next batch
+        currentBatch_.clear();
+        firstEntry_ = true;
+    }
+};
+
+}  // anonymous namespace
+
 /**
  * @brief to_string Returns the name of a table according to its TableType.
  * @param type An enum denoting the table's type.
@@ -282,26 +418,32 @@ saveValidatedLedger(
 
             std::string const ledgerSeq(std::to_string(seq));
 
-            // Build bulk insert statements for all transactions in this ledger.
-            // This dramatically reduces database round-trips from 2N to 2,
-            // where N is the number of transactions.
-            std::string
-                accountTxBulk;  // Will hold: INSERT INTO AccountTransactions
-                                // VALUES (...),(...),(...)
-            std::string metadataBulk;  // Will hold: INSERT INTO Transactions
-                                       // VALUES (...),(...),(...)
-            bool firstAcctTx = true;
-            bool firstMeta = true;
+            // Use bulk query builders to batch INSERT statements efficiently.
+            // This dramatically reduces database round-trips while respecting
+            // SQLite's query size limits.
 
-            // Pre-allocate string memory to avoid reallocations during
-            // concatenation. Estimates: ~256 bytes per account entry,
-            // ~512 bytes per metadata entry.
-            accountTxBulk.reserve(aLedger->size() * 256);
-            metadataBulk.reserve(aLedger->size() * 512);
+            // AccountTransactions: ~150 bytes per entry (TransID + Account +
+            // numbers)
+            BulkSQLQueryBuilder accountTxBuilder(
+                *db,
+                j,
+                "INSERT INTO AccountTransactions "
+                "(TransID, Account, LedgerSeq, TxnSeq) VALUES ",
+                850000,  // 850KB max batch size (leaving buffer for safety)
+                150,     // Estimated entry size
+                "AccountTransactions");
 
-            // First pass: build all SQL statements without executing them.
-            // We iterate through all transactions to construct two bulk INSERT
-            // statements.
+            // Transactions: Variable size due to BLOB data (RawTxn and TxnMeta)
+            // Conservative batch size since entries can be several KB each
+            BulkSQLQueryBuilder transactionBuilder(
+                *db,
+                j,
+                STTx::getMetaSQLInsertReplaceHeader(),
+                500000,  // 500KB max batch size (more conservative for BLOBs)
+                2048,    // Estimated entry size (can vary widely)
+                "Transactions");
+
+            // Build and execute bulk INSERT statements for all transactions
             for (auto const& acceptedLedgerTx : *aLedger)
             {
                 uint256 transactionID = acceptedLedgerTx->getTransactionID();
@@ -309,39 +451,21 @@ saveValidatedLedger(
                 std::string const txnSeq(
                     std::to_string(acceptedLedgerTx->getTxnSeq()));
 
-                // IMPORTANT: Removed redundant DELETE by TransID that was here.
-                // We already deleted ALL AccountTransactions for this ledger
-                // above, so deleting by individual TransID was wasted work
-                // (N unnecessary DELETEs where N = number of transactions).
-
+                // Add AccountTransactions entries for all affected accounts
                 auto const& accts = acceptedLedgerTx->getAffected();
-
-                // Build VALUES clause for all accounts affected by this
-                // transaction. Each transaction can affect multiple accounts
-                // (sender, receiver, etc).
                 for (auto const& account : accts)
                 {
-                    if (firstAcctTx)
-                    {
-                        accountTxBulk =
-                            "INSERT INTO AccountTransactions "
-                            "(TransID, Account, LedgerSeq, TxnSeq) VALUES ";
-                        firstAcctTx = false;
-                    }
-                    else
-                    {
-                        accountTxBulk += ",";
-                    }
+                    std::string entry = "('";
+                    entry += txnId;
+                    entry += "','";
+                    entry += toBase58(account);
+                    entry += "',";
+                    entry += ledgerSeq;
+                    entry += ",";
+                    entry += txnSeq;
+                    entry += ")";
 
-                    accountTxBulk += "('";
-                    accountTxBulk += txnId;
-                    accountTxBulk += "','";
-                    accountTxBulk += toBase58(account);
-                    accountTxBulk += "',";
-                    accountTxBulk += ledgerSeq;
-                    accountTxBulk += ",";
-                    accountTxBulk += txnSeq;
-                    accountTxBulk += ")";
+                    accountTxBuilder.addEntry(entry);
                 }
 
                 if (accts.empty() && !isPseudoTx(*acceptedLedgerTx->getTxn()))
@@ -352,40 +476,19 @@ saveValidatedLedger(
                         JsonOptions::none);
                 }
 
-                // Build metadata insert
-                if (firstMeta)
-                {
-                    metadataBulk = STTx::getMetaSQLInsertReplaceHeader();
-                    firstMeta = false;
-                }
-                else
-                {
-                    metadataBulk += ",";
-                }
-
-                metadataBulk += acceptedLedgerTx->getTxn()->getMetaSQL(
+                // Add Transactions entry (includes metadata and raw transaction
+                // BLOBs)
+                std::string metaEntry = acceptedLedgerTx->getTxn()->getMetaSQL(
                     seq, acceptedLedgerTx->getEscMeta());
+
+                // For entries with BLOBs, we need to account for the actual
+                // size which includes the escaped/encoded BLOB data
+                transactionBuilder.addEntry(metaEntry, metaEntry.size());
             }
 
-            // Execute bulk inserts - this is where the performance gain
-            // happens. Instead of N individual INSERT statements per
-            // transaction type, we execute just 2 bulk statements for the
-            // entire ledger.
-            if (!firstAcctTx)
-            {
-                accountTxBulk += ";";
-                JLOG(j.trace())
-                    << "Bulk ActTx: " << accountTxBulk.size() << " bytes";
-                *db << accountTxBulk;
-            }
-
-            if (!firstMeta)
-            {
-                metadataBulk += ";";
-                JLOG(j.trace())
-                    << "Bulk Metadata: " << metadataBulk.size() << " bytes";
-                *db << metadataBulk;
-            }
+            // Execute any remaining entries in the batches
+            accountTxBuilder.finish();
+            transactionBuilder.finish();
 
             // Second pass: update MasterTransaction cache after DB inserts
             // complete. This maintains the original order of operations - the

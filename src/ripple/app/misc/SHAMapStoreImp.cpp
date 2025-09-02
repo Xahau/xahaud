@@ -303,13 +303,22 @@ SHAMapStoreImp::loadPinnedRanges()
 {
     // Config option largely for testing and diagnostics
     Section& section{app_.config().section(ConfigSection::nodeDatabase())};
-    bool loadPinned = true;
+
+    // Default to false in standalone mode (unless explicitly configured)
+    // because with in-memory databases, the ledger data won't actually
+    // be available, leading to nonsensical state where ledgers appear
+    // complete but can't be retrieved.
+    bool loadPinned = !app_.config().standalone();
+
+    // Honor explicit configuration - useful for testing
     get_if_exists(section, "load_complete_ledgers_pinned", loadPinned);
 
     if (!loadPinned)
     {
-        JLOG(journal_.info()) << "Skipping pinned ranges load "
-                                 "(load_complete_ledgers_pinned=false)";
+        JLOG(journal_.info())
+            << "Skipping pinned ranges load "
+               "(load_complete_ledgers_pinned=false"
+            << (app_.config().standalone() ? " - standalone mode" : "") << ")";
         return;
     }
 

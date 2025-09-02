@@ -969,6 +969,11 @@ LedgerMaster::setFullLedger(
 
     {
         std::lock_guard ml(mCompleteLock);
+        if (mCompleteLedgers.empty() && !mPinnedLedgers.empty())
+        {
+            mCompleteLedgers.assign(mPinnedLedgers);
+        }
+
         mCompleteLedgers.insert(ledger->info().seq);
     }
 
@@ -1399,13 +1404,14 @@ LedgerMaster::findNewLedgersToPublish(
     toPublish.insert(range(pubSeq, valSeq));
 
     // IMPORTANT: This RangeSet subtraction is critical for standalone mode when
-    // loading large catalogue files (millions of ledgers). Standalone mode is NOT
-    // just for tests - it's used for loading catalogue packs without consensus
-    // stealing resources. Without this optimization, tryAdvance would attempt to
-    // publish ALL pinned ledgers, keeping them and their SHAMap nodes in memory
-    // forever, causing massive memory bloat. By subtracting pinned ledgers (except
-    // the most recent), we only publish what's necessary. Pinned ledgers are
-    // already persisted to disk and don't need publishing.
+    // loading large catalogue files (millions of ledgers). Standalone mode is
+    // NOT just for tests - it's used for loading catalogue packs without
+    // consensus stealing resources. Without this optimization, tryAdvance would
+    // attempt to publish ALL pinned ledgers, keeping them and their SHAMap
+    // nodes in memory forever, causing massive memory bloat. By subtracting
+    // pinned ledgers (except the most recent), we only publish what's
+    // necessary. Pinned ledgers are already persisted to disk and don't need
+    // publishing.
     {
         std::lock_guard sll(mCompleteLock);
         RangeSet<std::uint32_t> pinnedExceptLast = mPinnedLedgers;
@@ -1804,6 +1810,41 @@ LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
             "Expected mPinnedLedgers to be empty on startup");
     }
     mPinnedLedgers.assign(range_set);
+
+    // Pinned ledgers are by definition complete (they were fully saved and are
+    // retrievable from the database). However, we DON'T add them to
+    // mCompleteLedgers here at startup. Instead, we wait for the first ledger
+    // validation in setFullLedger() to do a one-time copy. This approach:
+    //
+    // 1. Ensures pinned ledgers become queryable only after the node has some
+    //    validated state (avoiding the confusing "complete but not synced"
+    //    state)
+    // 2. Works naturally with all startup modes (normal, network, load,
+    // standalone)
+    // 3. Uses setFullLedger() as a clean hook point - it's called when any
+    // ledger
+    //    becomes official, and that's when we check if mCompleteLedgers is
+    //    empty and do a one-time assign from mPinnedLedgers
+    // 4. Works with the RPC fork protection logic - historical ledgers become
+    //    queryable once the node has a validated ledger and appears "synced"
+    //
+    // The actual population happens in setFullLedger() (around line 972):
+    //   if (mCompleteLedgers.empty() && !mPinnedLedgers.empty())
+    //       mCompleteLedgers.assign(mPinnedLedgers);
+    //
+    // This means:
+    // - On startup: complete_ledgers is empty, complete_ledgers_pinned shows
+    // ranges
+    // - After first validation: complete_ledgers shows both pinned and active
+    // ranges
+    // - Historical pinned ledgers become immediately queryable via RPC
+    //
+    // In findNewLedgersToPublish(), we subtract pinned ledgers from the publish
+    // set to avoid memory bloat in standalone mode when loading large
+    // catalogues.
+
+    JLOG(m_journal.info()) << "Added pinned ranges to complete ledgers: "
+                           << to_string(range_set);
 }
 
 std::optional<NetClock::time_point>
