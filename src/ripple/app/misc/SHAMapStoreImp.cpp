@@ -28,6 +28,7 @@
 #include <ripple/core/Pg.h>
 #include <ripple/nodestore/Scheduler.h>
 #include <ripple/nodestore/impl/DatabaseRotatingImp.h>
+#include <ripple/nodestore/impl/DatabasePinnedImp.h>
 #include <ripple/shamap/SHAMapMissingNode.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -249,30 +250,75 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             }
         }
 
-        // Pass true for isInitialRotation since this is called from
-        // makeNodeStore
-        auto writableBackend = makeBackendRotating(state.writableDb, true);
-        auto archiveBackend = makeBackendRotating(state.archiveDb, true);
-        if (!state.writableDb.size())
+        // Check if DatabasePinned should be created
+        if (nscfg.exists("pinned_type"))
         {
-            state.writableDb = writableBackend->getName();
-            state.archiveDb = archiveBackend->getName();
-            state_db_.setState(state);
+            // Config validation already done in Config::loadFromString
+            // Just create the backends
+            
+            // Create memory backend (RWDB) - reuse the same config
+            Section memoryConfig = nscfg;
+            memoryConfig.set("type", "rwdb");  // Force RWDB for memory
+            auto memoryBackend = NodeStore::Manager::instance().make_Backend(
+                memoryConfig, 
+                megabytes(app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),
+                scheduler_, 
+                app_.logs().journal(nodeStoreName_));
+            memoryBackend->open();
+            
+            // Create persistent backend (NuDB)
+            Section pinnedConfig = nscfg;
+            pinnedConfig.set("type", nscfg.get("pinned_type"));
+            pinnedConfig.set("path", nscfg.get("pinned_path"));
+            auto pinnedBackend = NodeStore::Manager::instance().make_Backend(
+                pinnedConfig,
+                megabytes(app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),
+                scheduler_,
+                app_.logs().journal(nodeStoreName_));
+            pinnedBackend->open();
+            
+            // Create DatabasePinned
+            auto dbp = std::make_unique<NodeStore::DatabasePinnedImp>(
+                app_,
+                scheduler_,
+                readThreads,
+                std::move(memoryBackend),
+                std::move(pinnedBackend),
+                nscfg,
+                app_.logs().journal(nodeStoreName_));
+                
+            fdRequired_ += dbp->fdRequired();
+            dbRotating_ = dbp.get();  // DatabasePinned inherits from DatabaseRotating
+            db.reset(dynamic_cast<NodeStore::Database*>(dbp.release()));
         }
-        //@@start database-choice
-        // Create NodeStore with two backends to allow online deletion of
-        // data
-        auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
-            app_,
-            scheduler_,
-            readThreads,
-            std::move(writableBackend),
-            std::move(archiveBackend),
-            nscfg,
-            app_.logs().journal(nodeStoreName_));
-        fdRequired_ += dbr->fdRequired();
-        dbRotating_ = dbr.get();
-        db.reset(dynamic_cast<NodeStore::Database*>(dbr.release()));
+        else
+        {
+            // Original DatabaseRotating creation path
+            // Pass true for isInitialRotation since this is called from
+            // makeNodeStore
+            auto writableBackend = makeBackendRotating(state.writableDb, true);
+            auto archiveBackend = makeBackendRotating(state.archiveDb, true);
+            if (!state.writableDb.size())
+            {
+                state.writableDb = writableBackend->getName();
+                state.archiveDb = archiveBackend->getName();
+                state_db_.setState(state);
+            }
+            //@@start database-choice
+            // Create NodeStore with two backends to allow online deletion of
+            // data
+            auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
+                app_,
+                scheduler_,
+                readThreads,
+                std::move(writableBackend),
+                std::move(archiveBackend),
+                nscfg,
+                app_.logs().journal(nodeStoreName_));
+            fdRequired_ += dbr->fdRequired();
+            dbRotating_ = dbr.get();
+            db.reset(dynamic_cast<NodeStore::Database*>(dbr.release()));
+        }
     }
     else
     {

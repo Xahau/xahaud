@@ -403,8 +403,10 @@ saveValidatedLedger(
         Serializer s(128);
         s.add32(HashPrefix::ledgerMaster);
         addRaw(ledger->info(), s);
+        // Use pinnedLEDGER type for pinned ledgers, hotLEDGER for others
+        auto ledgerType = app.getLedgerMaster().isPinned(seq) ? pinnedLEDGER : hotLEDGER;
         app.getNodeStore().store(
-            hotLEDGER, std::move(s.modData()), ledger->info().hash, seq);
+            ledgerType, std::move(s.modData()), ledger->info().hash, seq);
     }
     //@@end save-ledger-header
 
