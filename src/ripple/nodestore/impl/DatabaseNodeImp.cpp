@@ -35,13 +35,13 @@ DatabaseNodeImp::store(
 
     // Check if this is an uncached type
     bool skipCache = false;
-    if (type == hotACCOUNT_NODE_UNCACHED)
+    if (type == pinnedACCOUNT_NODE)
     {
         type = hotACCOUNT_NODE;
         skipCache = true;
         JLOG(j_.info()) << "Storing uncached ACCOUNT_NODE, hash: " << hash;
     }
-    else if (type == hotTRANSACTION_NODE_UNCACHED)
+    else if (type == pinnedTRANSACTION_NODE)
     {
         type = hotTRANSACTION_NODE;
         skipCache = true;

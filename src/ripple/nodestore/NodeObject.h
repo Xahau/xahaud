@@ -37,8 +37,9 @@ enum NodeObjectType : std::uint32_t {
     hotDUMMY = 512,  // an invalid or missing object
 
     // Uncached variants - these bypass the cache when stored
-    hotACCOUNT_NODE_UNCACHED = 1003,
-    hotTRANSACTION_NODE_UNCACHED = 1004
+    pinnedACCOUNT_NODE = 1003,
+    pinnedTRANSACTION_NODE = 1004,
+    pinnedLEDGER = 1005
 };
 
 /** A simple object that the Ledger uses to store entries.

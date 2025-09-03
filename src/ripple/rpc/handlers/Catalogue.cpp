@@ -1203,8 +1203,8 @@ doCatalogueLoad(RPC::JsonContext& context)
 
             //@@start catalogue-shamaps-flush-dirty
             // 1. Flush the state map snapshot and the ledger's own tx map
-            stateMapSnapshot->flushDirty(hotACCOUNT_NODE_UNCACHED);
-            ledger->txMap().flushDirty(hotTRANSACTION_NODE_UNCACHED);
+            stateMapSnapshot->flushDirty(pinnedACCOUNT_NODE);
+            ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
             //@@end catalogue-shamaps-flush-dirty
 
             // 2. Save to SQLite database using the proper interface

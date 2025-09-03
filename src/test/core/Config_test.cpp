@@ -1394,6 +1394,5 @@ r.ripple.com:51235
 
 BEAST_DEFINE_TESTSUITE(Config, core, ripple);
 //@@end config-test-entry-point
-}  // namespace ripple
 
 }  // namespace ripple
