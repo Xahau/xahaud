@@ -17,12 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/nodestore/impl/DatabasePinnedImp.h>
 #include <ripple/app/ledger/Ledger.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/nodestore/Manager.h>
-#include <ripple/protocol/HashPrefix.h>
-#include <ripple/basics/Slice.h>
+#include <ripple/nodestore/impl/DatabasePinnedImp.h>
+#include <atomic>
+#include <iostream>
 
 namespace ripple {
 namespace NodeStore {
@@ -31,18 +29,24 @@ DatabasePinnedImp::DatabasePinnedImp(
     Application& app,
     Scheduler& scheduler,
     int readThreads,
-    std::shared_ptr<Backend> memory,
+    std::shared_ptr<Backend> writableBackend,
+    std::shared_ptr<Backend> archiveBackend,
     std::shared_ptr<Backend> persistent,
     Section const& config,
     beast::Journal j)
     : DatabaseRotating(scheduler, readThreads, config, j)
-    , app_(app)
-    , memory_(std::move(memory))
+    , rotating_(
+          app,
+          scheduler,
+          readThreads,
+          std::move(writableBackend),
+          std::move(archiveBackend),
+          config,
+          j)
     , persistent_(std::move(persistent))
-    , config_(config)
 {
-    if (memory_)
-        fdRequired_ += memory_->fdRequired();
+    // Update fdRequired to include all backends
+    fdRequired_ = rotating_.fdRequired();
     if (persistent_)
         fdRequired_ += persistent_->fdRequired();
 }
@@ -53,73 +57,71 @@ void DatabasePinnedImp::store(
     uint256 const& hash,
     std::uint32_t ledgerSeq)
 {
-    auto nObj = NodeObject::createObject(type, std::move(data), hash);
-    
-    // Critical routing logic with thread safety
-    auto [memBackend, persBackend] = [&] {
-        std::lock_guard lock(mutex_);
-        return std::make_pair(memory_, persistent_);
-    }();
-    
+    static std::atomic<uint64_t> pinnedCount{0};
+    static std::atomic<uint64_t> hotCount{0};
+
+    // Route based on type
     if (type == pinnedACCOUNT_NODE || 
         type == pinnedTRANSACTION_NODE || 
         type == pinnedLEDGER)
     {
-        // Pinned types go ONLY to persistent storage
-        persBackend->store(nObj);
+        // Pinned types go to persistent storage
+        auto count = ++pinnedCount;
+        if (count % 1000 == 0)
+        {
+            JLOG(j_.trace())
+                << "Pinned stores: " << count << " (type=" << type << ")";
+        }
+
+        auto nObj = NodeObject::createObject(type, std::move(data), hash);
+        persistent_->store(nObj);
+        storeStats(1, nObj->getData().size());
     }
     else
     {
-        // Hot types go to memory
-        memBackend->store(nObj);
+        // Hot types go through rotating storage
+        auto count = ++hotCount;
+        if (count % 10000 == 0)
+        {
+            JLOG(j_.trace())
+                << "Hot stores: " << count << " (type=" << type << ")";
+        }
+        rotating_.store(type, std::move(data), hash, ledgerSeq);
     }
-    
-    storeStats(1, nObj->getData().size());
 }
 
 std::shared_ptr<NodeObject>
 DatabasePinnedImp::fetchNodeObject(
     uint256 const& hash,
-    std::uint32_t,
+    std::uint32_t ledgerSeq,
     FetchReport& fetchReport,
     bool duplicate)
 {
-    auto fetch = [&](std::shared_ptr<Backend> const& backend) {
-        std::shared_ptr<NodeObject> nodeObject;
-        Status status;
-        try
-        {
-            status = backend->fetch(hash.data(), &nodeObject);
-        }
-        catch (std::exception const& e)
-        {
-            JLOG(j_.fatal()) << "Exception, " << e.what();
-            Rethrow();
-        }
-        
-        if (status == ok)
-            return nodeObject;
-        return std::shared_ptr<NodeObject>{};
-    };
-    
-    auto [memBackend, persBackend] = [&] {
-        std::lock_guard lock(mutex_);
-        return std::make_pair(memory_, persistent_);
-    }();
-    
-    // Try memory first (hot data)
-    if (auto obj = fetch(memBackend))
-    {
-        fetchReport.wasFound = true;
+    // Try rotating backends first (hot data)
+    auto obj =
+        rotating_.fetchNodeObject(hash, ledgerSeq, fetchReport, duplicate);
+    if (obj)
         return obj;
+
+    // Try persistent backend (pinned data)
+    std::shared_ptr<NodeObject> nodeObject;
+    Status status;
+    try
+    {
+        status = persistent_->fetch(hash.data(), &nodeObject);
     }
-    
-    // Try persistent (pinned data)
-    if (auto obj = fetch(persBackend))
+    catch (std::exception const& e)
+    {
+        JLOG(j_.fatal()) << "Exception fetching from persistent: " << e.what();
+        Rethrow();
+    }
+
+    if (status == ok && nodeObject)
     {
         fetchReport.wasFound = true;
-        // Do NOT copy to memory - pinned data stays pinned
-        return obj;
+        // Note: We do NOT copy pinned data to rotating storage even if
+        // duplicate=true Pinned data stays in persistent storage
+        return nodeObject;
     }
     
     return nullptr;
@@ -129,93 +131,19 @@ void DatabasePinnedImp::rotateWithLock(
     std::function<std::unique_ptr<NodeStore::Backend>(
         std::string const& writableBackendName)> const& f)
 {
-    std::lock_guard lock(mutex_);
-    
-    JLOG(j_.info()) << "DatabasePinned rotating memory backend";
-    
-    // For DatabasePinned, we only rotate the memory backend
-    // The persistent backend (for pinned data) never rotates
-    
-    // Create new memory backend
-    auto newMemory = makeMemoryBackend();
-    
-    // Execute the callback to update state database
-    // Pass the current memory backend name (even though we won't use the result)
-    f(memory_->getName());
-    
-    // Copy current ledger to new memory backend
-    auto currentLedger = app_.getLedgerMaster().getValidatedLedger();
-    if (currentLedger)
-    {
-        std::uint64_t nodeCount = 0;
-        
-        // Copy state map nodes
-        currentLedger->stateMap().snapShot(false)->visitNodes(
-            [&](SHAMapTreeNode const& node) {
-                // Get the node's data
-                auto nodeData = currentLedger->stateMap().getNodeObject(
-                    node.getNodeHash(), hotACCOUNT_NODE);
-                if (nodeData)
-                {
-                    newMemory->store(nodeData);
-                    ++nodeCount;
-                }
-                return true;
-            });
-        
-        // Copy transaction map nodes
-        currentLedger->txMap().snapShot(false)->visitNodes(
-            [&](SHAMapTreeNode const& node) {
-                auto nodeData = currentLedger->txMap().getNodeObject(
-                    node.getNodeHash(), hotTRANSACTION_NODE);
-                if (nodeData)
-                {
-                    newMemory->store(nodeData);
-                    ++nodeCount;
-                }
-                return true;
-            });
-        
-        // Store the current ledger header
-        Serializer s(128);
-        s.add32(HashPrefix::ledgerMaster);
-        addRaw(currentLedger->info(), s);
-        auto ledgerObj = NodeObject::createObject(
-            hotLEDGER, std::move(s.modData()), currentLedger->info().hash);
-        newMemory->store(ledgerObj);
-        
-        JLOG(j_.debug()) << "Copied " << nodeCount 
-                         << " nodes to new memory backend";
-    }
-    
-    // Swap the memory backend
-    memory_->close();
-    memory_ = newMemory;
-    memory_->open();
-    
-    // Persistent backend remains unchanged - pinned data stays forever
-}
-
-std::shared_ptr<Backend> 
-DatabasePinnedImp::makeMemoryBackend()
-{
-    Section memoryConfig = config_;
-    return NodeStore::Manager::instance().make_Backend(
-        memoryConfig, 
-        scheduler_, 
-        app_.logs().journal("NodeStore"));
+    // Simply delegate to the rotating database
+    // It handles all the rotation logic perfectly
+    rotating_.rotateWithLock(f);
 }
 
 std::string DatabasePinnedImp::getName() const
 {
-    std::lock_guard lock(mutex_);
-    return "Pinned:" + memory_->getName() + "+" + persistent_->getName();
+    return "Pinned:" + rotating_.getName() + "+" + persistent_->getName();
 }
 
 std::int32_t DatabasePinnedImp::getWriteLoad() const
 {
-    std::lock_guard lock(mutex_);
-    return memory_->getWriteLoad() + persistent_->getWriteLoad();
+    return rotating_.getWriteLoad() + persistent_->getWriteLoad();
 }
 
 void DatabasePinnedImp::importDatabase(Database& source)
@@ -224,39 +152,37 @@ void DatabasePinnedImp::importDatabase(Database& source)
         "DatabasePinned does not support import operations");
 }
 
-bool DatabasePinnedImp::isSameDB(std::uint32_t, std::uint32_t)
+bool
+DatabasePinnedImp::isSameDB(std::uint32_t s1, std::uint32_t s2)
 {
-    // All ledgers are in same logical database
-    return true;
+    // Delegate to rotating - all ledgers are in same logical database
+    return rotating_.isSameDB(s1, s2);
 }
 
 void DatabasePinnedImp::sync()
 {
-    std::lock_guard lock(mutex_);
-    memory_->sync();
+    rotating_.sync();
     persistent_->sync();
 }
 
 bool DatabasePinnedImp::storeLedger(
     std::shared_ptr<Ledger const> const& srcLedger)
 {
-    // Use Database base class implementation
-    // This will call our store() method with appropriate types
+    // Store to persistent since ledger headers should be pinned
     return Database::storeLedger(*srcLedger, persistent_);
 }
 
 void DatabasePinnedImp::sweep()
 {
-    // No cache to sweep
+    // Delegate to rotating - persistent has no cache
+    rotating_.sweep();
 }
 
 void DatabasePinnedImp::for_each(
     std::function<void(std::shared_ptr<NodeObject>)> f)
 {
-    std::lock_guard lock(mutex_);
-    // Visit memory backend first
-    memory_->for_each(f);
-    // Then persistent backend
+    // Visit both rotating and persistent backends
+    rotating_.for_each(f);
     persistent_->for_each(f);
 }
 

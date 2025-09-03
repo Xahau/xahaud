@@ -79,6 +79,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/system/error_code.hpp>
+#include <iostream>
 
 #include <date/date.h>
 
@@ -334,10 +335,11 @@ public:
         , m_nodeStoreScheduler(*m_jobQueue)
 
         //@@start shamap-store-init
-        , m_shaMapStore(make_SHAMapStore(
-              *this,
-              m_nodeStoreScheduler,
-              logs_->journal("SHAMapStore")))
+        , m_shaMapStore([this]() {
+            auto store = make_SHAMapStore(
+                *this, m_nodeStoreScheduler, logs_->journal("SHAMapStore"));
+            return store;
+        }())
         //@@end shamap-store-init
 
         , m_tempNodeCache(
@@ -360,10 +362,14 @@ public:
               m_collectorManager->collector(),
               logs_->journal("Resource")))
         //@@start node-store-init
-        , m_nodeStore(m_shaMapStore->makeNodeStore(
-              config_->PREFETCH_WORKERS > 0 ? config_->PREFETCH_WORKERS : 4))
+        , m_nodeStore([this]() {
+            auto store = m_shaMapStore->makeNodeStore(
+                config_->PREFETCH_WORKERS > 0 ? config_->PREFETCH_WORKERS : 4);
+            return store;
+        }())
         //@@end node-store-init
-        , nodeFamily_(*this, *m_collectorManager)
+        , nodeFamily_(
+              [this]() { return NodeFamily(*this, *m_collectorManager); }())
 
         // The shard store is optional and make_ShardStore can return null.
         , shardStore_(make_ShardStore(

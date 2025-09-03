@@ -1597,7 +1597,7 @@ SHAMap::deserializeFromStream(StreamType& stream)
         }
 
         // Flush any dirty nodes and update hashes
-        flushDirty(hotUNKNOWN);
+        // flushDirty(hotUNKNOWN);
 
         return true;
     }

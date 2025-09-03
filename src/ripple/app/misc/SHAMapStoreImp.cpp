@@ -33,6 +33,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/process.hpp>
+#include <iostream>
 
 #include <ripple/json/json_reader.h>
 
@@ -250,60 +251,53 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             }
         }
 
+        // Create the rotation backends - needed for both DatabaseRotating and
+        // DatabasePinned Pass true for isInitialRotation since this is called
+        // from makeNodeStore
+        auto writableBackend = makeBackendRotating(state.writableDb, true);
+        auto archiveBackend = makeBackendRotating(state.archiveDb, true);
+        if (!state.writableDb.size())
+        {
+            state.writableDb = writableBackend->getName();
+            state.archiveDb = archiveBackend->getName();
+            state_db_.setState(state);
+        }
+
         // Check if DatabasePinned should be created
         if (nscfg.exists("pinned_type"))
         {
-            // Config validation already done in Config::loadFromString
-            // Just create the backends
-            
-            // Create memory backend (RWDB) - reuse the same config
-            Section memoryConfig = nscfg;
-            memoryConfig.set("type", "rwdb");  // Force RWDB for memory
-            auto memoryBackend = NodeStore::Manager::instance().make_Backend(
-                memoryConfig, 
-                megabytes(app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),
-                scheduler_, 
-                app_.logs().journal(nodeStoreName_));
-            memoryBackend->open();
-            
-            // Create persistent backend (NuDB)
+            // DatabasePinned uses the same rotation backends as
+            // DatabaseRotating but adds a persistent backend for pinned nodes
+
+            // Create persistent backend (NuDB) for pinned data
             Section pinnedConfig = nscfg;
-            pinnedConfig.set("type", nscfg.get("pinned_type"));
-            pinnedConfig.set("path", nscfg.get("pinned_path"));
+            pinnedConfig.set("type", *nscfg.get("pinned_type"));
+            pinnedConfig.set("path", *nscfg.get("pinned_path"));
             auto pinnedBackend = NodeStore::Manager::instance().make_Backend(
                 pinnedConfig,
                 megabytes(app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),
                 scheduler_,
                 app_.logs().journal(nodeStoreName_));
             pinnedBackend->open();
-            
-            // Create DatabasePinned
+
+            // Create DatabasePinned with rotation backends + persistent
+
             auto dbp = std::make_unique<NodeStore::DatabasePinnedImp>(
                 app_,
                 scheduler_,
                 readThreads,
-                std::move(memoryBackend),
+                std::move(writableBackend),
+                std::move(archiveBackend),
                 std::move(pinnedBackend),
                 nscfg,
-                app_.logs().journal(nodeStoreName_));
-                
+                app_.logs().journal(NodeStore::DatabasePinnedImp::JournalName));
+
             fdRequired_ += dbp->fdRequired();
             dbRotating_ = dbp.get();  // DatabasePinned inherits from DatabaseRotating
             db.reset(dynamic_cast<NodeStore::Database*>(dbp.release()));
         }
         else
         {
-            // Original DatabaseRotating creation path
-            // Pass true for isInitialRotation since this is called from
-            // makeNodeStore
-            auto writableBackend = makeBackendRotating(state.writableDb, true);
-            auto archiveBackend = makeBackendRotating(state.archiveDb, true);
-            if (!state.writableDb.size())
-            {
-                state.writableDb = writableBackend->getName();
-                state.archiveDb = archiveBackend->getName();
-                state_db_.setState(state);
-            }
             //@@start database-choice
             // Create NodeStore with two backends to allow online deletion of
             // data
@@ -528,6 +522,9 @@ SHAMapStoreImp::performStartupCleanup()
     // Perform bulk deletion (no limits during startup)
     std::size_t totalDeleted = 0;
 
+    // TODO: these should actually be batched, but higher limits, because
+    // currently it's doing it all in one go, and it can take a long time
+    // without any progress seen.
     for (auto const& interval : deleteRanges)
     {
         JLOG(journal_.debug()) << "Deleting range [" << interval.lower() << ", "

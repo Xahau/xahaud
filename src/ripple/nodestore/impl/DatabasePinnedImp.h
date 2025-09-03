@@ -21,48 +21,52 @@
 #define RIPPLE_NODESTORE_DATABASEPINNEDIMP_H_INCLUDED
 
 #include <ripple/app/main/Application.h>
-#include <ripple/nodestore/DatabaseRotating.h>
 #include <ripple/nodestore/Backend.h>
+#include <ripple/nodestore/DatabaseRotating.h>
 #include <ripple/nodestore/NodeObject.h>
+#include <ripple/nodestore/impl/DatabaseRotatingImp.h>
 #include <memory>
-#include <mutex>
 
 namespace ripple {
 namespace NodeStore {
 
 /**
- * DatabasePinned routes nodes to either memory (RWDB) or persistent storage
- * (NuDB) based on NodeObjectType values. Pinned types go to persistent
- * storage and stay forever, while hot types go to memory and get rotated.
- * 
- * This implementation inherits from DatabaseRotating to integrate with
- * SHAMapStoreImp's rotation infrastructure.
+ * DatabasePinned routes nodes to either rotating memory storage (via
+ * DatabaseRotatingImp) or persistent storage (NuDB) based on NodeObjectType
+ * values.
+ *
+ * Uses composition: DatabaseRotatingImp handles all rotation logic for hot
+ * nodes, while this class adds a persistent layer for pinned nodes.
+ *
+ * Pinned types (pinnedACCOUNT_NODE, pinnedTRANSACTION_NODE, pinnedLEDGER) go to
+ * persistent storage and stay forever. Hot types go through the normal
+ * rotation.
  */
 class DatabasePinnedImp : public DatabaseRotating
 {
 private:
-    Application& app_;
-    std::shared_ptr<Backend> memory_;      // RWDB for hot nodes
+    DatabaseRotatingImp rotating_;  // Handles memory rotation for hot nodes
     std::shared_ptr<Backend> persistent_;  // NuDB for pinned nodes
-    Section const config_;                 // Store config for recreating memory backend
-    mutable std::mutex mutex_;
-    
+
 public:
+    static constexpr auto JournalName = "DatabasePinned";
+
     DatabasePinnedImp(
         Application& app,
         Scheduler& scheduler,
         int readThreads,
-        std::shared_ptr<Backend> memory,
+        std::shared_ptr<Backend> writableBackend,
+        std::shared_ptr<Backend> archiveBackend,
         std::shared_ptr<Backend> persistent,
         Section const& config,
         beast::Journal j);
-    
+
     ~DatabasePinnedImp() override
     {
         stop();
     }
-    
-    // DatabaseRotating interface - REQUIRED for SHAMapStoreImp integration
+
+    // DatabaseRotating interface - delegates to rotating_
     void rotateWithLock(
         std::function<std::unique_ptr<NodeStore::Backend>(
             std::string const& writableBackendName)> const& f) override;
@@ -86,8 +90,6 @@ private:
         bool duplicate) override;
     
     void for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override;
-    
-    std::shared_ptr<Backend> makeMemoryBackend();
 };
 
 }  // namespace NodeStore

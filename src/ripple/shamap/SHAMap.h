@@ -395,6 +395,18 @@ public:
     bool
     deserializeFromStream(StreamType& stream);
 
+    int
+    getCowID() const
+    {
+        return cowid_;
+    }
+
+    int
+    getRootCowID() const
+    {
+        return root_ ? root_->cowid() : -1;
+    }
+
 private:
     using SharedPtrNodeStack =
         std::stack<std::pair<std::shared_ptr<SHAMapTreeNode>, SHAMapNodeID>>;

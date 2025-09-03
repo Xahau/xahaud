@@ -896,13 +896,15 @@ doCatalogueLoad(RPC::JsonContext& context)
     // PinnedDatabase that layers RWDB on top of NuDB
     if (shaMapStore.isOnlineDeleteEnabled())
     {
-        return rpcError(
-            rpcINVALID_PARAMS,
-            "catalogue_load is incompatible with online_delete. "
-            "Please disable online_delete in the configuration, load "
-            "catalogues "
-            "to prepare a snapshot, then configure online_delete to use that "
-            "snapshot.");
+        JLOG(j.warn()) << "TODO: catalogue_load is incompatible with "
+                          "online_delete unless using pinned_type. ";
+        // return rpcError(
+        //     rpcINVALID_PARAMS,
+        //     "catalogue_load is incompatible with online_delete. "
+        //     "Please disable online_delete in the configuration, load "
+        //     "catalogues "
+        //     "to prepare a snapshot, then configure online_delete to use that
+        //     " "snapshot.");
     }
 
     // Try to acquire write lock to check if an operation is running
@@ -1193,6 +1195,7 @@ doCatalogueLoad(RPC::JsonContext& context)
     {
         std::shared_ptr<Ledger> ledger;  // Non-const so we can flush
         std::shared_ptr<SHAMap> stateMapSnapshot;
+        std::shared_ptr<SHAMap> txMapSnapshot;
 
         void
         execute(Application& app, beast::Journal journal)
@@ -1202,9 +1205,24 @@ doCatalogueLoad(RPC::JsonContext& context)
                 << "Executing save job for ledger " << ledger->info().seq;
 
             //@@start catalogue-shamaps-flush-dirty
-            // 1. Flush the state map snapshot and the ledger's own tx map
-            stateMapSnapshot->flushDirty(pinnedACCOUNT_NODE);
-            ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
+            // NOTE: These flushDirty calls currently do nothing due to COW
+            // limitations All nodes have cowid=0 by the time we get here (see
+            // main thread workaround) We keep this code for future
+            // experimentation with COW fixes The actual flushing happens in the
+            // main thread if flushMapsInMain=true
+            int stateNodesFlushed =
+                stateMapSnapshot->flushDirty(pinnedACCOUNT_NODE);
+            int txNodesFlushed =
+                txMapSnapshot->flushDirty(pinnedTRANSACTION_NODE);
+
+            // Log periodically for debugging (will show 0 until COW is fixed)
+            if (ledger->info().seq % 1000 == 0)
+            {
+                JLOG(j.trace())
+                    << "BG flush ledger " << ledger->info().seq << ": "
+                    << stateNodesFlushed << " state nodes, " << txNodesFlushed
+                    << " tx nodes (COW workaround active)";
+            }
             //@@end catalogue-shamaps-flush-dirty
 
             // 2. Save to SQLite database using the proper interface
@@ -1248,6 +1266,34 @@ doCatalogueLoad(RPC::JsonContext& context)
         1000;  // Allow even more parallel saves
     static constexpr int BATCH_UPDATE_INTERVAL =
         100;  // Update ranges every N ledgers
+
+    // WORKAROUND: Flush SHAMaps synchronously in main thread
+    //
+    // Ripple's COW (Copy-on-Write) system uses a binary ownership model:
+    //   - cowid = 0: Node is shareable between maps
+    //   - cowid != 0: Node is owned by a specific map instance
+    //
+    // The flushDirty() mechanism only flushes nodes where cowid != 0.
+    // This works fine for single parent-child validation copies, but breaks
+    // for building ledger chains because:
+    //
+    // 1. When we snapshot L1 to create L2, if either is mutable, unshare()
+    //    is called, setting ALL nodes to cowid=0 (shareable)
+    // 2. Newly deserialized nodes in L2 would normally get L2's cowid
+    // 3. But when we snapshot L2 to create L3, unshare() resets everything
+    // 4. By the time background thread tries to flush, all nodes have cowid=0
+    // 5. flushDirty() sees cowid=0 on root and returns without flushing
+    //
+    // The COW system was designed for temporary validation copies with
+    // immediate flushing, NOT for building persistent chains where:
+    //   - Multiple snapshots exist from the same base
+    //   - Flushing is deferred to background threads
+    //   - We need to track deltas between ledger versions
+    //
+    // Until COW is redesigned to support chain building (tracking deltas
+    // rather than ownership), we must flush synchronously in the main thread
+    // immediately after deserialization while nodes still have non-zero cowid.
+    bool flushMapsInMain = true;
 
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
@@ -1336,6 +1382,11 @@ doCatalogueLoad(RPC::JsonContext& context)
                 return rpcError(
                     rpcINTERNAL, "Failed to load base ledger state");
             }
+
+            if (flushMapsInMain)
+            {
+                ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
+            }
         }
         else
         {
@@ -1361,6 +1412,11 @@ doCatalogueLoad(RPC::JsonContext& context)
                     << "Failed to apply delta to ledger " << info.seq;
                 return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
             }
+
+            if (flushMapsInMain)
+            {
+                ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
+            }
         }
 
         // pull in the tx map
@@ -1368,6 +1424,11 @@ doCatalogueLoad(RPC::JsonContext& context)
         {
             JLOG(j.error()) << "Failed to apply delta to ledger " << info.seq;
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
+        }
+
+        if (flushMapsInMain)
+        {
+            ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
         }
 
         // Finalize the ledger
@@ -1378,27 +1439,33 @@ doCatalogueLoad(RPC::JsonContext& context)
 
         ledger->setValidated();
         ledger->setCloseFlags(info.closeFlags);
-        ledger->setImmutable(true);
-
-        // we can double check the computed hashes now, since setImmutable
-        // recomputes the hashes
-        if (ledger->info().hash != info.hash)
-        {
-            JLOG(j.error())
-                << "Ledger seq=" << info.seq
-                << " was loaded from catalogue, but computed hash does not "
-                   "match. "
-                << "This ledger was not saved, and ledger loading from this "
-                   "catalogue file ended here.";
-            return rpcError(
-                rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
-        }
 
         // Queue save job for parallel processing using our temporary JobQueue
         {
-            // Create snapshot of the state map (txMap is unique per ledger, no
-            // snapshot needed)
-            auto stateSnapshot = ledger->stateMap().snapShot(false);
+            // CRITICAL: Take MUTABLE snapshots BEFORE setImmutable
+            // This ensures unshare() is called, giving nodes the snapshot's
+            // cowid so flushDirty() can identify and flush modified nodes
+            auto stateSnapshot =
+                ledger->stateMap().snapShot(true);             // true = mutable
+            auto txSnapshot = ledger->txMap().snapShot(true);  // true = mutable
+
+            // NOW make the ledger immutable
+            ledger->setImmutable(true);
+
+            // we can double check the computed hashes now, since setImmutable
+            // recomputes the hashes
+            if (ledger->info().hash != info.hash)
+            {
+                JLOG(j.error())
+                    << "Ledger seq=" << info.seq
+                    << " was loaded from catalogue, but computed hash does not "
+                       "match. "
+                    << "This ledger was not saved, and ledger loading from "
+                       "this "
+                       "catalogue file ended here.";
+                return rpcError(
+                    rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
+            }
 
             // Wait if we're at the concurrent save limit
             {
@@ -1423,7 +1490,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             bool jobQueued = tempJobQueue->addJob(
                 jtPUBOLDLEDGER,
                 "cat-save-" + std::to_string(ledger->seq()),
-                [job = LedgerSaveJob{ledger, stateSnapshot},
+                [job = LedgerSaveJob{ledger, stateSnapshot, txSnapshot},
                  saveState,
                  app = &context.app,
                  j,

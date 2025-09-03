@@ -125,10 +125,11 @@ public:
         // separation
         // - Useful for testing catalogue loading with persistent databases
         : DatabaseCon(
-              std::getenv("SQLITE_FORCE_FILES")
+              std::getenv("SQLITE_FORCE_FILES")  // TODO: gut this, standalone
+                                                 // mode is not necessary when
+                                                 // you have DatabasePinned
                   ? (setup.dataDir /
-                     (setup.standAlone ? std::string("standalone-") + dbName
-                                       : dbName))
+                     (setup.standAlone ? std::string("") + dbName : dbName))
                   : (setup.standAlone && !setup.reporting &&
                              setup.startUp != Config::LOAD &&
                              setup.startUp != Config::LOAD_FILE &&

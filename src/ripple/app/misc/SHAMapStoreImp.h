@@ -271,12 +271,16 @@ public:
     void
     start() override
     {
+        std::cout << "SHAMapStoreImp::start" << std::endl;
         // Always load pinned ranges on startup
         loadPinnedRanges();
+        std::cout << "SHAMapStoreImp loaded pinned ranges" << std::endl;
 
         if (deleteInterval_)
         {
             performStartupCleanup();
+            std::cout << "SHAMapStoreImp::start: performStartupCleanup finished"
+                      << std::endl;
             thread_ = std::thread(&SHAMapStoreImp::run, this);
         }
     }
