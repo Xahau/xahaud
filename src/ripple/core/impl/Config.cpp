@@ -1001,6 +1001,7 @@ Config::loadFromString(std::string const& fileContents)
         }
     }
 
+    //@@start config-check-rwdb-online-delete
     if (!RUN_STANDALONE)
     {
         auto db_section = section(ConfigSection::nodeDatabase());
@@ -1017,6 +1018,7 @@ Config::loadFromString(std::string const& fileContents)
             }
         }
     }
+    //@@end config-check-rwdb-online-delete
 }
 
 boost::filesystem::path

@@ -333,10 +333,12 @@ public:
 
         , m_nodeStoreScheduler(*m_jobQueue)
 
+        //@@start shamap-store-init
         , m_shaMapStore(make_SHAMapStore(
               *this,
               m_nodeStoreScheduler,
               logs_->journal("SHAMapStore")))
+        //@@end shamap-store-init
 
         , m_tempNodeCache(
               "NodeCache",
@@ -357,10 +359,10 @@ public:
         , m_resourceManager(Resource::make_Manager(
               m_collectorManager->collector(),
               logs_->journal("Resource")))
-
+        //@@start node-store-init
         , m_nodeStore(m_shaMapStore->makeNodeStore(
               config_->PREFETCH_WORKERS > 0 ? config_->PREFETCH_WORKERS : 4))
-
+        //@@end node-store-init
         , nodeFamily_(*this, *m_collectorManager)
 
         // The shard store is optional and make_ShardStore can return null.

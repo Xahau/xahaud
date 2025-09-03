@@ -92,7 +92,9 @@ private:
 
     NodeStore::Scheduler& scheduler_;
     beast::Journal const journal_;
+    //@@start shamap-store-db-rotating-ptr
     NodeStore::DatabaseRotating* dbRotating_ = nullptr;
+    //@@end shamap-store-db-rotating-ptr
     SavedStateDB state_db_;
     std::thread thread_;
     bool stop_ = false;

@@ -891,6 +891,9 @@ doCatalogueLoad(RPC::JsonContext& context)
     // 3. Run normally with the pinned ranges
     auto& shaMapStore =
         dynamic_cast<SHAMapStoreImp&>(context.app.getSHAMapStore());
+    // TODO: we should remove this check, or move the method to the base class
+    // We probably don't actually even need this once we've got a new
+    // PinnedDatabase that layers RWDB on top of NuDB
     if (shaMapStore.isOnlineDeleteEnabled())
     {
         return rpcError(
@@ -1198,9 +1201,11 @@ doCatalogueLoad(RPC::JsonContext& context)
             JLOG(j.trace())
                 << "Executing save job for ledger " << ledger->info().seq;
 
+            //@@start catalogue-shamaps-flush-dirty
             // 1. Flush the state map snapshot and the ledger's own tx map
             stateMapSnapshot->flushDirty(hotACCOUNT_NODE_UNCACHED);
             ledger->txMap().flushDirty(hotTRANSACTION_NODE_UNCACHED);
+            //@@end catalogue-shamaps-flush-dirty
 
             // 2. Save to SQLite database using the proper interface
             auto const db =

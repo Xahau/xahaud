@@ -204,10 +204,12 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             std::to_string(app_.config().getValueFor(
                 SizedItem::treeCacheAge, std::nullopt)));
 
+    //@@start database-choice-condition
     std::unique_ptr<NodeStore::Database> db;
 
     if (deleteInterval_)
     {
+        //@@end database-choice-condition
         if (app_.config().reporting())
         {
             Throw<std::runtime_error>(
@@ -257,7 +259,7 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             state.archiveDb = archiveBackend->getName();
             state_db_.setState(state);
         }
-
+        //@@start database-choice
         // Create NodeStore with two backends to allow online deletion of
         // data
         auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
@@ -284,6 +286,7 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
         fdRequired_ += db->fdRequired();
     }
     return db;
+    //@@end database-choice
 }
 
 void
@@ -523,17 +526,23 @@ SHAMapStoreImp::run()
             "online_delete info from config");
     }
     beast::setCurrentThreadName("SHAMapStore");
+    //@@start shamap-store-last-rotated-init
     LedgerIndex lastRotated = state_db_.getState().lastRotated;
+    //@@end shamap-store-last-rotated-init
     netOPs_ = &app_.getOPs();
     ledgerMaster_ = &app_.getLedgerMaster();
     fullBelowCache_ = &(*app_.getNodeFamily().getFullBelowCache(0));
     treeNodeCache_ = &(*app_.getNodeFamily().getTreeNodeCache(0));
 
+    //@@start shamap-store-advisory-delete
     if (advisoryDelete_)
         canDelete_ = state_db_.getCanDelete();
+    //@@end shamap-store-advisory-delete
 
+    //@@start shamap-store-run-loop-start
     while (true)
     {
+        //@@end shamap-store-run-loop-start
         healthy_ = true;
         std::shared_ptr<Ledger const> validatedLedger;
 
@@ -561,9 +570,11 @@ SHAMapStoreImp::run()
             state_db_.setLastRotated(lastRotated);
         }
 
+        //@@start shamap-store-ready-to-rotate
         bool const readyToRotate =
             validatedSeq >= lastRotated + deleteInterval_ &&
             canDelete_ >= lastRotated - 1 && healthWait() == keepGoing;
+        //@@end shamap-store-ready-to-rotate
 
         // Make sure we don't delete ledgers currently being
         // imported into the ShardStore
@@ -603,12 +614,14 @@ SHAMapStoreImp::run()
 
             try
             {
+                //@@start shamap-store-copy-node-visit
                 validatedLedger->stateMap().snapShot(false)->visitNodes(
                     std::bind(
                         &SHAMapStoreImp::copyNode,
                         this,
                         std::ref(nodeCount),
                         std::placeholders::_1));
+                //@@end shamap-store-copy-node-visit
             }
             catch (SHAMapMissingNode const& e)
             {
@@ -642,6 +655,7 @@ SHAMapStoreImp::run()
 
             lastRotated = validatedSeq;
 
+            //@@start shamap-store-rotate-with-lock
             dbRotating_->rotateWithLock(
                 [&](std::string const& writableBackendName) {
                     SavedState savedState;
@@ -654,6 +668,7 @@ SHAMapStoreImp::run()
 
                     return std::move(newBackend);
                 });
+            //@@end shamap-store-rotate-with-lock
 
             JLOG(journal_.warn()) << "finished rotation " << validatedSeq;
         }

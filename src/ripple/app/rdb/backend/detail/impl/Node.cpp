@@ -397,6 +397,7 @@ saveValidatedLedger(
 
     assert(ledger->info().txHash == ledger->txMap().getHash().as_uint256());
 
+    //@@start save-ledger-header
     // Save the ledger header in the hashed object store
     {
         Serializer s(128);
@@ -405,6 +406,7 @@ saveValidatedLedger(
         app.getNodeStore().store(
             hotLEDGER, std::move(s.modData()), ledger->info().hash, seq);
     }
+    //@@end save-ledger-header
 
     std::shared_ptr<AcceptedLedger> aLedger;
     try
@@ -414,12 +416,14 @@ saveValidatedLedger(
         {
             aLedger = std::make_shared<AcceptedLedger>(ledger, app);
 
+            //@@start cache-non-pinned-accepted-ledger
             // Only cache if the ledger is NOT in the pinned range
             if (!app.getLedgerMaster().isPinned(ledger->info().seq))
             {
                 app.getAcceptedLedgerCache().canonicalize_replace_client(
                     ledger->info().hash, aLedger);
             }
+            //@@end cache-non-pinned-accepted-ledger
         }
     }
     catch (std::exception const&)
