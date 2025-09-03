@@ -5,6 +5,7 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
+#include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/Log.h>
@@ -2018,10 +2019,9 @@ hook::finalizeHookResult(
 
     if (doEmit)
     {
-        DBG_PRINTF("emitted txn count: %d\n", hookResult.emittedTxn.size());
-        for (; hookResult.emittedTxn.size() > 0; hookResult.emittedTxn.pop())
-        {
-            auto& tpTrans = hookResult.emittedTxn.front();
+        auto const insertEmittedTxn =
+            [&](std::shared_ptr<ripple::Transaction> tpTrans,
+                bool atomic) -> TER {
             auto& id = tpTrans->getID();
             JLOG(j.trace()) << "HookEmit[" << HR_ACC() << "]: " << id;
 
@@ -2049,7 +2049,7 @@ hook::finalizeHookResult(
                 ptr->add(s);
                 SerialIter sit(s.slice());
 
-                sleEmitted->emplace_back(ripple::STObject(sit, sfEmittedTxn));
+                sleEmitted->set(ripple::STObject(sit, sfEmittedTxn));
                 auto page = applyCtx.view().dirInsert(
                     keylet::emittedDir(), emittedId, [&](SLE::ref sle) {
                         (*sle)[sfFlags] = lsfEmittedDir;
@@ -2058,6 +2058,7 @@ hook::finalizeHookResult(
                 if (page)
                 {
                     (*sleEmitted)[sfOwnerNode] = *page;
+                    (*sleEmitted)[sfFlags] = atomic ? 1 : 0;
                     applyCtx.view().insert(sleEmitted);
                 }
                 else
@@ -2069,6 +2070,24 @@ hook::finalizeHookResult(
                     return tecDIR_FULL;
                 }
             }
+            return tesSUCCESS;
+        };
+
+        DBG_PRINTF("emitted txn count: %d\n", hookResult.emittedTxn.size());
+        for (; hookResult.emittedTxn.size() > 0; hookResult.emittedTxn.pop())
+        {
+            auto& tpTrans = hookResult.emittedTxn.front();
+            insertEmittedTxn(tpTrans, false);
+        }
+
+        DBG_PRINTF(
+            "emitted atomic txn count: %d\n",
+            hookResult.emittedAtomicTxn.size());
+        for (; hookResult.emittedAtomicTxn.size() > 0;
+             hookResult.emittedAtomicTxn.pop())
+        {
+            auto& tpTrans = hookResult.emittedAtomicTxn.front();
+            insertEmittedTxn(tpTrans, true);
         }
     }
 
@@ -2132,6 +2151,57 @@ hook::finalizeHookResult(
     }
 
     return tesSUCCESS;
+}
+
+bool
+hook::emitAtomicTransactions(
+    ripple::Application& app,
+    ripple::OpenView& view,
+    ripple::uint256 const& parentTxnId,
+    ripple::STArray const& hookEmissions,
+    beast::Journal j_)
+{
+    for (auto const& emission : hookEmissions)
+    {
+        auto const& etxnId = emission.getFieldH256(sfEmittedTxnID);
+        auto const& keylet = keylet::emittedTxn(etxnId);
+
+        auto sleItem = view.read(keylet);
+        if (!sleItem)
+        {
+            continue;
+        }
+
+        LedgerEntryType const nodeType{
+            safe_cast<LedgerEntryType>((*sleItem)[sfLedgerEntryType])};
+
+        if (nodeType != ltEMITTED_TXN)
+        {
+            JLOG(j_.warn())
+                << "EmittedTxn processing: emitted directory contained "
+                   "non ltEMITTED_TXN type";
+            // RH TODO: if this ever happens the entry should be
+            // gracefully removed (somehow)
+            continue;
+        }
+
+        auto const& emitted = const_cast<ripple::STLedgerEntry&>(*sleItem)
+                                  .getField(sfEmittedTxn)
+                                  .downcast<STObject>();
+
+        auto s = std::make_shared<ripple::Serializer>();
+        emitted.add(*s);
+        SerialIter sitTrans(s->slice());
+
+        auto const& stpTrans = std::make_shared<STTx const>(std::ref(sitTrans));
+
+        auto const result = ripple::apply(
+            app, view, parentTxnId, *stpTrans, tapATOMIC_EMIT, j_);
+
+        if (!result.applied || !isTesSuccess(result.ter))
+            return false;
+    }
+    return true;
 }
 
 /* Retrieve the state into write_ptr identified by the key in kread_ptr */
@@ -3354,7 +3424,9 @@ DEFINE_HOOK_FUNCTION(
     if (hookCtx.expected_etxn_count < 0)
         return PREREQUISITE_NOT_MET;
 
-    if (hookCtx.result.emittedTxn.size() >= hookCtx.expected_etxn_count)
+    if (hookCtx.result.emittedTxn.size() +
+            hookCtx.result.emittedAtomicTxn.size() >=
+        hookCtx.expected_etxn_count)
         return TOO_MANY_EMITTED_TXN;
 
     ripple::Blob blob{memory + read_ptr, memory + read_ptr + read_len};
@@ -3682,6 +3754,355 @@ DEFINE_HOOK_FUNCTION(
 
     if (result == 32)
         hookCtx.result.emittedTxn.push(tpTrans);
+
+    return result;
+    HOOK_TEARDOWN();
+}
+
+/* Emit a transaction from this hook. Transaction must be in STObject form,
+ * fully formed and valid. XRPLD does not modify transactions it only checks
+ * them for validity. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    emit_atomic,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto& app = hookCtx.applyCtx.app;
+
+    if (hookCtx.expected_etxn_count < 0)
+        return PREREQUISITE_NOT_MET;
+
+    if (hookCtx.result.emittedTxn.size() +
+            hookCtx.result.emittedAtomicTxn.size() >=
+        hookCtx.expected_etxn_count)
+        return TOO_MANY_EMITTED_TXN;
+
+    ripple::Blob blob{memory + read_ptr, memory + read_ptr + read_len};
+    std::shared_ptr<STTx const> stpTrans;
+    try
+    {
+        stpTrans = std::make_shared<STTx const>(
+            SerialIter{memory + read_ptr, read_len});
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC() << "]: Failed " << e.what()
+                        << "\n";
+        return EMISSION_FAILURE;
+    }
+
+    if (isPseudoTx(*stpTrans))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Attempted to emit pseudo txn.";
+        return EMISSION_FAILURE;
+    }
+
+    ripple::TxType txType = stpTrans->getTxnType();
+
+    ripple::uint256 const& hookCanEmit = hookCtx.result.hookCanEmit;
+    if (!hook::canEmit(txType, hookCanEmit))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Hook cannot emit this txn.";
+        return EMISSION_FAILURE;
+    }
+
+    // check the emitted txn is valid
+    /* Emitted TXN rules
+     * 0. Account must match the hook account
+     * 1. Sequence: 0
+     * 2. PubSigningKey: 000000000000000
+     * 3. sfEmitDetails present and valid
+     * 4. No sfTxnSignature
+     * 5. LastLedgerSeq  == current ledger
+     * 6. FirstLedgerSeq == current ledger
+     * 7. Fee must be correctly high
+     * 8. The generation cannot be higher than 10
+     */
+
+    // rule 0: account must match the hook account
+    if (!stpTrans->isFieldPresent(sfAccount) ||
+        stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfAccount does not match hook account";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 1: sfSequence must be present and 0
+    // if (!stpTrans->isFieldPresent(sfSequence) ||
+    //     stpTrans->getFieldU32(sfSequence) != 0)
+    // {
+    //     JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+    //                     << "]: sfSequence missing or non-zero";
+    //     return EMISSION_FAILURE;
+    // }
+
+    // rule 2: sfSigningPubKey must be present and 00...00
+    if (!stpTrans->isFieldPresent(sfSigningPubKey))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfSigningPubKey missing";
+        return EMISSION_FAILURE;
+    }
+
+    auto const pk = stpTrans->getSigningPubKey();
+    if (pk.size() != 33 && pk.size() != 0)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfSigningPubKey present but wrong size"
+                        << " expecting 33 bytes";
+        return EMISSION_FAILURE;
+    }
+
+    for (int i = 0; i < pk.size(); ++i)
+        if (pk[i] != 0)
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: sfSigningPubKey present but non-zero.";
+            return EMISSION_FAILURE;
+        }
+
+    // rule 2.a: no signers
+    if (stpTrans->isFieldPresent(sfSigners))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfSigners not allowed in emitted txns.";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 2.b: ticketseq cannot be used
+    if (stpTrans->isFieldPresent(sfTicketSequence))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfTicketSequence not allowed in emitted txns.";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 2.c sfAccountTxnID not allowed
+    if (stpTrans->isFieldPresent(sfAccountTxnID))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfAccountTxnID not allowed in emitted txns.";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 3: sfEmitDetails must be present and valid
+    if (!stpTrans->isFieldPresent(sfEmitDetails))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfEmitDetails missing.";
+        return EMISSION_FAILURE;
+    }
+
+    auto const& emitDetails = const_cast<ripple::STTx&>(*stpTrans)
+                                  .getField(sfEmitDetails)
+                                  .downcast<STObject>();
+
+    if (!emitDetails.isFieldPresent(sfEmitGeneration) ||
+        !emitDetails.isFieldPresent(sfEmitBurden) ||
+        !emitDetails.isFieldPresent(sfEmitParentTxnID) ||
+        !emitDetails.isFieldPresent(sfEmitNonce) ||
+        !emitDetails.isFieldPresent(sfEmitHookHash))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfEmitDetails malformed.";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 8: emit generation cannot exceed 10
+    if (emitDetails.getFieldU32(sfEmitGeneration) >= 10)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfEmitGeneration was 10 or more.";
+        return EMISSION_FAILURE;
+    }
+
+    uint32_t gen = emitDetails.getFieldU32(sfEmitGeneration);
+    uint64_t bur = emitDetails.getFieldU64(sfEmitBurden);
+    ripple::uint256 const& pTxnID = emitDetails.getFieldH256(sfEmitParentTxnID);
+    ripple::uint256 const& nonce = emitDetails.getFieldH256(sfEmitNonce);
+
+    if (emitDetails.isFieldPresent(sfEmitCallback))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: callback not supported yet in emit_atomic.";
+        return EMISSION_FAILURE;
+    }
+
+    auto const& hash = emitDetails.getFieldH256(sfEmitHookHash);
+
+    uint32_t gen_proper = etxn_generation(hookCtx, frameCtx);
+
+    if (gen != gen_proper)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfEmitGeneration provided in EmitDetails "
+                        << "not correct (" << gen << ") "
+                        << "should be " << gen_proper;
+        return EMISSION_FAILURE;
+    }
+
+    uint64_t bur_proper = etxn_burden(hookCtx, frameCtx);
+    if (bur != bur_proper)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfEmitBurden provided in EmitDetails "
+                        << "was not correct (" << bur << ") "
+                        << "should be " << bur_proper;
+        return EMISSION_FAILURE;
+    }
+
+    if (pTxnID != applyCtx.tx.getTransactionID())
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfEmitParentTxnID provided in EmitDetails "
+                        << "was not correct";
+        return EMISSION_FAILURE;
+    }
+
+    if (hookCtx.nonce_used.find(nonce) == hookCtx.nonce_used.end())
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfEmitNonce provided in EmitDetails "
+                        << "was not generated by nonce api";
+        return EMISSION_FAILURE;
+    }
+
+    if (hash != hookCtx.result.hookHash)
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC()
+            << "]: sfEmitHookHash must be the hash of the emitting hook";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 4: sfTxnSignature must be absent
+    if (stpTrans->isFieldPresent(sfTxnSignature))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfTxnSignature is present but should not be";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 5: LastLedgerSeq must be present and after current ledger
+    if (!stpTrans->isFieldPresent(sfLastLedgerSequence))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfLastLedgerSequence missing";
+        return EMISSION_FAILURE;
+    }
+
+    uint32_t tx_lls = stpTrans->getFieldU32(sfLastLedgerSequence);
+    uint32_t ledgerSeq = view.info().seq;
+
+    if (tx_lls != ledgerSeq)
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC()
+            << "]: sfLastLedgerSequence cannot be equal to current seq";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 6
+    if (!stpTrans->isFieldPresent(sfFirstLedgerSequence) ||
+        stpTrans->getFieldU32(sfFirstLedgerSequence) != ledgerSeq)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: sfFirstLedgerSequence must be present and "
+                        << "= LastLedgerSequence";
+        return EMISSION_FAILURE;
+    }
+
+    // rule 7 check the emitted txn pays the appropriate fee
+    int64_t minfee = etxn_fee_base(hookCtx, frameCtx, read_ptr, read_len);
+
+    if (minfee < 0)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Fee could not be calculated";
+        return EMISSION_FAILURE;
+    }
+
+    if (!stpTrans->isFieldPresent(sfFee))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Fee missing from emitted tx";
+        return EMISSION_FAILURE;
+    }
+
+    int64_t fee = stpTrans->getFieldAmount(sfFee).xrp().drops();
+    if (fee < minfee)
+    {
+        JLOG(j.trace())
+            << "HookEmit[" << HC_ACC()
+            << "]: Fee on emitted txn is less than the minimum required fee";
+        return EMISSION_FAILURE;
+    }
+
+    std::string reason;
+    auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
+    if (tpTrans->getStatus() != NEW)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: tpTrans->getStatus() != NEW";
+        return EMISSION_FAILURE;
+    }
+
+    // preflight the transaction
+    auto preflightResult = ripple::preflight(
+        applyCtx.app,
+        applyCtx.view().rules(),
+        *stpTrans,
+        ripple::ApplyFlags::tapPREFLIGHT_EMIT,
+        j);
+
+    if (!isTesSuccess(preflightResult.ter))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Transaction preflight failure: "
+                        << preflightResult.ter;
+        return EMISSION_FAILURE;
+    }
+
+    auto const& txID = tpTrans->getID();
+
+    if (txID.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const write_txid = [&]() -> int64_t {
+        WRITE_WASM_MEMORY_AND_RETURN(
+            write_ptr,
+            txID.size(),
+            txID.data(),
+            txID.size(),
+            memory,
+            memory_length);
+    };
+
+    int64_t result = write_txid();
+
+    if (result == 32)
+        hookCtx.result.emittedAtomicTxn.push(tpTrans);
 
     return result;
     HOOK_TEARDOWN();

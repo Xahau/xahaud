@@ -361,6 +361,7 @@ enum TECcodes : TERUnderlyingType {
     tecARRAY_TOO_LARGE = 196,
     tecLOCKED = 197,
     tecBAD_CREDENTIALS = 198,
+    tecHOOK_EMIT_FAILED = 199,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 

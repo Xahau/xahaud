@@ -349,6 +349,12 @@ const uint8_t max_emit = 255;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
+enum GuardRules : uint64_t {
+    HooksUpdate1 = 0x0001U,
+    Fix20250131 = 0x0002U,
+    AtomicEmit = 0x0004U,
+};
+
 // RH NOTE: Find descriptions of api functions in ./impl/applyHook.cpp and
 // hookapi.h (include for hooks) this is a map of the api name to its return
 // code (vec[0] and its parameters vec[>0]) as wasm type codes
@@ -434,5 +440,8 @@ static const std::map<std::string, std::vector<uint8_t>> import_whitelist{
 // featureHooks1
 static const std::map<std::string, std::vector<uint8_t>> import_whitelist_1{
     {"xpop_slot", {0x7EU, 0x7FU, 0x7FU}}};
+// featureAtomicEmit
+static const std::map<std::string, std::vector<uint8_t>> import_whitelist_2{
+    {"emit_atomic", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}}};
 };  // namespace hook_api
 #endif

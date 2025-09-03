@@ -57,7 +57,8 @@ public:
         , j(j_)
     {
         XRPL_ASSERT(
-            (flags_ & tapBATCH) == tapBATCH, "Batch apply flag should be set");
+            (flags_ & (tapBATCH | tapATOMIC_EMIT)) > 0,
+            "Batch or AtomicEmit flag should be set");
     }
 
     PreflightContext(
@@ -69,7 +70,8 @@ public:
         : app(app_), tx(tx_), rules(rules_), flags(flags_), j(j_)
     {
         XRPL_ASSERT(
-            (flags_ & tapBATCH) == 0, "Batch apply flag should not be set");
+            (flags_ & (tapBATCH | tapATOMIC_EMIT)) == 0,
+            "Batch or AtomicEmit flag should not be set");
     }
 
     PreflightContext&
@@ -105,8 +107,9 @@ public:
         , j(j_)
     {
         XRPL_ASSERT(
-            parentBatchId.has_value() == ((flags_ & tapBATCH) == tapBATCH),
-            "Parent Batch ID should be set if batch apply flag is set");
+            parentBatchId.has_value() ==
+                ((flags_ & (tapBATCH | tapATOMIC_EMIT)) > 0),
+            "Parent Batch ID should be set if batch or AtomicEmit flag is set");
     }
 
     PreclaimContext(
@@ -126,7 +129,8 @@ public:
               j_)
     {
         XRPL_ASSERT(
-            (flags_ & tapBATCH) == 0, "Batch apply flag should not be set");
+            (flags_ & (tapBATCH | tapATOMIC_EMIT)) == 0,
+            "Batch or AtomicEmit flag should not be set");
     }
 
     PreclaimContext&
@@ -311,6 +315,12 @@ protected:
 private:
     std::pair<TER, XRPAmount>
     reset(XRPAmount fee);
+
+    std::pair<TER, XRPAmount>
+    checkInvariants(TER result, XRPAmount fee);
+
+    void
+    balanceRewards(TER result);
 
     TER
     consumeSeqProxy(SLE::pointer const& sleAccount);

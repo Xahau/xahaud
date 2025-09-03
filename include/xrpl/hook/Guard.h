@@ -634,7 +634,7 @@ check_guard(
             }
             else if (fc_type == 10)  // memory.copy
             {
-                if (rulesVersion & 0x02U)
+                if (rulesVersion & hook_api::GuardRules::Fix20250131)
                     GUARD_ERROR("Memory.copy instruction is not allowed.");
 
                 REQUIRE(2);
@@ -642,7 +642,7 @@ check_guard(
             }
             else if (fc_type == 11)  // memory.fill
             {
-                if (rulesVersion & 0x02U)
+                if (rulesVersion & hook_api::GuardRules::Fix20250131)
                     GUARD_ERROR("Memory.fill instruction is not allowed.");
 
                 ADVANCE(1);
@@ -1028,11 +1028,19 @@ validateGuards(
                     hook_api::import_whitelist.find(import_name) ==
                     hook_api::import_whitelist.end())
                 {
-                    if (rulesVersion > 0 &&
+                    printf("import_name: %s\n", import_name.c_str());
+                    if (rulesVersion & hook_api::GuardRules::HooksUpdate1 &&
                         hook_api::import_whitelist_1.find(import_name) !=
                             hook_api::import_whitelist_1.end())
                     {
                         // PASS, this is a version 1 api
+                    }
+                    else if (
+                        rulesVersion & hook_api::GuardRules::AtomicEmit &&
+                        hook_api::import_whitelist_2.find(import_name) !=
+                            hook_api::import_whitelist_2.end())
+                    {
+                        // PASS, this is a version 2 api
                     }
                     else
                     {
@@ -1258,12 +1266,20 @@ validateGuards(
                 {
                     for (auto const& [import_idx, api_name] : usage->second)
                     {
-                        auto const& api_signature =
-                            hook_api::import_whitelist.find(api_name) !=
-                                hook_api::import_whitelist.end()
-                            ? hook_api::import_whitelist.find(api_name)->second
-                            : hook_api::import_whitelist_1.find(api_name)
-                                  ->second;
+                        auto findInWhitelist = [&](auto const& whitelist) {
+                            auto it = whitelist.find(api_name);
+                            return it != whitelist.end() ? &it->second
+                                                         : nullptr;
+                        };
+
+                        auto const* sig =
+                            findInWhitelist(hook_api::import_whitelist);
+                        if (!sig)
+                            sig = findInWhitelist(hook_api::import_whitelist_1);
+                        if (!sig)
+                            sig = findInWhitelist(hook_api::import_whitelist_2);
+
+                        auto const& api_signature = *sig;
 
                         if (!first_signature)
                         {

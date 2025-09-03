@@ -66,7 +66,8 @@ public:
               journal)
     {
         XRPL_ASSERT(
-            (flags & tapBATCH) == 0, "Batch apply flag should not be set");
+            (flags & (tapBATCH | tapATOMIC_EMIT)) == 0,
+            "Batch or AtomicEmit flag should not be set");
     }
 
     Application& app;

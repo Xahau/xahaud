@@ -47,8 +47,9 @@ ApplyContext::ApplyContext(
     , parentBatchId_(parentBatchId)
 {
     XRPL_ASSERT(
-        parentBatchId.has_value() == ((flags_ & tapBATCH) == tapBATCH),
-        "Parent Batch ID should be set if batch apply flag is set");
+        parentBatchId.has_value() ==
+            ((flags_ & (tapBATCH | tapATOMIC_EMIT)) > 0),
+        "Parent Batch ID should be set if batch or AtomicEmit flag is set");
     view_.emplace(&base_.view(), flags_);
 }
 
