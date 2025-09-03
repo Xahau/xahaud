@@ -461,6 +461,7 @@ apply(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>>> const&
         hookParamOverrides,
     HookStateMap& stateMap,
+    XRPAmount& atomicEmitFeeRemaining,
     ripple::ApplyContext& applyCtx,
     ripple::AccountID const& account, /* the account the hook is INSTALLED ON
                                          not always the otxn account */
@@ -499,6 +500,7 @@ struct HookResult
     std::queue<std::shared_ptr<ripple::Transaction>>
         emittedAtomicTxn{};  // etx stored here until accept/rollback
     HookStateMap& stateMap;
+    XRPAmount& atomicEmitFeeRemaining;
     uint16_t changedStateCount = 0;
     std::map<
         ripple::uint256,  // hook hash

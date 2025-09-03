@@ -227,7 +227,8 @@ SetHook::inferOperation(STObject const& hookSetObj)
         !hookSetObj.isFieldPresent(sfHookOn) &&
         !hookSetObj.isFieldPresent(sfHookCanEmit) &&
         !hookSetObj.isFieldPresent(sfHookApiVersion) &&
-        !hookSetObj.isFieldPresent(sfFlags))
+        !hookSetObj.isFieldPresent(sfFlags) &&
+        !hookSetObj.isFieldPresent(sfHookAtomicEmitFee))
         return hsoNOOP;
 
     uint32_t flags = hookSetObj.isFieldPresent(sfFlags)
@@ -263,7 +264,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 !hookSetObj.isFieldPresent(sfFlags) ||
-                !hookSetObj.isFieldPresent(sfHookNamespace))
+                !hookSetObj.isFieldPresent(sfHookNamespace) ||
+                !hookSetObj.isFieldPresent(sfHookAtomicEmitFee))
             {
                 JLOG(ctx.j.trace()) << "HookSet(" << hook::log::NSDELETE_FIELD
                                     << ")[" << HS_ACC()
@@ -293,7 +295,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookNamespace) ||
-                !hookSetObj.isFieldPresent(sfFlags))
+                !hookSetObj.isFieldPresent(sfFlags) ||
+                !hookSetObj.isFieldPresent(sfHookAtomicEmitFee))
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::DELETE_FIELD << ")[" << HS_ACC()
@@ -392,6 +395,18 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
+            if (hookSetObj.isFieldPresent(sfHookAtomicEmitFee))
+            {
+                auto const fee = hookSetObj.getFieldAmount(sfHookAtomicEmitFee);
+                if (!isXRP(fee))
+                    return false;
+
+                // TODO: Update maxFee
+                XRPAmount maxFee{1'000'000};
+                if (fee < beast::zero || fee > maxFee)
+                    return false;
+            }
+
             // namespace may be valid, if the user so chooses
             // hookon may be present if the user so chooses
             // flags may be present if the user so chooses
@@ -460,6 +475,19 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             if (!hookSetObj.isFieldPresent(sfHookCanEmit))
             {
                 // pass
+            }
+
+            // validate sfHookAtomicEmitFee
+            if (hookSetObj.isFieldPresent(sfHookAtomicEmitFee))
+            {
+                auto const fee = hookSetObj.getFieldAmount(sfHookAtomicEmitFee);
+                if (!isXRP(fee))
+                    return false;
+
+                // TODO: Update maxFee
+                XRPAmount maxFee{1'000'000};
+                if (fee < beast::zero || fee > maxFee)
+                    return false;
             }
 
             // finally validate web assembly byte code
@@ -737,6 +765,10 @@ SetHook::preflight(PreflightContext const& ctx)
             hookSetObj.isFieldPresent(sfHookCanEmit))
             return temDISABLED;
 
+        if (!ctx.rules.enabled(featureAtomicEmit) &&
+            hookSetObj.isFieldPresent(sfHookAtomicEmitFee))
+            return temDISABLED;
+
         for (auto const& hookSetElement : hookSetObj)
         {
             auto const& name = hookSetElement.getFName();
@@ -745,7 +777,7 @@ SetHook::preflight(PreflightContext const& ctx)
                 name != sfHookNamespace && name != sfHookParameters &&
                 name != sfHookOn && name != sfHookGrants &&
                 name != sfHookApiVersion && name != sfFlags &&
-                name != sfHookCanEmit)
+                name != sfHookCanEmit && name != sfHookAtomicEmitFee)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
@@ -1251,6 +1283,10 @@ SetHook::setHook()
         std::optional<uint256> newHookCanEmit;
         std::optional<uint256> defHookCanEmit;
 
+        std::optional<STAmount> oldHookAtomicEmitFee;
+        std::optional<STAmount> newHookAtomicEmitFee;
+        std::optional<STAmount> defHookAtomicEmitFee;
+
         // when hsoCREATE is invoked it populates this variable in case the hook
         // definition already exists and the operation falls through into a
         // hsoINSTALL operation instead
@@ -1319,6 +1355,16 @@ SetHook::setHook()
                 oldHookCanEmit = oldHook->get().getFieldH256(sfHookCanEmit);
             else if (defHookCanEmit)
                 oldHookCanEmit = *defHookCanEmit;
+
+            if (oldDefSLE && oldDefSLE->isFieldPresent(sfHookAtomicEmitFee))
+                defHookAtomicEmitFee =
+                    oldDefSLE->getFieldAmount(sfHookAtomicEmitFee);
+
+            if (oldHook && oldHook->get().isFieldPresent(sfHookAtomicEmitFee))
+                oldHookAtomicEmitFee =
+                    oldHook->get().getFieldAmount(sfHookAtomicEmitFee);
+            else if (defHookAtomicEmitFee)
+                oldHookAtomicEmitFee = *defHookAtomicEmitFee;
         }
 
         // in preparation for three way merge populate fields if they are
@@ -1337,6 +1383,10 @@ SetHook::setHook()
 
             if (hookSetObj->get().isFieldPresent(sfHookCanEmit))
                 newHookCanEmit = hookSetObj->get().getFieldH256(sfHookCanEmit);
+
+            if (hookSetObj->get().isFieldPresent(sfHookAtomicEmitFee))
+                newHookAtomicEmitFee =
+                    hookSetObj->get().getFieldAmount(sfHookAtomicEmitFee);
 
             if (hookSetObj->get().isFieldPresent(sfHookNamespace))
             {
@@ -1492,6 +1542,17 @@ SetHook::setHook()
                     }
                     else
                         newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
+                }
+
+                // set the hookAtomeicFee field if it differs from definition
+                if (newHookAtomicEmitFee)
+                {
+                    if (defHookAtomicEmitFee.has_value() &&
+                        *defHookAtomicEmitFee == *newHookAtomicEmitFee)
+                    {
+                        if (newHook.isFieldPresent(sfHookAtomicEmitFee))
+                            newHook.makeFieldAbsent(sfHookAtomicEmitFee);
+                    }
                 }
 
                 // parameters
@@ -1669,6 +1730,11 @@ SetHook::setHook()
                             sfHookCallbackFee,
                             XRPAmount{
                                 hook::computeExecutionFee(maxInstrCountCbak)});
+                    if (hookSetObj->get().isFieldPresent(sfHookAtomicEmitFee))
+                        newHookDef->setFieldAmount(
+                            sfHookAtomicEmitFee,
+                            hookSetObj->get().getFieldAmount(
+                                sfHookAtomicEmitFee));
 
                     if (flags)
                         newHookDef->setFieldU32(sfFlags, newFlags);

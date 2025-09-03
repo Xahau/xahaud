@@ -3285,6 +3285,7 @@ public:
         // hookObj[jss::HookOn] =
         //     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFF"
         //     "FF";  // Invoke
+        hookObj[sfHookAtomicEmitFee.jsonName] = "1000";
         env(ripple::test::jtx::hook(charlie, {{hookObj}}, 0),
             M("set emit_atomic"),
             HSFEE);

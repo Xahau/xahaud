@@ -1028,7 +1028,6 @@ validateGuards(
                     hook_api::import_whitelist.find(import_name) ==
                     hook_api::import_whitelist.end())
                 {
-                    printf("import_name: %s\n", import_name.c_str());
                     if (rulesVersion & hook_api::GuardRules::HooksUpdate1 &&
                         hook_api::import_whitelist_1.find(import_name) !=
                             hook_api::import_whitelist_1.end())

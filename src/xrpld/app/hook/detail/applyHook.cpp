@@ -1301,6 +1301,7 @@ hook::apply(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>>> const&
         hookParamOverrides,
     HookStateMap& stateMap,
+    XRPAmount& atomicEmitFeeRemaining,
     ApplyContext& applyCtx,
     ripple::AccountID const& account, /* the account the hook is INSTALLED ON
                                          not always the otxn account */
@@ -1325,6 +1326,7 @@ hook::apply(
              .otxnAccount = applyCtx.tx.getAccountID(sfAccount),
              .hookNamespace = hookNamespace,
              .stateMap = stateMap,
+             .atomicEmitFeeRemaining = atomicEmitFeeRemaining,
              .changedStateCount = 0,
              .hookParamOverrides = hookParamOverrides,
              .hookParams = hookParams,
@@ -3784,6 +3786,22 @@ DEFINE_HOOK_FUNCTION(
 
     auto& app = hookCtx.applyCtx.app;
 
+    // Doesn't allow to call Callbackable Hook
+    if (hookCtx.result.hasCallback || hookCtx.result.isCallback)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: emit_atomic: Not allowed in Callbackable Hook.";
+        return EMISSION_FAILURE;
+    }
+
+    // Doesn't allow to call in Weak Execution
+    if (!hookCtx.result.isStrong)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: emit_atomic: Not allowed in Weak Execution.";
+        return EMISSION_FAILURE;
+    }
+
     if (hookCtx.expected_etxn_count < 0)
         return PREREQUISITE_NOT_MET;
 
@@ -4056,6 +4074,14 @@ DEFINE_HOOK_FUNCTION(
         return EMISSION_FAILURE;
     }
 
+    if (hookCtx.result.atomicEmitFeeRemaining < XRPAmount(fee))
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Fee on emitted txn is greater than the atomic "
+                           "emit fee remaining";
+        return EMISSION_FAILURE;
+    }
+
     std::string reason;
     auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
     if (tpTrans->getStatus() != NEW)
@@ -4102,7 +4128,14 @@ DEFINE_HOOK_FUNCTION(
     int64_t result = write_txid();
 
     if (result == 32)
+    {
+        hookCtx.result.atomicEmitFeeRemaining -= XRPAmount(fee);
+        XRPL_ASSERT(
+            hookCtx.result.atomicEmitFeeRemaining >= XRPAmount(0),
+            "atomicEmitFeeRemaining is negative");
+
         hookCtx.result.emittedAtomicTxn.push(tpTrans);
+    }
 
     return result;
     HOOK_TEARDOWN();

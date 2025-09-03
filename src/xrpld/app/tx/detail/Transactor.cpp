@@ -289,15 +289,23 @@ Transactor::calculateHookChainFee(
         if (hook::canHook(tx.getTxnType(), hookOn) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
-            XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
+            XRPAmount const toAddFee{
+                hookDef->getFieldAmount(sfFee).xrp().drops()};
+
+            XRPAmount const toAddAtomicEmitFee{
+                hookObj.isFieldPresent(sfHookAtomicEmitFee)
+                    ? hookObj.getFieldAmount(sfHookAtomicEmitFee).xrp().drops()
+                    : hookDef->isFieldPresent(sfHookAtomicEmitFee)
+                    ? hookDef->getFieldAmount(sfHookAtomicEmitFee).xrp().drops()
+                    : 0};
 
             // this overflow should never happen, if somehow it does
             // fee is set to the largest possible valid xrp value to force
             // fail the transaction
-            if (fee + toAdd < fee)
+            if (fee + toAddFee + toAddAtomicEmitFee < fee)
                 fee = XRPAmount{INITIAL_XRP.drops()};
             else
-                fee += toAdd;
+                fee += toAddFee + toAddAtomicEmitFee;
         }
     }
 
@@ -493,7 +501,7 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
 
         if (feePaid < feeDue)
         {
-            JLOG(ctx.j.trace())
+            JLOG(ctx.j.fatal())
                 << "Insufficient fee paid: " << to_string(feePaid) << "/"
                 << to_string(feeDue);
             return telINSUF_FEE_P;
@@ -1524,6 +1532,13 @@ Transactor::executeHookChain(
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
+        XRPAmount atomicEmitFeeRemaining =
+            hookObj.isFieldPresent(sfHookAtomicEmitFee)
+            ? hookObj.getFieldAmount(sfHookAtomicEmitFee).xrp()
+            : hookDef->isFieldPresent(sfHookAtomicEmitFee)
+            ? hookDef->getFieldAmount(sfHookAtomicEmitFee).xrp()
+            : XRPAmount(0);
+
         uint32_t flags =
             (hookObj.isFieldPresent(sfFlags) ? hookObj.getFieldU32(sfFlags)
                                              : hookDef->getFieldU32(sfFlags));
@@ -1565,6 +1580,7 @@ Transactor::executeHookChain(
                 parameters,
                 hookParamOverrides,
                 stateMap,
+                atomicEmitFeeRemaining,
                 ctx_,
                 account,
                 hasCallback,
@@ -1692,6 +1708,8 @@ Transactor::doHookCallback(
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
+        XRPAmount atomicEmitFeeRemaining = XRPAmount(0);
+
         // fetch the namespace either from the hook object of, if absent, the
         // hook def
         uint256 const& ns =
@@ -1723,6 +1741,7 @@ Transactor::doHookCallback(
                 parameters,
                 {},
                 stateMap,
+                atomicEmitFeeRemaining,
                 ctx_,
                 callbackAccountID,
                 true,
@@ -1972,6 +1991,8 @@ Transactor::doAgainAsWeak(
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
+        XRPAmount atomicEmitFeeRemaining{0};
+
         // fetch the namespace either from the hook object of, if absent, the
         // hook def
         uint256 const& ns =
@@ -1998,6 +2019,7 @@ Transactor::doAgainAsWeak(
                 parameters,
                 {},
                 stateMap,
+                atomicEmitFeeRemaining,
                 ctx_,
                 hookAccountID,
                 hookDef->isFieldPresent(sfHookCallbackFee),
@@ -2406,6 +2428,14 @@ Transactor::operator()()
     }
 
     ctx_.finalize();
+
+    if (ctx_.flags() & tapATOMIC_EMIT && !isTesSuccess(result))
+    {
+        JLOG(j_.trace()) << "HookEmit[]: Atomic emit failed: "
+                         << transToken(result);
+        JLOG(j_.trace()) << "HookEmit[]: Atomic emit failed: "
+                         << ctx_.tx.getFullText();
+    }
 
     JLOG(j_.trace()) << (applied ? "applied " : "not applied ")
                      << transToken(result);
