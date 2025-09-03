@@ -585,12 +585,21 @@ Change::activateXahauGenesis()
         for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)
         {
             std::ostringstream loggerStream;
-            auto result = validateGuards(
+            auto rulesVersion =
+                (ctx_.view().rules().enabled(featureHooksUpdate1)
+                     ? hook_api::GuardRules::HooksUpdate1
+                     : 0U) +
+                (ctx_.view().rules().enabled(fix20250131)
+                     ? hook_api::GuardRules::Fix20250131
+                     : 0U) +
+                (ctx_.view().rules().enabled(featureAtomicEmit)
+                     ? hook_api::GuardRules::AtomicEmit
+                     : 0U);
+            auto const result = validateGuards(
                 wasmBytes,  // wasm to verify
                 loggerStream,
                 "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-                (ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0) +
-                    (ctx_.view().rules().enabled(fix20250131) ? 2 : 0));
+                rulesVersion);
 
             if (!result)
             {

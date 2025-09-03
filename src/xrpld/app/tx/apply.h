@@ -129,6 +129,15 @@ apply(
     ApplyFlags flags,
     beast::Journal journal);
 
+ApplyResult
+apply(
+    Application& app,
+    OpenView& view,
+    uint256 const& parentBatchId,
+    STTx const& tx,
+    ApplyFlags flags,
+    beast::Journal journal);
+
 /** Enum class for return value from `applyTransaction`
 
     @see applyTransaction

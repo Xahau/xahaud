@@ -289,15 +289,23 @@ Transactor::calculateHookChainFee(
         if (hook::canHook(tx.getTxnType(), hookOn) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
-            XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
+            XRPAmount const toAddFee{
+                hookDef->getFieldAmount(sfFee).xrp().drops()};
+
+            XRPAmount const toAddAtomicEmitFee{
+                hookObj.isFieldPresent(sfHookAtomicEmitFee)
+                    ? hookObj.getFieldAmount(sfHookAtomicEmitFee).xrp().drops()
+                    : hookDef->isFieldPresent(sfHookAtomicEmitFee)
+                    ? hookDef->getFieldAmount(sfHookAtomicEmitFee).xrp().drops()
+                    : 0};
 
             // this overflow should never happen, if somehow it does
             // fee is set to the largest possible valid xrp value to force
             // fail the transaction
-            if (fee + toAdd < fee)
+            if (fee + toAddFee + toAddAtomicEmitFee < fee)
                 fee = XRPAmount{INITIAL_XRP.drops()};
             else
-                fee += toAdd;
+                fee += toAddFee + toAddAtomicEmitFee;
         }
     }
 
@@ -493,7 +501,7 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
 
         if (feePaid < feeDue)
         {
-            JLOG(ctx.j.trace())
+            JLOG(ctx.j.fatal())
                 << "Insufficient fee paid: " << to_string(feePaid) << "/"
                 << to_string(feeDue);
             return telINSUF_FEE_P;
@@ -1368,6 +1376,111 @@ Transactor::reset(XRPAmount fee)
     return {ter, fee};
 }
 
+std::pair<TER, XRPAmount>
+Transactor::checkInvariants(TER result, XRPAmount fee)
+{
+    // Check invariants: if `tecINVARIANT_FAILED` is not returned, we can
+    // proceed to apply the tx
+    result = ctx_.checkInvariants(result, fee);
+
+    if (result == tecINVARIANT_FAILED)
+    {
+        // if invariants checking failed again, reset the context and
+        // attempt to only claim a fee.
+        auto const resetResult = reset(fee);
+        if (!isTesSuccess(resetResult.first))
+            result = resetResult.first;
+
+        fee = resetResult.second;
+
+        // Check invariants again to ensure the fee claiming doesn't
+        // violate invariants.
+        if (isTesSuccess(result) || isTecClaim(result))
+            result = ctx_.checkInvariants(result, fee);
+    }
+
+    return {result, fee};
+}
+
+void
+Transactor::balanceRewards(TER result)
+{
+    TxMeta metaRaw = ctx_.generateProvisionalMeta();
+    metaRaw.setResult(result, 0);
+    STObject const meta = metaRaw.getAsObject();
+
+    uint32_t lgrCur = view().seq();
+
+    bool const has240819 = view().rules().enabled(fix240819);
+    bool const has240911 = view().rules().enabled(fix240911);
+
+    auto const& sfRewardFields =
+        *(ripple::SField::knownCodeToField.at(917511 - has240819));
+
+    // iterate all affected balances
+    for (auto const& node : meta.getFieldArray(sfAffectedNodes))
+    {
+        SField const& metaType = node.getFName();
+        uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
+
+        // we only care about ltACCOUNT_ROOT objects being modified or
+        // created
+        if (nodeType != ltACCOUNT_ROOT || metaType == sfDeletedNode)
+            continue;
+
+        if (!node.isFieldPresent(sfRewardFields) ||
+            !node.isFieldPresent(sfLedgerIndex))
+            continue;
+
+        auto sle = view().peek(
+            Keylet{ltACCOUNT_ROOT, node.getFieldH256(sfLedgerIndex)});
+
+        if (!sle)
+            continue;
+
+        if (!sle->isFieldPresent(sfRewardLgrFirst) ||
+            !sle->isFieldPresent(sfRewardLgrLast) ||
+            !sle->isFieldPresent(sfRewardAccumulator))
+            continue;
+
+        STObject& finalFields = (const_cast<STObject&>(node))
+                                    .getField(sfRewardFields)
+                                    .downcast<STObject>();
+
+        if (!finalFields.isFieldPresent(sfBalance))
+            continue;
+
+        uint64_t bal =
+            finalFields.getFieldAmount(sfBalance).xrp().drops() / 1'000'000;
+
+        if (bal == 0)
+            continue;
+
+        uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
+
+        uint32_t lgrElapsed = lgrCur - lgrLast;
+
+        // overflow safety
+        if (!has240911 &&
+            (lgrElapsed > lgrCur || lgrElapsed > lgrLast || lgrElapsed == 0))
+            continue;
+        if (has240911 && (lgrElapsed > lgrCur || lgrElapsed == 0))
+            continue;
+
+        uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
+        uint64_t accumNew = accum + bal * ((uint64_t)lgrElapsed);
+
+        // check for overflow
+        if (accumNew < accum)
+            continue;
+
+        sle->setFieldU64(sfRewardAccumulator, accumNew);
+        sle->setFieldU32(sfRewardLgrLast, lgrCur);
+
+        view().update(sle);
+    }
+}
+
 TER
 Transactor::executeHookChain(
     std::shared_ptr<ripple::STLedgerEntry const> const& hookSLE,
@@ -1419,6 +1532,13 @@ Transactor::executeHookChain(
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
+        XRPAmount atomicEmitFeeRemaining =
+            hookObj.isFieldPresent(sfHookAtomicEmitFee)
+            ? hookObj.getFieldAmount(sfHookAtomicEmitFee).xrp()
+            : hookDef->isFieldPresent(sfHookAtomicEmitFee)
+            ? hookDef->getFieldAmount(sfHookAtomicEmitFee).xrp()
+            : XRPAmount(0);
+
         uint32_t flags =
             (hookObj.isFieldPresent(sfFlags) ? hookObj.getFieldU32(sfFlags)
                                              : hookDef->getFieldU32(sfFlags));
@@ -1460,6 +1580,7 @@ Transactor::executeHookChain(
                 parameters,
                 hookParamOverrides,
                 stateMap,
+                atomicEmitFeeRemaining,
                 ctx_,
                 account,
                 hasCallback,
@@ -1587,6 +1708,8 @@ Transactor::doHookCallback(
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
+        XRPAmount atomicEmitFeeRemaining = XRPAmount(0);
+
         // fetch the namespace either from the hook object of, if absent, the
         // hook def
         uint256 const& ns =
@@ -1618,6 +1741,7 @@ Transactor::doHookCallback(
                 parameters,
                 {},
                 stateMap,
+                atomicEmitFeeRemaining,
                 ctx_,
                 callbackAccountID,
                 true,
@@ -1867,6 +1991,8 @@ Transactor::doAgainAsWeak(
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
+        XRPAmount atomicEmitFeeRemaining{0};
+
         // fetch the namespace either from the hook object of, if absent, the
         // hook def
         uint256 const& ns =
@@ -1893,6 +2019,7 @@ Transactor::doAgainAsWeak(
                 parameters,
                 {},
                 stateMap,
+                atomicEmitFeeRemaining,
                 ctx_,
                 hookAccountID,
                 hookDef->isFieldPresent(sfHookCallbackFee),
@@ -2164,25 +2291,10 @@ Transactor::operator()()
 
     if (applied)
     {
-        // Check invariants: if `tecINVARIANT_FAILED` is not returned, we can
-        // proceed to apply the tx
-        result = ctx_.checkInvariants(result, fee);
+        auto const invariantsResult = checkInvariants(result, fee);
 
-        if (result == tecINVARIANT_FAILED)
-        {
-            // if invariants checking failed again, reset the context and
-            // attempt to only claim a fee.
-            auto const resetResult = reset(fee);
-            if (!isTesSuccess(resetResult.first))
-                result = resetResult.first;
-
-            fee = resetResult.second;
-
-            // Check invariants again to ensure the fee claiming doesn't
-            // violate invariants.
-            if (isTesSuccess(result) || isTecClaim(result))
-                result = ctx_.checkInvariants(result, fee);
-        }
+        result = invariantsResult.first;
+        fee = invariantsResult.second;
 
         // We ran through the invariant checker, which can, in some cases,
         // return a tef error code. Don't apply the transaction in that case.
@@ -2192,81 +2304,7 @@ Transactor::operator()()
 
     if (applied && view().rules().enabled(featureBalanceRewards))
     {
-        TxMeta metaRaw = ctx_.generateProvisionalMeta();
-        metaRaw.setResult(result, 0);
-        STObject const meta = metaRaw.getAsObject();
-
-        uint32_t lgrCur = view().seq();
-
-        bool const has240819 = view().rules().enabled(fix240819);
-        bool const has240911 = view().rules().enabled(fix240911);
-
-        auto const& sfRewardFields =
-            *(ripple::SField::knownCodeToField.at(917511 - has240819));
-
-        // iterate all affected balances
-        for (auto const& node : meta.getFieldArray(sfAffectedNodes))
-        {
-            SField const& metaType = node.getFName();
-            uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
-
-            // we only care about ltACCOUNT_ROOT objects being modified or
-            // created
-            if (nodeType != ltACCOUNT_ROOT || metaType == sfDeletedNode)
-                continue;
-
-            if (!node.isFieldPresent(sfRewardFields) ||
-                !node.isFieldPresent(sfLedgerIndex))
-                continue;
-
-            auto sle = view().peek(
-                Keylet{ltACCOUNT_ROOT, node.getFieldH256(sfLedgerIndex)});
-
-            if (!sle)
-                continue;
-
-            if (!sle->isFieldPresent(sfRewardLgrFirst) ||
-                !sle->isFieldPresent(sfRewardLgrLast) ||
-                !sle->isFieldPresent(sfRewardAccumulator))
-                continue;
-
-            STObject& finalFields = (const_cast<STObject&>(node))
-                                        .getField(sfRewardFields)
-                                        .downcast<STObject>();
-
-            if (!finalFields.isFieldPresent(sfBalance))
-                continue;
-
-            uint64_t bal =
-                finalFields.getFieldAmount(sfBalance).xrp().drops() / 1'000'000;
-
-            if (bal == 0)
-                continue;
-
-            uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
-
-            uint32_t lgrElapsed = lgrCur - lgrLast;
-
-            // overflow safety
-            if (!has240911 &&
-                (lgrElapsed > lgrCur || lgrElapsed > lgrLast ||
-                 lgrElapsed == 0))
-                continue;
-            if (has240911 && (lgrElapsed > lgrCur || lgrElapsed == 0))
-                continue;
-
-            uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
-            uint64_t accumNew = accum + bal * ((uint64_t)lgrElapsed);
-
-            // check for overflow
-            if (accumNew < accum)
-                continue;
-
-            sle->setFieldU64(sfRewardAccumulator, accumNew);
-            sle->setFieldU32(sfRewardLgrLast, lgrCur);
-
-            view().update(sle);
-        }
+        balanceRewards(result);
     }
 
     // Post-application (Weak TSH/AAW) Hooks are executed here.
@@ -2350,6 +2388,53 @@ Transactor::operator()()
     if (ctx_.flags() & tapDRY_RUN)
     {
         applied = false;
+    }
+
+    if (metadata && metadata->hasHookEmissions())
+    {
+        OpenView emittedTxnsView(batch_view, ctx_.openView());
+        bool const emitResult = hook::emitAtomicTransactions(
+            ctx_.app,
+            emittedTxnsView,
+            metadata->getTxID(),
+            metadata->getHookEmissions(),
+            j_);
+        printf("emitResult: %d\n", emitResult);
+        if (emitResult)
+        {
+            emittedTxnsView.apply(ctx_.openView());
+        }
+        else
+        {
+            // reset context
+            result = tecHOOK_EMIT_FAILED;
+            auto const resetResult = reset(fee);
+            if (!isTesSuccess(resetResult.first))
+                result = resetResult.first;
+            fee = resetResult.second;
+
+            // InvariantCheck
+            auto const invariantsResult = checkInvariants(result, fee);
+            result = invariantsResult.first;
+            fee = invariantsResult.second;
+
+            // BalanceRewards
+            balanceRewards(result);
+            // Add Hooks metadata (use metadata)
+
+            // apply
+            metadata = ctx_.apply(result);
+        }
+    }
+
+    ctx_.finalize();
+
+    if (ctx_.flags() & tapATOMIC_EMIT && !isTesSuccess(result))
+    {
+        JLOG(j_.trace()) << "HookEmit[]: Atomic emit failed: "
+                         << transToken(result);
+        JLOG(j_.trace()) << "HookEmit[]: Atomic emit failed: "
+                         << ctx_.tx.getFullText();
     }
 
     JLOG(j_.trace()) << (applied ? "applied " : "not applied ")

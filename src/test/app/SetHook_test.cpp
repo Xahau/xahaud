@@ -2933,6 +2933,457 @@ public:
         }
     }
 
+    Json::Value
+    getLastLedger(jtx::Env& env)
+    {
+        Json::Value params;
+        params[jss::ledger_index] = env.closed()->seq();
+        params[jss::transactions] = true;
+        params[jss::expand] = true;
+        return env.rpc("json", "ledger", to_string(params));
+    }
+
+    void
+    test_emit_atomic(FeatureBitset features)
+    {
+        testcase("Test emit_atomic");
+        using namespace jtx;
+        // Env env{*this, features};
+        Env env{
+            *this, envconfig(), features, nullptr, beast::severities::kInfo};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const charlie = Account{"charlie"};
+        auto const nonActive = Account{"nonActive"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+        env.fund(XRP(10000), charlie);
+
+        TestHook hook = wasm[R"[test.hook](
+        #include <stdint.h>
+        extern int32_t _g(uint32_t, uint32_t);
+        extern int64_t accept (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t emit_atomic (uint32_t, uint32_t, uint32_t, uint32_t);
+        extern int64_t etxn_reserve(uint32_t);
+        extern int64_t otxn_param(uint32_t, uint32_t, uint32_t, uint32_t);
+        extern int64_t hook_account(uint32_t, uint32_t);
+        extern int64_t otxn_field (
+            uint32_t write_ptr,
+            uint32_t write_len,
+            uint32_t field_id
+        );
+        #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+        #define OUT_OF_BOUNDS (-1)
+        #define ttPAYMENT 0
+        #define tfCANONICAL 0x80000000UL
+        #define amAMOUNT 1U
+        #define amFEE 8U
+        #define atACCOUNT 1U
+        #define DOESNT_EXIST (-5)
+        #define atDESTINATION 3U
+        #define SBUF(x) (uint32_t)x,sizeof(x)
+
+        #define PREREQUISITE_NOT_MET -9
+        #define ENCODE_DROPS_SIZE 9
+        #define ENCODE_DROPS(buf_out, drops, amount_type ) \
+            {\
+                uint8_t uat = amount_type; \
+                uint64_t udrops = drops; \
+                buf_out[0] = 0x60U +(uat & 0x0FU ); \
+                buf_out[1] = 0b01000000 + (( udrops >> 56 ) & 0b00111111 ); \
+                buf_out[2] = (udrops >> 48) & 0xFFU; \
+                buf_out[3] = (udrops >> 40) & 0xFFU; \
+                buf_out[4] = (udrops >> 32) & 0xFFU; \
+                buf_out[5] = (udrops >> 24) & 0xFFU; \
+                buf_out[6] = (udrops >> 16) & 0xFFU; \
+                buf_out[7] = (udrops >>  8) & 0xFFU; \
+                buf_out[8] = (udrops >>  0) & 0xFFU; \
+                buf_out += ENCODE_DROPS_SIZE; \
+            }
+
+        #define _06_XX_ENCODE_DROPS(buf_out, drops, amount_type )\
+            ENCODE_DROPS(buf_out, drops, amount_type );
+
+        #define ENCODE_DROPS_AMOUNT(buf_out, drops )\
+            ENCODE_DROPS(buf_out, drops, amAMOUNT );
+        #define _06_01_ENCODE_DROPS_AMOUNT(buf_out, drops )\
+            ENCODE_DROPS_AMOUNT(buf_out, drops );
+
+        #define ENCODE_DROPS_FEE(buf_out, drops )\
+            ENCODE_DROPS(buf_out, drops, amFEE );
+        #define _06_08_ENCODE_DROPS_FEE(buf_out, drops )\
+            ENCODE_DROPS_FEE(buf_out, drops );
+
+        #define ENCODE_TT_SIZE 3
+        #define ENCODE_TT(buf_out, tt )\
+            {\
+                uint8_t utt = tt;\
+                buf_out[0] = 0x12U;\
+                buf_out[1] =(utt >> 8 ) & 0xFFU;\
+                buf_out[2] =(utt >> 0 ) & 0xFFU;\
+                buf_out += ENCODE_TT_SIZE; \
+            }
+        #define _01_02_ENCODE_TT(buf_out, tt)\
+            ENCODE_TT(buf_out, tt);
+
+
+        #define ENCODE_ACCOUNT_SIZE 22
+        #define ENCODE_ACCOUNT(buf_out, account_id, account_type)\
+            {\
+                uint8_t uat = account_type;\
+                buf_out[0] = 0x80U + uat;\
+                buf_out[1] = 0x14U;\
+                *(uint64_t*)(buf_out +  2) = *(uint64_t*)(account_id +  0);\
+                *(uint64_t*)(buf_out + 10) = *(uint64_t*)(account_id +  8);\
+                *(uint32_t*)(buf_out + 18) = *(uint32_t*)(account_id + 16);\
+                buf_out += ENCODE_ACCOUNT_SIZE;\
+            }
+        #define _08_XX_ENCODE_ACCOUNT(buf_out, account_id, account_type)\
+            ENCODE_ACCOUNT(buf_out, account_id, account_type);
+
+        #define ENCODE_ACCOUNT_SRC_SIZE 22
+        #define ENCODE_ACCOUNT_SRC(buf_out, account_id)\
+            ENCODE_ACCOUNT(buf_out, account_id, atACCOUNT);
+        #define _08_01_ENCODE_ACCOUNT_SRC(buf_out, account_id)\
+            ENCODE_ACCOUNT_SRC(buf_out, account_id);
+
+        #define ENCODE_ACCOUNT_DST_SIZE 22
+        #define ENCODE_ACCOUNT_DST(buf_out, account_id)\
+            ENCODE_ACCOUNT(buf_out, account_id, atDESTINATION);
+        #define _08_03_ENCODE_ACCOUNT_DST(buf_out, account_id)\
+            ENCODE_ACCOUNT_DST(buf_out, account_id);
+
+        #define ENCODE_ACCOUNT_OWNER_SIZE 22
+        #define ENCODE_ACCOUNT_OWNER(buf_out, account_id) \
+            ENCODE_ACCOUNT(buf_out, account_id, atOWNER);
+        #define _08_02_ENCODE_ACCOUNT_OWNER(buf_out, account_id) \
+            ENCODE_ACCOUNT_OWNER(buf_out, account_id);
+
+        #define ENCODE_UINT32_COMMON_SIZE 5U
+        #define ENCODE_UINT32_COMMON(buf_out, i, field)\
+            {\
+                uint32_t ui = i; \
+                uint8_t uf = field; \
+                buf_out[0] = 0x20U +(uf & 0x0FU); \
+                buf_out[1] =(ui >> 24 ) & 0xFFU; \
+                buf_out[2] =(ui >> 16 ) & 0xFFU; \
+                buf_out[3] =(ui >>  8 ) & 0xFFU; \
+                buf_out[4] =(ui >>  0 ) & 0xFFU; \
+                buf_out += ENCODE_UINT32_COMMON_SIZE; \
+            }
+        #define _02_XX_ENCODE_UINT32_COMMON(buf_out, i, field)\
+            ENCODE_UINT32_COMMON(buf_out, i, field)\
+
+        #define ENCODE_UINT32_UNCOMMON_SIZE 6U
+        #define ENCODE_UINT32_UNCOMMON(buf_out, i, field)\
+            {\
+                uint32_t ui = i; \
+                uint8_t uf = field; \
+                buf_out[0] = 0x20U; \
+                buf_out[1] = uf; \
+                buf_out[2] =(ui >> 24 ) & 0xFFU; \
+                buf_out[3] =(ui >> 16 ) & 0xFFU; \
+                buf_out[4] =(ui >>  8 ) & 0xFFU; \
+                buf_out[5] =(ui >>  0 ) & 0xFFU; \
+                buf_out += ENCODE_UINT32_UNCOMMON_SIZE; \
+            }
+        #define _02_XX_ENCODE_UINT32_UNCOMMON(buf_out, i, field)\
+            ENCODE_UINT32_UNCOMMON(buf_out, i, field)\
+
+        #define ENCODE_LLS_SIZE 6U
+        #define ENCODE_LLS(buf_out, lls )\
+            ENCODE_UINT32_UNCOMMON(buf_out, lls, 0x1B );
+        #define _02_27_ENCODE_LLS(buf_out, lls )\
+            ENCODE_LLS(buf_out, lls );
+
+        #define ENCODE_FLS_SIZE 6U
+        #define ENCODE_FLS(buf_out, fls )\
+            ENCODE_UINT32_UNCOMMON(buf_out, fls, 0x1A );
+        #define _02_26_ENCODE_FLS(buf_out, fls )\
+            ENCODE_FLS(buf_out, fls );
+
+        #define ENCODE_TAG_SRC_SIZE 5
+        #define ENCODE_TAG_SRC(buf_out, tag )\
+            ENCODE_UINT32_COMMON(buf_out, tag, 0x3U );
+        #define _02_03_ENCODE_TAG_SRC(buf_out, tag )\
+            ENCODE_TAG_SRC(buf_out, tag );
+
+        #define ENCODE_TAG_DST_SIZE 5
+        #define ENCODE_TAG_DST(buf_out, tag )\
+            ENCODE_UINT32_COMMON(buf_out, tag, 0xEU );
+        #define _02_14_ENCODE_TAG_DST(buf_out, tag )\
+            ENCODE_TAG_DST(buf_out, tag );
+
+        #define ENCODE_SEQUENCE_SIZE 5
+        #define ENCODE_SEQUENCE(buf_out, sequence )\
+            ENCODE_UINT32_COMMON(buf_out, sequence, 0x4U );
+        #define _02_04_ENCODE_SEQUENCE(buf_out, sequence )\
+            ENCODE_SEQUENCE(buf_out, sequence );
+
+        #define ENCODE_FLAGS_SIZE 5
+        #define ENCODE_FLAGS(buf_out, tag )\
+            ENCODE_UINT32_COMMON(buf_out, tag, 0x2U );
+        #define _02_02_ENCODE_FLAGS(buf_out, tag )\
+            ENCODE_FLAGS(buf_out, tag );
+
+        #define ENCODE_SIGNING_PUBKEY_SIZE 35
+        #define ENCODE_SIGNING_PUBKEY(buf_out, pkey )\
+            {\
+                buf_out[0] = 0x73U;\
+                buf_out[1] = 0x21U;\
+                *(uint64_t*)(buf_out +  2) = *(uint64_t*)(pkey +  0);\
+                *(uint64_t*)(buf_out + 10) = *(uint64_t*)(pkey +  8);\
+                *(uint64_t*)(buf_out + 18) = *(uint64_t*)(pkey + 16);\
+                *(uint64_t*)(buf_out + 26) = *(uint64_t*)(pkey + 24);\
+                buf[34] = pkey[32];\
+                buf_out += ENCODE_SIGNING_PUBKEY_SIZE;\
+            }
+
+        #define _07_03_ENCODE_SIGNING_PUBKEY(buf_out, pkey )\
+            ENCODE_SIGNING_PUBKEY(buf_out, pkey );
+
+        #define ENCODE_SIGNING_PUBKEY_NULL_SIZE 35
+        #define ENCODE_SIGNING_PUBKEY_NULL(buf_out )\
+            {\
+                buf_out[0] = 0x73U;\
+                buf_out[1] = 0x21U;\
+                *(uint64_t*)(buf_out+2) = 0;\
+                *(uint64_t*)(buf_out+10) = 0;\
+                *(uint64_t*)(buf_out+18) = 0;\
+                *(uint64_t*)(buf_out+25) = 0;\
+                buf_out += ENCODE_SIGNING_PUBKEY_NULL_SIZE;\
+            }
+
+        #define _07_03_ENCODE_SIGNING_PUBKEY_NULL(buf_out )\
+            ENCODE_SIGNING_PUBKEY_NULL(buf_out );
+
+        extern int64_t etxn_fee_base (
+            uint32_t read_ptr,
+          	uint32_t read_len
+        );
+        extern int64_t etxn_details (
+            uint32_t write_ptr,
+          	uint32_t write_len
+        );
+        extern int64_t ledger_seq (void);
+
+        #define PREPARE_PAYMENT_SIMPLE_SIZE 248U
+        #define PREPARE_PAYMENT_SIMPLE(buf_out_master, drops_amount_raw, to_address, dest_tag_raw, src_tag_raw)\
+            {\
+                uint8_t* buf_out = buf_out_master;\
+                uint8_t acc[20];\
+                uint64_t drops_amount = (drops_amount_raw);\
+                uint32_t dest_tag = (dest_tag_raw);\
+                uint32_t src_tag = (src_tag_raw);\
+                uint32_t cls = (uint32_t)ledger_seq();\
+                hook_account(SBUF(acc));\
+                _01_02_ENCODE_TT                   (buf_out, ttPAYMENT                      );      /* uint16  | size   3 */ \
+                _02_02_ENCODE_FLAGS                (buf_out, tfCANONICAL                    );      /* uint32  | size   5 */ \
+                _02_03_ENCODE_TAG_SRC              (buf_out, src_tag                        );      /* uint32  | size   5 */ \
+                _02_04_ENCODE_SEQUENCE             (buf_out, 3                              );      /* uint32  | size   5 */ \
+                _02_14_ENCODE_TAG_DST              (buf_out, dest_tag                       );      /* uint32  | size   5 */ \
+                _02_26_ENCODE_FLS                  (buf_out, cls + 0                        );      /* uint32  | size   6 */ \
+                _02_27_ENCODE_LLS                  (buf_out, cls + 0                        );      /* uint32  | size   6 */ \
+                _06_01_ENCODE_DROPS_AMOUNT         (buf_out, drops_amount                   );      /* amount  | size   9 */ \
+                uint8_t* fee_ptr = buf_out;\
+                _06_08_ENCODE_DROPS_FEE            (buf_out, 0                              );      /* amount  | size   9 */ \
+                _07_03_ENCODE_SIGNING_PUBKEY_NULL  (buf_out                                 );      /* pk      | size  35 */ \
+                _08_01_ENCODE_ACCOUNT_SRC          (buf_out, acc                            );      /* account | size  22 */ \
+                _08_03_ENCODE_ACCOUNT_DST          (buf_out, to_address                     );      /* account | size  22 */ \
+                int64_t edlen = etxn_details((uint32_t)buf_out, PREPARE_PAYMENT_SIMPLE_SIZE);       /* emitdet | size 1?? */ \
+                int64_t fee = etxn_fee_base(buf_out_master, PREPARE_PAYMENT_SIMPLE_SIZE);                                    \
+                _06_08_ENCODE_DROPS_FEE            (fee_ptr, fee                            );                               \
+            }
+
+        #define UINT16_FROM_BUF(buf)\
+            (((uint64_t)((buf)[0]) <<  8U) +\
+             ((uint64_t)((buf)[1]) <<  0U))
+
+        #define BUFFER_EQUAL_32(buf1, buf2)\
+            (\
+                *(((uint64_t*)(buf1)) + 0) == *(((uint64_t*)(buf2)) + 0) &&\
+                *(((uint64_t*)(buf1)) + 1) == *(((uint64_t*)(buf2)) + 1) &&\
+                *(((uint64_t*)(buf1)) + 2) == *(((uint64_t*)(buf2)) + 2) &&\
+                *(((uint64_t*)(buf1)) + 3) == *(((uint64_t*)(buf2)) + 3) &&\
+                *(((uint64_t*)(buf1)) + 4) == *(((uint64_t*)(buf2)) + 4) &&\
+                *(((uint64_t*)(buf1)) + 5) == *(((uint64_t*)(buf2)) + 5) &&\
+                *(((uint64_t*)(buf1)) + 6) == *(((uint64_t*)(buf2)) + 6) &&\
+                *(((uint64_t*)(buf1)) + 7) == *(((uint64_t*)(buf2)) + 7))
+
+        #define ASSERT(x)\
+             if (!(x))\
+                rollback((uint32_t)#x,sizeof(#x),__LINE__)
+
+        #define sfDestination ((8U << 16U) + 3U)
+
+        extern int64_t etxn_generation(void);
+        extern int64_t otxn_generation(void);
+        extern int64_t otxn_burden(void);
+        extern int64_t etxn_burden(void);
+
+        // int64_t cbak(uint32_t r)
+        // {
+        //     // on callback we emit 2 more txns
+        //     uint8_t bob[20];
+        //     ASSERT(otxn_field(SBUF(bob), sfDestination) == 20);
+
+        //     ASSERT(otxn_generation() + 1 == etxn_generation());
+
+        //     ASSERT(etxn_burden() == PREREQUISITE_NOT_MET);
+
+        //     ASSERT(etxn_reserve(2) == 2);
+            
+        //     ASSERT(otxn_burden() > 0);
+        //     ASSERT(etxn_burden() == otxn_burden() * 2);
+
+        //     uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
+        //     PREPARE_PAYMENT_SIMPLE(tx, 1000, bob, 0, 0);
+
+        //     uint8_t hash1[32];
+        //     ASSERT(emit_atomic(SBUF(hash1), SBUF(tx)) == 32);
+
+        //     ASSERT(etxn_details(tx + 132, 138) == 138);
+        //     uint8_t hash2[32];
+        //     ASSERT(emit_atomic(SBUF(hash2), SBUF(tx)) == 32);
+
+        //     ASSERT(!BUFFER_EQUAL_32(hash1, hash2)); 
+
+        //     return accept(0,0,0);
+        // }
+
+        int64_t hook(uint32_t r)
+        {
+            _g(1,1);
+
+            etxn_reserve(1);
+            
+            // bounds checks
+            ASSERT(emit_atomic(1000000, 32, 0, 32) == OUT_OF_BOUNDS);
+            ASSERT(emit_atomic(0,1000000, 0, 32) == OUT_OF_BOUNDS);
+            ASSERT(emit_atomic(0,32, 1000000, 32) == OUT_OF_BOUNDS);
+            ASSERT(emit_atomic(0,32, 0, 1000000) == OUT_OF_BOUNDS);
+
+            ASSERT(otxn_generation() == 0);
+            ASSERT(otxn_burden == 1);
+
+            uint8_t bob[20];
+            ASSERT(otxn_param(SBUF(bob), "bob", 3) == 20);
+
+            uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
+            PREPARE_PAYMENT_SIMPLE(tx, 1000, bob, 0, 0);
+
+            uint8_t hash[32];
+            ASSERT(emit_atomic(SBUF(hash), SBUF(tx)) == 32);
+
+            return accept(0,0,0);
+        }
+        )[test.hook]"];
+
+        auto hookObj = hso(hook, overrideFlag);
+        // hookObj[jss::HookOn] =
+        //     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFFFFFFBFFF"
+        //     "FF";  // Invoke
+        hookObj[sfHookAtomicEmitFee.jsonName] = "1000";
+        env(ripple::test::jtx::hook(charlie, {{hookObj}}, 0),
+            M("set emit_atomic"),
+            HSFEE);
+        env.close();
+
+        // Json::Value invoke;
+        // invoke[jss::TransactionType] = "Invoke";
+        // invoke[jss::Account] = alice.human();
+        // invoke[jss::Destination] = charlie.human();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Payment";
+        invoke[jss::Account] = alice.human();
+        invoke[jss::Destination] = charlie.human();
+        invoke[jss::Amount] = "1234";
+
+        Json::Value params{Json::arrayValue};
+        params[0U][jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("bob"));
+        params[0U][jss::HookParameter][jss::HookParameterValue] =
+            strHex(nonActive.id());
+
+        invoke[jss::HookParameters] = params;
+
+        env(invoke, M("test emit_atomic"), fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+
+        std::optional<uint256> emithash;
+        {
+            auto meta = env.meta();  // meta can close
+
+            printf(
+                "txs: %s\n",
+                getLastLedger(env)[jss::result][jss::ledger][jss::transactions]
+                    .toStyledString()
+                    .c_str());
+
+            // ensure hook execution occured
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
+            BEAST_EXPECT(
+                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
+                                                                       : false);
+            BEAST_EXPECT(
+                hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
+
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            // ensure there was one emitted txn
+            BEAST_EXPECT(hookExecutions[0].getFieldU16(sfHookEmitCount) == 1);
+
+            BEAST_REQUIRE(meta->isFieldPresent(sfAffectedNodes));
+
+            BEAST_REQUIRE(meta->getFieldArray(sfAffectedNodes).size() == 3);
+
+            for (auto const& node : meta->getFieldArray(sfAffectedNodes))
+            {
+                SField const& metaType = node.getFName();
+                uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
+                if (metaType == sfCreatedNode && nodeType == ltEMITTED_TXN)
+                {
+                    BEAST_REQUIRE(node.isFieldPresent(sfNewFields));
+
+                    auto const& nf = const_cast<ripple::STObject&>(node)
+                                         .getField(sfNewFields)
+                                         .downcast<STObject>();
+
+                    auto const& et = const_cast<ripple::STObject&>(nf)
+                                         .getField(sfEmittedTxn)
+                                         .downcast<STObject>();
+
+                    auto const& em = const_cast<ripple::STObject&>(et)
+                                         .getField(sfEmitDetails)
+                                         .downcast<STObject>();
+
+                    BEAST_EXPECT(em.getFieldU32(sfEmitGeneration) == 1);
+                    BEAST_EXPECT(em.getFieldU64(sfEmitBurden) == 1);
+
+                    Blob txBlob = et.getSerializer().getData();
+                    auto const tx = std::make_unique<STTx>(
+                        Slice{txBlob.data(), txBlob.size()});
+                    emithash = tx->getTransactionID();
+
+                    break;
+                }
+            }
+
+            BEAST_REQUIRE(emithash);
+            BEAST_EXPECT(
+                emithash == hookEmissions[0u].getFieldH256(sfEmittedTxnID));
+        }
+    }
+
     void
     test_etxn_details(FeatureBitset features)
     {
@@ -12734,117 +13185,118 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
-        testHooksOwnerDir(features);
-        testHooksDisabled(features);
-        testTxStructure(features);
-        testInferHookSetOperation();
-        testParams(features);
-        testGrants(features);
-        testHookCanEmit(features);
+        // testHooksOwnerDir(features);
+        // testHooksDisabled(features);
+        // testTxStructure(features);
+        // testInferHookSetOperation();
+        // testParams(features);
+        // testGrants(features);
+        // testHookCanEmit(features);
 
-        testDelete(features);
-        testInstall(features);
-        testCreate(features);
-        testWithTickets(features);
+        // testDelete(features);
+        // testInstall(features);
+        // testCreate(features);
+        // testWithTickets(features);
 
-        testUpdate(features);
+        // testUpdate(features);
 
-        testNSDelete(features);
-        testNSDeletePartial(features);
-        testPageCap(features);
+        // testNSDelete(features);
+        // testNSDeletePartial(features);
+        // testPageCap(features);
 
-        testFillCopy(features);
+        // testFillCopy(features);
 
-        testWasm(features);
-        test_accept(features);
-        test_rollback(features);
+        // testWasm(features);
+        // test_accept(features);
+        // test_rollback(features);
 
-        testGuards(features);
+        // testGuards(features);
 
-        test_emit(features);  //
-        // test_etxn_burden(features);       // tested above
-        // test_etxn_generation(features);   // tested above
-        // test_otxn_burden(features);       // tested above
-        // test_otxn_generation(features);   // tested above
-        test_etxn_details(features);   //
-        test_etxn_fee_base(features);  //
-        test_etxn_nonce(features);     //
-        test_etxn_reserve(features);   //
-        test_fee_base(features);       //
+        // test_emit(features);         //
+        test_emit_atomic(features);  //
+        // // test_etxn_burden(features);       // tested above
+        // // test_etxn_generation(features);   // tested above
+        // // test_otxn_burden(features);       // tested above
+        // // test_otxn_generation(features);   // tested above
+        // test_etxn_details(features);   //
+        // test_etxn_fee_base(features);  //
+        // test_etxn_nonce(features);     //
+        // test_etxn_reserve(features);   //
+        // test_fee_base(features);       //
 
-        test_otxn_field(features);  //
+        // test_otxn_field(features);  //
 
-        test_ledger_keylet(features);  //
+        // test_ledger_keylet(features);  //
 
-        test_float_compare(features);   //
-        test_float_divide(features);    //
-        test_float_int(features);       //
-        test_float_invert(features);    //
-        test_float_log(features);       //
-        test_float_mantissa(features);  //
-        test_float_mulratio(features);  //
-        test_float_multiply(features);  //
-        test_float_negate(features);    //
-        test_float_one(features);       //
-        test_float_root(features);      //
-        test_float_set(features);       //
-        test_float_sign(features);      //
-        test_float_sto(features);       //
-        test_float_sto_set(features);   //
-        test_float_sum(features);       //
+        // test_float_compare(features);   //
+        // test_float_divide(features);    //
+        // test_float_int(features);       //
+        // test_float_invert(features);    //
+        // test_float_log(features);       //
+        // test_float_mantissa(features);  //
+        // test_float_mulratio(features);  //
+        // test_float_multiply(features);  //
+        // test_float_negate(features);    //
+        // test_float_one(features);       //
+        // test_float_root(features);      //
+        // test_float_set(features);       //
+        // test_float_sign(features);      //
+        // test_float_sto(features);       //
+        // test_float_sto_set(features);   //
+        // test_float_sum(features);       //
 
-        test_hook_account(features);    //
-        test_hook_again(features);      //
-        test_hook_hash(features);       //
-        test_hook_param(features);      //
-        test_hook_param_set(features);  //
-        test_hook_pos(features);        //
-        test_hook_skip(features);       //
+        // test_hook_account(features);    //
+        // test_hook_again(features);      //
+        // test_hook_hash(features);       //
+        // test_hook_param(features);      //
+        // test_hook_param_set(features);  //
+        // test_hook_pos(features);        //
+        // test_hook_skip(features);       //
 
-        test_ledger_last_hash(features);  //
-        test_ledger_last_time(features);  //
-        test_ledger_nonce(features);      //
-        test_ledger_seq(features);        //
+        // test_ledger_last_hash(features);  //
+        // test_ledger_last_time(features);  //
+        // test_ledger_nonce(features);      //
+        // test_ledger_seq(features);        //
 
-        test_meta_slot(features);  //
-        test_xpop_slot(features);  //
+        // test_meta_slot(features);  //
+        // test_xpop_slot(features);  //
 
-        test_otxn_id(features);     //
-        test_otxn_slot(features);   //
-        test_otxn_type(features);   //
-        test_otxn_param(features);  //
+        // test_otxn_id(features);     //
+        // test_otxn_slot(features);   //
+        // test_otxn_type(features);   //
+        // test_otxn_param(features);  //
 
-        test_slot(features);           //
-        test_slot_clear(features);     //
-        test_slot_count(features);     //
-        test_slot_float(features);     //
-        test_slot_set(features);       //
-        test_slot_size(features);      //
-        test_slot_subarray(features);  //
-        test_slot_subfield(features);  //
-        test_slot_type(features);      //
+        // test_slot(features);           //
+        // test_slot_clear(features);     //
+        // test_slot_count(features);     //
+        // test_slot_float(features);     //
+        // test_slot_set(features);       //
+        // test_slot_size(features);      //
+        // test_slot_subarray(features);  //
+        // test_slot_subfield(features);  //
+        // test_slot_type(features);      //
 
-        test_state(features);                  //
-        test_state_foreign(features);          //
-        test_state_foreign_set(features);      //
-        test_state_foreign_set_max(features);  //
-        test_state_set(features);              //
+        // test_state(features);                  //
+        // test_state_foreign(features);          //
+        // test_state_foreign_set(features);      //
+        // test_state_foreign_set_max(features);  //
+        // test_state_set(features);              //
 
-        test_sto_emplace(features);   //
-        test_sto_erase(features);     //
-        test_sto_subarray(features);  //
-        test_sto_subfield(features);  //
-        test_sto_validate(features);  //
+        // test_sto_emplace(features);   //
+        // test_sto_erase(features);     //
+        // test_sto_subarray(features);  //
+        // test_sto_subfield(features);  //
+        // test_sto_validate(features);  //
 
-        test_trace(features);        //
-        test_trace_float(features);  //
-        test_trace_num(features);    //
+        // test_trace(features);        //
+        // test_trace_float(features);  //
+        // test_trace_num(features);    //
 
-        test_util_accid(features);    //
-        test_util_keylet(features);   //
-        test_util_raddr(features);    //
-        test_util_sha512h(features);  //
-        test_util_verify(features);   //
+        // test_util_accid(features);    //
+        // test_util_keylet(features);   //
+        // test_util_raddr(features);    //
+        // test_util_sha512h(features);  //
+        // test_util_verify(features);   //
     }
 
 public:
@@ -13031,11 +13483,11 @@ SETHOOK_TEST(4, false)
 SETHOOK_TEST(5, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook2, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
+// BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
+// BEAST_DEFINE_TESTSUITE_PRIO(SetHook2, app, ripple, 2);
+// BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
+// BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
+// BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M

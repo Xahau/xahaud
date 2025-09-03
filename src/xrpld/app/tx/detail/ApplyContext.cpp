@@ -47,22 +47,31 @@ ApplyContext::ApplyContext(
     , parentBatchId_(parentBatchId)
 {
     XRPL_ASSERT(
-        parentBatchId.has_value() == ((flags_ & tapBATCH) == tapBATCH),
-        "Parent Batch ID should be set if batch apply flag is set");
-    view_.emplace(&base_, flags_);
+        parentBatchId.has_value() ==
+            ((flags_ & (tapBATCH | tapATOMIC_EMIT)) > 0),
+        "Parent Batch ID should be set if batch or AtomicEmit flag is set");
+    view_.emplace(&base_.view(), flags_);
 }
 
 void
 ApplyContext::discard()
 {
-    view_.emplace(&base_, flags_);
+    base_.discard();
+    view_.emplace(&base_.view(), flags_);
+}
+
+void
+ApplyContext::finalize()
+{
+    base_.commit();
+    view_.emplace(&base_.view(), flags_);
 }
 
 std::optional<TxMeta>
 ApplyContext::apply(TER ter)
 {
     return view_->apply(
-        base_, tx, ter, parentBatchId_, flags_ & tapDRY_RUN, journal);
+        base_.view(), tx, ter, parentBatchId_, flags_ & tapDRY_RUN, journal);
 }
 
 std::size_t
@@ -78,7 +87,7 @@ ApplyContext::visit(std::function<void(
                         std::shared_ptr<SLE const> const&,
                         std::shared_ptr<SLE const> const&)> const& func)
 {
-    view_->visit(base_, func);
+    view_->visit(base_.view(), func);
 }
 
 TER

@@ -23,6 +23,8 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpld/ledger/OpenViewSandbox.h>
+
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/XRPAmount.h>
@@ -64,7 +66,8 @@ public:
               journal)
     {
         XRPL_ASSERT(
-            (flags & tapBATCH) == 0, "Batch apply flag should not be set");
+            (flags & (tapBATCH | tapATOMIC_EMIT)) == 0,
+            "Batch or AtomicEmit flag should not be set");
     }
 
     Application& app;
@@ -72,6 +75,12 @@ public:
     TER const preclaimResult;
     XRPAmount const baseFee;
     beast::Journal const journal;
+
+    OpenView&
+    openView()
+    {
+        return base_.view();
+    }
 
     ApplyView&
     view()
@@ -109,6 +118,10 @@ public:
     void
     discard();
 
+    /** Finalize changes. */
+    void
+    finalize();
+
     /** Apply the transaction result to the base. */
     std::optional<TxMeta> apply(TER);
 
@@ -134,7 +147,7 @@ public:
     generateProvisionalMeta()
     {
         return view_->generateProvisionalMeta(
-            base_, tx, parentBatchId_, journal);
+            base_.view(), tx, parentBatchId_, journal);
     }
 
     /** Applies all invariant checkers one by one.
@@ -169,7 +182,7 @@ private:
         XRPAmount const fee,
         std::index_sequence<Is...>);
 
-    OpenView& base_;
+    OpenViewSandbox base_;
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
 

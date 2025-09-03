@@ -177,6 +177,13 @@ DECLARE_HOOK_FUNCTION(
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
+    emit_atomic,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
 
 DECLARE_HOOK_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
 DECLARE_HOOK_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2);
@@ -454,6 +461,7 @@ apply(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>>> const&
         hookParamOverrides,
     HookStateMap& stateMap,
+    XRPAmount& atomicEmitFeeRemaining,
     ripple::ApplyContext& applyCtx,
     ripple::AccountID const& account, /* the account the hook is INSTALLED ON
                                          not always the otxn account */
@@ -489,7 +497,10 @@ struct HookResult
 
     std::queue<std::shared_ptr<ripple::Transaction>>
         emittedTxn{};  // etx stored here until accept/rollback
+    std::queue<std::shared_ptr<ripple::Transaction>>
+        emittedAtomicTxn{};  // etx stored here until accept/rollback
     HookStateMap& stateMap;
+    XRPAmount& atomicEmitFeeRemaining;
     uint16_t changedStateCount = 0;
     std::map<
         ripple::uint256,  // hook hash
@@ -580,6 +591,14 @@ finalizeHookResult(
     hook::HookResult& hookResult,
     ripple::ApplyContext&,
     bool doEmit);
+
+bool
+emitAtomicTransactions(
+    ripple::Application& app,
+    ripple::OpenView& view,
+    ripple::uint256 const& parentTxnId,
+    ripple::STArray const& hookEmissions,
+    beast::Journal j);
 
 // write state map to ledger
 ripple::TER
@@ -813,6 +832,7 @@ public:
         ADD_HOOK_FUNCTION(util_keylet, ctx);
 
         ADD_HOOK_FUNCTION(emit, ctx);
+        ADD_HOOK_FUNCTION(emit_atomic, ctx);
         ADD_HOOK_FUNCTION(etxn_burden, ctx);
         ADD_HOOK_FUNCTION(etxn_fee_base, ctx);
         ADD_HOOK_FUNCTION(etxn_details, ctx);
