@@ -422,7 +422,7 @@ public:
      */
     template <typename StreamType>
     bool
-    deserializeFromStream(StreamType& stream);
+    deserializeFromStream(StreamType& stream, NodeObjectType nt);
 
     int
     getCowID() const

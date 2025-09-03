@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <grpc/impl/codegen/compression_types.h>
 #include <test/jtx.h>
 #include <thread>
 
@@ -315,247 +316,6 @@ class Catalogue_test : public beast::unit_test::suite
     }
 
     void
-    testCatalogueLoadAndVerify(FeatureBitset features)
-    {
-        testcase("catalogue_load: Load and verify");
-        using namespace test::jtx;
-
-        // Create environment and test data
-        Env env{*this, envconfig(), features};
-        prepareLedgerData(env, 5);
-
-        // Store some key state information before catalogue creation
-        auto const sourceLedger = env.closed();
-        auto const bobKeylet = keylet::account(Account("bob").id());
-        auto const charlieKeylet = keylet::account(Account("charlie").id());
-        auto const eurTrustKeylet = keylet::line(
-            Account("charlie").id(),
-            Account("bob").id(),
-            Currency(to_currency("EUR")));
-
-        // Get original state entries
-        auto const bobAcct = sourceLedger->read(bobKeylet);
-        auto const charlieAcct = sourceLedger->read(charlieKeylet);
-        auto const eurTrust = sourceLedger->read(eurTrustKeylet);
-
-        BEAST_EXPECT(bobAcct != nullptr);
-        BEAST_EXPECT(charlieAcct != nullptr);
-        BEAST_EXPECT(eurTrust != nullptr);
-
-        BEAST_EXPECT(
-            eurTrust->getFieldAmount(sfLowLimit).mantissa() ==
-            2000000000000000ULL);
-
-        // Get initial complete_ledgers range
-        auto const originalCompleteLedgers =
-            env.app().getLedgerMaster().getCompleteLedgers();
-
-        // Create temporary directory for test files
-        boost::filesystem::path tempDir =
-            boost::filesystem::temp_directory_path() /
-            boost::filesystem::unique_path();
-        boost::filesystem::create_directories(tempDir);
-
-        auto cataloguePath = (tempDir / "test.catl").string();
-
-        // First create a catalogue
-        uint32_t minLedger = 3;
-        uint32_t maxLedger = sourceLedger->info().seq;
-        {
-            Json::Value params{Json::objectValue};
-            params[jss::min_ledger] = minLedger;
-            params[jss::max_ledger] = maxLedger;
-            params[jss::output_file] = cataloguePath;
-
-            auto const result =
-                env.client().invoke("catalogue_create", params)[jss::result];
-            BEAST_EXPECT(result[jss::status] == jss::success);
-        }
-
-        // Create a new environment for loading the catalogue
-        // We use a separate environment with incremented ports to avoid
-        // conflicts Note: The default RWDB backend works fine - the key insight
-        // is that pinned ledgers bypass the cache, so we need to poll for
-        // availability as the async publishAcqLedger jobs complete
-        Env loadEnv{
-            *this,
-            envconfig([](std::unique_ptr<Config> cfg) {
-                // Increment port to avoid conflicts
-                cfg = test::jtx::port_increment(std::move(cfg), 3);
-                return cfg;
-            }),
-            features,
-        };
-
-        // Now load the catalogue
-        Json::Value params{Json::objectValue};
-        params[jss::input_file] = cataloguePath;
-
-        auto const result =
-            loadEnv.client().invoke("catalogue_load", params)[jss::result];
-
-        BEAST_EXPECT(result[jss::status] == jss::success);
-        BEAST_EXPECT(result[jss::ledger_min] == minLedger);
-        BEAST_EXPECT(result[jss::ledger_max] == maxLedger);
-        BEAST_EXPECT(result[jss::ledger_count] == (maxLedger - minLedger + 1));
-        // Verify complete_ledgers reflects loaded ledgers
-        auto const newCompleteLedgers =
-            loadEnv.app().getLedgerMaster().getCompleteLedgers();
-
-        BEAST_EXPECT(newCompleteLedgers == originalCompleteLedgers);
-
-        // Verify the loaded state matches the original
-        auto const loadedLedger = loadEnv.closed();
-
-        // After loading each ledger
-
-        // Compare all ledgers from 3 to 16 inclusive
-        for (std::uint32_t seq = 3; seq <= 16; ++seq)
-        {
-            // Get the source ledger (doesn't need to be validated)
-            auto const sourceLedger = getLedgerWithRetry(
-                {.env = env,
-                 .seq = seq,
-                 .pollInterval = std::chrono::milliseconds(100),
-                 .maxWaitTime = std::chrono::milliseconds(5000),
-                 .requireValidated = false});
-
-            // Get the loaded ledger (must be validated)
-            auto const loadedLedger = getLedgerWithRetry(
-                {.env = loadEnv,
-                 .seq = seq,
-                 .pollInterval = std::chrono::milliseconds(500),
-                 .maxWaitTime = std::chrono::milliseconds(30000),
-                 .requireValidated = true});
-
-            if (!sourceLedger || !loadedLedger)
-            {
-                BEAST_EXPECT(false);  // Test failure
-                continue;
-            }
-
-            // Check basic ledger properties
-            BEAST_EXPECT(sourceLedger->info().seq == loadedLedger->info().seq);
-            BEAST_EXPECT(
-                sourceLedger->info().hash == loadedLedger->info().hash);
-            BEAST_EXPECT(
-                sourceLedger->info().txHash == loadedLedger->info().txHash);
-            BEAST_EXPECT(
-                sourceLedger->info().accountHash ==
-                loadedLedger->info().accountHash);
-            BEAST_EXPECT(
-                sourceLedger->info().parentHash ==
-                loadedLedger->info().parentHash);
-            BEAST_EXPECT(
-                sourceLedger->info().drops == loadedLedger->info().drops);
-
-            // Check time-related properties
-            BEAST_EXPECT(
-                sourceLedger->info().closeFlags ==
-                loadedLedger->info().closeFlags);
-            BEAST_EXPECT(
-                sourceLedger->info().closeTimeResolution.count() ==
-                loadedLedger->info().closeTimeResolution.count());
-            BEAST_EXPECT(
-                sourceLedger->info().closeTime.time_since_epoch().count() ==
-                loadedLedger->info().closeTime.time_since_epoch().count());
-            BEAST_EXPECT(
-                sourceLedger->info()
-                    .parentCloseTime.time_since_epoch()
-                    .count() ==
-                loadedLedger->info()
-                    .parentCloseTime.time_since_epoch()
-                    .count());
-
-            // Check validation state
-            BEAST_EXPECT(
-                sourceLedger->info().validated ==
-                loadedLedger->info().validated);
-            BEAST_EXPECT(
-                sourceLedger->info().accepted == loadedLedger->info().accepted);
-
-            // Check SLE counts
-            std::size_t sourceCount = std::ranges::distance(sourceLedger->sles);
-            std::size_t loadedCount = std::ranges::distance(loadedLedger->sles);
-
-            BEAST_EXPECT(sourceCount == loadedCount);
-
-            // Check existence of imported keylets
-            for (auto const& sle : sourceLedger->sles)
-            {
-                auto const key = sle->key();
-                bool exists = loadedLedger->exists(keylet::unchecked(key));
-                BEAST_EXPECT(exists);
-
-                // If it exists, check the serialized form matches
-                if (exists)
-                {
-                    auto loadedSle = loadedLedger->read(keylet::unchecked(key));
-                    Serializer s1, s2;
-                    sle->add(s1);
-                    loadedSle->add(s2);
-                    bool serializedEqual = (s1.peekData() == s2.peekData());
-                    BEAST_EXPECT(serializedEqual);
-                }
-            }
-
-            // Check for extra keys in loaded ledger that aren't in source
-            for (auto const& sle : loadedLedger->sles)
-            {
-                auto const key = sle->key();
-                BEAST_EXPECT(sourceLedger->exists(keylet::unchecked(key)));
-            }
-        }
-
-        auto const loadedBobAcct = loadedLedger->read(bobKeylet);
-        auto const loadedCharlieAcct = loadedLedger->read(charlieKeylet);
-        auto const loadedEurTrust = loadedLedger->read(eurTrustKeylet);
-
-        BEAST_EXPECT(!!loadedBobAcct);
-        BEAST_EXPECT(!!loadedCharlieAcct);
-        BEAST_EXPECT(!!loadedEurTrust);
-
-        // Compare the serialized forms of the state objects
-        bool const loaded =
-            loadedBobAcct && loadedCharlieAcct && loadedEurTrust;
-
-        Serializer s1, s2;
-        if (loaded)
-        {
-            bobAcct->add(s1);
-            loadedBobAcct->add(s2);
-        }
-        BEAST_EXPECT(loaded && s1.peekData() == s2.peekData());
-
-        if (loaded)
-        {
-            s1.erase();
-            s2.erase();
-            charlieAcct->add(s1);
-            loadedCharlieAcct->add(s2);
-        }
-        BEAST_EXPECT(loaded && s1.peekData() == s2.peekData());
-
-        if (loaded)
-        {
-            s1.erase();
-            s2.erase();
-            eurTrust->add(s1);
-            loadedEurTrust->add(s2);
-        }
-
-        BEAST_EXPECT(loaded && s1.peekData() == s2.peekData());
-
-        // Verify trust line amount matches
-        BEAST_EXPECT(
-            loaded &&
-            loadedEurTrust->getFieldAmount(sfLowLimit).mantissa() ==
-                2000000000000000ULL);
-
-        boost::filesystem::remove_all(tempDir);
-    }
-
-    void
     testNetworkMismatch(FeatureBitset features)
     {
         testcase("catalogue_load: Network ID mismatch");
@@ -711,6 +471,317 @@ class Catalogue_test : public beast::unit_test::suite
                         "hash verification failed") == std::string::npos);
             }
         }
+
+        boost::filesystem::remove_all(tempDir);
+    }
+
+    void
+    testCatalogueLoadAndVerify(FeatureBitset features)
+    {
+        testcase("catalogue_load: Load and verify");
+        using namespace test::jtx;
+
+        // Create environment and test data
+        Env env{*this, envconfig(), nullptr, beast::severities::kNone};
+        prepareLedgerData(env, 5);
+
+        auto noop = [](Env& env, std::string partition, std::string severity) {
+            Json::Value params{Json::objectValue};
+            params[jss::severity] = severity;
+            params[jss::partition] = partition;
+            // env.client().invoke("log_level", params);
+        };
+
+        // Create journal for debugging
+        auto j = env.app().logs().journal("Catalogue_test");
+        noop(env, "CatalogueTools", "trace");
+        noop(env, "Catalogue_test", "trace");
+
+        JLOG(j.trace()) << "Test environment created, prepared ledger data";
+
+        // Store some key state information before catalogue creation
+        auto const sourceLedger = env.closed();
+        auto const bobKeylet = keylet::account(Account("bob").id());
+        auto const charlieKeylet = keylet::account(Account("charlie").id());
+        auto const eurTrustKeylet = keylet::line(
+            Account("charlie").id(),
+            Account("bob").id(),
+            Currency(to_currency("EUR")));
+
+        JLOG(j.trace()) << "Source ledger seq: " << sourceLedger->info().seq
+                        << " hash: " << sourceLedger->info().hash;
+
+        // Get original state entries
+        auto const bobAcct = sourceLedger->read(bobKeylet);
+        auto const charlieAcct = sourceLedger->read(charlieKeylet);
+        auto const eurTrust = sourceLedger->read(eurTrustKeylet);
+
+        BEAST_EXPECT(bobAcct != nullptr);
+        BEAST_EXPECT(charlieAcct != nullptr);
+        BEAST_EXPECT(eurTrust != nullptr);
+
+        BEAST_EXPECT(
+            eurTrust->getFieldAmount(sfLowLimit).mantissa() ==
+            2000000000000000ULL);
+
+        // Get initial complete_ledgers range
+        auto const originalCompleteLedgers =
+            env.app().getLedgerMaster().getCompleteLedgers();
+
+        // Create temporary directory for test files
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+
+        auto cataloguePath = (tempDir / "test.catl").string();
+
+        // First create a catalogue
+        uint32_t minLedger = 3;
+        uint32_t maxLedger = sourceLedger->info().seq;
+
+        JLOG(j.trace()) << "Creating catalogue from ledger " << minLedger
+                        << " to " << maxLedger;
+
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::min_ledger] = minLedger;
+            params[jss::max_ledger] = maxLedger;
+            params[jss::output_file] = cataloguePath;
+
+            auto const result =
+                env.client().invoke("catalogue_create", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+
+            JLOG(j.trace()) << "Catalogue created: " << result.toStyledString();
+        }
+
+        // Create a new environment for loading the catalogue
+        // We use a separate environment with incremented ports to avoid
+        // conflicts Note: The default RWDB backend works fine - the key insight
+        // is that pinned ledgers bypass the cache, so we need to poll for
+        // availability as the async publishAcqLedger jobs complete
+        Env loadEnv{
+            *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                // Increment port to avoid conflicts
+                cfg = test::jtx::port_increment(std::move(cfg), 3);
+                return cfg;
+            }),
+            features,
+        };
+
+        noop(loadEnv, "CatalogueTools", "trace");
+        noop(loadEnv, "Catalogue_test", "trace");
+
+        // Create journal for load environment
+        auto loadJ = loadEnv.app().logs().journal("Catalogue_test");
+
+        // Now load the catalogue
+        Json::Value params{Json::objectValue};
+        params[jss::input_file] = cataloguePath;
+
+        JLOG(loadJ.trace()) << "Loading catalogue from " << cataloguePath;
+
+        auto const result =
+            loadEnv.client().invoke("catalogue_load", params)[jss::result];
+
+        JLOG(loadJ.trace())
+            << "Catalogue load result: " << result.toStyledString();
+
+        BEAST_EXPECT(result[jss::status] == jss::success);
+        BEAST_EXPECT(result[jss::ledger_min] == minLedger);
+        BEAST_EXPECT(result[jss::ledger_max] == maxLedger);
+        BEAST_EXPECT(result[jss::ledger_count] == (maxLedger - minLedger + 1));
+        // Verify complete_ledgers reflects loaded ledgers
+        auto const newCompleteLedgers =
+            loadEnv.app().getLedgerMaster().getCompleteLedgers();
+
+        BEAST_EXPECT(newCompleteLedgers == originalCompleteLedgers);
+
+        // Verify the loaded state matches the original
+        auto const loadedLedger = loadEnv.closed();
+
+        // After loading each ledger
+
+        // Compare all ledgers from 3 to 16 inclusive
+        for (std::uint32_t seq = 3; seq <= 16; ++seq)
+        {
+            JLOG(j.trace()) << "Comparing ledger " << seq;
+
+            // Get the source ledger (doesn't need to be validated)
+            auto const sourceLedger = getLedgerWithRetry(
+                {.env = env,
+                 .seq = seq,
+                 .pollInterval = std::chrono::milliseconds(100),
+                 .maxWaitTime = std::chrono::milliseconds(5000),
+                 .requireValidated = false});
+
+            // Get the loaded ledger (must be validated)
+            auto const loadedLedger = getLedgerWithRetry(
+                {.env = loadEnv,
+                 .seq = seq,
+                 .pollInterval = std::chrono::milliseconds(500),
+                 .maxWaitTime = std::chrono::milliseconds(30000),
+                 .requireValidated = true});
+
+            if (!sourceLedger || !loadedLedger)
+            {
+                JLOG(j.trace())
+                    << "Failed to get ledger " << seq
+                    << " source: " << (sourceLedger ? "ok" : "missing")
+                    << " loaded: " << (loadedLedger ? "ok" : "missing");
+                BEAST_EXPECT(false);  // Test failure
+                continue;
+            }
+
+            JLOG(j.trace()) << "Got both ledgers for seq " << seq;
+
+            // Check basic ledger properties
+            BEAST_EXPECT(sourceLedger->info().seq == loadedLedger->info().seq);
+            BEAST_EXPECT(
+                sourceLedger->info().hash == loadedLedger->info().hash);
+            BEAST_EXPECT(
+                sourceLedger->info().txHash == loadedLedger->info().txHash);
+            BEAST_EXPECT(
+                sourceLedger->info().accountHash ==
+                loadedLedger->info().accountHash);
+            BEAST_EXPECT(
+                sourceLedger->info().parentHash ==
+                loadedLedger->info().parentHash);
+            BEAST_EXPECT(
+                sourceLedger->info().drops == loadedLedger->info().drops);
+
+            // Check time-related properties
+            BEAST_EXPECT(
+                sourceLedger->info().closeFlags ==
+                loadedLedger->info().closeFlags);
+            BEAST_EXPECT(
+                sourceLedger->info().closeTimeResolution.count() ==
+                loadedLedger->info().closeTimeResolution.count());
+            BEAST_EXPECT(
+                sourceLedger->info().closeTime.time_since_epoch().count() ==
+                loadedLedger->info().closeTime.time_since_epoch().count());
+            BEAST_EXPECT(
+                sourceLedger->info()
+                    .parentCloseTime.time_since_epoch()
+                    .count() ==
+                loadedLedger->info()
+                    .parentCloseTime.time_since_epoch()
+                    .count());
+
+            // Check validation state
+            BEAST_EXPECT(
+                sourceLedger->info().validated ==
+                loadedLedger->info().validated);
+            BEAST_EXPECT(
+                sourceLedger->info().accepted == loadedLedger->info().accepted);
+
+            // Check SLE counts
+            std::size_t sourceCount = std::ranges::distance(sourceLedger->sles);
+            std::size_t loadedCount = std::ranges::distance(loadedLedger->sles);
+
+            JLOG(j.trace())
+                << "Ledger " << seq << " SLE count - source: " << sourceCount
+                << " loaded: " << loadedCount;
+
+            BEAST_EXPECT(sourceCount == loadedCount);
+
+            // Check existence of imported keylets
+            for (auto const& sle : sourceLedger->sles)
+            {
+                auto const key = sle->key();
+                bool exists = loadedLedger->exists(keylet::unchecked(key));
+
+                if (!exists)
+                {
+                    JLOG(j.trace())
+                        << "Ledger " << seq << " missing key: " << key;
+                }
+
+                BEAST_EXPECT(exists);
+
+                // If it exists, check the serialized form matches
+                if (exists)
+                {
+                    auto loadedSle = loadedLedger->read(keylet::unchecked(key));
+                    Serializer s1, s2;
+                    sle->add(s1);
+                    loadedSle->add(s2);
+                    bool serializedEqual = (s1.peekData() == s2.peekData());
+
+                    if (!serializedEqual)
+                    {
+                        JLOG(j.trace())
+                            << "Ledger " << seq << " mismatch for key: " << key;
+                    }
+
+                    BEAST_EXPECT(serializedEqual);
+                }
+            }
+
+            // Check for extra keys in loaded ledger that aren't in source
+            for (auto const& sle : loadedLedger->sles)
+            {
+                auto const key = sle->key();
+                bool exists = sourceLedger->exists(keylet::unchecked(key));
+
+                if (!exists)
+                {
+                    JLOG(j.trace())
+                        << "Ledger " << seq << " extra key in loaded: " << key;
+                }
+
+                BEAST_EXPECT(exists);
+            }
+        }
+
+        JLOG(j.trace()) << "Ledger comparison complete";
+
+        auto const loadedBobAcct = loadedLedger->read(bobKeylet);
+        auto const loadedCharlieAcct = loadedLedger->read(charlieKeylet);
+        auto const loadedEurTrust = loadedLedger->read(eurTrustKeylet);
+
+        BEAST_EXPECT(!!loadedBobAcct);
+        BEAST_EXPECT(!!loadedCharlieAcct);
+        BEAST_EXPECT(!!loadedEurTrust);
+
+        // Compare the serialized forms of the state objects
+        bool const loaded =
+            loadedBobAcct && loadedCharlieAcct && loadedEurTrust;
+
+        Serializer s1, s2;
+        if (loaded)
+        {
+            bobAcct->add(s1);
+            loadedBobAcct->add(s2);
+        }
+        BEAST_EXPECT(loaded && s1.peekData() == s2.peekData());
+
+        if (loaded)
+        {
+            s1.erase();
+            s2.erase();
+            charlieAcct->add(s1);
+            loadedCharlieAcct->add(s2);
+        }
+        BEAST_EXPECT(loaded && s1.peekData() == s2.peekData());
+
+        if (loaded)
+        {
+            s1.erase();
+            s2.erase();
+            eurTrust->add(s1);
+            loadedEurTrust->add(s2);
+        }
+
+        BEAST_EXPECT(loaded && s1.peekData() == s2.peekData());
+
+        // Verify trust line amount matches
+        BEAST_EXPECT(
+            loaded &&
+            loadedEurTrust->getFieldAmount(sfLowLimit).mantissa() ==
+                2000000000000000ULL);
 
         boost::filesystem::remove_all(tempDir);
     }

@@ -1205,12 +1205,15 @@ doCatalogueLoad(RPC::JsonContext& context)
         {
             auto j = journal;
             JLOG(j.trace())
-                << "Executing save job for ledger " << ledger->info().seq;
+                << "Executing save job for ledger " << ledger->info().seq
+                << " hash: " << ledger->info().hash;
 
             //@@start catalogue-shamaps-flush-dirty
             // Only flush in background if NOT already flushed in main thread
             int stateNodesFlushed = 0;
             int txNodesFlushed = 0;
+
+            JLOG(j.trace()) << "flushMapsInMain = " << flushMapsInMain;
 
             if (!flushMapsInMain)
             {
@@ -1258,6 +1261,9 @@ doCatalogueLoad(RPC::JsonContext& context)
 
             // This handles the existence check and calls
             // detail::saveValidatedLedger
+            JLOG(j.trace()) << "Calling saveValidatedLedger for ledger "
+                            << ledger->info().seq;
+
             if (!db->saveValidatedLedger(ledger, false))
             {
                 JLOG(j.error())
@@ -1266,7 +1272,12 @@ doCatalogueLoad(RPC::JsonContext& context)
             }
 
             JLOG(j.trace())
-                << "Completed save job for ledger " << ledger->info().seq;
+                << "Successfully saved ledger " << ledger->info().seq;
+
+            JLOG(j.trace())
+                << "Completed save job for ledger " << ledger->info().seq
+                << " stateNodes: " << stateNodesFlushed
+                << " txNodes: " << txNodesFlushed;
         }
     };
 
@@ -1288,33 +1299,45 @@ doCatalogueLoad(RPC::JsonContext& context)
     static constexpr int BATCH_UPDATE_INTERVAL =
         100;  // Update ranges every N ledgers
 
-    // Ripple's COW (Copy-on-Write) system uses a binary ownership model:
-    //   - cowid = 0: Node is shareable between maps
-    //   - cowid != 0: Node is owned by a specific map instance
+    // IMPORTANT: flushMapsInMain MUST be true for catalogue loading to work
+    // correctly.
     //
-    // The flushDirty() mechanism only flushes nodes where cowid != 0.
-    // This works fine for single parent-child validation copies, but breaks
-    // for building ledger chains because:
+    // Ripple's COW (Copy-on-Write) system fundamentally conflicts with deferred
+    // flushing in background threads. The COW system has two critical
+    // assumptions that break our use case:
     //
-    // 1. When we snapshot L1 to create L2, if either is mutable, unshare()
-    //    is called, setting ALL nodes to cowid=0 (shareable)
-    // 2. Newly deserialized nodes in L2 would normally get L2's cowid
-    // 3. But when we snapshot L2 to create L3, unshare() resets everything
-    // 4. By the time background thread tries to flush, all nodes have cowid=0
-    // 5. flushDirty() sees cowid=0 on root and returns without flushing
+    // 1. COW ID Problem: When creating snapshot chains (L1 -> L2 -> L3...), the
+    // COW system
+    //    resets all node IDs to 0 (shareable) during snapshot creation. By the
+    //    time a background thread tries to flush, flushDirty() sees cowid=0 and
+    //    assumes nothing needs flushing, resulting in missing nodes.
+    //
+    // 2. Pointer Identity Problem: The flushByPointerDiff() optimization
+    // attempts to work
+    //    around the COW ID issue by comparing node pointers between parent and
+    //    child maps. However, this also fails because:
+    //    - Snapshots initially share the same physical nodes (same pointers)
+    //    - The COW system only creates new physical copies during write
+    //    operations
+    //    - But the write operation IS the flush itself!
+    //    - Chicken-and-egg: We need different pointers to know what to flush,
+    //    but we
+    //      only get different pointers AFTER flushing triggers the
+    //      copy-on-write
     //
     // The COW system was designed for temporary validation copies with
-    // immediate flushing, NOT for building persistent chains where:
-    //   - Multiple snapshots exist from the same base
-    //   - Flushing is deferred to background threads
-    //   - We need to track deltas between ledger versions
+    // immediate flushing, not for building persistent ledger chains with
+    // deferred background flushing.
     //
-    // We now have flushByPointerDiff() which uses pointer comparison to track
-    // deltas between ledger versions - this should be at least as fast as any
-    // COW-based tree flushing could ever be. This toggle allows performance
-    // comparison between:
-    //   - true: Synchronous flush in main thread (COW workaround)
-    //   - false: Async flush in background using flushByPointerDiff()
+    // Therefore, we MUST flush in the main thread while we still have the COW
+    // information available. The performance impact is acceptable because:
+    //   - Catalogue loading is a batch operation, not on the critical consensus
+    //   path
+    //   - The nodes need to be written eventually anyway
+    //   - Main thread flushing ensures data integrity
+    //
+    // Attempts to set this to false will result in missing nodes and test
+    // failures.
     static constexpr bool flushMapsInMain = true;
 
     uint32_t ledgersLoaded = 0;
@@ -1398,7 +1421,8 @@ doCatalogueLoad(RPC::JsonContext& context)
             ledger->setLedgerInfo(info);
 
             // Deserialize the complete state map from leaf nodes
-            if (!ledger->stateMap().deserializeFromStream(*decompStream))
+            if (!ledger->stateMap().deserializeFromStream(
+                    *decompStream, pinnedACCOUNT_NODE))
             {
                 JLOG(j.error()) << "Failed to deserialize base ledger state";
                 return rpcError(
@@ -1408,6 +1432,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             if (flushMapsInMain)
             {
                 ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
+                ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
             }
         }
         else
@@ -1428,7 +1453,8 @@ doCatalogueLoad(RPC::JsonContext& context)
                 *snapshot);
 
             // Apply delta (only leaf-node changes)
-            if (!ledger->stateMap().deserializeFromStream(*decompStream))
+            if (!ledger->stateMap().deserializeFromStream(
+                    *decompStream, pinnedACCOUNT_NODE))
             {
                 JLOG(j.error())
                     << "Failed to apply delta to ledger " << info.seq;
@@ -1442,14 +1468,18 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // pull in the tx map
-        if (!ledger->txMap().deserializeFromStream(*decompStream))
+        if (!ledger->txMap().deserializeFromStream(
+                *decompStream, pinnedTRANSACTION_NODE))
         {
             JLOG(j.error()) << "Failed to apply delta to ledger " << info.seq;
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
         }
 
-        // TX map flushing moved to background job since it's unique per ledger
-        // (no COW chain issues)
+        // Flush TX map in main thread if configured
+        if (flushMapsInMain)
+        {
+            ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
+        }
 
         // Finalize the ledger
         ledger->setAccepted(
@@ -1471,8 +1501,17 @@ doCatalogueLoad(RPC::JsonContext& context)
             std::shared_ptr<SHAMap> parentStateMapSnapshot;
             if (prevLedger)
             {
+                JLOG(j.trace())
+                    << "Creating parent snapshot for delta flushing from "
+                       "ledger "
+                    << prevLedger->seq() << " for ledger " << ledger->seq();
                 parentStateMapSnapshot = prevLedger->stateMap().snapShot(
                     false);  // immutable is fine for parent
+            }
+            else
+            {
+                JLOG(j.trace())
+                    << "No parent ledger for delta flushing (first ledger)";
             }
 
             // TX map doesn't need snapshot - it's unique per ledger!
@@ -1514,6 +1553,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             saveState->totalPendingJobs++;
 
             JLOG(j.trace()) << "Queueing save job for ledger " << ledger->seq()
+                            << " hash: " << ledger->info().hash
                             << ", pending=" << saveState->pendingSaves.load();
 
             bool jobQueued = tempJobQueue->addJob(

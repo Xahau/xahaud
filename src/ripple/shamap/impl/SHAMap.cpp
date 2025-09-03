@@ -1044,15 +1044,38 @@ SHAMap::flushByPointerDiff(
     std::optional<std::reference_wrapper<const SHAMap>> parent,
     NodeObjectType t)
 {
+    // Get a specific journal from the app for debugging
+    /// auto journal_ = f_.app.logs().journal("SHAMap_flushDiff");
+
+    // Debug logging
+    JLOG(journal_.trace()) << "flushByPointerDiff: Starting"
+                           << " type=" << static_cast<int>(t)
+                           << " parent=" << (parent ? "present" : "null")
+                           << " backed=" << backed_;
+
     if (!backed_)
+    {
+        JLOG(journal_.trace()) << "flushByPointerDiff: Not backed, returning 0";
         return 0;
+    }
 
     // First ledger in chain → just flush everything.
     if (!parent.has_value())
-        return flushDirty(t);
+    {
+        JLOG(journal_.trace())
+            << "flushByPointerDiff: No parent, using flushDirty";
+        int result = flushDirty(t);
+        JLOG(journal_.trace()) << "flushByPointerDiff: flushed " << result
+                               << " nodes via flushDirty";
+        return result;
+    }
 
     const SHAMap& pmap = parent->get();
     int flushed = 0;
+
+    JLOG(journal_.trace()) << "flushByPointerDiff: Current root="
+                           << (root_ ? "present" : "null") << " Parent root="
+                           << (pmap.root_ ? "present" : "null");
 
     // Writer for a single node.
     auto flushNode = [&](SHAMapTreeNode* node) {
@@ -1078,9 +1101,12 @@ SHAMap::flushByPointerDiff(
                 auto inner = static_cast<SHAMapInnerNode*>(node);
                 for (int i = 0; i < branchFactor; ++i)
                 {
-                    auto child = inner->getChildPointer(i);
-                    if (child)
-                        flushSubtree(child);
+                    if (!inner->isEmptyBranch(i))
+                    {
+                        auto child = inner->getChildPointer(i);
+                        if (child)
+                            flushSubtree(child);
+                    }
                 }
             }
             flushNode(node);
@@ -1095,12 +1121,16 @@ SHAMap::flushByPointerDiff(
         if (!cur && par)
         {
             // Deleted branch → nothing to flush.
+            JLOG(journal_.trace())
+                << "flushByPointerDiff: Deleted branch, skipping";
             return;
         }
 
         if (cur && !par)
         {
             // Entirely new branch → flush whole subtree.
+            JLOG(journal_.trace())
+                << "flushByPointerDiff: New branch, flushing subtree";
             flushSubtree(cur);
             return;
         }
@@ -1110,8 +1140,15 @@ SHAMap::flushByPointerDiff(
         if (cur == par)
         {
             // Identical pointers → identical subtree, skip.
+            JLOG(journal_.trace())
+                << "flushByPointerDiff: Identical pointers cur=" << cur
+                << " par=" << par << ", skipping";
             return;
         }
+
+        JLOG(journal_.trace())
+            << "flushByPointerDiff: Different pointers cur=" << cur
+            << " par=" << par;
 
         bool curIsLeaf = cur->isLeaf();
         bool parIsLeaf = par->isLeaf();
@@ -1149,9 +1186,16 @@ SHAMap::flushByPointerDiff(
 
         for (int i = 0; i < branchFactor; ++i)
         {
-            auto cc = ci->getChildPointer(i);
-            auto pc = pi->getChildPointer(i);
-            walkDiff(cc, pc);
+            SHAMapTreeNode* cc = nullptr;
+            SHAMapTreeNode* pc = nullptr;
+
+            if (!ci->isEmptyBranch(i))
+                cc = ci->getChildPointer(i);
+            if (!pi->isEmptyBranch(i))
+                pc = pi->getChildPointer(i);
+
+            if (cc || pc)  // Only recurse if at least one child exists
+                walkDiff(cc, pc);
         }
     };
 
@@ -1615,7 +1659,7 @@ SHAMap::serializeToStream(
 
 template <typename StreamType>
 bool
-SHAMap::deserializeFromStream(StreamType& stream)
+SHAMap::deserializeFromStream(StreamType& stream, NodeObjectType nt)
 {
     try
     {
@@ -1717,7 +1761,7 @@ SHAMap::deserializeFromStream(StreamType& stream)
         }
 
         // Flush any dirty nodes and update hashes
-        // flushDirty(hotUNKNOWN);
+        // flushDirty(nt);
 
         return true;
     }
@@ -1739,7 +1783,9 @@ using FilteringInputStream = boost::iostreams::filtering_stream<
     boost::iostreams::public_>;
 
 template bool
-SHAMap::deserializeFromStream<FilteringInputStream>(FilteringInputStream&);
+SHAMap::deserializeFromStream<FilteringInputStream>(
+    FilteringInputStream&,
+    NodeObjectType);
 
 using FilteringOutputStream = boost::iostreams::filtering_stream<
     boost::iostreams::output,
