@@ -27,8 +27,8 @@
 #include <ripple/core/ConfigSections.h>
 #include <ripple/core/Pg.h>
 #include <ripple/nodestore/Scheduler.h>
-#include <ripple/nodestore/impl/DatabaseRotatingImp.h>
 #include <ripple/nodestore/impl/DatabasePinnedImp.h>
+#include <ripple/nodestore/impl/DatabaseRotatingImp.h>
 #include <ripple/shamap/SHAMapMissingNode.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -275,7 +275,8 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             pinnedConfig.set("path", *nscfg.get("pinned_path"));
             auto pinnedBackend = NodeStore::Manager::instance().make_Backend(
                 pinnedConfig,
-                megabytes(app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),
+                megabytes(app_.config().getValueFor(
+                    SizedItem::burstSize, std::nullopt)),
                 scheduler_,
                 app_.logs().journal(nodeStoreName_));
             pinnedBackend->open();
@@ -293,7 +294,8 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
                 app_.logs().journal(NodeStore::DatabasePinnedImp::JournalName));
 
             fdRequired_ += dbp->fdRequired();
-            dbRotating_ = dbp.get();  // DatabasePinned inherits from DatabaseRotating
+            dbRotating_ =
+                dbp.get();  // DatabasePinned inherits from DatabaseRotating
             db.reset(dynamic_cast<NodeStore::Database*>(dbp.release()));
         }
         else

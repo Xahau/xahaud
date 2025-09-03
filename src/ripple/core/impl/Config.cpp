@@ -1032,20 +1032,21 @@ Config::loadFromString(std::string const& fileContents)
                 Throw<std::runtime_error>(
                     "pinned_type requires type=rwdb for memory backend");
             }
-            
+
             // Ensure pinned_path is specified
             if (!db_section.exists("pinned_path"))
             {
                 Throw<std::runtime_error>(
                     "pinned_path is required when pinned_type is set");
             }
-            
+
             // Ensure online_delete is set for rotation
             if (auto delete_interval = get(db_section, "online_delete", 0);
                 delete_interval == 0)
             {
                 Throw<std::runtime_error>(
-                    "DatabasePinned requires online_delete for memory rotation");
+                    "DatabasePinned requires online_delete for memory "
+                    "rotation");
             }
         }
     }

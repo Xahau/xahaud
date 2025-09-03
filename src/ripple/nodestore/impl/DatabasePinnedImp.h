@@ -67,29 +67,43 @@ public:
     }
 
     // DatabaseRotating interface - delegates to rotating_
-    void rotateWithLock(
+    void
+    rotateWithLock(
         std::function<std::unique_ptr<NodeStore::Backend>(
             std::string const& writableBackendName)> const& f) override;
-    
+
     // Database interface implementation
-    std::string getName() const override;
-    std::int32_t getWriteLoad() const override;
-    void importDatabase(Database& source) override;
-    bool isSameDB(std::uint32_t s1, std::uint32_t s2) override;
-    void store(NodeObjectType type, Blob&& data, 
-               uint256 const& hash, std::uint32_t ledgerSeq) override;
-    void sync() override;
-    bool storeLedger(std::shared_ptr<Ledger const> const& srcLedger) override;
-    void sweep() override;
-    
+    std::string
+    getName() const override;
+    std::int32_t
+    getWriteLoad() const override;
+    void
+    importDatabase(Database& source) override;
+    bool
+    isSameDB(std::uint32_t s1, std::uint32_t s2) override;
+    void
+    store(
+        NodeObjectType type,
+        Blob&& data,
+        uint256 const& hash,
+        std::uint32_t ledgerSeq) override;
+    void
+    sync() override;
+    bool
+    storeLedger(std::shared_ptr<Ledger const> const& srcLedger) override;
+    void
+    sweep() override;
+
 private:
-    std::shared_ptr<NodeObject> fetchNodeObject(
+    std::shared_ptr<NodeObject>
+    fetchNodeObject(
         uint256 const& hash,
         std::uint32_t ledgerSeq,
         FetchReport& fetchReport,
         bool duplicate) override;
-    
-    void for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override;
+
+    void
+    for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override;
 };
 
 }  // namespace NodeStore

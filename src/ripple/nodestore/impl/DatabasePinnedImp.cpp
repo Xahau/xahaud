@@ -51,7 +51,8 @@ DatabasePinnedImp::DatabasePinnedImp(
         fdRequired_ += persistent_->fdRequired();
 }
 
-void DatabasePinnedImp::store(
+void
+DatabasePinnedImp::store(
     NodeObjectType type,
     Blob&& data,
     uint256 const& hash,
@@ -61,8 +62,7 @@ void DatabasePinnedImp::store(
     static std::atomic<uint64_t> hotCount{0};
 
     // Route based on type
-    if (type == pinnedACCOUNT_NODE || 
-        type == pinnedTRANSACTION_NODE || 
+    if (type == pinnedACCOUNT_NODE || type == pinnedTRANSACTION_NODE ||
         type == pinnedLEDGER)
     {
         // Pinned types go to persistent storage
@@ -123,11 +123,12 @@ DatabasePinnedImp::fetchNodeObject(
         // duplicate=true Pinned data stays in persistent storage
         return nodeObject;
     }
-    
+
     return nullptr;
 }
 
-void DatabasePinnedImp::rotateWithLock(
+void
+DatabasePinnedImp::rotateWithLock(
     std::function<std::unique_ptr<NodeStore::Backend>(
         std::string const& writableBackendName)> const& f)
 {
@@ -136,17 +137,20 @@ void DatabasePinnedImp::rotateWithLock(
     rotating_.rotateWithLock(f);
 }
 
-std::string DatabasePinnedImp::getName() const
+std::string
+DatabasePinnedImp::getName() const
 {
     return "Pinned:" + rotating_.getName() + "+" + persistent_->getName();
 }
 
-std::int32_t DatabasePinnedImp::getWriteLoad() const
+std::int32_t
+DatabasePinnedImp::getWriteLoad() const
 {
     return rotating_.getWriteLoad() + persistent_->getWriteLoad();
 }
 
-void DatabasePinnedImp::importDatabase(Database& source)
+void
+DatabasePinnedImp::importDatabase(Database& source)
 {
     Throw<std::runtime_error>(
         "DatabasePinned does not support import operations");
@@ -159,27 +163,29 @@ DatabasePinnedImp::isSameDB(std::uint32_t s1, std::uint32_t s2)
     return rotating_.isSameDB(s1, s2);
 }
 
-void DatabasePinnedImp::sync()
+void
+DatabasePinnedImp::sync()
 {
     rotating_.sync();
     persistent_->sync();
 }
 
-bool DatabasePinnedImp::storeLedger(
-    std::shared_ptr<Ledger const> const& srcLedger)
+bool
+DatabasePinnedImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
 {
     // Store to persistent since ledger headers should be pinned
     return Database::storeLedger(*srcLedger, persistent_);
 }
 
-void DatabasePinnedImp::sweep()
+void
+DatabasePinnedImp::sweep()
 {
     // Delegate to rotating - persistent has no cache
     rotating_.sweep();
 }
 
-void DatabasePinnedImp::for_each(
-    std::function<void(std::shared_ptr<NodeObject>)> f)
+void
+DatabasePinnedImp::for_each(std::function<void(std::shared_ptr<NodeObject>)> f)
 {
     // Visit both rotating and persistent backends
     rotating_.for_each(f);
