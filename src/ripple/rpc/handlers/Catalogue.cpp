@@ -1195,7 +1195,10 @@ doCatalogueLoad(RPC::JsonContext& context)
     {
         std::shared_ptr<Ledger> ledger;  // Non-const so we can flush
         std::shared_ptr<SHAMap> stateMapSnapshot;
-        std::shared_ptr<SHAMap> txMapSnapshot;
+        std::shared_ptr<SHAMap> parentStateMap;  // For delta flushing
+        bool flushMapsInMain;  // Whether maps were already flushed in main
+                               // thread
+        // No txMapSnapshot needed - tx map is unique per ledger!
 
         void
         execute(Application& app, beast::Journal journal)
@@ -1205,23 +1208,41 @@ doCatalogueLoad(RPC::JsonContext& context)
                 << "Executing save job for ledger " << ledger->info().seq;
 
             //@@start catalogue-shamaps-flush-dirty
-            // NOTE: These flushDirty calls currently do nothing due to COW
-            // limitations All nodes have cowid=0 by the time we get here (see
-            // main thread workaround) We keep this code for future
-            // experimentation with COW fixes The actual flushing happens in the
-            // main thread if flushMapsInMain=true
-            int stateNodesFlushed =
-                stateMapSnapshot->flushDirty(pinnedACCOUNT_NODE);
-            int txNodesFlushed =
-                txMapSnapshot->flushDirty(pinnedTRANSACTION_NODE);
+            // Only flush in background if NOT already flushed in main thread
+            int stateNodesFlushed = 0;
+            int txNodesFlushed = 0;
 
-            // Log periodically for debugging (will show 0 until COW is fixed)
+            if (!flushMapsInMain)
+            {
+                // Use new flushDifferences for state map - properly handles
+                // deltas!
+                if (parentStateMap)
+                {
+                    stateNodesFlushed = stateMapSnapshot->flushByPointerDiff(
+                        std::ref(*parentStateMap), pinnedACCOUNT_NODE);
+                }
+                else
+                {
+                    // First ledger - no parent, flush everything
+                    stateNodesFlushed =
+                        stateMapSnapshot->flushDirty(pinnedACCOUNT_NODE);
+                }
+
+                // TX map can flush normally - it's unique per ledger!
+                txNodesFlushed =
+                    ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
+            }
+
+            // Log periodically for debugging
             if (ledger->info().seq % 1000 == 0)
             {
                 JLOG(j.trace())
                     << "BG flush ledger " << ledger->info().seq << ": "
                     << stateNodesFlushed << " state nodes, " << txNodesFlushed
-                    << " tx nodes (COW workaround active)";
+                    << " tx nodes "
+                    << (flushMapsInMain ? "(already flushed in main)"
+                                        : (parentStateMap ? "(delta flush)"
+                                                          : "(full flush)"));
             }
             //@@end catalogue-shamaps-flush-dirty
 
@@ -1267,8 +1288,6 @@ doCatalogueLoad(RPC::JsonContext& context)
     static constexpr int BATCH_UPDATE_INTERVAL =
         100;  // Update ranges every N ledgers
 
-    // WORKAROUND: Flush SHAMaps synchronously in main thread
-    //
     // Ripple's COW (Copy-on-Write) system uses a binary ownership model:
     //   - cowid = 0: Node is shareable between maps
     //   - cowid != 0: Node is owned by a specific map instance
@@ -1290,10 +1309,13 @@ doCatalogueLoad(RPC::JsonContext& context)
     //   - Flushing is deferred to background threads
     //   - We need to track deltas between ledger versions
     //
-    // Until COW is redesigned to support chain building (tracking deltas
-    // rather than ownership), we must flush synchronously in the main thread
-    // immediately after deserialization while nodes still have non-zero cowid.
-    bool flushMapsInMain = true;
+    // We now have flushByPointerDiff() which uses pointer comparison to track
+    // deltas between ledger versions - this should be at least as fast as any
+    // COW-based tree flushing could ever be. This toggle allows performance
+    // comparison between:
+    //   - true: Synchronous flush in main thread (COW workaround)
+    //   - false: Async flush in background using flushByPointerDiff()
+    static constexpr bool flushMapsInMain = true;
 
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
@@ -1426,10 +1448,8 @@ doCatalogueLoad(RPC::JsonContext& context)
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
         }
 
-        if (flushMapsInMain)
-        {
-            ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
-        }
+        // TX map flushing moved to background job since it's unique per ledger
+        // (no COW chain issues)
 
         // Finalize the ledger
         ledger->setAccepted(
@@ -1442,12 +1462,21 @@ doCatalogueLoad(RPC::JsonContext& context)
 
         // Queue save job for parallel processing using our temporary JobQueue
         {
-            // CRITICAL: Take MUTABLE snapshots BEFORE setImmutable
-            // This ensures unshare() is called, giving nodes the snapshot's
-            // cowid so flushDirty() can identify and flush modified nodes
+            // CRITICAL: Take MUTABLE snapshot of state map BEFORE setImmutable
+            // State map needs snapshot due to COW chain issues
             auto stateSnapshot =
-                ledger->stateMap().snapShot(true);             // true = mutable
-            auto txSnapshot = ledger->txMap().snapShot(true);  // true = mutable
+                ledger->stateMap().snapShot(true);  // true = mutable
+
+            // Keep parent state map for delta flushing (null for first ledger)
+            std::shared_ptr<SHAMap> parentStateMapSnapshot;
+            if (prevLedger)
+            {
+                parentStateMapSnapshot = prevLedger->stateMap().snapShot(
+                    false);  // immutable is fine for parent
+            }
+
+            // TX map doesn't need snapshot - it's unique per ledger!
+            // We'll flush it directly in the background job
 
             // NOW make the ledger immutable
             ledger->setImmutable(true);
@@ -1490,7 +1519,12 @@ doCatalogueLoad(RPC::JsonContext& context)
             bool jobQueued = tempJobQueue->addJob(
                 jtPUBOLDLEDGER,
                 "cat-save-" + std::to_string(ledger->seq()),
-                [job = LedgerSaveJob{ledger, stateSnapshot, txSnapshot},
+                [job =
+                     LedgerSaveJob{
+                         ledger,
+                         stateSnapshot,
+                         parentStateMapSnapshot,
+                         flushMapsInMain},
                  saveState,
                  app = &context.app,
                  j,

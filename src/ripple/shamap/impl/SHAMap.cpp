@@ -1040,6 +1040,126 @@ SHAMap::flushDirty(NodeObjectType t)
 }
 
 int
+SHAMap::flushByPointerDiff(
+    std::optional<std::reference_wrapper<const SHAMap>> parent,
+    NodeObjectType t)
+{
+    if (!backed_)
+        return 0;
+
+    // First ledger in chain → just flush everything.
+    if (!parent.has_value())
+        return flushDirty(t);
+
+    const SHAMap& pmap = parent->get();
+    int flushed = 0;
+
+    // Writer for a single node.
+    auto flushNode = [&](SHAMapTreeNode* node) {
+        if (!node)
+            return;
+        Serializer s;
+        node->serializeWithPrefix(s);
+        f_.db().store(
+            t,
+            std::move(s.modData()),
+            node->getHash().as_uint256(),
+            ledgerSeq_);
+        ++flushed;
+    };
+
+    // Flush an entire subtree (post-order).
+    std::function<void(SHAMapTreeNode*)> flushSubtree =
+        [&](SHAMapTreeNode* node) {
+            if (!node)
+                return;
+            if (node->isInner())
+            {
+                auto inner = static_cast<SHAMapInnerNode*>(node);
+                for (int i = 0; i < branchFactor; ++i)
+                {
+                    auto child = inner->getChildPointer(i);
+                    if (child)
+                        flushSubtree(child);
+                }
+            }
+            flushNode(node);
+        };
+
+    // Recursive diff walk (pointer-based).
+    std::function<void(SHAMapTreeNode*, SHAMapTreeNode*)> walkDiff;
+    walkDiff = [&](SHAMapTreeNode* cur, SHAMapTreeNode* par) {
+        if (!cur && !par)
+            return;
+
+        if (!cur && par)
+        {
+            // Deleted branch → nothing to flush.
+            return;
+        }
+
+        if (cur && !par)
+        {
+            // Entirely new branch → flush whole subtree.
+            flushSubtree(cur);
+            return;
+        }
+
+        // Both exist.
+
+        if (cur == par)
+        {
+            // Identical pointers → identical subtree, skip.
+            return;
+        }
+
+        bool curIsLeaf = cur->isLeaf();
+        bool parIsLeaf = par->isLeaf();
+
+        if (curIsLeaf && parIsLeaf)
+        {
+            // Same position but different leaf object → flush new one.
+            flushNode(cur);
+            return;
+        }
+
+        if (curIsLeaf && !parIsLeaf)
+        {
+            // Current collapsed to leaf, parent was inner.
+            // Just flush the leaf.
+            flushNode(cur);
+            return;
+        }
+
+        if (!curIsLeaf && parIsLeaf)
+        {
+            // Current expanded to inner, parent was leaf.
+            // Flush the entire new subtree.
+            flushSubtree(cur);
+            return;
+        }
+
+        // Both inner: walk children branch-by-branch.
+        auto ci = static_cast<SHAMapInnerNode*>(cur);
+        auto pi = static_cast<SHAMapInnerNode*>(par);
+
+        // Even if this inner differs only slightly, we still flush it,
+        // because its pointer != parent's.
+        flushNode(cur);
+
+        for (int i = 0; i < branchFactor; ++i)
+        {
+            auto cc = ci->getChildPointer(i);
+            auto pc = pi->getChildPointer(i);
+            walkDiff(cc, pc);
+        }
+    };
+
+    walkDiff(root_.get(), pmap.root_.get());
+    return flushed;
+}
+
+int
 SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
 {
     assert(!doWrite || backed_);
