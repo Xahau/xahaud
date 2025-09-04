@@ -427,12 +427,25 @@ SHAMapStoreImp::performStartupCleanup()
     // that fall outside the retention policy (deleteInterval + pinned ranges)
     // without the usual gradual deletion with pauses.
     //
+    // IMPORTANT: This cleanup runs ASYNCHRONOUSLY during startup!
+    // - It runs in the SHAMapStore thread, not the main thread
+    // - RPC server can start accepting commands while cleanup is still running
+    // - This can cause database lock contention with commands like
+    // catalogue_load
+    // - In standalone mode, this async behavior may be different
+    //
+    // The async nature can lead to unexpected issues:
+    // - SQLite WAL checkpoints during cleanup can cause multi-second pauses
+    // - Database write locks can block or deadlock with RPC operations
+    // - Heavy database operations (like catalogue_load) will compete for locks
+    //
     // TODO: Consider:
     // - Making this opt-in rather than opt-out
     // - Adding a config option instead of just env var
     // - Showing a warning and waiting for confirmation
     // - Rate limiting even during startup
     // - Only cleaning up if the gap is "large enough" to warrant it
+    // - Making it truly synchronous (blocking RPC until complete)
     //
     // For now, users can disable with SKIP_SHAMAPSTORE_STARTUP_CLEANUP=1
     // but they need to know about it first!

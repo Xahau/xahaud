@@ -1203,12 +1203,13 @@ doCatalogueLoad(RPC::JsonContext& context)
         std::string errorMessage;
         std::mutex errorMutex;
     };
-    
+
     // CRITICAL: We MUST synchronize state map flushes between ledgers!
     // Without synchronization, we hit BOTH:
-    // 1. Assertion failures: "Assertion failed: (node->cowid() != 0), function preFlushNode"
+    // 1. Assertion failures: "Assertion failed: (node->cowid() != 0), function
+    // preFlushNode"
     // 2. Segmentation faults during concurrent access
-    // 
+    //
     // This happens because:
     // 1. Ledger N+1 is built using a snapshot of Ledger N's state map
     // 2. Both share nodes via COW (Copy-on-Write)
@@ -1218,34 +1219,44 @@ doCatalogueLoad(RPC::JsonContext& context)
     //
     // The synchronization ensures parent flushes complete before child,
     // preventing concurrent access to shared nodes.
-    // 
+    //
     // Performance note: Without sync, it gets "gluggy" and slow,
     // likely due to lock contention and retries in the SHAMap layer,
     // before eventually crashing with assert or segfault.
     static constexpr bool synchronizeStateMapFlushes = true;
-    
+
     // Chain link for coordinating ordered state map flushing
     struct FlushChainLink
     {
         std::promise<void> stateMapFlushed;
         std::shared_future<void> parentStateFlushed;
-        
+
         FlushChainLink() = default;
-        FlushChainLink(std::shared_future<void> parent) : parentStateFlushed(parent) {}
+        FlushChainLink(std::shared_future<void> parent)
+            : parentStateFlushed(parent)
+        {
+        }
     };
-    
+
     // Structures for parallel save processing
     struct LedgerSaveJob
     {
         std::shared_ptr<Ledger> ledger;  // The ledger to save and flush
-        std::shared_ptr<Ledger> parentLedger;  // Parent for delta flushing (null for first)
-        bool flushMapsInMain;  // Whether maps were already flushed in main thread
+        std::shared_ptr<Ledger>
+            parentLedger;      // Parent for delta flushing (null for first)
+        bool flushMapsInMain;  // Whether maps were already flushed in main
+                               // thread
         uint256 expectedHash;  // Expected hash to verify after flushing
-        std::shared_ptr<FlushChainLink> flushChain;  // Coordination for ordered flushing
+        std::shared_ptr<FlushChainLink>
+            flushChain;   // Coordination for ordered flushing
         LedgerInfo info;  // The ledger info from the catalogue file
-        
+
         void
-        execute(Application& app, beast::Journal journal, std::shared_ptr<SaveState> saveState)
+        execute(
+            Application& app,
+            beast::Journal journal,
+            std::shared_ptr<SaveState> saveState,
+            JobQueue* jobQueue)
         {
             auto j = journal;
             JLOG(j.trace())
@@ -1261,30 +1272,38 @@ doCatalogueLoad(RPC::JsonContext& context)
 
             if (!flushMapsInMain)
             {
-                // STEP 1: Immediately flush TX map (no dependencies, unique per ledger)
-                txNodesFlushed = ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
-                JLOG(j.trace()) << "Ledger " << ledger->info().seq 
-                                << " flushed TX map: " << txNodesFlushed << " nodes";
-                
-                // STEP 2: Wait for parent's state map to be flushed (if we have a parent)
+                // STEP 1: Immediately flush TX map (no dependencies, unique per
+                // ledger)
+                txNodesFlushed =
+                    ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
+                JLOG(j.trace())
+                    << "Ledger " << ledger->info().seq
+                    << " flushed TX map: " << txNodesFlushed << " nodes";
+
+                // STEP 2: Wait for parent's state map to be flushed (if we have
+                // a parent)
                 if (flushChain && flushChain->parentStateFlushed.valid())
                 {
-                    JLOG(j.trace()) << "Ledger " << ledger->info().seq 
+                    JLOG(j.trace()) << "Ledger " << ledger->info().seq
                                     << " waiting for parent state flush...";
                     if (synchronizeStateMapFlushes)
                         flushChain->parentStateFlushed.wait();
-                    JLOG(j.trace()) << "Ledger " << ledger->info().seq 
+                    JLOG(j.trace()) << "Ledger " << ledger->info().seq
                                     << " parent state flushed, proceeding";
                 }
-                
-                // STEP 3: Now flush our state map (parent is done, so COW is safe)
-                // ALWAYS use flushDirty - flushByPointerDiff is unreliable with threading!
-                stateNodesFlushed = ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
-                
-                JLOG(j.trace()) << "Ledger " << ledger->info().seq 
-                                << " flushed state map: " << stateNodesFlushed << " nodes";
-                
-                // STEP 4: Signal that our state map is flushed (unblock next ledger)
+
+                // STEP 3: Now flush our state map (parent is done, so COW is
+                // safe) ALWAYS use flushDirty - flushByPointerDiff is
+                // unreliable with threading!
+                stateNodesFlushed =
+                    ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
+
+                JLOG(j.trace())
+                    << "Ledger " << ledger->info().seq
+                    << " flushed state map: " << stateNodesFlushed << " nodes";
+
+                // STEP 4: Signal that our state map is flushed (unblock next
+                // ledger)
                 if (flushChain)
                 {
                     flushChain->stateMapFlushed.set_value();
@@ -1304,8 +1323,8 @@ doCatalogueLoad(RPC::JsonContext& context)
             }
             //@@end catalogue-shamaps-flush-dirty
 
-            // Finalize the ledger (moved from main thread to avoid getHash calls)
-            // Use the info from the catalogue file, not ledger->info()
+            // Finalize the ledger (moved from main thread to avoid getHash
+            // calls) Use the info from the catalogue file, not ledger->info()
             ledger->setAccepted(
                 info.closeTime,
                 info.closeTimeResolution,
@@ -1316,7 +1335,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             // NOW make the ledger immutable AFTER flushing
             // This sets important header fields needed for SQLite save
             ledger->setImmutable(true);
-            
+
             // Verify the hash matches what was expected
             if (ledger->info().hash != expectedHash)
             {
@@ -1324,47 +1343,90 @@ doCatalogueLoad(RPC::JsonContext& context)
                     << "Ledger seq=" << ledger->info().seq
                     << " hash mismatch after flush! Expected: " << expectedHash
                     << " Got: " << ledger->info().hash;
-                
+
                 // Set error flag so main thread knows to abort
                 saveState->hasError = true;
                 {
                     std::lock_guard<std::mutex> lock(saveState->errorMutex);
-                    saveState->errorMessage = 
-                        "Catalogue file contains a corrupted ledger at sequence " + 
+                    saveState->errorMessage =
+                        "Catalogue file contains a corrupted ledger at "
+                        "sequence " +
                         std::to_string(ledger->info().seq);
                 }
                 return;
             }
 
-            // Save to SQLite database AFTER setImmutable (header is now correct)
-            auto const db =
-                dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
-            if (!db)
+            // Queue SQL save as a separate async job to avoid blocking
+            auto seq = ledger->info().seq;
+            JLOG(j.trace()) << "Queueing SQL save job for ledger " << seq;
+
+            // Increment counter for SQL job
+            saveState->totalPendingJobs++;
+
+            bool sqlJobQueued = jobQueue->addJob(
+                jtPUBOLDLEDGER,
+                "cat-sql-" + std::to_string(seq),
+                [sqlLedger = ledger, app = &app, j, seq, saveState]() {
+                    // Get the database
+                    auto const db = dynamic_cast<SQLiteDatabase*>(
+                        &app->getRelationalDatabase());
+                    if (!db)
+                    {
+                        JLOG(j.error())
+                            << "Failed to get database for ledger " << seq;
+                        saveState->totalPendingJobs--;
+                        saveState->completionCV.notify_all();
+                        return;
+                    }
+
+                    JLOG(j.trace())
+                        << "SQL: Saving ledger " << seq << " to database";
+
+                    // This handles the existence check and calls
+                    // detail::saveValidatedLedger
+                    if (!db->saveValidatedLedger(sqlLedger, false))
+                    {
+                        JLOG(j.error())
+                            << "Failed to save ledger " << seq << " to SQLite";
+                        // Set error flag so main thread knows what happened
+                        saveState->hasError = true;
+                        {
+                            std::lock_guard<std::mutex> lock(
+                                saveState->errorMutex);
+                            saveState->errorMessage = "Failed to save ledger " +
+                                std::to_string(seq) + " to SQLite database";
+                        }
+                        // We're not attempting recovery - if SQL fails, the DB
+                        // can't be trusted
+                    }
+                    else
+                    {
+                        JLOG(j.trace())
+                            << "SQL: Successfully saved ledger " << seq;
+                    }
+
+                    // Mark this ledger as saved for range tracking
+                    {
+                        std::lock_guard lock(saveState->completedSavesMutex);
+                        saveState->completedSaves.insert(seq);
+                    }
+
+                    // Decrement counter and notify
+                    saveState->totalPendingJobs--;
+                    saveState->completionCV.notify_all();
+                });
+
+            if (!sqlJobQueued)
             {
-                JLOG(j.error()) << "Failed to get database for ledger "
-                                << ledger->info().seq;
-                return;
+                JLOG(j.error()) << "Failed to queue SQL job for ledger " << seq;
+                saveState->totalPendingJobs--;
+                // Non-fatal - continue processing
             }
 
-            // This handles the existence check and calls
-            // detail::saveValidatedLedger
-            JLOG(j.trace()) << "Calling saveValidatedLedger for ledger "
-                            << ledger->info().seq;
-
-            if (!db->saveValidatedLedger(ledger, false))
-            {
-                JLOG(j.error())
-                    << "Failed to save ledger " << ledger->info().seq;
-                return;
-            }
-
-            JLOG(j.trace())
-                << "Successfully saved ledger " << ledger->info().seq;
-
-            JLOG(j.trace())
-                << "Completed save job for ledger " << ledger->info().seq
-                << " stateNodes: " << stateNodesFlushed
-                << " txNodes: " << txNodesFlushed;
+            JLOG(j.trace()) << "Flush job completed for ledger " << seq
+                            << " stateNodes: " << stateNodesFlushed
+                            << " txNodes: " << txNodesFlushed
+                            << " (SQL save queued separately)";
         }
     };
 
@@ -1393,7 +1455,7 @@ doCatalogueLoad(RPC::JsonContext& context)
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
     uint32_t expected_seq = header.min_ledger;
-    
+
     // Chain for coordinating state map flushes
     std::shared_future<void> prevStateFlushFuture;
 
@@ -1402,15 +1464,19 @@ doCatalogueLoad(RPC::JsonContext& context)
     {
         if (context.app.isStopping())
             return {};
-        
+
         // WAIT for previous ledger's state flush BEFORE building next
         // This prevents concurrent modification of shared nodes
-        if (synchronizeStateMapFlushes && prevStateFlushFuture.valid() && expected_seq > header.min_ledger)
+        if (synchronizeStateMapFlushes && prevStateFlushFuture.valid() &&
+            expected_seq > header.min_ledger)
         {
-            JLOG(j.trace()) << "[Main] Waiting for ledger " << (expected_seq - 1) 
-                            << " state flush before building ledger " << expected_seq;
+            JLOG(j.trace())
+                << "[Main] Waiting for ledger " << (expected_seq - 1)
+                << " state flush before building ledger " << expected_seq;
             prevStateFlushFuture.wait();
-            JLOG(j.trace()) << "[Main] Previous state flush complete, building ledger " << expected_seq;
+            JLOG(j.trace())
+                << "[Main] Previous state flush complete, building ledger "
+                << expected_seq;
         }
 
         // Update current ledger
@@ -1532,16 +1598,18 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // Don't flush here - will be done in background after setImmutable
-        // Don't finalize here either - ALL finalization in background to avoid getHash()
+        // Don't finalize here either - ALL finalization in background to avoid
+        // getHash()
 
         // Queue save job for parallel processing using our temporary JobQueue
         {
             // DO NOT call setImmutable here - it calls getHash() which marks
             // all nodes as clean, preventing background flushing!
             // The hash will be verified in the background thread after flushing
-            
+
             // Create flush chain link for this ledger
-            auto flushLink = std::make_shared<FlushChainLink>(prevStateFlushFuture);
+            auto flushLink =
+                std::make_shared<FlushChainLink>(prevStateFlushFuture);
 
             // Wait if we're at the concurrent save limit
             {
@@ -1572,23 +1640,22 @@ doCatalogueLoad(RPC::JsonContext& context)
                          ledger,
                          prevLedger,  // Pass parent ledger for delta flushing
                          flushMapsInMain,
-                         info.hash,   // Pass the expected hash from the catalogue
-                         flushLink,   // Pass the flush chain link
-                         info},       // Pass the complete LedgerInfo from catalogue
+                         info.hash,  // Pass the expected hash from the
+                                     // catalogue
+                         flushLink,  // Pass the flush chain link
+                         info},  // Pass the complete LedgerInfo from catalogue
                  saveState,
                  app = &context.app,
                  j,
-                 seq = ledger->info().seq]() mutable {
-                    job.execute(*app, j, saveState);
+                 seq = ledger->info().seq,
+                 jq = tempJobQueue.get()]() mutable {
+                    job.execute(*app, j, saveState, jq);
 
-                    // Track this ledger as successfully saved
-                    {
-                        std::lock_guard lock(saveState->completedSavesMutex);
-                        saveState->completedSaves.insert(seq);
-                    }
+                    // Note: completedSaves tracking moved to SQL job
+                    // to ensure it only happens after SQL completes
 
                     saveState->pendingSaves--;
-                    saveState->totalPendingJobs--;
+                    saveState->totalPendingJobs--;  // Decrement for flush job
                     saveState->completionCV.notify_all();
                 });
 
@@ -1600,9 +1667,10 @@ doCatalogueLoad(RPC::JsonContext& context)
                 saveState->totalPendingJobs--;
                 return rpcError(rpcINTERNAL, "Failed to queue save job");
             }
-            
+
             // Update the chain for the next ledger
-            prevStateFlushFuture = flushLink->stateMapFlushed.get_future().share();
+            prevStateFlushFuture =
+                flushLink->stateMapFlushed.get_future().share();
         }
 
         // Store in ledger master
@@ -1628,12 +1696,13 @@ doCatalogueLoad(RPC::JsonContext& context)
                     return saveState->pendingSaves == 0;
                 });
             }
-            
+
             // Check for errors from background jobs
             if (saveState->hasError)
             {
                 std::lock_guard<std::mutex> lock(saveState->errorMutex);
-                JLOG(j.error()) << "Background job error: " << saveState->errorMessage;
+                JLOG(j.error())
+                    << "Background job error: " << saveState->errorMessage;
                 return rpcError(rpcINTERNAL, saveState->errorMessage);
             }
 
@@ -1668,9 +1737,11 @@ doCatalogueLoad(RPC::JsonContext& context)
                     context.app.getLedgerMaster().getPinnedLedgersRangeSet());
             }
 
-            JLOG(j.info()) << "Sweeping NodeStore cache at ledger " << info.seq
-                           << " (loaded " << ledgersLoaded << " ledgers)";
-            context.app.getNodeStore().sweep();
+            // DISABLED: Sweep causes periodic stutters during loading
+            // JLOG(j.info()) << "Sweeping NodeStore cache at ledger " <<
+            // info.seq
+            //                << " (loaded " << ledgersLoaded << " ledgers)";
+            // context.app.getNodeStore().sweep();
         }
     }
 
@@ -1689,7 +1760,7 @@ doCatalogueLoad(RPC::JsonContext& context)
 
         JLOG(j.info()) << "All save jobs completed";
     }
-    
+
     // Final error check after all jobs are done
     if (saveState->hasError)
     {
