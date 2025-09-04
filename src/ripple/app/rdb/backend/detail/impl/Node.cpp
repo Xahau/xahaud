@@ -52,6 +52,57 @@ private:
     static constexpr size_t SQLITE_MAX_SQL_LENGTH =
         1048576;  // 1MB default limit
 
+    // Debug/testing settings to control batch behavior
+    //
+    // IMPORTANT: WAL Checkpoint Performance Considerations
+    // ------------------------------------------------------
+    // When MAX_ENTRIES_PER_BATCH = 1, each SQL insert is executed immediately,
+    // which releases database locks frequently but can trigger more frequent
+    // WAL (Write-Ahead Log) checkpoints.
+    //
+    // SQLite's WAL checkpoint behavior:
+    // - Triggered when WAL reaches journal_size_limit (currently 1582080 bytes
+    // / ~1.5MB)
+    // - Default would be 1000 pages * 4KB = 4MB, but journal_size_limit
+    // overrides this
+    // - Each checkpoint must write all dirty pages to the main database file
+    // - Can cause SQLITE_LOCKED (error 6) if checkpoint runs while other
+    // operations hold locks
+    //
+    // Performance tradeoffs:
+    // - Smaller batches (or immediate execution): More frequent checkpoints but
+    // shorter lock hold times
+    // - Larger batches: Fewer checkpoints but longer lock hold times
+    // - The 1.5MB journal_size_limit in DBInit.h forces checkpoints very
+    // frequently
+    //   with large datasets, potentially causing periodic stuttering
+    //
+    // Observed behavior: WAL checkpoint logs show "frames=1175, written=1175"
+    // indicating full checkpoints (all frames written), not incremental ones.
+    // This is significant I/O.
+    //
+    // Database Contention in Non-Standalone Mode:
+    // --------------------------------------------
+    // When NOT in standalone mode, additional database contention sources
+    // include:
+    // - P2P sync operations writing latest ledgers from network peers
+    // - Validator operations updating validation tables
+    // - Consensus operations accessing recent ledger history
+    // - Multiple threads potentially triggering concurrent WAL checkpoints
+    //
+    // WAL checkpoint errors (SQLITE_LOCKED/error 6) are MORE likely in
+    // non-standalone mode due to this additional contention. The catalogue load
+    // operation competes with normal node operations for database locks.
+    //
+    // Standalone mode eliminates P2P-related database access, reducing
+    // contention significantly, which may explain fewer checkpoint errors in
+    // that mode.
+    //
+    static constexpr size_t MAX_ENTRIES_PER_BATCH =
+        1;  // 0 = use size-based batching, >0 = max entries per batch
+    static constexpr std::chrono::milliseconds BATCH_DELAY{
+        0};  // Delay between batches (0 = no delay)
+
     soci::session& db_;
     beast::Journal j_;
     std::string insertHeader_;
@@ -60,6 +111,7 @@ private:
     size_t estimatedEntrySize_;
     bool firstEntry_ = true;
     std::string queryName_;
+    size_t entriesInBatch_ = 0;  // Track number of entries in current batch
 
 public:
     /**
@@ -109,7 +161,24 @@ public:
         size_t entrySize = actualSize.value_or(entry.size());
 
         // Check if we need to execute current batch before adding this entry
-        if (!firstEntry_ && (currentBatch_.size() + entrySize > maxBatchSize_))
+        bool needToExecute = false;
+
+        if (!firstEntry_)
+        {
+            // Check entry count limit if configured
+            if (MAX_ENTRIES_PER_BATCH > 0 &&
+                entriesInBatch_ >= MAX_ENTRIES_PER_BATCH)
+            {
+                needToExecute = true;
+            }
+            // Otherwise check size limit
+            else if (currentBatch_.size() + entrySize > maxBatchSize_)
+            {
+                needToExecute = true;
+            }
+        }
+
+        if (needToExecute)
         {
             executeBatch();
         }
@@ -119,6 +188,7 @@ public:
         {
             currentBatch_ = insertHeader_;
             firstEntry_ = false;
+            entriesInBatch_ = 0;
         }
         else
         {
@@ -126,6 +196,7 @@ public:
         }
 
         currentBatch_ += entry;
+        entriesInBatch_++;
     }
 
     /**
@@ -158,16 +229,25 @@ private:
 
         currentBatch_ += ";";
 
-        JLOG(j_.trace()) << queryName_ << " batch: " << currentBatch_.size()
-                         << " bytes";
+        JLOG(j_.trace()) << queryName_ << " batch: " << entriesInBatch_
+                         << " entries, " << currentBatch_.size() << " bytes";
 
         // Execute within the existing transaction context
         // If this fails, the transaction will roll back
         db_ << currentBatch_;
 
+        // Add delay between batches if configured (for debugging/testing)
+        if (BATCH_DELAY.count() > 0)
+        {
+            std::this_thread::sleep_for(BATCH_DELAY);
+            JLOG(j_.trace()) << queryName_ << " delayed " << BATCH_DELAY.count()
+                             << "ms between batches";
+        }
+
         // Reset for next batch
         currentBatch_.clear();
         firstEntry_ = true;
+        entriesInBatch_ = 0;
     }
 };
 

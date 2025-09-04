@@ -172,6 +172,8 @@ struct CatalogueRunStatus
     std::string hash;                           // Hex-encoded hash
     uint64_t filesize = 0;                      // File size in bytes
     std::string fileSizeEstimated = "unknown";  // Estimated file size
+    int loadThreads = 0;                        // Number of threads for loading
+    uint64_t fileBytesProcessed = 0;  // Bytes read from decompressed stream
 };
 
 // Global status for catalogue operations
@@ -883,6 +885,7 @@ Json::Value
 doCatalogueLoad(RPC::JsonContext& context)
 {
     auto j = context.app.logs().journal("CatalogueTools");
+    auto statusJournal = context.app.logs().journal("CatalogueToolsStatus");
 
     // Check if online_delete is configured - catalogue loading is incompatible
     // with online_delete. The proper workflow is:
@@ -1168,11 +1171,12 @@ doCatalogueLoad(RPC::JsonContext& context)
         return count;
     };
 
-    // Use the application's existing CollectorManager and resources
+    // TODO: maybe this is competing with the normal jq when not in standalone
+    // mode? Use the application's existing CollectorManager and resources
     auto tempJobQueue = std::make_unique<JobQueue>(
         getCatalogueThreads(),
         context.app.getCollectorManager().group("catalogue"),
-        context.app.logs().journal("CatalogueJQ"),
+        context.app.logs().journal("CatalogueToolsJQ"),
         context.app.logs(),
         context.app.getPerfLog());
 
@@ -1685,6 +1689,16 @@ doCatalogueLoad(RPC::JsonContext& context)
         // Store the ledger reference for later use
         prevLedger = ledger;
         ledgersLoaded++;
+
+        // In standalone mode, log status JSON every 100 ledgers at trace level
+        if (context.app.config().standalone() && ledger->info().seq % 100 == 0)
+        {
+            std::shared_lock<std::shared_mutex> lock(catalogueStatusMutex);
+            Json::Value statusJson = generateStatusJson();
+            JLOG(statusJournal.info())
+                << "Catalogue load status at ledger " << ledger->info().seq
+                << ": " << statusJson.toStyledString();
+        }
 
         // Periodically update ranges and sweep cache
         if (ledgersLoaded % BATCH_UPDATE_INTERVAL == 0)
