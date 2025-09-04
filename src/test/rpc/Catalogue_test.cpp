@@ -44,6 +44,8 @@ struct LedgerRetryParams
     bool requireValidated = false;
 };
 
+
+
 // Poll for ledger availability with retry logic
 // Returns nullptr if ledger cannot be retrieved within the timeout period
 std::shared_ptr<Ledger const>
@@ -466,6 +468,7 @@ class Catalogue_test : public beast::unit_test::suite
             // immediately reject due to hash
             if (result[jss::status] == "error")
             {
+                // std::cout << to_string(result) << std::endl;
                 BEAST_EXPECT(
                     result[jss::error_message].asString().find(
                         "hash verification failed") == std::string::npos);
@@ -485,7 +488,7 @@ class Catalogue_test : public beast::unit_test::suite
         Env env{*this, envconfig(), nullptr, beast::severities::kNone};
         prepareLedgerData(env, 5);
 
-        auto noop = [](Env& env, std::string partition, std::string severity) {
+        auto noop = [](test::jtx::Env& env, std::string partition, std::string severity) {
             Json::Value params{Json::objectValue};
             params[jss::severity] = severity;
             params[jss::partition] = partition;

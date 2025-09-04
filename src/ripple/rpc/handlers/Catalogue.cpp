@@ -1190,18 +1190,62 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
     } jqCleanup{tempJobQueue};
 
+    // Shared state for concurrent save management
+    struct SaveState
+    {
+        std::atomic<int> pendingSaves{0};
+        std::atomic<int> totalPendingJobs{0};
+        std::mutex completionMutex;
+        std::condition_variable completionCV;
+        RangeSet<uint32_t> completedSaves;
+        std::mutex completedSavesMutex;
+        std::atomic<bool> hasError{false};
+        std::string errorMessage;
+        std::mutex errorMutex;
+    };
+    
+    // CRITICAL: We MUST synchronize state map flushes between ledgers!
+    // Without synchronization, we hit BOTH:
+    // 1. Assertion failures: "Assertion failed: (node->cowid() != 0), function preFlushNode"
+    // 2. Segmentation faults during concurrent access
+    // 
+    // This happens because:
+    // 1. Ledger N+1 is built using a snapshot of Ledger N's state map
+    // 2. Both share nodes via COW (Copy-on-Write)
+    // 3. If we flush both concurrently, shared nodes have cowid=0
+    // 4. Flushing a node with cowid=0 is illegal (it's not owned)
+    // 5. Race conditions can cause memory corruption and segfaults
+    //
+    // The synchronization ensures parent flushes complete before child,
+    // preventing concurrent access to shared nodes.
+    // 
+    // Performance note: Without sync, it gets "gluggy" and slow,
+    // likely due to lock contention and retries in the SHAMap layer,
+    // before eventually crashing with assert or segfault.
+    static constexpr bool synchronizeStateMapFlushes = true;
+    
+    // Chain link for coordinating ordered state map flushing
+    struct FlushChainLink
+    {
+        std::promise<void> stateMapFlushed;
+        std::shared_future<void> parentStateFlushed;
+        
+        FlushChainLink() = default;
+        FlushChainLink(std::shared_future<void> parent) : parentStateFlushed(parent) {}
+    };
+    
     // Structures for parallel save processing
     struct LedgerSaveJob
     {
-        std::shared_ptr<Ledger> ledger;  // Non-const so we can flush
-        std::shared_ptr<SHAMap> stateMapSnapshot;
-        std::shared_ptr<SHAMap> parentStateMap;  // For delta flushing
-        bool flushMapsInMain;  // Whether maps were already flushed in main
-                               // thread
-        // No txMapSnapshot needed - tx map is unique per ledger!
-
+        std::shared_ptr<Ledger> ledger;  // The ledger to save and flush
+        std::shared_ptr<Ledger> parentLedger;  // Parent for delta flushing (null for first)
+        bool flushMapsInMain;  // Whether maps were already flushed in main thread
+        uint256 expectedHash;  // Expected hash to verify after flushing
+        std::shared_ptr<FlushChainLink> flushChain;  // Coordination for ordered flushing
+        LedgerInfo info;  // The ledger info from the catalogue file
+        
         void
-        execute(Application& app, beast::Journal journal)
+        execute(Application& app, beast::Journal journal, std::shared_ptr<SaveState> saveState)
         {
             auto j = journal;
             JLOG(j.trace())
@@ -1217,23 +1261,34 @@ doCatalogueLoad(RPC::JsonContext& context)
 
             if (!flushMapsInMain)
             {
-                // Use new flushDifferences for state map - properly handles
-                // deltas!
-                if (parentStateMap)
+                // STEP 1: Immediately flush TX map (no dependencies, unique per ledger)
+                txNodesFlushed = ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
+                JLOG(j.trace()) << "Ledger " << ledger->info().seq 
+                                << " flushed TX map: " << txNodesFlushed << " nodes";
+                
+                // STEP 2: Wait for parent's state map to be flushed (if we have a parent)
+                if (flushChain && flushChain->parentStateFlushed.valid())
                 {
-                    stateNodesFlushed = stateMapSnapshot->flushByPointerDiff(
-                        std::ref(*parentStateMap), pinnedACCOUNT_NODE);
+                    JLOG(j.trace()) << "Ledger " << ledger->info().seq 
+                                    << " waiting for parent state flush...";
+                    if (synchronizeStateMapFlushes)
+                        flushChain->parentStateFlushed.wait();
+                    JLOG(j.trace()) << "Ledger " << ledger->info().seq 
+                                    << " parent state flushed, proceeding";
                 }
-                else
+                
+                // STEP 3: Now flush our state map (parent is done, so COW is safe)
+                // ALWAYS use flushDirty - flushByPointerDiff is unreliable with threading!
+                stateNodesFlushed = ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
+                
+                JLOG(j.trace()) << "Ledger " << ledger->info().seq 
+                                << " flushed state map: " << stateNodesFlushed << " nodes";
+                
+                // STEP 4: Signal that our state map is flushed (unblock next ledger)
+                if (flushChain)
                 {
-                    // First ledger - no parent, flush everything
-                    stateNodesFlushed =
-                        stateMapSnapshot->flushDirty(pinnedACCOUNT_NODE);
+                    flushChain->stateMapFlushed.set_value();
                 }
-
-                // TX map can flush normally - it's unique per ledger!
-                txNodesFlushed =
-                    ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
             }
 
             // Log periodically for debugging
@@ -1244,12 +1299,44 @@ doCatalogueLoad(RPC::JsonContext& context)
                     << stateNodesFlushed << " state nodes, " << txNodesFlushed
                     << " tx nodes "
                     << (flushMapsInMain ? "(already flushed in main)"
-                                        : (parentStateMap ? "(delta flush)"
-                                                          : "(full flush)"));
+                                        : (parentLedger ? "(delta flush)"
+                                                        : "(full flush)"));
             }
             //@@end catalogue-shamaps-flush-dirty
 
-            // 2. Save to SQLite database using the proper interface
+            // Finalize the ledger (moved from main thread to avoid getHash calls)
+            // Use the info from the catalogue file, not ledger->info()
+            ledger->setAccepted(
+                info.closeTime,
+                info.closeTimeResolution,
+                info.closeFlags & sLCF_NoConsensusTime);
+            ledger->setValidated();
+            ledger->setCloseFlags(info.closeFlags);
+
+            // NOW make the ledger immutable AFTER flushing
+            // This sets important header fields needed for SQLite save
+            ledger->setImmutable(true);
+            
+            // Verify the hash matches what was expected
+            if (ledger->info().hash != expectedHash)
+            {
+                JLOG(j.error())
+                    << "Ledger seq=" << ledger->info().seq
+                    << " hash mismatch after flush! Expected: " << expectedHash
+                    << " Got: " << ledger->info().hash;
+                
+                // Set error flag so main thread knows to abort
+                saveState->hasError = true;
+                {
+                    std::lock_guard<std::mutex> lock(saveState->errorMutex);
+                    saveState->errorMessage = 
+                        "Catalogue file contains a corrupted ledger at sequence " + 
+                        std::to_string(ledger->info().seq);
+                }
+                return;
+            }
+
+            // Save to SQLite database AFTER setImmutable (header is now correct)
             auto const db =
                 dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
             if (!db)
@@ -1281,74 +1368,50 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
     };
 
-    // Shared state for concurrent save management
-    struct SaveState
-    {
-        std::atomic<int> pendingSaves{0};
-        std::atomic<int> totalPendingJobs{0};
-        std::mutex completionMutex;
-        std::condition_variable completionCV;
-        RangeSet<uint32_t> completedSaves;
-        std::mutex completedSavesMutex;
-    };
-
     auto saveState = std::make_shared<SaveState>();
 
     static constexpr int MAX_CONCURRENT_SAVES =
-        1000;  // Allow even more parallel saves
+        10;  // Allow even more parallel saves
     static constexpr int BATCH_UPDATE_INTERVAL =
         100;  // Update ranges every N ledgers
 
-    // IMPORTANT: flushMapsInMain MUST be true for catalogue loading to work
-    // correctly.
+    // IMPORTANT: We've fixed the COW flushing issue!
     //
-    // Ripple's COW (Copy-on-Write) system fundamentally conflicts with deferred
-    // flushing in background threads. The COW system has two critical
-    // assumptions that break our use case:
+    // Previously, flushMapsInMain HAD to be true because calling setImmutable()
+    // in the main thread would call getHash() which marked all nodes as clean,
+    // preventing background flushing.
     //
-    // 1. COW ID Problem: When creating snapshot chains (L1 -> L2 -> L3...), the
-    // COW system
-    //    resets all node IDs to 0 (shareable) during snapshot creation. By the
-    //    time a background thread tries to flush, flushDirty() sees cowid=0 and
-    //    assumes nothing needs flushing, resulting in missing nodes.
+    // Now we:
+    // 1. DON'T call setImmutable() in the main thread
+    // 2. Pass the expected hash to the background job
+    // 3. Call setImmutable() AFTER flushing in the background
+    // 4. Verify the hash matches the expected value
     //
-    // 2. Pointer Identity Problem: The flushByPointerDiff() optimization
-    // attempts to work
-    //    around the COW ID issue by comparing node pointers between parent and
-    //    child maps. However, this also fails because:
-    //    - Snapshots initially share the same physical nodes (same pointers)
-    //    - The COW system only creates new physical copies during write
-    //    operations
-    //    - But the write operation IS the flush itself!
-    //    - Chicken-and-egg: We need different pointers to know what to flush,
-    //    but we
-    //      only get different pointers AFTER flushing triggers the
-    //      copy-on-write
-    //
-    // The COW system was designed for temporary validation copies with
-    // immediate flushing, not for building persistent ledger chains with
-    // deferred background flushing.
-    //
-    // Therefore, we MUST flush in the main thread while we still have the COW
-    // information available. The performance impact is acceptable because:
-    //   - Catalogue loading is a batch operation, not on the critical consensus
-    //   path
-    //   - The nodes need to be written eventually anyway
-    //   - Main thread flushing ensures data integrity
-    //
-    // Attempts to set this to false will result in missing nodes and test
-    // failures.
-    static constexpr bool flushMapsInMain = true;
+    // This allows true deferred background flushing to work correctly!
+    static constexpr bool flushMapsInMain = false;
 
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
     uint32_t expected_seq = header.min_ledger;
+    
+    // Chain for coordinating state map flushes
+    std::shared_future<void> prevStateFlushFuture;
 
     // Process each ledger sequentially
     while (!decompStream->eof() && expected_seq <= header.max_ledger)
     {
         if (context.app.isStopping())
             return {};
+        
+        // WAIT for previous ledger's state flush BEFORE building next
+        // This prevents concurrent modification of shared nodes
+        if (synchronizeStateMapFlushes && prevStateFlushFuture.valid() && expected_seq > header.min_ledger)
+        {
+            JLOG(j.trace()) << "[Main] Waiting for ledger " << (expected_seq - 1) 
+                            << " state flush before building ledger " << expected_seq;
+            prevStateFlushFuture.wait();
+            JLOG(j.trace()) << "[Main] Previous state flush complete, building ledger " << expected_seq;
+        }
 
         // Update current ledger
         UPDATE_CATALOGUE_STATUS(ledgerUpto, expected_seq);
@@ -1429,11 +1492,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                     rpcINTERNAL, "Failed to load base ledger state");
             }
 
-            if (flushMapsInMain)
-            {
-                ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
-                ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
-            }
+            // Don't flush here - will be done in background after setImmutable
         }
         else
         {
@@ -1444,13 +1503,13 @@ doCatalogueLoad(RPC::JsonContext& context)
                 return rpcError(rpcINTERNAL, "Missing previous ledger");
             }
 
-            auto snapshot = prevLedger->stateMap().snapShot(true);
+            // auto snapshot = prevLedger->stateMap().snapShot(true);
 
             ledger = std::make_shared<Ledger>(
                 info,
                 context.app.config(),
                 context.app.getNodeFamily(),
-                *snapshot);
+                prevLedger->stateMap());
 
             // Apply delta (only leaf-node changes)
             if (!ledger->stateMap().deserializeFromStream(
@@ -1461,10 +1520,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
             }
 
-            if (flushMapsInMain)
-            {
-                ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
-            }
+            // Don't flush here - will be done in background after setImmutable
         }
 
         // pull in the tx map
@@ -1475,65 +1531,17 @@ doCatalogueLoad(RPC::JsonContext& context)
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
         }
 
-        // Flush TX map in main thread if configured
-        if (flushMapsInMain)
-        {
-            ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
-        }
-
-        // Finalize the ledger
-        ledger->setAccepted(
-            info.closeTime,
-            info.closeTimeResolution,
-            info.closeFlags & sLCF_NoConsensusTime);
-
-        ledger->setValidated();
-        ledger->setCloseFlags(info.closeFlags);
+        // Don't flush here - will be done in background after setImmutable
+        // Don't finalize here either - ALL finalization in background to avoid getHash()
 
         // Queue save job for parallel processing using our temporary JobQueue
         {
-            // CRITICAL: Take MUTABLE snapshot of state map BEFORE setImmutable
-            // State map needs snapshot due to COW chain issues
-            auto stateSnapshot =
-                ledger->stateMap().snapShot(true);  // true = mutable
-
-            // Keep parent state map for delta flushing (null for first ledger)
-            std::shared_ptr<SHAMap> parentStateMapSnapshot;
-            if (prevLedger)
-            {
-                JLOG(j.trace())
-                    << "Creating parent snapshot for delta flushing from "
-                       "ledger "
-                    << prevLedger->seq() << " for ledger " << ledger->seq();
-                parentStateMapSnapshot = prevLedger->stateMap().snapShot(
-                    false);  // immutable is fine for parent
-            }
-            else
-            {
-                JLOG(j.trace())
-                    << "No parent ledger for delta flushing (first ledger)";
-            }
-
-            // TX map doesn't need snapshot - it's unique per ledger!
-            // We'll flush it directly in the background job
-
-            // NOW make the ledger immutable
-            ledger->setImmutable(true);
-
-            // we can double check the computed hashes now, since setImmutable
-            // recomputes the hashes
-            if (ledger->info().hash != info.hash)
-            {
-                JLOG(j.error())
-                    << "Ledger seq=" << info.seq
-                    << " was loaded from catalogue, but computed hash does not "
-                       "match. "
-                    << "This ledger was not saved, and ledger loading from "
-                       "this "
-                       "catalogue file ended here.";
-                return rpcError(
-                    rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
-            }
+            // DO NOT call setImmutable here - it calls getHash() which marks
+            // all nodes as clean, preventing background flushing!
+            // The hash will be verified in the background thread after flushing
+            
+            // Create flush chain link for this ledger
+            auto flushLink = std::make_shared<FlushChainLink>(prevStateFlushFuture);
 
             // Wait if we're at the concurrent save limit
             {
@@ -1562,14 +1570,16 @@ doCatalogueLoad(RPC::JsonContext& context)
                 [job =
                      LedgerSaveJob{
                          ledger,
-                         stateSnapshot,
-                         parentStateMapSnapshot,
-                         flushMapsInMain},
+                         prevLedger,  // Pass parent ledger for delta flushing
+                         flushMapsInMain,
+                         info.hash,   // Pass the expected hash from the catalogue
+                         flushLink,   // Pass the flush chain link
+                         info},       // Pass the complete LedgerInfo from catalogue
                  saveState,
                  app = &context.app,
                  j,
                  seq = ledger->info().seq]() mutable {
-                    job.execute(*app, j);
+                    job.execute(*app, j, saveState);
 
                     // Track this ledger as successfully saved
                     {
@@ -1590,6 +1600,9 @@ doCatalogueLoad(RPC::JsonContext& context)
                 saveState->totalPendingJobs--;
                 return rpcError(rpcINTERNAL, "Failed to queue save job");
             }
+            
+            // Update the chain for the next ledger
+            prevStateFlushFuture = flushLink->stateMapFlushed.get_future().share();
         }
 
         // Store in ledger master
@@ -1614,6 +1627,14 @@ doCatalogueLoad(RPC::JsonContext& context)
                 saveState->completionCV.wait(lock, [&saveState]() {
                     return saveState->pendingSaves == 0;
                 });
+            }
+            
+            // Check for errors from background jobs
+            if (saveState->hasError)
+            {
+                std::lock_guard<std::mutex> lock(saveState->errorMutex);
+                JLOG(j.error()) << "Background job error: " << saveState->errorMessage;
+                return rpcError(rpcINTERNAL, saveState->errorMessage);
             }
 
             // Update ledger ranges for all completed saves
@@ -1667,6 +1688,14 @@ doCatalogueLoad(RPC::JsonContext& context)
             lock, [&saveState]() { return saveState->totalPendingJobs == 0; });
 
         JLOG(j.info()) << "All save jobs completed";
+    }
+    
+    // Final error check after all jobs are done
+    if (saveState->hasError)
+    {
+        std::lock_guard<std::mutex> lock(saveState->errorMutex);
+        JLOG(j.error()) << "Background job error: " << saveState->errorMessage;
+        return rpcError(rpcINTERNAL, saveState->errorMessage);
     }
 
     // Update ledger ranges for any remaining completed saves
