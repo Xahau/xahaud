@@ -43,7 +43,9 @@ inline constexpr std::uint32_t SQLITE_TUNING_CUTOFF = 10'000'000;
 inline constexpr auto LgrDBName{"ledger.db"};
 
 inline constexpr std::array<char const*, 1> LgrDBPragma{
-    {"PRAGMA journal_size_limit=1582080;"}};
+    // Increased from 1.5MB to 100MB to reduce WAL checkpoint frequency
+    // and autocheckpoint from 1000 to 10000 pages
+    {"PRAGMA journal_size_limit=104857600; PRAGMA wal_autocheckpoint=10000;"}};
 
 inline constexpr std::array<char const*, 5> LgrDBInit{
     {"BEGIN TRANSACTION;",
@@ -76,7 +78,9 @@ inline constexpr auto TxDBName{"transaction.db"};
 // a crash
 inline constexpr std::array<char const*, 4> TxDBPragma
 {
-    "PRAGMA page_size=4096;", "PRAGMA journal_size_limit=1582080;",
+    "PRAGMA page_size=4096;",
+        "PRAGMA journal_size_limit=104857600;",  // Increased to 100MB
+                                                 // from 1.5MB
         "PRAGMA max_page_count=2147483646;",
 
 #if (ULONG_MAX > UINT_MAX) && !defined(NO_SQLITE_MMAP)

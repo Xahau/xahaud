@@ -127,7 +127,9 @@ public:
         : DatabaseCon(
               std::getenv("SQLITE_FORCE_FILES")  // TODO: gut this, standalone
                                                  // mode is not necessary when
-                                                 // you have DatabasePinned
+                                                 // you have DatabasePinned.
+                                                 // Actually, standalone mode
+                                                 // might be needed for perf ...
                   ? (setup.dataDir /
                      (setup.standAlone ? std::string("") + dbName : dbName))
                   : (setup.standAlone && !setup.reporting &&

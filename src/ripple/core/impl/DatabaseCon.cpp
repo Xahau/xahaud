@@ -249,6 +249,7 @@ DatabaseCon::setupCheckpointing(JobQueue* q, Logs& l)
 {
     if (!q)
         Throw<std::logic_error>("No JobQueue");
+    std::cout << "Creating checkpointer!!!" << std::endl;
     checkpointer_ = checkpointers.create(session_, *q, l);
 }
 

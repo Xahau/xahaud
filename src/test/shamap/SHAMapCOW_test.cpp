@@ -93,6 +93,11 @@ public:
         tests::TestNodeFamily f(journal);
 
         // Test 1: Can we flush after computing hash?
+        // CRITICAL FINDING: getHash() marks all nodes as clean!
+        // This means once you call getHash() (or setImmutable which calls it),
+        // you can NEVER flush those nodes - flushDirty() will always return 0.
+        // This is why our catalogue loading was failing when we called
+        // setImmutable() in the main thread before the background flush.
         std::cout << "\nTest 1: Flush after getHash()" << std::endl;
         {
             SHAMap map1(SHAMapType::FREE, f);
@@ -128,25 +133,29 @@ public:
         }
 
         // Test 3: Snapshot chain with hash calls
+        // FINDING: Once parent's hash is computed, shared nodes can't be
+        // flushed from either parent OR child! The COW mechanism means they
+        // share nodes, and getHash() on the parent marks those shared nodes as
+        // clean forever.
         std::cout << "\nTest 3: Snapshot chain with interleaved hash calls"
                   << std::endl;
         {
             SHAMap map1(SHAMapType::FREE, f);
             map1.addItem(SHAMapNodeType::tnACCOUNT_STATE, makeItem(1, 1));
 
-            // Get hash of map1
+            // Get hash of map1 - marks nodes clean
             auto hash1 = map1.getHash().as_uint256();
             std::cout << "  map1 hash: " << hash1 << std::endl;
 
-            // Take snapshot
+            // Take snapshot - shares nodes with map1
             auto map2 = map1.snapShot(true);
             map2->addItem(SHAMapNodeType::tnACCOUNT_STATE, makeItem(2, 2));
 
-            // Get hash of map2 - does this affect map1's nodes?
+            // Get hash of map2 - marks its nodes clean too
             auto hash2 = map2->getHash().as_uint256();
             std::cout << "  map2 hash: " << hash2 << std::endl;
 
-            // Now try to flush both
+            // Now try to flush both - both will fail!
             int flushed1 = map1.flushDirty(hotACCOUNT_NODE);
             int flushed2 = map2->flushDirty(hotACCOUNT_NODE);
             std::cout << "  map1 flushed: " << flushed1 << " nodes"
@@ -233,6 +242,12 @@ public:
         }
 
         // Test 6: NO SNAPSHOTS - just pass the originals!
+        // CRITICAL FINDING: This proves the exact problem!
+        // Before getHash(): Can flush 133 nodes total (2 + 66 + 65)
+        // After getHash(): Can flush 0 nodes - everything marked clean!
+        // This is THE smoking gun for why our catalogue loading fails with
+        // parallel processing - any call to getHash/setImmutable kills
+        // flushing.
         std::cout << "\nTest 6: NO SNAPSHOTS - flush original maps directly"
                   << std::endl;
         {
@@ -255,7 +270,7 @@ public:
             std::cout << "    map3 flush: " << map3->flushDirty(hotACCOUNT_NODE)
                       << " nodes" << std::endl;
 
-            // Now get hashes
+            // Now get hashes - this kills all future flushing!
             auto hash1 = map1.getHash().as_uint256();
             auto hash2 = map2->getHash().as_uint256();
             auto hash3 = map3->getHash().as_uint256();
@@ -312,6 +327,11 @@ public:
         }
 
         // Test 8: ACTUAL THREADS - simulate the real catalogue loading scenario
+        // FINDING: This is a race condition! If getHash() is called before
+        // the background thread flushes, the flush will get 0 nodes.
+        // In this test, main thread wins the race and calls getHash first,
+        // so background thread finds nothing to flush.
+        // This exactly matches our catalogue loading bug!
         std::cout
             << "\nTest 8: REAL THREADING - background flush vs main thread hash"
             << std::endl;
@@ -535,6 +555,13 @@ public:
 
         // Test 11: REAL CATALOGUE SCENARIO - main builds while background
         // flushes
+        // CRITICAL RACE CONDITION: This simulates the exact bug in catalogue
+        // loading! Main thread builds map4 from map3 WHILE background thread
+        // flushes map2. Both are touching the shared COW tree structure
+        // simultaneously. Even though they're working on "different" maps, they
+        // share nodes! Result: Race detected, but it "works" in this simple
+        // test. In production with more complex operations: SEGFAULT at 58%
+        // completion.
         std::cout << "\nTest 11: CATALOGUE RACE - main builds next while bg "
                      "flushes previous"
                   << std::endl;
@@ -890,6 +917,17 @@ public:
 
         // Track total nodes flushed
         int totalNodesFlushed = 0;
+
+        // SUMMARY OF FINDINGS FROM THIS TEST:
+        // 1. If you call getHash() BEFORE flush, flush returns 0 nodes
+        // 2. If you flush BEFORE getHash(), flush works correctly (133 nodes)
+        // 3. COW sharing means parent/child maps share nodes - flushing one
+        // affects others
+        // 4. The order of operations is CRITICAL: build -> flush -> hash (never
+        // hash before flush!)
+        // 5. This is why catalogue loading with parallel processing fails -
+        // race conditions
+        //    between hash operations (setImmutable) and flush operations
 
         // Enable debug output
         std::cout << "\n=== Testing COW with backed=" << backed
