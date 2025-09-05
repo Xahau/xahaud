@@ -1,9 +1,4 @@
-// A decoupled Hook host API helper for programmatic use and testing.
-// Provides selected Hook APIs (emit-related and dependencies) without any
-// dependency on WASM memory. It operates directly on ripple types.
-
-#pragma once
-
+#include <ripple/app/hook/Enum.h>
 #include <ripple/app/tx/impl/ApplyContext.h>
 #include <ripple/basics/Blob.h>
 #include <ripple/basics/Expected.h>
@@ -14,6 +9,8 @@
 #include <cstdint>
 
 namespace hook {
+using namespace ripple;
+using HookReturnCode = hook_api::hook_return_code;
 
 struct HookContext;  // defined in applyHook.h
 
@@ -26,21 +23,21 @@ public:
 
     // Emit a transaction from the running hook. On success, returns 32-byte
     // transaction ID bytes (same content written by the wasm host function).
-    ripple::Expected<std::shared_ptr<ripple::Transaction>, std::int64_t>
-    emit(ripple::Slice txBlob);
+    Expected<std::shared_ptr<Transaction>, HookReturnCode>
+    emit(Slice txBlob);
 
     // Dependencies (public so callers can compose):
     // etxn_generation == otxn_generation() + 1
-    std::int64_t
+    uint32_t
     etxn_generation() const;
-    std::int64_t
+    Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
-    std::int64_t
-    etxn_fee_base(ripple::Slice txBlob) const;
+    Expected<uint64_t, HookReturnCode>
+    etxn_fee_base(Slice txBlob) const;
 
-    std::int64_t
+    uint32_t
     otxn_generation() const;
-    std::int64_t
+    uint64_t
     otxn_burden() const;
 
 private:

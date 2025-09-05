@@ -3490,7 +3490,10 @@ DEFINE_HOOK_FUNCNARG(int64_t, etxn_burden)
 {
     HOOK_SETUP();
     hook::HookAPI api(hookCtx);
-    return api.etxn_burden();
+    auto const burden = api.etxn_burden();
+    if (!burden)
+        return burden.error();
+    return burden.value();
     HOOK_TEARDOWN();
 }
 
@@ -4280,7 +4283,10 @@ DEFINE_HOOK_FUNCTION(
     hook::HookAPI api(hookCtx);
     ripple::Slice tx{
         reinterpret_cast<const void*>(read_ptr + memory), read_len};
-    return api.etxn_fee_base(tx);
+    auto const fee_base = api.etxn_fee_base(tx);
+    if (!fee_base)
+        return fee_base.error();
+    return fee_base.value();
     HOOK_TEARDOWN();
 }
 
