@@ -246,7 +246,7 @@ enum class CatalogueJobType {
 };
 
 /**
- * AdaptiveJobQueue - Smart JobQueue wrapper for catalogue operations
+ * JobQueueAdapter - Smart JobQueue wrapper for catalogue operations
  *
  * In standalone mode: Creates and manages its own JobQueue
  * In production mode: Delegates to the application's JobQueue with polite
@@ -254,6 +254,59 @@ enum class CatalogueJobType {
  *
  * This allows catalogue operations to use aggressive parallelism in
  * standalone/testing while being polite on production servers.
+ *
+ * TODO: SMART SCHEDULING IMPROVEMENTS
+ * ------------------------------------
+ * The adapter could implement smarter scheduling to avoid competing with
+ * critical ledger operations:
+ *
+ * 1. **Wait for idle slots**: Check getJobCount() for critical job types
+ *    (jtPUBLEDGER, jtACCEPT, jtWRITE) and only schedule catalogue jobs
+ *    when those queues are empty or below threshold.
+ *
+ * 2. **Chain jobs with dependencies**: Use a "completion callback" pattern
+ *    where SQL_SAVE jobs only get queued after their corresponding
+ *    FLUSH_SAVE completes, reducing concurrent load.
+ *
+ * 3. **Custom JobTypes**: Add dedicated catalogue job types to JobTypes.h:
+ *    - jtCATALOGUE_FLUSH (priority between jtWRITE and jtGENERIC)
+ *    - jtCATALOGUE_SQL (lowest priority, bulk operations)
+ *    This would give fine-grained control without hijacking existing types.
+ *
+ * 4. **Backpressure handling**: If catalogue jobs back up, pause the main
+ *    thread's ledger processing to prevent unbounded queue growth.
+ *
+ * 5. **WAL Checkpoint Management**: Implement smarter WAL handling during
+ *    catalogue operations:
+ *    - Increase WAL size limits during bulk loads (esp. for transaction.db)
+ *    - Coordinate checkpoint timing with job scheduling gaps
+ *    - Consider different WAL strategies for ledger.db vs transaction.db
+ *    - Auto-adjust checkpoint frequency based on write throughput
+ *    The transaction database sees much higher write volume and would
+ *    benefit most from tuned checkpoint behavior.
+ *
+ * 6. **addOrRunJob() vs addJob() - Work Distribution**:
+ *    Two methods for different contexts:
+ *
+ *    addOrRunJob(type, name, lambda):
+ *    - Used by main thread
+ *    - If queue full: Execute immediately
+ *    - Otherwise: Queue for background
+ *
+ *    addJob(type, name, lambda):
+ *    - Used by job threads
+ *    - Always queues and returns
+ *
+ *    Prevents recursive work-stealing while allowing main thread
+ *    to help with backpressure
+ *
+ * TRADEOFFS:
+ * - More complex scheduling logic vs simpler current implementation
+ * - Risk of starvation if server is consistently busy
+ * - Main thread backpressure could impact overall throughput
+ *
+ * Current approach uses existing job priorities which is "good enough"
+ * but custom job types would be cleaner long-term.
  */
 class JobQueueAdapter
 {
@@ -265,7 +318,7 @@ public:
 
     ~JobQueueAdapter();
 
-    // Submit a job with catalogue-specific routing
+    // Submit job - always queues (used by job threads)
     template <typename JobHandler>
     bool
     addJob(
@@ -290,6 +343,115 @@ public:
         }
     }
 
+    // Job execution result enum
+    enum class JobResult {
+        QUEUED,    // Job was successfully queued
+        EXECUTED,  // Job was executed inline
+        SKIPPED    // Job was skipped due to limits
+    };
+
+    // Submit or run job - executes immediately if queue full (used by main
+    // thread)
+    template <typename JobHandler>
+    bool
+    addOrRunJob(
+        CatalogueJobType catType,
+        std::string const& name,
+        JobHandler&& jobHandler)
+    {
+        // Check per-type concurrent limits first
+        int currentConcurrent = 0;
+        std::atomic<int>* counter = nullptr;
+
+        switch (catType)
+        {
+            case CatalogueJobType::FLUSH_SAVE:
+                counter = &concurrentFlushJobs_;
+                currentConcurrent = concurrentFlushJobs_.load();
+                break;
+            case CatalogueJobType::SQL_SAVE:
+                counter = &concurrentSQLJobs_;
+                currentConcurrent = concurrentSQLJobs_.load();
+                break;
+            default:
+                break;
+        }
+
+        int maxConcurrent = getMaxConcurrent(catType);
+
+        // If we're at the concurrent limit for this type, execute inline
+        if (counter && currentConcurrent >= maxConcurrent)
+        {
+            JLOG(j_.info()) << "Type limit reached (" << currentConcurrent
+                            << "/" << maxConcurrent << "), executing " << name
+                            << " in MAIN THREAD (forced inline)";
+            jobHandler();
+            return true;
+        }
+
+        // Increment counter for this job type
+        if (counter)
+            (*counter)++;
+
+        // Wrap the handler to decrement counter when done
+        auto wrappedHandler = [this,
+                               jobHandler =
+                                   std::forward<JobHandler>(jobHandler),
+                               counter,
+                               catType]() mutable {
+            jobHandler();
+            if (counter)
+                (*counter)--;
+        };
+
+        // Check queue capacity and execute immediately if full
+        if (isStandalone_ && ownQueue_)
+        {
+            JobType jobType = mapToJobType(catType);
+
+            // We want at most thread_count jobs queued
+            // This keeps workers busy without building a huge backlog
+            int waitingJobs = ownQueue_->getJobCount(jobType);
+            int threadCount = calculateOptimalThreads(app_.config());
+
+            if (waitingJobs >= threadCount)
+            {
+                // Queue is full, execute synchronously in main thread
+                JLOG(j_.debug())
+                    << "Queue full (" << waitingJobs << " waiting), executing "
+                    << name << " in main thread";
+                wrappedHandler();
+                return true;
+            }
+
+            // Queue has capacity, add job normally
+            return ownQueue_->addJob(jobType, name, std::move(wrappedHandler));
+        }
+        else
+        {
+            // Production mode - check app queue capacity
+            JobType politeType = mapToPoliteJobType(catType);
+
+            // In production, be conservative - just a small buffer
+            int waitingJobs = app_.getJobQueue().getJobCount(politeType);
+            int threshold = 4;  // Small buffer for production
+
+            if (waitingJobs >= threshold)
+            {
+                // Queue is full, execute synchronously in main thread
+                JLOG(j_.debug())
+                    << "Queue full (" << waitingJobs << " waiting), executing "
+                    << name << " in main thread";
+                wrappedHandler();
+                return true;
+            }
+
+            // Queue has capacity, add job normally
+            return app_.getJobQueue().addJob(
+                politeType, name, std::move(wrappedHandler));
+        }
+    }
+
     // Stop the queue (only affects owned queue)
     void
     stop();
@@ -299,6 +461,28 @@ public:
     calculateOptimalThreads(Config const& config);
 
 private:
+    // Maximum concurrent jobs per type (to avoid SQLite contention)
+    static int
+    getMaxConcurrent(CatalogueJobType catType)
+    {
+        // Tunable: Adjust this to control SQLite contention
+        static constexpr int MAX_CONCURRENT_SQL =
+            16;  // FLOOD MODE: Maximum parallelism!
+
+        switch (catType)
+        {
+            case CatalogueJobType::FLUSH_SAVE:
+                return MAX_CONCURRENT_SQL;  // Allow 16 flush jobs concurrently
+
+            case CatalogueJobType::SQL_SAVE:
+                return MAX_CONCURRENT_SQL;  // Allow 16 SQL jobs (if used
+                                            // separately)
+
+            default:
+                return MAX_CONCURRENT_SQL;  // Default to same limit
+        }
+    }
+
     // Map catalogue job types to standard job types (standalone mode)
     static JobType
     mapToJobType(CatalogueJobType catType)
@@ -337,6 +521,10 @@ private:
     beast::Journal j_;
     bool isStandalone_;
     std::unique_ptr<JobQueue> ownQueue_;
+
+    // Track concurrent jobs per catalogue type
+    std::atomic<int> concurrentFlushJobs_{0};
+    std::atomic<int> concurrentSQLJobs_{0};
 };
 
 // Helper functions

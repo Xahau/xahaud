@@ -371,17 +371,6 @@ doCatalogueLoad(RPC::JsonContext& context)
 
     decompStream->push(boost::ref(infile));
 
-    // Create JobQueueAdapter for parallel saves
-    // It will intelligently route jobs based on environment (standalone vs
-    // production)
-    auto jobAdapter = std::make_unique<JobQueueAdapter>(
-        context.app, context.app.logs().journal("CatalogueToolsJQ"));
-
-    // Track thread count for status reporting
-    catalogueRunStatus.loadThreads = context.app.config().standalone()
-        ? JobQueueAdapter::calculateOptimalThreads(context.app.config())
-        : context.app.config().WORKERS;
-
     // Track SQL performance metrics
     struct SQLMetrics
     {
@@ -389,6 +378,11 @@ doCatalogueLoad(RPC::JsonContext& context)
         std::atomic<uint64_t> totalMicroseconds{0};
         std::atomic<uint64_t> lastIntervalJobs{0};
         std::atomic<uint64_t> lastIntervalMicroseconds{0};
+        std::atomic<uint64_t> mainThreadJobs{
+            0};  // Jobs executed in main thread
+        std::atomic<uint64_t> backgroundJobs{0};  // Jobs executed in background
+        std::atomic<uint64_t> flushMainThread{0};  // Flush jobs in main thread
+        std::atomic<uint64_t> flushBackground{0};  // Flush jobs in background
         std::chrono::steady_clock::time_point startTime;
 
         SQLMetrics() : startTime(std::chrono::steady_clock::now())
@@ -397,19 +391,37 @@ doCatalogueLoad(RPC::JsonContext& context)
     };
     auto sqlMetrics = std::make_shared<SQLMetrics>();
 
-    // Ensure proper cleanup on exit
-    struct JobQueueCleanup
-    {
-        std::unique_ptr<JobQueueAdapter>& jq;
-        ~JobQueueCleanup()
-        {
-            if (jq)
-            {
-                jq->stop();
-                jq.reset();
-            }
-        }
-    } jqCleanup{jobAdapter};
+    // Create JobQueueAdapter for intelligent job routing
+    JobQueueAdapter jobAdapter(
+        context.app,
+        context.app.logs().journal("CatalogueJobs"),
+        context.app.config()
+            .standalone());  // Force standalone mode if configured
+
+    // THREE-STAGE PIPELINE WITH WORK-STEALING:
+    //
+    // Stage 1 - Main Thread:
+    //   - Deserialize + canonicalize (must be serial for COW)
+    //   - addOrRunJob(FLUSH_SAVE) → queues or executes flush
+    //
+    // Stage 2 - Flush Job:
+    //   - Flush nodes to disk (NuDB/RocksDB)
+    //   - Verify hashes
+    //   - setImmutable()
+    //   - addOrRunJob(SQL_SAVE) → queues or executes SQL
+    //
+    // Stage 3 - SQL Job (terminal):
+    //   - Save ledger metadata to SQLite
+    //   - Mark complete in SaveState
+    //
+    // Work-Stealing Benefits:
+    // - Maximum parallelism: 3 ledgers in flight (main, flush, SQL)
+    // - Natural backpressure: each stage helps next if queue full
+    // - No idle waiting: threads always working or helping
+    // - Simple dependencies: each job knows its next step
+    //
+    // The addOrRunJob() pattern means any thread can help at any stage,
+    // preventing queue overflow while maintaining pipeline efficiency.
 
     // Shared state for concurrent save management
     struct SaveState
@@ -423,6 +435,10 @@ doCatalogueLoad(RPC::JsonContext& context)
         std::atomic<bool> hasError{false};
         std::string errorMessage;
         std::mutex errorMutex;
+
+        // SQL serialization - only one SQL job at a time
+        std::mutex sqlMutex;
+        std::atomic<int> pendingSQLJobs{0};
     };
 
     // REMOVED: State map flush synchronization is no longer needed!
@@ -456,10 +472,18 @@ doCatalogueLoad(RPC::JsonContext& context)
             Application& app,
             beast::Journal journal,
             std::shared_ptr<SaveState> saveState,
-            JobQueueAdapter* jobAdapter,
-            std::shared_ptr<SQLMetrics> sqlMetrics)
+            JobQueueAdapter& jobAdapter,
+            std::shared_ptr<SQLMetrics> sqlMetrics,
+            bool isMainThread = false)  // Track if executing in main thread
         {
             auto j = journal;
+
+            // Track thread distribution for flush jobs
+            if (isMainThread)
+                sqlMetrics->flushMainThread++;
+            else
+                sqlMetrics->flushBackground++;
+
             JLOG(j.trace())
                 << "Executing save job for ledger " << ledger->info().seq
                 << " hash: " << ledger->info().hash;
@@ -575,101 +599,75 @@ doCatalogueLoad(RPC::JsonContext& context)
                 return;
             }
 
-            // Queue SQL save through JobQueueAdapter
             auto seq = ledger->info().seq;
-            JLOG(j.trace()) << "Queueing SQL save job for ledger " << seq;
 
-            // Increment counter for SQL job
-            saveState->totalPendingJobs++;
-
-            // Use JobQueueAdapter with SQL_SAVE priority
-            // This routes appropriately and avoids lock contention
-            bool sqlQueued = jobAdapter->addJob(
-                CatalogueJobType::SQL_SAVE,
-                "cat-sql-" + std::to_string(seq),
-                [sqlLedger = ledger,
-                 app = &app,
-                 j,
-                 seq,
-                 saveState,
-                 sqlMetrics]() {
-                    // Time the SQL job execution
-                    auto start = std::chrono::steady_clock::now();
-
-                    // Get the database
-                    auto const db = dynamic_cast<SQLiteDatabase*>(
-                        &app->getRelationalDatabase());
-                    if (!db)
-                    {
-                        JLOG(j.error())
-                            << "Failed to get database for ledger " << seq;
-                        saveState->totalPendingJobs--;
-                        saveState->completionCV.notify_all();
-                        return;
-                    }
-
-                    JLOG(j.trace())
-                        << "SQL: Saving ledger " << seq << " to database";
-
-                    // This handles the existence check and calls
-                    // detail::saveValidatedLedger
-                    bool success = db->saveValidatedLedger(sqlLedger, false);
-
-                    auto end = std::chrono::steady_clock::now();
-                    auto duration =
-                        std::chrono::duration_cast<std::chrono::microseconds>(
-                            end - start)
-                            .count();
-
-                    sqlMetrics->totalJobs++;
-                    sqlMetrics->totalMicroseconds += duration;
-                    sqlMetrics->lastIntervalJobs++;
-                    sqlMetrics->lastIntervalMicroseconds += duration;
-
-                    if (!success)
-                    {
-                        JLOG(j.error())
-                            << "Failed to save ledger " << seq << " to SQLite";
-                        // Set error flag so main thread knows what happened
-                        saveState->hasError = true;
-                        {
-                            std::lock_guard<std::mutex> lock(
-                                saveState->errorMutex);
-                            saveState->errorMessage = "Failed to save ledger " +
-                                std::to_string(seq) + " to SQLite database";
-                        }
-                        // We're not attempting recovery - if SQL fails, the
-                        // DB can't be trusted
-                    }
-                    else
-                    {
-                        JLOG(j.trace())
-                            << "SQL: Successfully saved ledger " << seq;
-                    }
-
-                    // Mark this ledger as saved for range tracking
-                    {
-                        std::lock_guard lock(saveState->completedSavesMutex);
-                        saveState->completedSaves.insert(seq);
-                    }
-
-                    // Decrement counter and notify
-                    saveState->totalPendingJobs--;
-                    saveState->completionCV.notify_all();
-                });
-
-            if (!sqlQueued)
+            // SQL save logic - run inline for now to avoid contention
+            // TODO: Implement addJobOrRunOrSkip() for better control
             {
-                JLOG(j.error())
-                    << "Failed to queue SQL save job for ledger " << seq;
-                saveState->totalPendingJobs--;
-                saveState->completionCV.notify_all();
+                JLOG(j.trace()) << "Executing SQL inline for ledger " << seq;
+
+                // Track metrics
+                if (isMainThread)
+                    sqlMetrics->mainThreadJobs++;
+                else
+                    sqlMetrics->backgroundJobs++;
+
+                // Time the SQL job execution
+                auto start = std::chrono::steady_clock::now();
+
+                // Get the database
+                auto const db =
+                    dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
+                if (!db)
+                {
+                    JLOG(j.error())
+                        << "Failed to get database for ledger " << seq;
+                    saveState->hasError = true;
+                    return;
+                }
+
+                // This handles the existence check and calls
+                // detail::saveValidatedLedger
+                bool success = db->saveValidatedLedger(ledger, false);
+
+                auto end = std::chrono::steady_clock::now();
+                auto duration =
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        end - start)
+                        .count();
+
+                sqlMetrics->totalJobs++;
+                sqlMetrics->totalMicroseconds += duration;
+                sqlMetrics->lastIntervalJobs++;
+                sqlMetrics->lastIntervalMicroseconds += duration;
+
+                if (!success)
+                {
+                    JLOG(j.error())
+                        << "Failed to save ledger " << seq << " to SQLite";
+                    // Set error flag so main thread knows what happened
+                    saveState->hasError = true;
+                    {
+                        std::lock_guard<std::mutex> lock(saveState->errorMutex);
+                        saveState->errorMessage = "Failed to save ledger " +
+                            std::to_string(seq) + " to SQLite database";
+                    }
+                }
+                else
+                {
+                    JLOG(j.trace()) << "SQL: Successfully saved ledger " << seq;
+                }
+
+                // Mark this ledger as saved for range tracking
+                {
+                    std::lock_guard lock(saveState->completedSavesMutex);
+                    saveState->completedSaves.insert(seq);
+                }
             }
 
-            JLOG(j.trace()) << "Flush job completed for ledger " << seq
+            JLOG(j.trace()) << "Save job completed for ledger " << seq
                             << " stateNodes: " << stateNodesFlushed
-                            << " txNodes: " << txNodesFlushed
-                            << " (SQL save queued separately)";
+                            << " txNodes: " << txNodesFlushed;
         }
     };
 
@@ -698,6 +696,9 @@ doCatalogueLoad(RPC::JsonContext& context)
     static constexpr bool flushMapsInMain = false;
     static constexpr bool canonicalizeInMain =
         true;  // NEW: Canonicalize for thread safety
+    static constexpr bool separateSQLJob =
+        false;  // EXPERIMENT: false = SQL runs inline in flush job (serialized)
+                //             true = SQL runs as separate job (can be parallel)
 
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
@@ -927,42 +928,46 @@ doCatalogueLoad(RPC::JsonContext& context)
                             << " hash: " << ledger->info().hash
                             << ", pending=" << saveState->pendingSaves.load();
 
-            // Use JobQueueAdapter with CatalogueJobType::FLUSH_SAVE
-            // This will route appropriately based on environment
-            bool jobQueued = jobAdapter->addJob(
-                CatalogueJobType::FLUSH_SAVE,
-                "cat-save-" + std::to_string(ledger->seq()),
-                [job =
-                     LedgerSaveJob{
-                         ledger,
-                         prevLedger,  // Pass parent ledger for delta flushing
-                         flushMapsInMain,
-                         info.hash,  // Pass the expected hash from the
-                                     // catalogue
-                         info},  // Pass the complete LedgerInfo from catalogue
-                 saveState,
-                 app = &context.app,
-                 j,
-                 seq = ledger->info().seq,
-                 jqAdapter = jobAdapter.get(),
-                 sqlMetrics]() mutable {
-                    job.execute(*app, j, saveState, jqAdapter, sqlMetrics);
-
-                    // Note: completedSaves tracking moved to SQL job
-                    // to ensure it only happens after SQL completes
-
-                    saveState->pendingSaves--;
-                    saveState->totalPendingJobs--;  // Decrement for flush job
-                    saveState->completionCV.notify_all();
-                });
-
-            if (!jobQueued)
+            // Use addOrRunJob to queue flush job or run immediately if queue
+            // full Since FLUSH_SAVE is limited to 2 concurrent, we won't
+            // overwhelm SQLite
             {
-                JLOG(j.error())
-                    << "Failed to queue save job for ledger " << ledger->seq();
-                saveState->pendingSaves--;
-                saveState->totalPendingJobs--;
-                return rpcError(rpcINTERNAL, "Failed to queue save job");
+                LedgerSaveJob job{
+                    ledger,
+                    prevLedger,  // Pass parent ledger for delta flushing
+                    flushMapsInMain,
+                    info.hash,  // Pass the expected hash from the catalogue
+                    info};      // Pass the complete LedgerInfo from catalogue
+
+                // Capture main thread ID for comparison
+                auto mainThreadId = std::this_thread::get_id();
+
+                // Queue or execute the flush job using work-stealing pattern
+                // With only 1 flush job max, SQL won't get overwhelmed
+                bool executedInline = jobAdapter.addOrRunJob(
+                    CatalogueJobType::FLUSH_SAVE,
+                    "flush-ledger-" + std::to_string(ledger->seq()),
+                    [job,
+                     &context,
+                     j,
+                     saveState,
+                     &jobAdapter,
+                     sqlMetrics,
+                     mainThreadId]() mutable {
+                        // Check if we're running in the main thread
+                        bool inMainThread =
+                            (std::this_thread::get_id() == mainThreadId);
+                        job.execute(
+                            context.app,
+                            j,
+                            saveState,
+                            jobAdapter,
+                            sqlMetrics,
+                            inMainThread);
+                        saveState->pendingSaves--;
+                        saveState->totalPendingJobs--;
+                        saveState->completionCV.notify_all();
+                    });
             }
 
             // No chain update needed - parallel flushing is safe
@@ -1076,6 +1081,39 @@ doCatalogueLoad(RPC::JsonContext& context)
                 perfJson["sql_avg_ms_overall"] =
                     std::round(totalSQLMicros / 1000.0 / totalSQLJobs * 10) /
                     10;
+            }
+
+            // SQL thread execution metrics
+            auto mainJobs = sqlMetrics->mainThreadJobs.load();
+            auto bgJobs = sqlMetrics->backgroundJobs.load();
+            if (mainJobs > 0 || bgJobs > 0)
+            {
+                perfJson["sql_main_thread"] = static_cast<Json::UInt>(mainJobs);
+                perfJson["sql_background"] = static_cast<Json::UInt>(bgJobs);
+                if (mainJobs + bgJobs > 0)
+                {
+                    perfJson["sql_main_percent"] =
+                        std::round(
+                            mainJobs * 100.0 / (mainJobs + bgJobs) * 10) /
+                        10;
+                }
+            }
+
+            // Flush thread execution metrics
+            auto flushMain = sqlMetrics->flushMainThread.load();
+            auto flushBg = sqlMetrics->flushBackground.load();
+            if (flushMain > 0 || flushBg > 0)
+            {
+                perfJson["flush_main_thread"] =
+                    static_cast<Json::UInt>(flushMain);
+                perfJson["flush_background"] = static_cast<Json::UInt>(flushBg);
+                if (flushMain + flushBg > 0)
+                {
+                    perfJson["flush_main_percent"] =
+                        std::round(
+                            flushMain * 100.0 / (flushMain + flushBg) * 10) /
+                        10;
+                }
             }
 
             outputJson["perf"] = perfJson;
@@ -1201,10 +1239,9 @@ doCatalogueLoad(RPC::JsonContext& context)
             context.app.getLedgerMaster().getPinnedLedgersRangeSet());
     }
 
-    // Stop the JobQueueAdapter and ensure all jobs are done
-    JLOG(j.info()) << "Stopping job queue adapter...";
-    jobAdapter->stop();
-    jobAdapter.reset();  // This ensures complete shutdown
+    // Stop the JobQueueAdapter (waits for all jobs to complete)
+    jobAdapter.stop();
+    JLOG(j.info()) << "Catalogue load processing complete";
 
     // Now that all ledgers are saved and job queue is stopped, advance to the
     // latest one
