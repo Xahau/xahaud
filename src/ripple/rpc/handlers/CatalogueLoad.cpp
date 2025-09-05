@@ -368,6 +368,11 @@ doCatalogueLoad(RPC::JsonContext& context)
         uint64_t totalMicroseconds = 0;
         uint64_t lastIntervalJobs = 0;
         uint64_t lastIntervalMicroseconds = 0;
+        uint64_t totalQueueWaitMicroseconds =
+            0;                         // Total time waiting for promises
+        uint64_t totalQueueWaits = 0;  // Number of times we waited
+        uint64_t lastIntervalQueueWaitMicroseconds = 0;
+        uint64_t lastIntervalQueueWaits = 0;
         std::chrono::steady_clock::time_point startTime;
 
         SQLMetrics() : startTime(std::chrono::steady_clock::now())
@@ -730,8 +735,23 @@ doCatalogueLoad(RPC::JsonContext& context)
                         "catalogue-sql-" + std::to_string(ledger->info().seq),
                         std::move(sqlJob));
 
+                    // Track how long we wait for the promise
+                    auto waitStart = std::chrono::steady_clock::now();
+
                     // Wait for SQL save to complete
                     success = sqlFuture.get();
+
+                    auto waitEnd = std::chrono::steady_clock::now();
+                    auto waitDuration =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            waitEnd - waitStart)
+                            .count();
+
+                    sqlMetrics->totalQueueWaitMicroseconds += waitDuration;
+                    sqlMetrics->totalQueueWaits++;
+                    sqlMetrics->lastIntervalQueueWaitMicroseconds +=
+                        waitDuration;
+                    sqlMetrics->lastIntervalQueueWaits++;
                 }
 
                 if (!success)
@@ -866,6 +886,39 @@ doCatalogueLoad(RPC::JsonContext& context)
                     static_cast<Json::UInt>(totalSQLJobs);
                 perfJson["sql_avg_ms_overall"] =
                     std::round(totalSQLMicros / 1000.0 / totalSQLJobs * 10) /
+                    10;
+            }
+
+            // Queue wait time metrics (production mode only)
+            auto queueWaitsInterval = sqlMetrics->lastIntervalQueueWaits;
+            sqlMetrics->lastIntervalQueueWaits = 0;
+            auto queueWaitMicrosInterval =
+                sqlMetrics->lastIntervalQueueWaitMicroseconds;
+            sqlMetrics->lastIntervalQueueWaitMicroseconds = 0;
+
+            if (queueWaitsInterval > 0)
+            {
+                perfJson["queue_waits_in_interval"] =
+                    static_cast<Json::UInt>(queueWaitsInterval);
+                perfJson["queue_wait_avg_ms"] =
+                    std::round(
+                        queueWaitMicrosInterval / 1000.0 / queueWaitsInterval *
+                        10) /
+                    10;
+            }
+
+            // Total queue wait metrics
+            auto totalQueueWaits = sqlMetrics->totalQueueWaits;
+            auto totalQueueWaitMicros = sqlMetrics->totalQueueWaitMicroseconds;
+            if (totalQueueWaits > 0)
+            {
+                perfJson["queue_total_waits"] =
+                    static_cast<Json::UInt>(totalQueueWaits);
+                perfJson["queue_wait_total_seconds"] =
+                    std::round(totalQueueWaitMicros / 1000000.0 * 10) / 10;
+                perfJson["queue_wait_avg_ms_overall"] =
+                    std::round(
+                        totalQueueWaitMicros / 1000.0 / totalQueueWaits * 10) /
                     10;
             }
 

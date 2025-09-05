@@ -128,7 +128,7 @@ private:
     // Current setting uses size-based batching for optimal performance.
     //
     static constexpr size_t MAX_ENTRIES_PER_BATCH =
-        1;  // 0 = use size-based batching, >0 = max entries per batch
+        0;  // 0 = use size-based batching, >0 = max entries per batch
     static constexpr std::chrono::milliseconds BATCH_DELAY{
         0};  // Delay between batches (0 = no delay)
 
