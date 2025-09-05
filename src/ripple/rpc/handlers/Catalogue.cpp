@@ -1425,47 +1425,69 @@ doCatalogueLoad(RPC::JsonContext& context)
                 << "Executing save job for ledger " << ledger->info().seq
                 << " hash: " << ledger->info().hash;
 
-            //@@start catalogue-shamaps-flush-dirty
-            // Only flush in background if NOT already flushed in main thread
+            //@@start catalogue-shamaps-flush-canonicalized
+            // Flush nodes using pointer diff for efficiency
             int stateNodesFlushed = 0;
             int txNodesFlushed = 0;
 
-            JLOG(j.trace()) << "flushMapsInMain = " << flushMapsInMain;
+            JLOG(j.trace()) << "Flushing ledger " << ledger->info().seq
+                            << " (state canonical, tx dirty)";
 
             if (!flushMapsInMain)
             {
-                // STEP 1: Immediately flush TX map (no dependencies, unique per
-                // ledger)
+                // With canonicalization, nodes have cowid=0 (immutable)
+                // We can use pointer diff safely!
+
+                // Use pointer diff for all ledgers (handles first ledger
+                // specially)
+                JLOG(j.trace())
+                    << "Using flushByPointerDiff for ledger "
+                    << ledger->info().seq
+                    << (parentLedger ? " (with parent)" : " (first ledger)");
+
+                // flushByPointerDiff handles the first ledger case internally:
+                // - If parent is provided: does efficient pointer diff
+                // - If no parent (first ledger): walks and flushes entire tree
+                stateNodesFlushed = ledger->stateMap().flushByPointerDiff(
+                    parentLedger
+                        ? std::optional<std::reference_wrapper<const SHAMap>>(
+                              parentLedger->stateMap())
+                        : std::nullopt,
+                    pinnedACCOUNT_NODE);
+
+                JLOG(j.trace()) << "State map flushed " << stateNodesFlushed
+                                << " nodes for ledger " << ledger->info().seq;
+
+                // TX map - use flushDirty since TX maps are unique per ledger
+                // No COW sharing between ledgers for TX maps, so it's safe
                 txNodesFlushed =
                     ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
-                JLOG(j.trace())
-                    << "Ledger " << ledger->info().seq
-                    << " flushed TX map: " << txNodesFlushed << " nodes";
 
-                // STEP 2: Wait for parent's state map to be flushed (if we have
-                // a parent)
-                if (flushChain && flushChain->parentStateFlushed.valid())
+                JLOG(j.trace()) << "TX map flushed " << txNodesFlushed
+                                << " nodes for ledger " << ledger->info().seq;
+
+                // NOW verify TX hash AFTER flushing (this will canonicalize it)
+                auto computedTxHash = ledger->txMap().getHash().as_uint256();
+                if (computedTxHash != info.txHash)
                 {
-                    JLOG(j.trace()) << "Ledger " << ledger->info().seq
-                                    << " waiting for parent state flush...";
-                    if (synchronizeStateMapFlushes)
-                        flushChain->parentStateFlushed.wait();
-                    JLOG(j.trace()) << "Ledger " << ledger->info().seq
-                                    << " parent state flushed, proceeding";
+                    JLOG(j.error())
+                        << "TX hash mismatch for ledger " << ledger->info().seq
+                        << " Expected: " << info.txHash
+                        << " Got: " << computedTxHash;
+
+                    // Set error flag so main thread knows to abort
+                    saveState->hasError = true;
+                    {
+                        std::lock_guard<std::mutex> lock(saveState->errorMutex);
+                        saveState->errorMessage =
+                            "TX hash mismatch for ledger " +
+                            std::to_string(ledger->info().seq);
+                    }
+                    return;
                 }
 
-                // STEP 3: Now flush our state map (parent is done, so COW is
-                // safe) ALWAYS use flushDirty - flushByPointerDiff is
-                // unreliable with threading!
-                stateNodesFlushed =
-                    ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
-
-                JLOG(j.trace())
-                    << "Ledger " << ledger->info().seq
-                    << " flushed state map: " << stateNodesFlushed << " nodes";
-
-                // STEP 4: Signal that our state map is flushed (unblock next
-                // ledger)
+                // No need for synchronization - canonical nodes are immutable!
+                // Signal completion for any dependent ledgers
                 if (flushChain)
                 {
                     flushChain->stateMapFlushed.set_value();
@@ -1527,7 +1549,6 @@ doCatalogueLoad(RPC::JsonContext& context)
 
             // Add to SQL queue for processing by dedicated thread
             // This avoids database lock contention from multiple threads
-            if (false)
             {
                 std::lock_guard<std::mutex> lock(*sqlQueueMutex);
                 sqlQueue->push(
@@ -1601,20 +1622,24 @@ doCatalogueLoad(RPC::JsonContext& context)
     static constexpr int BATCH_UPDATE_INTERVAL =
         100;  // Update ranges every N ledgers
 
-    // IMPORTANT: We've fixed the COW flushing issue!
+    // IMPORTANT: We use the canonicalize-then-flush approach!
     //
-    // Previously, flushMapsInMain HAD to be true because calling setImmutable()
-    // in the main thread would call getHash() which marked all nodes as clean,
-    // preventing background flushing.
+    // The safe pattern is:
+    // 1. Build the ledger in main thread
+    // 2. Canonicalize in main thread (walkSubTree with doWrite=false)
+    //    - This computes all hashes and marks nodes clean (cowid=0)
+    //    - Makes nodes immutable and safe for concurrent access
+    // 3. Pass canonicalized ledger to background thread
+    // 4. Background thread uses flushByPointerDiff for efficient I/O
+    //    - Safe because nodes are immutable after canonicalization
+    //    - Pointer diff works because canonical nodes have stable pointers
+    // 5. Background thread calls setImmutable() to finalize
     //
-    // Now we:
-    // 1. DON'T call setImmutable() in the main thread
-    // 2. Pass the expected hash to the background job
-    // 3. Call setImmutable() AFTER flushing in the background
-    // 4. Verify the hash matches the expected value
-    //
-    // This allows true deferred background flushing to work correctly!
+    // This separates CPU work (hashing) in main from I/O work (flushing) in
+    // background
     static constexpr bool flushMapsInMain = false;
+    static constexpr bool canonicalizeInMain =
+        true;  // NEW: Canonicalize for thread safety
 
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
@@ -1824,15 +1849,45 @@ doCatalogueLoad(RPC::JsonContext& context)
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
         }
 
-        // Don't flush here - will be done in background after setImmutable
-        // Don't finalize here either - ALL finalization in background to avoid
-        // getHash()
+        // CANONICALIZE in main thread for thread safety
+        if (canonicalizeInMain)
+        {
+            // unshare() calls walkSubTree(false, hotUNKNOWN) internally
+            // This computes hashes and marks nodes clean (cowid=0)
+            // Making nodes immutable and safe for background access
+            JLOG(j.trace()) << "Canonicalizing state map for ledger "
+                            << info.seq << " in main thread...";
+
+            // Canonicalize state map ONLY (computes hashes, marks clean)
+            // This is needed for thread safety due to COW sharing between
+            // ledgers
+            ledger->stateMap().unshare();
+
+            // DON'T canonicalize TX map - let background flush it normally
+            // TX maps are unique per ledger (no COW sharing), so they're safe
+            // to flush in background without canonicalization
+
+            // Only verify STATE hash here (after canonicalization)
+            auto computedStateHash = ledger->stateMap().getHash().as_uint256();
+            if (computedStateHash != info.accountHash)
+            {
+                JLOG(j.error()) << "State hash mismatch for ledger " << info.seq
+                                << " Expected: " << info.accountHash
+                                << " Got: " << computedStateHash;
+                return rpcError(
+                    rpcINTERNAL, "State hash mismatch after canonicalization");
+            }
+
+            // TX hash will be verified in background BEFORE flushing
+            // (calling getHash() here would canonicalize and prevent flushing)
+
+            JLOG(j.trace()) << "Ledger " << info.seq
+                            << " state map canonicalized and verified";
+        }
 
         // Queue save job for parallel processing using our temporary JobQueue
         {
-            // DO NOT call setImmutable here - it calls getHash() which marks
-            // all nodes as clean, preventing background flushing!
-            // The hash will be verified in the background thread after flushing
+            // Ledger is now canonicalized - safe for background processing
 
             // Create flush chain link for this ledger
             auto flushLink =

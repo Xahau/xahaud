@@ -1063,10 +1063,55 @@ SHAMap::flushByPointerDiff(
     if (!parent.has_value())
     {
         JLOG(journal_.trace())
-            << "flushByPointerDiff: No parent, using flushDirty";
-        int result = flushDirty(t);
+            << "flushByPointerDiff: No parent - first ledger in chain";
+
+        // If nodes are canonical (cowid=0), flushDirty returns 0
+        // So we need to walk the tree and flush all nodes explicitly
+        int result = 0;
+
+        // Use the existing flushSubtree lambda defined below
+        // For now, define it inline for the first ledger case
+        std::function<void(SHAMapTreeNode*)> flushFirstLedger =
+            [&](SHAMapTreeNode* node) {
+                if (!node)
+                    return;
+
+                // Recursively flush children first (post-order traversal)
+                if (node->isInner())
+                {
+                    auto inner = static_cast<SHAMapInnerNode*>(node);
+                    for (int i = 0; i < branchFactor; ++i)
+                    {
+                        if (!inner->isEmptyBranch(i))
+                        {
+                            auto child = inner->getChildPointer(i);
+                            if (child)
+                                flushFirstLedger(child);
+                        }
+                    }
+                }
+
+                // Now flush this node
+                Serializer s;
+                node->serializeWithPrefix(s);
+                f_.db().store(
+                    t,
+                    std::move(s.modData()),
+                    node->getHash().as_uint256(),
+                    ledgerSeq_);
+                ++result;
+            };
+
+        // Walk and flush the entire tree
+        if (root_)
+        {
+            JLOG(journal_.trace()) << "flushByPointerDiff: Walking and "
+                                      "flushing entire canonical tree";
+            flushFirstLedger(root_.get());
+        }
+
         JLOG(journal_.trace()) << "flushByPointerDiff: flushed " << result
-                               << " nodes via flushDirty";
+                               << " nodes from first ledger";
         return result;
     }
 
