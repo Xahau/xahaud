@@ -382,35 +382,6 @@ doCatalogueLoad(RPC::JsonContext& context)
         ? JobQueueAdapter::calculateOptimalThreads(context.app.config())
         : context.app.config().WORKERS;
 
-    // Create a dedicated SQL thread with its own queue
-    // This eliminates database lock contention from multiple threads
-    //
-    // PERFORMANCE IMPROVEMENT (2025-09): Changed from multiple threads
-    // competing for SQLite locks to a single dedicated SQL thread. This
-    // significantly improved throughput by:
-    // 1. Eliminating lock contention - SQLite uses file-based locking, so
-    // multiple
-    //    threads just fight each other
-    // 2. Better WAL checkpoint behavior - single writer means more predictable
-    // checkpoints
-    // 3. Reduced context switching overhead
-    // 4. More efficient transaction batching potential
-    //
-    // TODO: Now that we have a single SQL thread, we could batch multiple
-    // ledger saves into a single transaction for even better performance.
-    // Instead of:
-    //   BEGIN; INSERT ledger1; COMMIT;
-    //   BEGIN; INSERT ledger2; COMMIT;
-    // We could do:
-    //   BEGIN; INSERT ledger1; INSERT ledger2; ... INSERT ledger10; COMMIT;
-    // This would reduce WAL overhead and checkpoint frequency dramatically.
-    // Could batch by count (e.g., 10 ledgers) or time (e.g., 100ms worth of
-    // saves).
-    auto sqlQueue = std::make_shared<std::queue<std::function<void()>>>();
-    auto sqlQueueMutex = std::make_shared<std::mutex>();
-    auto sqlQueueCV = std::make_shared<std::condition_variable>();
-    auto sqlThreadStop = std::make_shared<std::atomic<bool>>(false);
-
     // Track SQL performance metrics
     struct SQLMetrics
     {
@@ -426,51 +397,10 @@ doCatalogueLoad(RPC::JsonContext& context)
     };
     auto sqlMetrics = std::make_shared<SQLMetrics>();
 
-    // Start the dedicated SQL thread
-    std::thread sqlThread(
-        [sqlQueue, sqlQueueMutex, sqlQueueCV, sqlThreadStop, sqlMetrics]() {
-            beast::setCurrentThreadName("cat-sql");
-
-            while (!*sqlThreadStop)
-            {
-                std::unique_lock<std::mutex> lock(*sqlQueueMutex);
-                sqlQueueCV->wait(lock, [&]() {
-                    return !sqlQueue->empty() || *sqlThreadStop;
-                });
-
-                while (!sqlQueue->empty())
-                {
-                    auto job = std::move(sqlQueue->front());
-                    sqlQueue->pop();
-                    lock.unlock();
-
-                    // Time the SQL job execution
-                    auto start = std::chrono::steady_clock::now();
-                    job();
-                    auto end = std::chrono::steady_clock::now();
-
-                    auto duration =
-                        std::chrono::duration_cast<std::chrono::microseconds>(
-                            end - start)
-                            .count();
-
-                    sqlMetrics->totalJobs++;
-                    sqlMetrics->totalMicroseconds += duration;
-                    sqlMetrics->lastIntervalJobs++;
-                    sqlMetrics->lastIntervalMicroseconds += duration;
-
-                    lock.lock();
-                }
-            }
-        });
-
     // Ensure proper cleanup on exit
     struct JobQueueCleanup
     {
         std::unique_ptr<JobQueueAdapter>& jq;
-        std::shared_ptr<std::atomic<bool>> stopFlag;
-        std::shared_ptr<std::condition_variable> cv;
-        std::thread& sqlThread;
         ~JobQueueCleanup()
         {
             if (jq)
@@ -478,12 +408,8 @@ doCatalogueLoad(RPC::JsonContext& context)
                 jq->stop();
                 jq.reset();
             }
-            *stopFlag = true;
-            cv->notify_all();
-            if (sqlThread.joinable())
-                sqlThread.join();
         }
-    } jqCleanup{jobAdapter, sqlThreadStop, sqlQueueCV, sqlThread};
+    } jqCleanup{jobAdapter};
 
     // Shared state for concurrent save management
     struct SaveState
@@ -510,7 +436,6 @@ doCatalogueLoad(RPC::JsonContext& context)
     // 3. Makes nodes thread-safe for concurrent reads
     //
     // This allows parallel flushing without synchronization overhead.
-    static constexpr bool synchronizeStateMapFlushes = false;
 
     // REMOVED: FlushChainLink no longer needed with canonicalized nodes
     // Canonicalized nodes are immutable and safe for concurrent access
@@ -531,9 +456,8 @@ doCatalogueLoad(RPC::JsonContext& context)
             Application& app,
             beast::Journal journal,
             std::shared_ptr<SaveState> saveState,
-            std::shared_ptr<std::queue<std::function<void()>>> sqlQueue,
-            std::shared_ptr<std::mutex> sqlQueueMutex,
-            std::shared_ptr<std::condition_variable> sqlQueueCV)
+            JobQueueAdapter* jobAdapter,
+            std::shared_ptr<SQLMetrics> sqlMetrics)
         {
             auto j = journal;
             JLOG(j.trace())
@@ -651,72 +575,95 @@ doCatalogueLoad(RPC::JsonContext& context)
                 return;
             }
 
-            // Queue SQL save as a separate async job to avoid blocking
+            // Queue SQL save through JobQueueAdapter
             auto seq = ledger->info().seq;
             JLOG(j.trace()) << "Queueing SQL save job for ledger " << seq;
 
             // Increment counter for SQL job
             saveState->totalPendingJobs++;
 
-            // Add to SQL queue for processing by dedicated thread
-            // This avoids database lock contention from multiple threads
-            {
-                std::lock_guard<std::mutex> lock(*sqlQueueMutex);
-                sqlQueue->push(
-                    [sqlLedger = ledger, app = &app, j, seq, saveState]() {
-                        // Get the database
-                        auto const db = dynamic_cast<SQLiteDatabase*>(
-                            &app->getRelationalDatabase());
-                        if (!db)
-                        {
-                            JLOG(j.error())
-                                << "Failed to get database for ledger " << seq;
-                            saveState->totalPendingJobs--;
-                            saveState->completionCV.notify_all();
-                            return;
-                        }
+            // Use JobQueueAdapter with SQL_SAVE priority
+            // This routes appropriately and avoids lock contention
+            bool sqlQueued = jobAdapter->addJob(
+                CatalogueJobType::SQL_SAVE,
+                "cat-sql-" + std::to_string(seq),
+                [sqlLedger = ledger,
+                 app = &app,
+                 j,
+                 seq,
+                 saveState,
+                 sqlMetrics]() {
+                    // Time the SQL job execution
+                    auto start = std::chrono::steady_clock::now();
 
-                        JLOG(j.trace())
-                            << "SQL: Saving ledger " << seq << " to database";
-
-                        // This handles the existence check and calls
-                        // detail::saveValidatedLedger
-                        if (!db->saveValidatedLedger(sqlLedger, false))
-                        {
-                            JLOG(j.error()) << "Failed to save ledger " << seq
-                                            << " to SQLite";
-                            // Set error flag so main thread knows what happened
-                            saveState->hasError = true;
-                            {
-                                std::lock_guard<std::mutex> lock(
-                                    saveState->errorMutex);
-                                saveState->errorMessage =
-                                    "Failed to save ledger " +
-                                    std::to_string(seq) + " to SQLite database";
-                            }
-                            // We're not attempting recovery - if SQL fails, the
-                            // DB can't be trusted
-                        }
-                        else
-                        {
-                            JLOG(j.trace())
-                                << "SQL: Successfully saved ledger " << seq;
-                        }
-
-                        // Mark this ledger as saved for range tracking
-                        {
-                            std::lock_guard lock(
-                                saveState->completedSavesMutex);
-                            saveState->completedSaves.insert(seq);
-                        }
-
-                        // Decrement counter and notify
+                    // Get the database
+                    auto const db = dynamic_cast<SQLiteDatabase*>(
+                        &app->getRelationalDatabase());
+                    if (!db)
+                    {
+                        JLOG(j.error())
+                            << "Failed to get database for ledger " << seq;
                         saveState->totalPendingJobs--;
                         saveState->completionCV.notify_all();
-                    });
+                        return;
+                    }
 
-                // Notify the SQL thread
-                sqlQueueCV->notify_one();
+                    JLOG(j.trace())
+                        << "SQL: Saving ledger " << seq << " to database";
+
+                    // This handles the existence check and calls
+                    // detail::saveValidatedLedger
+                    bool success = db->saveValidatedLedger(sqlLedger, false);
+
+                    auto end = std::chrono::steady_clock::now();
+                    auto duration =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            end - start)
+                            .count();
+
+                    sqlMetrics->totalJobs++;
+                    sqlMetrics->totalMicroseconds += duration;
+                    sqlMetrics->lastIntervalJobs++;
+                    sqlMetrics->lastIntervalMicroseconds += duration;
+
+                    if (!success)
+                    {
+                        JLOG(j.error())
+                            << "Failed to save ledger " << seq << " to SQLite";
+                        // Set error flag so main thread knows what happened
+                        saveState->hasError = true;
+                        {
+                            std::lock_guard<std::mutex> lock(
+                                saveState->errorMutex);
+                            saveState->errorMessage = "Failed to save ledger " +
+                                std::to_string(seq) + " to SQLite database";
+                        }
+                        // We're not attempting recovery - if SQL fails, the
+                        // DB can't be trusted
+                    }
+                    else
+                    {
+                        JLOG(j.trace())
+                            << "SQL: Successfully saved ledger " << seq;
+                    }
+
+                    // Mark this ledger as saved for range tracking
+                    {
+                        std::lock_guard lock(saveState->completedSavesMutex);
+                        saveState->completedSaves.insert(seq);
+                    }
+
+                    // Decrement counter and notify
+                    saveState->totalPendingJobs--;
+                    saveState->completionCV.notify_all();
+                });
+
+            if (!sqlQueued)
+            {
+                JLOG(j.error())
+                    << "Failed to queue SQL save job for ledger " << seq;
+                saveState->totalPendingJobs--;
+                saveState->completionCV.notify_all();
             }
 
             JLOG(j.trace()) << "Flush job completed for ledger " << seq
@@ -997,16 +944,9 @@ doCatalogueLoad(RPC::JsonContext& context)
                  app = &context.app,
                  j,
                  seq = ledger->info().seq,
-                 sqlQueue,
-                 sqlQueueMutex,
-                 sqlQueueCV]() mutable {
-                    job.execute(
-                        *app,
-                        j,
-                        saveState,
-                        sqlQueue,
-                        sqlQueueMutex,
-                        sqlQueueCV);
+                 jqAdapter = jobAdapter.get(),
+                 sqlMetrics]() mutable {
+                    job.execute(*app, j, saveState, jqAdapter, sqlMetrics);
 
                     // Note: completedSaves tracking moved to SQL job
                     // to ensure it only happens after SQL completes
