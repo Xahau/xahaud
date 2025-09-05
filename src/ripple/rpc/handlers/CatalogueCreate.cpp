@@ -150,7 +150,7 @@ doCatalogueCreate(RPC::JsonContext& context)
         catalogueRunStatus.maxLedger = max_ledger;
         catalogueRunStatus.ledgerUpto =
             0;  // Initialize to 0 to indicate no progress yet
-        catalogueRunStatus.jobType = CatalogueJobType::CREATE;
+        catalogueRunStatus.jobType = CatalogueStatusJobType::CREATE;
         catalogueRunStatus.filename = filepath;
         catalogueRunStatus.compressionLevel = compressionLevel;
         catalogueRunStatus.hash.clear();  // No hash yet

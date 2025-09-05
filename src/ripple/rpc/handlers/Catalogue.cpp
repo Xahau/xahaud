@@ -17,15 +17,110 @@
 */
 //==============================================================================
 
+#include <ripple/app/main/Application.h>
+#include <ripple/app/main/CollectorManager.h>
+#include <ripple/basics/Log.h>
+#include <ripple/basics/PerfLog.h>
+#include <ripple/core/Config.h>
+#include <ripple/core/JobQueue.h>
 #include <ripple/rpc/handlers/Catalogue.h>
 #include <iomanip>
 #include <sstream>
+#include <thread>
 
 namespace ripple {
 
 // Global status for catalogue operations
 std::shared_mutex catalogueStatusMutex;
 CatalogueRunStatus catalogueRunStatus;
+
+// AdaptiveJobQueue implementation
+
+JobQueueAdapter::JobQueueAdapter(
+    Application& app,
+    beast::Journal journal,
+    bool forceStandalone)
+    : app_(app)
+    , j_(journal)
+    , isStandalone_(forceStandalone || app.config().standalone())
+{
+    if (isStandalone_)
+    {
+        // In standalone mode, create our own queue with optimal thread count
+        int threadCount = calculateOptimalThreads(app.config());
+
+        JLOG(j_.info()) << "Creating standalone JobQueue with " << threadCount
+                        << " threads for catalogue operations";
+
+        ownQueue_ = std::make_unique<JobQueue>(
+            threadCount,
+            app.getCollectorManager().group("catalogue"),
+            app.logs().journal("CatalogueJQ"),
+            app.logs(),
+            app.getPerfLog());
+    }
+    else
+    {
+        JLOG(j_.info())
+            << "Using application JobQueue for catalogue operations";
+    }
+}
+
+JobQueueAdapter::~JobQueueAdapter()
+{
+    if (ownQueue_)
+    {
+        stop();
+    }
+}
+
+void
+JobQueueAdapter::stop()
+{
+    if (ownQueue_)
+    {
+        JLOG(j_.info()) << "Stopping standalone JobQueue";
+        ownQueue_->stop();
+        ownQueue_.reset();
+    }
+}
+
+int
+JobQueueAdapter::calculateOptimalThreads(Config const& config)
+{
+    // Moved from getCatalogueThreads lambda in CatalogueLoad.cpp
+
+    // In standalone mode, use aggressive threading for bulk operations
+    if (config.standalone())
+    {
+        // If WORKERS is configured, double it for catalogue ops
+        if (config.WORKERS)
+            return std::max(config.WORKERS * 2, 8);
+
+        auto count = static_cast<int>(std::thread::hardware_concurrency());
+
+        // Aggressive scaling for bulk operations
+        if (config.NODE_SIZE >= 4 && count >= 16)
+            count = std::max(32, count);  // Large nodes: use all cores
+        else if (config.NODE_SIZE >= 3 && count >= 8)
+            count = std::max(24, count);  // Medium nodes: most cores
+        else
+            count = std::max(16, count);  // Small nodes: at least 16
+
+        return count;
+    }
+    else
+    {
+        // In production mode, be more conservative
+        // But this is only used if forceStandalone is true
+        if (config.WORKERS)
+            return config.WORKERS;
+
+        // Default to a modest thread count for production
+        return std::min(
+            4, static_cast<int>(std::thread::hardware_concurrency()));
+    }
+}
 
 std::string
 formatBytesIEC(uint64_t bytes, int precision)
@@ -161,7 +256,7 @@ generateStatusJson(bool includeErrorInfo)
 
         // Add job type
         jvResult[jss::job_type] =
-            (catalogueRunStatus.jobType == CatalogueJobType::CREATE)
+            (catalogueRunStatus.jobType == CatalogueStatusJobType::CREATE)
             ? "catalogue_create"
             : "catalogue_load";
 

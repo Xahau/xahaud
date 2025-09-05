@@ -20,6 +20,9 @@
 #ifndef RIPPLE_RPC_HANDLERS_CATALOGUE_H_INCLUDED
 #define RIPPLE_RPC_HANDLERS_CATALOGUE_H_INCLUDED
 
+#include <ripple/app/main/Application.h>
+#include <ripple/beast/utility/Journal.h>
+#include <ripple/core/JobTypes.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/Context.h>
 #include <boost/iostreams/filter/zlib.hpp>
@@ -28,6 +31,7 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <memory>
 #include <shared_mutex>
 #include <string>
 
@@ -58,8 +62,8 @@ struct CATLHeader
 };
 #pragma pack(pop)
 
-// Job type for catalogue operations
-enum class CatalogueJobType { CREATE, LOAD };
+// Job type for catalogue runtime status
+enum class CatalogueStatusJobType { CREATE, LOAD };
 
 // Runtime status for catalogue operations
 struct CatalogueRunStatus
@@ -69,7 +73,7 @@ struct CatalogueRunStatus
     uint32_t minLedger;
     uint32_t maxLedger;
     uint32_t ledgerUpto;
-    CatalogueJobType jobType;
+    CatalogueStatusJobType jobType;
     std::string filename;
     uint8_t compressionLevel = 0;
     std::string hash;                           // Hex-encoded hash
@@ -227,6 +231,113 @@ makeCatalogueVersionField(uint8_t version, uint8_t compressionLevel = 0)
     result |= (compressionLevel << 8);
     return result;
 }
+
+// Forward declarations
+class Config;
+class JobQueue;
+class CollectorManager;
+class Logs;
+class PerfLog;
+
+// Catalogue-specific job types for queued work
+enum class CatalogueJobType {
+    FLUSH_SAVE,  // Flush nodes + verify hashes + setImmutable
+    SQL_SAVE     // Save ledger metadata to SQLite
+};
+
+/**
+ * AdaptiveJobQueue - Smart JobQueue wrapper for catalogue operations
+ *
+ * In standalone mode: Creates and manages its own JobQueue
+ * In production mode: Delegates to the application's JobQueue with polite
+ * priorities
+ *
+ * This allows catalogue operations to use aggressive parallelism in
+ * standalone/testing while being polite on production servers.
+ */
+class JobQueueAdapter
+{
+public:
+    JobQueueAdapter(
+        Application& app,
+        beast::Journal journal,
+        bool forceStandalone = false);
+
+    ~JobQueueAdapter();
+
+    // Submit a job with catalogue-specific routing
+    template <typename JobHandler>
+    bool
+    addJob(
+        CatalogueJobType catType,
+        std::string const& name,
+        JobHandler&& jobHandler)
+    {
+        JobType jobType = mapToJobType(catType);
+
+        if (isStandalone_ && ownQueue_)
+        {
+            // Use our own queue in standalone mode with aggressive priorities
+            return ownQueue_->addJob(
+                jobType, name, std::forward<JobHandler>(jobHandler));
+        }
+        else
+        {
+            // In production, use polite priorities
+            JobType politeType = mapToPoliteJobType(catType);
+            return app_.getJobQueue().addJob(
+                politeType, name, std::forward<JobHandler>(jobHandler));
+        }
+    }
+
+    // Stop the queue (only affects owned queue)
+    void
+    stop();
+
+    // Get optimal thread count for catalogue operations
+    static int
+    calculateOptimalThreads(Config const& config);
+
+private:
+    // Map catalogue job types to standard job types (standalone mode)
+    static JobType
+    mapToJobType(CatalogueJobType catType)
+    {
+        switch (catType)
+        {
+            case CatalogueJobType::FLUSH_SAVE:
+                return jtWRITE;  // High priority for flush operations
+
+            case CatalogueJobType::SQL_SAVE:
+                return jtPUBOLDLEDGER;  // Medium priority for SQL
+
+            default:
+                return jtGENERIC;
+        }
+    }
+
+    // Map catalogue job types to polite priorities (production mode)
+    static JobType
+    mapToPoliteJobType(CatalogueJobType catType)
+    {
+        switch (catType)
+        {
+            case CatalogueJobType::FLUSH_SAVE:
+                return jtPUBOLDLEDGER;  // Medium priority, don't hog resources
+
+            case CatalogueJobType::SQL_SAVE:
+                return jtGENERIC;  // Low priority to avoid SQL contention
+
+            default:
+                return jtGENERIC;
+        }
+    }
+
+    Application& app_;
+    beast::Journal j_;
+    bool isStandalone_;
+    std::unique_ptr<JobQueue> ownQueue_;
+};
 
 // Helper functions
 std::string

@@ -43,6 +43,62 @@
 
 namespace ripple {
 
+/**
+ * catalogue_load: A Necessary Compromise
+ *
+ * WHY THIS EXISTS: While custom tools are superior for offline bulk loading,
+ * catalogue_load is the ONLY option for expanding a live server's ledger range
+ * without downtime. Neither SQLite nor NuDB support multi-process writes.
+ *
+ * REALITY CHECK: We're fighting against:
+ * - SQLite write locks (online_delete pruning + per-ledger inserts)
+ * - WAL checkpointing causing periodic stalls
+ * - SHAMap's complex COW implementation
+ * - Competition with P2P sync and RPC serving
+ *
+ * 3-QUEUE ARCHITECTURE WITH JobQueueAdapter:
+ *
+ * Main Thread (RPC handler thread):
+ *   - Deserialize ledgers from catalogue file
+ *   - Canonicalize state maps (unshare() for thread safety)
+ *   - MUST be serial due to COW dependencies between ledgers
+ *   - Feeds work to → Flush Queue
+ *
+ * Flush Queue (via JobQueueAdapter):
+ *   - Flush canonicalized nodes to disk (NuDB/RocksDB)
+ *   - Verify hashes after flushing
+ *   - Call setImmutable() to finalize ledger
+ *   - Can parallelize (nodes are immutable after canonicalization)
+ *   - Uses CatalogueJobType::FLUSH_SAVE
+ *   - Feeds completed ledgers to → SQL Queue
+ *
+ * SQL Queue (via JobQueueAdapter):
+ *   - Save ledger metadata to SQLite
+ *   - Single-threaded to avoid lock contention
+ *   - Batch operations where possible for efficiency
+ *   - Uses CatalogueJobType::SQL_SAVE
+ *
+ * JobQueueAdapter ROUTING:
+ * The JobQueueAdapter intelligently routes jobs based on environment:
+ * - Standalone mode: Creates its own JobQueue with aggressive thread counts
+ *   and high priorities for maximum throughput
+ * - Production mode: Routes through app's JobQueue with polite priorities
+ *   (FLUSH_SAVE → jtPUBOLDLEDGER, SQL_SAVE → jtGENERIC) to play nicely
+ *   with existing server workload
+ *
+ * NATURAL SPACING BENEFITS:
+ * The queue separation creates breathing room for the production server:
+ * - P2P sync can process incoming ledgers between operations
+ * - RPC handlers get CPU time without starvation
+ * - SQLite WAL checkpoints happen at natural boundaries
+ * - Memory pressure stays manageable
+ * - JobQueueAdapter ensures proper priority scheduling in production
+ *
+ * EXPECTATION: This provides "good enough" performance while staying polite.
+ * Think "background expansion" not "bulk import". For new node setup, use
+ * custom offline tools.
+ */
+
 Json::Value
 doCatalogueLoad(RPC::JsonContext& context)
 {
@@ -181,7 +237,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         catalogueRunStatus.maxLedger = header.max_ledger;
         catalogueRunStatus.ledgerUpto =
             0;  // Initialize to 0 to indicate no progress yet
-        catalogueRunStatus.jobType = CatalogueJobType::LOAD;
+        catalogueRunStatus.jobType = CatalogueStatusJobType::LOAD;
         catalogueRunStatus.filename = filepath;
         catalogueRunStatus.compressionLevel = compressionLevel;
         catalogueRunStatus.hash = hash_hex;
@@ -315,47 +371,16 @@ doCatalogueLoad(RPC::JsonContext& context)
 
     decompStream->push(boost::ref(infile));
 
-    // Create a temporary JobQueue for parallel saves
-    // Use MORE threads than main JobQueue to handle bulk operations efficiently
-    auto getCatalogueThreads = [&context]() {
-        auto& config = context.app.config();
+    // Create JobQueueAdapter for parallel saves
+    // It will intelligently route jobs based on environment (standalone vs
+    // production)
+    auto jobAdapter = std::make_unique<JobQueueAdapter>(
+        context.app, context.app.logs().journal("CatalogueToolsJQ"));
 
-        // The 1000-ledger rhythm is caused by SQLite WAL checkpoints
-        // creating thread starvation when only 2-6 threads are available.
-        // Solution: Use more threads for bulk catalogue operations.
-
-        // If WORKERS is explicitly configured, double it for catalogue ops
-        if (config.WORKERS)
-            return std::max(config.WORKERS * 2, 8);
-
-        auto count = static_cast<int>(std::thread::hardware_concurrency());
-
-        // Use MORE aggressive scaling for bulk operations
-        // We need WAY more threads - jobs are waiting 21+ seconds!
-        // Bulk operations need aggressive parallelism
-        if (config.NODE_SIZE >= 4 && count >= 16)
-            count =
-                std::max(32, count);  // Use all available cores for large nodes
-        else if (config.NODE_SIZE >= 3 && count >= 8)
-            count = std::max(24, count);  // Use most cores for medium nodes
-        else
-            count = std::max(16, count);  // At least 16 for small nodes
-
-        return count;
-    };
-
-    // TODO: maybe this is competing with the normal jq when not in standalone
-    // mode? Use the application's existing CollectorManager and resources
-    auto catalogueThreadCount = getCatalogueThreads();
-    catalogueRunStatus.loadThreads =
-        catalogueThreadCount;  // Track thread count
-
-    auto tempJobQueue = std::make_unique<JobQueue>(
-        catalogueThreadCount,
-        context.app.getCollectorManager().group("catalogue"),
-        context.app.logs().journal("CatalogueToolsJQ"),
-        context.app.logs(),
-        context.app.getPerfLog());
+    // Track thread count for status reporting
+    catalogueRunStatus.loadThreads = context.app.config().standalone()
+        ? JobQueueAdapter::calculateOptimalThreads(context.app.config())
+        : context.app.config().WORKERS;
 
     // Create a dedicated SQL thread with its own queue
     // This eliminates database lock contention from multiple threads
@@ -442,7 +467,7 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Ensure proper cleanup on exit
     struct JobQueueCleanup
     {
-        std::unique_ptr<JobQueue>& jq;
+        std::unique_ptr<JobQueueAdapter>& jq;
         std::shared_ptr<std::atomic<bool>> stopFlag;
         std::shared_ptr<std::condition_variable> cv;
         std::thread& sqlThread;
@@ -458,7 +483,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             if (sqlThread.joinable())
                 sqlThread.join();
         }
-    } jqCleanup{tempJobQueue, sqlThreadStop, sqlQueueCV, sqlThread};
+    } jqCleanup{jobAdapter, sqlThreadStop, sqlQueueCV, sqlThread};
 
     // Shared state for concurrent save management
     struct SaveState
@@ -506,7 +531,6 @@ doCatalogueLoad(RPC::JsonContext& context)
             Application& app,
             beast::Journal journal,
             std::shared_ptr<SaveState> saveState,
-            JobQueue* jobQueue,
             std::shared_ptr<std::queue<std::function<void()>>> sqlQueue,
             std::shared_ptr<std::mutex> sqlQueueMutex,
             std::shared_ptr<std::condition_variable> sqlQueueCV)
@@ -956,15 +980,10 @@ doCatalogueLoad(RPC::JsonContext& context)
                             << " hash: " << ledger->info().hash
                             << ", pending=" << saveState->pendingSaves.load();
 
-            // TODO: Using jtWRITE priority is a temporary experiment to see if
-            // prioritizing flush jobs over SQL jobs eliminates the 1000-ledger
-            // rhythm. This is not the "correct" job type semantically (we're
-            // not writing to the normal write queue), but we're testing if the
-            // priority difference helps with the stuttering pattern. Need to
-            // investigate further and possibly create a dedicated job type for
-            // catalogue operations.
-            bool jobQueued = tempJobQueue->addJob(
-                jtPUBOLDLEDGER,  // EXPERIMENT: Higher priority than SQL jobs
+            // Use JobQueueAdapter with CatalogueJobType::FLUSH_SAVE
+            // This will route appropriately based on environment
+            bool jobQueued = jobAdapter->addJob(
+                CatalogueJobType::FLUSH_SAVE,
                 "cat-save-" + std::to_string(ledger->seq()),
                 [job =
                      LedgerSaveJob{
@@ -978,7 +997,6 @@ doCatalogueLoad(RPC::JsonContext& context)
                  app = &context.app,
                  j,
                  seq = ledger->info().seq,
-                 jq = tempJobQueue.get(),
                  sqlQueue,
                  sqlQueueMutex,
                  sqlQueueCV]() mutable {
@@ -986,7 +1004,6 @@ doCatalogueLoad(RPC::JsonContext& context)
                         *app,
                         j,
                         saveState,
-                        jq,
                         sqlQueue,
                         sqlQueueMutex,
                         sqlQueueCV);
@@ -1244,10 +1261,10 @@ doCatalogueLoad(RPC::JsonContext& context)
             context.app.getLedgerMaster().getPinnedLedgersRangeSet());
     }
 
-    // Stop the temporary JobQueue and ensure all jobs are done
-    JLOG(j.info()) << "Stopping temporary job queue...";
-    tempJobQueue->stop();
-    tempJobQueue.reset();  // This ensures complete shutdown
+    // Stop the JobQueueAdapter and ensure all jobs are done
+    JLOG(j.info()) << "Stopping job queue adapter...";
+    jobAdapter->stop();
+    jobAdapter.reset();  // This ensures complete shutdown
 
     // Now that all ledgers are saved and job queue is stopped, advance to the
     // latest one
