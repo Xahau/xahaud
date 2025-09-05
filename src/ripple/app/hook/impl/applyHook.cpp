@@ -767,6 +767,8 @@ normalize_xfl(T& man, int32_t& exp, bool neg = false)
 
 }  // namespace hook_float
 using namespace hook_float;
+using hook::Bytes;
+
 inline int32_t
 no_free_slots(hook::HookContext& hookCtx)
 {
@@ -2214,10 +2216,12 @@ DEFINE_HOOK_FUNCTION(
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    auto const& txID =
-        (hookCtx.emitFailure && !flags
-             ? applyCtx.tx.getFieldH256(sfTransactionHash)
-             : applyCtx.tx.getTransactionID());
+    hook::HookAPI api(hookCtx);
+    auto const result = api.otxn_id(flags);
+    if (!result)
+        return result.error();
+
+    auto const& txID = result.value();
 
     if (txID.size() > write_len)
         return TOO_SMALL;
@@ -2243,11 +2247,8 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_type)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.emitFailure)
-        return safe_cast<TxType>(
-            hookCtx.emitFailure->getFieldU16(sfTransactionType));
-
-    return applyCtx.tx.getTxnType();
+    hook::HookAPI api(hookCtx);
+    return api.otxn_type();
 
     HOOK_TEARDOWN();
 }
@@ -2257,31 +2258,12 @@ DEFINE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (slot_into > hook_api::max_slots)
-        return INVALID_ARGUMENT;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.otxn_slot(slot_into);
+    if (!result)
+        return result.error();
 
-    // check if we can emplace the object to a slot
-    if (slot_into == 0 && no_free_slots(hookCtx))
-        return NO_FREE_SLOTS;
-
-    if (slot_into == 0)
-    {
-        if (auto found = get_free_slot(hookCtx); found)
-            slot_into = *found;
-        else
-            return NO_FREE_SLOTS;
-    }
-
-    auto const& st_tx = std::make_shared<ripple::STObject>(
-        hookCtx.emitFailure ? *(hookCtx.emitFailure)
-                            : const_cast<ripple::STTx&>(applyCtx.tx)
-                                  .downcast<ripple::STObject>());
-
-    hookCtx.slot[slot_into] = hook::SlotEntry{.storage = st_tx, .entry = 0};
-
-    hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
-
-    return slot_into;
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -2378,27 +2360,22 @@ DEFINE_HOOK_FUNCTION(
     else if NOT_IN_BOUNDS (write_ptr, write_len, memory_length)
         return OUT_OF_BOUNDS;
 
-    SField const& fieldType = ripple::SField::getField(field_id);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.otxn_field(field_id);
+    if (!result)
+        return result.error();
 
-    if (fieldType == sfInvalid)
-        return INVALID_FIELD;
-
-    if (!applyCtx.tx.isFieldPresent(fieldType))
-        return DOESNT_EXIST;
-
-    auto const& field = hookCtx.emitFailure
-        ? hookCtx.emitFailure->getField(fieldType)
-        : const_cast<ripple::STTx&>(applyCtx.tx).getField(fieldType);
+    auto const& field = result.value();
 
     Serializer s;
-    field.add(s);
+    field->add(s);
 
     WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
         write_ptr,
         write_len,
         s.getDataPtr(),
         s.getDataLength(),
-        field.getSType() == STI_ACCOUNT);
+        field->getSType() == STI_ACCOUNT);
 
     HOOK_TEARDOWN();
 }
@@ -5031,46 +5008,19 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (read_len < 1)
+    Bytes paramName{read_ptr + memory, read_ptr + read_len + memory};
+
+    hook::HookAPI api(hookCtx);
+    auto const result = api.otxn_param(paramName);
+    if (!result)
+        return result.error();
+    auto const& val = result.value();
+
+    if (val.size() > write_len)
         return TOO_SMALL;
 
-    if (read_len > 32)
-        return TOO_BIG;
-
-    if (!applyCtx.tx.isFieldPresent(sfHookParameters))
-        return DOESNT_EXIST;
-
-    std::vector<uint8_t> paramName{
-        read_ptr + memory, read_ptr + read_len + memory};
-
-    auto const& params = applyCtx.tx.getFieldArray(sfHookParameters);
-
-    for (auto const& param : params)
-    {
-        if (!param.isFieldPresent(sfHookParameterName) ||
-            param.getFieldVL(sfHookParameterName) != paramName)
-            continue;
-
-        if (!param.isFieldPresent(sfHookParameterValue))
-            return DOESNT_EXIST;
-
-        auto const& val = param.getFieldVL(sfHookParameterValue);
-        if (val.empty())
-            return DOESNT_EXIST;
-
-        if (val.size() > write_len)
-            return TOO_SMALL;
-
-        WRITE_WASM_MEMORY_AND_RETURN(
-            write_ptr,
-            write_len,
-            val.data(),
-            val.size(),
-            memory,
-            memory_length);
-    }
-
-    return DOESNT_EXIST;
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, val.data(), val.size(), memory, memory_length);
 
     HOOK_TEARDOWN();
 }

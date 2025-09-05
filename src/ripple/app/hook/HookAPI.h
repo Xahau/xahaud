@@ -6,11 +6,15 @@
 #include <ripple/protocol/STTx.h>
 
 #include <ripple/app/misc/Transaction.h>
+#include <ripple/basics/base_uint.h>
+#include <ripple/protocol/TxFormats.h>
 #include <cstdint>
 
 namespace hook {
 using namespace ripple;
 using HookReturnCode = hook_api::hook_return_code;
+
+using Bytes = std::vector<std::uint8_t>;
 
 struct HookContext;  // defined in applyHook.h
 
@@ -111,11 +115,21 @@ public:
 
     uint32_t
     otxn_generation() const;
-    // otxn_field
-    // otxn_id
-    // otxn_type
-    // otxn_slot
-    // otxn_param
+
+    Expected<const STBase*, HookReturnCode>
+    otxn_field(uint32_t field_id) const;
+
+    Expected<uint256, HookReturnCode>
+    otxn_id(uint32_t flags) const;
+
+    TxType
+    otxn_type() const;
+
+    Expected<uint32_t, HookReturnCode>
+    otxn_slot(uint32_t slot_into) const;
+
+    Expected<Blob, HookReturnCode>
+    otxn_param(Bytes param_name) const;
 
     /// hook APIs
     // hook_account
@@ -161,6 +175,12 @@ public:
 
 private:
     HookContext& hookCtx;
+
+    inline int32_t
+    no_free_slots() const;
+
+    inline std::optional<int32_t>
+    get_free_slot() const;
 
     inline Expected<uint64_t, HookReturnCode>
     float_multiply_internal_parts(

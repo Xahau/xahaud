@@ -294,6 +294,108 @@ const int64_t float_one_internal =
 using namespace ripple;
 using namespace hook_float;
 
+Expected<const STBase*, HookReturnCode>
+HookAPI::otxn_field(uint32_t field_id) const
+{
+    SField const& fieldType = ripple::SField::getField(field_id);
+
+    if (fieldType == sfInvalid)
+        return Unexpected(INVALID_FIELD);
+
+    if (!hookCtx.applyCtx.tx.isFieldPresent(fieldType))
+        return Unexpected(DOESNT_EXIST);
+
+    auto const& field = hookCtx.emitFailure
+        ? hookCtx.emitFailure->getField(fieldType)
+        : const_cast<ripple::STTx&>(hookCtx.applyCtx.tx).getField(fieldType);
+
+    return &field;
+}
+
+Expected<uint256, HookReturnCode>
+HookAPI::otxn_id(uint32_t flags) const
+{
+    auto const& txID =
+        (hookCtx.emitFailure && !flags
+             ? hookCtx.applyCtx.tx.getFieldH256(sfTransactionHash)
+             : hookCtx.applyCtx.tx.getTransactionID());
+
+    return txID;
+}
+
+TxType
+HookAPI::otxn_type() const
+{
+    if (hookCtx.emitFailure)
+        return safe_cast<TxType>(
+            hookCtx.emitFailure->getFieldU16(sfTransactionType));
+
+    return hookCtx.applyCtx.tx.getTxnType();
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::otxn_slot(uint32_t slot_into) const
+{
+    if (slot_into > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    // check if we can emplace the object to a slot
+    if (slot_into == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    if (slot_into == 0)
+    {
+        if (auto found = get_free_slot(); found)
+            slot_into = *found;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    auto const& st_tx = std::make_shared<ripple::STObject>(
+        hookCtx.emitFailure ? *(hookCtx.emitFailure)
+                            : const_cast<ripple::STTx&>(hookCtx.applyCtx.tx)
+                                  .downcast<ripple::STObject>());
+
+    hookCtx.slot[slot_into] = hook::SlotEntry{.storage = st_tx, .entry = 0};
+
+    hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
+
+    return slot_into;
+}
+
+Expected<Blob, HookReturnCode>
+HookAPI::otxn_param(Bytes param_name) const
+{
+    if (param_name.size() < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (param_name.size() > 32)
+        return Unexpected(TOO_BIG);
+
+    if (!hookCtx.applyCtx.tx.isFieldPresent(sfHookParameters))
+        return Unexpected(DOESNT_EXIST);
+
+    auto const& params = hookCtx.applyCtx.tx.getFieldArray(sfHookParameters);
+
+    for (auto const& param : params)
+    {
+        if (!param.isFieldPresent(sfHookParameterName) ||
+            param.getFieldVL(sfHookParameterName) != param_name)
+            continue;
+
+        if (!param.isFieldPresent(sfHookParameterValue))
+            return Unexpected(DOESNT_EXIST);
+
+        auto const& val = param.getFieldVL(sfHookParameterValue);
+        if (val.empty())
+            return Unexpected(DOESNT_EXIST);
+
+        return val;
+    }
+
+    return Unexpected(DOESNT_EXIST);
+}
+
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::emit(Slice txBlob)
 {
@@ -991,6 +1093,42 @@ HookAPI::otxn_generation() const
 }
 
 // private
+
+inline int32_t
+HookAPI::no_free_slots() const
+{
+    return hook_api::max_slots - hookCtx.slot.size() <= 0;
+}
+
+inline std::optional<int32_t>
+HookAPI::get_free_slot() const
+{
+    // allocate a slot
+    int32_t slot_into = 0;
+    if (hookCtx.slot_free.size() > 0)
+    {
+        slot_into = hookCtx.slot_free.front();
+        hookCtx.slot_free.pop();
+        return slot_into;
+    }
+
+    // no slots were available in the queue so increment slot counter until we
+    // find a free slot usually this will be the next available but the hook
+    // developer may have allocated any slot ahead of when the counter gets
+    // there
+    do
+    {
+        slot_into = ++hookCtx.slot_counter;
+    } while (hookCtx.slot.find(slot_into) != hookCtx.slot.end() &&
+             // this condition should always be met, if for some reason, somehow
+             // it is not then we will return the final slot every time.
+             hookCtx.slot_counter <= hook_api::max_slots);
+
+    if (hookCtx.slot_counter > hook_api::max_slots)
+        return {};
+
+    return slot_into;
+}
 
 inline Expected<uint64_t, HookReturnCode>
 HookAPI::float_multiply_internal_parts(
