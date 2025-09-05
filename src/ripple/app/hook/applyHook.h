@@ -481,7 +481,6 @@ struct HookResult
     ripple::uint256 const hookHash;
     ripple::uint256 const hookCanEmit;
     ripple::Keylet const accountKeylet;
-    ripple::Keylet const ownerDirKeylet;
     ripple::Keylet const hookKeylet;
     ripple::AccountID const account;
     ripple::AccountID const otxnAccount;

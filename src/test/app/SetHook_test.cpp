@@ -17,11 +17,19 @@
 */
 //==============================================================================
 #include <ripple/app/hook/Enum.h>
+#include <ripple/app/hook/HookAPI.h>
+#include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/LedgerMaster.h>
+#include <ripple/app/tx/impl/ApplyContext.h>
 #include <ripple/app/tx/impl/SetHook.h>
+#include <ripple/basics/base_uint.h>
 #include <ripple/json/json_reader.h>
 #include <ripple/json/json_writer.h>
+#include <ripple/ledger/OpenView.h>
+#include <ripple/protocol/SField.h>
+#include <ripple/protocol/STAccount.h>
 #include <ripple/protocol/TxFlags.h>
+#include <ripple/protocol/TxFormats.h>
 #include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/app/SetHook_wasm.h>
@@ -2431,15 +2439,105 @@ public:
         }
     }
 
+    ApplyContext
+    createApplyContext(jtx::Env& env, OpenView ov, STTx const& tx)
+    {
+        ApplyContext applyCtx{
+            env.app(),
+            ov,
+            tx,
+            tesSUCCESS,
+            env.current()->fees().base,
+            tapNONE,
+            env.journal};
+        return applyCtx;
+    }
+
+    hook::HookContext
+    createHookContext(
+        AccountID const& hookAccount,
+        AccountID const& otxnAccount,
+        hook::HookContext ctx)
+    {
+        hook::HookContext hookCtx{
+            .applyCtx = ctx.applyCtx,
+            .result =
+                {
+                    .hookSetTxnID = uint256(),
+                    .hookHash = uint256(),
+                    .hookCanEmit = uint256(),
+                    .accountKeylet = keylet::account(otxnAccount),
+                    .hookKeylet = keylet::hook(hookAccount),
+                    .account = otxnAccount,
+                    .otxnAccount = otxnAccount,
+                    .hookNamespace = uint256(),
+                    .stateMap = ctx.result.stateMap,
+                    .hookParamOverrides = {},
+                    .hookParams = {{}},
+                    .hookSkips = {uint256{}},
+                },
+            .module = nullptr};
+
+        return hookCtx;
+    }
+
     void
     test_emit(FeatureBitset features)
     {
         testcase("Test float_emit");
         using namespace jtx;
-        Env env{*this, features};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
+
+        {
+            Env env{*this, features};
+
+            STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+            hook::HookStateMap stateMap;
+            auto hookCtx = hook::HookContext{
+                .applyCtx = applyCtx,
+                .expected_etxn_count = 1,
+                .nonce_used = {{uint256(0), true}},
+                .result =
+                    {
+                        .account = alice.id(),
+                        .accountKeylet = keylet::account(alice),
+                        .hookKeylet = keylet::hook(alice),
+                        .stateMap = stateMap,
+                        .hookParams = {{}},
+                    },
+            };
+
+            hook::HookAPI api(hookCtx);
+
+            STTx emitTx = STTx(ttINVOKE, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 0;
+                obj[sfSigningPubKey] = PublicKey();
+                obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
+                obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
+                obj[sfFee] = env.closed()->fees().base;
+
+                auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                emitDetails[sfEmitGeneration] = 1;
+                emitDetails[sfEmitBurden] = 1;
+                emitDetails[sfEmitParentTxnID] = invokeTx.getTransactionID();
+                emitDetails[sfEmitNonce] = uint256();
+                emitDetails[sfEmitHookHash] = uint256();
+            });
+
+            Serializer s;
+            emitTx.add(s);
+            auto result = api.emit(s.slice());
+            BEAST_EXPECT(result.value()->getID() == emitTx.getTransactionID());
+        }
+
+        Env env{*this, features};
+
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
