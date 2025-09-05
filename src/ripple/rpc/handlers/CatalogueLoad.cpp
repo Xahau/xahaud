@@ -44,59 +44,49 @@
 namespace ripple {
 
 /**
- * catalogue_load: A Necessary Compromise
+ * catalogue_load: Live Server Ledger Range Expansion ONLY
  *
- * WHY THIS EXISTS: While custom tools are superior for offline bulk loading,
- * catalogue_load is the ONLY option for expanding a live server's ledger range
- * without downtime. Neither SQLite nor NuDB support multi-process writes.
+ * ARCHITECTURAL DECISION:
+ * catalogue_load is EXCLUSIVELY for expanding ledger ranges on live servers.
+ * For new node initialization, use dedicated standalone tools that can be
+ * aggressive with parallelism and bypass rippled's abstractions entirely.
  *
- * REALITY CHECK: We're fighting against:
- * - SQLite write locks (online_delete pruning + per-ledger inserts)
- * - WAL checkpointing causing periodic stalls
- * - SHAMap's complex COW implementation
- * - Competition with P2P sync and RPC serving
+ * USE CASE: Live server needs to expand its ledger range without downtime.
+ * - Must be "nice" to existing P2P sync, RPC serving, and consensus
+ * - Must work within SQLite/NuDB single-process write constraints
+ * - Must not overwhelm the server or cause service degradation
  *
- * 3-QUEUE ARCHITECTURE WITH JobQueueAdapter:
+ * SIMPLIFIED SINGLE-THREADED DESIGN:
+ * After extensive experimentation with parallel processing, we've returned to
+ * enlightened single-threading because:
+ * - SHAMap's COW architecture fundamentally requires serial ledger building
+ * - SQLite lock contention from parallel writes caused more harm than good
+ * - Complex threading infrastructure wasn't worth the minimal speedup
+ * - Being "polite" is more important than raw speed for live expansion
  *
- * Main Thread (RPC handler thread):
- *   - Deserialize ledgers from catalogue file
- *   - Canonicalize state maps (unshare() for thread safety)
- *   - MUST be serial due to COW dependencies between ledgers
- *   - Feeds work to → Flush Queue
+ * EXECUTION FLOW:
+ * 1. Deserialize ledger from catalogue file (main thread)
+ * 2. Canonicalize state map via unshare() for COW safety (main thread)
+ * 3. Flush nodes to disk using efficient pointer diff (main thread)
+ * 4. Queue SQL save as jtPUBOLDLEDGER job (yields to P2P operations)
+ * 5. Wait for SQL job completion before processing next ledger
  *
- * Flush Queue (via JobQueueAdapter):
- *   - Flush canonicalized nodes to disk (NuDB/RocksDB)
- *   - Verify hashes after flushing
- *   - Call setImmutable() to finalize ledger
- *   - Can parallelize (nodes are immutable after canonicalization)
- *   - Uses CatalogueJobType::FLUSH_SAVE
- *   - Feeds completed ledgers to → SQL Queue
+ * POLITENESS STRATEGY:
+ * - SQL saves queued as jtPUBOLDLEDGER (medium priority)
+ * - Automatically yields to P2P ledger acquisition and consensus
+ * - Synchronous waiting prevents queue flooding
+ * - Natural pacing allows WAL checkpoints and cache management
  *
- * SQL Queue (via JobQueueAdapter):
- *   - Save ledger metadata to SQLite
- *   - Single-threaded to avoid lock contention
- *   - Batch operations where possible for efficiency
- *   - Uses CatalogueJobType::SQL_SAVE
+ * PERFORMANCE EXPECTATION:
+ * "Good enough" for occasional range expansion. NOT optimized for bulk loading.
+ * Typical use: Expanding history on a validator or adding missing ranges.
  *
- * JobQueueAdapter ROUTING:
- * The JobQueueAdapter intelligently routes jobs based on environment:
- * - Standalone mode: Creates its own JobQueue with aggressive thread counts
- *   and high priorities for maximum throughput
- * - Production mode: Routes through app's JobQueue with polite priorities
- *   (FLUSH_SAVE → jtPUBOLDLEDGER, SQL_SAVE → jtGENERIC) to play nicely
- *   with existing server workload
- *
- * NATURAL SPACING BENEFITS:
- * The queue separation creates breathing room for the production server:
- * - P2P sync can process incoming ledgers between operations
- * - RPC handlers get CPU time without starvation
- * - SQLite WAL checkpoints happen at natural boundaries
- * - Memory pressure stays manageable
- * - JobQueueAdapter ensures proper priority scheduling in production
- *
- * EXPECTATION: This provides "good enough" performance while staying polite.
- * Think "background expansion" not "bulk import". For new node setup, use
- * custom offline tools.
+ * FOR NEW NODE SETUP:
+ * Use a dedicated standalone tool that can:
+ * - Run parallel I/O operations aggressively
+ * - Use bulk SQL operations and prepared statements
+ * - Bypass SHAMap COW complexity entirely
+ * - Tune WAL mode, page cache, and checkpoint behavior
  */
 
 Json::Value
@@ -374,15 +364,10 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Track SQL performance metrics
     struct SQLMetrics
     {
-        std::atomic<uint64_t> totalJobs{0};
-        std::atomic<uint64_t> totalMicroseconds{0};
-        std::atomic<uint64_t> lastIntervalJobs{0};
-        std::atomic<uint64_t> lastIntervalMicroseconds{0};
-        std::atomic<uint64_t> mainThreadJobs{
-            0};  // Jobs executed in main thread
-        std::atomic<uint64_t> backgroundJobs{0};  // Jobs executed in background
-        std::atomic<uint64_t> flushMainThread{0};  // Flush jobs in main thread
-        std::atomic<uint64_t> flushBackground{0};  // Flush jobs in background
+        uint64_t totalJobs = 0;
+        uint64_t totalMicroseconds = 0;
+        uint64_t lastIntervalJobs = 0;
+        uint64_t lastIntervalMicroseconds = 0;
         std::chrono::steady_clock::time_point startTime;
 
         SQLMetrics() : startTime(std::chrono::steady_clock::now())
@@ -391,350 +376,30 @@ doCatalogueLoad(RPC::JsonContext& context)
     };
     auto sqlMetrics = std::make_shared<SQLMetrics>();
 
-    // Create JobQueueAdapter for intelligent job routing
-    JobQueueAdapter jobAdapter(
-        context.app,
-        context.app.logs().journal("CatalogueJobs"),
-        context.app.config()
-            .standalone());  // Force standalone mode if configured
+    // SIMPLIFIED SINGLE-THREADED APPROACH:
+    // - Everything runs synchronously in the main thread
+    // - No JobQueueAdapter needed
+    // - No concurrent jobs or work-stealing
+    // - Standalone mode "just works" automatically
+    // - Avoids fighting with SHAMap's COW architecture
+    // - Good enough performance for expanding live server ranges
 
-    // THREE-STAGE PIPELINE WITH WORK-STEALING:
-    //
-    // Stage 1 - Main Thread:
-    //   - Deserialize + canonicalize (must be serial for COW)
-    //   - addOrRunJob(FLUSH_SAVE) → queues or executes flush
-    //
-    // Stage 2 - Flush Job:
-    //   - Flush nodes to disk (NuDB/RocksDB)
-    //   - Verify hashes
-    //   - setImmutable()
-    //   - addOrRunJob(SQL_SAVE) → queues or executes SQL
-    //
-    // Stage 3 - SQL Job (terminal):
-    //   - Save ledger metadata to SQLite
-    //   - Mark complete in SaveState
-    //
-    // Work-Stealing Benefits:
-    // - Maximum parallelism: 3 ledgers in flight (main, flush, SQL)
-    // - Natural backpressure: each stage helps next if queue full
-    // - No idle waiting: threads always working or helping
-    // - Simple dependencies: each job knows its next step
-    //
-    // The addOrRunJob() pattern means any thread can help at any stage,
-    // preventing queue overflow while maintaining pipeline efficiency.
-
-    // Shared state for concurrent save management
-    struct SaveState
-    {
-        std::atomic<int> pendingSaves{0};
-        std::atomic<int> totalPendingJobs{0};
-        std::mutex completionMutex;
-        std::condition_variable completionCV;
-        RangeSet<uint32_t> completedSaves;
-        std::mutex completedSavesMutex;
-        std::atomic<bool> hasError{false};
-        std::string errorMessage;
-        std::mutex errorMutex;
-
-        // SQL serialization - only one SQL job at a time
-        std::mutex sqlMutex;
-        std::atomic<int> pendingSQLJobs{0};
-    };
-
-    // REMOVED: State map flush synchronization is no longer needed!
-    // With the canonicalize-then-flush approach, nodes are immutable (cowid=0)
-    // and safe for concurrent access. Multiple background threads can flush
-    // different ledgers simultaneously without any race conditions.
-    //
-    // The canonicalization via unshare() in the main thread:
-    // 1. Computes all hashes
-    // 2. Marks nodes clean (cowid=0 - immutable)
-    // 3. Makes nodes thread-safe for concurrent reads
-    //
-    // This allows parallel flushing without synchronization overhead.
-
-    // REMOVED: FlushChainLink no longer needed with canonicalized nodes
-    // Canonicalized nodes are immutable and safe for concurrent access
-
-    // Structures for parallel save processing
-    struct LedgerSaveJob
-    {
-        std::shared_ptr<Ledger> ledger;  // The ledger to save and flush
-        std::shared_ptr<Ledger>
-            parentLedger;      // Parent for delta flushing (null for first)
-        bool flushMapsInMain;  // Whether maps were already flushed in main
-                               // thread
-        uint256 expectedHash;  // Expected hash to verify after flushing
-        LedgerInfo info;       // The ledger info from the catalogue file
-
-        void
-        execute(
-            Application& app,
-            beast::Journal journal,
-            std::shared_ptr<SaveState> saveState,
-            JobQueueAdapter& jobAdapter,
-            std::shared_ptr<SQLMetrics> sqlMetrics,
-            bool isMainThread = false)  // Track if executing in main thread
-        {
-            auto j = journal;
-
-            // Track thread distribution for flush jobs
-            if (isMainThread)
-                sqlMetrics->flushMainThread++;
-            else
-                sqlMetrics->flushBackground++;
-
-            JLOG(j.trace())
-                << "Executing save job for ledger " << ledger->info().seq
-                << " hash: " << ledger->info().hash;
-
-            //@@start catalogue-shamaps-flush-canonicalized
-            // Flush nodes using pointer diff for efficiency
-            int stateNodesFlushed = 0;
-            int txNodesFlushed = 0;
-
-            JLOG(j.trace()) << "Flushing ledger " << ledger->info().seq
-                            << " (state canonical, tx dirty)";
-
-            if (!flushMapsInMain)
-            {
-                // With canonicalization, nodes have cowid=0 (immutable)
-                // We can use pointer diff safely!
-
-                // Use pointer diff for all ledgers (handles first ledger
-                // specially)
-                JLOG(j.trace())
-                    << "Using flushByPointerDiff for ledger "
-                    << ledger->info().seq
-                    << (parentLedger ? " (with parent)" : " (first ledger)");
-
-                // flushByPointerDiff handles the first ledger case internally:
-                // - If parent is provided: does efficient pointer diff
-                // - If no parent (first ledger): walks and flushes entire tree
-                stateNodesFlushed = ledger->stateMap().flushByPointerDiff(
-                    parentLedger
-                        ? std::optional<std::reference_wrapper<const SHAMap>>(
-                              parentLedger->stateMap())
-                        : std::nullopt,
-                    pinnedACCOUNT_NODE);
-
-                JLOG(j.trace()) << "State map flushed " << stateNodesFlushed
-                                << " nodes for ledger " << ledger->info().seq;
-
-                // TX map - use flushDirty since TX maps are unique per ledger
-                // No COW sharing between ledgers for TX maps, so it's safe
-                txNodesFlushed =
-                    ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
-
-                JLOG(j.trace()) << "TX map flushed " << txNodesFlushed
-                                << " nodes for ledger " << ledger->info().seq;
-
-                // NOW verify TX hash AFTER flushing (this will canonicalize it)
-                auto computedTxHash = ledger->txMap().getHash().as_uint256();
-                if (computedTxHash != info.txHash)
-                {
-                    JLOG(j.error())
-                        << "TX hash mismatch for ledger " << ledger->info().seq
-                        << " Expected: " << info.txHash
-                        << " Got: " << computedTxHash;
-
-                    // Set error flag so main thread knows to abort
-                    saveState->hasError = true;
-                    {
-                        std::lock_guard<std::mutex> lock(saveState->errorMutex);
-                        saveState->errorMessage =
-                            "TX hash mismatch for ledger " +
-                            std::to_string(ledger->info().seq);
-                    }
-                    return;
-                }
-
-                // No need for synchronization - canonical nodes are immutable!
-                // Multiple ledgers can flush in parallel safely
-            }
-
-            // Log periodically for debugging
-            if (ledger->info().seq % 1000 == 0)
-            {
-                JLOG(j.trace())
-                    << "BG flush ledger " << ledger->info().seq << ": "
-                    << stateNodesFlushed << " state nodes, " << txNodesFlushed
-                    << " tx nodes "
-                    << (flushMapsInMain ? "(already flushed in main)"
-                                        : (parentLedger ? "(delta flush)"
-                                                        : "(full flush)"));
-            }
-            //@@end catalogue-shamaps-flush-dirty
-
-            // Finalize the ledger (moved from main thread to avoid getHash
-            // calls) Use the info from the catalogue file, not ledger->info()
-            ledger->setAccepted(
-                info.closeTime,
-                info.closeTimeResolution,
-                info.closeFlags & sLCF_NoConsensusTime);
-            ledger->setValidated();
-            ledger->setCloseFlags(info.closeFlags);
-
-            // NOW make the ledger immutable AFTER flushing
-            // This sets important header fields needed for SQLite save
-            ledger->setImmutable(true);
-
-            // Verify the hash matches what was expected
-            if (ledger->info().hash != expectedHash)
-            {
-                JLOG(j.error())
-                    << "Ledger seq=" << ledger->info().seq
-                    << " hash mismatch after flush! Expected: " << expectedHash
-                    << " Got: " << ledger->info().hash;
-
-                // Set error flag so main thread knows to abort
-                saveState->hasError = true;
-                {
-                    std::lock_guard<std::mutex> lock(saveState->errorMutex);
-                    saveState->errorMessage =
-                        "Catalogue file contains a corrupted ledger at "
-                        "sequence " +
-                        std::to_string(ledger->info().seq);
-                }
-                return;
-            }
-
-            auto seq = ledger->info().seq;
-
-            // SQL save logic - run inline for now to avoid contention
-            // TODO: Implement addJobOrRunOrSkip() for better control
-            {
-                JLOG(j.trace()) << "Executing SQL inline for ledger " << seq;
-
-                // Track metrics
-                if (isMainThread)
-                    sqlMetrics->mainThreadJobs++;
-                else
-                    sqlMetrics->backgroundJobs++;
-
-                // Time the SQL job execution
-                auto start = std::chrono::steady_clock::now();
-
-                // Get the database
-                auto const db =
-                    dynamic_cast<SQLiteDatabase*>(&app.getRelationalDatabase());
-                if (!db)
-                {
-                    JLOG(j.error())
-                        << "Failed to get database for ledger " << seq;
-                    saveState->hasError = true;
-                    return;
-                }
-
-                // This handles the existence check and calls
-                // detail::saveValidatedLedger
-                bool success = db->saveValidatedLedger(ledger, false);
-
-                auto end = std::chrono::steady_clock::now();
-                auto duration =
-                    std::chrono::duration_cast<std::chrono::microseconds>(
-                        end - start)
-                        .count();
-
-                sqlMetrics->totalJobs++;
-                sqlMetrics->totalMicroseconds += duration;
-                sqlMetrics->lastIntervalJobs++;
-                sqlMetrics->lastIntervalMicroseconds += duration;
-
-                if (!success)
-                {
-                    JLOG(j.error())
-                        << "Failed to save ledger " << seq << " to SQLite";
-                    // Set error flag so main thread knows what happened
-                    saveState->hasError = true;
-                    {
-                        std::lock_guard<std::mutex> lock(saveState->errorMutex);
-                        saveState->errorMessage = "Failed to save ledger " +
-                            std::to_string(seq) + " to SQLite database";
-                    }
-                }
-                else
-                {
-                    JLOG(j.trace()) << "SQL: Successfully saved ledger " << seq;
-                }
-
-                // Mark this ledger as saved for range tracking
-                {
-                    std::lock_guard lock(saveState->completedSavesMutex);
-                    saveState->completedSaves.insert(seq);
-                }
-            }
-
-            JLOG(j.trace()) << "Save job completed for ledger " << seq
-                            << " stateNodes: " << stateNodesFlushed
-                            << " txNodes: " << txNodesFlushed;
-        }
-    };
-
-    auto saveState = std::make_shared<SaveState>();
-
-    static constexpr int MAX_CONCURRENT_SAVES =
-        10;  // Allow even more parallel saves
     static constexpr int BATCH_UPDATE_INTERVAL =
         100;  // Update ranges every N ledgers
 
-    // IMPORTANT: We use the canonicalize-then-flush approach!
-    //
-    // The safe pattern is:
-    // 1. Build the ledger in main thread
-    // 2. Canonicalize in main thread (walkSubTree with doWrite=false)
-    //    - This computes all hashes and marks nodes clean (cowid=0)
-    //    - Makes nodes immutable and safe for concurrent access
-    // 3. Pass canonicalized ledger to background thread
-    // 4. Background thread uses flushByPointerDiff for efficient I/O
-    //    - Safe because nodes are immutable after canonicalization
-    //    - Pointer diff works because canonical nodes have stable pointers
-    // 5. Background thread calls setImmutable() to finalize
-    //
-    // This separates CPU work (hashing) in main from I/O work (flushing) in
-    // background
-    static constexpr bool flushMapsInMain = false;
-    static constexpr bool canonicalizeInMain =
-        true;  // NEW: Canonicalize for thread safety
-    static constexpr bool separateSQLJob =
-        false;  // EXPERIMENT: false = SQL runs inline in flush job (serialized)
-                //             true = SQL runs as separate job (can be parallel)
+    // SIMPLIFIED SINGLE-THREADED EXECUTION:
+    // - Everything runs synchronously in the main thread
+    // - Build ledger -> Canonicalize -> Flush -> SQL Save
+    // - No parallelism, no JobQueueAdapter, no complexity
+    // - "Good enough" performance for live expansion
+    // - Avoids fighting SHAMap's COW architecture
 
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
     uint32_t expected_seq = header.min_ledger;
+    RangeSet<uint32_t> completedSaves;
 
-    // No synchronization chain needed with canonicalized nodes
-
-    // Process ledgers with parallel flushing
-    //
-    // BREAKTHROUGH: With canonicalize-then-flush, parallel processing WORKS!
-    //
-    // The key insight: canonicalization via unshare() makes nodes immutable
-    // (cowid=0), which enables safe concurrent access from multiple threads.
-    //
-    // The safe pattern is:
-    // 1. Build ledger in main thread (sequential for COW safety)
-    // 2. Canonicalize state map via unshare() (makes nodes immutable)
-    // 3. Pass to background thread for parallel flushing
-    // 4. Multiple ledgers can flush simultaneously (no races!)
-    //
-    // Why this works:
-    // - unshare() calls walkSubTree(false, hotUNKNOWN) internally
-    // - This computes all hashes and marks nodes clean (cowid=0)
-    // - Nodes with cowid=0 are immutable and thread-safe
-    // - flushByPointerDiff efficiently writes immutable nodes
-    //
-    // TX maps don't need canonicalization because:
-    // - Each ledger has its own unique TX map (no COW sharing)
-    // - No shared nodes between ledgers = no race conditions
-    // - Can use regular flushDirty() safely in background
-    //
-    // Performance benefits:
-    // - CPU work (hashing) separated from I/O work (flushing)
-    // - Multiple ledgers flush in parallel without synchronization
-    // - No lock contention or cache line bouncing
-    // - Dramatic speedup on multi-core systems
+    // Process ledgers sequentially
     while (!decompStream->eof() && expected_seq <= header.max_ledger)
     {
         if (context.app.isStopping())
@@ -866,111 +531,231 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // CANONICALIZE in main thread for thread safety
-        if (canonicalizeInMain)
+        // Canonicalize state map for COW safety
+        // unshare() calls walkSubTree(false, hotUNKNOWN) internally
+        // This computes hashes and marks nodes clean (cowid=0)
+        JLOG(j.trace()) << "Canonicalizing state map for ledger " << info.seq
+                        << " in main thread...";
+
+        ledger->stateMap().unshare();
+
+        // Verify STATE hash after canonicalization
+        auto computedStateHash = ledger->stateMap().getHash().as_uint256();
+        if (computedStateHash != info.accountHash)
         {
-            // unshare() calls walkSubTree(false, hotUNKNOWN) internally
-            // This computes hashes and marks nodes clean (cowid=0)
-            // Making nodes immutable and safe for background access
-            JLOG(j.trace()) << "Canonicalizing state map for ledger "
-                            << info.seq << " in main thread...";
-
-            // Canonicalize state map ONLY (computes hashes, marks clean)
-            // This is needed for thread safety due to COW sharing between
-            // ledgers
-            ledger->stateMap().unshare();
-
-            // DON'T canonicalize TX map - let background flush it normally
-            // TX maps are unique per ledger (no COW sharing), so they're safe
-            // to flush in background without canonicalization
-
-            // Only verify STATE hash here (after canonicalization)
-            auto computedStateHash = ledger->stateMap().getHash().as_uint256();
-            if (computedStateHash != info.accountHash)
-            {
-                JLOG(j.error()) << "State hash mismatch for ledger " << info.seq
-                                << " Expected: " << info.accountHash
-                                << " Got: " << computedStateHash;
-                return rpcError(
-                    rpcINTERNAL, "State hash mismatch after canonicalization");
-            }
-
-            // TX hash will be verified in background BEFORE flushing
-            // (calling getHash() here would canonicalize and prevent flushing)
-
-            JLOG(j.trace()) << "Ledger " << info.seq
-                            << " state map canonicalized and verified";
+            JLOG(j.error()) << "State hash mismatch for ledger " << info.seq
+                            << " Expected: " << info.accountHash
+                            << " Got: " << computedStateHash;
+            return rpcError(
+                rpcINTERNAL, "State hash mismatch after canonicalization");
         }
 
-        // Queue save job for parallel processing using our temporary JobQueue
+        JLOG(j.trace()) << "Ledger " << info.seq
+                        << " state map canonicalized and verified";
+
+        // SINGLE-THREADED PROCESSING: Flush and save directly
         {
-            // Ledger is now canonicalized - safe for background processing
+            JLOG(j.trace()) << "Processing ledger " << ledger->seq()
+                            << " hash: " << ledger->info().hash;
 
-            // No flush chain needed with canonicalized nodes
+            // Flush nodes using pointer diff for efficiency
+            int stateNodesFlushed = 0;
+            int txNodesFlushed = 0;
 
-            // Wait if we're at the concurrent save limit
+            JLOG(j.trace()) << "Flushing ledger " << ledger->info().seq
+                            << " (state canonical, tx dirty)";
+
+            // Use pointer diff for state map (efficient delta flushing)
+            JLOG(j.trace())
+                << "Using flushByPointerDiff for ledger " << ledger->info().seq
+                << (prevLedger ? " (with parent)" : " (first ledger)");
+
+            stateNodesFlushed = ledger->stateMap().flushByPointerDiff(
+                prevLedger
+                    ? std::optional<std::reference_wrapper<const SHAMap>>(
+                          prevLedger->stateMap())
+                    : std::nullopt,
+                pinnedACCOUNT_NODE);
+
+            JLOG(j.trace()) << "State map flushed " << stateNodesFlushed
+                            << " nodes for ledger " << ledger->info().seq;
+
+            // TX map - use flushDirty since TX maps are unique per ledger
+            txNodesFlushed = ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
+
+            JLOG(j.trace()) << "TX map flushed " << txNodesFlushed
+                            << " nodes for ledger " << ledger->info().seq;
+
+            // Verify TX hash after flushing
+            auto computedTxHash = ledger->txMap().getHash().as_uint256();
+            if (computedTxHash != info.txHash)
             {
-                std::unique_lock<std::mutex> lock(saveState->completionMutex);
-                if (saveState->pendingSaves >= MAX_CONCURRENT_SAVES)
+                JLOG(j.error())
+                    << "TX hash mismatch for ledger " << ledger->info().seq
+                    << " Expected: " << info.txHash
+                    << " Got: " << computedTxHash;
+                return rpcError(
+                    rpcINTERNAL,
+                    "TX hash mismatch for ledger " +
+                        std::to_string(ledger->info().seq));
+            }
+
+            // Finalize the ledger
+            ledger->setAccepted(
+                info.closeTime,
+                info.closeTimeResolution,
+                info.closeFlags & sLCF_NoConsensusTime);
+            ledger->setValidated();
+            ledger->setCloseFlags(info.closeFlags);
+
+            // Make the ledger immutable
+            ledger->setImmutable(true);
+
+            // Verify the hash matches what was expected
+            if (ledger->info().hash != info.hash)
+            {
+                JLOG(j.error())
+                    << "Ledger seq=" << ledger->info().seq
+                    << " hash mismatch after flush! Expected: " << info.hash
+                    << " Got: " << ledger->info().hash;
+                return rpcError(
+                    rpcINTERNAL,
+                    "Catalogue file contains a corrupted ledger at sequence " +
+                        std::to_string(ledger->info().seq));
+            }
+
+            // Save to SQLite
+            // In standalone mode: execute directly (no need to be polite)
+            // In production mode: queue through JobQueue to yield to P2P
+            // operations
+            {
+                bool success = false;
+
+                if (context.app.config().standalone())
                 {
-                    JLOG(j.trace()) << "Waiting for save slots, pending="
-                                    << saveState->pendingSaves.load();
-                    saveState->completionCV.wait(lock, [&saveState]() {
-                        return saveState->pendingSaves < MAX_CONCURRENT_SAVES;
-                    });
+                    // Standalone mode - just execute directly
+                    auto start = std::chrono::steady_clock::now();
+
+                    auto const db = dynamic_cast<SQLiteDatabase*>(
+                        &context.app.getRelationalDatabase());
+                    if (!db)
+                    {
+                        JLOG(j.error()) << "Failed to get database for ledger "
+                                        << ledger->info().seq;
+                        return rpcError(rpcINTERNAL, "Failed to get database");
+                    }
+
+                    success = db->saveValidatedLedger(ledger, false);
+
+                    auto end = std::chrono::steady_clock::now();
+                    auto duration =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            end - start)
+                            .count();
+
+                    sqlMetrics->totalJobs++;
+                    sqlMetrics->totalMicroseconds += duration;
+                    sqlMetrics->lastIntervalJobs++;
+                    sqlMetrics->lastIntervalMicroseconds += duration;
+
+                    if (success)
+                    {
+                        JLOG(j.trace()) << "SQL: Successfully saved ledger "
+                                        << ledger->info().seq << " in "
+                                        << (duration / 1000.0) << " ms";
+                    }
+                    else
+                    {
+                        JLOG(j.error()) << "Failed to save ledger "
+                                        << ledger->info().seq << " to SQLite";
+                    }
+                }
+                else
+                {
+                    // Production mode - use JobQueue to be polite
+                    std::promise<bool> sqlPromise;
+                    auto sqlFuture = sqlPromise.get_future();
+
+                    auto sqlJob = [&context,
+                                   ledger,
+                                   sqlMetrics,
+                                   j,
+                                   sqlPromisePtr = &sqlPromise]() {
+                        auto start = std::chrono::steady_clock::now();
+
+                        auto const db = dynamic_cast<SQLiteDatabase*>(
+                            &context.app.getRelationalDatabase());
+                        if (!db)
+                        {
+                            JLOG(j.error())
+                                << "Failed to get database for ledger "
+                                << ledger->info().seq;
+                            sqlPromisePtr->set_value(false);
+                            return;
+                        }
+
+                        bool success = db->saveValidatedLedger(ledger, false);
+
+                        auto end = std::chrono::steady_clock::now();
+                        auto duration =
+                            std::chrono::duration_cast<
+                                std::chrono::microseconds>(end - start)
+                                .count();
+
+                        sqlMetrics->totalJobs++;
+                        sqlMetrics->totalMicroseconds += duration;
+                        sqlMetrics->lastIntervalJobs++;
+                        sqlMetrics->lastIntervalMicroseconds += duration;
+
+                        if (success)
+                        {
+                            JLOG(j.trace()) << "SQL: Successfully saved ledger "
+                                            << ledger->info().seq << " in "
+                                            << (duration / 1000.0) << " ms";
+                        }
+                        else
+                        {
+                            JLOG(j.error())
+                                << "Failed to save ledger "
+                                << ledger->info().seq << " to SQLite";
+                        }
+
+                        sqlPromisePtr->set_value(success);
+                    };
+
+                    // Queue as jtPUBOLDLEDGER - medium priority that waits
+                    // behind P2P operations
+                    context.app.getJobQueue().addJob(
+                        jtPUBOLDLEDGER,
+                        "catalogue-sql-" + std::to_string(ledger->info().seq),
+                        std::move(sqlJob));
+
+                    // Wait for SQL save to complete
+                    success = sqlFuture.get();
+                }
+
+                if (!success)
+                {
+                    return rpcError(
+                        rpcINTERNAL,
+                        "Failed to save ledger " +
+                            std::to_string(ledger->info().seq) +
+                            " to SQLite database");
                 }
             }
 
-            // Queue the bundled save job
-            saveState->pendingSaves++;
-            saveState->totalPendingJobs++;
+            // Mark this ledger as saved for range tracking
+            completedSaves.insert(ledger->info().seq);
 
-            JLOG(j.trace()) << "Queueing save job for ledger " << ledger->seq()
-                            << " hash: " << ledger->info().hash
-                            << ", pending=" << saveState->pendingSaves.load();
-
-            // Use addOrRunJob to queue flush job or run immediately if queue
-            // full Since FLUSH_SAVE is limited to 2 concurrent, we won't
-            // overwhelm SQLite
+            // Log periodically for debugging
+            if (ledger->info().seq % 1000 == 0)
             {
-                LedgerSaveJob job{
-                    ledger,
-                    prevLedger,  // Pass parent ledger for delta flushing
-                    flushMapsInMain,
-                    info.hash,  // Pass the expected hash from the catalogue
-                    info};      // Pass the complete LedgerInfo from catalogue
-
-                // Capture main thread ID for comparison
-                auto mainThreadId = std::this_thread::get_id();
-
-                // Queue or execute the flush job using work-stealing pattern
-                // With only 1 flush job max, SQL won't get overwhelmed
-                bool executedInline = jobAdapter.addOrRunJob(
-                    CatalogueJobType::FLUSH_SAVE,
-                    "flush-ledger-" + std::to_string(ledger->seq()),
-                    [job,
-                     &context,
-                     j,
-                     saveState,
-                     &jobAdapter,
-                     sqlMetrics,
-                     mainThreadId]() mutable {
-                        // Check if we're running in the main thread
-                        bool inMainThread =
-                            (std::this_thread::get_id() == mainThreadId);
-                        job.execute(
-                            context.app,
-                            j,
-                            saveState,
-                            jobAdapter,
-                            sqlMetrics,
-                            inMainThread);
-                        saveState->pendingSaves--;
-                        saveState->totalPendingJobs--;
-                        saveState->completionCV.notify_all();
-                    });
+                JLOG(j.info())
+                    << "Processed ledger " << ledger->info().seq << ": "
+                    << stateNodesFlushed << " state nodes, " << txNodesFlushed
+                    << " tx nodes "
+                    << (prevLedger ? "(delta flush)" : "(full flush)");
             }
-
-            // No chain update needed - parallel flushing is safe
         }
 
         // Store in ledger master
@@ -1056,9 +841,10 @@ doCatalogueLoad(RPC::JsonContext& context)
                 "/s";  // Overall average
 
             // Add SQL metrics
-            auto sqlJobsInterval = sqlMetrics->lastIntervalJobs.exchange(0);
-            auto sqlMicrosInterval =
-                sqlMetrics->lastIntervalMicroseconds.exchange(0);
+            auto sqlJobsInterval = sqlMetrics->lastIntervalJobs;
+            sqlMetrics->lastIntervalJobs = 0;
+            auto sqlMicrosInterval = sqlMetrics->lastIntervalMicroseconds;
+            sqlMetrics->lastIntervalMicroseconds = 0;
             if (sqlJobsInterval > 0)
             {
                 perfJson["sql_jobs_in_interval"] =
@@ -1072,8 +858,8 @@ doCatalogueLoad(RPC::JsonContext& context)
             }
 
             // SQL totals
-            auto totalSQLJobs = sqlMetrics->totalJobs.load();
-            auto totalSQLMicros = sqlMetrics->totalMicroseconds.load();
+            auto totalSQLJobs = sqlMetrics->totalJobs;
+            auto totalSQLMicros = sqlMetrics->totalMicroseconds;
             if (totalSQLJobs > 0)
             {
                 perfJson["sql_total_jobs"] =
@@ -1083,38 +869,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                     10;
             }
 
-            // SQL thread execution metrics
-            auto mainJobs = sqlMetrics->mainThreadJobs.load();
-            auto bgJobs = sqlMetrics->backgroundJobs.load();
-            if (mainJobs > 0 || bgJobs > 0)
-            {
-                perfJson["sql_main_thread"] = static_cast<Json::UInt>(mainJobs);
-                perfJson["sql_background"] = static_cast<Json::UInt>(bgJobs);
-                if (mainJobs + bgJobs > 0)
-                {
-                    perfJson["sql_main_percent"] =
-                        std::round(
-                            mainJobs * 100.0 / (mainJobs + bgJobs) * 10) /
-                        10;
-                }
-            }
-
-            // Flush thread execution metrics
-            auto flushMain = sqlMetrics->flushMainThread.load();
-            auto flushBg = sqlMetrics->flushBackground.load();
-            if (flushMain > 0 || flushBg > 0)
-            {
-                perfJson["flush_main_thread"] =
-                    static_cast<Json::UInt>(flushMain);
-                perfJson["flush_background"] = static_cast<Json::UInt>(flushBg);
-                if (flushMain + flushBg > 0)
-                {
-                    perfJson["flush_main_percent"] =
-                        std::round(
-                            flushMain * 100.0 / (flushMain + flushBg) * 10) /
-                        10;
-                }
-            }
+            // Single-threaded execution - all work in main thread
 
             outputJson["perf"] = perfJson;
 
@@ -1129,45 +884,24 @@ doCatalogueLoad(RPC::JsonContext& context)
             lastTxnCount = totalTxnCount;
         }
 
-        // Periodically update ranges and sweep cache
+        // Periodically update ranges
         if (ledgersLoaded % BATCH_UPDATE_INTERVAL == 0)
         {
-            // Wait for pending saves to complete
-            {
-                std::unique_lock<std::mutex> lock(saveState->completionMutex);
-                saveState->completionCV.wait(lock, [&saveState]() {
-                    return saveState->pendingSaves == 0;
-                });
-            }
-
-            // Check for errors from background jobs
-            if (saveState->hasError)
-            {
-                std::lock_guard<std::mutex> lock(saveState->errorMutex);
-                JLOG(j.error())
-                    << "Background job error: " << saveState->errorMessage;
-                return rpcError(rpcINTERNAL, saveState->errorMessage);
-            }
-
             // Update ledger ranges for all completed saves
+            if (!completedSaves.empty())
             {
-                std::lock_guard lock(saveState->completedSavesMutex);
-                if (!saveState->completedSaves.empty())
+                // Get all ranges that have been saved
+                for (auto const& interval : completedSaves)
                 {
-                    // Get all ranges that have been saved
-                    // RangeSet uses interval_set, iterate through intervals
-                    for (auto const& interval : saveState->completedSaves)
-                    {
-                        auto first = interval.lower();
-                        auto last = interval.upper();
-                        context.app.getLedgerMaster().setLedgerRangePresent(
-                            first, last, do_pinning);
-                        JLOG(j.info())
-                            << "Updated ledger range: " << first << "-" << last;
-                    }
-                    // Clear for next batch
-                    saveState->completedSaves.clear();
+                    auto first = interval.lower();
+                    auto last = interval.upper();
+                    context.app.getLedgerMaster().setLedgerRangePresent(
+                        first, last, do_pinning);
+                    JLOG(j.info())
+                        << "Updated ledger range: " << first << "-" << last;
                 }
+                // Clear for next batch
+                completedSaves.clear();
             }
 
             // Save pinned ranges to database if pinning is enabled
@@ -1191,41 +925,17 @@ doCatalogueLoad(RPC::JsonContext& context)
     decompStream->reset();
     infile.close();
 
-    // Wait for all pending save jobs to complete
-    if (saveState->totalPendingJobs > 0)
-    {
-        JLOG(j.info()) << "Waiting for " << saveState->totalPendingJobs.load()
-                       << " pending save jobs to complete...";
-
-        std::unique_lock<std::mutex> lock(saveState->completionMutex);
-        saveState->completionCV.wait(
-            lock, [&saveState]() { return saveState->totalPendingJobs == 0; });
-
-        JLOG(j.info()) << "All save jobs completed";
-    }
-
-    // Final error check after all jobs are done
-    if (saveState->hasError)
-    {
-        std::lock_guard<std::mutex> lock(saveState->errorMutex);
-        JLOG(j.error()) << "Background job error: " << saveState->errorMessage;
-        return rpcError(rpcINTERNAL, saveState->errorMessage);
-    }
-
     // Update ledger ranges for any remaining completed saves
+    if (!completedSaves.empty())
     {
-        std::lock_guard lock2(saveState->completedSavesMutex);
-        if (!saveState->completedSaves.empty())
+        for (auto const& interval : completedSaves)
         {
-            for (auto const& interval : saveState->completedSaves)
-            {
-                auto first = interval.lower();
-                auto last = interval.upper();
-                context.app.getLedgerMaster().setLedgerRangePresent(
-                    first, last, do_pinning);
-                JLOG(j.info())
-                    << "Final update ledger range: " << first << "-" << last;
-            }
+            auto first = interval.lower();
+            auto last = interval.upper();
+            context.app.getLedgerMaster().setLedgerRangePresent(
+                first, last, do_pinning);
+            JLOG(j.info()) << "Final update ledger range: " << first << "-"
+                           << last;
         }
     }
 
@@ -1239,9 +949,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             context.app.getLedgerMaster().getPinnedLedgersRangeSet());
     }
 
-    // Stop the JobQueueAdapter (waits for all jobs to complete)
-    jobAdapter.stop();
-    JLOG(j.info()) << "Catalogue load processing complete";
+    JLOG(j.info()) << "Catalogue load complete";
 
     // Now that all ledgers are saved and job queue is stopped, advance to the
     // latest one
