@@ -846,17 +846,17 @@ public:
         ADD_HOOK_FUNCTION(hook_account, ctx);
         ADD_HOOK_FUNCTION(hook_hash, ctx);
         ADD_HOOK_FUNCTION(hook_again, ctx);
+        ADD_HOOK_FUNCTION(hook_param, ctx);
+        ADD_HOOK_FUNCTION(hook_param_set, ctx);
+        ADD_HOOK_FUNCTION(hook_skip, ctx);
+        ADD_HOOK_FUNCTION(hook_pos, ctx);
+
         ADD_HOOK_FUNCTION(fee_base, ctx);
         ADD_HOOK_FUNCTION(ledger_seq, ctx);
         ADD_HOOK_FUNCTION(ledger_last_hash, ctx);
         ADD_HOOK_FUNCTION(ledger_last_time, ctx);
         ADD_HOOK_FUNCTION(ledger_nonce, ctx);
         ADD_HOOK_FUNCTION(ledger_keylet, ctx);
-
-        ADD_HOOK_FUNCTION(hook_param, ctx);
-        ADD_HOOK_FUNCTION(hook_param_set, ctx);
-        ADD_HOOK_FUNCTION(hook_skip, ctx);
-        ADD_HOOK_FUNCTION(hook_pos, ctx);
 
         ADD_HOOK_FUNCTION(state, ctx);
         ADD_HOOK_FUNCTION(state_foreign, ctx);

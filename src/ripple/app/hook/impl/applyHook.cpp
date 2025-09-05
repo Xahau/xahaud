@@ -4494,69 +4494,13 @@ DEFINE_HOOK_FUNCTION(int64_t, float_set, int32_t exp, int64_t mantissa)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (mantissa == 0)
-        return 0;
-
-    int64_t normalized = hook_float::normalize_xfl(mantissa, exp);
-
-    // the above function will underflow into a canonical 0
-    // but this api must report that underflow
-    if (normalized == 0 || normalized == XFL_OVERFLOW)
-        return INVALID_FLOAT;
-
-    return normalized;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_set(exp, mantissa);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
-}
-
-inline int64_t
-mulratio_internal(
-    int64_t& man1,
-    int32_t& exp1,
-    bool round_up,
-    uint32_t numerator,
-    uint32_t denominator)
-{
-    try
-    {
-        ripple::IOUAmount amt{man1, exp1};
-        ripple::IOUAmount out = ripple::mulRatio(
-            amt, numerator, denominator, round_up != 0);  // already normalized
-        man1 = out.mantissa();
-        exp1 = out.exponent();
-        return 1;
-    }
-    catch (std::overflow_error& e)
-    {
-        return XFL_OVERFLOW;
-    }
-}
-
-inline int64_t
-float_multiply_internal_parts(
-    uint64_t man1,
-    int32_t exp1,
-    bool neg1,
-    uint64_t man2,
-    int32_t exp2,
-    bool neg2)
-{
-    using namespace boost::multiprecision;
-    cpp_int mult = cpp_int(man1) * cpp_int(man2);
-    mult /= power_of_ten[15];
-    uint64_t man_out = static_cast<uint64_t>(mult);
-    if (mult > man_out)
-        return XFL_OVERFLOW;
-
-    int32_t exp_out = exp1 + exp2 + 15;
-    bool neg_out = (neg1 && !neg2) || (!neg1 && neg2);
-    int64_t ret = normalize_xfl(man_out, exp_out, neg_out);
-
-    if (ret == EXPONENT_UNDERSIZED)
-        return 0;
-    if (ret == EXPONENT_OVERSIZED)
-        return XFL_OVERFLOW;
-    return ret;
 }
 
 DEFINE_HOOK_FUNCTION(
@@ -4570,33 +4514,12 @@ DEFINE_HOOK_FUNCTION(
                    // hookCtx on current stack
 
     RETURN_IF_INVALID_FLOAT(float1);
-    if (float1 == 0)
-        return 0;
-    uint64_t man1 = get_mantissa(float1);
-    int32_t exp1 = get_exponent(float1);
-    bool neg1 = is_negative(float1);
 
-    if (decimal_places > 15)
-        return INVALID_ARGUMENT;
-
-    if (neg1)
-    {
-        if (!absolute)
-            return CANT_RETURN_NEGATIVE;
-    }
-
-    int32_t shift = -(exp1 + decimal_places);
-
-    if (shift > 15)
-        return 0;
-
-    if (shift < 0)
-        return TOO_BIG;
-
-    if (shift > 0)
-        man1 /= power_of_ten[shift];
-
-    return man1;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_int(float1, decimal_places, absolute);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -4609,17 +4532,11 @@ DEFINE_HOOK_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
-    if (float1 == 0 || float2 == 0)
-        return 0;
-
-    uint64_t man1 = get_mantissa(float1);
-    int32_t exp1 = get_exponent(float1);
-    bool neg1 = is_negative(float1);
-    uint64_t man2 = get_mantissa(float2);
-    int32_t exp2 = get_exponent(float2);
-    bool neg2 = is_negative(float2);
-
-    return float_multiply_internal_parts(man1, exp1, neg1, man2, exp2, neg2);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_multiply(float1, float2);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -4636,22 +4553,13 @@ DEFINE_HOOK_FUNCTION(
                    // hookCtx on current stack
 
     RETURN_IF_INVALID_FLOAT(float1);
-    if (float1 == 0)
-        return 0;
-    if (denominator == 0)
-        return DIVISION_BY_ZERO;
 
-    int64_t man1 = (int64_t)get_mantissa(float1);
-    int32_t exp1 = get_exponent(float1);
-
-    if (mulratio_internal(man1, exp1, round_up > 0, numerator, denominator) < 0)
-        return XFL_OVERFLOW;
-
-    // defensive check
-    if (man1 < 0)
-        man1 *= -1LL;
-
-    return make_float((uint64_t)man1, exp1, is_negative(float1));
+    hook::HookAPI api(hookCtx);
+    auto const result =
+        api.float_mulratio(float1, round_up, numerator, denominator);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -4661,10 +4569,10 @@ DEFINE_HOOK_FUNCTION(int64_t, float_negate, int64_t float1)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (float1 == 0)
-        return 0;
     RETURN_IF_INVALID_FLOAT(float1);
-    return hook_float::invert_sign(float1);
+
+    hook::HookAPI api(hookCtx);
+    return api.float_negate(float1);
 
     HOOK_TEARDOWN();
 }
@@ -4682,46 +4590,11 @@ DEFINE_HOOK_FUNCTION(
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
-    bool equal_flag = mode & compare_mode::EQUAL;
-    bool less_flag = mode & compare_mode::LESS;
-    bool greater_flag = mode & compare_mode::GREATER;
-    bool not_equal = less_flag && greater_flag;
-
-    if ((equal_flag && less_flag && greater_flag) || mode == 0)
-        return INVALID_ARGUMENT;
-
-    if (mode & (~0b111UL))
-        return INVALID_ARGUMENT;
-
-    try
-    {
-        int64_t man1 = (int64_t)(get_mantissa(float1)) *
-            (is_negative(float1) ? -1LL : 1LL);
-        int32_t exp1 = get_exponent(float1);
-        ripple::IOUAmount amt1{man1, exp1};
-        int64_t man2 = (int64_t)(get_mantissa(float2)) *
-            (is_negative(float2) ? -1LL : 1LL);
-        int32_t exp2 = get_exponent(float2);
-        ripple::IOUAmount amt2{man2, exp2};
-
-        if (not_equal && amt1 != amt2)
-            return 1;
-
-        if (equal_flag && amt1 == amt2)
-            return 1;
-
-        if (greater_flag && amt1 > amt2)
-            return 1;
-
-        if (less_flag && amt1 < amt2)
-            return 1;
-
-        return 0;
-    }
-    catch (std::overflow_error& e)
-    {
-        return XFL_OVERFLOW;
-    }
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_compare(float1, float2, mode);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -4734,36 +4607,11 @@ DEFINE_HOOK_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
-    if (float1 == 0)
-        return float2;
-    if (float2 == 0)
-        return float1;
-
-    int64_t man1 =
-        (int64_t)(get_mantissa(float1)) * (is_negative(float1) ? -1LL : 1LL);
-    int32_t exp1 = get_exponent(float1);
-    int64_t man2 =
-        (int64_t)(get_mantissa(float2)) * (is_negative(float2) ? -1LL : 1LL);
-    int32_t exp2 = get_exponent(float2);
-
-    try
-    {
-        ripple::IOUAmount amt1{man1, exp1};
-        ripple::IOUAmount amt2{man2, exp2};
-        amt1 += amt2;
-        int64_t result = make_float(amt1);
-        if (result == EXPONENT_UNDERSIZED)
-        {
-            // this is an underflow e.g. as a result of subtracting an xfl from
-            // itself and thus not an error, just return canonical 0
-            return 0;
-        }
-        return result;
-    }
-    catch (std::overflow_error& e)
-    {
-        return XFL_OVERFLOW;
-    }
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_sum(float1, float2);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -5066,100 +4914,27 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-const int64_t float_one_internal = make_float(1000000000000000ull, -15, false);
-
-inline int64_t
-float_divide_internal(int64_t float1, int64_t float2, bool hasFix)
-{
-    RETURN_IF_INVALID_FLOAT(float1);
-    RETURN_IF_INVALID_FLOAT(float2);
-    if (float2 == 0)
-        return DIVISION_BY_ZERO;
-    if (float1 == 0)
-        return 0;
-
-    // special case: division by 1
-    // RH TODO: add more special cases (division by power of 10)
-    if (float2 == float_one_internal)
-        return float1;
-
-    uint64_t man1 = get_mantissa(float1);
-    int32_t exp1 = get_exponent(float1);
-    bool neg1 = is_negative(float1);
-    uint64_t man2 = get_mantissa(float2);
-    int32_t exp2 = get_exponent(float2);
-    bool neg2 = is_negative(float2);
-
-    int64_t tmp1 = normalize_xfl(man1, exp1);
-    int64_t tmp2 = normalize_xfl(man2, exp2);
-
-    if (tmp1 < 0 || tmp2 < 0)
-        return INVALID_FLOAT;
-
-    if (tmp1 == 0)
-        return 0;
-
-    while (man2 > man1)
-    {
-        man2 /= 10;
-        exp2++;
-    }
-
-    if (man2 == 0)
-        return DIVISION_BY_ZERO;
-
-    while (man2 < man1)
-    {
-        if (man2 * 10 > man1)
-            break;
-        man2 *= 10;
-        exp2--;
-    }
-
-    uint64_t man3 = 0;
-    int32_t exp3 = exp1 - exp2;
-
-    while (man2 > 0)
-    {
-        int i = 0;
-        if (hasFix)
-        {
-            for (; man1 >= man2; man1 -= man2, ++i)
-                ;
-        }
-        else
-        {
-            for (; man1 > man2; man1 -= man2, ++i)
-                ;
-        }
-
-        man3 *= 10;
-        man3 += i;
-        man2 /= 10;
-        if (man2 == 0)
-            break;
-        exp3--;
-    }
-
-    bool neg3 = !((neg1 && neg2) || (!neg1 && !neg2));
-
-    return normalize_xfl(man3, exp3, neg3);
-}
-
 DEFINE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    bool const hasFix = view.rules().enabled(fixFloatDivide);
-    return float_divide_internal(float1, float2, hasFix);
+    RETURN_IF_INVALID_FLOAT(float1);
+    RETURN_IF_INVALID_FLOAT(float2);
+
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_divide(float1, float2);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCNARG(int64_t, float_one)
 {
-    return float_one_internal;
+    hook::HookAPI api(hookCtx);
+    return api.float_one();
 }
 
 DEFINE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1)
@@ -5167,13 +4942,13 @@ DEFINE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (float1 == 0)
-        return DIVISION_BY_ZERO;
-    if (float1 == float_one_internal)
-        return float_one_internal;
+    RETURN_IF_INVALID_FLOAT(float1);
 
-    bool const fixV3 = view.rules().enabled(fixFloatDivide);
-    return float_divide_internal(float_one_internal, float1, fixV3);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_invert(float1);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -5184,9 +4959,12 @@ DEFINE_HOOK_FUNCTION(int64_t, float_mantissa, int64_t float1)
                    // hookCtx on current stack
 
     RETURN_IF_INVALID_FLOAT(float1);
-    if (float1 == 0)
-        return 0;
-    return get_mantissa(float1);
+
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_mantissa(float1);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -5197,60 +4975,11 @@ DEFINE_HOOK_FUNCTION(int64_t, float_sign, int64_t float1)
                    // hookCtx on current stack
 
     RETURN_IF_INVALID_FLOAT(float1);
-    if (float1 == 0)
-        return 0;
-    return is_negative(float1);
+
+    hook::HookAPI api(hookCtx);
+    return api.float_sign(float1);
 
     HOOK_TEARDOWN();
-}
-
-inline int64_t
-double_to_xfl(double x)
-{
-    if ((x) == 0)
-        return 0;
-    bool neg = x < 0;
-    double absresult = neg ? -x : x;
-
-    // first compute the base 10 order of the float
-    int32_t exp_out = (int32_t)log10(absresult);
-
-    // next adjust it into the valid mantissa range (this means dividing by its
-    // order and multiplying by 10**15)
-    absresult *= pow(10, -exp_out + 15);
-
-    // after adjustment the value may still fall below the minMantissa
-    int64_t result = (int64_t)absresult;
-    if (result < minMantissa)
-    {
-        if (result == minMantissa - 1LL)
-            result += 1LL;
-        else
-        {
-            result *= 10LL;
-            exp_out--;
-        }
-    }
-
-    // likewise the value can fall above the maxMantissa
-    if (result > maxMantissa)
-    {
-        if (result == maxMantissa + 1LL)
-            result -= 1LL;
-        else
-        {
-            result /= 10LL;
-            exp_out++;
-        }
-    }
-
-    exp_out -= 15;
-    int64_t ret = make_float(result, exp_out, neg);
-
-    if (ret == EXPONENT_UNDERSIZED)
-        return 0;
-
-    return ret;
 }
 
 DEFINE_HOOK_FUNCTION(int64_t, float_log, int64_t float1)
@@ -5260,18 +4989,11 @@ DEFINE_HOOK_FUNCTION(int64_t, float_log, int64_t float1)
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    if (float1 == 0)
-        return INVALID_ARGUMENT;
-
-    uint64_t man1 = get_mantissa(float1);
-    int32_t exp1 = get_exponent(float1);
-    if (is_negative(float1))
-        return COMPLEX_NOT_SUPPORTED;
-
-    double inp = (double)(man1);
-    double result = log10(inp) + exp1;
-
-    return double_to_xfl(result);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_log(float1);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -5282,21 +5004,12 @@ DEFINE_HOOK_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
                    // hookCtx on current stack
 
     RETURN_IF_INVALID_FLOAT(float1);
-    if (float1 == 0)
-        return 0;
 
-    if (n < 2)
-        return INVALID_ARGUMENT;
-
-    uint64_t man1 = get_mantissa(float1);
-    int32_t exp1 = get_exponent(float1);
-    if (is_negative(float1))
-        return COMPLEX_NOT_SUPPORTED;
-
-    double inp = (double)(man1)*pow(10, exp1);
-    double result = pow(inp, ((double)1.0f) / ((double)(n)));
-
-    return double_to_xfl(result);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_root(float1, n);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
