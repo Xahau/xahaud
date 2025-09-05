@@ -482,229 +482,247 @@ saveValidatedLedger(
     std::shared_ptr<Ledger const> const& ledger,
     bool current)
 {
+    // Simply delegate to the batch version with a single ledger
+    std::vector<std::shared_ptr<Ledger const>> ledgers{ledger};
+    return saveValidatedLedgers(ldgDB, txnDB, app, ledgers);
+}
+
+bool
+saveValidatedLedgers(
+    DatabaseCon& ldgDB,
+    DatabaseCon& txnDB,
+    Application& app,
+    std::vector<std::shared_ptr<Ledger const>> const& ledgers)
+{
+    if (ledgers.empty())
+        return true;
+
     auto j = app.journal("Ledger");
-    auto seq = ledger->info().seq;
 
-    // TODO(tom): Fix this hard-coded SQL!
-    JLOG(j.trace()) << "saveValidatedLedger " << (current ? "" : "fromAcquire ")
-                    << seq;
+    JLOG(j.info()) << "saveValidatedLedgers: batch saving " << ledgers.size()
+                   << " ledgers";
 
-    if (!ledger->info().accountHash.isNonZero())
-    {
-        JLOG(j.fatal()) << "AH is zero: " << getJson({*ledger, {}});
-        Throw<std::runtime_error>("Cannot save ledger with zero account hash");
-    }
+    auto const startTime = std::chrono::steady_clock::now();
 
-    if (ledger->info().accountHash != ledger->stateMap().getHash().as_uint256())
-    {
-        JLOG(j.fatal()) << "sAL: " << ledger->info().accountHash
-                        << " != " << ledger->stateMap().getHash();
-        JLOG(j.fatal()) << "saveAcceptedLedger: seq=" << seq
-                        << ", current=" << current;
-        Throw<std::runtime_error>("Ledger account hash mismatch");
-    }
-
-    assert(ledger->info().txHash == ledger->txMap().getHash().as_uint256());
-
-    //@@start save-ledger-header
-    // Save the ledger header in the hashed object store
-    {
-        Serializer s(128);
-        s.add32(HashPrefix::ledgerMaster);
-        addRaw(ledger->info(), s);
-        // Use pinnedLEDGER type for pinned ledgers, hotLEDGER for others
-        auto ledgerType =
-            app.getLedgerMaster().isPinned(seq) ? pinnedLEDGER : hotLEDGER;
-        app.getNodeStore().store(
-            ledgerType, std::move(s.modData()), ledger->info().hash, seq);
-    }
-    //@@end save-ledger-header
-
-    std::shared_ptr<AcceptedLedger> aLedger;
+    // Process all ledgers in a single transaction for better performance
     try
     {
-        aLedger = app.getAcceptedLedgerCache().fetch(ledger->info().hash);
-        if (!aLedger)
-        {
-            aLedger = std::make_shared<AcceptedLedger>(ledger, app);
-
-            //@@start cache-non-pinned-accepted-ledger
-            // Only cache if the ledger is NOT in the pinned range
-            if (!app.getLedgerMaster().isPinned(ledger->info().seq))
-            {
-                app.getAcceptedLedgerCache().canonicalize_replace_client(
-                    ledger->info().hash, aLedger);
-            }
-            //@@end cache-non-pinned-accepted-ledger
-        }
-    }
-    catch (std::exception const&)
-    {
-        JLOG(j.warn()) << "An accepted ledger was missing nodes";
-        app.getLedgerMaster().failedSave(seq, ledger->info().hash);
-        // Clients can now trust the database for information about this
-        // ledger sequence.
-        app.pendingSaves().finishWork(seq);
-        return false;
-    }
-
-    {
-        static boost::format deleteLedger(
-            "DELETE FROM Ledgers WHERE LedgerSeq = %u;");
-        static boost::format deleteTrans1(
-            "DELETE FROM Transactions WHERE LedgerSeq = %u;");
-        static boost::format deleteTrans2(
-            "DELETE FROM AccountTransactions WHERE LedgerSeq = %u;");
-        static boost::format deleteAcctTrans(
-            "DELETE FROM AccountTransactions WHERE TransID = '%s';");
-
+        // Begin transaction for ledger database
         {
             auto db = ldgDB.checkoutDb();
-            *db << boost::str(deleteLedger % seq);
+            soci::transaction tr(*db);
+
+            // Process each ledger's header
+            for (auto const& ledger : ledgers)
+            {
+                auto seq = ledger->info().seq;
+
+                if (!ledger->info().accountHash.isNonZero())
+                {
+                    JLOG(j.fatal()) << "AH is zero for ledger " << seq;
+                    return false;
+                }
+
+                if (ledger->info().accountHash !=
+                    ledger->stateMap().getHash().as_uint256())
+                {
+                    JLOG(j.fatal())
+                        << "Account hash mismatch for ledger " << seq;
+                    return false;
+                }
+
+                assert(
+                    ledger->info().txHash ==
+                    ledger->txMap().getHash().as_uint256());
+
+                // Save the ledger header in the hashed object store
+                Serializer s(128);
+                s.add32(HashPrefix::ledgerMaster);
+                addRaw(ledger->info(), s);
+                auto ledgerType = app.getLedgerMaster().isPinned(seq)
+                    ? pinnedLEDGER
+                    : hotLEDGER;
+                app.getNodeStore().store(
+                    ledgerType,
+                    std::move(s.modData()),
+                    ledger->info().hash,
+                    seq);
+
+                // Delete existing ledger entry
+                *db << boost::str(
+                    boost::format("DELETE FROM Ledgers WHERE LedgerSeq = %u;") %
+                    seq);
+
+                // Insert new ledger entry
+                auto const hash = to_string(ledger->info().hash);
+                auto const parentHash = to_string(ledger->info().parentHash);
+                auto const drops = to_string(ledger->info().drops);
+                auto const closeTime =
+                    ledger->info().closeTime.time_since_epoch().count();
+                auto const parentCloseTime =
+                    ledger->info().parentCloseTime.time_since_epoch().count();
+                auto const closeTimeResolution =
+                    ledger->info().closeTimeResolution.count();
+                auto const closeFlags = ledger->info().closeFlags;
+                auto const accountHash = to_string(ledger->info().accountHash);
+                auto const txHash = to_string(ledger->info().txHash);
+
+                *db << R"sql(INSERT OR REPLACE INTO Ledgers
+                    (LedgerHash,LedgerSeq,PrevHash,TotalCoins,ClosingTime,PrevClosingTime,
+                    CloseTimeRes,CloseFlags,AccountSetHash,TransSetHash)
+                VALUES
+                    (:ledgerHash,:ledgerSeq,:prevHash,:totalCoins,:closingTime,:prevClosingTime,
+                    :closeTimeRes,:closeFlags,:accountSetHash,:transSetHash);)sql",
+                    soci::use(hash), soci::use(seq), soci::use(parentHash),
+                    soci::use(drops), soci::use(closeTime),
+                    soci::use(parentCloseTime), soci::use(closeTimeResolution),
+                    soci::use(closeFlags), soci::use(accountHash),
+                    soci::use(txHash);
+            }
+
+            tr.commit();
         }
 
+        // Process transactions if enabled
         if (app.config().useTxTables())
         {
             auto db = txnDB.checkoutDb();
-
             soci::transaction tr(*db);
 
-            // Combine both DELETEs into one query for better performance.
-            // This removes all existing transaction data for this ledger
-            // sequence.
-            *db << boost::str(
-                boost::format(
-                    "DELETE FROM Transactions WHERE LedgerSeq = %u;"
-                    "DELETE FROM AccountTransactions WHERE LedgerSeq = %u;") %
-                seq % seq);
-
-            std::string const ledgerSeq(std::to_string(seq));
-
-            // Use bulk query builders to batch INSERT statements efficiently.
-            // This dramatically reduces database round-trips while respecting
-            // SQLite's query size limits.
-
-            // AccountTransactions: ~150 bytes per entry (TransID + Account +
-            // numbers)
+            // Build bulk SQL for all transactions across all ledgers
             BulkSQLQueryBuilder accountTxBuilder(
                 *db,
                 j,
                 "INSERT INTO AccountTransactions "
                 "(TransID, Account, LedgerSeq, TxnSeq) VALUES ",
-                850000,  // 850KB max batch size (leaving buffer for safety)
+                850000,  // 850KB max batch size
                 150,     // Estimated entry size
-                "AccountTransactions");
+                "AccountTransactions-Batch");
 
-            // Transactions: Variable size due to BLOB data (RawTxn and TxnMeta)
-            // Conservative batch size since entries can be several KB each
             BulkSQLQueryBuilder transactionBuilder(
                 *db,
                 j,
                 STTx::getMetaSQLInsertReplaceHeader(),
-                500000,  // 500KB max batch size (more conservative for BLOBs)
-                2048,    // Estimated entry size (can vary widely)
-                "Transactions");
+                500000,  // 500KB max batch size
+                2048,    // Estimated entry size
+                "Transactions-Batch");
 
-            // Build and execute bulk INSERT statements for all transactions
-            for (auto const& acceptedLedgerTx : *aLedger)
+            // Process all ledgers' transactions
+            for (auto const& ledger : ledgers)
             {
-                uint256 transactionID = acceptedLedgerTx->getTransactionID();
-                std::string const txnId(to_string(transactionID));
-                std::string const txnSeq(
-                    std::to_string(acceptedLedgerTx->getTxnSeq()));
+                auto seq = ledger->info().seq;
+                std::string const ledgerSeq(std::to_string(seq));
 
-                // Add AccountTransactions entries for all affected accounts
-                auto const& accts = acceptedLedgerTx->getAffected();
-                for (auto const& account : accts)
+                // Delete existing transactions for this ledger
+                *db << boost::str(
+                    boost::format(
+                        "DELETE FROM Transactions WHERE LedgerSeq = %u;"
+                        "DELETE FROM AccountTransactions WHERE LedgerSeq = "
+                        "%u;") %
+                    seq % seq);
+
+                // Create AcceptedLedger for this ledger
+                std::shared_ptr<AcceptedLedger> aLedger;
+                try
                 {
-                    std::string entry = "('";
-                    entry += txnId;
-                    entry += "','";
-                    entry += toBase58(account);
-                    entry += "',";
-                    entry += ledgerSeq;
-                    entry += ",";
-                    entry += txnSeq;
-                    entry += ")";
+                    aLedger =
+                        app.getAcceptedLedgerCache().fetch(ledger->info().hash);
+                    if (!aLedger)
+                    {
+                        aLedger = std::make_shared<AcceptedLedger>(ledger, app);
 
-                    accountTxBuilder.addEntry(entry);
+                        // Only cache if the ledger is NOT in the pinned range
+                        if (!app.getLedgerMaster().isPinned(ledger->info().seq))
+                        {
+                            app.getAcceptedLedgerCache()
+                                .canonicalize_replace_client(
+                                    ledger->info().hash, aLedger);
+                        }
+                    }
+                }
+                catch (std::exception const&)
+                {
+                    JLOG(j.warn()) << "Ledger " << seq << " was missing nodes";
+                    app.getLedgerMaster().failedSave(seq, ledger->info().hash);
+                    app.pendingSaves().finishWork(seq);
+                    continue;  // Skip this ledger's transactions
                 }
 
-                if (accts.empty() && !isPseudoTx(*acceptedLedgerTx->getTxn()))
+                // Process transactions for this ledger
+                for (auto const& acceptedLedgerTx : *aLedger)
                 {
-                    JLOG(j.warn()) << "Transaction in ledger " << seq
-                                   << " affects no accounts";
-                    JLOG(j.warn()) << acceptedLedgerTx->getTxn()->getJson(
-                        JsonOptions::none);
+                    uint256 transactionID =
+                        acceptedLedgerTx->getTransactionID();
+                    std::string const txnId(to_string(transactionID));
+                    std::string const txnSeq(
+                        std::to_string(acceptedLedgerTx->getTxnSeq()));
+
+                    // Add AccountTransactions entries
+                    auto const& accts = acceptedLedgerTx->getAffected();
+                    for (auto const& account : accts)
+                    {
+                        std::string entry = "('";
+                        entry += txnId;
+                        entry += "','";
+                        entry += toBase58(account);
+                        entry += "',";
+                        entry += ledgerSeq;
+                        entry += ",";
+                        entry += txnSeq;
+                        entry += ")";
+
+                        accountTxBuilder.addEntry(entry);
+                    }
+
+                    if (accts.empty() &&
+                        !isPseudoTx(*acceptedLedgerTx->getTxn()))
+                    {
+                        JLOG(j.warn()) << "Transaction in ledger " << seq
+                                       << " affects no accounts";
+                    }
+
+                    // Add Transactions entry
+                    std::string metaEntry =
+                        acceptedLedgerTx->getTxn()->getMetaSQL(
+                            seq, acceptedLedgerTx->getEscMeta());
+                    transactionBuilder.addEntry(metaEntry, metaEntry.size());
                 }
 
-                // Add Transactions entry (includes metadata and raw transaction
-                // BLOBs)
-                std::string metaEntry = acceptedLedgerTx->getTxn()->getMetaSQL(
-                    seq, acceptedLedgerTx->getEscMeta());
-
-                // For entries with BLOBs, we need to account for the actual
-                // size which includes the escaped/encoded BLOB data
-                transactionBuilder.addEntry(metaEntry, metaEntry.size());
+                // Update MasterTransaction cache for this ledger
+                for (auto const& acceptedLedgerTx : *aLedger)
+                {
+                    app.getMasterTransaction().inLedger(
+                        acceptedLedgerTx->getTransactionID(),
+                        seq,
+                        acceptedLedgerTx->getTxnSeq(),
+                        app.config().NETWORK_ID);
+                }
             }
 
-            // Execute any remaining entries in the batches
+            // Execute any remaining batches
             accountTxBuilder.finish();
             transactionBuilder.finish();
 
-            // Second pass: update MasterTransaction cache after DB inserts
-            // complete. This maintains the original order of operations - the
-            // cache update happens AFTER the database contains the transaction
-            // data.
-            for (auto const& acceptedLedgerTx : *aLedger)
-            {
-                app.getMasterTransaction().inLedger(
-                    acceptedLedgerTx->getTransactionID(),
-                    seq,
-                    acceptedLedgerTx->getTxnSeq(),
-                    app.config().NETWORK_ID);
-            }
-
             tr.commit();
         }
 
-        {
-            static std::string addLedger(
-                R"sql(INSERT OR REPLACE INTO Ledgers
-                (LedgerHash,LedgerSeq,PrevHash,TotalCoins,ClosingTime,PrevClosingTime,
-                CloseTimeRes,CloseFlags,AccountSetHash,TransSetHash)
-            VALUES
-                (:ledgerHash,:ledgerSeq,:prevHash,:totalCoins,:closingTime,:prevClosingTime,
-                :closeTimeRes,:closeFlags,:accountSetHash,:transSetHash);)sql");
+        auto const endTime = std::chrono::steady_clock::now();
+        auto const elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                endTime - startTime);
 
-            auto db(ldgDB.checkoutDb());
+        JLOG(j.info()) << "saveValidatedLedgers: saved " << ledgers.size()
+                       << " ledgers in " << elapsed.count() << "ms"
+                       << " (" << (elapsed.count() / ledgers.size())
+                       << "ms per ledger)";
 
-            soci::transaction tr(*db);
-
-            auto const hash = to_string(ledger->info().hash);
-            auto const parentHash = to_string(ledger->info().parentHash);
-            auto const drops = to_string(ledger->info().drops);
-            auto const closeTime =
-                ledger->info().closeTime.time_since_epoch().count();
-            auto const parentCloseTime =
-                ledger->info().parentCloseTime.time_since_epoch().count();
-            auto const closeTimeResolution =
-                ledger->info().closeTimeResolution.count();
-            auto const closeFlags = ledger->info().closeFlags;
-            auto const accountHash = to_string(ledger->info().accountHash);
-            auto const txHash = to_string(ledger->info().txHash);
-
-            *db << addLedger, soci::use(hash), soci::use(seq),
-                soci::use(parentHash), soci::use(drops), soci::use(closeTime),
-                soci::use(parentCloseTime), soci::use(closeTimeResolution),
-                soci::use(closeFlags), soci::use(accountHash),
-                soci::use(txHash);
-
-            tr.commit();
-        }
+        return true;
     }
-
-    return true;
+    catch (std::exception const& e)
+    {
+        JLOG(j.fatal()) << "saveValidatedLedgers failed: " << e.what();
+        return false;
+    }
 }
 
 /**

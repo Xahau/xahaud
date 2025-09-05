@@ -131,6 +131,10 @@ public:
         std::shared_ptr<Ledger const> const& ledger,
         bool current) override;
 
+    bool
+    saveValidatedLedgers(
+        std::vector<std::shared_ptr<Ledger const>> const& ledgers) override;
+
     std::optional<LedgerInfo>
     getLedgerInfoByIndex(LedgerIndex ledgerSeq) override;
 
@@ -980,32 +984,45 @@ SQLiteDatabaseImp::saveValidatedLedger(
     std::shared_ptr<Ledger const> const& ledger,
     bool current)
 {
+    // Simply delegate to the batch version with a single ledger
+    std::vector<std::shared_ptr<Ledger const>> ledgers{ledger};
+    return saveValidatedLedgers(ledgers);
+}
+
+bool
+SQLiteDatabaseImp::saveValidatedLedgers(
+    std::vector<std::shared_ptr<Ledger const>> const& ledgers)
+{
+    if (ledgers.empty())
+        return true;
+
     if (existsLedger())
     {
-        if (!detail::saveValidatedLedger(
-                *lgrdb_, *txdb_, app_, ledger, current))
+        if (!detail::saveValidatedLedgers(*lgrdb_, *txdb_, app_, ledgers))
             return false;
     }
 
+    // Handle shard store if present
     if (auto shardStore = app_.getShardStore(); shardStore)
     {
-        if (ledger->info().seq < shardStore->earliestLedgerSeq())
-            // For the moment return false only when the ShardStore
-            // should accept the ledger, but fails when attempting
-            // to do so, i.e. when saveLedgerMeta fails. Later when
-            // the ShardStore supercedes the NodeStore, change this
-            // line to return false if the ledger is too early.
-            return true;
-
         auto lgrMetaSession = lgrMetaDB_->checkoutDb();
         auto txMetaSession = txMetaDB_->checkoutDb();
 
-        return detail::saveLedgerMeta(
-            ledger,
-            app_,
-            *lgrMetaSession,
-            *txMetaSession,
-            shardStore->seqToShardIndex(ledger->info().seq));
+        for (auto const& ledger : ledgers)
+        {
+            if (ledger->info().seq >= shardStore->earliestLedgerSeq())
+            {
+                if (!detail::saveLedgerMeta(
+                        ledger,
+                        app_,
+                        *lgrMetaSession,
+                        *txMetaSession,
+                        shardStore->seqToShardIndex(ledger->info().seq)))
+                {
+                    return false;
+                }
+            }
+        }
     }
 
     return true;

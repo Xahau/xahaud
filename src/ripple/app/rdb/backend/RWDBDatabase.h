@@ -308,6 +308,19 @@ public:
         return true;
     }
 
+    bool
+    saveValidatedLedgers(
+        std::vector<std::shared_ptr<Ledger const>> const& ledgers) override
+    {
+        // Just loop through and save each one
+        for (auto const& ledger : ledgers)
+        {
+            if (!saveValidatedLedger(ledger, false))
+                return false;
+        }
+        return true;
+    }
+
     std::optional<LedgerInfo>
     getLedgerInfoByIndex(LedgerIndex ledgerSeq) override
     {

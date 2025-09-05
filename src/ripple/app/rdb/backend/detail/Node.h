@@ -172,6 +172,22 @@ saveValidatedLedger(
     bool current);
 
 /**
+ * @brief saveValidatedLedgers Saves multiple ledgers into database in a single
+ * transaction.
+ * @param lgrDB Link to ledgers database.
+ * @param txnDB Link to transactions database.
+ * @param app Application object.
+ * @param ledgers Vector of ledgers to save.
+ * @return True if saving was successful.
+ */
+bool
+saveValidatedLedgers(
+    DatabaseCon& ldgDB,
+    DatabaseCon& txnDB,
+    Application& app,
+    std::vector<std::shared_ptr<Ledger const>> const& ledgers);
+
+/**
  * @brief getLedgerInfoByIndex Returns ledger by its sequence.
  * @param session Session with database.
  * @param ledgerSeq Ledger sequence.
