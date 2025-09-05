@@ -375,95 +375,8 @@ doCatalogueLoad(RPC::JsonContext& context)
         uint64_t lastIntervalQueueWaits = 0;
         std::chrono::steady_clock::time_point startTime;
 
-        // Rolling 1-second averages for SQL execution times (max 600 = 10
-        // minutes)
-        struct SecondBucket
+        SQLMetrics() : startTime(std::chrono::steady_clock::now())
         {
-            uint64_t totalMicros = 0;
-            uint32_t count = 0;
-
-            void
-            add(uint64_t microseconds)
-            {
-                totalMicros += microseconds;
-                count++;
-            }
-
-            double
-            getAvgMs() const
-            {
-                return count > 0 ? (totalMicros / 1000.0) / count : 0;
-            }
-
-            void
-            reset()
-            {
-                totalMicros = 0;
-                count = 0;
-            }
-        };
-
-        std::deque<SecondBucket> secondBuckets;
-        SecondBucket currentSecond;
-        std::chrono::steady_clock::time_point currentSecondStart;
-        const size_t maxBuckets = 600;  // 10 minutes of 1-second buckets
-
-        SQLMetrics()
-            : startTime(std::chrono::steady_clock::now())
-            , currentSecondStart(std::chrono::steady_clock::now())
-        {
-        }
-
-        void
-        addSample(uint64_t microseconds)
-        {
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                               now - currentSecondStart)
-                               .count();
-
-            // If we've moved to a new second, save the current bucket
-            if (elapsed >= 1)
-            {
-                if (currentSecond.count > 0)
-                {
-                    secondBuckets.push_back(currentSecond);
-                    if (secondBuckets.size() > maxBuckets)
-                    {
-                        secondBuckets.pop_front();
-                    }
-                }
-                currentSecond.reset();
-                currentSecondStart = now;
-            }
-
-            currentSecond.add(microseconds);
-        }
-
-        double
-        getWindowAvgMs(int seconds) const
-        {
-            int bucketCount =
-                std::min(seconds, static_cast<int>(secondBuckets.size()));
-            if (bucketCount == 0)
-            {
-                // Only have current second
-                return currentSecond.getAvgMs();
-            }
-
-            uint64_t totalMicros = currentSecond.totalMicros;
-            uint32_t totalCount = currentSecond.count;
-
-            // Add the most recent N buckets
-            auto it = secondBuckets.rbegin();
-            for (int i = 0; i < bucketCount && it != secondBuckets.rend();
-                 ++i, ++it)
-            {
-                totalMicros += it->totalMicros;
-                totalCount += it->count;
-            }
-
-            return totalCount > 0 ? (totalMicros / 1000.0) / totalCount : 0;
         }
     };
     auto sqlMetrics = std::make_shared<SQLMetrics>();
@@ -490,10 +403,6 @@ doCatalogueLoad(RPC::JsonContext& context)
     std::shared_ptr<Ledger> prevLedger;
     uint32_t expected_seq = header.min_ledger;
     RangeSet<uint32_t> completedSaves;
-
-    // Buffer for batch saving ledgers
-    std::vector<std::shared_ptr<Ledger const>> ledgerBuffer;
-    static constexpr size_t BATCH_SIZE = 500;  // Save 500 ledgers at a time
 
     // Process ledgers sequentially
     while (!decompStream->eof() && expected_seq <= header.max_ledger)
@@ -720,195 +629,143 @@ doCatalogueLoad(RPC::JsonContext& context)
                         std::to_string(ledger->info().seq));
             }
 
-            // Add ledger to buffer for batch saving
-            ledgerBuffer.push_back(ledger);
-
-            // Save batch when buffer is full or we're at the last ledger
-            if (ledgerBuffer.size() >= BATCH_SIZE ||
-                expected_seq > header.max_ledger)
+            // Save to SQLite
+            // In standalone mode: execute directly (no need to be polite)
+            // In production mode: queue through JobQueue to yield to P2P
+            // operations
             {
-                // Save to SQLite
-                // In standalone mode: execute directly (no need to be polite)
-                // In production mode: queue through JobQueue to yield to P2P
-                // operations
+                bool success = false;
+
+                if (context.app.config().standalone())
                 {
-                    // TESTING: Skip SQLite entirely to see max throughput
-                    bool SKIP_SQL = false;
+                    // Standalone mode - just execute directly
+                    auto start = std::chrono::steady_clock::now();
 
-                    bool success = false;
-
-                    if (SKIP_SQL)
+                    auto const db = dynamic_cast<SQLiteDatabase*>(
+                        &context.app.getRelationalDatabase());
+                    if (!db)
                     {
-                        success = true;
-                        JLOG(j.trace()) << "SKIPPING SQL for "
-                                        << ledgerBuffer.size() << " ledgers";
+                        JLOG(j.error()) << "Failed to get database for ledger "
+                                        << ledger->info().seq;
+                        return rpcError(rpcINTERNAL, "Failed to get database");
+                    }
+
+                    success = db->saveValidatedLedger(ledger, false);
+
+                    auto end = std::chrono::steady_clock::now();
+                    auto duration =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            end - start)
+                            .count();
+
+                    sqlMetrics->totalJobs++;
+                    sqlMetrics->totalMicroseconds += duration;
+                    sqlMetrics->lastIntervalJobs++;
+                    sqlMetrics->lastIntervalMicroseconds += duration;
+
+                    if (success)
+                    {
+                        JLOG(j.trace()) << "SQL: Successfully saved ledger "
+                                        << ledger->info().seq << " in "
+                                        << (duration / 1000.0) << " ms";
                     }
                     else
                     {
-                        if (context.app.config().standalone())
+                        JLOG(j.error()) << "Failed to save ledger "
+                                        << ledger->info().seq << " to SQLite";
+                    }
+                }
+                else
+                {
+                    // Production mode - use JobQueue to be polite
+                    std::promise<bool> sqlPromise;
+                    auto sqlFuture = sqlPromise.get_future();
+
+                    auto sqlJob = [&context,
+                                   ledger,
+                                   sqlMetrics,
+                                   j,
+                                   sqlPromisePtr = &sqlPromise]() {
+                        auto start = std::chrono::steady_clock::now();
+
+                        auto const db = dynamic_cast<SQLiteDatabase*>(
+                            &context.app.getRelationalDatabase());
+                        if (!db)
                         {
-                            // Standalone mode - just execute directly
-                            auto start = std::chrono::steady_clock::now();
+                            JLOG(j.error())
+                                << "Failed to get database for ledger "
+                                << ledger->info().seq;
+                            sqlPromisePtr->set_value(false);
+                            return;
+                        }
 
-                            auto const db = dynamic_cast<SQLiteDatabase*>(
-                                &context.app.getRelationalDatabase());
-                            if (!db)
-                            {
-                                JLOG(j.error())
-                                    << "Failed to get database for batch save";
-                                return rpcError(
-                                    rpcINTERNAL, "Failed to get database");
-                            }
+                        bool success = db->saveValidatedLedger(ledger, false);
 
-                            // Save the entire batch at once!
-                            success = db->saveValidatedLedgers(ledgerBuffer);
+                        auto end = std::chrono::steady_clock::now();
+                        auto duration =
+                            std::chrono::duration_cast<
+                                std::chrono::microseconds>(end - start)
+                                .count();
 
-                            auto end = std::chrono::steady_clock::now();
-                            auto duration =
-                                std::chrono::duration_cast<
-                                    std::chrono::microseconds>(end - start)
-                                    .count();
+                        sqlMetrics->totalJobs++;
+                        sqlMetrics->totalMicroseconds += duration;
+                        sqlMetrics->lastIntervalJobs++;
+                        sqlMetrics->lastIntervalMicroseconds += duration;
 
-                            sqlMetrics->totalJobs++;  // One batch job
-                            sqlMetrics->totalMicroseconds += duration;
-                            sqlMetrics->lastIntervalJobs++;
-                            sqlMetrics->lastIntervalMicroseconds += duration;
-
-                            // Add sample for the actual batch duration
-                            sqlMetrics->addSample(duration);
-
-                            if (success)
-                            {
-                                JLOG(j.trace())
-                                    << "SQL: Successfully saved batch of "
-                                    << ledgerBuffer.size() << " ledgers in "
-                                    << (duration / 1000.0) << " ms";
-                            }
-                            else
-                            {
-                                JLOG(j.error()) << "Failed to save batch of "
-                                                << ledgerBuffer.size()
-                                                << " ledgers to SQLite";
-                            }
+                        if (success)
+                        {
+                            JLOG(j.trace()) << "SQL: Successfully saved ledger "
+                                            << ledger->info().seq << " in "
+                                            << (duration / 1000.0) << " ms";
                         }
                         else
                         {
-                            // Production mode - use JobQueue to be polite
-                            std::promise<bool> sqlPromise;
-                            auto sqlFuture = sqlPromise.get_future();
-
-                            // Capture the batch for the job
-                            auto batchToSave = ledgerBuffer;
-
-                            auto sqlJob = [&context,
-                                           batchToSave,
-                                           sqlMetrics,
-                                           j,
-                                           sqlPromisePtr = &sqlPromise]() {
-                                auto start = std::chrono::steady_clock::now();
-
-                                auto const db = dynamic_cast<SQLiteDatabase*>(
-                                    &context.app.getRelationalDatabase());
-                                if (!db)
-                                {
-                                    JLOG(j.error()) << "Failed to get database "
-                                                       "for batch save";
-                                    sqlPromisePtr->set_value(false);
-                                    return;
-                                }
-
-                                // Save the entire batch at once!
-                                bool success =
-                                    db->saveValidatedLedgers(batchToSave);
-
-                                auto end = std::chrono::steady_clock::now();
-                                auto duration =
-                                    std::chrono::duration_cast<
-                                        std::chrono::microseconds>(end - start)
-                                        .count();
-
-                                sqlMetrics->totalJobs++;  // One batch job
-                                sqlMetrics->totalMicroseconds += duration;
-                                sqlMetrics->lastIntervalJobs++;
-                                sqlMetrics->lastIntervalMicroseconds +=
-                                    duration;
-
-                                // Add sample for the actual batch duration
-                                sqlMetrics->addSample(duration);
-
-                                if (success)
-                                {
-                                    JLOG(j.trace())
-                                        << "SQL: Successfully saved batch of "
-                                        << batchToSave.size() << " ledgers in "
-                                        << (duration / 1000.0) << " ms";
-                                }
-                                else
-                                {
-                                    JLOG(j.error())
-                                        << "Failed to save batch of "
-                                        << batchToSave.size()
-                                        << " ledgers to SQLite";
-                                }
-
-                                sqlPromisePtr->set_value(success);
-                            };
-
-                            // Queue as jtPUBOLDLEDGER - medium priority that
-                            // waits behind P2P operations
-                            context.app.getJobQueue().addJob(
-                                jtPUBOLDLEDGER,
-                                "catalogue-sql-" +
-                                    std::to_string(ledger->info().seq),
-                                std::move(sqlJob));
-
-                            // Track how long we wait for the promise
-                            auto waitStart = std::chrono::steady_clock::now();
-
-                            // Wait for SQL save to complete
-                            success = sqlFuture.get();
-
-                            auto waitEnd = std::chrono::steady_clock::now();
-                            auto waitDuration = std::chrono::duration_cast<
-                                                    std::chrono::microseconds>(
-                                                    waitEnd - waitStart)
-                                                    .count();
-
-                            sqlMetrics->totalQueueWaitMicroseconds +=
-                                waitDuration;
-                            sqlMetrics->totalQueueWaits++;
-                            sqlMetrics->lastIntervalQueueWaitMicroseconds +=
-                                waitDuration;
-                            sqlMetrics->lastIntervalQueueWaits++;
+                            JLOG(j.error())
+                                << "Failed to save ledger "
+                                << ledger->info().seq << " to SQLite";
                         }
-                    }  // end if (!SKIP_SQL)
 
-                    if (!success)
-                    {
-                        // Build error message with ledger range
-                        std::string errorMsg = "Failed to save batch of " +
-                            std::to_string(ledgerBuffer.size()) + " ledgers (";
-                        if (!ledgerBuffer.empty())
-                        {
-                            errorMsg += std::to_string(
-                                            ledgerBuffer.front()->info().seq) +
-                                "-" +
-                                std::to_string(ledgerBuffer.back()->info().seq);
-                        }
-                        errorMsg += ") to SQLite database";
-                        return rpcError(rpcINTERNAL, errorMsg);
-                    }
+                        sqlPromisePtr->set_value(success);
+                    };
 
-                    // Mark all ledgers in the batch as saved for range tracking
-                    for (auto const& savedLedger : ledgerBuffer)
-                    {
-                        completedSaves.insert(savedLedger->info().seq);
-                    }
+                    // Queue as jtPUBOLDLEDGER - medium priority that waits
+                    // behind P2P operations
+                    context.app.getJobQueue().addJob(
+                        jtPUBOLDLEDGER,
+                        "catalogue-sql-" + std::to_string(ledger->info().seq),
+                        std::move(sqlJob));
 
-                    // Clear the buffer after successful save
-                    ledgerBuffer.clear();
+                    // Track how long we wait for the promise
+                    auto waitStart = std::chrono::steady_clock::now();
+
+                    // Wait for SQL save to complete
+                    success = sqlFuture.get();
+
+                    auto waitEnd = std::chrono::steady_clock::now();
+                    auto waitDuration =
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            waitEnd - waitStart)
+                            .count();
+
+                    sqlMetrics->totalQueueWaitMicroseconds += waitDuration;
+                    sqlMetrics->totalQueueWaits++;
+                    sqlMetrics->lastIntervalQueueWaitMicroseconds +=
+                        waitDuration;
+                    sqlMetrics->lastIntervalQueueWaits++;
+                }
+
+                if (!success)
+                {
+                    return rpcError(
+                        rpcINTERNAL,
+                        "Failed to save ledger " +
+                            std::to_string(ledger->info().seq) +
+                            " to SQLite database");
                 }
             }
+
+            // Mark this ledger as saved for range tracking
+            completedSaves.insert(ledger->info().seq);
 
             // Log periodically for debugging
             if (ledger->info().seq % 1000 == 0)
@@ -1065,23 +922,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                     10;
             }
 
-            // Add SQL histogram data as array to preserve ordering
-            Json::Value histArray(Json::arrayValue);
-            auto addHistEntry = [&histArray](const char* label, double value) {
-                Json::Value entry(Json::objectValue);
-                entry[label] = std::round(value * 10) / 10;
-                histArray.append(entry);
-            };
-
-            addHistEntry("1s", sqlMetrics->getWindowAvgMs(1));
-            addHistEntry("5s", sqlMetrics->getWindowAvgMs(5));
-            addHistEntry("15s", sqlMetrics->getWindowAvgMs(15));
-            addHistEntry("30s", sqlMetrics->getWindowAvgMs(30));
-            addHistEntry("1m", sqlMetrics->getWindowAvgMs(60));
-            addHistEntry("2m", sqlMetrics->getWindowAvgMs(120));
-            addHistEntry("5m", sqlMetrics->getWindowAvgMs(300));
-            addHistEntry("10m", sqlMetrics->getWindowAvgMs(600));
-            perfJson["sql_hist_ms"] = histArray;
+            // Single-threaded execution - all work in main thread
 
             outputJson["perf"] = perfJson;
 
@@ -1132,91 +973,6 @@ doCatalogueLoad(RPC::JsonContext& context)
             //                << " (loaded " << ledgersLoaded << " ledgers)";
             // context.app.getNodeStore().sweep();
         }
-    }
-
-    // Save any remaining ledgers in the buffer
-    if (!ledgerBuffer.empty())
-    {
-        JLOG(j.info()) << "Saving final batch of " << ledgerBuffer.size()
-                       << " ledgers";
-
-        bool success = false;
-
-        if (context.app.config().standalone())
-        {
-            auto start = std::chrono::steady_clock::now();
-
-            auto const db = dynamic_cast<SQLiteDatabase*>(
-                &context.app.getRelationalDatabase());
-            if (!db)
-            {
-                return rpcError(
-                    rpcINTERNAL, "Failed to get database for final batch");
-            }
-
-            success = db->saveValidatedLedgers(ledgerBuffer);
-
-            auto end = std::chrono::steady_clock::now();
-            auto duration =
-                std::chrono::duration_cast<std::chrono::microseconds>(
-                    end - start)
-                    .count();
-
-            sqlMetrics->totalJobs++;  // One batch job
-            sqlMetrics->totalMicroseconds += duration;
-
-            // Add sample for the actual batch duration
-            sqlMetrics->addSample(duration);
-
-            JLOG(j.info()) << "SQL: Final batch of " << ledgerBuffer.size()
-                           << " ledgers saved in " << (duration / 1000.0)
-                           << " ms";
-        }
-        else
-        {
-            // Production mode - use JobQueue
-            std::promise<bool> sqlPromise;
-            auto sqlFuture = sqlPromise.get_future();
-
-            auto batchToSave = ledgerBuffer;
-
-            auto sqlJob = [&context,
-                           batchToSave,
-                           sqlMetrics,
-                           j,
-                           sqlPromisePtr = &sqlPromise]() {
-                auto const db = dynamic_cast<SQLiteDatabase*>(
-                    &context.app.getRelationalDatabase());
-                if (!db)
-                {
-                    sqlPromisePtr->set_value(false);
-                    return;
-                }
-
-                bool result = db->saveValidatedLedgers(batchToSave);
-                sqlPromisePtr->set_value(result);
-            };
-
-            context.app.getJobQueue().addJob(
-                jtPUBOLDLEDGER, "SaveFinalBatch", sqlJob);
-
-            success = sqlFuture.get();
-        }
-
-        if (!success)
-        {
-            std::string errorMsg = "Failed to save final batch of " +
-                std::to_string(ledgerBuffer.size()) + " ledgers";
-            return rpcError(rpcINTERNAL, errorMsg);
-        }
-
-        // Mark all ledgers in the batch as saved
-        for (auto const& savedLedger : ledgerBuffer)
-        {
-            completedSaves.insert(savedLedger->info().seq);
-        }
-
-        ledgerBuffer.clear();
     }
 
     decompStream->reset();

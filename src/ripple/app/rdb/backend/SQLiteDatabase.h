@@ -114,16 +114,6 @@ public:
         bool current) = 0;
 
     /**
-     * @brief saveValidatedLedgers Saves multiple ledgers into the database in a
-     * single transaction.
-     * @param ledgers Vector of ledgers to save.
-     * @return True if saving was successful.
-     */
-    virtual bool
-    saveValidatedLedgers(
-        std::vector<std::shared_ptr<Ledger const>> const& ledgers) = 0;
-
-    /**
      * @brief getLimitedOldestLedgerInfo Returns the info of the oldest ledger
      *        whose sequence number is greater than or equal to the given
      *        sequence number.
