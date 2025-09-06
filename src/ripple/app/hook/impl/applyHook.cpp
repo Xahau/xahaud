@@ -3329,28 +3329,19 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
+    // It is also checked in api.etxn_nonce, but for backwards compatibility, it
+    // must be checked before the TOO_SMALL check.
     if (hookCtx.emit_nonce_counter > hook_api::max_nonce)
         return TOO_MANY_NONCES;
 
     if (write_len < 32)
         return TOO_SMALL;
 
-    // in some cases the same hook might execute multiple times
-    // on one txn, therefore we need to pass this information to the nonce
-    uint32_t flags = 0;
-    flags |= hookCtx.result.isStrong ? 0b10U : 0;
-    flags |= hookCtx.result.isCallback ? 0b01U : 0;
-    flags |= (hookCtx.result.hookChainPosition << 2U);
-
-    auto hash = ripple::sha512Half(
-        ripple::HashPrefix::emitTxnNonce,
-        applyCtx.tx.getTransactionID(),
-        hookCtx.emit_nonce_counter++,
-        hookCtx.result.account,
-        hookCtx.result.hookHash,
-        flags);
-
-    hookCtx.nonce_used[hash] = true;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.etxn_nonce();
+    if (!result)
+        return result.error();
+    auto const& hash = result.value();
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, 32, hash.data(), 32, memory, memory_length);
@@ -3446,18 +3437,11 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.expected_etxn_count > -1)
-        return ALREADY_SET;
-
-    if (count < 1)
-        return TOO_SMALL;
-
-    if (count > hook_api::max_emit)
-        return TOO_BIG;
-
-    hookCtx.expected_etxn_count = count;
-
-    return count;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.etxn_reserve(count);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -4287,68 +4271,12 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < expected_size)
         return TOO_SMALL;
 
-    if (hookCtx.expected_etxn_count <= -1)
-        return PREREQUISITE_NOT_MET;
+    hook::HookAPI api(hookCtx);
 
-    uint32_t generation = (uint32_t)(etxn_generation(
-        hookCtx, frameCtx));  // always non-negative so cast is safe
-
-    int64_t burden = etxn_burden(hookCtx, frameCtx);
-    if (burden < 1)
-        return FEE_TOO_LARGE;
-
-    unsigned char* out = memory + write_ptr;
-
-    *out++ = 0xEDU;  // begin sfEmitDetails                            /* upto =
-                     // 0 | size =  1 */
-    *out++ = 0x20U;  // sfEmitGeneration preamble                      /* upto =
-                     // 1 | size =  6 */
-    *out++ = 0x2EU;  // preamble cont
-    *out++ = (generation >> 24U) & 0xFFU;
-    *out++ = (generation >> 16U) & 0xFFU;
-    *out++ = (generation >> 8U) & 0xFFU;
-    *out++ = (generation >> 0U) & 0xFFU;
-    *out++ = 0x3DU;  // sfEmitBurden preamble                           /* upto
-                     // =   7 | size =  9 */
-    *out++ = (burden >> 56U) & 0xFFU;
-    *out++ = (burden >> 48U) & 0xFFU;
-    *out++ = (burden >> 40U) & 0xFFU;
-    *out++ = (burden >> 32U) & 0xFFU;
-    *out++ = (burden >> 24U) & 0xFFU;
-    *out++ = (burden >> 16U) & 0xFFU;
-    *out++ = (burden >> 8U) & 0xFFU;
-    *out++ = (burden >> 0U) & 0xFFU;
-    *out++ = 0x5BU;  // sfEmitParentTxnID preamble                      /* upto
-                     // =  16 | size = 33 */
-    if (otxn_id(hookCtx, frameCtx, out - memory, 32, 1) != 32)
-        return INTERNAL_ERROR;
-    out += 32;
-    *out++ = 0x5CU;  // sfEmitNonce                                     /* upto
-                     // =  49 | size = 33 */
-    if (etxn_nonce(hookCtx, frameCtx, out - memory, 32) != 32)
-        return INTERNAL_ERROR;
-    out += 32;
-    *out++ = 0x5DU;  // sfEmitHookHash preamble                          /* upto
-                     // =  82 | size = 33 */
-    for (int i = 0; i < 32; ++i)
-        *out++ = hookCtx.result.hookHash.data()[i];
-
-    if (hookCtx.result.hasCallback)
-    {
-        *out++ = 0x8AU;  // sfEmitCallback preamble                         /*
-                         // upto = 115 | size = 22 */
-        *out++ = 0x14U;  // preamble cont
-        if (hook_account(hookCtx, frameCtx, out - memory, 20) != 20)
-            return INTERNAL_ERROR;
-        out += 20;
-    }
-    *out++ = 0xE1U;  // end object (sfEmitDetails)                     /* upto =
-                     // 137 | size =  1 */
-                     /* upto = 138 | --------- */
-    int64_t outlen = out - memory - write_ptr;
-
-    DBG_PRINTF("emitdetails size = %d\n", outlen);
-    return outlen;
+    auto const result = api.etxn_details(memory + write_ptr);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }

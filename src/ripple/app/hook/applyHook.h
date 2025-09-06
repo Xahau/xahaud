@@ -802,12 +802,13 @@ public:
         ADD_HOOK_FUNCTION(util_accid, ctx);
         ADD_HOOK_FUNCTION(util_verify, ctx);
         ADD_HOOK_FUNCTION(util_sha512h, ctx);
+        ADD_HOOK_FUNCTION(util_keylet, ctx);
+
         ADD_HOOK_FUNCTION(sto_validate, ctx);
         ADD_HOOK_FUNCTION(sto_subfield, ctx);
         ADD_HOOK_FUNCTION(sto_subarray, ctx);
         ADD_HOOK_FUNCTION(sto_emplace, ctx);
         ADD_HOOK_FUNCTION(sto_erase, ctx);
-        ADD_HOOK_FUNCTION(util_keylet, ctx);
 
         ADD_HOOK_FUNCTION(emit, ctx);
         ADD_HOOK_FUNCTION(etxn_burden, ctx);

@@ -751,10 +751,127 @@ HookAPI::etxn_fee_base(ripple::Slice txBlob) const
     }
 }
 
+Expected<uint64_t, HookReturnCode>
+HookAPI::etxn_details(uint8_t* out_ptr) const
+{
+    if (hookCtx.expected_etxn_count <= -1)
+        return PREREQUISITE_NOT_MET;
+
+    uint32_t generation = etxn_generation();
+
+    auto const burden_result = etxn_burden();
+
+    if (!burden_result)
+        return FEE_TOO_LARGE;
+
+    int64_t burden = burden_result.value();
+
+    uint8_t* out = out_ptr;
+
+    *out++ = 0xEDU;  // begin sfEmitDetails                            /* upto =
+                     // 0 | size =  1 */
+    *out++ = 0x20U;  // sfEmitGeneration preamble                      /* upto =
+                     // 1 | size =  6 */
+    *out++ = 0x2EU;  // preamble cont
+    *out++ = (generation >> 24U) & 0xFFU;
+    *out++ = (generation >> 16U) & 0xFFU;
+    *out++ = (generation >> 8U) & 0xFFU;
+    *out++ = (generation >> 0U) & 0xFFU;
+    *out++ = 0x3DU;  // sfEmitBurden preamble                           /* upto
+                     // =   7 | size =  9 */
+    *out++ = (burden >> 56U) & 0xFFU;
+    *out++ = (burden >> 48U) & 0xFFU;
+    *out++ = (burden >> 40U) & 0xFFU;
+    *out++ = (burden >> 32U) & 0xFFU;
+    *out++ = (burden >> 24U) & 0xFFU;
+    *out++ = (burden >> 16U) & 0xFFU;
+    *out++ = (burden >> 8U) & 0xFFU;
+    *out++ = (burden >> 0U) & 0xFFU;
+    *out++ = 0x5BU;  // sfEmitParentTxnID preamble                      /* upto
+                     // =  16 | size = 33 */
+    auto const& txID = hookCtx.applyCtx.tx.getTransactionID();
+    memcpy(out, txID.data(), 32);
+    out += 32;
+    *out++ = 0x5CU;  // sfEmitNonce                                     /* upto
+                     // =  49 | size = 33 */
+
+    auto hash = etxn_nonce();
+    if (!hash.has_value())
+        return INTERNAL_ERROR;
+
+    memcpy(out, hash->data(), 32);
+
+    out += 32;
+    *out++ = 0x5DU;  // sfEmitHookHash preamble                          /* upto
+                     // =  82 | size = 33 */
+    for (int i = 0; i < 32; ++i)
+        *out++ = hookCtx.result.hookHash.data()[i];
+
+    if (hookCtx.result.hasCallback)
+    {
+        *out++ = 0x8AU;  // sfEmitCallback preamble                         /*
+                         // upto = 115 | size = 22 */
+        *out++ = 0x14U;  // preamble cont
+
+        memcpy(out, hookCtx.result.account.data(), 20);
+
+        out += 20;
+    }
+    *out++ = 0xE1U;  // end object (sfEmitDetails)                     /* upto =
+                     // 137 | size =  1 */
+                     /* upto = 138 | --------- */
+    int64_t outlen = out - out_ptr;
+
+    return outlen;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::etxn_reserve(uint64_t count) const
+{
+    if (hookCtx.expected_etxn_count > -1)
+        return Unexpected(ALREADY_SET);
+
+    if (count < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (count > hook_api::max_emit)
+        return Unexpected(TOO_BIG);
+
+    hookCtx.expected_etxn_count = count;
+
+    return count;
+}
+
 uint32_t
 HookAPI::etxn_generation() const
 {
     return otxn_generation() + 1;
+}
+
+Expected<uint256, HookReturnCode>
+HookAPI::etxn_nonce() const
+{
+    if (hookCtx.emit_nonce_counter > hook_api::max_nonce)
+        return Unexpected(TOO_MANY_NONCES);
+
+    // in some cases the same hook might execute multiple times
+    // on one txn, therefore we need to pass this information to the nonce
+    uint32_t flags = 0;
+    flags |= hookCtx.result.isStrong ? 0b10U : 0;
+    flags |= hookCtx.result.isCallback ? 0b01U : 0;
+    flags |= (hookCtx.result.hookChainPosition << 2U);
+
+    auto hash = ripple::sha512Half(
+        ripple::HashPrefix::emitTxnNonce,
+        hookCtx.applyCtx.tx.getTransactionID(),
+        hookCtx.emit_nonce_counter++,
+        hookCtx.result.account,
+        hookCtx.result.hookHash,
+        flags);
+
+    hookCtx.nonce_used[hash] = true;
+
+    return hash;
 }
 
 using namespace hook_float;

@@ -35,6 +35,7 @@ public:
     // util_accid
     // util_verify
     // util_sha512h
+    // util_keylet
 
     /// sto APIs
     // sto_validate
@@ -42,7 +43,6 @@ public:
     // sto_subarray
     // sto_emplace
     // sto_erase
-    // util_keylet
 
     /// etxn APIs
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
@@ -53,11 +53,18 @@ public:
 
     Expected<uint64_t, HookReturnCode>
     etxn_fee_base(Slice txBlob) const;
-    // etxn_details
-    // etxn_reserve
+
+    Expected<uint64_t, HookReturnCode>
+    etxn_details(uint8_t* out_ptr) const;
+
+    Expected<uint64_t, HookReturnCode>
+    etxn_reserve(uint64_t count) const;
+
     uint32_t
     etxn_generation() const;
-    // etxn_nonce
+
+    Expected<uint256, HookReturnCode>
+    etxn_nonce() const;
 
     /// float APIs
     Expected<uint64_t, HookReturnCode>
