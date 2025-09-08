@@ -40,97 +40,31 @@ namespace detail {
 namespace {
 
 /**
- * @brief Manages bulk SQL INSERT statement construction with automatic batching
+ * @brief Manages bulk SQL INSERT statement construction with optional batching
  *
- * This class handles the construction of bulk INSERT statements while ensuring
- * they don't exceed SQLite's maximum query length limit (default 1MB).
- * It automatically executes batches when they approach the size limit.
+ * CRITICAL: saveValidatedLedger wraps ALL operations in a single transaction
+ * which holds the SQLite write lock for the entire duration. This means:
+ * - Batching vs individual INSERTs doesn't affect lock hold time
+ * - The entire ledger blocks other DB operations regardless of batching
+ * - Performance impact is limited to per-statement overhead reduction
+ *
+ * In standalone testing with single-threaded execution, batching showed
+ * ~10% throughput improvement. However, production impact is unclear due to:
+ * - P2P operations competing for the same write lock
+ * - WAL checkpoints triggered by the 1.5MB journal_size_limit
+ * - Different transaction patterns in live environments
+ *
+ * Current setting: MAX_ENTRIES_PER_BATCH = 1 (proven behavior)
+ * Future work: Measure batching impact in production environments
  */
 class BulkSQLQueryBuilder
 {
 private:
+    // Maintain existing behaviour
+    static constexpr size_t MAX_ENTRIES_PER_BATCH =
+        1;  // 0 = use size-based batching, >0 = max entries per batch
     static constexpr size_t SQLITE_MAX_SQL_LENGTH =
         1048576;  // 1MB default limit
-
-    // Debug/testing settings to control batch behavior
-    //
-    // IMPORTANT: WAL Checkpoint Performance Considerations
-    // ------------------------------------------------------
-    // When MAX_ENTRIES_PER_BATCH = 1, each SQL insert is executed immediately,
-    // which releases database locks frequently but can trigger more frequent
-    // WAL (Write-Ahead Log) checkpoints.
-    //
-    // SQLite's WAL checkpoint behavior:
-    // - Triggered when WAL reaches journal_size_limit (currently 1582080 bytes
-    // / ~1.5MB)
-    // - Default would be 1000 pages * 4KB = 4MB, but journal_size_limit
-    // overrides this
-    // - Each checkpoint must write all dirty pages to the main database file
-    // - Can cause SQLITE_LOCKED (error 6) if checkpoint runs while other
-    // operations hold locks
-    //
-    // Performance tradeoffs:
-    // - Smaller batches (or immediate execution): More frequent checkpoints but
-    // shorter lock hold times
-    // - Larger batches: Fewer checkpoints but longer lock hold times
-    // - The 1.5MB journal_size_limit in DBInit.h forces checkpoints very
-    // frequently
-    //   with large datasets, potentially causing periodic stuttering
-    //
-    // Observed behavior: WAL checkpoint logs show "frames=1175, written=1175"
-    // indicating full checkpoints (all frames written), not incremental ones.
-    // This is significant I/O.
-    //
-    // Database Contention in Non-Standalone Mode:
-    // --------------------------------------------
-    // When NOT in standalone mode, additional database contention sources
-    // include:
-    // - P2P sync operations writing latest ledgers from network peers
-    // - Validator operations updating validation tables
-    // - Consensus operations accessing recent ledger history
-    // - Multiple threads potentially triggering concurrent WAL checkpoints
-    //
-    // WAL checkpoint errors (SQLITE_LOCKED/error 6) are MORE likely in
-    // non-standalone mode due to this additional contention. The catalogue load
-    // operation competes with normal node operations for database locks.
-    //
-    // Standalone mode eliminates P2P-related database access, reducing
-    // contention significantly, which may explain fewer checkpoint errors in
-    // that mode.
-    //
-    // PERFORMANCE UPDATE (2025-09):
-    // -----------------------------
-    // After implementing a single dedicated SQL thread (eliminating lock
-    // contention), we measured actual performance with detailed metrics:
-    //
-    // WITH BATCHING (MAX_ENTRIES_PER_BATCH = 0, size-based):
-    //   - Average throughput: ~21 MiB/s
-    //   - SQL execution time: ~1ms per batch
-    //   - Multiple rows per INSERT statement (up to size limit)
-    //
-    // WITHOUT BATCHING (MAX_ENTRIES_PER_BATCH = 1):
-    //   - Average throughput: ~19 MiB/s
-    //   - SQL execution time: ~1ms per operation
-    //   - Individual INSERT per row
-    //
-    // CONCLUSION: Batching IS faster (~10% improvement) but ONLY after
-    // eliminating lock contention with a single SQL thread. The original "feels
-    // slower" observation was likely due to multiple threads competing for
-    // database locks, where smaller operations (individual inserts) resulted in
-    // shorter lock hold times and better apparent concurrency.
-    //
-    // With the single SQL thread architecture:
-    // - Lock contention is eliminated
-    // - Batching reduces per-statement overhead
-    // - Size-based batching (MAX_ENTRIES_PER_BATCH = 0) maximizes efficiency
-    //   by building SQL statements up to ~900KB (under SQLite's 1MB limit)
-    //
-    // Current setting uses size-based batching for optimal performance.
-    //
-    static constexpr size_t MAX_ENTRIES_PER_BATCH =
-        0;  // 0 = use size-based batching, >0 = max entries per batch
-    static constexpr std::chrono::milliseconds BATCH_DELAY{
-        0};  // Delay between batches (0 = no delay)
 
     soci::session& db_;
     beast::Journal j_;
@@ -187,31 +121,6 @@ public:
         const std::string& entry,
         std::optional<size_t> actualSize = std::nullopt)
     {
-        size_t entrySize = actualSize.value_or(entry.size());
-
-        // Check if we need to execute current batch before adding this entry
-        bool needToExecute = false;
-
-        if (!firstEntry_)
-        {
-            // Check entry count limit if configured
-            if (MAX_ENTRIES_PER_BATCH > 0 &&
-                entriesInBatch_ >= MAX_ENTRIES_PER_BATCH)
-            {
-                needToExecute = true;
-            }
-            // Otherwise check size limit
-            else if (currentBatch_.size() + entrySize > maxBatchSize_)
-            {
-                needToExecute = true;
-            }
-        }
-
-        if (needToExecute)
-        {
-            executeBatch();
-        }
-
         // Start a new batch if needed
         if (firstEntry_)
         {
@@ -226,6 +135,16 @@ public:
 
         currentBatch_ += entry;
         entriesInBatch_++;
+
+        // Execute batch if we hit EITHER threshold:
+        // 1. Entry count limit (if MAX_ENTRIES_PER_BATCH > 0)
+        // 2. Size limit (always checked to prevent exceeding SQLite's limit)
+        if ((MAX_ENTRIES_PER_BATCH > 0 &&
+             entriesInBatch_ >= MAX_ENTRIES_PER_BATCH) ||
+            currentBatch_.size() > maxBatchSize_)
+        {
+            executeBatch();
+        }
     }
 
     /**
@@ -264,14 +183,6 @@ private:
         // Execute within the existing transaction context
         // If this fails, the transaction will roll back
         db_ << currentBatch_;
-
-        // Add delay between batches if configured (for debugging/testing)
-        if (BATCH_DELAY.count() > 0)
-        {
-            std::this_thread::sleep_for(BATCH_DELAY);
-            JLOG(j_.trace()) << queryName_ << " delayed " << BATCH_DELAY.count()
-                             << "ms between batches";
-        }
 
         // Reset for next batch
         currentBatch_.clear();
