@@ -60,9 +60,6 @@ namespace {
 class BulkSQLQueryBuilder
 {
 private:
-    // Maintain existing behaviour
-    static constexpr size_t MAX_ENTRIES_PER_BATCH =
-        1;  // 0 = use size-based batching, >0 = max entries per batch
     static constexpr size_t SQLITE_MAX_SQL_LENGTH =
         1048576;  // 1MB default limit
 
@@ -72,6 +69,7 @@ private:
     std::string currentBatch_;
     size_t maxBatchSize_;
     size_t estimatedEntrySize_;
+    size_t entryLimit_;  // 0 = unlimited (size-based only), >0 = flush at N
     bool firstEntry_ = true;
     std::string queryName_;
     size_t entriesInBatch_ = 0;  // Track number of entries in current batch
@@ -86,6 +84,7 @@ public:
      * SQLITE_MAX_SQL_LENGTH)
      * @param estimatedEntrySize Estimated size of each entry for safety checks
      * @param queryName Name for logging purposes
+     * @param entryLimit How many entries per statement (0 = unlimited)
      */
     BulkSQLQueryBuilder(
         soci::session& db,
@@ -93,17 +92,22 @@ public:
         std::string insertHeader,
         size_t maxBatchSize,
         size_t estimatedEntrySize,
-        std::string queryName)
+        std::string queryName,
+        size_t entryLimit)
         : db_(db)
         , j_(j)
         , insertHeader_(std::move(insertHeader))
         , maxBatchSize_(maxBatchSize)
         , estimatedEntrySize_(estimatedEntrySize)
+        , entryLimit_(entryLimit)
         , queryName_(std::move(queryName))
     {
         // Ensure we have safety margin
         assert(maxBatchSize_ + estimatedEntrySize_ < SQLITE_MAX_SQL_LENGTH);
-        currentBatch_.reserve(maxBatchSize_);
+        // Follow original pattern: reserve header + one entry's estimated size
+        // This avoids reallocation for single entries while not wasting MB of
+        // memory
+        currentBatch_.reserve(insertHeader_.length() + estimatedEntrySize_);
     }
 
     /**
@@ -137,10 +141,9 @@ public:
         entriesInBatch_++;
 
         // Execute batch if we hit EITHER threshold:
-        // 1. Entry count limit (if MAX_ENTRIES_PER_BATCH > 0)
+        // 1. Entry count limit (if entryLimit_ > 0)
         // 2. Size limit (always checked to prevent exceeding SQLite's limit)
-        if ((MAX_ENTRIES_PER_BATCH > 0 &&
-             entriesInBatch_ >= MAX_ENTRIES_PER_BATCH) ||
+        if ((entryLimit_ > 0 && entriesInBatch_ >= entryLimit_) ||
             currentBatch_.size() > maxBatchSize_)
         {
             executeBatch();
@@ -480,41 +483,41 @@ saveValidatedLedger(
 
             soci::transaction tr(*db);
 
-            // Combine both DELETEs into one query for better performance.
-            // This removes all existing transaction data for this ledger
-            // sequence.
-            *db << boost::str(
-                boost::format(
-                    "DELETE FROM Transactions WHERE LedgerSeq = %u;"
-                    "DELETE FROM AccountTransactions WHERE LedgerSeq = %u;") %
-                seq % seq);
+            // Restore original, reliable behavior: execute the two DELETEs
+            // separately.
+            *db << boost::str(deleteTrans1 % seq);
+            *db << boost::str(deleteTrans2 % seq);
 
             std::string const ledgerSeq(std::to_string(seq));
 
-            // Use bulk query builders to batch INSERT statements efficiently.
-            // This dramatically reduces database round-trips while respecting
-            // SQLite's query size limits.
+            // Batching configuration - compile-time constants for now
+            // Can load from env vars here for experimentation
+            constexpr size_t txnEntries = 1;  // Original: 1 entry per statement
+            constexpr size_t txnMaxBytes = 500000;
+            constexpr size_t acctEntries =
+                1;  // Original: 1 per-tx multi-VALUES
+            constexpr size_t acctMaxBytes = 850000;
 
-            // AccountTransactions: ~150 bytes per entry (TransID + Account +
-            // numbers)
+            // AccountTransactions: ~150 bytes per value tuple
             BulkSQLQueryBuilder accountTxBuilder(
                 *db,
                 j,
                 "INSERT INTO AccountTransactions "
                 "(TransID, Account, LedgerSeq, TxnSeq) VALUES ",
-                850000,  // 850KB max batch size (leaving buffer for safety)
-                150,     // Estimated entry size
-                "AccountTransactions");
+                acctMaxBytes,
+                150,
+                "AccountTransactions",
+                acctEntries);
 
-            // Transactions: Variable size due to BLOB data (RawTxn and TxnMeta)
-            // Conservative batch size since entries can be several KB each
+            // Transactions: Variable size due to BLOBs
             BulkSQLQueryBuilder transactionBuilder(
                 *db,
                 j,
                 STTx::getMetaSQLInsertReplaceHeader(),
-                500000,  // 500KB max batch size (more conservative for BLOBs)
-                2048,    // Estimated entry size (can vary widely)
-                "Transactions");
+                txnMaxBytes,
+                2048,
+                "Transactions",
+                txnEntries);
 
             // Build and execute bulk INSERT statements for all transactions
             for (auto const& acceptedLedgerTx : *aLedger)
@@ -526,27 +529,42 @@ saveValidatedLedger(
 
                 // Add AccountTransactions entries for all affected accounts
                 auto const& accts = acceptedLedgerTx->getAffected();
-                for (auto const& account : accts)
+                if (!accts.empty())
                 {
-                    std::string entry = "('";
-                    entry += txnId;
-                    entry += "','";
-                    entry += toBase58(account);
-                    entry += "',";
-                    entry += ledgerSeq;
-                    entry += ",";
-                    entry += txnSeq;
-                    entry += ")";
+                    // Restore original: one statement per transaction with
+                    // multi-VALUES list
+                    std::string entry;
+                    entry.reserve(accts.size() * 128);
+                    bool first = true;
+                    for (auto const& account : accts)
+                    {
+                        if (!first)
+                            entry += ",('";
+                        else
+                        {
+                            entry += "('";
+                            first = false;
+                        }
 
+                        entry += txnId;
+                        entry += "','";
+                        entry += toBase58(account);
+                        entry += "',";
+                        entry += ledgerSeq;
+                        entry += ",";
+                        entry += txnSeq;
+                        entry += ")";
+                    }
                     accountTxBuilder.addEntry(entry);
                 }
-
-                if (accts.empty() && !isPseudoTx(*acceptedLedgerTx->getTxn()))
+                else if (auto const& sleTxn = acceptedLedgerTx->getTxn();
+                         !isPseudoTx(*sleTxn))
                 {
+                    // It's okay for pseudo transactions to not affect any
+                    // accounts.  But otherwise...
                     JLOG(j.warn()) << "Transaction in ledger " << seq
                                    << " affects no accounts";
-                    JLOG(j.warn()) << acceptedLedgerTx->getTxn()->getJson(
-                        JsonOptions::none);
+                    JLOG(j.warn()) << sleTxn->getJson(JsonOptions::none);
                 }
 
                 // Add Transactions entry (includes metadata and raw transaction
@@ -554,8 +572,6 @@ saveValidatedLedger(
                 std::string metaEntry = acceptedLedgerTx->getTxn()->getMetaSQL(
                     seq, acceptedLedgerTx->getEscMeta());
 
-                // For entries with BLOBs, we need to account for the actual
-                // size which includes the escaped/encoded BLOB data
                 transactionBuilder.addEntry(metaEntry, metaEntry.size());
             }
 
