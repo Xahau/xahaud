@@ -42,6 +42,26 @@ runs:
         SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
+    - name: Check conanfile changes
+      if: inputs.cache_enabled == 'true'
+      id: check-conanfile-changes
+      shell: bash
+      run: |
+        # Check if we're on the main branch
+        if [ "${{ github.ref_name }}" == "${{ inputs.main_branch }}" ]; then
+          echo "should-save-conan-cache=true" >> $GITHUB_OUTPUT
+        else
+          # Fetch main branch for comparison
+          git fetch origin ${{ inputs.main_branch }}
+          
+          # Check if conanfile.txt or conanfile.py has changed compared to main branch
+          if git diff --quiet origin/${{ inputs.main_branch }}..HEAD -- '**/conanfile.txt' '**/conanfile.py'; then
+            echo "should-save-conan-cache=false" >> $GITHUB_OUTPUT
+          else
+            echo "should-save-conan-cache=true" >> $GITHUB_OUTPUT
+          fi
+        fi
+
     - name: Restore Conan cache
       if: inputs.cache_enabled == 'true'
       id: cache-restore-conan
@@ -54,13 +74,12 @@ runs:
         restore-keys: |
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
-          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-
 
     - name: Export custom recipes
       shell: bash
       run: |
-        conan export external/snappy snappy/1.1.9@
-        conan export external/soci soci/4.0.3@
+        conan export external/snappy snappy/1.1.10@xahaud/stable
+        conan export external/soci soci/4.0.3@xahaud/stable
 
     - name: Install dependencies
       shell: bash
@@ -77,7 +96,7 @@ runs:
           ..
 
     - name: Save Conan cache
-      if: inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true'
+      if: always() && inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true' && steps.check-conanfile-changes.outputs.should-save-conan-cache == 'true'
       uses: actions/cache/save@v4
       with:
         path: |

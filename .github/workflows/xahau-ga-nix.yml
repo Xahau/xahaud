@@ -5,6 +5,8 @@ on:
     branches: ["dev", "candidate", "release"]
   pull_request:
     branches: ["dev", "candidate", "release"]
+  schedule:
+    - cron: '0 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,13 +24,14 @@ jobs:
         configuration: [Debug]
         include:
           - compiler: gcc
-            cc: gcc-11
-            cxx: g++-11
-            compiler_id: gcc-11
+            cc: gcc-13
+            cxx: g++-13
+            compiler_id: gcc-13
+            compiler_version: 13
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
-      CACHE_VERSION: 1
+      CACHE_VERSION: 2
       MAIN_BRANCH_NAME: dev
     steps:
       - name: Checkout
@@ -47,6 +50,7 @@ jobs:
           max_size: 2G
           hash_dir: true
           compiler_check: content
+          is_main_branch: ${{ github.ref_name == env.MAIN_BRANCH_NAME }}
 
       - name: Configure Conan
         run: |
@@ -58,12 +62,8 @@ jobs:
           conan profile update env.CXX=/usr/bin/${{ matrix.cxx }} default
           conan profile update conf.tools.build:compiler_executables='{"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}' default
 
-          # Set correct compiler version based on matrix.compiler
-          if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            conan profile update settings.compiler.version=11 default
-          elif [ "${{ matrix.compiler }}" = "clang" ]; then
-            conan profile update settings.compiler.version=14 default
-          fi
+          # Set compiler version from matrix
+          conan profile update settings.compiler.version=${{ matrix.compiler_version }} default
           # Display profile for verification
           conan profile show default
 

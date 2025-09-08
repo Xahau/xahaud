@@ -83,6 +83,8 @@ SuiteJournalSink::write(
     // Only write the string if the level at least equals the threshold.
     if (level >= threshold())
     {
+        // std::endl flushes → sync() → str()/str("") race in shared buffer →
+        // crashes
         static std::mutex log_mutex;
         std::lock_guard lock(log_mutex);
         suite_.log << s << partition_ << text << std::endl;
