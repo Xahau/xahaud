@@ -349,35 +349,6 @@ public:
     int
     flushDirty(NodeObjectType t);
 
-    /**
-     * Flush nodes that differ from parent map (for ledger chains).
-     *
-     * This method works around COW's inability to support generation chains by
-     * comparing the current map with its parent using ONLY pointer comparison
-     * to identify changed nodes. This is extremely efficient and works because
-     * the node store deduplicates by value, so writing duplicate values is a
-     * no-op.
-     *
-     * The optimization relies on the fact that unchanged subtrees will share
-     * the exact same pointer between parent and child maps. The only edge case
-     * where this might flush unnecessarily is the extremely rare scenario where
-     * something is removed and then added back with the exact same value within
-     * a generation chain - but this almost never happens in Ripple.
-     *
-     * This is necessary because Ripple's COW system uses binary ownership
-     * (cowid=0 for shared, cowid≠0 for owned) rather than delta tracking,
-     * making it incompatible with ledger chains where L1→L2→L3 each need
-     * to track their changes relative to their parent.
-     *
-     * @param parent Optional reference to parent SHAMap for delta comparison
-     * @param t Node object type for storage
-     * @return Number of nodes flushed
-     */
-    int
-    flushByPointerDiff(
-        std::optional<std::reference_wrapper<const SHAMap>> parent,
-        NodeObjectType t);
-
     void
     walkMap(std::vector<SHAMapMissingNode>& missingNodes, int maxMissing) const;
     bool
@@ -417,24 +388,13 @@ public:
      * Reconstructs the full tree from leaf nodes.
      *
      * @param stream The input stream to read from
+     * @param nt The type of nodes to deserialize
      * @param baseSHAMap Optional base map to apply deltas to
      * @return True if deserialization succeeded
      */
     template <typename StreamType>
     bool
     deserializeFromStream(StreamType& stream, NodeObjectType nt);
-
-    int
-    getCowID() const
-    {
-        return cowid_;
-    }
-
-    int
-    getRootCowID() const
-    {
-        return root_ ? root_->cowid() : -1;
-    }
 
 private:
     using SharedPtrNodeStack =
