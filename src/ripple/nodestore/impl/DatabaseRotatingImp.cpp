@@ -55,16 +55,6 @@ DatabaseRotatingImp::rotateWithLock(
     // Create the new backend
     auto newBackend = f(writableBackend_->getName());
 
-    // Before rotating, ensure all pinned ledgers are in the writable backend
-    JLOG(j_.info())
-        << "Ensuring pinned ledgers are preserved before backend rotation";
-
-    // Trying to copy pinned ledgers when you don't know the relationship
-    // between [node_db] online_delete and the pinned ledgers is a bad idea.
-    // You might actually be up for a new rotation before the copy is even
-    // finished. So you must have a snapshot of the pinned ledgers to copy
-    // into place. See SHAMapStoreImp::makeBackendRotating.
-
     // Now it's safe to mark the archive backend for deletion
     archiveBackend_->setDeletePath();
 

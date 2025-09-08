@@ -29,10 +29,7 @@
 #include <ripple/core/DatabaseCon.h>
 #include <ripple/core/SociDB.h>
 #include <boost/filesystem.hpp>
-#include <cstdlib>
-#include <iostream>
 #include <memory>
-#include <regex>
 #include <soci/sqlite3/soci-sqlite3.h>
 
 namespace ripple {
@@ -110,89 +107,7 @@ open(
     std::string const& connectionString)
 {
     if (beName == "sqlite")
-    {
         s.open(soci::sqlite3, connectionString);
-
-        // Enable SQL tracing if SQLITE_TRACE environment variable is set
-        // Can optionally filter with SQLITE_TRACE_FILTER regex
-        if (std::getenv("SQLITE_TRACE"))
-        {
-            auto be = s.get_backend();
-            if (auto b = dynamic_cast<soci::sqlite3_session_backend*>(be))
-            {
-                // Store filter pattern in a struct we can pass to callback
-                struct TraceContext
-                {
-                    bool hasFilter = false;
-                    std::regex filter;
-                };
-
-                static auto* context = new TraceContext();
-                static bool filterInit = false;
-
-                if (!filterInit)
-                {
-                    filterInit = true;
-                    if (auto* filterEnv = std::getenv("SQLITE_TRACE_EXCLUDE"))
-                    {
-                        try
-                        {
-                            context->filter =
-                                std::regex(filterEnv, std::regex::icase);
-                            context->hasFilter = true;
-                            std::cerr
-                                << "[SQL] Exclude filter enabled: " << filterEnv
-                                << std::endl;
-                        }
-                        catch (std::exception& e)
-                        {
-                            std::cerr
-                                << "[SQL] Invalid regex filter: " << filterEnv
-                                << std::endl;
-                            context->hasFilter = false;
-                        }
-                    }
-                }
-
-                sqlite_api::sqlite3_trace_v2(
-                    b->conn_,
-                    SQLITE_TRACE_STMT,
-                    [](unsigned, void* userData, void* p, void*) -> int {
-                        auto* ctx = static_cast<TraceContext*>(userData);
-                        auto* stmt = static_cast<sqlite_api::sqlite3_stmt*>(p);
-                        char* sql = sqlite_api::sqlite3_expanded_sql(stmt);
-                        if (sql)
-                        {
-                            std::string sqlStr(sql);
-
-                            // Check exclude filter if enabled - log if NOT
-                            // matching
-                            bool shouldLog = true;
-                            if (ctx && ctx->hasFilter)
-                            {
-                                shouldLog =
-                                    !std::regex_search(sqlStr, ctx->filter);
-                            }
-
-                            if (shouldLog)
-                            {
-                                // Replace hex blobs with $BLOB for readability
-                                static std::regex hexBlob(
-                                    R"(X'[0-9A-F]+'\s*)", std::regex::icase);
-                                std::string sanitized = std::regex_replace(
-                                    sqlStr, hexBlob, "$BLOB ");
-                                std::cerr << "[SQL] " << sanitized << std::endl;
-                            }
-                            sqlite_api::sqlite3_free(sql);
-                        }
-                        return 0;
-                    },
-                    context);
-                std::cerr << "[SQL] Tracing enabled for: " << connectionString
-                          << std::endl;
-            }
-        }
-    }
     else
         Throw<std::runtime_error>("Unsupported soci backend: " + beName);
 }

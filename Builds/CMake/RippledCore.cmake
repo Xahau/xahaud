@@ -1060,7 +1060,6 @@ if (tests)
     src/test/shamap/FetchPack_test.cpp
     src/test/shamap/SHAMapSync_test.cpp
     src/test/shamap/SHAMap_test.cpp
-    src/test/shamap/SHAMapCOW_test.cpp
     #[===============================[
        test sources:
          subdir: unit_test

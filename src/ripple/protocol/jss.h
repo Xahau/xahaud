@@ -566,7 +566,6 @@ JSS(peer_disconnects_resources);  // Severed peer connections because of
                                   // excess resource consumption.
 JSS(percent_complete);
 JSS(phash);
-JSS(pin);               // in: catalogue_load
 JSS(port);              // in: Connect
 JSS(previous);          // out: Reservations
 JSS(previous_ledger);   // out: LedgerPropose
@@ -671,7 +670,6 @@ JSS(sub_index);             // in: LedgerEntry
 JSS(subcommand);            // in: PathFind
 JSS(success);               // rpc
 JSS(supported);             // out: AmendmentTableImpl
-JSS(sync);                  // in: catalogue_load
 JSS(system_time_offset);    // out: NetworkOPs
 JSS(tag);                   // out: Peers
 JSS(taker);                 // in: Subscribe, BookOffers
