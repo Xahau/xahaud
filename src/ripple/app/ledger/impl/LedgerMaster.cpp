@@ -1403,22 +1403,29 @@ LedgerMaster::findNewLedgersToPublish(
     RangeSet<std::uint32_t> toPublish;
     toPublish.insert(range(pubSeq, valSeq));
 
-    // IMPORTANT: This RangeSet subtraction is critical for standalone mode when
-    // loading large catalogue files (millions of ledgers). Standalone mode is
-    // NOT just for tests - it's the optimal environment for loading catalogue
-    // packs without consensus/network overhead stealing resources. Without this
-    // optimization, tryAdvance would attempt to publish ALL pinned ledgers,
-    // keeping them and their SHAMap nodes in memory forever, causing massive
-    // memory bloat. By subtracting pinned ledgers (except the most recent), we
-    // only publish what's necessary. Pinned ledgers are already persisted to
-    // disk and don't need publishing.
+    // CRITICAL: Skip publishing pinned ledgers (except the most recent).
     //
-    // TODO: Standalone mode database contamination issue:
-    // When SQLITE_FORCE_FILES env var is set, standalone mode uses persistent
-    // databases prefixed with "standalone-" to separate them from network mode.
-    // However, standalone mode automatically creates ledger 2 (genesis) on
-    // startup, contaminating the database. This needs a proper solution for
-    // production catalogue loading in standalone mode.
+    // When loading catalogues, we deliberately avoid storing pinned ledgers in
+    // the AcceptedLedger cache to prevent memory bloat with millions of
+    // ledgers. However, NetworkOPs::pubLedger() expects every published ledger
+    // to either:
+    // 1. Already exist in the AcceptedLedger cache, OR
+    // 2. Be able to create and cache a new AcceptedLedger
+    //
+    // For pinned ledgers, we skip the cache entirely during
+    // saveValidatedLedger. If we try to publish them, pubLedger creates a new
+    // AcceptedLedger, but canonicalize_replace_client might return a different
+    // instance, causing: "Assertion failed: alpAccepted->getLedger().get() ==
+    // lpAccepted.get()"
+    //
+    // This primarily affects STANDALONE MODE where catalogue_load calls
+    // switchLCL when loading historical ledgers newer than the current closed
+    // ledger. In live network mode, historical ledgers are typically older than
+    // the current ledger, so switchLCL -> tryAdvance -> publish isn't
+    // triggered.
+    //
+    // Solution: Only publish the most recent validated ledger (which needs
+    // publishing) and skip all intermediate pinned ledgers (already on disk).
     {
         std::lock_guard sll(mCompleteLock);
         RangeSet<std::uint32_t> pinnedExceptLast = mPinnedLedgers;
