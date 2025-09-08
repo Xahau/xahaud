@@ -1370,7 +1370,6 @@ r.ripple.com:51235
         // Above upper bound
         BEAST_EXPECT(!testDiverged("901"));
     }
-    //@@start config-test-entry-point
     void
     run() override
     {
@@ -1393,6 +1392,5 @@ r.ripple.com:51235
 };
 
 BEAST_DEFINE_TESTSUITE(Config, core, ripple);
-//@@end config-test-entry-point
 
 }  // namespace ripple
