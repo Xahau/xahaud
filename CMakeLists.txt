@@ -37,18 +37,12 @@ endif() #git
 set(SOURCE_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 add_definitions(-DSOURCE_ROOT_PATH="${SOURCE_ROOT_PATH}")
 
-# BEAST_ENHANCED_LOGGING option - only available with Conan builds that have date-tz
+# BEAST_ENHANCED_LOGGING option - adds file:line numbers and formatting to logs
 # Default to ON for Debug builds, OFF for Release
-if(CMAKE_TOOLCHAIN_FILE MATCHES "conan_toolchain")
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" ON)
-    else()
-        option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" OFF)
-    endif()
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" ON)
 else()
-    # Non-Conan builds don't have date-tz support
-    set(BEAST_ENHANCED_LOGGING OFF CACHE BOOL "Enhanced logging requires Conan build" FORCE)
-    message(STATUS "Enhanced logging disabled - requires Conan build for date-tz support")
+    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" OFF)
 endif()
 
 if(BEAST_ENHANCED_LOGGING)
