@@ -71,12 +71,9 @@ strip_source_root(const char* file)
 #endif
 }
 
-// Location position enum
-enum class LocationPosition { PREFIX, SUFFIX, NONE };
-
-// Get configured position - cached at startup
-LocationPosition
-get_log_location_position();
+// Check if location info should be shown - cached at startup
+bool
+should_show_location();
 
 // Helper to write location string (no leading/trailing space)
 void

@@ -146,14 +146,6 @@ Journal::ScopedStream::ScopedStream(
 {
     // Modifiers applied from all ctors
     m_ostream << std::boolalpha << std::showbase;
-
-    // Write prefix if configured
-    if (file_ &&
-        detail::get_log_location_position() == detail::LocationPosition::PREFIX)
-    {
-        detail::log_write_location_string(m_ostream, file_, line_);
-        m_ostream << " ";
-    }
 }
 #endif
 
@@ -162,11 +154,8 @@ Journal::ScopedStream::~ScopedStream()
     std::string s(m_ostream.str());
 
 #ifdef BEAST_ENHANCED_LOGGING
-    // Add suffix if configured
-    if (file_ &&
-        detail::get_log_location_position() ==
-            detail::LocationPosition::SUFFIX &&
-        !s.empty() && s != "\n")
+    // Add suffix if location is enabled
+    if (file_ && detail::should_show_location() && !s.empty() && s != "\n")
     {
         std::ostringstream combined;
         combined << s;

@@ -83,26 +83,16 @@ get_log_highlight_color()
     return escape;
 }
 
-// Get configured position - cached at startup
-LocationPosition
-get_log_location_position()
+// Check if location info should be shown - cached at startup
+bool
+should_show_location()
 {
-    static const LocationPosition position = []() {
-        const char* env = std::getenv("LOG_LOCATION_POSITION");
-        if (!env)
-            return LocationPosition::SUFFIX;  // Default to suffix for better
-        // readability
-
-        if (std::strcmp(env, "suffix") == 0 || std::strcmp(env, "end") == 0)
-            return LocationPosition::SUFFIX;
-        if (std::strcmp(env, "prefix") == 0 || std::strcmp(env, "start") == 0)
-            return LocationPosition::PREFIX;
-        if (std::strcmp(env, "none") == 0)
-            return LocationPosition::NONE;
-
-        return LocationPosition::PREFIX;
+    static const bool show = []() {
+        const char* env = std::getenv("LOG_DISABLE");
+        // Show location by default, hide if LOG_DISABLE=1
+        return !env || std::strcmp(env, "1") != 0;
     }();
-    return position;
+    return show;
 }
 
 // Helper to write location string (no leading/trailing space)
