@@ -181,9 +181,9 @@ public:
     onLedgerClosed(std::shared_ptr<Ledger const> const& ledger) override;
 
     void
-    savePinnedRanges(RangeSet<std::uint32_t> const& ranges)
+    setPinnedRanges(RangeSet<std::uint32_t> const& ranges) override
     {
-        // Always save pinned ranges, not just when online_delete is enabled
+        // Save pinned ranges to database for persistence
         std::string rangesStr = to_string(ranges);
         state_db_.setPinnedRanges(rangesStr);
     }

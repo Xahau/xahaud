@@ -333,8 +333,6 @@ saveValidatedLedger(
                 std::string const txnSeq(
                     std::to_string(acceptedLedgerTx->getTxnSeq()));
 
-                // Removed per-transaction DELETE - not needed
-
                 auto const& accts = acceptedLedgerTx->getAffected();
 
                 if (!accts.empty())

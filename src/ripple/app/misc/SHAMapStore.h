@@ -21,6 +21,7 @@
 #define RIPPLE_APP_MISC_SHAMAPSTORE_H_INCLUDED
 
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/basics/RangeSet.h>
 #include <ripple/nodestore/Manager.h>
 #include <ripple/protocol/ErrorCodes.h>
 #include <optional>
@@ -60,6 +61,9 @@ public:
     /** Highest ledger that may be deleted. */
     virtual LedgerIndex
     setCanDelete(LedgerIndex canDelete) = 0;
+
+    virtual void
+    setPinnedRanges(RangeSet<std::uint32_t> const& ranges) = 0;
 
     /** Whether advisory delete is enabled. */
     virtual bool

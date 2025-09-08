@@ -21,6 +21,7 @@
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/LedgerToJson.h>
 #include <ripple/app/main/Application.h>
+#include <ripple/app/misc/SHAMapStore.h>
 #include <ripple/app/rdb/backend/SQLiteDatabase.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/Log.h>
@@ -1312,6 +1313,11 @@ doCatalogueLoad(RPC::JsonContext& context)
 
         context.app.getLedgerMaster().setLedgerRangePresent(
             header.min_ledger, info.seq, true);
+
+        // Save pinned ranges to database after every ledger
+        // This is just a single row UPDATE, so it's not expensive
+        context.app.getSHAMapStore().setPinnedRanges(
+            context.app.getLedgerMaster().getPinnedLedgersRangeSet());
 
         // Store the ledger
         prevLedger = ledger;

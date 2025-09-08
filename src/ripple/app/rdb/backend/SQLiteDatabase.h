@@ -348,45 +348,6 @@ public:
      */
     virtual void
     closeTransactionDB() = 0;
-
-    /**
-     * @brief checkHasExtents Verifies if the database contains the boundary
-     *        ledgers of the specified range.
-     *
-     * This method provides a fast O(1) check at startup to validate that pinned
-     * ledger ranges have at least their extent boundaries in the database.
-     * It only checks if the minimum and maximum ledgers exist, not the entire
-     * range. This is efficient and often sufficient to detect major issues
-     * like:
-     * - Pinned ranges that were never downloaded
-     * - Ranges outside the available data
-     * - Misconfigured range boundaries
-     *
-     * @param minSeq Minimum ledger sequence to check (inclusive)
-     * @param maxSeq Maximum ledger sequence to check (inclusive)
-     * @return Pair of (hasMin, hasMax) where:
-     *         - hasMin: true if the minimum ledger sequence exists
-     *         - hasMax: true if the maximum ledger sequence exists
-     *
-     * Example usage at startup:
-     *   for (auto const& interval : pinnedRanges) {
-     *       auto [hasMin, hasMax] = db->checkHasExtents(
-     *           interval.lower(), interval.upper());
-     *       if (!hasMin || !hasMax) {
-     *           JLOG(j.warn()) << "Pinned range [" << interval.lower()
-     *                          << ", " << interval.upper()
-     *                          << "] has missing boundaries in database"
-     *                          << " (hasMin=" << hasMin
-     *                          << ", hasMax=" << hasMax << ")";
-     *       }
-     *   }
-     *
-     * Implementation would be:
-     *   SELECT EXISTS(SELECT 1 FROM Ledgers WHERE LedgerSeq = minSeq),
-     *          EXISTS(SELECT 1 FROM Ledgers WHERE LedgerSeq = maxSeq);
-     */
-    // virtual std::pair<bool, bool>
-    // checkHasExtents(LedgerIndex minSeq, LedgerIndex maxSeq) = 0;
 };
 
 }  // namespace ripple

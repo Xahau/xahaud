@@ -539,8 +539,7 @@ LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
     // Returns true if we already had the ledger
     // NOTE: When pinning is enabled, we skip inserting into history to avoid
     // memory bloat when loading millions of ledgers (e.g., from catalogue
-    // files). The caller must manually insert critical ledgers (like the last
-    // one) into history if needed for switchLCL/tryAdvance to work correctly.
+    // files).
     if (!pin && !mLedgerHistory.insert(std::move(ledger), validated))
         return false;
 

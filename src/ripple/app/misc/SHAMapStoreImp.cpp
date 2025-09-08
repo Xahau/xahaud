@@ -217,37 +217,6 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
         }
         SavedState state = state_db_.getState();
 
-        JLOG(journal_.trace())
-            << "Loading saved state - writableDb: "
-            << (state.writableDb.empty() ? "(empty)" : state.writableDb)
-            << ", archiveDb: "
-            << (state.archiveDb.empty() ? "(empty)" : state.archiveDb)
-            << ", lastRotated: " << state.lastRotated;
-
-        // Allow override of delete interval for testing via environment
-        // variable
-        if (auto overrideInterval = std::getenv("OVERRIDE_ROTATE_INTERVAL"))
-        {
-            try
-            {
-                auto newInterval = std::stoul(overrideInterval);
-                if (newInterval > 0 && newInterval < deleteInterval_)
-                {
-                    JLOG(journal_.warn())
-                        << "Overriding deleteInterval from " << deleteInterval_
-                        << " to " << newInterval
-                        << " (via OVERRIDE_ROTATE_INTERVAL)";
-                    deleteInterval_ = newInterval;
-                }
-            }
-            catch (std::exception const&)
-            {
-                JLOG(journal_.warn())
-                    << "Invalid OVERRIDE_ROTATE_INTERVAL value: "
-                    << overrideInterval;
-            }
-        }
-
         // Create the rotation backends - needed for both DatabaseRotating and
         // DatabasePinned
         auto writableBackend = makeBackendRotating(state.writableDb);
