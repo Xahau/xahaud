@@ -1024,11 +1024,11 @@ Config::loadFromString(std::string const& fileContents)
         auto db_section = section(ConfigSection::nodeDatabase());
         if (db_section.exists("pinned_type"))
         {
-            // Ensure base type is rwdb
-            if (auto type = get(db_section, "type", ""); type != "rwdb")
+            // Ensure base type is specified
+            if (!db_section.exists("type"))
             {
                 Throw<std::runtime_error>(
-                    "pinned_type requires type=rwdb for memory backend");
+                    "type must be specified when using pinned_type");
             }
 
             // Ensure pinned_path is specified

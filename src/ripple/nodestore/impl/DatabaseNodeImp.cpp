@@ -39,13 +39,11 @@ DatabaseNodeImp::store(
     {
         type = hotACCOUNT_NODE;
         skipCache = true;
-        JLOG(j_.info()) << "Storing uncached ACCOUNT_NODE, hash: " << hash;
     }
     else if (type == pinnedTRANSACTION_NODE)
     {
         type = hotTRANSACTION_NODE;
         skipCache = true;
-        JLOG(j_.info()) << "Storing uncached TRANSACTION_NODE, hash: " << hash;
     }
 
     auto obj = NodeObject::createObject(type, std::move(data), hash);
