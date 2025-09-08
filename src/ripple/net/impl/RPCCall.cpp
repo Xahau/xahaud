@@ -892,7 +892,7 @@ private:
         return jvRequest;
     }
 
-    // catalogue_load <input_file> [ignore_hash] [no_pin]
+    // catalogue_load <input_file> [ignore_hash]
     Json::Value
     parseCatalogueLoad(Json::Value const& jvParams)
     {
@@ -902,18 +902,10 @@ private:
         {
             jvRequest[jss::input_file] = jvParams[0u].asString();
 
-            // Check all remaining parameters for any of the flags
-            for (size_t i = 1; i < jvParams.size(); ++i)
+            if (jvParams.size() >= 2 &&
+                boost::iequals(jvParams[1u].asString(), "ignore_hash"))
             {
-                std::string param = jvParams[i].asString();
-                if (boost::iequals(param, "ignore_hash"))
-                {
-                    jvRequest[jss::ignore_hash] = true;
-                }
-                else if (boost::iequals(param, "no_pin"))
-                {
-                    jvRequest[jss::pin] = false;
-                }
+                jvRequest[jss::ignore_hash] = true;
             }
         }
 
@@ -1470,7 +1462,7 @@ public:
             {"book_offers", &RPCParser::parseBookOffers, 2, 7},
             {"can_delete", &RPCParser::parseCanDelete, 0, 1},
             {"catalogue_create", &RPCParser::parseCatalogueCreate, 3, 4},
-            {"catalogue_load", &RPCParser::parseCatalogueLoad, 1, 4},
+            {"catalogue_load", &RPCParser::parseCatalogueLoad, 1, 2},
             {"catalogue_status", &RPCParser::parseCatalogueStatus, 0, 0},
             {"channel_authorize", &RPCParser::parseChannelAuthorize, 3, 4},
             {"channel_verify", &RPCParser::parseChannelVerify, 4, 4},

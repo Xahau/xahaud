@@ -614,9 +614,6 @@ target_sources (rippled PRIVATE
   src/ripple/rpc/handlers/BookOffers.cpp
   src/ripple/rpc/handlers/CanDelete.cpp
   src/ripple/rpc/handlers/Catalogue.cpp
-  src/ripple/rpc/handlers/CatalogueCreate.cpp
-  src/ripple/rpc/handlers/CatalogueLoad.cpp
-  src/ripple/rpc/handlers/CatalogueStatus.cpp
   src/ripple/rpc/handlers/Connect.cpp
   src/ripple/rpc/handlers/ConsensusInfo.cpp
   src/ripple/rpc/handlers/CrawlShards.cpp

@@ -452,7 +452,8 @@ pendSaveValidated(
     Application& app,
     std::shared_ptr<Ledger const> const& ledger,
     bool isSynchronous,
-    bool isCurrent);
+    bool isCurrent,
+    std::function<void(bool)> callback = {});
 
 std::shared_ptr<Ledger>
 loadLedgerHelper(LedgerInfo const& sinfo, Application& app, bool acquire);
