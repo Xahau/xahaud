@@ -316,167 +316,6 @@ class Catalogue_test : public beast::unit_test::suite
     }
 
     void
-    testNetworkMismatch(FeatureBitset features)
-    {
-        testcase("catalogue_load: Network ID mismatch");
-        using namespace test::jtx;
-
-        boost::filesystem::path tempDir =
-            boost::filesystem::temp_directory_path() /
-            boost::filesystem::unique_path();
-        boost::filesystem::create_directories(tempDir);
-
-        auto cataloguePath = (tempDir / "test.catl").string();
-
-        // Create environment with different network IDs
-        {
-            Env env1{
-                *this,
-                envconfig([](std::unique_ptr<Config> cfg) {
-                    cfg->NETWORK_ID = 123;
-                    return cfg;
-                }),
-                features,
-            };
-            prepareLedgerData(env1, 5);
-
-            // Create catalogue with network ID 123
-            {
-                Json::Value params{Json::objectValue};
-                params[jss::min_ledger] = 3;
-                params[jss::max_ledger] = 5;
-                params[jss::output_file] = cataloguePath;
-
-                auto const result = env1.client().invoke(
-                    "catalogue_create", params)[jss::result];
-                BEAST_EXPECT(result[jss::status] == jss::success);
-            }
-        }
-
-        {
-            // Try to load catalogue in environment with different network ID
-            Env env2{
-                *this,
-                envconfig([](std::unique_ptr<Config> cfg) {
-                    cfg->NETWORK_ID = 456;
-                    return cfg;
-                }),
-                features,
-            };
-
-            {
-                Json::Value params{Json::objectValue};
-                params[jss::input_file] = cataloguePath;
-
-                auto const result =
-                    env2.client().invoke("catalogue_load", params)[jss::result];
-
-                BEAST_EXPECT(result[jss::error] == "invalidParams");
-                BEAST_EXPECT(result[jss::status] == "error");
-            }
-        }
-        boost::filesystem::remove_all(tempDir);
-    }
-
-    void
-    testCatalogueHashVerification(FeatureBitset features)
-    {
-        testcase("catalogue_load: Hash verification");
-        using namespace test::jtx;
-
-        // Create environment and test data
-        Env env{
-            *this,
-            envconfig(),
-            features,
-            nullptr,
-            beast::severities::kDisabled,
-        };
-        prepareLedgerData(env, 3);
-
-        boost::filesystem::path tempDir =
-            boost::filesystem::temp_directory_path() /
-            boost::filesystem::unique_path();
-        boost::filesystem::create_directories(tempDir);
-
-        auto cataloguePath = (tempDir / "test.catl").string();
-
-        // Create catalogue
-        {
-            Json::Value params{Json::objectValue};
-            params[jss::min_ledger] = 3;
-            params[jss::max_ledger] = 5;
-            params[jss::output_file] = cataloguePath;
-
-            auto const result =
-                env.client().invoke("catalogue_create", params)[jss::result];
-            BEAST_EXPECT(result[jss::status] == jss::success);
-            BEAST_EXPECT(result.isMember(jss::hash));
-            std::string originalHash = result[jss::hash].asString();
-            BEAST_EXPECT(!originalHash.empty());
-        }
-
-        // Test 1: Successful hash verification (normal load)
-        {
-            Json::Value params{Json::objectValue};
-            params[jss::input_file] = cataloguePath;
-
-            auto const result =
-                env.client().invoke("catalogue_load", params)[jss::result];
-            BEAST_EXPECT(result[jss::status] == jss::success);
-            BEAST_EXPECT(result.isMember(jss::hash));
-        }
-
-        // Test 2: Corrupt the file and test hash mismatch detection
-        {
-            // Modify a byte in the middle of the file to cause hash mismatch
-            std::fstream file(
-                cataloguePath, std::ios::in | std::ios::out | std::ios::binary);
-            BEAST_EXPECT(file.good());
-
-            // Skip header and modify a byte
-            file.seekp(sizeof(TestCATLHeader) + 100, std::ios::beg);
-            char byte = 0xFF;
-            file.write(&byte, 1);
-            file.close();
-
-            // Try to load the corrupted file
-            Json::Value params{Json::objectValue};
-            params[jss::input_file] = cataloguePath;
-
-            auto const result =
-                env.client().invoke("catalogue_load", params)[jss::result];
-            BEAST_EXPECT(result[jss::status] == "error");
-            BEAST_EXPECT(result[jss::error] == "invalidParams");
-            BEAST_EXPECT(
-                result[jss::error_message].asString().find(
-                    "hash verification failed") != std::string::npos);
-        }
-
-        // Test 3: Test ignore_hash parameter
-        {
-            Json::Value params{Json::objectValue};
-            params[jss::input_file] = cataloguePath;
-            params[jss::ignore_hash] = true;
-
-            auto const result =
-                env.client().invoke("catalogue_load", params)[jss::result];
-            // This might still fail due to data corruption, but not because of
-            // hash verification The important part is that it didn't
-            // immediately reject due to hash
-            if (result[jss::status] == "error")
-            {
-                // std::cout << to_string(result) << std::endl;
-                BEAST_EXPECT(
-                    result[jss::error_message].asString().find(
-                        "hash verification failed") == std::string::npos);
-            }
-        }
-
-        boost::filesystem::remove_all(tempDir);
-    }
-
-    void
     testCatalogueLoadAndVerify(FeatureBitset features)
     {
         testcase("catalogue_load: Load and verify");
@@ -785,6 +624,166 @@ class Catalogue_test : public beast::unit_test::suite
             loaded &&
             loadedEurTrust->getFieldAmount(sfLowLimit).mantissa() ==
                 2000000000000000ULL);
+
+        boost::filesystem::remove_all(tempDir);
+    }
+
+    void
+    testNetworkMismatch(FeatureBitset features)
+    {
+        testcase("catalogue_load: Network ID mismatch");
+        using namespace test::jtx;
+
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+
+        auto cataloguePath = (tempDir / "test.catl").string();
+
+        // Create environment with different network IDs
+        {
+            Env env1{
+                *this,
+                envconfig([](std::unique_ptr<Config> cfg) {
+                    cfg->NETWORK_ID = 123;
+                    return cfg;
+                }),
+                features,
+            };
+            prepareLedgerData(env1, 5);
+
+            // Create catalogue with network ID 123
+            {
+                Json::Value params{Json::objectValue};
+                params[jss::min_ledger] = 3;
+                params[jss::max_ledger] = 5;
+                params[jss::output_file] = cataloguePath;
+
+                auto const result = env1.client().invoke(
+                    "catalogue_create", params)[jss::result];
+                BEAST_EXPECT(result[jss::status] == jss::success);
+            }
+        }
+
+        {
+            // Try to load catalogue in environment with different network ID
+            Env env2{
+                *this,
+                envconfig([](std::unique_ptr<Config> cfg) {
+                    cfg->NETWORK_ID = 456;
+                    return cfg;
+                }),
+                features,
+            };
+
+            {
+                Json::Value params{Json::objectValue};
+                params[jss::input_file] = cataloguePath;
+
+                auto const result =
+                    env2.client().invoke("catalogue_load", params)[jss::result];
+
+                BEAST_EXPECT(result[jss::error] == "invalidParams");
+                BEAST_EXPECT(result[jss::status] == "error");
+            }
+        }
+        boost::filesystem::remove_all(tempDir);
+    }
+
+    void
+    testCatalogueHashVerification(FeatureBitset features)
+    {
+        testcase("catalogue_load: Hash verification");
+        using namespace test::jtx;
+
+        // Create environment and test data
+        Env env{
+            *this,
+            envconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
+        prepareLedgerData(env, 3);
+
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+
+        auto cataloguePath = (tempDir / "test.catl").string();
+
+        // Create catalogue
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::min_ledger] = 3;
+            params[jss::max_ledger] = 5;
+            params[jss::output_file] = cataloguePath;
+
+            auto const result =
+                env.client().invoke("catalogue_create", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result.isMember(jss::hash));
+            std::string originalHash = result[jss::hash].asString();
+            BEAST_EXPECT(!originalHash.empty());
+        }
+
+        // Test 1: Successful hash verification (normal load)
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result.isMember(jss::hash));
+        }
+
+        // Test 2: Corrupt the file and test hash mismatch detection
+        {
+            // Modify a byte in the middle of the file to cause hash mismatch
+            std::fstream file(
+                cataloguePath, std::ios::in | std::ios::out | std::ios::binary);
+            BEAST_EXPECT(file.good());
+
+            // Skip header and modify a byte
+            file.seekp(sizeof(TestCATLHeader) + 100, std::ios::beg);
+            char byte = 0xFF;
+            file.write(&byte, 1);
+            file.close();
+
+            // Try to load the corrupted file
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == "error");
+            BEAST_EXPECT(result[jss::error] == "invalidParams");
+            BEAST_EXPECT(
+                result[jss::error_message].asString().find(
+                    "hash verification failed") != std::string::npos);
+        }
+
+        // Test 3: Test ignore_hash parameter
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+            params[jss::ignore_hash] = true;
+
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            // This might still fail due to data corruption, but not because of
+            // hash verification The important part is that it didn't
+            // immediately reject due to hash
+            if (result[jss::status] == "error")
+            {
+                BEAST_EXPECT(
+                    result[jss::error_message].asString().find(
+                        "hash verification failed") == std::string::npos);
+            }
+        }
 
         boost::filesystem::remove_all(tempDir);
     }
