@@ -37,165 +37,6 @@
 namespace ripple {
 namespace detail {
 
-namespace {
-
-/**
- * @brief Manages bulk SQL INSERT statement construction with optional batching
- *
- * CRITICAL: saveValidatedLedger wraps ALL operations in a single transaction
- * which holds the SQLite write lock for the entire duration. This means:
- * - Batching vs individual INSERTs doesn't affect lock hold time
- * - The entire ledger blocks other DB operations regardless of batching
- * - Performance impact is limited to per-statement overhead reduction
- *
- * In standalone testing with single-threaded execution, batching showed
- * ~10% throughput improvement. However, production impact is unclear due to:
- * - P2P operations competing for the same write lock
- * - WAL checkpoints triggered by the 1.5MB journal_size_limit
- * - Different transaction patterns in live environments
- *
- * Current setting: MAX_ENTRIES_PER_BATCH = 1 (proven behavior)
- * Future work: Measure batching impact in production environments
- */
-class BulkSQLQueryBuilder
-{
-private:
-    static constexpr size_t SQLITE_MAX_SQL_LENGTH =
-        1048576;  // 1MB default limit
-
-    soci::session& db_;
-    beast::Journal j_;
-    std::string insertHeader_;
-    std::string currentBatch_;
-    size_t maxBatchSize_;
-    size_t estimatedEntrySize_;
-    size_t entryLimit_;  // 0 = unlimited (size-based only), >0 = flush at N
-    bool firstEntry_ = true;
-    std::string queryName_;
-    size_t entriesInBatch_ = 0;  // Track number of entries in current batch
-
-public:
-    /**
-     * @param db Database session to execute queries on
-     * @param j Journal for logging
-     * @param insertHeader The INSERT statement header (e.g., "INSERT INTO Table
-     * (columns) VALUES ")
-     * @param maxBatchSize Maximum size before executing a batch (should be <
-     * SQLITE_MAX_SQL_LENGTH)
-     * @param estimatedEntrySize Estimated size of each entry for safety checks
-     * @param queryName Name for logging purposes
-     * @param entryLimit How many entries per statement (0 = unlimited)
-     */
-    BulkSQLQueryBuilder(
-        soci::session& db,
-        beast::Journal j,
-        std::string insertHeader,
-        size_t maxBatchSize,
-        size_t estimatedEntrySize,
-        std::string queryName,
-        size_t entryLimit)
-        : db_(db)
-        , j_(j)
-        , insertHeader_(std::move(insertHeader))
-        , maxBatchSize_(maxBatchSize)
-        , estimatedEntrySize_(estimatedEntrySize)
-        , entryLimit_(entryLimit)
-        , queryName_(std::move(queryName))
-    {
-        // Ensure we have safety margin
-        assert(maxBatchSize_ + estimatedEntrySize_ < SQLITE_MAX_SQL_LENGTH);
-        // Follow original pattern: reserve header + one entry's estimated size
-        // This avoids reallocation for single entries while not wasting MB of
-        // memory
-        currentBatch_.reserve(insertHeader_.length() + estimatedEntrySize_);
-    }
-
-    /**
-     * @brief Add an entry to the current batch
-     *
-     * This will automatically execute the current batch if adding this entry
-     * would exceed the size limit.
-     *
-     * @param entry The VALUES clause entry (without leading comma)
-     * @param actualSize If provided, the actual size of the entry (for entries
-     * with BLOBs)
-     */
-    void
-    addEntry(
-        const std::string& entry,
-        std::optional<size_t> actualSize = std::nullopt)
-    {
-        // Start a new batch if needed
-        if (firstEntry_)
-        {
-            currentBatch_ = insertHeader_;
-            firstEntry_ = false;
-            entriesInBatch_ = 0;
-        }
-        else
-        {
-            currentBatch_ += ",";
-        }
-
-        currentBatch_ += entry;
-        entriesInBatch_++;
-
-        // Execute batch if we hit EITHER threshold:
-        // 1. Entry count limit (if entryLimit_ > 0)
-        // 2. Size limit (always checked to prevent exceeding SQLite's limit)
-        if ((entryLimit_ > 0 && entriesInBatch_ >= entryLimit_) ||
-            currentBatch_.size() > maxBatchSize_)
-        {
-            executeBatch();
-        }
-    }
-
-    /**
-     * @brief Execute any remaining entries in the batch
-     */
-    void
-    finish()
-    {
-        if (!firstEntry_)
-        {
-            executeBatch();
-        }
-    }
-
-    /**
-     * @brief Get the number of bytes currently in the batch
-     */
-    size_t
-    getCurrentBatchSize() const
-    {
-        return currentBatch_.size();
-    }
-
-private:
-    void
-    executeBatch()
-    {
-        if (currentBatch_.empty())
-            return;
-
-        currentBatch_ += ";";
-
-        JLOG(j_.trace()) << queryName_ << " batch: " << entriesInBatch_
-                         << " entries, " << currentBatch_.size() << " bytes";
-
-        // Execute within the existing transaction context
-        // If this fails, the transaction will roll back
-        db_ << currentBatch_;
-
-        // Reset for next batch
-        currentBatch_.clear();
-        firstEntry_ = true;
-        entriesInBatch_ = 0;
-    }
-};
-
-}  // anonymous namespace
-
 /**
  * @brief to_string Returns the name of a table according to its TableType.
  * @param type An enum denoting the table's type.
@@ -420,7 +261,6 @@ saveValidatedLedger(
 
     assert(ledger->info().txHash == ledger->txMap().getHash().as_uint256());
 
-    //@@start save-ledger-header
     // Save the ledger header in the hashed object store
     {
         Serializer s(128);
@@ -432,7 +272,6 @@ saveValidatedLedger(
         app.getNodeStore().store(
             ledgerType, std::move(s.modData()), ledger->info().hash, seq);
     }
-    //@@end save-ledger-header
 
     std::shared_ptr<AcceptedLedger> aLedger;
     try
@@ -442,14 +281,12 @@ saveValidatedLedger(
         {
             aLedger = std::make_shared<AcceptedLedger>(ledger, app);
 
-            //@@start cache-non-pinned-accepted-ledger
             // Only cache if the ledger is NOT in the pinned range
             if (!app.getLedgerMaster().isPinned(ledger->info().seq))
             {
                 app.getAcceptedLedgerCache().canonicalize_replace_client(
                     ledger->info().hash, aLedger);
             }
-            //@@end cache-non-pinned-accepted-ledger
         }
     }
     catch (std::exception const&)
@@ -483,79 +320,57 @@ saveValidatedLedger(
 
             soci::transaction tr(*db);
 
-            // Restore original, reliable behavior: execute the two DELETEs
-            // separately.
             *db << boost::str(deleteTrans1 % seq);
             *db << boost::str(deleteTrans2 % seq);
 
             std::string const ledgerSeq(std::to_string(seq));
 
-            // Batching configuration - compile-time constants for now
-            // Can load from env vars here for experimentation
-            constexpr size_t txnEntries = 1;  // Original: 1 entry per statement
-            constexpr size_t txnMaxBytes = 500000;
-            constexpr size_t acctEntries =
-                1;  // Original: 1 per-tx multi-VALUES
-            constexpr size_t acctMaxBytes = 850000;
-
-            // AccountTransactions: ~150 bytes per value tuple
-            BulkSQLQueryBuilder accountTxBuilder(
-                *db,
-                j,
-                "INSERT INTO AccountTransactions "
-                "(TransID, Account, LedgerSeq, TxnSeq) VALUES ",
-                acctMaxBytes,
-                150,
-                "AccountTransactions",
-                acctEntries);
-
-            // Transactions: Variable size due to BLOBs
-            BulkSQLQueryBuilder transactionBuilder(
-                *db,
-                j,
-                STTx::getMetaSQLInsertReplaceHeader(),
-                txnMaxBytes,
-                2048,
-                "Transactions",
-                txnEntries);
-
-            // Build and execute bulk INSERT statements for all transactions
             for (auto const& acceptedLedgerTx : *aLedger)
             {
                 uint256 transactionID = acceptedLedgerTx->getTransactionID();
+
                 std::string const txnId(to_string(transactionID));
                 std::string const txnSeq(
                     std::to_string(acceptedLedgerTx->getTxnSeq()));
 
-                // Add AccountTransactions entries for all affected accounts
+                // Removed per-transaction DELETE - not needed
+
                 auto const& accts = acceptedLedgerTx->getAffected();
+
                 if (!accts.empty())
                 {
-                    // Restore original: one statement per transaction with
-                    // multi-VALUES list
-                    std::string entry;
-                    entry.reserve(accts.size() * 128);
+                    std::string sql(
+                        "INSERT INTO AccountTransactions "
+                        "(TransID, Account, LedgerSeq, TxnSeq) VALUES ");
+
+                    // Try to make an educated guess on how much space we'll
+                    // need for our arguments. In argument order we have: 64
+                    // + 34 + 10 + 10 = 118 + 10 extra = 128 bytes
+                    sql.reserve(sql.length() + (accts.size() * 128));
+
                     bool first = true;
                     for (auto const& account : accts)
                     {
                         if (!first)
-                            entry += ",('";
+                            sql += ", ('";
                         else
                         {
-                            entry += "('";
+                            sql += "('";
                             first = false;
                         }
 
-                        entry += txnId;
-                        entry += "','";
-                        entry += toBase58(account);
-                        entry += "',";
-                        entry += ledgerSeq;
-                        entry += ",";
-                        entry += txnSeq;
-                        entry += ")";
+                        sql += txnId;
+                        sql += "','";
+                        sql += toBase58(account);
+                        sql += "',";
+                        sql += ledgerSeq;
+                        sql += ",";
+                        sql += txnSeq;
+                        sql += ")";
                     }
-                    accountTxBuilder.addEntry(entry);
+                    sql += ";";
+                    JLOG(j.trace()) << "ActTx: " << sql;
+                    *db << sql;
                 }
                 else if (auto const& sleTxn = acceptedLedgerTx->getTxn();
                          !isPseudoTx(*sleTxn))
@@ -567,26 +382,14 @@ saveValidatedLedger(
                     JLOG(j.warn()) << sleTxn->getJson(JsonOptions::none);
                 }
 
-                // Add Transactions entry (includes metadata and raw transaction
-                // BLOBs)
-                std::string metaEntry = acceptedLedgerTx->getTxn()->getMetaSQL(
-                    seq, acceptedLedgerTx->getEscMeta());
+                *db
+                    << (STTx::getMetaSQLInsertReplaceHeader() +
+                        acceptedLedgerTx->getTxn()->getMetaSQL(
+                            seq, acceptedLedgerTx->getEscMeta()) +
+                        ";");
 
-                transactionBuilder.addEntry(metaEntry, metaEntry.size());
-            }
-
-            // Execute any remaining entries in the batches
-            accountTxBuilder.finish();
-            transactionBuilder.finish();
-
-            // Second pass: update MasterTransaction cache after DB inserts
-            // complete. This maintains the original order of operations - the
-            // cache update happens AFTER the database contains the transaction
-            // data.
-            for (auto const& acceptedLedgerTx : *aLedger)
-            {
                 app.getMasterTransaction().inLedger(
-                    acceptedLedgerTx->getTransactionID(),
+                    transactionID,
                     seq,
                     acceptedLedgerTx->getTxnSeq(),
                     app.config().NETWORK_ID);
