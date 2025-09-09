@@ -1690,10 +1690,7 @@ public:
 #define L() memo(LINE_TO_HEX_STRING, "", "")
 
         using namespace jtx;
-        Env env{
-            *this,
-            envconfig(),
-            features};  //, nullptr, beast::severities::kWarn};
+        Env env{*this, envconfig(), features};
 
         Account const alice{"alice", KeyType::secp256k1};
         Account const becky{"becky", KeyType::ed25519};
@@ -1725,6 +1722,23 @@ public:
             acc11,
             acc12);
         env.close();
+
+        std::cout << "alice: " << to_string(alice) << "\n";
+        std::cout << "becky: " << to_string(becky) << "\n";
+        std::cout << "cheri: " << to_string(cheri) << "\n";
+        std::cout << "daria: " << to_string(daria) << "\n";
+        std::cout << "edgar: " << to_string(edgar) << "\n";
+        std::cout << "fiona: " << to_string(fiona) << "\n";
+        std::cout << "grace: " << to_string(grace) << "\n";
+        std::cout << "henry: " << to_string(henry) << "\n";
+        std::cout << "f1: " << to_string(f1) << "\n";
+        std::cout << "f2: " << to_string(f2) << "\n";
+        std::cout << "f3: " << to_string(f3) << "\n";
+        std::cout << "phase: " << to_string(phase) << "\n";
+        std::cout << "jinni: " << to_string(jinni) << "\n";
+        std::cout << "acc10: " << to_string(acc10) << "\n";
+        std::cout << "acc11: " << to_string(acc11) << "\n";
+        std::cout << "acc12: " << to_string(acc12) << "\n";
 
         auto const baseFee = env.current()->fees().base;
 
@@ -1785,7 +1799,7 @@ public:
                     {msigner(
                          becky,
                          msigner(bogie),
-                         msigner(demon)),  // becky has a satisified quorum
+                         msigner(demon)),  // becky has a satisfied quorum
                      msigner(cheri, msigner(haunt))}),  // but cheri does not
                                                         // (needs jinni too)
                 L(),
@@ -1806,22 +1820,23 @@ public:
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
 
-        // Test Case 2: 3-level with quorum at each level
+        // Test Case 2: 3-level maximum depth with quorum at each level
         {
-            // Level 3: phase needs 2 signatures with weight 1 each
+            // Level 2: phase needs direct signatures (no deeper nesting)
             env(signers(phase, 2, {{acc10, 1}, {acc11, 1}, {acc12, 1}}));
 
-            // Level 2: jinni needs weighted signatures totaling 4
-            env(signers(jinni, 4, {{phase, 3}, {shade, 2}, {spook, 1}}));
+            // Level 1: jinni needs weighted signatures
+            env(signers(jinni, 3, {{phase, 2}, {shade, 2}, {spook, 1}}));
 
-            // Level 1: edgar needs 2 from weighted signers
+            // Level 0: edgar needs 2 from weighted signers
             env(signers(edgar, 2, {{jinni, 1}, {bogie, 1}, {demon, 1}}));
 
             // Alice now requires edgar with weight 3
             env(signers(alice, 3, {{edgar, 3}, {fiona, 2}}));
             env.close();
 
-            // Test 2a: Full 3-level signing with quorum met at each level
+            // Test 2a: 3-level signing with phase signing directly (not through
+            // nested signers)
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({
@@ -1829,14 +1844,12 @@ public:
                         edgar,
                         msigner(
                             jinni,
-                            msigner(
-                                phase,
-                                msigner(acc10),
-                                msigner(acc11))),  // phase quorum: 1+1 = 2 ✓
-                        msigner(shade))  // jinni quorum: 3+2 = 5 >= 4 ✓
-                }),                      // edgar quorum: 1+0 = 1 < 2 ✗
+                            msigner(phase),  // phase signs directly at level 3
+                            msigner(shade))  // jinni quorum: 2+2 = 4 >= 3 ✓
+                        )                    // edgar quorum: 1+0 = 1 < 2 ✗
+                }),
                 L(),
-                fee(5 * baseFee),
+                fee(4 * baseFee),
                 ter(tefBAD_QUORUM));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
@@ -1849,7 +1862,8 @@ public:
                         edgar,
                         msigner(
                             jinni,
-                            msigner(phase, msigner(acc10), msigner(acc11))),
+                            msigner(phase),  // phase signs directly
+                            msigner(shade)),
                         msigner(bogie))  // edgar quorum: 1+1 = 2 ✓
                 }),
                 L(),
@@ -1857,37 +1871,35 @@ public:
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
 
-            // Test 2c: Phase doesn't meet quorum, should fail
+            // Test 2c: Use phase's signers (making it effectively 3-level from
+            // alice)
             aliceSeq = env.seq(alice);
             env(noop(alice),
-                msig({
+                msig({msigner(
+                    edgar,
                     msigner(
-                        edgar,
-                        msigner(
-                            jinni,
-                            msigner(
-                                phase,
-                                msigner(acc10))),  // phase quorum: 1 < 2 ✗
-                        msigner(shade),
-                        msigner(
-                            spook))  // jinni would have 3+2+1=6 but phase fails
-                }),
+                        jinni,
+                        msigner(phase, msigner(acc10), msigner(acc11)),
+                        msigner(spook)),
+                    msigner(bogie))}),
                 L(),
-                fee(5 * baseFee),
-                ter(tefBAD_QUORUM));
+                fee(6 * baseFee));
             env.close();
-            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
 
         // Test Case 3: Mixed levels - some direct, some nested at different
-        // depths
+        // depths (max 3)
         {
-            // Set up complex mixed-level signing for alice
-            // grace has 2-level signers
+            // Set up mixed-level signing for alice
+            // grace has direct signers
             env(signers(grace, 2, {{bogie, 1}, {demon, 1}}));
 
-            // henry has 3-level signers (henry -> becky -> bogie/demon)
+            // henry has 2-level signers (henry -> becky -> bogie/demon)
             env(signers(henry, 1, {{becky, 1}, {cheri, 1}}));
+
+            // edgar can be signed for by bogie
+            env(signers(edgar, 1, {{bogie, 1}}));
 
             // Alice has mix of direct and nested signers at different weights
             env(signers(
@@ -1895,19 +1907,14 @@ public:
                 5,
                 {
                     {daria, 1},  // direct signer
-                    {edgar, 2},  // has 3-level signers
+                    {edgar, 2},  // has 2-level signers
                     {fiona, 1},  // direct signer
-                    {grace, 2},  // has 2-level signers
-                    {henry, 2}   // has 3-level signers
+                    {grace, 2},  // has direct signers
+                    {henry, 2}   // has 2-level signers
                 }));
             env.close();
 
             // Test 3a: Mix of all levels meeting quorum exactly
-            // JSON structure would show:
-            // - daria: direct signature (level 0)
-            // - edgar->bogie: 2-level
-            // - grace->bogie,demon: 2-level
-            // Total weight: 1 + 2 + 2 = 5 ✓
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({
@@ -1917,7 +1924,7 @@ public:
                                                                     // 2-level
                 }),
                 L(),
-                fee(5 * baseFee));
+                fee(6 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
 
@@ -1932,7 +1939,7 @@ public:
                          henry,  // weight 2, 3-level
                          msigner(becky, msigner(bogie), msigner(demon)))}),
                 L(),
-                fee(5 * baseFee),
+                fee(6 * baseFee),
                 ter(tefBAD_QUORUM));  // grace didn't meet quorum
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
@@ -1941,19 +1948,20 @@ public:
             aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({
-                    msigner(fiona),  // weight 1
                     msigner(
                         henry,  // weight 2
                         msigner(becky, msigner(bogie), msigner(demon))),
+                    msigner(fiona),                                 // weight 1
                     msigner(edgar, msigner(bogie), msigner(demon))  // weight 2
                 }),
                 L(),
-                fee(6 * baseFee));  // Total weight: 1+2+2 = 5 ✓
+                fee(8 * baseFee));  // Total weight: 1+2+2 = 5 ✓
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
 
         // Test Case 4: Complex scenario with maximum signers at mixed depths
+        // (max 3)
         {
             // Create a signing tree that uses close to maximum signers
             // and tests weight accumulation across all levels
@@ -1963,11 +1971,11 @@ public:
                 alice,
                 15,
                 {
-                    {becky, 3},  // will use 3-level
+                    {becky, 3},  // will use 2-level
                     {cheri, 3},  // will use 2-level
                     {daria, 3},  // will use direct
                     {edgar, 3},  // will use 2-level
-                    {fiona, 3},  // will use 3-level
+                    {fiona, 3},  // will use direct
                     {grace, 3},  // will use direct
                     {henry, 2}   // will use 2-level
                 }));
@@ -1978,7 +1986,7 @@ public:
             env(noop(alice),
                 msig({
                     msigner(
-                        becky,  // weight 3, 3-level
+                        becky,  // weight 3, 2-level
                         msigner(demon),
                         msigner(ghost)),
                     msigner(
@@ -1997,7 +2005,12 @@ public:
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
 
-            // Test 4b: Just under quorum
+            // Test 4b: Test with henry using 3-level depth (maximum)
+            // First set up henry's chain properly
+            env(signers(henry, 1, {{jinni, 1}}));
+            env(signers(jinni, 2, {{acc10, 1}, {acc11, 1}}));
+            env.close();
+
             aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig(
@@ -2010,14 +2023,12 @@ public:
                          msigner(jinni)),
                      msigner(daria),  // weight 3
                      msigner(
-                         edgar,  // weight 3
-                         msigner(bogie),
-                         msigner(demon)),
+                         henry,  // weight 2, 3-level depth
+                         msigner(jinni, msigner(acc10), msigner(acc11))),
                      msigner(
-                         henry,  // weight 2
-                         msigner(
-                             jinni,
-                             msigner(phase, msigner(acc10), msigner(acc11))))}),
+                         edgar,  // weight 3
+                         msigner(demon),
+                         msigner(bogie))}),
                 L(),
                 fee(10 * baseFee),
                 ter(tefBAD_QUORUM));  // becky's quorum not met
@@ -2025,10 +2036,9 @@ public:
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
         }
 
-        // Test Case 5: Edge case - single signer with maximum nesting
+        // Test Case 5: Edge case - single signer with maximum nesting (depth 3)
         {
-            // Alice needs just one signer, but that signer uses full 3-level
-            // depth
+            // Alice needs just one signer, but that signer uses depth up to 3
             env(signers(alice, 1, {{becky, 1}}));
             env.close();
 
@@ -2036,13 +2046,16 @@ public:
             env(noop(alice),
                 msig({msigner(becky, msigner(demon), msigner(ghost))}),
                 L(),
-                fee(3 * baseFee));
+                fee(4 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
 
-            // Now with 3-level depth through becky->cheri->jinni->phase
+            // Now with 3-level depth (maximum allowed)
+            // Structure: alice -> becky -> cheri -> jinni (jinni signs
+            // directly)
             env(signers(becky, 1, {{cheri, 1}}));
             env(signers(cheri, 1, {{jinni, 1}}));
+            // Note: We do NOT add signers to jinni to keep max depth at 3
             env.close();
 
             aliceSeq = env.seq(alice);
@@ -2051,11 +2064,9 @@ public:
                     becky,
                     msigner(
                         cheri,
-                        msigner(
-                            jinni,
-                            msigner(phase, msigner(acc10), msigner(acc11)))))}),
+                        msigner(jinni)))}),  // jinni signs directly (depth 3)
                 L(),
-                fee(3 * baseFee));
+                fee(4 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }

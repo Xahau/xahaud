@@ -310,6 +310,7 @@ Env::submit(JTx const& jt)
     {
         // Parsing failed or the JTx is
         // otherwise missing the stx field.
+        std::cout << "!!! temMALFORMED " << __FILE__ << " " << __LINE__ << "\n";
         ter_ = temMALFORMED;
         didApply = false;
     }

@@ -66,15 +66,33 @@ signers(Account const& account, none_t)
 
 //------------------------------------------------------------------------------
 
-msig::msig(std::vector<msig::SignerPtr> signers_) : signers(std::move(signers_))
+// Helper function to recursively sort nested signers
+void
+sortSignersRecursive(std::vector<msig::SignerPtr>& signers)
 {
-    // Signatures must be applied in sorted order.
+    // Sort current level by account ID
     std::sort(
         signers.begin(),
         signers.end(),
-        [](SignerPtr const& lhs, SignerPtr const& rhs) {
+        [](msig::SignerPtr const& lhs, msig::SignerPtr const& rhs) {
             return lhs->id() < rhs->id();
         });
+
+    // Recursively sort nested signers for each signer at this level
+    for (auto& signer : signers)
+    {
+        if (signer->isNested() && !signer->nested.empty())
+        {
+            sortSignersRecursive(signer->nested);
+        }
+    }
+}
+
+msig::msig(std::vector<msig::SignerPtr> signers_) : signers(std::move(signers_))
+{
+    // Recursively sort all signers at all nesting levels
+    // This ensures account IDs are in strictly ascending order at each level
+    sortSignersRecursive(signers);
 }
 
 msig::msig(std::vector<msig::Reg> signers_)
@@ -84,13 +102,9 @@ msig::msig(std::vector<msig::Reg> signers_)
     for (auto const& s : signers_)
         signers.push_back(s.toSigner());
 
-    // Sort
-    std::sort(
-        signers.begin(),
-        signers.end(),
-        [](SignerPtr const& lhs, SignerPtr const& rhs) {
-            return lhs->id() < rhs->id();
-        });
+    // Recursively sort all signers at all nesting levels
+    // This ensures account IDs are in strictly ascending order at each level
+    sortSignersRecursive(signers);
 }
 
 void
@@ -118,20 +132,14 @@ msig::operator()(Env& env, JTx& jt) const
 
             if (signer->isNested())
             {
-                // This is a nested signer - add subsigners
-                auto sortedNested = signer->nested;
-                std::sort(
-                    sortedNested.begin(),
-                    sortedNested.end(),
-                    [](SignerPtr const& lhs, SignerPtr const& rhs) {
-                        return lhs->id() < rhs->id();
-                    });
-
+                // For nested signers, we use the already-sorted nested vector
+                // (sorted during construction via sortSignersRecursive)
+                // This ensures account IDs are in strictly ascending order
                 auto& subJs = jo[sfSigners.getJsonName()];
-                for (std::size_t i = 0; i < sortedNested.size(); ++i)
+                for (std::size_t i = 0; i < signer->nested.size(); ++i)
                 {
                     auto& subJo = subJs[i][sfSigner.getJsonName()];
-                    subJo = buildSignerJson(sortedNested[i]);
+                    subJo = buildSignerJson(signer->nested[i]);
                 }
             }
             else

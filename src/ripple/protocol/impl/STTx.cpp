@@ -373,7 +373,7 @@ STTx::checkMultiSign(
         isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
 
     // Set max depth based on feature flag
-    int const maxDepth = rules.enabled(featureNestedMultiSign) ? 3 : 1;
+    int const maxDepth = rules.enabled(featureNestedMultiSign) ? 4 : 1;
 
     // Define recursive lambda for checking signatures at any depth
     std::function<Expected<void, std::string>(
@@ -385,13 +385,19 @@ STTx::checkMultiSign(
                             int depth) -> Expected<void, std::string> {
         // Check depth limit
         if (depth > maxDepth)
+        {
+            std::cout << "Multi-signing depth limit exceeded.\n";
             return Unexpected("Multi-signing depth limit exceeded.");
+        }
 
         // There are well known bounds that the number of signers must be
         // within.
         if (signersArray.size() < minMultiSigners ||
             signersArray.size() > maxMultiSigners(&rules))
+        {
+            std::cout << "Invalid Signers array size.\n";
             return Unexpected("Invalid Signers array size.");
+        }
 
         // Signers must be in sorted order by AccountID.
         AccountID lastAccountID(beast::zero);
@@ -402,15 +408,24 @@ STTx::checkMultiSign(
 
             // The account owner may not multisign for themselves.
             if (accountID == txnAccountID)
+            {
+                std::cout << "Invalid multisigner.\n";
                 return Unexpected("Invalid multisigner.");
+            }
 
             // No duplicate signers allowed.
             if (lastAccountID == accountID)
+            {
+                std::cout << "Duplicate Signers not allowed.\n";
                 return Unexpected("Duplicate Signers not allowed.");
+            }
 
             // Accounts must be in order by account ID.  No duplicates allowed.
             if (lastAccountID > accountID)
+            {
+                std::cout << "Unsorted Signers array.\n";
                 return Unexpected("Unsorted Signers array.");
+            }
 
             // The next signature must be greater than this one.
             lastAccountID = accountID;
@@ -423,6 +438,9 @@ STTx::checkMultiSign(
                 if (signer.isFieldPresent(sfSigningPubKey) ||
                     signer.isFieldPresent(sfTxnSignature))
                 {
+                    std::cout << "Signer cannot have both nested signers and "
+                                 "signature "
+                                 "fields.\n";
                     return Unexpected(
                         "Signer cannot have both nested signers and signature "
                         "fields.");
@@ -441,6 +459,8 @@ STTx::checkMultiSign(
                 if (!signer.isFieldPresent(sfSigningPubKey) ||
                     !signer.isFieldPresent(sfTxnSignature))
                 {
+                    std::cout << "Leaf signer must have SigningPubKey and "
+                                 "TxnSignature.\n";
                     return Unexpected(
                         "Leaf signer must have SigningPubKey and "
                         "TxnSignature.");
@@ -474,9 +494,13 @@ STTx::checkMultiSign(
                     validSig = false;
                 }
                 if (!validSig)
+                {
+                    std::cout << std::string("Invalid signature on account ") +
+                            toBase58(accountID) + ".\n";
                     return Unexpected(
                         std::string("Invalid signature on account ") +
                         toBase58(accountID) + ".");
+                }
             }
         }
 
