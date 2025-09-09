@@ -67,7 +67,8 @@ doAccountNFTs(RPC::JsonContext& context)
     }
     auto const accountID{id.value()};
 
-    if (!ledger->exists(keylet::account(accountID)))
+    if (!ledger->exists(
+            keylet::account(hash_options{(ledger->seq())}, accountID)))
         return rpcError(rpcACT_NOT_FOUND);
 
     unsigned int limit;
@@ -86,8 +87,10 @@ doAccountNFTs(RPC::JsonContext& context)
             return RPC::invalid_field_error(jss::marker);
     }
 
-    auto const first = keylet::nftpage(keylet::nftpage_min(accountID), marker);
-    auto const last = keylet::nftpage_max(accountID);
+    auto const first = keylet::nftpage(
+        keylet::nftpage_min(hash_options{(ledger->seq())}, accountID), marker);
+    auto const last =
+        keylet::nftpage_max(hash_options{(ledger->seq())}, accountID);
 
     auto cp = ledger->read(Keylet(
         ltNFTOKEN_PAGE,
@@ -180,7 +183,8 @@ doAccountObjects(RPC::JsonContext& context)
     }
     auto const accountID{id.value()};
 
-    if (!ledger->exists(keylet::account(accountID)))
+    if (!ledger->exists(
+            keylet::account(hash_options{(ledger->seq())}, accountID)))
         return rpcError(rpcACT_NOT_FOUND);
 
     std::optional<std::vector<LedgerEntryType>> typeFilter;

@@ -53,7 +53,8 @@ CancelCheck::preflight(PreflightContext const& ctx)
 TER
 CancelCheck::preclaim(PreclaimContext const& ctx)
 {
-    auto const sleCheck = ctx.view.read(keylet::check(ctx.tx[sfCheckID]));
+    auto const sleCheck = ctx.view.read(
+        keylet::check(hash_options{(ctx.view.seq())}, ctx.tx[sfCheckID]));
     if (!sleCheck)
     {
         JLOG(ctx.j.warn()) << "Check does not exist.";
@@ -88,7 +89,8 @@ CancelCheck::preclaim(PreclaimContext const& ctx)
 TER
 CancelCheck::doApply()
 {
-    auto const sleCheck = view().peek(keylet::check(ctx_.tx[sfCheckID]));
+    auto const sleCheck = view().peek(
+        keylet::check(hash_options{(view().seq())}, ctx_.tx[sfCheckID]));
     if (!sleCheck)
     {
         // Error should have been caught in preclaim.
@@ -106,7 +108,10 @@ CancelCheck::doApply()
     {
         std::uint64_t const page{(*sleCheck)[sfDestinationNode]};
         if (!view().dirRemove(
-                keylet::ownerDir(dstId), page, sleCheck->key(), true))
+                keylet::ownerDir(hash_options{(view().seq())}, dstId),
+                page,
+                sleCheck->key(),
+                true))
         {
             JLOG(j_.fatal()) << "Unable to delete check from destination.";
             return tefBAD_LEDGER;
@@ -115,7 +120,10 @@ CancelCheck::doApply()
     {
         std::uint64_t const page{(*sleCheck)[sfOwnerNode]};
         if (!view().dirRemove(
-                keylet::ownerDir(srcId), page, sleCheck->key(), true))
+                keylet::ownerDir(hash_options{(view().seq())}, srcId),
+                page,
+                sleCheck->key(),
+                true))
         {
             JLOG(j_.fatal()) << "Unable to delete check from owner.";
             return tefBAD_LEDGER;
@@ -123,7 +131,8 @@ CancelCheck::doApply()
     }
 
     // If we succeeded, update the check owner's reserve.
-    auto const sleSrc = view().peek(keylet::account(srcId));
+    auto const sleSrc =
+        view().peek(keylet::account(hash_options{(view().seq())}, srcId));
     adjustOwnerCount(view(), sleSrc, -1, viewJ);
 
     // Remove check from ledger.

@@ -83,30 +83,34 @@ enum class LedgerNameSpace : std::uint16_t {
 
 template <class... Args>
 static uint256
-indexHash(LedgerNameSpace space, Args const&... args)
+indexHash(hash_options const& opts, LedgerNameSpace space, Args const&... args)
 {
     auto start = std::chrono::high_resolution_clock::now();
-    
+
     // Track by namespace
-    getHashStats().indexSha512HalfBySpace[
-        static_cast<std::uint16_t>(space)
-    ].fetch_add(1, std::memory_order_relaxed);
-    
-    auto result = sha512Half(safe_cast<std::uint16_t>(space), args...);
-    
+    getHashStats()
+        .indexSha512HalfBySpace[static_cast<std::uint16_t>(space)]
+        .fetch_add(1, std::memory_order_relaxed);
+
+    auto result = sha512Half(opts, safe_cast<std::uint16_t>(space), args...);
+
     auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-    getHashStats().indexSha512HalfTimeNs.fetch_add(duration, std::memory_order_relaxed);
-    
+    auto duration =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(end - start)
+            .count();
+    getHashStats().indexSha512HalfTimeNs.fetch_add(
+        duration, std::memory_order_relaxed);
+
     return result;
 }
 
 uint256
-getBookBase(Book const& book)
+getBookBase(hash_options const& opts, Book const& book)
 {
     assert(isConsistent(book));
 
     auto const index = indexHash(
+        opts,
         LedgerNameSpace::BOOK_DIR,
         book.in.currency,
         book.out.currency,
@@ -135,138 +139,149 @@ getQuality(uint256 const& uBase)
 }
 
 uint256
-getTicketIndex(AccountID const& account, std::uint32_t ticketSeq)
+getTicketIndex(
+    hash_options const& opts,
+    AccountID const& account,
+    std::uint32_t ticketSeq)
 {
     return indexHash(
-        LedgerNameSpace::TICKET, account, std::uint32_t(ticketSeq));
+        opts, LedgerNameSpace::TICKET, account, std::uint32_t(ticketSeq));
 }
 
 uint256
-getTicketIndex(AccountID const& account, SeqProxy ticketSeq)
+getTicketIndex(
+    hash_options const& opts,
+    AccountID const& account,
+    SeqProxy ticketSeq)
 {
     assert(ticketSeq.isTicket());
-    return getTicketIndex(account, ticketSeq.value());
+    return getTicketIndex(opts, account, ticketSeq.value());
 }
 
 //------------------------------------------------------------------------------
 
 namespace keylet {
 
-Keylet const&
-emittedDir() noexcept
+Keylet
+emittedDir(hash_options const& opts) noexcept
 {
-    static Keylet const ret{
-        ltDIR_NODE, indexHash(LedgerNameSpace::EMITTED_DIR)};
-    return ret;
+    return {ltDIR_NODE, indexHash(opts, LedgerNameSpace::EMITTED_DIR)};
 }
 
 Keylet
-hookStateDir(AccountID const& id, uint256 const& ns) noexcept
-{
-    return {ltDIR_NODE, indexHash(LedgerNameSpace::HOOK_STATE_DIR, id, ns)};
-}
-
-Keylet
-emittedTxn(uint256 const& id) noexcept
-{
-    return {ltEMITTED_TXN, indexHash(LedgerNameSpace::EMITTED_TXN, id)};
-}
-
-Keylet
-hook(AccountID const& id) noexcept
-{
-    return {ltHOOK, indexHash(LedgerNameSpace::HOOK, id)};
-}
-
-Keylet
-hookDefinition(uint256 const& hash) noexcept
+hookStateDir(
+    hash_options const& opts,
+    AccountID const& id,
+    uint256 const& ns) noexcept
 {
     return {
-        ltHOOK_DEFINITION, indexHash(LedgerNameSpace::HOOK_DEFINITION, hash)};
+        ltDIR_NODE, indexHash(opts, LedgerNameSpace::HOOK_STATE_DIR, id, ns)};
 }
 
 Keylet
-hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept
+emittedTxn(hash_options const& opts, uint256 const& id) noexcept
 {
-    return {ltHOOK_STATE, indexHash(LedgerNameSpace::HOOK_STATE, id, key, ns)};
+    return {ltEMITTED_TXN, indexHash(opts, LedgerNameSpace::EMITTED_TXN, id)};
 }
 
 Keylet
-account(AccountID const& id) noexcept
+hook(hash_options const& opts, AccountID const& id) noexcept
 {
-    return Keylet{ltACCOUNT_ROOT, indexHash(LedgerNameSpace::ACCOUNT, id)};
+    return {ltHOOK, indexHash(opts, LedgerNameSpace::HOOK, id)};
 }
 
 Keylet
-child(uint256 const& key) noexcept
+hookDefinition(hash_options const& opts, uint256 const& hash) noexcept
 {
+    return {
+        ltHOOK_DEFINITION,
+        indexHash(opts, LedgerNameSpace::HOOK_DEFINITION, hash)};
+}
+
+Keylet
+hookState(
+    hash_options const& opts,
+    AccountID const& id,
+    uint256 const& key,
+    uint256 const& ns) noexcept
+{
+    return {
+        ltHOOK_STATE,
+        indexHash(opts, LedgerNameSpace::HOOK_STATE, id, key, ns)};
+}
+
+Keylet
+account(hash_options const& opts, AccountID const& id) noexcept
+{
+    return Keylet{
+        ltACCOUNT_ROOT, indexHash(opts, LedgerNameSpace::ACCOUNT, id)};
+}
+
+Keylet
+child(hash_options const& opts, uint256 const& key) noexcept
+{
+    // Note: This just wraps an existing key - might not need hash_options
+    // but keeping it for consistency
     return {ltCHILD, key};
 }
 
-Keylet const&
-skip() noexcept
+Keylet
+skip(hash_options const& opts) noexcept
 {
-    static Keylet const ret{
-        ltLEDGER_HASHES, indexHash(LedgerNameSpace::SKIP_LIST)};
-    return ret;
+    return {ltLEDGER_HASHES, indexHash(opts, LedgerNameSpace::SKIP_LIST)};
 }
 
 Keylet
-skip(LedgerIndex ledger) noexcept
+skip(hash_options const& opts, LedgerIndex ledger) noexcept
 {
     return {
         ltLEDGER_HASHES,
         indexHash(
+            opts,
             LedgerNameSpace::SKIP_LIST,
             std::uint32_t(static_cast<std::uint32_t>(ledger) >> 16))};
 }
 
-Keylet const&
-amendments() noexcept
+Keylet
+amendments(hash_options const& opts) noexcept
 {
-    static Keylet const ret{
-        ltAMENDMENTS, indexHash(LedgerNameSpace::AMENDMENTS)};
-    return ret;
+    return {ltAMENDMENTS, indexHash(opts, LedgerNameSpace::AMENDMENTS)};
 }
 
 Keylet
-import_vlseq(PublicKey const& key) noexcept
+import_vlseq(hash_options const& opts, PublicKey const& key) noexcept
 {
-    return {ltIMPORT_VLSEQ, indexHash(LedgerNameSpace::IMPORT_VLSEQ, key)};
-}
-
-Keylet const&
-fees() noexcept
-{
-    static Keylet const ret{
-        ltFEE_SETTINGS, indexHash(LedgerNameSpace::FEE_SETTINGS)};
-    return ret;
-}
-
-Keylet const&
-negativeUNL() noexcept
-{
-    static Keylet const ret{
-        ltNEGATIVE_UNL, indexHash(LedgerNameSpace::NEGATIVE_UNL)};
-    return ret;
-}
-
-Keylet const&
-UNLReport() noexcept
-{
-    static Keylet const ret{
-        ltUNL_REPORT, indexHash(LedgerNameSpace::UNL_REPORT)};
-    return ret;
+    return {
+        ltIMPORT_VLSEQ, indexHash(opts, LedgerNameSpace::IMPORT_VLSEQ, key)};
 }
 
 Keylet
-book_t::operator()(Book const& b) const
+fees(hash_options const& opts) noexcept
 {
-    return {ltDIR_NODE, getBookBase(b)};
+    return {ltFEE_SETTINGS, indexHash(opts, LedgerNameSpace::FEE_SETTINGS)};
+}
+
+Keylet
+negativeUNL(hash_options const& opts) noexcept
+{
+    return {ltNEGATIVE_UNL, indexHash(opts, LedgerNameSpace::NEGATIVE_UNL)};
+}
+
+Keylet
+UNLReport(hash_options const& opts) noexcept
+{
+    return {ltUNL_REPORT, indexHash(opts, LedgerNameSpace::UNL_REPORT)};
+}
+
+Keylet
+book_t::operator()(hash_options const& opts, Book const& b) const
+{
+    return {ltDIR_NODE, getBookBase(opts, b)};
 }
 
 Keylet
 line(
+    hash_options const& opts,
     AccountID const& id0,
     AccountID const& id1,
     Currency const& currency) noexcept
@@ -288,6 +303,7 @@ line(
     return {
         ltRIPPLE_STATE,
         indexHash(
+            opts,
             LedgerNameSpace::TRUST_LINE,
             accounts.first,
             accounts.second,
@@ -295,9 +311,20 @@ line(
 }
 
 Keylet
-offer(AccountID const& id, UInt32or256 const& seq) noexcept
+offer(
+    hash_options const& opts,
+    AccountID const& id,
+    UInt32or256 const& seq) noexcept
 {
-    return {ltOFFER, indexHash(LedgerNameSpace::OFFER, id, seq)};
+    return {ltOFFER, indexHash(opts, LedgerNameSpace::OFFER, id, seq)};
+}
+
+Keylet
+offer(hash_options const& opts, uint256 const& key) noexcept
+{
+    // Note: This just wraps an existing key - might not need hash_options
+    // but keeping it for consistency
+    return {ltOFFER, key};
 }
 
 Keylet
@@ -326,45 +353,71 @@ next_t::operator()(Keylet const& k) const
 }
 
 Keylet
-ticket_t::operator()(AccountID const& id, std::uint32_t ticketSeq) const
+ticket_t::operator()(
+    hash_options const& opts,
+    AccountID const& id,
+    std::uint32_t ticketSeq) const
 {
-    return {ltTICKET, getTicketIndex(id, ticketSeq)};
+    return {ltTICKET, getTicketIndex(opts, id, ticketSeq)};
 }
 
 Keylet
-ticket_t::operator()(AccountID const& id, SeqProxy ticketSeq) const
+ticket_t::operator()(
+    hash_options const& opts,
+    AccountID const& id,
+    SeqProxy ticketSeq) const
 {
-    return {ltTICKET, getTicketIndex(id, ticketSeq)};
+    return {ltTICKET, getTicketIndex(opts, id, ticketSeq)};
 }
 
 // This function is presently static, since it's never accessed from anywhere
 // else. If we ever support multiple pages of signer lists, this would be the
 // keylet used to locate them.
 static Keylet
-signers(AccountID const& account, std::uint32_t page) noexcept
+signers(
+    hash_options const& opts,
+    AccountID const& account,
+    std::uint32_t page) noexcept
 {
     return {
-        ltSIGNER_LIST, indexHash(LedgerNameSpace::SIGNER_LIST, account, page)};
+        ltSIGNER_LIST,
+        indexHash(opts, LedgerNameSpace::SIGNER_LIST, account, page)};
 }
 
 Keylet
-signers(AccountID const& account) noexcept
+signers(hash_options const& opts, AccountID const& account) noexcept
 {
-    return signers(account, 0);
+    return signers(opts, account, 0);
 }
 
 Keylet
-check(AccountID const& id, UInt32or256 const& seq) noexcept
+check(
+    hash_options const& opts,
+    AccountID const& id,
+    UInt32or256 const& seq) noexcept
 {
-    return {ltCHECK, indexHash(LedgerNameSpace::CHECK, id, seq)};
+    return {ltCHECK, indexHash(opts, LedgerNameSpace::CHECK, id, seq)};
 }
 
 Keylet
-depositPreauth(AccountID const& owner, AccountID const& preauthorized) noexcept
+check(hash_options const& opts, uint256 const& key) noexcept
+{
+    // Note: This just wraps an existing key - might not need hash_options
+    // but keeping it for consistency. The ledger_index could be stored
+    // in the Keylet for future use.
+    return {ltCHECK, key};
+}
+
+Keylet
+depositPreauth(
+    hash_options const& opts,
+    AccountID const& owner,
+    AccountID const& preauthorized) noexcept
 {
     return {
         ltDEPOSIT_PREAUTH,
-        indexHash(LedgerNameSpace::DEPOSIT_PREAUTH, owner, preauthorized)};
+        indexHash(
+            opts, LedgerNameSpace::DEPOSIT_PREAUTH, owner, preauthorized)};
 }
 
 //------------------------------------------------------------------------------
@@ -376,47 +429,54 @@ unchecked(uint256 const& key) noexcept
 }
 
 Keylet
-ownerDir(AccountID const& id) noexcept
+ownerDir(hash_options const& opts, AccountID const& id) noexcept
 {
-    return {ltDIR_NODE, indexHash(LedgerNameSpace::OWNER_DIR, id)};
+    return {ltDIR_NODE, indexHash(opts, LedgerNameSpace::OWNER_DIR, id)};
 }
 
 Keylet
-page(uint256 const& key, std::uint64_t index) noexcept
+page(hash_options const& opts, uint256 const& key, std::uint64_t index) noexcept
 {
     if (index == 0)
         return {ltDIR_NODE, key};
 
-    return {ltDIR_NODE, indexHash(LedgerNameSpace::DIR_NODE, key, index)};
+    return {ltDIR_NODE, indexHash(opts, LedgerNameSpace::DIR_NODE, key, index)};
 }
 
 Keylet
-escrow(AccountID const& src, UInt32or256 const& seq) noexcept
+escrow(
+    hash_options const& opts,
+    AccountID const& src,
+    UInt32or256 const& seq) noexcept
 {
-    return {ltESCROW, indexHash(LedgerNameSpace::ESCROW, src, seq)};
+    return {ltESCROW, indexHash(opts, LedgerNameSpace::ESCROW, src, seq)};
 }
 
 Keylet
 payChan(
+    hash_options const& opts,
     AccountID const& src,
     AccountID const& dst,
     UInt32or256 const& seq) noexcept
 {
     return {
-        ltPAYCHAN, indexHash(LedgerNameSpace::PAYMENT_CHANNEL, src, dst, seq)};
+        ltPAYCHAN,
+        indexHash(opts, LedgerNameSpace::PAYMENT_CHANNEL, src, dst, seq)};
 }
 
 Keylet
-nftpage_min(AccountID const& owner)
+nftpage_min(hash_options const& opts, AccountID const& owner)
 {
+    // Note: This might need to use opts for future hash migration
     std::array<std::uint8_t, 32> buf{};
     std::memcpy(buf.data(), owner.data(), owner.size());
     return {ltNFTOKEN_PAGE, uint256{buf}};
 }
 
 Keylet
-nftpage_max(AccountID const& owner)
+nftpage_max(hash_options const& opts, AccountID const& owner)
 {
+    // Note: This might need to use opts for future hash migration
     uint256 id = nft::pageMask;
     std::memcpy(id.data(), owner.data(), owner.size());
     return {ltNFTOKEN_PAGE, id};
@@ -430,31 +490,48 @@ nftpage(Keylet const& k, uint256 const& token)
 }
 
 Keylet
-nftoffer(AccountID const& owner, UInt32or256 const& seq)
+nftoffer(
+    hash_options const& opts,
+    AccountID const& owner,
+    UInt32or256 const& seq)
 {
     return {
-        ltNFTOKEN_OFFER, indexHash(LedgerNameSpace::NFTOKEN_OFFER, owner, seq)};
+        ltNFTOKEN_OFFER,
+        indexHash(opts, LedgerNameSpace::NFTOKEN_OFFER, owner, seq)};
 }
 
 Keylet
-nft_buys(uint256 const& id) noexcept
+nftoffer(hash_options const& opts, uint256 const& offer)
 {
-    return {ltDIR_NODE, indexHash(LedgerNameSpace::NFTOKEN_BUY_OFFERS, id)};
+    // Note: This just wraps an existing key - might not need hash_options
+    // but keeping it for consistency
+    return {ltNFTOKEN_OFFER, offer};
 }
 
 Keylet
-nft_sells(uint256 const& id) noexcept
+nft_buys(hash_options const& opts, uint256 const& id) noexcept
 {
-    return {ltDIR_NODE, indexHash(LedgerNameSpace::NFTOKEN_SELL_OFFERS, id)};
+    return {
+        ltDIR_NODE, indexHash(opts, LedgerNameSpace::NFTOKEN_BUY_OFFERS, id)};
 }
 
 Keylet
-uritoken(AccountID const& issuer, Blob const& uri)
+nft_sells(hash_options const& opts, uint256 const& id) noexcept
+{
+    return {
+        ltDIR_NODE, indexHash(opts, LedgerNameSpace::NFTOKEN_SELL_OFFERS, id)};
+}
+
+Keylet
+uritoken(hash_options const& opts, AccountID const& issuer, Blob const& uri)
 {
     return {
         ltURI_TOKEN,
         indexHash(
-            LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+            opts,
+            LedgerNameSpace::URI_TOKEN,
+            issuer,
+            Slice{uri.data(), uri.size()})};
 }
 
 }  // namespace keylet

@@ -28,7 +28,8 @@ bool
 checkIssuers(ReadView const& view, Book const& book)
 {
     auto issuerExists = [](ReadView const& view, Issue const& iss) -> bool {
-        return isXRP(iss.account) || view.read(keylet::account(iss.account));
+        return isXRP(iss.account) ||
+            view.read(keylet::account(hash_options{(view.seq())}, iss.account));
     };
     return issuerExists(view, book.in) && issuerExists(view, book.out);
 }
@@ -64,7 +65,7 @@ TOfferStreamBase<TIn, TOut>::erase(ApplyView& view)
     //           correctly remove the directory if its the last entry.
     //           Unfortunately this is a protocol breaking change.
 
-    auto p = view.peek(keylet::page(tip_.dir()));
+    auto p = view.peek(keylet::page(hash_options{(view.seq())}, tip_.dir()));
 
     if (p == nullptr)
     {
@@ -378,7 +379,11 @@ TOfferStreamBase<TIn, TOut>::step()
 void
 OfferStream::permRmOffer(uint256 const& offerIndex)
 {
-    offerDelete(cancelView_, cancelView_.peek(keylet::offer(offerIndex)), j_);
+    offerDelete(
+        cancelView_,
+        cancelView_.peek(
+            keylet::offer(hash_options{(cancelView_.seq())}, offerIndex)),
+        j_);
 }
 
 template <class TIn, class TOut>

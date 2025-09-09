@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/json/json_value.h>
 #include <ripple/ledger/ReadView.h>
@@ -99,7 +100,8 @@ enumerateNFTOffers(
         if (!startAfter.parseHex(marker.asString()))
             return rpcError(rpcINVALID_PARAMS);
 
-        auto const sle = ledger->read(keylet::nftoffer(startAfter));
+        auto const sle = ledger->read(
+            keylet::nftoffer(hash_options{(ledger->seq())}, startAfter));
 
         if (!sle || nftId != sle->getFieldH256(sfNFTokenID))
             return rpcError(rpcINVALID_PARAMS);
@@ -158,7 +160,10 @@ doNFTSellOffers(RPC::JsonContext& context)
     if (!nftId.parseHex(context.params[jss::nft_id].asString()))
         return RPC::invalid_field_error(jss::nft_id);
 
-    return enumerateNFTOffers(context, nftId, keylet::nft_sells(nftId));
+    auto const ledgerSeq =
+        context.app.getLedgerMaster().getValidatedLedger()->info().seq;
+    return enumerateNFTOffers(
+        context, nftId, keylet::nft_sells(hash_options{(ledgerSeq)}, nftId));
 }
 
 Json::Value
@@ -172,7 +177,10 @@ doNFTBuyOffers(RPC::JsonContext& context)
     if (!nftId.parseHex(context.params[jss::nft_id].asString()))
         return RPC::invalid_field_error(jss::nft_id);
 
-    return enumerateNFTOffers(context, nftId, keylet::nft_buys(nftId));
+    auto const ledgerSeq =
+        context.app.getLedgerMaster().getValidatedLedger()->info().seq;
+    return enumerateNFTOffers(
+        context, nftId, keylet::nft_buys(hash_options{(ledgerSeq)}, nftId));
 }
 
 }  // namespace ripple

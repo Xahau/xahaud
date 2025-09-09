@@ -58,13 +58,15 @@ Invoke::preclaim(PreclaimContext const& ctx)
 
     auto const id = ctx.tx[sfAccount];
 
-    auto const sle = ctx.view.read(keylet::account(id));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
     if (!sle)
         return terNO_ACCOUNT;
 
     if (ctx.tx.isFieldPresent(sfDestination))
     {
-        if (!ctx.view.exists(keylet::account(ctx.tx[sfDestination])))
+        if (!ctx.view.exists(keylet::account(
+                hash_options{(ctx.view.seq())}, ctx.tx[sfDestination])))
             return tecNO_TARGET;
     }
 

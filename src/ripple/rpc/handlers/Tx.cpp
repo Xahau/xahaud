@@ -101,7 +101,8 @@ doTxPostgres(RPC::Context& context, TxArgs const& args)
         {
             auto node = SHAMapTreeNode::makeFromPrefix(
                 makeSlice(obj->getData()),
-                SHAMapHash{locator.getNodestoreHash()});
+                SHAMapHash{locator.getNodestoreHash()},
+                locator.getLedgerSequence());
             if (!node)
             {
                 assert(false);

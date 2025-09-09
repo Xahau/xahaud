@@ -194,7 +194,7 @@ GenesisMint::doApply()
             auto const marks = dest[~sfGovernanceMarks];
 
             auto const id = dest.getAccountID(sfDestination);
-            auto const k = keylet::account(id);
+            auto const k = keylet::account(hash_options{(view().seq())}, id);
             auto sle = view().peek(k);
 
             bool const created = !sle;
@@ -340,7 +340,7 @@ GenesisMint::doApply()
     {
         auto const& [amt, flags, marks] = values;
 
-        auto const k = keylet::account(id);
+        auto const k = keylet::account(hash_options{(view().seq())}, id);
         auto sle = view().peek(k);
         bool const created = !sle;
 

@@ -183,14 +183,16 @@ PathRequest::isValid(std::shared_ptr<RippleLineCache> const& crCache)
 
     auto const& lrLedger = crCache->getLedger();
 
-    if (!lrLedger->exists(keylet::account(*raSrcAccount)))
+    if (!lrLedger->exists(
+            keylet::account(hash_options{(lrLedger->seq())}, *raSrcAccount)))
     {
         // Source account does not exist.
         jvStatus = rpcError(rpcSRC_ACT_NOT_FOUND);
         return false;
     }
 
-    auto const sleDest = lrLedger->read(keylet::account(*raDstAccount));
+    auto const sleDest = lrLedger->read(
+        keylet::account(hash_options{(lrLedger->seq())}, *raDstAccount));
 
     Json::Value& jvDestCur =
         (jvStatus[jss::destination_currencies] = Json::arrayValue);

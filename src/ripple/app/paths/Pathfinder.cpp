@@ -249,7 +249,8 @@ Pathfinder::findPaths(
     bool bSrcXrp = isXRP(mSrcCurrency);
     bool bDstXrp = isXRP(mDstAmount.getCurrency());
 
-    if (!mLedger->exists(keylet::account(mSrcAccount)))
+    if (!mLedger->exists(
+            keylet::account(hash_options{(mLedger->seq())}, mSrcAccount)))
     {
         // We can't even start without a source account.
         JLOG(j_.debug()) << "invalid source account";
@@ -257,13 +258,15 @@ Pathfinder::findPaths(
     }
 
     if ((mEffectiveDst != mDstAccount) &&
-        !mLedger->exists(keylet::account(mEffectiveDst)))
+        !mLedger->exists(
+            keylet::account(hash_options{(mLedger->seq())}, mEffectiveDst)))
     {
         JLOG(j_.debug()) << "Non-existent gateway";
         return false;
     }
 
-    if (!mLedger->exists(keylet::account(mDstAccount)))
+    if (!mLedger->exists(
+            keylet::account(hash_options{(mLedger->seq())}, mDstAccount)))
     {
         // Can't find the destination account - we must be funding a new
         // account.
@@ -721,7 +724,8 @@ Pathfinder::getPathsOut(
     if (!inserted)
         return it->second;
 
-    auto sleAccount = mLedger->read(keylet::account(account));
+    auto sleAccount =
+        mLedger->read(keylet::account(hash_options{(mLedger->seq())}, account));
 
     if (!sleAccount)
         return 0;
@@ -887,8 +891,8 @@ Pathfinder::isNoRipple(
     AccountID const& toAccount,
     Currency const& currency)
 {
-    auto sleRipple =
-        mLedger->read(keylet::line(toAccount, fromAccount, currency));
+    auto sleRipple = mLedger->read(keylet::line(
+        hash_options{(mLedger->seq())}, toAccount, fromAccount, currency));
 
     auto const flag(
         (toAccount > fromAccount) ? lsfHighNoRipple : lsfLowNoRipple);
@@ -970,7 +974,8 @@ Pathfinder::addLink(
         else
         {
             // search for accounts to add
-            auto const sleEnd = mLedger->read(keylet::account(uEndAccount));
+            auto const sleEnd = mLedger->read(
+                keylet::account(hash_options{(mLedger->seq())}, uEndAccount));
 
             if (sleEnd)
             {

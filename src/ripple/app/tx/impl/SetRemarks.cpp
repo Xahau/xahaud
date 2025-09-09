@@ -221,7 +221,8 @@ SetRemarks::preclaim(PreclaimContext const& ctx)
 
     auto const id = ctx.tx[sfAccount];
 
-    auto const sle = ctx.view.read(keylet::account(id));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
     if (!sle)
         return terNO_ACCOUNT;
 
@@ -316,7 +317,8 @@ SetRemarks::doApply()
 {
     Sandbox sb(&ctx_.view());
 
-    auto const sle = sb.read(keylet::account(account_));
+    auto const sle =
+        sb.read(keylet::account(hash_options{(sb.seq())}, account_));
     if (!sle)
         return tefINTERNAL;
 

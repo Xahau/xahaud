@@ -170,7 +170,8 @@ URIToken::preclaim(PreclaimContext const& ctx)
         if (sleU->isFieldPresent(sfDestination))
             dest = sleU->getAccountID(sfDestination);
 
-        sleOwner = ctx.view.read(keylet::account(*owner));
+        sleOwner = ctx.view.read(
+            keylet::account(hash_options{(ctx.view.seq())}, *owner));
         if (!sleOwner)
         {
             JLOG(ctx.j.warn()) << "Malformed transaction: owner of URIToken is "
@@ -182,8 +183,8 @@ URIToken::preclaim(PreclaimContext const& ctx)
     AccountID const acc = ctx.tx.getAccountID(sfAccount);
     uint16_t tt = ctx.tx.getFieldU16(sfTransactionType);
 
-    auto const sle =
-        ctx.view.read(keylet::account(ctx.tx.getAccountID(sfAccount)));
+    auto const sle = ctx.view.read(keylet::account(
+        hash_options{(ctx.view.seq())}, ctx.tx.getAccountID(sfAccount)));
     if (!sle)
         return tefINTERNAL;
 
@@ -191,8 +192,10 @@ URIToken::preclaim(PreclaimContext const& ctx)
     {
         case ttURITOKEN_MINT: {
             // check if this token has already been minted.
-            if (ctx.view.exists(
-                    keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
+            if (ctx.view.exists(keylet::uritoken(
+                    hash_options{(ctx.view.seq())},
+                    acc,
+                    ctx.tx.getFieldVL(sfURI))))
                 return tecDUPLICATE;
 
             return tesSUCCESS;
@@ -322,7 +325,8 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (!txAmount.native())
             {
                 AccountID const iouIssuer = txAmount.getIssuer();
-                if (!ctx.view.exists(keylet::account(iouIssuer)))
+                if (!ctx.view.exists(keylet::account(
+                        hash_options{(ctx.view.seq())}, iouIssuer)))
                     return tecNO_ISSUER;
             }
             return tesSUCCESS;
@@ -345,7 +349,8 @@ URIToken::doApply()
 
     bool const fixV1 = sb.rules().enabled(fixXahauV1);
 
-    auto const sle = sb.peek(keylet::account(account_));
+    auto const sle =
+        sb.peek(keylet::account(hash_options{(sb.seq())}, account_));
     if (!sle)
         return tefINTERNAL;
 
@@ -392,7 +397,8 @@ URIToken::doApply()
         if (*owner == account_)
             sleOwner = sle;
         else
-            sleOwner = sb.peek(keylet::account(*owner));
+            sleOwner =
+                sb.peek(keylet::account(hash_options{(sb.seq())}, *owner));
 
         if (!sleOwner)
         {
@@ -405,7 +411,8 @@ URIToken::doApply()
     switch (tt)
     {
         case ttURITOKEN_MINT: {
-            kl = keylet::uritoken(account_, ctx_.tx.getFieldVL(sfURI));
+            kl = keylet::uritoken(
+                hash_options{(sb.seq())}, account_, ctx_.tx.getFieldVL(sfURI));
             if (sb.exists(*kl))
                 return tecDUPLICATE;
 
@@ -435,7 +442,9 @@ URIToken::doApply()
                 sleU->setFlag(tfBurnable);
 
             auto const page = sb.dirInsert(
-                keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
+                keylet::ownerDir(hash_options{(sb.seq())}, account_),
+                *kl,
+                describeOwnerDir(account_));
 
             JLOG(j_.trace())
                 << "Adding URIToken to owner directory " << to_string(kl->key)
@@ -539,7 +548,7 @@ URIToken::doApply()
 
                 // add token to new owner dir
                 auto const newPage = sb.dirInsert(
-                    keylet::ownerDir(account_),
+                    keylet::ownerDir(hash_options{(sb.seq())}, account_),
                     *kl,
                     describeOwnerDir(account_));
 
@@ -552,7 +561,7 @@ URIToken::doApply()
 
                 // remove from current owner directory
                 if (!sb.dirRemove(
-                        keylet::ownerDir(*owner),
+                        keylet::ownerDir(hash_options{(sb.seq())}, *owner),
                         sleU->getFieldU64(sfOwnerNode),
                         kl->key,
                         true))
@@ -692,10 +701,12 @@ URIToken::doApply()
 
                     // check if the seller has a line
                     tlSeller = keylet::line(
+                        hash_options{(sb.seq())},
                         *owner,
                         purchaseAmount.getIssuer(),
                         purchaseAmount.getCurrency());
                     Keylet tlBuyer = keylet::line(
+                        hash_options{(sb.seq())},
                         account_,
                         purchaseAmount.getIssuer(),
                         purchaseAmount.getCurrency());
@@ -799,7 +810,7 @@ URIToken::doApply()
                 // add to new owner's directory first, this can fail if they
                 // have too many objects
                 auto const newPage = sb.dirInsert(
-                    keylet::ownerDir(account_),
+                    keylet::ownerDir(hash_options{(sb.seq())}, account_),
                     *kl,
                     describeOwnerDir(account_));
 
@@ -844,7 +855,7 @@ URIToken::doApply()
                     {
                         // remove the newly inserted directory entry before we leave
                         //
-                        if (!sb.dirRemove(keylet::ownerDir(account_), *newPage, kl->key, true))
+                        if (!sb.dirRemove(keylet::ownerDir(hash_options{(sb.seq())}, account_), *newPage, kl->key, true))
                         {
                             JLOG(j.fatal())
                                 << "Could not remove URIToken from owner directory";
@@ -867,7 +878,7 @@ URIToken::doApply()
 
                 // remove from current owner directory
                 if (!sb.dirRemove(
-                        keylet::ownerDir(*owner),
+                        keylet::ownerDir(hash_options{(sb.seq())}, *owner),
                         sleU->getFieldU64(sfOwnerNode),
                         kl->key,
                         true))
@@ -877,7 +888,8 @@ URIToken::doApply()
 
                     // remove the newly inserted directory entry before we leave
                     if (!sb.dirRemove(
-                            keylet::ownerDir(account_),
+                            keylet::ownerDir(
+                                hash_options{(sb.seq())}, account_),
                             *newPage,
                             kl->key,
                             true))
@@ -996,7 +1008,11 @@ URIToken::doApply()
             // execution to here means there is permission to burn
 
             auto const page = (*sleU)[sfOwnerNode];
-            if (!sb.dirRemove(keylet::ownerDir(*owner), page, kl->key, true))
+            if (!sb.dirRemove(
+                    keylet::ownerDir(hash_options{(sb.seq())}, *owner),
+                    page,
+                    kl->key,
+                    true))
             {
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";

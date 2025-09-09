@@ -38,7 +38,7 @@ checkFreeze(
     assert(src != dst);
 
     // check freeze
-    if (auto sle = view.read(keylet::account(dst)))
+    if (auto sle = view.read(keylet::account(hash_options{(view.seq())}, dst)))
     {
         if (sle->isFlag(lsfGlobalFreeze))
         {
@@ -46,7 +46,8 @@ checkFreeze(
         }
     }
 
-    if (auto sle = view.read(keylet::line(src, dst, currency)))
+    if (auto sle = view.read(
+            keylet::line(hash_options{(view.seq())}, src, dst, currency)))
     {
         if (sle->isFlag((dst > src) ? lsfHighFreeze : lsfLowFreeze))
         {
@@ -74,8 +75,10 @@ checkNoRipple(
     beast::Journal j)
 {
     // fetch the ripple lines into and out of this node
-    auto sleIn = view.read(keylet::line(prev, cur, currency));
-    auto sleOut = view.read(keylet::line(cur, next, currency));
+    auto sleIn = view.read(
+        keylet::line(hash_options{(view.seq())}, prev, cur, currency));
+    auto sleOut = view.read(
+        keylet::line(hash_options{(view.seq())}, cur, next, currency));
 
     if (!sleIn || !sleOut)
         return terNO_LINE;

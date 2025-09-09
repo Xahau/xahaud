@@ -71,7 +71,8 @@ CancelOffer::preclaim(PreclaimContext const& ctx)
 {
     auto const id = ctx.tx[sfAccount];
 
-    auto const sle = ctx.view.read(keylet::account(id));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
     if (!sle)
         return terNO_ACCOUNT;
 
@@ -92,7 +93,8 @@ CancelOffer::preclaim(PreclaimContext const& ctx)
 TER
 CancelOffer::doApply()
 {
-    auto const sle = view().read(keylet::account(account_));
+    auto const sle =
+        view().read(keylet::account(hash_options{(view().seq())}, account_));
     if (!sle)
         return tefINTERNAL;
 
@@ -103,7 +105,7 @@ CancelOffer::doApply()
 
     Keylet cancel = hooksEnabled && offerID && !offerSequence
         ? Keylet(ltOFFER, *offerID)
-        : keylet::offer(account_, *offerSequence);
+        : keylet::offer(hash_options{(view().seq())}, account_, *offerSequence);
 
     if (auto sleOffer = view().peek(cancel))
     {

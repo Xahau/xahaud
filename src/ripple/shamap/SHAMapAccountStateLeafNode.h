@@ -37,10 +37,11 @@ class SHAMapAccountStateLeafNode final
 public:
     SHAMapAccountStateLeafNode(
         boost::intrusive_ptr<SHAMapItem const> item,
-        std::uint32_t cowid)
+        std::uint32_t cowid,
+        std::uint32_t ledgerSeq)
         : SHAMapLeafNode(std::move(item), cowid)
     {
-        updateHash();
+        updateHash(hash_options{ledgerSeq});
     }
 
     SHAMapAccountStateLeafNode(
@@ -65,10 +66,10 @@ public:
     }
 
     void
-    updateHash() final override
+    updateHash(hash_options const& opts) final override
     {
-        hash_ = SHAMapHash{
-            sha512Half(HashPrefix::leafNode, item_->slice(), item_->key())};
+        hash_ = SHAMapHash{sha512Half(
+            opts, HashPrefix::leafNode, item_->slice(), item_->key())};
     }
 
     void

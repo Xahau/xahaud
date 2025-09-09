@@ -194,7 +194,8 @@ SetAccount::preclaim(PreclaimContext const& ctx)
 
     std::uint32_t const uTxFlags = ctx.tx.getFlags();
 
-    auto const sle = ctx.view.read(keylet::account(id));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
     if (!sle)
         return terNO_ACCOUNT;
 
@@ -211,7 +212,8 @@ SetAccount::preclaim(PreclaimContext const& ctx)
     //
     if (bSetRequireAuth && !(uFlagsIn & lsfRequireAuth))
     {
-        if (!dirIsEmpty(ctx.view, keylet::ownerDir(id)))
+        if (!dirIsEmpty(
+                ctx.view, keylet::ownerDir(hash_options{(ctx.view.seq())}, id)))
         {
             JLOG(ctx.j.trace()) << "Retry: Owner directory not empty.";
             return (ctx.flags & tapRETRY) ? TER{terOWNERS} : TER{tecOWNERS};
@@ -231,7 +233,9 @@ SetAccount::preclaim(PreclaimContext const& ctx)
                 return tecNO_PERMISSION;
             }
 
-            if (!dirIsEmpty(ctx.view, keylet::ownerDir(id)))
+            if (!dirIsEmpty(
+                    ctx.view,
+                    keylet::ownerDir(hash_options{(ctx.view.seq())}, id)))
             {
                 JLOG(ctx.j.trace()) << "Owner directory not empty.";
                 return tecOWNERS;
@@ -255,7 +259,8 @@ SetAccount::preclaim(PreclaimContext const& ctx)
 TER
 SetAccount::doApply()
 {
-    auto const sle = view().peek(keylet::account(account_));
+    auto const sle =
+        view().peek(keylet::account(hash_options{(view().seq())}, account_));
     if (!sle)
         return tefINTERNAL;
 
@@ -351,7 +356,8 @@ SetAccount::doApply()
         }
 
         if ((!sle->isFieldPresent(sfRegularKey)) &&
-            (!view().peek(keylet::signers(account_))))
+            (!view().peek(
+                keylet::signers(hash_options{(view().seq())}, account_))))
         {
             // Account has no regular key or multi-signer signer list.
             return tecNO_ALTERNATIVE_KEY;

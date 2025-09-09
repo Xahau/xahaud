@@ -281,8 +281,8 @@ public:
                 if (!node.has_nodeid() || !node.has_nodedata())
                     return;
 
-                auto newNode =
-                    SHAMapTreeNode::makeFromWire(makeSlice(node.nodedata()));
+                auto newNode = SHAMapTreeNode::makeFromWire(
+                    makeSlice(node.nodedata()), packet_ptr->ledgerseq());
 
                 if (!newNode)
                     return;

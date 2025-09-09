@@ -165,7 +165,8 @@ forEachItem(
     AccountID const& id,
     std::function<void(std::shared_ptr<SLE const> const&)> const& f)
 {
-    return forEachItem(view, keylet::ownerDir(id), f);
+    return forEachItem(
+        view, keylet::ownerDir(hash_options{(view.seq())}, id), f);
 }
 
 /** Iterate all items after an item in an owner directory.
@@ -183,7 +184,13 @@ forEachItemAfter(
     unsigned int limit,
     std::function<bool(std::shared_ptr<SLE const> const&)> const& f)
 {
-    return forEachItemAfter(view, keylet::ownerDir(id), after, hint, limit, f);
+    return forEachItemAfter(
+        view,
+        keylet::ownerDir(hash_options{(view.seq())}, id),
+        after,
+        hint,
+        limit,
+        f);
 }
 
 [[nodiscard]] Rate
@@ -655,7 +662,8 @@ trustTransferAllowed(
     if (isBadCurrency(issue.currency))
         return tecNO_PERMISSION;
 
-    auto const sleIssuerAcc = view.read(keylet::account(issue.account));
+    auto const sleIssuerAcc =
+        view.read(keylet::account(hash_options{(view.seq())}, issue.account));
 
     bool lockedBalanceAllowed =
         view.rules().enabled(featurePaychanAndEscrowForTokens);
@@ -693,8 +701,8 @@ trustTransferAllowed(
             return tecFROZEN;
         }
 
-        auto const line =
-            view.read(keylet::line(p, issue.account, issue.currency));
+        auto const line = view.read(keylet::line(
+            hash_options{(view.seq())}, p, issue.account, issue.currency));
         if (!line)
         {
             if (requireAuth)
@@ -881,7 +889,8 @@ trustTransferLockedBalance(
         dstAmt = amount.value() - xferFee;
     }
     // ensure source line exists
-    Keylet klSrcLine{keylet::line(srcAccID, issuerAccID, currency)};
+    Keylet klSrcLine{keylet::line(
+        hash_options{(view.seq())}, srcAccID, issuerAccID, currency)};
     SLEPtr sleSrcLine = peek(klSrcLine);
 
     // if source account is not issuer
@@ -969,7 +978,8 @@ trustTransferLockedBalance(
     }
 
     // check for a destination line
-    Keylet klDstLine = keylet::line(dstAccID, issuerAccID, currency);
+    Keylet klDstLine = keylet::line(
+        hash_options{(view.seq())}, dstAccID, issuerAccID, currency);
     SLEPtr sleDstLine = peek(klDstLine);
 
     // if dest account is not issuer

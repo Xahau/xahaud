@@ -35,7 +35,8 @@ struct ClaimReward_test : public beast::unit_test::suite
         std::uint64_t accumulator,
         std::uint32_t time)
     {
-        auto const sle = env.le(keylet::account(acct));
+        auto const sle =
+            env.le(keylet::account(hash_options{(env.current()->seq())}, acct));
         if (!sle->isFieldPresent(sfRewardLgrFirst) ||
             sle->getFieldU32(sfRewardLgrFirst) != ledgerFirst)
         {
@@ -62,7 +63,8 @@ struct ClaimReward_test : public beast::unit_test::suite
     bool
     expectNoRewards(jtx::Env const& env, jtx::Account const& acct)
     {
-        auto const sle = env.le(keylet::account(acct));
+        auto const sle =
+            env.le(keylet::account(hash_options{(env.current()->seq())}, acct));
         if (sle->isFieldPresent(sfRewardLgrFirst))
         {
             return false;

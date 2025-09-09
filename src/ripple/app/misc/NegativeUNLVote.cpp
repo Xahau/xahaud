@@ -286,7 +286,8 @@ NegativeUNLVote::buildScoreTable(
     validations.setSeqToKeep(seq - 1, seq + FLAG_LEDGER_INTERVAL);
 
     // Find FLAG_LEDGER_INTERVAL (i.e. 256) previous ledger hashes
-    auto const hashIndex = prevLedger->read(keylet::skip());
+    auto const hashIndex =
+        prevLedger->read(keylet::skip(hash_options{(prevLedger->seq())}));
     if (!hashIndex || !hashIndex->isFieldPresent(sfHashes))
     {
         JLOG(j_.debug()) << "N-UNL: ledger " << seq << " no history.";

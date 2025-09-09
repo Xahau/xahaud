@@ -26,7 +26,10 @@ namespace ripple {
 
 BookDirs::BookDirs(ReadView const& view, Book const& book)
     : view_(&view)
-    , root_(keylet::page(getBookBase(book)).key)
+    , root_(keylet::page(
+                hash_options{(view.seq())},
+                getBookBase(hash_options{(view.seq())}, book))
+                .key)
     , next_quality_(getQualityNext(root_))
     , key_(view_->succ(root_, next_quality_).value_or(beast::zero))
 {
@@ -80,7 +83,8 @@ BookDirs::const_iterator::operator*() const
 {
     assert(index_ != beast::zero);
     if (!cache_)
-        cache_ = view_->read(keylet::offer(index_));
+        cache_ =
+            view_->read(keylet::offer(hash_options{(view_->seq())}, index_));
     return *cache_;
 }
 

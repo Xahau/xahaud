@@ -1439,7 +1439,7 @@ class Freeze_test : public beast::unit_test::suite
 
         // Confirming we can write and cash checks
         {
-            uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+            uint256 const checkId{getCheckIndex(env, G1, env.seq(G1))};
             env(check::create(G1, A1, USD(10)));
             env.close();
             env(check::cash(A1, checkId, USD(10)));
@@ -1447,7 +1447,7 @@ class Freeze_test : public beast::unit_test::suite
         }
 
         {
-            uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+            uint256 const checkId{getCheckIndex(env, G1, env.seq(G1))};
             env(check::create(G1, A2, USD(10)));
             env.close();
             env(check::cash(A2, checkId, USD(10)));
@@ -1455,7 +1455,7 @@ class Freeze_test : public beast::unit_test::suite
         }
 
         {
-            uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+            uint256 const checkId{getCheckIndex(env, A1, env.seq(A1))};
             env(check::create(A1, G1, USD(10)));
             env.close();
             env(check::cash(G1, checkId, USD(10)));
@@ -1463,7 +1463,7 @@ class Freeze_test : public beast::unit_test::suite
         }
 
         {
-            uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+            uint256 const checkId{getCheckIndex(env, A1, env.seq(A1))};
             env(check::create(A1, A2, USD(10)));
             env.close();
             env(check::cash(A2, checkId, USD(10)));
@@ -1471,7 +1471,7 @@ class Freeze_test : public beast::unit_test::suite
         }
 
         {
-            uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+            uint256 const checkId{getCheckIndex(env, A2, env.seq(A2))};
             env(check::create(A2, G1, USD(10)));
             env.close();
             env(check::cash(G1, checkId, USD(10)));
@@ -1479,7 +1479,7 @@ class Freeze_test : public beast::unit_test::suite
         }
 
         {
-            uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+            uint256 const checkId{getCheckIndex(env, A2, env.seq(A2))};
             env(check::create(A2, A1, USD(10)));
             env.close();
             env(check::cash(A1, checkId, USD(10)));
@@ -1494,7 +1494,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: issuer writes check to A1.
             {
-                uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+                uint256 const checkId{getCheckIndex(env, G1, env.seq(G1))};
                 env(check::create(G1, A1, USD(10)));
                 env.close();
                 env(check::cash(A1, checkId, USD(10)), ter(tecFROZEN));
@@ -1503,7 +1503,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: A2 writes check to A1.
             {
-                uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+                uint256 const checkId{getCheckIndex(env, A2, env.seq(A2))};
                 env(check::create(A2, A1, USD(10)));
                 env.close();
                 // Same as previous test
@@ -1529,10 +1529,10 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, A1["USD"](0), tfClearFreeze));
             env.close();
 
-            uint256 const checkId1{getCheckIndex(A1, env.seq(A1))};
+            uint256 const checkId1{getCheckIndex(env, A1, env.seq(A1))};
             env(check::create(A1, G1, USD(10)));
             env.close();
-            uint256 const checkId2{getCheckIndex(A1, env.seq(A1))};
+            uint256 const checkId2{getCheckIndex(env, A1, env.seq(A1))};
             env(check::create(A1, A2, USD(10)));
             env.close();
 
@@ -1564,7 +1564,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: issuer writes check to A1.
             {
-                uint256 const checkId{getCheckIndex(G1, env.seq(G1))};
+                uint256 const checkId{getCheckIndex(env, G1, env.seq(G1))};
                 env(check::create(G1, A1, USD(10)));
                 env.close();
 
@@ -1574,7 +1574,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: A2 writes check to A1.
             {
-                uint256 const checkId{getCheckIndex(A2, env.seq(A2))};
+                uint256 const checkId{getCheckIndex(env, A2, env.seq(A2))};
                 env(check::create(A2, A1, USD(10)));
                 env.close();
                 // Same as previous test
@@ -1600,10 +1600,10 @@ class Freeze_test : public beast::unit_test::suite
             env(trust(G1, A1["USD"](0), tfClearFreeze | tfClearDeepFreeze));
             env.close();
 
-            uint256 const checkId1{getCheckIndex(A1, env.seq(A1))};
+            uint256 const checkId1{getCheckIndex(env, A1, env.seq(A1))};
             env(check::create(A1, G1, USD(10)));
             env.close();
-            uint256 const checkId2{getCheckIndex(A1, env.seq(A1))};
+            uint256 const checkId2{getCheckIndex(env, A1, env.seq(A1))};
             env(check::create(A1, A2, USD(10)));
             env.close();
 
@@ -1646,7 +1646,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: A1 writes check to issuer
             {
-                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                uint256 const checkId{getCheckIndex(env, A1, env.seq(A1))};
                 env(check::create(A1, G1, USD(10)));
                 env.close();
                 env(check::cash(G1, checkId, USD(10)));
@@ -1655,7 +1655,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: A1 writes check to A2
             {
-                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                uint256 const checkId{getCheckIndex(env, A1, env.seq(A1))};
                 env(check::create(A1, A2, USD(10)));
                 env.close();
                 env(check::cash(A2, checkId, USD(10)));
@@ -1687,7 +1687,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: A1 writes check to issuer
             {
-                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                uint256 const checkId{getCheckIndex(env, A1, env.seq(A1))};
                 env(check::create(A1, G1, USD(10)));
                 env.close();
                 env(check::cash(G1, checkId, USD(10)), ter(tecPATH_PARTIAL));
@@ -1696,7 +1696,7 @@ class Freeze_test : public beast::unit_test::suite
 
             // test: A1 writes check to A2
             {
-                uint256 const checkId{getCheckIndex(A1, env.seq(A1))};
+                uint256 const checkId{getCheckIndex(env, A1, env.seq(A1))};
                 env(check::create(A1, A2, USD(10)));
                 env.close();
                 env(check::cash(A2, checkId, USD(10)), ter(tecPATH_PARTIAL));
@@ -1885,9 +1885,14 @@ class Freeze_test : public beast::unit_test::suite
 
     // Helper function that returns the index of the next check on account
     uint256
-    getCheckIndex(AccountID const& account, std::uint32_t uSequence)
+    getCheckIndex(
+        test::jtx::Env& env,
+        AccountID const& account,
+        std::uint32_t uSequence)
     {
-        return keylet::check(account, uSequence).key;
+        return keylet::check(
+                   hash_options{(env.current()->seq())}, account, uSequence)
+            .key;
     }
 
     uint256
@@ -1902,7 +1907,9 @@ class Freeze_test : public beast::unit_test::suite
         env.close();
 
         uint256 const sellOfferIndex =
-            keylet::nftoffer(account, env.seq(account)).key;
+            keylet::nftoffer(
+                hash_options{(env.current()->seq())}, account, env.seq(account))
+                .key;
         env(token::createOffer(account, nftID, currency),
             txflags(tfSellNFToken));
         env.close();

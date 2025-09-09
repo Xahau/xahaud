@@ -47,14 +47,16 @@ SHAMapLeafNode::peekItem() const
 }
 
 bool
-SHAMapLeafNode::setItem(boost::intrusive_ptr<SHAMapItem const> item)
+SHAMapLeafNode::setItem(
+    boost::intrusive_ptr<SHAMapItem const> item,
+    hash_options const& opts)
 {
     assert(cowid_ != 0);
     item_ = std::move(item);
 
     auto const oldHash = hash_;
 
-    updateHash();
+    updateHash(opts);
 
     return (oldHash != hash_);
 }

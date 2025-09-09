@@ -155,7 +155,7 @@ InboundLedger::init(ScopedLockType& collectionLock)
 
     JLOG(journal_.debug()) << "Acquiring ledger we already have in "
                            << " local store. " << hash_;
-    assert(mLedger->read(keylet::fees()));
+    assert(mLedger->read(keylet::fees(hash_options{(mLedger->seq())})));
     mLedger->setImmutable();
 
     if (mReason == Reason::HISTORY || mReason == Reason::SHARD)
@@ -417,7 +417,7 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
     {
         JLOG(journal_.debug()) << "Had everything locally";
         complete_ = true;
-        assert(mLedger->read(keylet::fees()));
+        assert(mLedger->read(keylet::fees(hash_options{(mLedger->seq())})));
         mLedger->setImmutable();
     }
 }
@@ -515,7 +515,7 @@ InboundLedger::done()
 
     if (complete_ && !failed_ && mLedger)
     {
-        assert(mLedger->read(keylet::fees()));
+        assert(mLedger->read(keylet::fees(hash_options{(mLedger->seq())})));
         mLedger->setImmutable();
         switch (mReason)
         {

@@ -331,7 +331,8 @@ DirectIPaymentStep::quality(ReadView const& sb, QualityDirection qDir) const
     if (src_ == dst_)
         return QUALITY_ONE;
 
-    auto const sle = sb.read(keylet::line(dst_, src_, currency_));
+    auto const sle =
+        sb.read(keylet::line(hash_options{(sb.seq())}, dst_, src_, currency_));
 
     if (!sle)
         return QUALITY_ONE;
@@ -408,7 +409,8 @@ DirectIPaymentStep::check(
     // Since this is a payment a trust line must be present.  Perform all
     // trust line related checks.
     {
-        auto const sleLine = ctx.view.read(keylet::line(src_, dst_, currency_));
+        auto const sleLine = ctx.view.read(keylet::line(
+            hash_options{(ctx.view.seq())}, src_, dst_, currency_));
         if (!sleLine)
         {
             JLOG(j_.trace()) << "DirectStepI: No credit line. " << *this;
@@ -887,7 +889,8 @@ DirectStepI<TDerived>::check(StrandContext const& ctx) const
         return temBAD_PATH;
     }
 
-    auto const sleSrc = ctx.view.read(keylet::account(src_));
+    auto const sleSrc =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, src_));
     if (!sleSrc)
     {
         JLOG(j_.warn())

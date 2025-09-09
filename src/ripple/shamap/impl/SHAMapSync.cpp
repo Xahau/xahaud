@@ -539,7 +539,7 @@ SHAMap::addRootNode(
     }
 
     assert(cowid_ >= 1);
-    auto node = SHAMapTreeNode::makeFromWire(rootNode);
+    auto node = SHAMapTreeNode::makeFromWire(rootNode, ledgerSeq_);
     if (!node || node->getHash() != hash)
         return SHAMapAddNode::invalid();
 
@@ -609,7 +609,7 @@ SHAMap::addKnownNode(
 
         if (iNode == nullptr)
         {
-            auto newNode = SHAMapTreeNode::makeFromWire(rawNode);
+            auto newNode = SHAMapTreeNode::makeFromWire(rawNode, ledgerSeq_);
 
             if (!newNode || childHash != newNode->getHash())
             {
@@ -826,7 +826,8 @@ bool
 SHAMap::verifyProofPath(
     uint256 const& rootHash,
     uint256 const& key,
-    std::vector<Blob> const& path)
+    std::vector<Blob> const& path,
+    std::uint32_t ledgerSeq)
 {
     if (path.empty() || path.size() > 65)
         return false;
@@ -837,10 +838,11 @@ SHAMap::verifyProofPath(
         for (auto rit = path.rbegin(); rit != path.rend(); ++rit)
         {
             auto const& blob = *rit;
-            auto node = SHAMapTreeNode::makeFromWire(makeSlice(blob));
+            auto node =
+                SHAMapTreeNode::makeFromWire(makeSlice(blob), ledgerSeq);
             if (!node)
                 return false;
-            node->updateHash();
+            node->updateHash(hash_options{ledgerSeq});
             if (node->getHash() != hash)
                 return false;
 

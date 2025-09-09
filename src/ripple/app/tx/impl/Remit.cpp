@@ -249,14 +249,15 @@ Remit::doApply()
 
     auto const srcAccID = ctx_.tx[sfAccount];
 
-    auto sleSrcAcc = sb.peek(keylet::account(srcAccID));
+    auto sleSrcAcc =
+        sb.peek(keylet::account(hash_options{(sb.seq())}, srcAccID));
     if (!sleSrcAcc)
         return terNO_ACCOUNT;
 
     if (ctx_.tx.isFieldPresent(sfInform))
     {
         auto const informAcc = ctx_.tx.getAccountID(sfInform);
-        if (!sb.exists(keylet::account(informAcc)))
+        if (!sb.exists(keylet::account(hash_options{(sb.seq())}, informAcc)))
         {
             JLOG(j.warn()) << "Remit: sfInform account does not exist.";
             return tecNO_TARGET;
@@ -280,7 +281,8 @@ Remit::doApply()
     XRPAmount nativeRemit{0};
 
     AccountID const dstAccID{ctx_.tx[sfDestination]};
-    auto sleDstAcc = sb.peek(keylet::account(dstAccID));
+    auto sleDstAcc =
+        sb.peek(keylet::account(hash_options{(sb.seq())}, dstAccID));
     auto const flags = !sleDstAcc ? 0 : sleDstAcc->getFlags();
 
     // Check if the destination has disallowed incoming
@@ -292,7 +294,8 @@ Remit::doApply()
     bool const depositAuth{sb.rules().enabled(featureDepositAuth)};
     if (depositAuth && sleDstAcc && (flags & lsfDepositAuth))
     {
-        if (!sb.exists(keylet::depositPreauth(dstAccID, srcAccID)))
+        if (!sb.exists(keylet::depositPreauth(
+                hash_options{(sb.seq())}, dstAccID, srcAccID)))
             return tecNO_PERMISSION;
     }
 
@@ -321,16 +324,17 @@ Remit::doApply()
                 ? sb.info().parentCloseTime.time_since_epoch().count()
                 : sb.rules().enabled(featureDeletableAccounts) ? sb.seq() : 1};
 
-        sleDstAcc = std::make_shared<SLE>(keylet::account(dstAccID));
+        sleDstAcc = std::make_shared<SLE>(
+            keylet::account(hash_options{(sb.seq())}, dstAccID));
         sleDstAcc->setAccountID(sfAccount, dstAccID);
 
         sleDstAcc->setFieldU32(sfSequence, seqno);
         sleDstAcc->setFieldU32(sfOwnerCount, 0);
 
-        if (sb.exists(keylet::fees()) &&
+        if (sb.exists(keylet::fees(hash_options{(sb.seq())})) &&
             sb.rules().enabled(featureXahauGenesis))
         {
-            auto sleFees = sb.peek(keylet::fees());
+            auto sleFees = sb.peek(keylet::fees(hash_options{(sb.seq())}));
             uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount)
                 ? sleFees->getFieldU64(sfAccountCount)
                 : 0;
@@ -361,7 +365,8 @@ Remit::doApply()
         if (mint.isFieldPresent(sfDigest))
             mintDigest = mint.getFieldH256(sfDigest);
 
-        Keylet kl = keylet::uritoken(srcAccID, mintURI);
+        Keylet kl =
+            keylet::uritoken(hash_options{(sb.seq())}, srcAccID, mintURI);
 
         // check that it doesn't already exist
         if (sb.exists(kl))
@@ -386,7 +391,9 @@ Remit::doApply()
             mint.isFieldPresent(sfFlags) ? mint.getFieldU32(sfFlags) : 0);
 
         auto const page = sb.dirInsert(
-            keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));
+            keylet::ownerDir(hash_options{(sb.seq())}, dstAccID),
+            kl,
+            describeOwnerDir(dstAccID));
 
         JLOG(j_.trace()) << "Adding URIToken to owner directory "
                          << to_string(kl.key) << ": "
@@ -454,7 +461,10 @@ Remit::doApply()
             {
                 auto const page = (*sleU)[sfOwnerNode];
                 if (!sb.dirRemove(
-                        keylet::ownerDir(srcAccID), page, kl.key, true))
+                        keylet::ownerDir(hash_options{(sb.seq())}, srcAccID),
+                        page,
+                        kl.key,
+                        true))
                 {
                     JLOG(j.fatal())
                         << "Could not remove URIToken from owner directory";
@@ -467,7 +477,9 @@ Remit::doApply()
             // add to dest dir
             {
                 auto const page = sb.dirInsert(
-                    keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));
+                    keylet::ownerDir(hash_options{(sb.seq())}, dstAccID),
+                    kl,
+                    describeOwnerDir(dstAccID));
 
                 JLOG(j_.trace()) << "Adding URIToken to owner directory "
                                  << to_string(kl.key) << ": "
@@ -551,8 +563,11 @@ Remit::doApply()
 
             // if the target trustline doesn't exist we need to create it and
             // pay its reserve
-            if (!sb.exists(
-                    keylet::line(dstAccID, issuerAccID, amount.getCurrency())))
+            if (!sb.exists(keylet::line(
+                    hash_options{(sb.seq())},
+                    dstAccID,
+                    issuerAccID,
+                    amount.getCurrency())))
             {
                 if (nativeRemit + objectReserve < nativeRemit)
                     return tecINTERNAL;

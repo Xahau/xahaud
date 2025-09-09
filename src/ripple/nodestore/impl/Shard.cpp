@@ -710,7 +710,9 @@ Shard::finalize(bool writeSQLite, std::optional<uint256> const& referenceHash)
         if (writeSQLite && !storeSQLite(ledger))
             return fail("failed storing to SQLite databases");
 
-        assert(ledger->info().seq == ledgerSeq && ledger->read(keylet::fees()));
+        assert(
+            ledger->info().seq == ledgerSeq &&
+            ledger->read(keylet::fees(hash_options{(ledger->seq())})));
 
         hash = ledger->info().parentHash;
         next = std::move(ledger);

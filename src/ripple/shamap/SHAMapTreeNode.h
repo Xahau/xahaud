@@ -25,6 +25,7 @@
 #include <ripple/basics/TaggedCache.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/protocol/Serializer.h>
+#include <ripple/protocol/digest.h>
 #include <ripple/shamap/SHAMapItem.h>
 #include <ripple/shamap/SHAMapNodeID.h>
 
@@ -138,7 +139,7 @@ public:
 
     /** Recalculate the hash of this node. */
     virtual void
-    updateHash() = 0;
+    updateHash(hash_options const& opts) = 0;
 
     /** Return the hash of this node. */
     SHAMapHash const&
@@ -174,20 +175,35 @@ public:
     invariants(bool is_root = false) const = 0;
 
     static std::shared_ptr<SHAMapTreeNode>
-    makeFromPrefix(Slice rawNode, SHAMapHash const& hash);
+    makeFromPrefix(
+        Slice rawNode,
+        SHAMapHash const& hash,
+        std::uint32_t ledgerSeq);
 
     static std::shared_ptr<SHAMapTreeNode>
-    makeFromWire(Slice rawNode);
+    makeFromWire(Slice rawNode, std::uint32_t ledgerSeq);
 
 private:
     static std::shared_ptr<SHAMapTreeNode>
-    makeTransaction(Slice data, SHAMapHash const& hash, bool hashValid);
+    makeTransaction(
+        Slice data,
+        SHAMapHash const& hash,
+        bool hashValid,
+        std::uint32_t ledgerSeq);
 
     static std::shared_ptr<SHAMapTreeNode>
-    makeAccountState(Slice data, SHAMapHash const& hash, bool hashValid);
+    makeAccountState(
+        Slice data,
+        SHAMapHash const& hash,
+        bool hashValid,
+        std::uint32_t ledgerSeq);
 
     static std::shared_ptr<SHAMapTreeNode>
-    makeTransactionWithMeta(Slice data, SHAMapHash const& hash, bool hashValid);
+    makeTransactionWithMeta(
+        Slice data,
+        SHAMapHash const& hash,
+        bool hashValid,
+        std::uint32_t ledgerSeq);
 };
 
 }  // namespace ripple

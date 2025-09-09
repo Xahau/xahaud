@@ -28,6 +28,7 @@
 #include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/Serializer.h>
 #include <ripple/protocol/UintTypes.h>
+#include <ripple/protocol/digest.h>
 #include <cstdint>
 
 namespace ripple {
@@ -53,43 +54,50 @@ namespace keylet {
 
 /** The (fixed) index of the object containing the emitted txns for the ledger.
  */
-Keylet const&
-emittedDir() noexcept;
+Keylet
+emittedDir(hash_options const& opts) noexcept;
 
 Keylet
-emittedTxn(uint256 const& id) noexcept;
+emittedTxn(hash_options const& opts, uint256 const& id) noexcept;
 
 Keylet
-hookDefinition(uint256 const& hash) noexcept;
+hookDefinition(hash_options const& opts, uint256 const& hash) noexcept;
 
 Keylet
-hook(AccountID const& id) noexcept;
+hook(hash_options const& opts, AccountID const& id) noexcept;
 
 Keylet
-hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept;
+hookState(
+    hash_options const& opts,
+    AccountID const& id,
+    uint256 const& key,
+    uint256 const& ns) noexcept;
 
 Keylet
-hookStateDir(AccountID const& id, uint256 const& ns) noexcept;
+hookStateDir(
+    hash_options const& opts,
+    AccountID const& id,
+    uint256 const& ns) noexcept;
 
 /** AccountID root */
 Keylet
-account(AccountID const& id) noexcept;
+account(hash_options const& opts, AccountID const& id) noexcept;
 
 /** The index of the amendment table */
-Keylet const&
-amendments() noexcept;
+Keylet
+amendments(hash_options const& opts) noexcept;
 
 /** Any item that can be in an owner dir. */
 Keylet
-child(uint256 const& key) noexcept;
+child(hash_options const& opts, uint256 const& key) noexcept;
 
 /** The index of the "short" skip list
 
     The "short" skip list is a node (at a fixed index) that holds the hashes
     of ledgers since the last flag ledger. It will contain, at most, 256 hashes.
 */
-Keylet const&
-skip() noexcept;
+Keylet
+skip(hash_options const& opts) noexcept;
 
 /** The index of the long skip for a particular ledger range.
 
@@ -102,18 +110,18 @@ skip() noexcept;
     contain the hash of the requested ledger.
 */
 Keylet
-skip(LedgerIndex ledger) noexcept;
+skip(hash_options const& opts, LedgerIndex ledger) noexcept;
 
 /** The (fixed) index of the object containing the ledger fees. */
-Keylet const&
-fees() noexcept;
+Keylet
+fees(hash_options const& opts) noexcept;
 
 /** The (fixed) index of the object containing the ledger negativeUNL. */
-Keylet const&
-negativeUNL() noexcept;
+Keylet
+negativeUNL(hash_options const& opts) noexcept;
 
-Keylet const&
-UNLReport() noexcept;
+Keylet
+UNLReport(hash_options const& opts) noexcept;
 
 /** The beginning of an order book */
 struct book_t
@@ -121,7 +129,7 @@ struct book_t
     explicit book_t() = default;
 
     Keylet
-    operator()(Book const& b) const;
+    operator()(hash_options const& opts, Book const& b) const;
 };
 static book_t const book{};
 
@@ -135,27 +143,28 @@ static book_t const book{};
 /** @{ */
 Keylet
 line(
+    hash_options const& opts,
     AccountID const& id0,
     AccountID const& id1,
     Currency const& currency) noexcept;
 
 inline Keylet
-line(AccountID const& id, Issue const& issue) noexcept
+line(hash_options const& opts, AccountID const& id, Issue const& issue) noexcept
 {
-    return line(id, issue.account, issue.currency);
+    return line(opts, id, issue.account, issue.currency);
 }
 /** @} */
 
 /** An offer from an account */
 /** @{ */
 Keylet
-offer(AccountID const& id, UInt32or256 const& seq) noexcept;
+offer(
+    hash_options const& opts,
+    AccountID const& id,
+    UInt32or256 const& seq) noexcept;
 
-inline Keylet
-offer(uint256 const& key) noexcept
-{
-    return {ltOFFER, key};
-}
+Keylet
+offer(hash_options const& opts, uint256 const& key) noexcept;
 /** @} */
 
 /** The initial directory page for a specific quality */
@@ -178,10 +187,16 @@ struct ticket_t
     explicit ticket_t() = default;
 
     Keylet
-    operator()(AccountID const& id, std::uint32_t ticketSeq) const;
+    operator()(
+        hash_options const& opts,
+        AccountID const& id,
+        std::uint32_t ticketSeq) const;
 
     Keylet
-    operator()(AccountID const& id, SeqProxy ticketSeq) const;
+    operator()(
+        hash_options const& opts,
+        AccountID const& id,
+        SeqProxy ticketSeq) const;
 
     Keylet
     operator()(uint256 const& key) const
@@ -193,24 +208,27 @@ static ticket_t const ticket{};
 
 /** A SignerList */
 Keylet
-signers(AccountID const& account) noexcept;
+signers(hash_options const& opts, AccountID const& account) noexcept;
 
 /** A Check */
 /** @{ */
 Keylet
-check(AccountID const& id, UInt32or256 const& seq) noexcept;
+check(
+    hash_options const& opts,
+    AccountID const& id,
+    UInt32or256 const& seq) noexcept;
 
-inline Keylet
-check(uint256 const& key) noexcept
-{
-    return {ltCHECK, key};
-}
+Keylet
+check(hash_options const& opts, uint256 const& key) noexcept;
 /** @} */
 
 /** A DepositPreauth */
 /** @{ */
 Keylet
-depositPreauth(AccountID const& owner, AccountID const& preauthorized) noexcept;
+depositPreauth(
+    hash_options const& opts,
+    AccountID const& owner,
+    AccountID const& preauthorized) noexcept;
 
 inline Keylet
 depositPreauth(uint256 const& key) noexcept
@@ -227,28 +245,38 @@ unchecked(uint256 const& key) noexcept;
 
 /** The root page of an account's directory */
 Keylet
-ownerDir(AccountID const& id) noexcept;
+ownerDir(hash_options const& opts, AccountID const& id) noexcept;
 
 /** A page in a directory */
 /** @{ */
 Keylet
-page(uint256 const& root, std::uint64_t index = 0) noexcept;
+page(
+    hash_options const& opts,
+    uint256 const& root,
+    std::uint64_t index = 0) noexcept;
 
 inline Keylet
-page(Keylet const& root, std::uint64_t index = 0) noexcept
+page(
+    hash_options const& opts,
+    Keylet const& root,
+    std::uint64_t index = 0) noexcept
 {
     assert(root.type == ltDIR_NODE);
-    return page(root.key, index);
+    return page(opts, root.key, index);
 }
 /** @} */
 
 /** An escrow entry */
 Keylet
-escrow(AccountID const& src, UInt32or256 const& seq) noexcept;
+escrow(
+    hash_options const& opts,
+    AccountID const& src,
+    UInt32or256 const& seq) noexcept;
 
 /** A PaymentChannel */
 Keylet
 payChan(
+    hash_options const& opts,
     AccountID const& src,
     AccountID const& dst,
     UInt32or256 const& seq) noexcept;
@@ -263,11 +291,11 @@ payChan(
 /** @{ */
 /** A keylet for the owner's first possible NFT page. */
 Keylet
-nftpage_min(AccountID const& owner);
+nftpage_min(hash_options const& opts, AccountID const& owner);
 
 /** A keylet for the owner's last possible NFT page. */
 Keylet
-nftpage_max(AccountID const& owner);
+nftpage_max(hash_options const& opts, AccountID const& owner);
 
 Keylet
 nftpage(Keylet const& k, uint256 const& token);
@@ -275,34 +303,34 @@ nftpage(Keylet const& k, uint256 const& token);
 
 /** An offer from an account to buy or sell an NFT */
 Keylet
-nftoffer(AccountID const& owner, UInt32or256 const& seq);
+nftoffer(
+    hash_options const& opts,
+    AccountID const& owner,
+    UInt32or256 const& seq);
 
-inline Keylet
-nftoffer(uint256 const& offer)
-{
-    return {ltNFTOKEN_OFFER, offer};
-}
+Keylet
+nftoffer(hash_options const& opts, uint256 const& offer);
 
 /** The directory of buy offers for the specified NFT */
 Keylet
-nft_buys(uint256 const& id) noexcept;
+nft_buys(hash_options const& opts, uint256 const& id) noexcept;
 
 /** The directory of sell offers for the specified NFT */
 Keylet
-nft_sells(uint256 const& id) noexcept;
+nft_sells(hash_options const& opts, uint256 const& id) noexcept;
 
 Keylet
-import_vlseq(PublicKey const& key) noexcept;
+import_vlseq(hash_options const& opts, PublicKey const& key) noexcept;
 
 Keylet
-uritoken(AccountID const& issuer, Blob const& uri);
+uritoken(hash_options const& opts, AccountID const& issuer, Blob const& uri);
 
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:
 
 uint256
-getBookBase(Book const& book);
+getBookBase(hash_options const& opts, Book const& book);
 
 uint256
 getQualityNext(uint256 const& uBase);
@@ -312,10 +340,16 @@ std::uint64_t
 getQuality(uint256 const& uBase);
 
 uint256
-getTicketIndex(AccountID const& account, std::uint32_t uSequence);
+getTicketIndex(
+    hash_options const& opts,
+    AccountID const& account,
+    std::uint32_t uSequence);
 
 uint256
-getTicketIndex(AccountID const& account, SeqProxy ticketSeq);
+getTicketIndex(
+    hash_options const& opts,
+    AccountID const& account,
+    SeqProxy ticketSeq);
 
 }  // namespace ripple
 

@@ -31,18 +31,20 @@ namespace ripple {
 makeTypedLeaf(
     SHAMapNodeType type,
     boost::intrusive_ptr<SHAMapItem const> item,
-    std::uint32_t owner)
+    std::uint32_t owner,
+    std::uint32_t ledgerSeq)
 {
     if (type == SHAMapNodeType::tnTRANSACTION_NM)
-        return std::make_shared<SHAMapTxLeafNode>(std::move(item), owner);
+        return std::make_shared<SHAMapTxLeafNode>(
+            std::move(item), owner, ledgerSeq);
 
     if (type == SHAMapNodeType::tnTRANSACTION_MD)
         return std::make_shared<SHAMapTxPlusMetaLeafNode>(
-            std::move(item), owner);
+            std::move(item), owner, ledgerSeq);
 
     if (type == SHAMapNodeType::tnACCOUNT_STATE)
         return std::make_shared<SHAMapAccountStateLeafNode>(
-            std::move(item), owner);
+            std::move(item), owner, ledgerSeq);
 
     LogicError(
         "Attempt to create leaf node of unknown type " +
@@ -186,8 +188,8 @@ SHAMap::finishFetch(
             return {};
         }
 
-        auto node =
-            SHAMapTreeNode::makeFromPrefix(makeSlice(object->getData()), hash);
+        auto node = SHAMapTreeNode::makeFromPrefix(
+            makeSlice(object->getData()), hash, ledgerSeq_);
         if (node)
             canonicalize(hash, node);
         return node;
@@ -213,8 +215,8 @@ SHAMap::checkFilter(SHAMapHash const& hash, SHAMapSyncFilter* filter) const
     {
         try
         {
-            auto node =
-                SHAMapTreeNode::makeFromPrefix(makeSlice(*nodeData), hash);
+            auto node = SHAMapTreeNode::makeFromPrefix(
+                makeSlice(*nodeData), hash, ledgerSeq_);
             if (node)
             {
                 filter->gotNode(
@@ -796,7 +798,8 @@ SHAMap::delItem(uint256 const& id)
                         }
                     }
 
-                    prevNode = makeTypedLeaf(type, item, node->cowid());
+                    prevNode =
+                        makeTypedLeaf(type, item, node->cowid(), ledgerSeq_);
                 }
                 else
                 {
@@ -847,7 +850,8 @@ SHAMap::addGiveItem(
         auto inner = std::static_pointer_cast<SHAMapInnerNode>(node);
         int branch = selectBranch(nodeID, tag);
         assert(inner->isEmptyBranch(branch));
-        inner->setChild(branch, makeTypedLeaf(type, std::move(item), cowid_));
+        inner->setChild(
+            branch, makeTypedLeaf(type, std::move(item), cowid_, ledgerSeq_));
     }
     else
     {
@@ -876,8 +880,10 @@ SHAMap::addGiveItem(
         assert(node->isInner());
 
         auto inner = static_cast<SHAMapInnerNode*>(node.get());
-        inner->setChild(b1, makeTypedLeaf(type, std::move(item), cowid_));
-        inner->setChild(b2, makeTypedLeaf(type, std::move(otherItem), cowid_));
+        inner->setChild(
+            b1, makeTypedLeaf(type, std::move(item), cowid_, ledgerSeq_));
+        inner->setChild(
+            b2, makeTypedLeaf(type, std::move(otherItem), cowid_, ledgerSeq_));
     }
 
     dirtyUp(stack, tag, node);
@@ -938,7 +944,7 @@ SHAMap::updateGiveItem(
 
     node = unshareNode(std::move(node), nodeID);
 
-    if (node->setItem(item))
+    if (node->setItem(item, hash_options{ledgerSeq_}))
         dirtyUp(stack, tag, node);
 
     return true;
@@ -1052,7 +1058,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
     if (root_->isLeaf())
     {  // special case -- root_ is leaf
         root_ = preFlushNode(std::move(root_));
-        root_->updateHash();
+        root_->updateHash(hash_options{ledgerSeq_});
         root_->unshare();
 
         if (doWrite)
@@ -1118,7 +1124,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
                         ++flushed;
 
                         assert(node->cowid() == cowid_);
-                        child->updateHash();
+                        child->updateHash(hash_options{ledgerSeq_});
                         child->unshare();
 
                         if (doWrite)
@@ -1131,7 +1137,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
         }
 
         // update the hash of this inner node
-        node->updateHashDeep();
+        node->updateHashDeep(hash_options{ledgerSeq_});
 
         // This inner node can now be shared
         node->unshare();

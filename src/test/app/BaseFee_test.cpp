@@ -117,9 +117,14 @@ class BaseFee_test : public beast::unit_test::suite
     }
 
     static uint256
-    getCheckIndex(AccountID const& account, std::uint32_t uSequence)
+    getCheckIndex(
+        test::jtx::Env& env,
+        AccountID const& account,
+        std::uint32_t uSequence)
     {
-        return keylet::check(account, uSequence).key;
+        return keylet::check(
+                   hash_options{(env.current()->seq())}, account, uSequence)
+            .key;
     }
 
     void
@@ -137,7 +142,7 @@ class BaseFee_test : public beast::unit_test::suite
         env.close();
 
         // build tx
-        uint256 const checkId{getCheckIndex(account, env.seq(account))};
+        uint256 const checkId{getCheckIndex(env, account, env.seq(account))};
         auto tx = check::cancel(account, checkId);
 
         // verify hooks fee
@@ -162,7 +167,7 @@ class BaseFee_test : public beast::unit_test::suite
         env.close();
 
         // build tx
-        uint256 const checkId{getCheckIndex(account, env.seq(account))};
+        uint256 const checkId{getCheckIndex(env, account, env.seq(account))};
         auto tx = check::cash(dest, checkId, XRP(100));
 
         // verify hooks fee
@@ -436,11 +441,13 @@ class BaseFee_test : public beast::unit_test::suite
 
     static uint256
     channel(
+        test::jtx::Env& env,
         jtx::Account const& account,
         jtx::Account const& dst,
         std::uint32_t seqProxyValue)
     {
-        auto const k = keylet::payChan(account, dst, seqProxyValue);
+        auto const k = keylet::payChan(
+            hash_options{(env.current()->seq())}, account, dst, seqProxyValue);
         return k.key;
     }
 
@@ -460,7 +467,7 @@ class BaseFee_test : public beast::unit_test::suite
         env.close();
 
         // build tx
-        auto const chan = channel(account, dest, env.seq(account));
+        auto const chan = channel(env, account, dest, env.seq(account));
         auto const delta = XRP(1);
         auto const reqBal = delta;
         auto const authAmt = reqBal + XRP(1);
@@ -514,7 +521,7 @@ class BaseFee_test : public beast::unit_test::suite
         env.close();
 
         // build tx
-        auto const chan = channel(account, dest, env.seq(account));
+        auto const chan = channel(env, account, dest, env.seq(account));
         auto tx = paychan::fund(account, chan, XRP(1));
 
         // verify hooks fee

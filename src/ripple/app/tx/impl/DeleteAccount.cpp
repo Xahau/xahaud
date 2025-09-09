@@ -147,7 +147,7 @@ removeGeneric(
         return tesSUCCESS;
 
     if (!view.dirRemove(
-            keylet::ownerDir(account),
+            keylet::ownerDir(hash_options{(view.seq())}, account),
             (*sleDel)[sfOwnerNode],
             sleDel->key(),
             false))
@@ -155,7 +155,7 @@ removeGeneric(
 
     adjustOwnerCount(
         view,
-        view.peek(keylet::account(account)),
+        view.peek(keylet::account(hash_options{(view.seq())}, account)),
         -1,
         beast::Journal{beast::Journal::getNullSink()});
 
@@ -196,7 +196,8 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     AccountID const account{ctx.tx[sfAccount]};
     AccountID const dst{ctx.tx[sfDestination]};
 
-    auto sleDst = ctx.view.read(keylet::account(dst));
+    auto sleDst =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, dst));
 
     if (!sleDst)
         return tecNO_DST;
@@ -208,11 +209,13 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     if (ctx.view.rules().enabled(featureDepositAuth) &&
         (sleDst->getFlags() & lsfDepositAuth))
     {
-        if (!ctx.view.exists(keylet::depositPreauth(dst, account)))
+        if (!ctx.view.exists(keylet::depositPreauth(
+                hash_options{(ctx.view.seq())}, dst, account)))
             return tecNO_PERMISSION;
     }
 
-    auto sleAccount = ctx.view.read(keylet::account(account));
+    auto sleAccount =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, account));
     assert(sleAccount);
     if (!sleAccount)
         return terNO_ACCOUNT;
@@ -238,8 +241,10 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
             return tecHAS_OBLIGATIONS;
 
         // If the account owns any NFTs it cannot be deleted.
-        Keylet const first = keylet::nftpage_min(account);
-        Keylet const last = keylet::nftpage_max(account);
+        Keylet const first =
+            keylet::nftpage_min(hash_options{(ctx.view.seq())}, account);
+        Keylet const last =
+            keylet::nftpage_max(hash_options{(ctx.view.seq())}, account);
 
         auto const cp = ctx.view.read(Keylet(
             ltNFTOKEN_PAGE,
@@ -288,7 +293,8 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
 
     // Verify that the account does not own any objects that would prevent
     // the account from being deleted.
-    Keylet const ownerDirKeylet{keylet::ownerDir(account)};
+    Keylet const ownerDirKeylet{
+        keylet::ownerDir(hash_options{(ctx.view.seq())}, account)};
     if (dirIsEmpty(ctx.view, ownerDirKeylet))
         return tesSUCCESS;
 
@@ -307,7 +313,8 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     {
         // Make sure any directory node types that we find are the kind
         // we can delete.
-        auto sleItem = ctx.view.read(keylet::child(dirEntry));
+        auto sleItem = ctx.view.read(
+            keylet::child(hash_options{(ctx.view.seq())}, dirEntry));
         if (!sleItem)
         {
             // Directory node has an invalid index.  Bail out.
@@ -338,10 +345,12 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
 TER
 DeleteAccount::doApply()
 {
-    auto src = view().peek(keylet::account(account_));
+    auto src =
+        view().peek(keylet::account(hash_options{(view().seq())}, account_));
     assert(src);
 
-    auto dst = view().peek(keylet::account(ctx_.tx[sfDestination]));
+    auto dst = view().peek(
+        keylet::account(hash_options{(view().seq())}, ctx_.tx[sfDestination]));
     assert(dst);
 
     if (!src || !dst)
@@ -355,7 +364,8 @@ DeleteAccount::doApply()
         return tecHAS_OBLIGATIONS;
 
     // Delete all of the entries in the account directory.
-    Keylet const ownerDirKeylet{keylet::ownerDir(account_)};
+    Keylet const ownerDirKeylet{
+        keylet::ownerDir(hash_options{(view().seq())}, account_)};
     std::shared_ptr<SLE> sleDirNode{};
     unsigned int uDirEntry{0};
     uint256 dirEntry{beast::zero};
@@ -366,7 +376,8 @@ DeleteAccount::doApply()
         do
         {
             // Choose the right way to delete each directory node.
-            auto sleItem = view().peek(keylet::child(dirEntry));
+            auto sleItem = view().peek(
+                keylet::child(hash_options{(view().seq())}, dirEntry));
             if (!sleItem)
             {
                 // Directory node has an invalid index.  Bail out.

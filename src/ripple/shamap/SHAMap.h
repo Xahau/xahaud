@@ -307,7 +307,8 @@ public:
     verifyProofPath(
         uint256 const& rootHash,
         uint256 const& key,
-        std::vector<Blob> const& path);
+        std::vector<Blob> const& path,
+        std::uint32_t ledgerSeq);
 
     /** Serializes the root in a format appropriate for sending over the wire */
     void

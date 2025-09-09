@@ -109,7 +109,8 @@ doAccountLines(RPC::JsonContext& context)
     }
     auto const accountID{std::move(id.value())};
 
-    if (!ledger->exists(keylet::account(accountID)))
+    if (!ledger->exists(
+            keylet::account(hash_options{(ledger->seq())}, accountID)))
         return rpcError(rpcACT_NOT_FOUND);
 
     std::string strPeer;

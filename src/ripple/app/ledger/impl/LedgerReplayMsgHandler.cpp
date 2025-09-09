@@ -133,7 +133,7 @@ LedgerReplayMsgHandler::processProofPathResponse(
     info.hash = replyHash;
 
     uint256 key(reply.key());
-    if (key != keylet::skip().key)
+    if (key != keylet::skip(hash_options{(info.seq)}).key)
     {
         JLOG(journal_.debug())
             << "Bad message: we only support the short skip list for now. "
@@ -150,14 +150,16 @@ LedgerReplayMsgHandler::processProofPathResponse(
         path.emplace_back(reply.path(i).begin(), reply.path(i).end());
     }
 
-    if (!SHAMap::verifyProofPath(info.accountHash, key, path))
+    if (!SHAMap::verifyProofPath(
+            info.accountHash, key, path, static_cast<std::uint32_t>(info.seq)))
     {
         JLOG(journal_.debug()) << "Bad message: Proof path verify failed";
         return false;
     }
 
     // deserialize the SHAMapItem
-    auto node = SHAMapTreeNode::makeFromWire(makeSlice(path.front()));
+    auto node = SHAMapTreeNode::makeFromWire(
+        makeSlice(path.front()), static_cast<std::uint32_t>(info.seq));
     if (!node || !node->isLeaf())
     {
         JLOG(journal_.debug()) << "Bad message: Cannot deserialize";

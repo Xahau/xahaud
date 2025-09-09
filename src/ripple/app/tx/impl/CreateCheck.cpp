@@ -83,7 +83,8 @@ TER
 CreateCheck::preclaim(PreclaimContext const& ctx)
 {
     AccountID const dstId{ctx.tx[sfDestination]};
-    auto const sleDst = ctx.view.read(keylet::account(dstId));
+    auto const sleDst =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, dstId));
     if (!sleDst)
     {
         JLOG(ctx.j.warn()) << "Destination account does not exist.";
@@ -125,8 +126,11 @@ CreateCheck::preclaim(PreclaimContext const& ctx)
             if (issuerId != srcId)
             {
                 // Check if the issuer froze the line
-                auto const sleTrust = ctx.view.read(
-                    keylet::line(srcId, issuerId, sendMax.getCurrency()));
+                auto const sleTrust = ctx.view.read(keylet::line(
+                    hash_options{(ctx.view.seq())},
+                    srcId,
+                    issuerId,
+                    sendMax.getCurrency()));
                 if (sleTrust &&
                     sleTrust->isFlag(
                         (issuerId > srcId) ? lsfHighFreeze : lsfLowFreeze))
@@ -139,8 +143,11 @@ CreateCheck::preclaim(PreclaimContext const& ctx)
             if (issuerId != dstId)
             {
                 // Check if dst froze the line.
-                auto const sleTrust = ctx.view.read(
-                    keylet::line(issuerId, dstId, sendMax.getCurrency()));
+                auto const sleTrust = ctx.view.read(keylet::line(
+                    hash_options{(ctx.view.seq())},
+                    issuerId,
+                    dstId,
+                    sendMax.getCurrency()));
                 if (sleTrust &&
                     sleTrust->isFlag(
                         (dstId > issuerId) ? lsfHighFreeze : lsfLowFreeze))
@@ -163,7 +170,8 @@ CreateCheck::preclaim(PreclaimContext const& ctx)
 TER
 CreateCheck::doApply()
 {
-    auto const sle = view().peek(keylet::account(account_));
+    auto const sle =
+        view().peek(keylet::account(hash_options{(view().seq())}, account_));
     if (!sle)
         return tefINTERNAL;
 
@@ -182,7 +190,8 @@ CreateCheck::doApply()
     // Check sequence.  For more explanation see comments in SeqProxy.h.
     std::uint32_t const seq = ctx_.tx.getSeqProxy().value();
 
-    Keylet const checkKeylet = keylet::check(account_, seqID(ctx_));
+    Keylet const checkKeylet =
+        keylet::check(hash_options{(view().seq())}, account_, seqID(ctx_));
 
     auto sleCheck = std::make_shared<SLE>(checkKeylet);
 
@@ -208,7 +217,7 @@ CreateCheck::doApply()
     if (dstAccountId != account_)
     {
         auto const page = view().dirInsert(
-            keylet::ownerDir(dstAccountId),
+            keylet::ownerDir(hash_options{(view().seq())}, dstAccountId),
             checkKeylet,
             describeOwnerDir(dstAccountId));
 
@@ -224,7 +233,7 @@ CreateCheck::doApply()
 
     {
         auto const page = view().dirInsert(
-            keylet::ownerDir(account_),
+            keylet::ownerDir(hash_options{(view().seq())}, account_),
             checkKeylet,
             describeOwnerDir(account_));
 

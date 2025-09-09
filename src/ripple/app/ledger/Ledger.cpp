@@ -195,7 +195,8 @@ Ledger::Ledger(
         generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
             .first);
     {
-        auto const sle = std::make_shared<SLE>(keylet::account(id));
+        auto const sle = std::make_shared<SLE>(
+            keylet::account(hash_options{(info_.seq)}, id));
         sle->setFieldU32(sfSequence, 1);
         sle->setAccountID(sfAccount, id);
         sle->setFieldAmount(sfBalance, info_.drops);
@@ -204,7 +205,8 @@ Ledger::Ledger(
 
     if (!amendments.empty())
     {
-        auto const sle = std::make_shared<SLE>(keylet::amendments());
+        auto const sle = std::make_shared<SLE>(
+            keylet::amendments(hash_options{(info_.seq)}));
 
         // filter out XahauGenesis, which should be always activated with an
         // EnableAmendment txn
@@ -219,7 +221,8 @@ Ledger::Ledger(
     }
 
     {
-        auto sle = std::make_shared<SLE>(keylet::fees());
+        auto sle =
+            std::make_shared<SLE>(keylet::fees(hash_options{(info_.seq)}));
         sle->setFieldU32(sfNetworkID, config.NETWORK_ID);
 
         // Whether featureXRPFees is supported will depend on startup options.
@@ -664,7 +667,7 @@ Ledger::setup()
 
     try
     {
-        if (auto const sle = read(keylet::fees()))
+        if (auto const sle = read(keylet::fees(hash_options{(seq())})))
         {
             bool oldFees = false;
             bool newFees = false;
@@ -750,7 +753,7 @@ hash_set<PublicKey>
 Ledger::negativeUNL() const
 {
     hash_set<PublicKey> negUnl;
-    if (auto sle = read(keylet::negativeUNL());
+    if (auto sle = read(keylet::negativeUNL(hash_options{(seq())}));
         sle && sle->isFieldPresent(sfDisabledValidators))
     {
         auto const& nUnlData = sle->getFieldArray(sfDisabledValidators);
@@ -775,7 +778,7 @@ Ledger::negativeUNL() const
 std::optional<PublicKey>
 Ledger::validatorToDisable() const
 {
-    if (auto sle = read(keylet::negativeUNL());
+    if (auto sle = read(keylet::negativeUNL(hash_options{(seq())}));
         sle && sle->isFieldPresent(sfValidatorToDisable))
     {
         auto d = sle->getFieldVL(sfValidatorToDisable);
@@ -790,7 +793,7 @@ Ledger::validatorToDisable() const
 std::optional<PublicKey>
 Ledger::validatorToReEnable() const
 {
-    if (auto sle = read(keylet::negativeUNL());
+    if (auto sle = read(keylet::negativeUNL(hash_options{(seq())}));
         sle && sle->isFieldPresent(sfValidatorToReEnable))
     {
         auto d = sle->getFieldVL(sfValidatorToReEnable);
@@ -805,7 +808,7 @@ Ledger::validatorToReEnable() const
 void
 Ledger::updateNegativeUNL()
 {
-    auto sle = peek(keylet::negativeUNL());
+    auto sle = peek(keylet::negativeUNL(hash_options{(seq())}));
     if (!sle)
         return;
 
@@ -939,7 +942,7 @@ Ledger::updateSkipList()
     // update record of every 256th ledger
     if ((prevIndex & 0xff) == 0)
     {
-        auto const k = keylet::skip(prevIndex);
+        auto const k = keylet::skip(hash_options{(seq())}, prevIndex);
         auto sle = peek(k);
         std::vector<uint256> hashes;
 
@@ -966,7 +969,7 @@ Ledger::updateSkipList()
     }
 
     // update record of past 256 ledger
-    auto const k = keylet::skip();
+    auto const k = keylet::skip(hash_options{(seq())});
     auto sle = peek(k);
     std::vector<uint256> hashes;
     bool created;
@@ -1137,7 +1140,7 @@ finishLoadByIndexOrHash(
     if (!ledger)
         return;
 
-    assert(ledger->read(keylet::fees()));
+    assert(ledger->read(keylet::fees(hash_options{(ledger->seq())})));
     ledger->setImmutable();
 
     JLOG(j.trace()) << "Loaded ledger: " << to_string(ledger->info().hash);
@@ -1219,7 +1222,9 @@ flatFetchTransactions(Application& app, std::vector<uint256>& nodestoreHashes)
         if (obj)
         {
             auto node = SHAMapTreeNode::makeFromPrefix(
-                makeSlice(obj->getData()), SHAMapHash{nodestoreHash});
+                makeSlice(obj->getData()),
+                SHAMapHash{nodestoreHash},
+                LEDGER_INDEX_UNKNOWN);
             if (!node)
             {
                 assert(false);

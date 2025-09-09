@@ -50,35 +50,37 @@ class Import_test : public beast::unit_test::suite
     static std::pair<uint256, std::shared_ptr<SLE const>>
     accountKeyAndSle(ReadView const& view, jtx::Account const& account)
     {
-        auto const k = keylet::account(account);
+        auto const k = keylet::account(hash_options{(view.seq())}, account);
         return {k.key, view.read(k)};
     }
 
     static std::pair<uint256, std::shared_ptr<SLE const>>
     feesKeyAndSle(ReadView const& view)
     {
-        auto const k = keylet::fees();
+        auto const k = keylet::fees(hash_options{(view.seq())});
         return {k.key, view.read(k)};
     }
 
     static std::pair<uint256, std::shared_ptr<SLE const>>
     signersKeyAndSle(ReadView const& view, jtx::Account const& account)
     {
-        auto const k = keylet::signers(account);
+        auto const k = keylet::signers(hash_options{(view.seq())}, account);
         return {k.key, view.read(k)};
     }
 
     static std::size_t
     ownerDirCount(ReadView const& view, jtx::Account const& acct)
     {
-        ripple::Dir const ownerDir(view, keylet::ownerDir(acct.id()));
+        ripple::Dir const ownerDir(
+            view, keylet::ownerDir(hash_options{(view.seq())}, acct.id()));
         return std::distance(ownerDir.begin(), ownerDir.end());
     };
 
     static std::uint32_t
     importVLSequence(jtx::Env const& env, PublicKey const& pk)
     {
-        auto const sle = env.le(keylet::import_vlseq(pk));
+        auto const sle = env.le(
+            keylet::import_vlseq(hash_options{(env.current()->seq())}, pk));
         if (sle && sle->isFieldPresent(sfImportSequence))
             return (*sle)[sfImportSequence];
         return 0;
@@ -87,7 +89,8 @@ class Import_test : public beast::unit_test::suite
     bool
     hasUNLReport(jtx::Env const& env)
     {
-        auto const slep = env.le(keylet::UNLReport());
+        auto const slep =
+            env.le(keylet::UNLReport(hash_options{(env.current()->seq())}));
         return slep != nullptr;
     }
 
@@ -3301,7 +3304,8 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
-            auto const k = keylet::signers(alice);
+            auto const k =
+                keylet::signers(hash_options{(env.current()->seq())}, alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
             env(noop(alice),
                 msig(bob, carol),
@@ -3493,7 +3497,8 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
-            auto const k = keylet::signers(alice);
+            auto const k =
+                keylet::signers(hash_options{(env.current()->seq())}, alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
             env(noop(alice),
                 msig(bob, carol),
@@ -3760,7 +3765,8 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
-            auto const k = keylet::signers(alice);
+            auto const k =
+                keylet::signers(hash_options{(env.current()->seq())}, alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
 
             // confirm regular key
@@ -4050,7 +4056,8 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
 
             // confirm signers list not set
-            auto const k = keylet::signers(alice);
+            auto const k =
+                keylet::signers(hash_options{(env.current()->seq())}, alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
         }
 
@@ -4808,7 +4815,8 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
-            auto const k = keylet::signers(alice);
+            auto const k =
+                keylet::signers(hash_options{(env.current()->seq())}, alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
 
             // confirm noop master success
@@ -4896,7 +4904,8 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(bob), fee(feeDrops), ter(tesSUCCESS));
 
             // confirm signers not set
-            auto const k = keylet::signers(alice);
+            auto const k =
+                keylet::signers(hash_options{(env.current()->seq())}, alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
 
             // confirm noop master success
@@ -4973,7 +4982,8 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins + totalBurn);
 
             // confirm signers not set
-            auto const k = keylet::signers(alice);
+            auto const k =
+                keylet::signers(hash_options{(env.current()->seq())}, alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
 
             // confirm noop master success

@@ -36,8 +36,9 @@ namespace nft {
 static std::shared_ptr<SLE const>
 locatePage(ReadView const& view, AccountID owner, uint256 const& id)
 {
-    auto const first = keylet::nftpage(keylet::nftpage_min(owner), id);
-    auto const last = keylet::nftpage_max(owner);
+    auto const first = keylet::nftpage(
+        keylet::nftpage_min(hash_options{(view.seq())}, owner), id);
+    auto const last = keylet::nftpage_max(hash_options{(view.seq())}, owner);
 
     // This NFT can only be found in the first page with a key that's strictly
     // greater than `first`, so look for that, up until the maximum possible
@@ -50,8 +51,9 @@ locatePage(ReadView const& view, AccountID owner, uint256 const& id)
 static std::shared_ptr<SLE>
 locatePage(ApplyView& view, AccountID owner, uint256 const& id)
 {
-    auto const first = keylet::nftpage(keylet::nftpage_min(owner), id);
-    auto const last = keylet::nftpage_max(owner);
+    auto const first = keylet::nftpage(
+        keylet::nftpage_min(hash_options{(view.seq())}, owner), id);
+    auto const last = keylet::nftpage_max(hash_options{(view.seq())}, owner);
 
     // This NFT can only be found in the first page with a key that's strictly
     // greater than `first`, so look for that, up until the maximum possible
@@ -68,9 +70,9 @@ getPageForToken(
     uint256 const& id,
     std::function<void(ApplyView&, AccountID const&)> const& createCallback)
 {
-    auto const base = keylet::nftpage_min(owner);
+    auto const base = keylet::nftpage_min(hash_options{(view.seq())}, owner);
     auto const first = keylet::nftpage(base, id);
-    auto const last = keylet::nftpage_max(owner);
+    auto const last = keylet::nftpage_max(hash_options{(view.seq())}, owner);
 
     // This NFT can only be found in the first page with a key that's strictly
     // greater than `first`, so look for that, up until the maximum possible
@@ -254,7 +256,7 @@ insertToken(ApplyView& view, AccountID owner, STObject&& nft)
         [](ApplyView& view, AccountID const& owner) {
             adjustOwnerCount(
                 view,
-                view.peek(keylet::account(owner)),
+                view.peek(keylet::account(hash_options{(view.seq())}, owner)),
                 1,
                 beast::Journal{beast::Journal::getNullSink()});
         });
@@ -421,7 +423,7 @@ removeToken(
         if (cnt != 0)
             adjustOwnerCount(
                 view,
-                view.peek(keylet::account(owner)),
+                view.peek(keylet::account(hash_options{(view.seq())}, owner)),
                 cnt,
                 beast::Journal{beast::Journal::getNullSink()});
 
@@ -472,7 +474,7 @@ removeToken(
 
     adjustOwnerCount(
         view,
-        view.peek(keylet::account(owner)),
+        view.peek(keylet::account(hash_options{(view.seq())}, owner)),
         -1 * cnt,
         beast::Journal{beast::Journal::getNullSink()});
 
@@ -538,7 +540,8 @@ removeTokenOffersWithLimit(
 
     do
     {
-        auto const page = view.peek(keylet::page(directory, *pageIndex));
+        auto const page = view.peek(
+            keylet::page(hash_options{(view.seq())}, directory, *pageIndex));
         if (!page)
             break;
 
@@ -556,7 +559,8 @@ removeTokenOffersWithLimit(
         // deleting during iteration.
         for (int i = offerIndexes.size() - 1; i >= 0; --i)
         {
-            if (auto const offer = view.peek(keylet::nftoffer(offerIndexes[i])))
+            if (auto const offer = view.peek(keylet::nftoffer(
+                    hash_options{(view.seq())}, offerIndexes[i])))
             {
                 if (deleteTokenOffer(view, offer))
                     ++deletedOffersCount;
@@ -580,7 +584,7 @@ notTooManyOffers(ReadView const& view, uint256 const& nftokenID)
     std::size_t totalOffers = 0;
 
     {
-        Dir buys(view, keylet::nft_buys(nftokenID));
+        Dir buys(view, keylet::nft_buys(hash_options{(view.seq())}, nftokenID));
         for (auto iter = buys.begin(); iter != buys.end(); iter.next_page())
         {
             totalOffers += iter.page_size();
@@ -590,7 +594,8 @@ notTooManyOffers(ReadView const& view, uint256 const& nftokenID)
     }
 
     {
-        Dir sells(view, keylet::nft_sells(nftokenID));
+        Dir sells(
+            view, keylet::nft_sells(hash_options{(view.seq())}, nftokenID));
         for (auto iter = sells.begin(); iter != sells.end(); iter.next_page())
         {
             totalOffers += iter.page_size();
@@ -610,7 +615,7 @@ deleteTokenOffer(ApplyView& view, std::shared_ptr<SLE> const& offer)
     auto const owner = (*offer)[sfOwner];
 
     if (!view.dirRemove(
-            keylet::ownerDir(owner),
+            keylet::ownerDir(hash_options{(view.seq())}, owner),
             (*offer)[sfOwnerNode],
             offer->key(),
             false))
@@ -619,8 +624,9 @@ deleteTokenOffer(ApplyView& view, std::shared_ptr<SLE> const& offer)
     auto const nftokenID = (*offer)[sfNFTokenID];
 
     if (!view.dirRemove(
-            ((*offer)[sfFlags] & tfSellNFToken) ? keylet::nft_sells(nftokenID)
-                                                : keylet::nft_buys(nftokenID),
+            ((*offer)[sfFlags] & tfSellNFToken)
+                ? keylet::nft_sells(hash_options{(view.seq())}, nftokenID)
+                : keylet::nft_buys(hash_options{(view.seq())}, nftokenID),
             (*offer)[sfNFTokenOfferNode],
             offer->key(),
             false))
@@ -628,7 +634,7 @@ deleteTokenOffer(ApplyView& view, std::shared_ptr<SLE> const& offer)
 
     adjustOwnerCount(
         view,
-        view.peek(keylet::account(owner)),
+        view.peek(keylet::account(hash_options{(view.seq())}, owner)),
         -1,
         beast::Journal{beast::Journal::getNullSink()});
 

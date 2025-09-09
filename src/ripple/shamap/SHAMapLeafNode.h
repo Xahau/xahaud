@@ -70,11 +70,12 @@ public:
     /** Set the item that this node points to and update the node's hash.
 
         @param i the new item
+        @param opts hash options containing ledger_index
         @return false if the change was, effectively, a noop (that is, if the
                 hash was unchanged); true otherwise.
      */
     bool
-    setItem(boost::intrusive_ptr<SHAMapItem const> i);
+    setItem(boost::intrusive_ptr<SHAMapItem const> i, hash_options const& opts);
 
     std::string
     getString(SHAMapNodeID const&) const final override;

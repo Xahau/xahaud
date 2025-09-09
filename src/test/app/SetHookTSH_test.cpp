@@ -849,7 +849,7 @@ private:
     static uint256
     getCheckIndex(AccountID const& account, std::uint32_t uSequence)
     {
-        return keylet::check(account, uSequence).key;
+        return keylet::check(hash_options{1}, account, uSequence).key;
     }
 
     void
@@ -1475,7 +1475,7 @@ private:
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
     {
-        return keylet::escrow(account, uSequence).key;
+        return keylet::escrow(hash_options{1}, account, uSequence).key;
     }
 
     void
@@ -3405,7 +3405,8 @@ private:
         jtx::Account const& dst,
         std::uint32_t seqProxyValue)
     {
-        auto const k = keylet::payChan(account, dst, seqProxyValue);
+        auto const k =
+            keylet::payChan(hash_options{1}, account, dst, seqProxyValue);
         return k.key;
     }
 

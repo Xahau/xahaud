@@ -126,7 +126,8 @@ std::shared_ptr<SHAMapTreeNode>
 SHAMapInnerNode::makeFullInner(
     Slice data,
     SHAMapHash const& hash,
-    bool hashValid)
+    bool hashValid,
+    std::uint32_t ledgerSeq)
 {
     // A full inner node is serialized as 16 256-bit hashes, back to back:
     if (data.size() != branchFactor * uint256::bytes)
@@ -151,13 +152,13 @@ SHAMapInnerNode::makeFullInner(
     if (hashValid)
         ret->hash_ = hash;
     else
-        ret->updateHash();
+        ret->updateHash(hash_options{ledgerSeq});
 
     return ret;
 }
 
 std::shared_ptr<SHAMapTreeNode>
-SHAMapInnerNode::makeCompressedInner(Slice data)
+SHAMapInnerNode::makeCompressedInner(Slice data, std::uint32_t ledgerSeq)
 {
     // A compressed inner node is serialized as a series of 33 byte chunks,
     // representing a one byte "position" and a 256-bit hash:
@@ -188,17 +189,17 @@ SHAMapInnerNode::makeCompressedInner(Slice data)
     }
 
     ret->resizeChildArrays(ret->getBranchCount());
-    ret->updateHash();
+    ret->updateHash(hash_options{ledgerSeq});
     return ret;
 }
 
 void
-SHAMapInnerNode::updateHash()
+SHAMapInnerNode::updateHash(hash_options const& opts)
 {
     uint256 nh;
     if (isBranch_ != 0)
     {
-        sha512_half_hasher h;
+        sha512_half_hasher h(opts);  // Pass options to hasher
         using beast::hash_append;
         hash_append(h, HashPrefix::innerNode);
         iterChildren([&](SHAMapHash const& hh) { hash_append(h, hh); });
@@ -208,7 +209,7 @@ SHAMapInnerNode::updateHash()
 }
 
 void
-SHAMapInnerNode::updateHashDeep()
+SHAMapInnerNode::updateHashDeep(hash_options const& opts)
 {
     SHAMapHash* hashes;
     std::shared_ptr<SHAMapTreeNode>* children;
@@ -219,7 +220,7 @@ SHAMapInnerNode::updateHashDeep()
         if (children[indexNum] != nullptr)
             hashes[indexNum] = children[indexNum]->getHash();
     });
-    updateHash();
+    updateHash(opts);
 }
 
 void

@@ -169,11 +169,11 @@ public:
     setFullBelowGen(std::uint32_t gen);
 
     void
-    updateHash() override;
+    updateHash(hash_options const& opts) override;
 
     /** Recalculate the hash of all children and this node. */
     void
-    updateHashDeep();
+    updateHashDeep(hash_options const& opts);
 
     void
     serializeForWire(Serializer&) const override;
@@ -188,10 +188,14 @@ public:
     invariants(bool is_root = false) const override;
 
     static std::shared_ptr<SHAMapTreeNode>
-    makeFullInner(Slice data, SHAMapHash const& hash, bool hashValid);
+    makeFullInner(
+        Slice data,
+        SHAMapHash const& hash,
+        bool hashValid,
+        std::uint32_t ledgerSeq);
 
     static std::shared_ptr<SHAMapTreeNode>
-    makeCompressedInner(Slice data);
+    makeCompressedInner(Slice data, std::uint32_t ledgerSeq);
 };
 
 inline bool

@@ -230,7 +230,7 @@ Transactor::calculateHookChainFee(
         uint256 const& hash = hookObj.getFieldH256(sfHookHash);
 
         std::shared_ptr<SLE const> hookDef =
-            view.read(keylet::hookDefinition(hash));
+            view.read(keylet::hookDefinition(hash_options{view.seq()}, hash));
 
         // this is an edge case that happens when a hook is deleted and executed
         // at the same ledger the fee calculation for it can no longer occur
@@ -313,7 +313,8 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                 emitDetails.getFieldH256(sfEmitHookHash);
 
             std::shared_ptr<SLE const> hookDef =
-                view.read(keylet::hookDefinition(callbackHookHash));
+                view.read(keylet::hookDefinition(
+                    hash_options{view.seq()}, callbackHookHash));
 
             if (hookDef && hookDef->isFieldPresent(sfHookCallbackFee))
             {
@@ -335,7 +336,10 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
         }
         else
             hookExecutionFee += calculateHookChainFee(
-                view, tx, keylet::hook(tx.getAccountID(sfAccount)));
+                view,
+                tx,
+                keylet::hook(
+                    hash_options{view.seq()}, tx.getAccountID(sfAccount)));
 
         // find any additional stakeholders whose hooks will be executed and
         // charged to this transaction
@@ -344,8 +348,8 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
         for (auto& [tshAcc, canRollback] : tsh)
             if (canRollback)
-                hookExecutionFee +=
-                    calculateHookChainFee(view, tx, keylet::hook(tshAcc));
+                hookExecutionFee += calculateHookChainFee(
+                    view, tx, keylet::hook(hash_options{view.seq()}, tshAcc));
     }
 
     XRPAmount accumulator = baseFee;
@@ -458,7 +462,8 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
         return tesSUCCESS;
 
     auto const id = ctx.tx.getAccountID(sfAccount);
-    auto const sle = ctx.view.read(keylet::account(id));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{ctx.view.seq()}, id));
     if (!sle)
     {
         if (ctx.tx.getTxnType() == ttIMPORT)
@@ -501,7 +506,8 @@ Transactor::payFee()
 {
     auto const feePaid = ctx_.tx[sfFee].xrp();
 
-    auto const sle = view().peek(keylet::account(account_));
+    auto const sle =
+        view().peek(keylet::account(hash_options{view().seq()}, account_));
     // RH NOTE: we don't need to check for ttIMPORT here because this function
     // is skipped if the sle doesn't exist
     if (!sle)
@@ -526,7 +532,7 @@ Transactor::checkSeqProxy(
 {
     auto const id = tx.getAccountID(sfAccount);
 
-    auto const sle = view.read(keylet::account(id));
+    auto const sle = view.read(keylet::account(hash_options{view.seq()}, id));
 
     SeqProxy const t_seqProx = tx.getSeqProxy();
     if (!sle)
@@ -602,7 +608,8 @@ Transactor::checkSeqProxy(
         }
 
         // Transaction can never succeed if the Ticket is not in the ledger.
-        if (!view.exists(keylet::ticket(id, t_seqProx)))
+        if (!view.exists(
+                keylet::ticket(hash_options{view.seq()}, id, t_seqProx)))
         {
             JLOG(j.trace())
                 << "applyTransaction: ticket already used or never created "
@@ -619,7 +626,8 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
 {
     auto const id = ctx.tx.getAccountID(sfAccount);
 
-    auto const sle = ctx.view.read(keylet::account(id));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{ctx.view.seq()}, id));
 
     bool const isFirstImport = !sle &&
         ctx.view.rules().enabled(featureImport) &&
@@ -653,14 +661,18 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     {
         // check if the emitted txn exists on ledger and is in the emission
         // directory if not that's a re-apply so discard
-        auto const kl = keylet::emittedTxn(ctx.tx.getTransactionID());
+        auto const kl = keylet::emittedTxn(
+            hash_options{ctx.view.seq()}, ctx.tx.getTransactionID());
         auto const sleE = ctx.view.read(kl);
         if (!sleE)
             return tefNONDIR_EMIT;
 
         // lookup the page
         uint64_t const page = sleE->getFieldU64(sfOwnerNode);
-        auto node = ctx.view.read(keylet::page(keylet::emittedDir(), page));
+        auto node = ctx.view.read(keylet::page(
+            hash_options{ctx.view.seq()},
+            keylet::emittedDir(hash_options{ctx.view.seq()}),
+            page));
 
         if (!node)
         {
@@ -707,7 +719,10 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
         return tesSUCCESS;
     }
     return ticketDelete(
-        view(), account_, getTicketIndex(account_, seqProx), j_);
+        view(),
+        account_,
+        getTicketIndex(hash_options{(view().seq())}, account_, seqProx),
+        j_);
 }
 
 // Remove a single Ticket from the ledger.
@@ -720,7 +735,7 @@ Transactor::ticketDelete(
 {
     // Delete the Ticket, adjust the account root ticket count, and
     // reduce the owner count.
-    SLE::pointer const sleTicket = view.peek(keylet::ticket(ticketIndex));
+    SLE::pointer const sleTicket = view.peek(Keylet(ltTICKET, ticketIndex));
     if (!sleTicket)
     {
         JLOG(j.fatal()) << "Ticket disappeared from ledger.";
@@ -728,7 +743,11 @@ Transactor::ticketDelete(
     }
 
     std::uint64_t const page{(*sleTicket)[sfOwnerNode]};
-    if (!view.dirRemove(keylet::ownerDir(account), page, ticketIndex, true))
+    if (!view.dirRemove(
+            keylet::ownerDir(hash_options{view.seq()}, account),
+            page,
+            ticketIndex,
+            true))
     {
         JLOG(j.fatal()) << "Unable to delete Ticket from owner.";
         return tefBAD_LEDGER;
@@ -736,7 +755,8 @@ Transactor::ticketDelete(
 
     // Update the account root's TicketCount.  If the ticket count drops to
     // zero remove the (optional) field.
-    auto sleAccount = view.peek(keylet::account(account));
+    auto sleAccount =
+        view.peek(keylet::account(hash_options{view.seq()}, account));
     if (!sleAccount)
     {
         JLOG(j.fatal()) << "Could not find Ticket owner account root.";
@@ -778,7 +798,8 @@ Transactor::apply()
 
     // If the transactor requires a valid account and the transaction doesn't
     // list one, preflight will have already a flagged a failure.
-    auto const sle = view().peek(keylet::account(account_));
+    auto const sle =
+        view().peek(keylet::account(hash_options{view().seq()}, account_));
 
     // sle must exist except for transactions
     // that allow zero account. (and ttIMPORT)
@@ -859,7 +880,8 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     // Look up the account.
     auto const idSigner = calcAccountID(PublicKey(makeSlice(pkSigner)));
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
-    auto const sleAccount = ctx.view.read(keylet::account(idAccount));
+    auto const sleAccount =
+        ctx.view.read(keylet::account(hash_options{ctx.view.seq()}, idAccount));
 
     if (!sleAccount)
         return terNO_ACCOUNT;
@@ -925,7 +947,7 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
     auto const id = ctx.tx.getAccountID(sfAccount);
     // Get mTxnAccountID's SignerList and Quorum.
     std::shared_ptr<STLedgerEntry const> sleAccountSigners =
-        ctx.view.read(keylet::signers(id));
+        ctx.view.read(keylet::signers(hash_options{ctx.view.seq()}, id));
     // If the signer list doesn't exist the account is not multi-signing.
     if (!sleAccountSigners)
     {
@@ -1017,7 +1039,8 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
 
         // In any of these cases we need to know whether the account is in
         // the ledger.  Determine that now.
-        auto sleTxSignerRoot = ctx.view.read(keylet::account(txSignerAcctID));
+        auto sleTxSignerRoot = ctx.view.read(
+            keylet::account(hash_options{ctx.view.seq()}, txSignerAcctID));
 
         if (signingAcctIDFromPubKey == txSignerAcctID)
         {
@@ -1086,7 +1109,8 @@ touchAccount(ApplyView& view, AccountID const& id)
     if (!view.rules().enabled(featureTouch))
         return;
 
-    std::shared_ptr<SLE> sle = view.peek(keylet::account(id));
+    std::shared_ptr<SLE> sle =
+        view.peek(keylet::account(hash_options{view.seq()}, id));
     if (!sle)
         return;
 
@@ -1107,7 +1131,8 @@ removeUnfundedOffers(
 
     for (auto const& index : offers)
     {
-        if (auto const sleOffer = view.peek(keylet::offer(index)))
+        if (auto const sleOffer =
+                view.peek(keylet::offer(hash_options{view.seq()}, index)))
         {
             // offer is unfunded
             offerDelete(view, sleOffer, viewJ);
@@ -1127,7 +1152,8 @@ removeExpiredNFTokenOffers(
 
     for (auto const& index : offers)
     {
-        if (auto const offer = view.peek(keylet::nftoffer(index)))
+        if (auto const offer =
+                view.peek(keylet::nftoffer(hash_options{view.seq()}, index)))
         {
             nft::deleteTokenOffer(view, offer);
             if (++removed == expiredOfferRemoveLimit)
@@ -1148,8 +1174,8 @@ Transactor::reset(XRPAmount fee)
     ApplyViewImpl& avi2 = dynamic_cast<ApplyViewImpl&>(ctx_.view());
     avi2.setHookMetaData(std::move(executions), std::move(emissions));
 
-    auto const txnAcct =
-        view().peek(keylet::account(ctx_.tx.getAccountID(sfAccount)));
+    auto const txnAcct = view().peek(keylet::account(
+        hash_options{view().seq()}, ctx_.tx.getAccountID(sfAccount)));
     if (!txnAcct)
         // The account should never be missing from the ledger.  But if it
         // is missing then we can't very well charge it a fee, can we?
@@ -1213,8 +1239,8 @@ Transactor::executeHookChain(
             continue;
         }
 
-        auto const& hookDef =
-            ctx_.view().peek(keylet::hookDefinition(hookHash));
+        auto const& hookDef = ctx_.view().peek(
+            keylet::hookDefinition(hash_options{ctx_.view().seq()}, hookHash));
         if (!hookDef)
         {
             JLOG(j_.warn()) << "HookError[]: Failure: hook def missing (send)";
@@ -1357,8 +1383,10 @@ Transactor::doHookCallback(
         emitDetails.getAccountID(sfEmitCallback);
     uint256 const& callbackHookHash = emitDetails.getFieldH256(sfEmitHookHash);
 
-    auto const& hooksCallback = view().peek(keylet::hook(callbackAccountID));
-    auto const& hookDef = view().peek(keylet::hookDefinition(callbackHookHash));
+    auto const& hooksCallback = view().peek(
+        keylet::hook(hash_options{view().seq()}, callbackAccountID));
+    auto const& hookDef = view().peek(
+        keylet::hookDefinition(hash_options{view().seq()}, callbackHookHash));
     if (!hookDef)
     {
         JLOG(j_.warn()) << "HookError[]: Hook def missing on callback";
@@ -1543,7 +1571,7 @@ Transactor::doTSH(
 
         touchAccount(view, tshAccountID);
 
-        auto klTshHook = keylet::hook(tshAccountID);
+        auto klTshHook = keylet::hook(hash_options{view.seq()}, tshAccountID);
 
         auto tshHook = view.read(klTshHook);
         if (!(tshHook && tshHook->isFieldPresent(sfHooks)))
@@ -1553,7 +1581,8 @@ Transactor::doTSH(
         // hook execution, which is probably safer
         {
             // check if the TSH exists and/or has any hooks
-            auto tshAcc = view.peek(keylet::account(tshAccountID));
+            auto tshAcc = view.peek(
+                keylet::account(hash_options{view.seq()}, tshAccountID));
             if (!tshAcc)
                 continue;
 
@@ -1634,7 +1663,8 @@ Transactor::doAgainAsWeak(
     std::vector<hook::HookResult>& results,
     std::shared_ptr<STObject const> const& provisionalMeta)
 {
-    auto const& hooksArray = view().peek(keylet::hook(hookAccountID));
+    auto const& hooksArray =
+        view().peek(keylet::hook(hash_options{view().seq()}, hookAccountID));
     if (!hooksArray)
     {
         JLOG(j_.warn()) << "HookError[]: Hook missing on aaw account: "
@@ -1663,7 +1693,8 @@ Transactor::doAgainAsWeak(
             hookHashes.end())
             continue;
 
-        auto const& hookDef = view().peek(keylet::hookDefinition(hookHash));
+        auto const& hookDef = view().peek(
+            keylet::hookDefinition(hash_options{view().seq()}, hookHash));
         if (!hookDef)
         {
             JLOG(j_.warn())
@@ -1786,7 +1817,8 @@ Transactor::operator()()
         auto const& accountID = ctx_.tx.getAccountID(sfAccount);
         std::vector<hook::HookResult> hookResults;
 
-        auto const& hooksOriginator = view().read(keylet::hook(accountID));
+        auto const& hooksOriginator =
+            view().read(keylet::hook(hash_options{view().seq()}, accountID));
 
         // First check if the Sending account has any hooks that can be fired
         if (hooksOriginator && hooksOriginator->isFieldPresent(sfHooks) &&

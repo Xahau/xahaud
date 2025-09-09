@@ -131,7 +131,8 @@ SetTrust::preclaim(PreclaimContext const& ctx)
 {
     auto const id = ctx.tx[sfAccount];
 
-    auto const sle = ctx.view.read(keylet::account(id));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
     if (!sle)
         return terNO_ACCOUNT;
 
@@ -162,8 +163,8 @@ SetTrust::preclaim(PreclaimContext const& ctx)
             // Prevent trustline to self from being created,
             // unless one has somehow already been created
             // (in which case doApply will clean it up).
-            auto const sleDelete =
-                ctx.view.read(keylet::line(id, uDstAccountID, currency));
+            auto const sleDelete = ctx.view.read(keylet::line(
+                hash_options{(ctx.view.seq())}, id, uDstAccountID, currency));
 
             if (!sleDelete)
             {
@@ -178,13 +179,15 @@ SetTrust::preclaim(PreclaimContext const& ctx)
     // then honour that flag
     if (ctx.view.rules().enabled(featureDisallowIncoming))
     {
-        auto const sleDst = ctx.view.read(keylet::account(uDstAccountID));
+        auto const sleDst = ctx.view.read(
+            keylet::account(hash_options{(ctx.view.seq())}, uDstAccountID));
 
         if (!sleDst)
             return tecNO_DST;
 
         if ((sleDst->getFlags() & lsfDisallowIncomingTrustline) &&
-            !ctx.view.exists(keylet::line(id, uDstAccountID, currency)))
+            !ctx.view.exists(keylet::line(
+                hash_options{(ctx.view.seq())}, id, uDstAccountID, currency)))
             return tecNO_PERMISSION;
     }
 
@@ -213,8 +216,8 @@ SetTrust::preclaim(PreclaimContext const& ctx)
 
         bool const bHigh = id > uDstAccountID;
         // Fetching current state of trust line
-        auto const sleRippleState =
-            ctx.view.read(keylet::line(id, uDstAccountID, currency));
+        auto const sleRippleState = ctx.view.read(keylet::line(
+            hash_options{(ctx.view.seq())}, id, uDstAccountID, currency));
         std::uint32_t uFlags =
             sleRippleState ? sleRippleState->getFieldU32(sfFlags) : 0u;
         // Computing expected trust line state
@@ -258,7 +261,8 @@ SetTrust::doApply()
     // true, if current is high account.
     bool const bHigh = account_ > uDstAccountID;
 
-    auto const sle = view().peek(keylet::account(account_));
+    auto const sle =
+        view().peek(keylet::account(hash_options{(view().seq())}, account_));
     if (!sle)
         return tefINTERNAL;
 
@@ -314,13 +318,18 @@ SetTrust::doApply()
     {
         return trustDelete(
             view(),
-            view().peek(keylet::line(account_, uDstAccountID, currency)),
+            view().peek(keylet::line(
+                hash_options{(view().seq())},
+                account_,
+                uDstAccountID,
+                currency)),
             account_,
             uDstAccountID,
             viewJ);
     }
 
-    SLE::pointer sleDst = view().peek(keylet::account(uDstAccountID));
+    SLE::pointer sleDst = view().peek(
+        keylet::account(hash_options{(view().seq())}, uDstAccountID));
 
     if (!sleDst)
     {
@@ -332,8 +341,8 @@ SetTrust::doApply()
     STAmount saLimitAllow = saLimitAmount;
     saLimitAllow.setIssuer(account_);
 
-    SLE::pointer sleRippleState =
-        view().peek(keylet::line(account_, uDstAccountID, currency));
+    SLE::pointer sleRippleState = view().peek(keylet::line(
+        hash_options{(view().seq())}, account_, uDstAccountID, currency));
 
     if (sleRippleState)
     {
@@ -601,7 +610,8 @@ SetTrust::doApply()
         // Zero balance in currency.
         STAmount saBalance({currency, noAccount()});
 
-        auto const k = keylet::line(account_, uDstAccountID, currency);
+        auto const k = keylet::line(
+            hash_options{(view().seq())}, account_, uDstAccountID, currency);
 
         JLOG(j_.trace()) << "doTrustSet: Creating ripple line: "
                          << to_string(k.key);

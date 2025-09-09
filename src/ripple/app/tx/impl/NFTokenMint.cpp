@@ -136,7 +136,8 @@ NFTokenMint::preclaim(PreclaimContext const& ctx)
     // transaction. Check that and verify that this is allowed:
     if (auto issuer = ctx.tx[~sfIssuer])
     {
-        auto const sle = ctx.view.read(keylet::account(*issuer));
+        auto const sle = ctx.view.read(
+            keylet::account(hash_options{(ctx.view.seq())}, *issuer));
 
         if (!sle)
             return tecNO_ISSUER;
@@ -155,7 +156,8 @@ NFTokenMint::doApply()
     auto const issuer = ctx_.tx[~sfIssuer].value_or(account_);
 
     auto const tokenSeq = [this, &issuer]() -> Expected<std::uint32_t, TER> {
-        auto const root = view().peek(keylet::account(issuer));
+        auto const root =
+            view().peek(keylet::account(hash_options{(view().seq())}, issuer));
         if (root == nullptr)
             // Should not happen.  Checked in preclaim.
             return Unexpected(tecNO_ISSUER);
@@ -228,7 +230,9 @@ NFTokenMint::doApply()
         return (tokenSeq.error());
 
     std::uint32_t const ownerCountBefore =
-        view().read(keylet::account(account_))->getFieldU32(sfOwnerCount);
+        view()
+            .read(keylet::account(hash_options{(view().seq())}, account_))
+            ->getFieldU32(sfOwnerCount);
 
     // Assemble the new NFToken.
     SOTemplate const* nfTokenTemplate =
@@ -265,7 +269,9 @@ NFTokenMint::doApply()
     // requiring the reserve to be met each time.  The reserve is
     // only managed when a new NFT page is added.
     if (auto const ownerCountAfter =
-            view().read(keylet::account(account_))->getFieldU32(sfOwnerCount);
+            view()
+                .read(keylet::account(hash_options{(view().seq())}, account_))
+                ->getFieldU32(sfOwnerCount);
         ownerCountAfter > ownerCountBefore)
     {
         if (auto const reserve = view().fees().accountReserve(ownerCountAfter);

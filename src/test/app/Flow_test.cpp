@@ -39,7 +39,8 @@ getNoRippleFlag(
     jtx::Account const& dst,
     Currency const& cur)
 {
-    if (auto sle = env.le(keylet::line(src, dst, cur)))
+    if (auto sle = env.le(
+            keylet::line(hash_options{(env.current()->seq())}, src, dst, cur)))
     {
         auto const flag =
             (src.id() > dst.id()) ? lsfHighNoRipple : lsfLowNoRipple;
@@ -486,7 +487,8 @@ struct Flow_test : public beast::unit_test::suite
                         return false;
                     Sandbox sb(&view, tapNONE);
                     for (auto const& o : flowResult.removableOffers)
-                        if (auto ok = sb.peek(keylet::offer(o)))
+                        if (auto ok = sb.peek(
+                                keylet::offer(hash_options{(view.seq())}, o)))
                             offerDelete(sb, ok, flowJournal);
                     sb.apply(view);
                     return true;

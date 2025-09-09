@@ -36,7 +36,7 @@ public:
     static XRPAmount
     computeStartingBonus(V const& v)
     {
-        auto const& fees = v.read(keylet::fees());
+        auto const& fees = v.read(keylet::fees(hash_options{(v.seq())}));
 
         uint64_t b = 1'000'000;
         uint64_t i = 200'000;

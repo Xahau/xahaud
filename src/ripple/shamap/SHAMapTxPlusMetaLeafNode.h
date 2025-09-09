@@ -37,10 +37,11 @@ class SHAMapTxPlusMetaLeafNode final
 public:
     SHAMapTxPlusMetaLeafNode(
         boost::intrusive_ptr<SHAMapItem const> item,
-        std::uint32_t cowid)
+        std::uint32_t cowid,
+        std::uint32_t ledgerSeq)
         : SHAMapLeafNode(std::move(item), cowid)
     {
-        updateHash();
+        updateHash(hash_options{ledgerSeq});
     }
 
     SHAMapTxPlusMetaLeafNode(
@@ -64,10 +65,10 @@ public:
     }
 
     void
-    updateHash() final override
+    updateHash(hash_options const& opts) final override
     {
         hash_ = SHAMapHash{
-            sha512Half(HashPrefix::txNode, item_->slice(), item_->key())};
+            sha512Half(opts, HashPrefix::txNode, item_->slice(), item_->key())};
     }
 
     void

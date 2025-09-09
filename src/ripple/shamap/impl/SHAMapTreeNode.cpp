@@ -40,22 +40,25 @@ std::shared_ptr<SHAMapTreeNode>
 SHAMapTreeNode::makeTransaction(
     Slice data,
     SHAMapHash const& hash,
-    bool hashValid)
+    bool hashValid,
+    std::uint32_t ledgerSeq)
 {
-    auto item =
-        make_shamapitem(sha512Half(HashPrefix::transactionID, data), data);
+    auto item = make_shamapitem(
+        sha512Half(hash_options{ledgerSeq}, HashPrefix::transactionID, data),
+        data);
 
     if (hashValid)
         return std::make_shared<SHAMapTxLeafNode>(std::move(item), 0, hash);
 
-    return std::make_shared<SHAMapTxLeafNode>(std::move(item), 0);
+    return std::make_shared<SHAMapTxLeafNode>(std::move(item), 0, ledgerSeq);
 }
 
 std::shared_ptr<SHAMapTreeNode>
 SHAMapTreeNode::makeTransactionWithMeta(
     Slice data,
     SHAMapHash const& hash,
-    bool hashValid)
+    bool hashValid,
+    std::uint32_t ledgerSeq)
 {
     Serializer s(data.data(), data.size());
 
@@ -77,14 +80,16 @@ SHAMapTreeNode::makeTransactionWithMeta(
         return std::make_shared<SHAMapTxPlusMetaLeafNode>(
             std::move(item), 0, hash);
 
-    return std::make_shared<SHAMapTxPlusMetaLeafNode>(std::move(item), 0);
+    return std::make_shared<SHAMapTxPlusMetaLeafNode>(
+        std::move(item), 0, ledgerSeq);
 }
 
 std::shared_ptr<SHAMapTreeNode>
 SHAMapTreeNode::makeAccountState(
     Slice data,
     SHAMapHash const& hash,
-    bool hashValid)
+    bool hashValid,
+    std::uint32_t ledgerSeq)
 {
     Serializer s(data.data(), data.size());
 
@@ -109,11 +114,12 @@ SHAMapTreeNode::makeAccountState(
         return std::make_shared<SHAMapAccountStateLeafNode>(
             std::move(item), 0, hash);
 
-    return std::make_shared<SHAMapAccountStateLeafNode>(std::move(item), 0);
+    return std::make_shared<SHAMapAccountStateLeafNode>(
+        std::move(item), 0, ledgerSeq);
 }
 
 std::shared_ptr<SHAMapTreeNode>
-SHAMapTreeNode::makeFromWire(Slice rawNode)
+SHAMapTreeNode::makeFromWire(Slice rawNode, std::uint32_t ledgerSeq)
 {
     if (rawNode.empty())
         return {};
@@ -126,26 +132,30 @@ SHAMapTreeNode::makeFromWire(Slice rawNode)
     SHAMapHash const hash;
 
     if (type == wireTypeTransaction)
-        return makeTransaction(rawNode, hash, hashValid);
+        return makeTransaction(rawNode, hash, hashValid, ledgerSeq);
 
     if (type == wireTypeAccountState)
-        return makeAccountState(rawNode, hash, hashValid);
+        return makeAccountState(rawNode, hash, hashValid, ledgerSeq);
 
     if (type == wireTypeInner)
-        return SHAMapInnerNode::makeFullInner(rawNode, hash, hashValid);
+        return SHAMapInnerNode::makeFullInner(
+            rawNode, hash, hashValid, ledgerSeq);
 
     if (type == wireTypeCompressedInner)
-        return SHAMapInnerNode::makeCompressedInner(rawNode);
+        return SHAMapInnerNode::makeCompressedInner(rawNode, ledgerSeq);
 
     if (type == wireTypeTransactionWithMeta)
-        return makeTransactionWithMeta(rawNode, hash, hashValid);
+        return makeTransactionWithMeta(rawNode, hash, hashValid, ledgerSeq);
 
     Throw<std::runtime_error>(
         "wire: Unknown type (" + std::to_string(type) + ")");
 }
 
 std::shared_ptr<SHAMapTreeNode>
-SHAMapTreeNode::makeFromPrefix(Slice rawNode, SHAMapHash const& hash)
+SHAMapTreeNode::makeFromPrefix(
+    Slice rawNode,
+    SHAMapHash const& hash,
+    std::uint32_t ledgerSeq)
 {
     if (rawNode.size() < 4)
         Throw<std::runtime_error>("prefix: short node");
@@ -163,16 +173,17 @@ SHAMapTreeNode::makeFromPrefix(Slice rawNode, SHAMapHash const& hash)
     bool const hashValid = true;
 
     if (type == HashPrefix::transactionID)
-        return makeTransaction(rawNode, hash, hashValid);
+        return makeTransaction(rawNode, hash, hashValid, ledgerSeq);
 
     if (type == HashPrefix::leafNode)
-        return makeAccountState(rawNode, hash, hashValid);
+        return makeAccountState(rawNode, hash, hashValid, ledgerSeq);
 
     if (type == HashPrefix::innerNode)
-        return SHAMapInnerNode::makeFullInner(rawNode, hash, hashValid);
+        return SHAMapInnerNode::makeFullInner(
+            rawNode, hash, hashValid, ledgerSeq);
 
     if (type == HashPrefix::txNode)
-        return makeTransactionWithMeta(rawNode, hash, hashValid);
+        return makeTransactionWithMeta(rawNode, hash, hashValid, ledgerSeq);
 
     Throw<std::runtime_error>(
         "prefix: unknown type (" +

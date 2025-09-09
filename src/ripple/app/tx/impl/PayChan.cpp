@@ -129,8 +129,11 @@ closeChannel(
         if (!view.rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        sleLine = view.peek(
-            keylet::line(src, amount.getIssuer(), amount.getCurrency()));
+        sleLine = view.peek(keylet::line(
+            hash_options{(view.seq())},
+            src,
+            amount.getIssuer(),
+            amount.getCurrency()));
 
         // dry run
         TER const result =
@@ -146,7 +149,11 @@ closeChannel(
     // Remove PayChan from owner directory
     {
         auto const page = (*slep)[sfOwnerNode];
-        if (!view.dirRemove(keylet::ownerDir(src), page, key, true))
+        if (!view.dirRemove(
+                keylet::ownerDir(hash_options{(view.seq())}, src),
+                page,
+                key,
+                true))
         {
             JLOG(j.fatal())
                 << "Could not remove paychan from src owner directory";
@@ -159,7 +166,11 @@ closeChannel(
         page && view.rules().enabled(fixPayChanRecipientOwnerDir))
     {
         auto const dst = (*slep)[sfDestination];
-        if (!view.dirRemove(keylet::ownerDir(dst), *page, key, true))
+        if (!view.dirRemove(
+                keylet::ownerDir(hash_options{(view.seq())}, dst),
+                *page,
+                key,
+                true))
         {
             JLOG(j.fatal())
                 << "Could not remove paychan from dst owner directory";
@@ -168,7 +179,8 @@ closeChannel(
     }
 
     // Transfer amount back to owner, decrement owner count
-    auto const sle = view.peek(keylet::account(src));
+    auto const sle =
+        view.peek(keylet::account(hash_options{(view.seq())}, src));
     if (!sle)
         return tefINTERNAL;
 
@@ -243,7 +255,8 @@ TER
 PayChanCreate::preclaim(PreclaimContext const& ctx)
 {
     auto const account = ctx.tx[sfAccount];
-    auto const sle = ctx.view.read(keylet::account(account));
+    auto const sle =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, account));
     if (!sle)
         return terNO_ACCOUNT;
 
@@ -287,7 +300,10 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
         if (!isIssuer)
         {
             auto sleLine = ctx.view.read(keylet::line(
-                account, amount.getIssuer(), amount.getCurrency()));
+                hash_options{(ctx.view.seq())},
+                account,
+                amount.getIssuer(),
+                amount.getCurrency()));
             TER const result = trustAdjustLockedBalance(
                 ctx.view, sleLine, amount, 1, ctx.j, DryRun);
             JLOG(ctx.j.trace()) << "PayChanCreate::preclaim "
@@ -300,7 +316,8 @@ PayChanCreate::preclaim(PreclaimContext const& ctx)
 
     {
         // Check destination account
-        auto const sled = ctx.view.read(keylet::account(dst));
+        auto const sled =
+            ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, dst));
         if (!sled)
             return tecNO_DST;
 
@@ -328,7 +345,8 @@ TER
 PayChanCreate::doApply()
 {
     auto const account = ctx_.tx[sfAccount];
-    auto const sle = ctx_.view().peek(keylet::account(account));
+    auto const sle = ctx_.view().peek(
+        keylet::account(hash_options{(ctx_.view().seq())}, account));
     if (!sle)
         return tefINTERNAL;
 
@@ -342,7 +360,8 @@ PayChanCreate::doApply()
     // Note that we we use the value from the sequence or ticket as the
     // payChan sequence.  For more explanation see comments in SeqProxy.h.
 
-    Keylet const payChanKeylet = keylet::payChan(account, dst, seqID(ctx_));
+    Keylet const payChanKeylet = keylet::payChan(
+        hash_options{(ctx_.view().seq())}, account, dst, seqID(ctx_));
 
     auto const slep = std::make_shared<SLE>(payChanKeylet);
 
@@ -369,7 +388,7 @@ PayChanCreate::doApply()
     // Add PayChan to owner directory
     {
         auto const page = ctx_.view().dirInsert(
-            keylet::ownerDir(account),
+            keylet::ownerDir(hash_options{(ctx_.view().seq())}, account),
             payChanKeylet,
             describeOwnerDir(account));
         if (!page)
@@ -381,7 +400,9 @@ PayChanCreate::doApply()
     if (ctx_.view().rules().enabled(fixPayChanRecipientOwnerDir))
     {
         auto const page = ctx_.view().dirInsert(
-            keylet::ownerDir(dst), payChanKeylet, describeOwnerDir(dst));
+            keylet::ownerDir(hash_options{(ctx_.view().seq())}, dst),
+            payChanKeylet,
+            describeOwnerDir(dst));
         if (!page)
             return tecDIR_FULL;
         (*slep)[sfDestinationNode] = *page;
@@ -395,8 +416,11 @@ PayChanCreate::doApply()
         if (!ctx_.view().rules().enabled(featurePaychanAndEscrowForTokens))
             return temDISABLED;
 
-        auto sleLine = ctx_.view().peek(
-            keylet::line(account, amount.getIssuer(), amount.getCurrency()));
+        auto sleLine = ctx_.view().peek(keylet::line(
+            hash_options{(ctx_.view().seq())},
+            account,
+            amount.getIssuer(),
+            amount.getCurrency()));
 
         if (!isIssuer)
         {
@@ -504,7 +528,10 @@ PayChanFund::doApply()
                 return temBAD_CURRENCY;
 
             sleLine = ctx_.view().peek(keylet::line(
-                (*slep)[sfAccount], amount.getIssuer(), amount.getCurrency()));
+                hash_options{(ctx_.view().seq())},
+                (*slep)[sfAccount],
+                amount.getIssuer(),
+                amount.getCurrency()));
 
             TER const result = trustAdjustLockedBalance(
                 ctx_.view(), sleLine, amount, 1, ctx_.journal, DryRun);
@@ -545,13 +572,14 @@ PayChanFund::doApply()
         ctx_.view().update(slep);
     }
 
-    auto const sle = ctx_.view().peek(keylet::account(txAccount));
+    auto const sle = ctx_.view().peek(
+        keylet::account(hash_options{(ctx_.view().seq())}, txAccount));
     if (!sle)
         return tefINTERNAL;
 
     // do not allow adding funds if dst does not exist
-    if (AccountID const dst = (*slep)[sfDestination];
-        !ctx_.view().read(keylet::account(dst)))
+    if (AccountID const dst = (*slep)[sfDestination]; !ctx_.view().read(
+            keylet::account(hash_options{(ctx_.view().seq())}, dst)))
     {
         return tecNO_DST;
     }
@@ -730,7 +758,8 @@ PayChanClaim::doApply()
             // nothing requested
             return tecUNFUNDED_PAYMENT;
 
-        auto sled = ctx_.view().peek(keylet::account(dst));
+        auto sled = ctx_.view().peek(
+            keylet::account(hash_options{(ctx_.view().seq())}, dst));
         if (!sled)
             return tecNO_DST;
 
@@ -750,7 +779,8 @@ PayChanClaim::doApply()
             //  2. If Account is deposit preauthorized by destination.
             if (txAccount != dst)
             {
-                if (!view().exists(keylet::depositPreauth(dst, txAccount)))
+                if (!view().exists(keylet::depositPreauth(
+                        hash_options{(view().seq())}, dst, txAccount)))
                     return tecNO_PERMISSION;
             }
         }
@@ -782,7 +812,8 @@ PayChanClaim::doApply()
                 lockedRate = xferRate;
             }
 
-            auto sleSrcAcc = ctx_.view().peek(keylet::account(src));
+            auto sleSrcAcc = ctx_.view().peek(
+                keylet::account(hash_options{(ctx_.view().seq())}, src));
             TER const result = trustTransferLockedBalance(
                 ctx_.view(),
                 txAccount,

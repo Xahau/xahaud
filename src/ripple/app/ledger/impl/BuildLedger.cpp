@@ -75,7 +75,7 @@ buildLedgerImpl(
     built->unshare();
 
     // Accept ledger
-    assert(built->read(keylet::fees()));
+    assert(built->read(keylet::fees(hash_options{(built->seq())})));
     built->setAccepted(closeTime, closeResolution, closeTimeCorrect);
 
     return built;

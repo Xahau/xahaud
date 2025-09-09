@@ -87,7 +87,8 @@ SkipListAcquire::trigger(std::size_t limit, ScopedLockType& sl)
                     protocol::TMProofPathRequest request;
                     request.set_ledgerhash(hash_.data(), hash_.size());
                     request.set_key(
-                        keylet::skip().key.data(), keylet::skip().key.size());
+                        keylet::skip(hash_options{0}).key.data(),
+                        keylet::skip(hash_options{0}).key.size());
                     request.set_type(
                         protocol::TMLedgerMapType::lmACCOUNT_STATE);
                     peerSet_->sendRequest(request, peer);
@@ -192,7 +193,8 @@ SkipListAcquire::retrieveSkipList(
     std::shared_ptr<Ledger const> const& ledger,
     ScopedLockType& sl)
 {
-    if (auto const hashIndex = ledger->read(keylet::skip());
+    if (auto const hashIndex =
+            ledger->read(keylet::skip(hash_options{(ledger->seq())}));
         hashIndex && hashIndex->isFieldPresent(sfHashes))
     {
         auto const& slist = hashIndex->getFieldV256(sfHashes).value();

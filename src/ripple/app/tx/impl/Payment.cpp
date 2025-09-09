@@ -215,7 +215,8 @@ Payment::preclaim(PreclaimContext const& ctx)
     AccountID const uDstAccountID(ctx.tx[sfDestination]);
     STAmount const saDstAmount(ctx.tx[sfAmount]);
 
-    auto const k = keylet::account(uDstAccountID);
+    auto const k =
+        keylet::account(hash_options{(ctx.view.seq())}, uDstAccountID);
     auto const sleDst = ctx.view.read(k);
 
     if (!sleDst)
@@ -328,7 +329,7 @@ Payment::doApply()
                      << " saDstAmount=" << saDstAmount.getFullText();
 
     // Open a ledger for editing.
-    auto const k = keylet::account(uDstAccountID);
+    auto const k = keylet::account(hash_options{(view().seq())}, uDstAccountID);
     SLE::pointer sleDst = view().peek(k);
 
     if (!sleDst)
@@ -345,7 +346,7 @@ Payment::doApply()
         sleDst->setAccountID(sfAccount, uDstAccountID);
         sleDst->setFieldU32(sfSequence, seqno);
 
-        auto sleFees = view().peek(keylet::fees());
+        auto sleFees = view().peek(keylet::fees(hash_options{(view().seq())}));
         if (sleFees && view().rules().enabled(featureXahauGenesis))
         {
             auto actIdx = sleFees->isFieldPresent(sfAccountCount)
@@ -392,8 +393,8 @@ Payment::doApply()
             //  2. If Account is deposit preauthorized by destination.
             if (uDstAccountID != account_)
             {
-                if (!view().exists(
-                        keylet::depositPreauth(uDstAccountID, account_)))
+                if (!view().exists(keylet::depositPreauth(
+                        hash_options{(view().seq())}, uDstAccountID, account_)))
                     return tecNO_PERMISSION;
             }
         }
@@ -454,7 +455,8 @@ Payment::doApply()
 
     // Direct XRP payment.
 
-    auto const sleSrc = view().peek(keylet::account(account_));
+    auto const sleSrc =
+        view().peek(keylet::account(hash_options{(view().seq())}, account_));
     if (!sleSrc)
         return tefINTERNAL;
 
@@ -506,7 +508,8 @@ Payment::doApply()
         // to get the account un-wedged.
         if (uDstAccountID != account_)
         {
-            if (!view().exists(keylet::depositPreauth(uDstAccountID, account_)))
+            if (!view().exists(keylet::depositPreauth(
+                    hash_options{(view().seq())}, uDstAccountID, account_)))
             {
                 // Get the base reserve.
                 XRPAmount const dstReserve{view().fees().accountReserve(0)};

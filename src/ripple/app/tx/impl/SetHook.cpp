@@ -636,7 +636,8 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
 
         auto const& hash = hookSetObj.getFieldH256(sfHookHash);
         {
-            if (!ctx.view.exists(keylet::hookDefinition(hash)))
+            if (!ctx.view.exists(keylet::hookDefinition(
+                    hash_options{(ctx.view.seq())}, hash)))
             {
                 JLOG(ctx.j.trace()) << "HookSet(" << hook::log::HOOK_DEF_MISSING
                                     << ")[" << HS_ACC()
@@ -801,7 +802,8 @@ SetHook::destroyNamespace(
                         << "Destroying Hook Namespace for " << account
                         << " namespace " << ns;
 
-    auto sleAccount = view.peek(keylet::account(account));
+    auto sleAccount =
+        view.peek(keylet::account(hash_options{(view.seq())}, account));
     if (!sleAccount)
     {
         JLOG(ctx.j.fatal())
@@ -817,7 +819,8 @@ SetHook::destroyNamespace(
     // error. Allow fall through to below in case, for some reason, the
     // namespace directory *does* exist but does not appear in the vector.
 
-    Keylet dirKeylet = keylet::hookStateDir(account, ns);
+    Keylet dirKeylet =
+        keylet::hookStateDir(hash_options{(view.seq())}, account, ns);
 
     std::shared_ptr<SLE const> sleDirNode{};
     unsigned int uDirEntry{0};
@@ -1172,8 +1175,10 @@ SetHook::setHook()
         .rules = ctx_.view().rules()};
 
     const int blobMax = hook::maxHookWasmSize();
-    auto const accountKeylet = keylet::account(account_);
-    auto const hookKeylet = keylet::hook(account_);
+    auto const accountKeylet =
+        keylet::account(hash_options{(view().seq())}, account_);
+    auto const hookKeylet =
+        keylet::hook(hash_options{(view().seq())}, account_);
 
     auto accountSLE = view().peek(accountKeylet);
 
@@ -1281,8 +1286,9 @@ SetHook::setHook()
         // the relevant fields
         if (oldHook && oldHook->get().isFieldPresent(sfHookHash))
         {
-            oldDefKeylet =
-                keylet::hookDefinition(oldHook->get().getFieldH256(sfHookHash));
+            oldDefKeylet = keylet::hookDefinition(
+                hash_options{(view().seq())},
+                oldHook->get().getFieldH256(sfHookHash));
             oldDefSLE = view().peek(*oldDefKeylet);
             if (oldDefSLE)
                 defNamespace = oldDefSLE->getFieldH256(sfHookNamespace);
@@ -1292,7 +1298,8 @@ SetHook::setHook()
             else if (defNamespace)
                 oldNamespace = *defNamespace;
 
-            oldDirKeylet = keylet::hookStateDir(account_, *oldNamespace);
+            oldDirKeylet = keylet::hookStateDir(
+                hash_options{(view().seq())}, account_, *oldNamespace);
             oldDirSLE = view().peek(*oldDirKeylet);
             if (oldDefSLE)
                 defHookOn = oldDefSLE->getFieldH256(sfHookOn);
@@ -1318,6 +1325,7 @@ SetHook::setHook()
             if (hookSetObj->get().isFieldPresent(sfHookHash))
             {
                 newDefKeylet = keylet::hookDefinition(
+                    hash_options{(view().seq())},
                     hookSetObj->get().getFieldH256(sfHookHash));
                 newDefSLE = view().peek(*newDefKeylet);
             }
@@ -1331,7 +1339,8 @@ SetHook::setHook()
             if (hookSetObj->get().isFieldPresent(sfHookNamespace))
             {
                 newNamespace = hookSetObj->get().getFieldH256(sfHookNamespace);
-                newDirKeylet = keylet::hookStateDir(account_, *newNamespace);
+                newDirKeylet = keylet::hookStateDir(
+                    hash_options{(view().seq())}, account_, *newNamespace);
             }
         }
 
@@ -1560,7 +1569,8 @@ SetHook::setHook()
                 createHookHash = ripple::sha512Half_s(
                     ripple::Slice(wasmBytes.data(), wasmBytes.size()));
 
-                auto keylet = ripple::keylet::hookDefinition(*createHookHash);
+                auto keylet = ripple::keylet::hookDefinition(
+                    hash_options{(view().seq())}, *createHookHash);
 
                 if (view().exists(keylet))
                 {
@@ -1905,7 +1915,10 @@ SetHook::setHook()
             // DELETE ltHOOK
             auto const hint = (*oldHookSLE)[sfOwnerNode];
             if (!view().dirRemove(
-                    keylet::ownerDir(account_), hint, hookKeylet.key, false))
+                    keylet::ownerDir(hash_options{(view().seq())}, account_),
+                    hint,
+                    hookKeylet.key,
+                    false))
             {
                 JLOG(j_.fatal())
                     << "HookSet(" << hook::log::HOOK_DELETE << ")[" << HS_ACC()
@@ -1928,7 +1941,7 @@ SetHook::setHook()
         {
             // CREATE ltHOOK
             auto const page = view().dirInsert(
-                keylet::ownerDir(account_),
+                keylet::ownerDir(hash_options{(view().seq())}, account_),
                 hookKeylet,
                 describeOwnerDir(account_));
 

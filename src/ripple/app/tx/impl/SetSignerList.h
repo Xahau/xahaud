@@ -128,9 +128,12 @@ public:
         std::vector<SignerEntries::SignerEntry> const& signers,
         XRPAmount const mPriorBalance)
     {
-        auto const accountKeylet = keylet::account(acc);
-        auto const ownerDirKeylet = keylet::ownerDir(acc);
-        auto const signerListKeylet = keylet::signers(acc);
+        auto const accountKeylet =
+            keylet::account(hash_options{(view.seq())}, acc);
+        auto const ownerDirKeylet =
+            keylet::ownerDir(hash_options{(view.seq())}, acc);
+        auto const signerListKeylet =
+            keylet::signers(hash_options{(view.seq())}, acc);
 
         // This may be either a create or a replace.  Preemptively remove any
         // old signer list.  May reduce the reserve, so this is done before

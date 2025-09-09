@@ -137,7 +137,8 @@ isRelatedToAccount(
     }
     else if (sle->getType() == ltSIGNER_LIST)
     {
-        Keylet const accountSignerList = keylet::signers(accountID);
+        Keylet const accountSignerList =
+            keylet::signers(hash_options{(ledger.seq())}, accountID);
         return sle->key() == accountSignerList.key;
     }
     else if (sle->getType() == ltNFTOKEN_OFFER)
@@ -173,7 +174,8 @@ getAccountObjects(
          typeMatchesFilter(typeFilter.value(), ltNFTOKEN_PAGE)) &&
         dirIndex == beast::zero;
 
-    Keylet const firstNFTPage = keylet::nftpage_min(account);
+    Keylet const firstNFTPage =
+        keylet::nftpage_min(hash_options{(ledger.seq())}, account);
 
     // we need to check the marker to see if it is an NFTTokenPage index.
     if (iterateNFTPages && entryIndex != beast::zero)
@@ -198,7 +200,8 @@ getAccountObjects(
             ? firstNFTPage
             : Keylet{ltNFTOKEN_PAGE, entryIndex};
 
-        Keylet const last = keylet::nftpage_max(account);
+        Keylet const last =
+            keylet::nftpage_max(hash_options{(ledger.seq())}, account);
 
         // current key
         uint256 ck = ledger.succ(first.key, last.key.next()).value_or(last.key);
@@ -238,7 +241,7 @@ getAccountObjects(
         entryIndex = beast::zero;
     }
 
-    auto const root = keylet::ownerDir(account);
+    auto const root = keylet::ownerDir(hash_options{(ledger.seq())}, account);
     auto found = false;
 
     if (dirIndex.isZero())
@@ -282,7 +285,8 @@ getAccountObjects(
 
         for (; iter != entries.end(); ++iter)
         {
-            auto const sleNode = ledger.read(keylet::child(*iter));
+            auto const sleNode =
+                ledger.read(keylet::child(hash_options{(ledger.seq())}, *iter));
 
             if (!typeFilter.has_value() ||
                 typeMatchesFilter(typeFilter.value(), sleNode->getType()))
@@ -308,7 +312,8 @@ getAccountObjects(
         if (nodeIndex == 0)
             return true;
 
-        dirIndex = keylet::page(root, nodeIndex).key;
+        dirIndex =
+            keylet::page(hash_options{(ledger.seq())}, root, nodeIndex).key;
         dir = ledger.read({ltDIR_NODE, dirIndex});
         if (!dir)
             return true;
@@ -338,7 +343,8 @@ getAccountNamespace(
     std::uint32_t const limit,
     Json::Value& jvResult)
 {
-    auto const root = keylet::hookStateDir(account, ns);
+    auto const root =
+        keylet::hookStateDir(hash_options{(ledger.seq())}, account, ns);
     auto found = false;
 
     if (dirIndex.isZero())
@@ -369,7 +375,8 @@ getAccountNamespace(
 
         for (; iter != entries.end(); ++iter)
         {
-            auto const sleNode = ledger.read(keylet::child(*iter));
+            auto const sleNode =
+                ledger.read(keylet::child(hash_options{(ledger.seq())}, *iter));
 
             jvObjects.append(sleNode->getJson(JsonOptions::none));
 
@@ -391,7 +398,8 @@ getAccountNamespace(
         if (nodeIndex == 0)
             return true;
 
-        dirIndex = keylet::page(root, nodeIndex).key;
+        dirIndex =
+            keylet::page(hash_options{(ledger.seq())}, root, nodeIndex).key;
         dir = ledger.read({ltDIR_NODE, dirIndex});
         if (!dir)
             return true;

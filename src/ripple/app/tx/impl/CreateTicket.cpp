@@ -57,7 +57,8 @@ TER
 CreateTicket::preclaim(PreclaimContext const& ctx)
 {
     auto const id = ctx.tx[sfAccount];
-    auto const sleAccountRoot = ctx.view.read(keylet::account(id));
+    auto const sleAccountRoot =
+        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
     if (!sleAccountRoot)
         return terNO_ACCOUNT;
 
@@ -84,7 +85,8 @@ CreateTicket::preclaim(PreclaimContext const& ctx)
 TER
 CreateTicket::doApply()
 {
-    SLE::pointer const sleAccountRoot = view().peek(keylet::account(account_));
+    SLE::pointer const sleAccountRoot =
+        view().peek(keylet::account(hash_options{(view().seq())}, account_));
     if (!sleAccountRoot)
         return tefINTERNAL;
 
@@ -117,7 +119,8 @@ CreateTicket::doApply()
     for (std::uint32_t i = 0; i < ticketCount; ++i)
     {
         std::uint32_t const curTicketSeq = firstTicketSeq + i;
-        Keylet const ticketKeylet = keylet::ticket(account_, curTicketSeq);
+        Keylet const ticketKeylet = keylet::ticket(
+            hash_options{(view().seq())}, account_, curTicketSeq);
         SLE::pointer sleTicket = std::make_shared<SLE>(ticketKeylet);
 
         sleTicket->setAccountID(sfAccount, account_);
@@ -125,7 +128,7 @@ CreateTicket::doApply()
         view().insert(sleTicket);
 
         auto const page = view().dirInsert(
-            keylet::ownerDir(account_),
+            keylet::ownerDir(hash_options{(view().seq())}, account_),
             ticketKeylet,
             describeOwnerDir(account_));
 

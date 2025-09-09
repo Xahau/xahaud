@@ -912,7 +912,8 @@ struct LedgerReplayer_test : public beast::unit_test::suite
             auto request = std::make_shared<protocol::TMProofPathRequest>();
             request->set_type(protocol::TMLedgerMapType::lmACCOUNT_STATE);
             request->set_key(
-                keylet::skip().key.data(), keylet::skip().key.size());
+                keylet::skip(hash_options{(l->seq())}).key.data(),
+                keylet::skip(hash_options{(l->seq())}).key.size());
             uint256 hash(1234567);
             request->set_ledgerhash(hash.data(), hash.size());
             auto reply = std::make_shared<protocol::TMProofPathResponse>(
@@ -927,7 +928,8 @@ struct LedgerReplayer_test : public beast::unit_test::suite
                 l->info().hash.data(), l->info().hash.size());
             request->set_type(protocol::TMLedgerMapType::lmACCOUNT_STATE);
             request->set_key(
-                keylet::skip().key.data(), keylet::skip().key.size());
+                keylet::skip(hash_options{(l->seq())}).key.data(),
+                keylet::skip(hash_options{(l->seq())}).key.size());
             // generate response
             auto reply = std::make_shared<protocol::TMProofPathResponse>(
                 server.msgHandler.processProofPathRequest(request));

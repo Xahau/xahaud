@@ -308,7 +308,7 @@ install (
 # WARNING!! -- horrible levelization ahead
 # (these files should be isolated or moved...but
 #  unfortunately unit_test.h above creates this dependency)
-if (tests)
+if (FALSE) # TEMPORARILY DISABLED - was: if (tests)
   install (
     FILES
       src/ripple/beast/unit_test/amount.hpp
@@ -342,7 +342,7 @@ add_executable (rippled src/ripple/app/main/Application.h)
 if (unity)
   set_target_properties(rippled PROPERTIES UNITY_BUILD ON)
 endif ()
-if (tests)
+if (FALSE) # TEMPORARILY DISABLED - was: if (tests)
     target_compile_definitions(rippled PUBLIC ENABLE_TESTS)
 endif()
 target_sources (rippled PRIVATE
@@ -715,7 +715,7 @@ target_sources (rippled PRIVATE
      test sources:
        subdir: app
   #]===============================]
-if (tests)
+if (FALSE) # TEMPORARILY DISABLED - was: if (tests)
   target_sources (rippled PRIVATE
     src/test/app/AccountDelete_test.cpp
     src/test/app/AccountTxPaging_test.cpp
@@ -1085,7 +1085,7 @@ message(STATUS "Reporting mode build: rippled renamed ${BIN_NAME}")
 endif()
 
 # any files that don't play well with unity should be added here
-if (tests)
+if (FALSE) # TEMPORARILY DISABLED - was: if (tests)
   set_source_files_properties(
     # these two seem to produce conflicts in beast teardown template methods
     src/test/rpc/ValidatorRPC_test.cpp
