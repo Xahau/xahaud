@@ -39,6 +39,7 @@
 #include <ripple/protocol/messages.h>
 #include <optional>
 
+#include <deque>
 #include <mutex>
 
 namespace ripple {
@@ -82,6 +83,33 @@ public:
     getCurrentLedgerIndex();
     LedgerIndex
     getValidLedgerIndex();
+    
+    LedgerIndex
+    getFirstFullLedgerSeq() const { return mFirstFullLedgerSeq.load(); }
+    
+    std::chrono::steady_clock::time_point
+    getFirstFullLedgerTime() const {
+        auto ticks = mFirstFullLedgerTime.load();
+        return ticks == 0 ? std::chrono::steady_clock::time_point{} :
+            std::chrono::steady_clock::time_point{std::chrono::steady_clock::duration{ticks}};
+    }
+    
+    uint64_t
+    getLedgersSinceFirstSync() const { return mLedgersSinceFirstSync.load(); }
+    
+    uint64_t
+    getTotalTxnsSinceSync() const { return mTotalTxnsSinceSync.load(); }
+    
+    // Get average txns per ledger over recent window (thread-safe snapshot)
+    std::pair<uint64_t, uint64_t> getRecentTxnStats() const {
+        std::lock_guard lock(m_mutex);
+        if (mRecentTxnCounts.empty())
+            return {0, 0};
+        uint64_t sum = 0;
+        for (auto count : mRecentTxnCounts)
+            sum += count;
+        return {sum, mRecentTxnCounts.size()};
+    }
 
     bool
     isCompatible(ReadView const&, beast::Journal::Stream, char const* reason);
@@ -424,6 +452,15 @@ private:
 
     // Time that the previous upgrade warning was issued.
     TimeKeeper::time_point upgradeWarningPrevTime_{};
+    
+    // Track first full ledger sync
+    std::atomic<LedgerIndex> mFirstFullLedgerSeq{0};
+    std::atomic<std::chrono::steady_clock::time_point::rep> mFirstFullLedgerTime{0};
+    std::atomic<uint64_t> mLedgersSinceFirstSync{0};
+    
+    // Track transaction statistics since first validated ledger
+    std::atomic<uint64_t> mTotalTxnsSinceSync{0};
+    std::deque<uint64_t> mRecentTxnCounts;  // Protected by m_mutex, for moving averages
 
 private:
     struct Stats

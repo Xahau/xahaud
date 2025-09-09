@@ -372,7 +372,39 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
         mValidLedgerSeq || !app_.getMaxDisallowedLedger() ||
         l->info().seq + max_ledger_difference_ > app_.getMaxDisallowedLedger());
     (void)max_ledger_difference_;
+    
+    // Track first validated ledger and reset hash counters
+    if (mValidLedgerSeq == 0 && mFirstFullLedgerSeq == 0)
+    {
+        mFirstFullLedgerSeq = l->info().seq;
+        mFirstFullLedgerTime = std::chrono::steady_clock::now().time_since_epoch().count();
+        
+        // Reset hash counters at first sync to get more accurate ratios
+        auto& hashStats = getHashStats();
+        hashStats.totalSha512HalfCount = 0;
+        hashStats.totalSha512HalfTimeNs = 0;
+        hashStats.indexSha512HalfTimeNs = 0;
+        for (auto& counter : hashStats.indexSha512HalfBySpace)
+            counter = 0;
+    }
+    
     mValidLedgerSeq = l->info().seq;
+    
+    // Track ledgers and transactions since first sync
+    if (mFirstFullLedgerSeq != 0)
+    {
+        mLedgersSinceFirstSync.fetch_add(1, std::memory_order_relaxed);
+        
+        // Track transaction counts
+        auto txnCount = l->info().txHash.isNonZero() ? std::distance(l->txs.begin(), l->txs.end()) : 0;
+        mTotalTxnsSinceSync.fetch_add(txnCount, std::memory_order_relaxed);
+        
+        // Update recent transaction counts (for moving averages)
+        mRecentTxnCounts.push_back(txnCount);
+        // Keep a reasonable window (65k ledgers is ~2.5 days)
+        if (mRecentTxnCounts.size() > 65536)
+            mRecentTxnCounts.pop_front();
+    }
 
     app_.getOPs().updateLocalTx(*l);
     app_.getSHAMapStore().onLedgerClosed(getValidatedLedger());

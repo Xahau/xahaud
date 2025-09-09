@@ -1488,6 +1488,7 @@ public:
             {"log_level", &RPCParser::parseLogLevel, 0, 2},
             {"logrotate", &RPCParser::parseAsIs, 0, 0},
             {"manifest", &RPCParser::parseManifest, 1, 1},
+            {"map_stats", &RPCParser::parseLedger, 0, 1},
             {"node_to_shard", &RPCParser::parseNodeToShard, 1, 1},
             {"owner_info", &RPCParser::parseAccountItems, 1, 3},
             {"peers", &RPCParser::parseAsIs, 0, 0},

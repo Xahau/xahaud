@@ -176,6 +176,8 @@ Json::Value
 doCatalogueStatus(RPC::JsonContext&);
 Json::Value
 doCatalogueLoad(RPC::JsonContext&);
+Json::Value
+doMapStats(RPC::JsonContext&);
 }  // namespace ripple
 
 #endif

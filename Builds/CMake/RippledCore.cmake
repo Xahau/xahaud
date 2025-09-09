@@ -637,6 +637,7 @@ target_sources (rippled PRIVATE
   src/ripple/rpc/handlers/LogLevel.cpp
   src/ripple/rpc/handlers/LogRotate.cpp
   src/ripple/rpc/handlers/Manifest.cpp
+  src/ripple/rpc/handlers/MapStats.cpp
   src/ripple/rpc/handlers/NFTOffers.cpp
   src/ripple/rpc/handlers/NodeToShard.cpp
   src/ripple/rpc/handlers/NoRippleCheck.cpp

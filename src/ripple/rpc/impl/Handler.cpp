@@ -114,6 +114,7 @@ Handler const handlerArray[]{
     {"log_level", byRef(&doLogLevel), Role::ADMIN, NO_CONDITION},
     {"logrotate", byRef(&doLogRotate), Role::ADMIN, NO_CONDITION},
     {"manifest", byRef(&doManifest), Role::USER, NO_CONDITION},
+    {"map_stats", byRef(&doMapStats), Role::ADMIN, NO_CONDITION},
     {"nft_buy_offers", byRef(&doNFTBuyOffers), Role::USER, NO_CONDITION},
     {"nft_sell_offers", byRef(&doNFTSellOffers), Role::USER, NO_CONDITION},
     {"node_to_shard", byRef(&doNodeToShard), Role::ADMIN, NO_CONDITION},

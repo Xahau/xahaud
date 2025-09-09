@@ -23,6 +23,7 @@
 #include <ripple/protocol/nftPageMask.h>
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 
 namespace ripple {
 
@@ -84,7 +85,20 @@ template <class... Args>
 static uint256
 indexHash(LedgerNameSpace space, Args const&... args)
 {
-    return sha512Half(safe_cast<std::uint16_t>(space), args...);
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    // Track by namespace
+    getHashStats().indexSha512HalfBySpace[
+        static_cast<std::uint16_t>(space)
+    ].fetch_add(1, std::memory_order_relaxed);
+    
+    auto result = sha512Half(safe_cast<std::uint16_t>(space), args...);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    getHashStats().indexSha512HalfTimeNs.fetch_add(duration, std::memory_order_relaxed);
+    
+    return result;
 }
 
 uint256

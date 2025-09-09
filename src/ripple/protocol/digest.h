@@ -25,8 +25,86 @@
 #include <boost/endian/conversion.hpp>
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 
 namespace ripple {
+
+// Global stats for hash function usage
+struct HashStats {
+    std::atomic<uint64_t> totalSha512HalfCount{0};
+    // Track index hashes by namespace (256 possible values for uint8_t space)
+    std::array<std::atomic<uint64_t>, 256> indexSha512HalfBySpace{};
+    
+    // Timing statistics (in nanoseconds)
+    std::atomic<uint64_t> totalSha512HalfTimeNs{0};
+    std::atomic<uint64_t> indexSha512HalfTimeNs{0};
+    
+    // Computed property for total index sha512Half calls
+    uint64_t indexSha512HalfCount() const {
+        uint64_t total = 0;
+        for (const auto& count : indexSha512HalfBySpace) {
+            total += count.load(std::memory_order_relaxed);
+        }
+        return total;
+    }
+    
+    // Computed property for non-index sha512Half calls
+    uint64_t nonIndexSha512HalfCount() const {
+        return totalSha512HalfCount.load(std::memory_order_relaxed) - 
+               indexSha512HalfCount();
+    }
+    
+    // Computed property for non-index sha512Half time
+    uint64_t nonIndexSha512HalfTimeNs() const {
+        return totalSha512HalfTimeNs.load(std::memory_order_relaxed) - 
+               indexSha512HalfTimeNs.load(std::memory_order_relaxed);
+    }
+};
+
+// Global instance
+inline HashStats& getHashStats() {
+    static HashStats stats;
+    return stats;
+}
+
+// Get namespace name from index (for reporting)
+inline const char* getLedgerNameSpaceName(std::uint16_t space) {
+    switch(space) {
+        case 'a': return "ACCOUNT";
+        case 'd': return "DIR_NODE";
+        case 'r': return "TRUST_LINE";
+        case 'o': return "OFFER";
+        case 'O': return "OWNER_DIR";
+        case 'B': return "BOOK_DIR";
+        case 's': return "SKIP_LIST";
+        case 'u': return "ESCROW";
+        case 'f': return "AMENDMENTS";
+        case 'e': return "FEE_SETTINGS";
+        case 'T': return "TICKET";
+        case 'S': return "SIGNER_LIST";
+        case 'x': return "PAYMENT_CHANNEL";
+        case 'C': return "CHECK";
+        case 'p': return "DEPOSIT_PREAUTH";
+        case 'N': return "NEGATIVE_UNL";
+        case 'H': return "HOOK";
+        case 'J': return "HOOK_STATE_DIR";
+        case 'v': return "HOOK_STATE";
+        case 'D': return "HOOK_DEFINITION";
+        case 'E': return "EMITTED_TXN";
+        case 'F': return "EMITTED_DIR";
+        case 'q': return "NFTOKEN_OFFER";
+        case 'h': return "NFTOKEN_BUY_OFFERS";
+        case 'i': return "NFTOKEN_SELL_OFFERS";
+        case 'U': return "URI_TOKEN";
+        case 'I': return "IMPORT_VLSEQ";
+        case 'R': return "UNL_REPORT";
+        case 'c': return "CONTRACT_DEPRECATED";
+        case 'g': return "GENERATOR_DEPRECATED";
+        case 'n': return "NICKNAME_DEPRECATED";
+        default: return nullptr;
+    }
+}
 
 /** Message digest functions used in the codebase
 
@@ -215,10 +293,19 @@ template <class... Args>
 sha512_half_hasher::result_type
 sha512Half(Args const&... args)
 {
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    getHashStats().totalSha512HalfCount.fetch_add(1, std::memory_order_relaxed);
     sha512_half_hasher h;
     using beast::hash_append;
     hash_append(h, args...);
-    return static_cast<typename sha512_half_hasher::result_type>(h);
+    auto result = static_cast<typename sha512_half_hasher::result_type>(h);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    getHashStats().totalSha512HalfTimeNs.fetch_add(duration, std::memory_order_relaxed);
+    
+    return result;
 }
 
 /** Returns the SHA512-Half of a series of objects.
@@ -231,10 +318,19 @@ template <class... Args>
 sha512_half_hasher_s::result_type
 sha512Half_s(Args const&... args)
 {
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    getHashStats().totalSha512HalfCount.fetch_add(1, std::memory_order_relaxed);
     sha512_half_hasher_s h;
     using beast::hash_append;
     hash_append(h, args...);
-    return static_cast<typename sha512_half_hasher_s::result_type>(h);
+    auto result = static_cast<typename sha512_half_hasher_s::result_type>(h);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    getHashStats().totalSha512HalfTimeNs.fetch_add(duration, std::memory_order_relaxed);
+    
+    return result;
 }
 
 }  // namespace ripple
