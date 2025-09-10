@@ -153,6 +153,7 @@ target_link_libraries (xrpl_core
     Ripple::syslibs
     secp256k1::secp256k1
     ed25519::ed25519
+    BLAKE3::blake3
     date::date
     Ripple::opts)
 #[=================================[
@@ -974,6 +975,7 @@ if (tests)
        test sources:
          subdir: protocol
     #]===============================]
+    src/test/protocol/blake3_test.cpp
     src/test/protocol/BuildInfo_test.cpp
     src/test/protocol/InnerObjectFormats_test.cpp
     src/test/protocol/Issue_test.cpp
@@ -1069,6 +1071,9 @@ target_link_libraries (rippled
   Ripple::opts
   Ripple::libs
   Ripple::xrpl_core
+  BLAKE3::blake3
+  # Workaround for a Conan 1.x bug...
+  m
   )
 exclude_if_included (rippled)
 # define a macro for tests that might need to

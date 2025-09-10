@@ -24,6 +24,7 @@ class Xrpl(ConanFile):
     }
 
     requires = [
+        'blake3/1.5.0@xahaud/stable',
         'boost/1.86.0',
         'date/3.0.1',
         'libarchive/3.6.0',
