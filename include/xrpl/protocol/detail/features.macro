@@ -32,6 +32,7 @@
 // Add new amendments to the top of this list.
 // Keep it sorted in reverse chronological order.
 
+XRPL_FIX    (DelegateV1_1,               Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (MPTDeliveredAmount,         Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (EnforceNFTokenTrustlineV2,  Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(PermissionedDEX,            Supported::no,  VoteBehavior::DefaultNo)
