@@ -99,8 +99,8 @@ doNoRippleCheck(RPC::JsonContext& context)
         return result;
     }
     auto const accountID{std::move(id.value())};
-    auto const sle =
-        ledger->read(keylet::account(hash_options{(ledger->seq())}, accountID));
+    auto const sle = ledger->read(keylet::account(
+        hash_options{(ledger->seq()), KEYLET_ACCOUNT}, accountID));
     if (!sle)
         return rpcError(rpcACT_NOT_FOUND);
 

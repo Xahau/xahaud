@@ -710,7 +710,10 @@ ApplyStateTable::threadTx(
     beast::Journal j)
 {
     auto const sle = getForMod(
-        base, keylet::account(hash_options{(base.seq())}, to).key, mods, j);
+        base,
+        keylet::account(hash_options{(base.seq()), KEYLET_ACCOUNT}, to).key,
+        mods,
+        j);
     if (!sle)
     {
         // The Destination of an Escrow or PayChannel may have been deleted.

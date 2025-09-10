@@ -103,8 +103,8 @@ doAccountInfo(RPC::JsonContext& context)
         allowTrustLineClawbackFlag{
             "allowTrustLineClawback", lsfAllowTrustLineClawback};
 
-    auto const sleAccepted =
-        ledger->read(keylet::account(hash_options{(ledger->seq())}, accountID));
+    auto const sleAccepted = ledger->read(keylet::account(
+        hash_options{(ledger->seq()), KEYLET_ACCOUNT}, accountID));
     if (sleAccepted)
     {
         auto const queue =
@@ -148,8 +148,8 @@ doAccountInfo(RPC::JsonContext& context)
 
             // This code will need to be revisited if in the future we support
             // multiple SignerLists on one account.
-            auto const sleSigners = ledger->read(
-                keylet::signers(hash_options{(ledger->seq())}, accountID));
+            auto const sleSigners = ledger->read(keylet::signers(
+                hash_options{(ledger->seq()), KEYLET_SIGNERS}, accountID));
             if (sleSigners)
                 jvSignerList.append(sleSigners->getJson(JsonOptions::none));
 

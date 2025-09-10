@@ -58,10 +58,10 @@ Clawback::preclaim(PreclaimContext const& ctx)
     STAmount const clawAmount = ctx.tx[sfAmount];
     AccountID const& holder = clawAmount.getIssuer();
 
-    auto const sleIssuer =
-        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, issuer));
-    auto const sleHolder =
-        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, holder));
+    auto const sleIssuer = ctx.view.read(keylet::account(
+        hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, issuer));
+    auto const sleHolder = ctx.view.read(keylet::account(
+        hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, holder));
     if (!sleIssuer || !sleHolder)
         return terNO_ACCOUNT;
 
@@ -74,7 +74,7 @@ Clawback::preclaim(PreclaimContext const& ctx)
         return tecNO_PERMISSION;
 
     auto const sleRippleState = ctx.view.read(keylet::line(
-        hash_options{(ctx.view.seq())},
+        hash_options{(ctx.view.seq()), KEYLET_TRUSTLINE},
         holder,
         issuer,
         clawAmount.getCurrency()));

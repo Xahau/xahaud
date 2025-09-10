@@ -76,8 +76,8 @@ doAccountOffers(RPC::JsonContext& context)
     // Get info on account.
     result[jss::account] = toBase58(accountID);
 
-    if (!ledger->exists(
-            keylet::account(hash_options{(ledger->seq())}, accountID)))
+    if (!ledger->exists(keylet::account(
+            hash_options{(ledger->seq()), KEYLET_ACCOUNT}, accountID)))
         return rpcError(rpcACT_NOT_FOUND);
 
     unsigned int limit;

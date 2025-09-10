@@ -82,8 +82,8 @@ CashCheck::preflight(PreflightContext const& ctx)
 TER
 CashCheck::preclaim(PreclaimContext const& ctx)
 {
-    auto const sleCheck = ctx.view.read(
-        keylet::check(hash_options{(ctx.view.seq())}, ctx.tx[sfCheckID]));
+    auto const sleCheck = ctx.view.read(keylet::check(
+        hash_options{(ctx.view.seq()), KEYLET_CHECK}, ctx.tx[sfCheckID]));
     if (!sleCheck)
     {
         JLOG(ctx.j.warn()) << "Check does not exist.";
@@ -106,10 +106,10 @@ CashCheck::preclaim(PreclaimContext const& ctx)
         return tecINTERNAL;
     }
     {
-        auto const sleSrc = ctx.view.read(
-            keylet::account(hash_options{(ctx.view.seq())}, srcId));
-        auto const sleDst = ctx.view.read(
-            keylet::account(hash_options{(ctx.view.seq())}, dstId));
+        auto const sleSrc = ctx.view.read(keylet::account(
+            hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, srcId));
+        auto const sleDst = ctx.view.read(keylet::account(
+            hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, dstId));
         if (!sleSrc || !sleDst)
         {
             // If the check exists this should never occur.
@@ -191,7 +191,10 @@ CashCheck::preclaim(PreclaimContext const& ctx)
         if (!value.native() && (value.getIssuer() != dstId))
         {
             auto const sleTrustLine = ctx.view.read(keylet::line(
-                hash_options{(ctx.view.seq())}, dstId, issuerId, currency));
+                hash_options{(ctx.view.seq()), KEYLET_TRUSTLINE},
+                dstId,
+                issuerId,
+                currency));
 
             if (!sleTrustLine &&
                 !ctx.view.rules().enabled(featureCheckCashMakesTrustLine))
@@ -201,8 +204,8 @@ CashCheck::preclaim(PreclaimContext const& ctx)
                 return tecNO_LINE;
             }
 
-            auto const sleIssuer = ctx.view.read(
-                keylet::account(hash_options{(ctx.view.seq())}, issuerId));
+            auto const sleIssuer = ctx.view.read(keylet::account(
+                hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, issuerId));
             if (!sleIssuer)
             {
                 JLOG(ctx.j.warn())
@@ -260,8 +263,8 @@ CashCheck::doApply()
     // directly on a View.
     PaymentSandbox psb(&ctx_.view());
 
-    auto sleCheck =
-        psb.peek(keylet::check(hash_options{(psb.seq())}, ctx_.tx[sfCheckID]));
+    auto sleCheck = psb.peek(keylet::check(
+        hash_options{(psb.seq()), KEYLET_CHECK}, ctx_.tx[sfCheckID]));
     if (!sleCheck)
     {
         JLOG(j_.fatal()) << "Precheck did not verify check's existence.";
@@ -269,8 +272,10 @@ CashCheck::doApply()
     }
 
     AccountID const srcId{sleCheck->getAccountID(sfAccount)};
-    if (!psb.exists(keylet::account(hash_options{(psb.seq())}, srcId)) ||
-        !psb.exists(keylet::account(hash_options{(psb.seq())}, account_)))
+    if (!psb.exists(keylet::account(
+            hash_options{(psb.seq()), KEYLET_ACCOUNT}, srcId)) ||
+        !psb.exists(keylet::account(
+            hash_options{(psb.seq()), KEYLET_ACCOUNT}, account_)))
     {
         JLOG(ctx_.journal.fatal())
             << "Precheck did not verify source or destination's existence.";
@@ -356,7 +361,9 @@ CashCheck::doApply()
             AccountID const issuer = flowDeliver.getIssuer();
             AccountID const truster = issuer == account_ ? srcId : account_;
             Keylet const trustLineKey = keylet::line(
-                hash_options{(psb.seq())}, truster, trustLineIssue);
+                hash_options{(psb.seq()), KEYLET_TRUSTLINE},
+                truster,
+                trustLineIssue);
             bool const destLow = issuer > account_;
 
             bool const checkCashMakesTrustLine =
@@ -371,8 +378,8 @@ CashCheck::doApply()
                 //     a. this (destination) account and
                 //     b. issuing account (not sending account).
 
-                auto const sleDst = psb.peek(
-                    keylet::account(hash_options{(psb.seq())}, account_));
+                auto const sleDst = psb.peek(keylet::account(
+                    hash_options{(psb.seq()), KEYLET_ACCOUNT}, account_));
 
                 // Can the account cover the trust line's reserve?
                 if (std::uint32_t const ownerCount = {sleDst->at(sfOwnerCount)};
@@ -485,8 +492,8 @@ CashCheck::doApply()
             if (checkCashMakesTrustLine)
                 ctx_.deliver(result.actualAmountOut);
 
-            sleCheck = psb.peek(
-                keylet::check(hash_options{(psb.seq())}, ctx_.tx[sfCheckID]));
+            sleCheck = psb.peek(keylet::check(
+                hash_options{(psb.seq()), KEYLET_CHECK}, ctx_.tx[sfCheckID]));
         }
     }
 
@@ -494,7 +501,8 @@ CashCheck::doApply()
     // check link from destination directory.
     if (srcId != account_ &&
         !psb.dirRemove(
-            keylet::ownerDir(hash_options{(psb.seq())}, account_),
+            keylet::ownerDir(
+                hash_options{(psb.seq()), KEYLET_OWNER_DIR}, account_),
             sleCheck->at(sfDestinationNode),
             sleCheck->key(),
             true))
@@ -505,7 +513,8 @@ CashCheck::doApply()
 
     // Remove check from check owner's directory.
     if (!psb.dirRemove(
-            keylet::ownerDir(hash_options{(psb.seq())}, srcId),
+            keylet::ownerDir(
+                hash_options{(psb.seq()), KEYLET_OWNER_DIR}, srcId),
             sleCheck->at(sfOwnerNode),
             sleCheck->key(),
             true))
@@ -517,7 +526,8 @@ CashCheck::doApply()
     // If we succeeded, update the check owner's reserve.
     adjustOwnerCount(
         psb,
-        psb.peek(keylet::account(hash_options{(psb.seq())}, srcId)),
+        psb.peek(
+            keylet::account(hash_options{(psb.seq()), KEYLET_ACCOUNT}, srcId)),
         -1,
         viewJ);
 

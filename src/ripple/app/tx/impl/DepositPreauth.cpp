@@ -85,14 +85,16 @@ DepositPreauth::preclaim(PreclaimContext const& ctx)
     {
         // Verify that the Authorize account is present in the ledger.
         AccountID const auth{ctx.tx[sfAuthorize]};
-        if (!ctx.view.exists(
-                keylet::account(hash_options{(ctx.view.seq())}, auth)))
+        if (!ctx.view.exists(keylet::account(
+                hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, auth)))
             return tecNO_TARGET;
 
         // Verify that the Preauth entry they asked to add is not already
         // in the ledger.
         if (ctx.view.exists(keylet::depositPreauth(
-                hash_options{(ctx.view.seq())}, ctx.tx[sfAccount], auth)))
+                hash_options{(ctx.view.seq()), KEYLET_DEPOSIT_PREAUTH},
+                ctx.tx[sfAccount],
+                auth)))
             return tecDUPLICATE;
     }
     else
@@ -100,7 +102,9 @@ DepositPreauth::preclaim(PreclaimContext const& ctx)
         // Verify that the Preauth entry they asked to remove is in the ledger.
         AccountID const unauth{ctx.tx[sfUnauthorize]};
         if (!ctx.view.exists(keylet::depositPreauth(
-                hash_options{(ctx.view.seq())}, ctx.tx[sfAccount], unauth)))
+                hash_options{(ctx.view.seq()), KEYLET_DEPOSIT_PREAUTH},
+                ctx.tx[sfAccount],
+                unauth)))
             return tecNO_ENTRY;
     }
     return tesSUCCESS;
@@ -111,8 +115,8 @@ DepositPreauth::doApply()
 {
     if (ctx_.tx.isFieldPresent(sfAuthorize))
     {
-        auto const sleOwner = view().peek(
-            keylet::account(hash_options{(view().seq())}, account_));
+        auto const sleOwner = view().peek(keylet::account(
+            hash_options{(view().seq()), KEYLET_ACCOUNT}, account_));
         if (!sleOwner)
             return {tefINTERNAL};
 
@@ -131,7 +135,9 @@ DepositPreauth::doApply()
         // Create and populate the Preauth entry.
         AccountID const auth{ctx_.tx[sfAuthorize]};
         Keylet const preauthKeylet = keylet::depositPreauth(
-            hash_options{(view().seq())}, account_, auth);
+            hash_options{(view().seq()), KEYLET_DEPOSIT_PREAUTH},
+            account_,
+            auth);
         auto slePreauth = std::make_shared<SLE>(preauthKeylet);
 
         slePreauth->setAccountID(sfAccount, account_);
@@ -140,7 +146,8 @@ DepositPreauth::doApply()
 
         auto viewJ = ctx_.app.journal("View");
         auto const page = view().dirInsert(
-            keylet::ownerDir(hash_options{(view().seq())}, account_),
+            keylet::ownerDir(
+                hash_options{(view().seq()), KEYLET_OWNER_DIR}, account_),
             preauthKeylet,
             describeOwnerDir(account_));
 
@@ -159,7 +166,9 @@ DepositPreauth::doApply()
     else
     {
         auto const preauth = keylet::depositPreauth(
-            hash_options{(view().seq())}, account_, ctx_.tx[sfUnauthorize]);
+            hash_options{(view().seq()), KEYLET_DEPOSIT_PREAUTH},
+            account_,
+            ctx_.tx[sfUnauthorize]);
 
         return DepositPreauth::removeFromLedger(
             ctx_.app, view(), preauth.key, j_);
@@ -187,7 +196,8 @@ DepositPreauth::removeFromLedger(
     AccountID const account{(*slePreauth)[sfAccount]};
     std::uint64_t const page{(*slePreauth)[sfOwnerNode]};
     if (!view.dirRemove(
-            keylet::ownerDir(hash_options{(view.seq())}, account),
+            keylet::ownerDir(
+                hash_options{(view.seq()), KEYLET_OWNER_DIR}, account),
             page,
             preauthIndex,
             false))
@@ -197,8 +207,8 @@ DepositPreauth::removeFromLedger(
     }
 
     // If we succeeded, update the DepositPreauth owner's reserve.
-    auto const sleOwner =
-        view.peek(keylet::account(hash_options{(view.seq())}, account));
+    auto const sleOwner = view.peek(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, account));
     if (!sleOwner)
         return tefINTERNAL;
 

@@ -712,7 +712,8 @@ Shard::finalize(bool writeSQLite, std::optional<uint256> const& referenceHash)
 
         assert(
             ledger->info().seq == ledgerSeq &&
-            ledger->read(keylet::fees(hash_options{(ledger->seq())})));
+            ledger->read(
+                keylet::fees(hash_options{(ledger->seq()), KEYLET_FEES})));
 
         hash = ledger->info().parentHash;
         next = std::move(ledger);
@@ -1209,7 +1210,8 @@ Shard::verifyFetch(uint256 const& hash, std::uint32_t ledgerSeq) const
                 // Verify that the hash of node object matches the payload
                 if (nodeObject->getHash() !=
                     sha512Half(
-                        hash_options{ledgerSeq, NODE_OBJECT_VERIFICATION_HASH},
+                        hash_options{
+                            ledgerSeq, SHARD_NODE_OBJECT_VERIFICATION_HASH},
                         makeSlice(nodeObject->getData())))
                     return fail("Node object hash does not match payload");
                 return nodeObject;

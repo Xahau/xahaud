@@ -149,8 +149,8 @@ CreateOffer::preclaim(PreclaimContext const& ctx)
 
     auto const cancelSequence = ctx.tx[~sfOfferSequence];
 
-    auto const sleCreator =
-        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
+    auto const sleCreator = ctx.view.read(
+        keylet::account(hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, id));
     if (!sleCreator)
         return terNO_ACCOUNT;
 
@@ -231,8 +231,8 @@ CreateOffer::checkAcceptAsset(
     // Only valid for custom currencies
     assert(!isXRP(issue.currency));
 
-    auto const issuerAccount =
-        view.read(keylet::account(hash_options{(view.seq())}, issue.account));
+    auto const issuerAccount = view.read(keylet::account(
+        hash_options{(view.seq()), KEYLET_ACCOUNT}, issue.account));
 
     if (!issuerAccount)
     {
@@ -253,7 +253,10 @@ CreateOffer::checkAcceptAsset(
     if ((*issuerAccount)[sfFlags] & lsfRequireAuth)
     {
         auto const trustLine = view.read(keylet::line(
-            hash_options{(view.seq())}, id, issue.account, issue.currency));
+            hash_options{(view.seq()), KEYLET_TRUSTLINE},
+            id,
+            issue.account,
+            issue.currency));
 
         if (!trustLine)
         {
@@ -286,7 +289,10 @@ CreateOffer::checkAcceptAsset(
     }
 
     auto const trustLine = view.read(keylet::line(
-        hash_options{(view.seq())}, id, issue.account, issue.currency));
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        id,
+        issue.account,
+        issue.currency));
 
     if (!trustLine)
     {
@@ -818,11 +824,11 @@ CreateOffer::flowCross(
         // If stale offers were found remove them.
         for (auto const& toRemove : result.removableOffers)
         {
-            if (auto otr = psb.peek(
-                    keylet::offer(hash_options{(psb.seq())}, toRemove)))
+            if (auto otr = psb.peek(keylet::offer(
+                    hash_options{(psb.seq()), KEYLET_OFFER}, toRemove)))
                 offerDelete(psb, otr, j_);
-            if (auto otr = psbCancel.peek(
-                    keylet::offer(hash_options{(psbCancel.seq())}, toRemove)))
+            if (auto otr = psbCancel.peek(keylet::offer(
+                    hash_options{(psbCancel.seq()), KEYLET_OFFER}, toRemove)))
                 offerDelete(psbCancel, otr, j_);
         }
 
@@ -983,10 +989,11 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
     // Process a cancellation request that's passed along with an offer.
     if (cancelSequence || offerID)
     {
-        Keylet cancel = offerID
-            ? Keylet(ltOFFER, *offerID)
-            : keylet::offer(
-                  hash_options{(sb.seq())}, account_, *cancelSequence);
+        Keylet cancel = offerID ? Keylet(ltOFFER, *offerID)
+                                : keylet::offer(
+                                      hash_options{(sb.seq()), KEYLET_OFFER},
+                                      account_,
+                                      *cancelSequence);
 
         auto const sleCancel = sb.peek(cancel);
 
@@ -1030,15 +1037,15 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
         std::uint8_t uTickSize = Quality::maxTickSize;
         if (!isXRP(uPaysIssuerID))
         {
-            auto const sle = sb.read(
-                keylet::account(hash_options{(sb.seq())}, uPaysIssuerID));
+            auto const sle = sb.read(keylet::account(
+                hash_options{(sb.seq()), KEYLET_ACCOUNT}, uPaysIssuerID));
             if (sle && sle->isFieldPresent(sfTickSize))
                 uTickSize = std::min(uTickSize, (*sle)[sfTickSize]);
         }
         if (!isXRP(uGetsIssuerID))
         {
-            auto const sle = sb.read(
-                keylet::account(hash_options{(sb.seq())}, uGetsIssuerID));
+            auto const sle = sb.read(keylet::account(
+                hash_options{(sb.seq()), KEYLET_ACCOUNT}, uGetsIssuerID));
             if (sle && sle->isFieldPresent(sfTickSize))
                 uTickSize = std::min(uTickSize, (*sle)[sfTickSize]);
         }
@@ -1179,8 +1186,8 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
         return {tesSUCCESS, true};
     }
 
-    auto const sleCreator =
-        sb.peek(keylet::account(hash_options{(sb.seq())}, account_));
+    auto const sleCreator = sb.peek(
+        keylet::account(hash_options{(sb.seq()), KEYLET_ACCOUNT}, account_));
     if (!sleCreator)
         return {tefINTERNAL, false};
 
@@ -1206,12 +1213,12 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
     }
 
     // We need to place the remainder of the offer into its order book.
-    Keylet offer_index =
-        keylet::offer(hash_options{(sb.seq())}, account_, seqID(ctx_));
+    Keylet offer_index = keylet::offer(
+        hash_options{(sb.seq()), KEYLET_OFFER}, account_, seqID(ctx_));
 
     // Add offer to owner's directory.
     auto const ownerNode = sb.dirInsert(
-        keylet::ownerDir(hash_options{(sb.seq())}, account_),
+        keylet::ownerDir(hash_options{(sb.seq()), KEYLET_OWNER_DIR}, account_),
         offer_index,
         describeOwnerDir(account_));
 
@@ -1232,8 +1239,8 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
 
     // Add offer to order book, using the original rate
     // before any crossing occured.
-    auto dir =
-        keylet::quality(keylet::book(hash_options{(sb.seq())}, book), uRate);
+    auto dir = keylet::quality(
+        keylet::book(hash_options{(sb.seq()), KEYLET_BOOK}, book), uRate);
     bool const bookExisted = static_cast<bool>(sb.peek(dir));
 
     auto const bookNode = sb.dirAppend(dir, offer_index, [&](SLE::ref sle) {

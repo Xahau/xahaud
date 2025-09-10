@@ -1737,7 +1737,7 @@ ApplicationImp::startGenesisLedger()
     auto const next =
         std::make_shared<Ledger>(*genesis, timeKeeper().closeTime());
     next->updateSkipList();
-    assert(next->read(keylet::fees(hash_options{(next->seq())})));
+    assert(next->read(keylet::fees(hash_options{(next->seq()), KEYLET_FEES})));
     next->setImmutable();
     openLedger_.emplace(next, cachedSLEs_, logs_->journal("OpenLedger"));
     m_ledgerMaster->storeLedger(next);
@@ -1785,7 +1785,8 @@ ApplicationImp::getLastFullLedger()
         if (!ledger)
             return ledger;
 
-        assert(ledger->read(keylet::fees(hash_options{(ledger->seq())})));
+        assert(ledger->read(
+            keylet::fees(hash_options{(ledger->seq()), KEYLET_FEES})));
         ledger->setImmutable();
 
         if (getLedgerMaster().haveLedger(seq))
@@ -1937,8 +1938,8 @@ ApplicationImp::loadLedgerFromFile(std::string const& name)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        assert(
-            loadLedger->read(keylet::fees(hash_options{(loadLedger->seq())})));
+        assert(loadLedger->read(
+            keylet::fees(hash_options{(loadLedger->seq()), KEYLET_FEES})));
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 
@@ -2066,8 +2067,8 @@ ApplicationImp::loadLedgerFromJson(std::string const& jsonValue)
 
         loadLedger->stateMap().flushDirty(hotACCOUNT_NODE);
 
-        assert(
-            loadLedger->read(keylet::fees(hash_options{(loadLedger->seq())})));
+        assert(loadLedger->read(
+            keylet::fees(hash_options{(loadLedger->seq()), KEYLET_FEES})));
         loadLedger->setAccepted(
             closeTime, closeTimeResolution, !closeTimeEstimated);
 

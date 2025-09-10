@@ -156,8 +156,8 @@ public:
                 return true;
 
             AccountID const acctID = txn.getAccount();
-            auto const sleAcct =
-                view.read(keylet::account(hash_options{(view.seq())}, acctID));
+            auto const sleAcct = view.read(keylet::account(
+                hash_options{(view.seq()), KEYLET_ACCOUNT}, acctID));
 
             if (!sleAcct)
                 return false;
@@ -177,8 +177,8 @@ public:
 
             // Ticket should have been created by now.  Remove if ticket
             // does not exist.
-            return !view.exists(
-                keylet::ticket(hash_options{(view.seq())}, acctID, seqProx));
+            return !view.exists(keylet::ticket(
+                hash_options{(view.seq()), KEYLET_TICKET}, acctID, seqProx));
         });
     }
 

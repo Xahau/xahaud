@@ -67,7 +67,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         if (!id || *id == beast::zero)
             return nullptr;
 
-        return rv.read(keylet::nftoffer(hash_options{(rv.seq())}, *id));
+        return rv.read(
+            keylet::nftoffer(hash_options{(rv.seq()), KEYLET_NFT_OFFER}, *id));
     };
 
     bool const fixV1 = rv.rules().enabled(fixXahauV1);
@@ -146,13 +147,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             {
                 // the owner burns their token, and the issuer is a weak TSH
                 if (*otxnAcc == owner &&
-                    rv.exists(
-                        keylet::account(hash_options{(rv.seq())}, issuer)))
+                    rv.exists(keylet::account(
+                        hash_options{(rv.seq()), KEYLET_ACCOUNT}, issuer)))
                     ADD_TSH(issuer, tshWEAK);
                 // the issuer burns the owner's token, and the owner is a weak
                 // TSH
-                else if (rv.exists(
-                             keylet::account(hash_options{(rv.seq())}, owner)))
+                else if (rv.exists(keylet::account(
+                             hash_options{(rv.seq()), KEYLET_ACCOUNT}, owner)))
                     ADD_TSH(owner, tshWEAK);
 
                 break;
@@ -403,7 +404,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
                 Keylet kl = hasSeq
                     ? keylet::escrow(
-                          hash_options{(rv.seq())},
+                          hash_options{(rv.seq()), KEYLET_ESCROW},
                           owner,
                           tx.getFieldU32(sfOfferSequence))
                     : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
@@ -435,7 +436,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                     return {};
 
                 auto escrow = rv.read(keylet::escrow(
-                    hash_options{(rv.seq())},
+                    hash_options{(rv.seq()), KEYLET_ESCROW},
                     tx.getAccountID(sfOwner),
                     tx.getFieldU32(sfOfferSequence)));
 
@@ -1077,8 +1078,8 @@ hook::setHookState(
 {
     auto& view = applyCtx.view();
     auto j = applyCtx.app.journal("View");
-    auto const sleAccount =
-        view.peek(ripple::keylet::account(hash_options{(view.seq())}, acc));
+    auto const sleAccount = view.peek(ripple::keylet::account(
+        hash_options{(view.seq()), KEYLET_ACCOUNT}, acc));
 
     if (!sleAccount)
         return tefINTERNAL;
@@ -1087,10 +1088,10 @@ hook::setHookState(
     if (data.size() > hook::maxHookStateDataSize())
         return temHOOK_DATA_TOO_LARGE;
 
-    auto hookStateKeylet =
-        ripple::keylet::hookState(hash_options{(view.seq())}, acc, key, ns);
-    auto hookStateDirKeylet =
-        ripple::keylet::hookStateDir(hash_options{(view.seq())}, acc, ns);
+    auto hookStateKeylet = ripple::keylet::hookState(
+        hash_options{(view.seq()), KEYLET_HOOK_STATE}, acc, key, ns);
+    auto hookStateDirKeylet = ripple::keylet::hookStateDir(
+        hash_options{(view.seq()), KEYLET_HOOK_STATE_DIR}, acc, ns);
 
     uint32_t stateCount = sleAccount->getFieldU32(sfHookStateCount);
     uint32_t oldStateReserve = computeHookStateOwnerCount(stateCount);
@@ -1143,8 +1144,9 @@ hook::setHookState(
         // from the owner directory
         if (!view.peek(hookStateDirKeylet) && rootHint)
         {
-            if (!view.dirRemove(keylet::ownerDir(hash_options{(view.seq())},
-        acc), *rootHint, hookStateDirKeylet.key, false)) return tefBAD_LEDGER;
+            if (!view.dirRemove(keylet::ownerDir(hash_options{(view.seq()),
+        KEYLET_OWNER_DIR}, acc), *rootHint, hookStateDirKeylet.key, false))
+        return tefBAD_LEDGER;
         }
         */
 
@@ -1248,11 +1250,13 @@ hook::apply(
              .hookHash = hookHash,
              .hookCanEmit = hookCanEmit,
              .accountKeylet = keylet::account(
-                 hash_options{(applyCtx.view().seq())}, account),
+                 hash_options{(applyCtx.view().seq()), KEYLET_ACCOUNT},
+                 account),
              .ownerDirKeylet = keylet::ownerDir(
-                 hash_options{(applyCtx.view().seq())}, account),
-             .hookKeylet =
-                 keylet::hook(hash_options{(applyCtx.view().seq())}, account),
+                 hash_options{(applyCtx.view().seq()), KEYLET_OWNER_DIR},
+                 account),
+             .hookKeylet = keylet::hook(
+                 hash_options{(applyCtx.view().seq()), KEYLET_HOOK}, account),
              .account = account,
              .otxnAccount = applyCtx.tx.getAccountID(sfAccount),
              .hookNamespace = hookNamespace,
@@ -1277,7 +1281,8 @@ hook::apply(
         .emitFailure = isCallback && wasmParam & 1
             ? std::optional<ripple::STObject>(
                   (*(applyCtx.view().peek(keylet::emittedTxn(
-                       hash_options{(applyCtx.view().seq())},
+                       hash_options{
+                           (applyCtx.view().seq()), KEYLET_EMITTED_TXN},
                        applyCtx.tx.getFieldH256(sfTransactionHash)))))
                       .downcast<STObject>())
             : std::optional<ripple::STObject>()};
@@ -1492,7 +1497,8 @@ set_state_cache(
         return TOO_MANY_STATE_MODIFICATIONS;
 
     bool const createNamespace = view.rules().enabled(fixXahauV1) &&
-        !view.exists(keylet::hookStateDir(hash_options{(view.seq())}, acc, ns));
+        !view.exists(keylet::hookStateDir(
+            hash_options{(view.seq()), KEYLET_HOOK_STATE_DIR}, acc, ns));
 
     if (stateMap.find(acc) == stateMap.end())
     {
@@ -1500,8 +1506,8 @@ set_state_cache(
         // we will compute how many available reserve positions there are
         auto const& fees = hookCtx.applyCtx.view().fees();
 
-        auto const accSLE =
-            view.read(ripple::keylet::account(hash_options{(view.seq())}, acc));
+        auto const accSLE = view.read(ripple::keylet::account(
+            hash_options{(view.seq()), KEYLET_ACCOUNT}, acc));
 
         if (!accSLE)
             return DOESNT_EXIST;
@@ -1737,8 +1743,8 @@ DEFINE_HOOK_FUNCTION(
 
     // cache miss or cache was present but entry was not marked as previously
     // modified therefore before continuing we need to check grants
-    auto const sle =
-        view.read(ripple::keylet::hook(hash_options{(view.seq())}, acc));
+    auto const sle = view.read(
+        ripple::keylet::hook(hash_options{(view.seq()), KEYLET_HOOK}, acc));
     if (!sle)
         return INTERNAL_ERROR;
 
@@ -1771,7 +1777,8 @@ DEFINE_HOOK_FUNCTION(
         {
             // fetch the hook definition
             auto const def = view.read(ripple::keylet::hookDefinition(
-                hash_options{(view.seq())}, hookObj.getFieldH256(sfHookHash)));
+                hash_options{(view.seq()), KEYLET_HOOK_DEFINITION},
+                hookObj.getFieldH256(sfHookHash)));
             if (!def)  // should never happen except in a rare race condition
                 continue;
             if (def->getFieldH256(sfHookNamespace) != ns)
@@ -1912,7 +1919,8 @@ hook::removeEmissionEntry(ripple::ApplyContext& applyCtx)
         return tesSUCCESS;
 
     auto key = keylet::emittedTxn(
-        hash_options{(applyCtx.view().seq())}, tx.getTransactionID());
+        hash_options{(applyCtx.view().seq()), KEYLET_EMITTED_TXN},
+        tx.getTransactionID());
 
     auto const& sle = applyCtx.view().peek(key);
 
@@ -1920,7 +1928,8 @@ hook::removeEmissionEntry(ripple::ApplyContext& applyCtx)
         return tesSUCCESS;
 
     if (!applyCtx.view().dirRemove(
-            keylet::emittedDir(hash_options{(applyCtx.view().seq())}),
+            keylet::emittedDir(
+                hash_options{(applyCtx.view().seq()), KEYLET_EMITTED_DIR}),
             sle->getFieldU64(sfOwnerNode),
             key,
             false))
@@ -1970,8 +1979,8 @@ hook::finalizeHookResult(
             std::shared_ptr<const ripple::STTx> ptr =
                 tpTrans->getSTransaction();
 
-            auto emittedId =
-                keylet::emittedTxn(hash_options{(applyCtx.view().seq())}, id);
+            auto emittedId = keylet::emittedTxn(
+                hash_options{(applyCtx.view().seq()), KEYLET_EMITTED_TXN}, id);
             auto sleEmitted = applyCtx.view().peek(emittedId);
 
             if (!sleEmitted)
@@ -1992,7 +2001,8 @@ hook::finalizeHookResult(
 
                 sleEmitted->emplace_back(ripple::STObject(sit, sfEmittedTxn));
                 auto page = applyCtx.view().dirInsert(
-                    keylet::emittedDir(hash_options{(applyCtx.view().seq())}),
+                    keylet::emittedDir(hash_options{
+                        (applyCtx.view().seq()), KEYLET_EMITTED_DIR}),
                     emittedId,
                     [&](SLE::ref sle) { (*sle)[sfFlags] = lsfEmittedDir; });
 
@@ -2180,8 +2190,8 @@ DEFINE_HOOK_FUNCTION(
             false);
     }
 
-    auto hsSLE =
-        view.peek(keylet::hookState(hash_options{(view.seq())}, acc, *key, ns));
+    auto hsSLE = view.peek(keylet::hookState(
+        hash_options{(view.seq()), KEYLET_HOOK_STATE}, acc, *key, ns));
 
     if (!hsSLE)
         return DOESNT_EXIST;
@@ -2959,13 +2969,17 @@ DEFINE_HOOK_FUNCTION(
                     ripple::base_uint<256>::fromVoid(memory + read_ptr);
 
                 ripple::Keylet kl = keylet_type == keylet_code::CHILD
-                    ? ripple::keylet::child(hash_options{(view.seq())}, id)
+                    ? ripple::keylet::child(
+                          hash_options{(view.seq()), KEYLET_CHILD}, id)
                     : keylet_type == keylet_code::EMITTED_TXN
                         ? ripple::keylet::emittedTxn(
-                              hash_options{(view.seq())}, id)
+                              hash_options{(view.seq()), KEYLET_EMITTED_TXN},
+                              id)
                         : keylet_type == keylet_code::HOOK_DEFINITION
                             ? ripple::keylet::hookDefinition(
-                                  hash_options{(view.seq())}, id)
+                                  hash_options{
+                                      (view.seq()), KEYLET_HOOK_DEFINITION},
+                                  id)
                             : ripple::keylet::unchecked(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
@@ -2993,15 +3007,18 @@ DEFINE_HOOK_FUNCTION(
                 ripple::AccountID id = AccountID::fromVoid(memory + read_ptr);
 
                 ripple::Keylet kl = keylet_type == keylet_code::HOOK
-                    ? ripple::keylet::hook(hash_options{(view.seq())}, id)
+                    ? ripple::keylet::hook(
+                          hash_options{(view.seq()), KEYLET_HOOK}, id)
                     : keylet_type == keylet_code::SIGNERS
                         ? ripple::keylet::signers(
-                              hash_options{(view.seq())}, id)
+                              hash_options{(view.seq()), KEYLET_SIGNERS}, id)
                         : keylet_type == keylet_code::OWNER_DIR
                             ? ripple::keylet::ownerDir(
-                                  hash_options{(view.seq())}, id)
+                                  hash_options{(view.seq()), KEYLET_OWNER_DIR},
+                                  id)
                             : ripple::keylet::account(
-                                  hash_options{(view.seq())}, id);
+                                  hash_options{(view.seq()), KEYLET_ACCOUNT},
+                                  id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -3039,15 +3056,22 @@ DEFINE_HOOK_FUNCTION(
                 }
 
                 ripple::Keylet kl = keylet_type == keylet_code::CHECK
-                    ? ripple::keylet::check(hash_options{(view.seq())}, id, seq)
+                    ? ripple::keylet::check(
+                          hash_options{(view.seq()), KEYLET_CHECK}, id, seq)
                     : keylet_type == keylet_code::ESCROW
                         ? ripple::keylet::escrow(
-                              hash_options{(view.seq())}, id, seq)
+                              hash_options{(view.seq()), KEYLET_ESCROW},
+                              id,
+                              seq)
                         : keylet_type == keylet_code::NFT_OFFER
                             ? ripple::keylet::nftoffer(
-                                  hash_options{(view.seq())}, id, seq)
+                                  hash_options{(view.seq()), KEYLET_NFT_OFFER},
+                                  id,
+                                  seq)
                             : ripple::keylet::offer(
-                                  hash_options{(view.seq())}, id, seq);
+                                  hash_options{(view.seq()), KEYLET_OFFER},
+                                  id,
+                                  seq);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -3070,7 +3094,7 @@ DEFINE_HOOK_FUNCTION(
 
                 uint64_t index = (((uint64_t)c) << 32U) + ((uint64_t)d);
                 ripple::Keylet kl = ripple::keylet::page(
-                    hash_options{(view.seq())},
+                    hash_options{(view.seq()), KEYLET_DIR_PAGE},
                     ripple::base_uint<256>::fromVoid(memory + a),
                     index);
                 return serialize_keylet(kl, memory, write_ptr, write_len);
@@ -3093,7 +3117,7 @@ DEFINE_HOOK_FUNCTION(
                     return INVALID_ARGUMENT;
 
                 ripple::Keylet kl = ripple::keylet::hookState(
-                    hash_options{(view.seq())},
+                    hash_options{(view.seq()), KEYLET_HOOK_STATE},
                     AccountID::fromVoid(memory + aread_ptr),
                     ripple::base_uint<256>::fromVoid(memory + kread_ptr),
                     ripple::base_uint<256>::fromVoid(memory + nread_ptr));
@@ -3119,7 +3143,7 @@ DEFINE_HOOK_FUNCTION(
                     return INVALID_ARGUMENT;
 
                 ripple::Keylet kl = ripple::keylet::hookStateDir(
-                    hash_options{(view.seq())},
+                    hash_options{(view.seq()), KEYLET_HOOK_STATE_DIR},
                     AccountID::fromVoid(memory + aread_ptr),
                     ripple::base_uint<256>::fromVoid(memory + nread_ptr));
 
@@ -3132,9 +3156,11 @@ DEFINE_HOOK_FUNCTION(
                     return INVALID_ARGUMENT;
 
                 ripple::Keylet kl =
-                    (b == 0
-                         ? ripple::keylet::skip(hash_options{(view.seq())})
-                         : ripple::keylet::skip(hash_options{(view.seq())}, a));
+                    (b == 0 ? ripple::keylet::skip(
+                                  hash_options{(view.seq()), KEYLET_SKIP_LIST})
+                            : ripple::keylet::skip(
+                                  hash_options{(view.seq()), KEYLET_SKIP_LIST},
+                                  a));
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -3161,14 +3187,14 @@ DEFINE_HOOK_FUNCTION(
 
                 // Cannot statically cache these as hash depends on ledger
                 // sequence
-                auto cAmendments = makeKeyCache(
-                    ripple::keylet::amendments(hash_options{(view.seq())}));
-                auto cFees = makeKeyCache(
-                    ripple::keylet::fees(hash_options{(view.seq())}));
-                auto cNegativeUNL = makeKeyCache(
-                    ripple::keylet::negativeUNL(hash_options{(view.seq())}));
-                auto cEmittedDir = makeKeyCache(
-                    ripple::keylet::emittedDir(hash_options{(view.seq())}));
+                auto cAmendments = makeKeyCache(ripple::keylet::amendments(
+                    hash_options{(view.seq()), KEYLET_AMENDMENTS}));
+                auto cFees = makeKeyCache(ripple::keylet::fees(
+                    hash_options{(view.seq()), KEYLET_FEES}));
+                auto cNegativeUNL = makeKeyCache(ripple::keylet::negativeUNL(
+                    hash_options{(view.seq()), KEYLET_NEGATIVE_UNL}));
+                auto cEmittedDir = makeKeyCache(ripple::keylet::emittedDir(
+                    hash_options{(view.seq()), KEYLET_EMITTED_DIR}));
 
                 WRITE_WASM_MEMORY_AND_RETURN(
                     write_ptr,
@@ -3206,7 +3232,7 @@ DEFINE_HOOK_FUNCTION(
                     return INVALID_ARGUMENT;
 
                 auto kl = ripple::keylet::line(
-                    hash_options{(view.seq())},
+                    hash_options{(view.seq()), KEYLET_TRUSTLINE},
                     AccountID::fromVoid(memory + hi_ptr),
                     AccountID::fromVoid(memory + lo_ptr),
                     *cur);
@@ -3235,7 +3261,9 @@ DEFINE_HOOK_FUNCTION(
                 ripple::AccountID bid = AccountID::fromVoid(memory + bread_ptr);
 
                 ripple::Keylet kl = ripple::keylet::depositPreauth(
-                    hash_options{(view.seq())}, aid, bid);
+                    hash_options{(view.seq()), KEYLET_DEPOSIT_PREAUTH},
+                    aid,
+                    bid);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -3271,7 +3299,7 @@ DEFINE_HOOK_FUNCTION(
                 }
 
                 ripple::Keylet kl = ripple::keylet::payChan(
-                    hash_options{(view.seq())}, aid, bid, seq);
+                    hash_options{(view.seq()), KEYLET_PAYCHAN}, aid, bid, seq);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }

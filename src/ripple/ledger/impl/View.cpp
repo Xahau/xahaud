@@ -61,11 +61,11 @@ internalDirNext(
         }
 
         if constexpr (std::is_const_v<N>)
-            page =
-                view.read(keylet::page(hash_options{(view.seq())}, root, next));
+            page = view.read(keylet::page(
+                hash_options{(view.seq()), KEYLET_DIR_PAGE}, root, next));
         else
-            page =
-                view.peek(keylet::page(hash_options{(view.seq())}, root, next));
+            page = view.peek(keylet::page(
+                hash_options{(view.seq()), KEYLET_DIR_PAGE}, root, next));
 
         assert(page);
 
@@ -96,9 +96,11 @@ internalDirFirst(
     uint256& entry)
 {
     if constexpr (std::is_const_v<N>)
-        page = view.read(keylet::page(hash_options{(view.seq())}, root));
+        page = view.read(
+            keylet::page(hash_options{(view.seq()), KEYLET_DIR_PAGE}, root));
     else
-        page = view.peek(keylet::page(hash_options{(view.seq())}, root));
+        page = view.peek(
+            keylet::page(hash_options{(view.seq()), KEYLET_DIR_PAGE}, root));
 
     if (!page)
         return false;
@@ -191,8 +193,8 @@ isGlobalFrozen(ReadView const& view, AccountID const& issuer)
 {
     if (isXRP(issuer))
         return false;
-    if (auto const sle =
-            view.read(keylet::account(hash_options{(view.seq())}, issuer)))
+    if (auto const sle = view.read(keylet::account(
+            hash_options{(view.seq()), KEYLET_ACCOUNT}, issuer)))
         return sle->isFlag(lsfGlobalFreeze);
     return false;
 }
@@ -208,14 +210,18 @@ isFrozen(
 {
     if (isXRP(currency))
         return false;
-    auto sle = view.read(keylet::account(hash_options{(view.seq())}, issuer));
+    auto sle = view.read(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, issuer));
     if (sle && sle->isFlag(lsfGlobalFreeze))
         return true;
     if (issuer != account)
     {
         // Check if the issuer froze the line
         sle = view.read(keylet::line(
-            hash_options{(view.seq())}, account, issuer, currency));
+            hash_options{(view.seq()), KEYLET_TRUSTLINE},
+            account,
+            issuer,
+            currency));
         if (sle &&
             sle->isFlag((issuer > account) ? lsfHighFreeze : lsfLowFreeze))
             return true;
@@ -236,8 +242,11 @@ isDeepFrozen(
     if (issuer == account)
         return false;
 
-    auto const sle = view.read(
-        keylet::line(hash_options{(view.seq())}, account, issuer, currency));
+    auto const sle = view.read(keylet::line(
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        account,
+        issuer,
+        currency));
     if (!sle)
         return false;
 
@@ -260,8 +269,11 @@ accountHolds(
     }
 
     // IOU: Return balance on trust line modulo freeze
-    auto const sle = view.read(
-        keylet::line(hash_options{(view.seq())}, account, issuer, currency));
+    auto const sle = view.read(keylet::line(
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        account,
+        issuer,
+        currency));
     auto const allowBalance = [&]() {
         if (!sle)
             return false;
@@ -392,7 +404,8 @@ xrpLiquid(
     std::int32_t ownerCountAdj,
     beast::Journal j)
 {
-    auto const sle = view.read(keylet::account(hash_options{(view.seq())}, id));
+    auto const sle = view.read(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, id));
     if (sle == nullptr)
         return beast::zero;
 
@@ -440,11 +453,13 @@ forEachItem(
         if (!sle)
             return;
         for (auto const& key : sle->getFieldV256(sfIndexes))
-            f(view.read(keylet::child(hash_options{(view.seq())}, key)));
+            f(view.read(
+                keylet::child(hash_options{(view.seq()), KEYLET_CHILD}, key)));
         auto const next = sle->getFieldU64(sfIndexNext);
         if (!next)
             return;
-        pos = keylet::page(hash_options{(view.seq())}, root, next);
+        pos = keylet::page(
+            hash_options{(view.seq()), KEYLET_DIR_PAGE}, root, next);
     }
 }
 
@@ -467,8 +482,8 @@ forEachItemAfter(
     // If startAfter is not zero try jumping to that page using the hint
     if (after.isNonZero())
     {
-        auto const hintIndex =
-            keylet::page(hash_options{(view.seq())}, root, hint);
+        auto const hintIndex = keylet::page(
+            hash_options{(view.seq()), KEYLET_DIR_PAGE}, root, hint);
 
         if (auto hintDir = view.read(hintIndex))
         {
@@ -497,8 +512,8 @@ forEachItemAfter(
                         found = true;
                 }
                 else if (
-                    f(view.read(
-                        keylet::child(hash_options{(view.seq())}, key))) &&
+                    f(view.read(keylet::child(
+                        hash_options{(view.seq()), KEYLET_CHILD}, key))) &&
                     limit-- <= 1)
                 {
                     return found;
@@ -508,8 +523,8 @@ forEachItemAfter(
             auto const uNodeNext = ownerDir->getFieldU64(sfIndexNext);
             if (uNodeNext == 0)
                 return found;
-            currentIndex =
-                keylet::page(hash_options{(view.seq())}, root, uNodeNext);
+            currentIndex = keylet::page(
+                hash_options{(view.seq()), KEYLET_DIR_PAGE}, root, uNodeNext);
         }
     }
     else
@@ -520,15 +535,15 @@ forEachItemAfter(
             if (!ownerDir)
                 return true;
             for (auto const& key : ownerDir->getFieldV256(sfIndexes))
-                if (f(view.read(
-                        keylet::child(hash_options{(view.seq())}, key))) &&
+                if (f(view.read(keylet::child(
+                        hash_options{(view.seq()), KEYLET_CHILD}, key))) &&
                     limit-- <= 1)
                     return true;
             auto const uNodeNext = ownerDir->getFieldU64(sfIndexNext);
             if (uNodeNext == 0)
                 return true;
-            currentIndex =
-                keylet::page(hash_options{(view.seq())}, root, uNodeNext);
+            currentIndex = keylet::page(
+                hash_options{(view.seq()), KEYLET_DIR_PAGE}, root, uNodeNext);
         }
     }
 }
@@ -536,8 +551,8 @@ forEachItemAfter(
 Rate
 transferRate(ReadView const& view, AccountID const& issuer)
 {
-    auto const sle =
-        view.read(keylet::account(hash_options{(view.seq())}, issuer));
+    auto const sle = view.read(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, issuer));
 
     if (sle && sle->isFieldPresent(sfTransferRate))
         return Rate{sle->getFieldU32(sfTransferRate)};
@@ -672,8 +687,8 @@ getEnabledAmendments(ReadView const& view)
 {
     std::set<uint256> amendments;
 
-    if (auto const sle =
-            view.read(keylet::amendments(hash_options{(view.seq())})))
+    if (auto const sle = view.read(
+            keylet::amendments(hash_options{(view.seq()), KEYLET_AMENDMENTS})))
     {
         if (sle->isFieldPresent(sfAmendments))
         {
@@ -690,8 +705,8 @@ getMajorityAmendments(ReadView const& view)
 {
     majorityAmendments_t ret;
 
-    if (auto const sle =
-            view.read(keylet::amendments(hash_options{(view.seq())})))
+    if (auto const sle = view.read(
+            keylet::amendments(hash_options{(view.seq()), KEYLET_AMENDMENTS})))
     {
         if (sle->isFieldPresent(sfMajorities))
         {
@@ -727,8 +742,8 @@ hashOfSeq(ReadView const& ledger, LedgerIndex seq, beast::Journal journal)
     if (int diff = ledger.seq() - seq; diff <= 256)
     {
         // Within 256...
-        auto const hashIndex =
-            ledger.read(keylet::skip(hash_options{(ledger.seq())}));
+        auto const hashIndex = ledger.read(
+            keylet::skip(hash_options{(ledger.seq()), KEYLET_SKIP_LIST}));
         if (hashIndex)
         {
             assert(
@@ -757,8 +772,8 @@ hashOfSeq(ReadView const& ledger, LedgerIndex seq, beast::Journal journal)
     }
 
     // in skiplist
-    auto const hashIndex =
-        ledger.read(keylet::skip(hash_options{(ledger.seq())}, seq));
+    auto const hashIndex = ledger.read(
+        keylet::skip(hash_options{(ledger.seq()), KEYLET_SKIP_LIST}, seq));
     if (hashIndex)
     {
         auto const lastSeq = hashIndex->getFieldU32(sfLastLedgerSequence);
@@ -837,7 +852,8 @@ trustCreate(
     view.insert(sleRippleState);
 
     auto lowNode = view.dirInsert(
-        keylet::ownerDir(hash_options{(view.seq())}, uLowAccountID),
+        keylet::ownerDir(
+            hash_options{(view.seq()), KEYLET_OWNER_DIR}, uLowAccountID),
         sleRippleState->key(),
         describeOwnerDir(uLowAccountID));
 
@@ -845,7 +861,8 @@ trustCreate(
         return tecDIR_FULL;
 
     auto highNode = view.dirInsert(
-        keylet::ownerDir(hash_options{(view.seq())}, uHighAccountID),
+        keylet::ownerDir(
+            hash_options{(view.seq()), KEYLET_OWNER_DIR}, uHighAccountID),
         sleRippleState->key(),
         describeOwnerDir(uHighAccountID));
 
@@ -863,7 +880,8 @@ trustCreate(
         sleAccount->getAccountID(sfAccount) ==
         (bSetHigh ? uHighAccountID : uLowAccountID));
     auto const slePeer = view.peek(keylet::account(
-        hash_options{(view.seq())}, bSetHigh ? uLowAccountID : uHighAccountID));
+        hash_options{(view.seq()), KEYLET_ACCOUNT},
+        bSetHigh ? uLowAccountID : uHighAccountID));
     if (!slePeer)
         return tecNO_TARGET;
 
@@ -940,7 +958,8 @@ trustDelete(
     JLOG(j.trace()) << "trustDelete: Deleting ripple line: low";
 
     if (!view.dirRemove(
-            keylet::ownerDir(hash_options{(view.seq())}, uLowAccountID),
+            keylet::ownerDir(
+                hash_options{(view.seq()), KEYLET_OWNER_DIR}, uLowAccountID),
             uLowNode,
             sleRippleState->key(),
             false))
@@ -951,7 +970,8 @@ trustDelete(
     JLOG(j.trace()) << "trustDelete: Deleting ripple line: high";
 
     if (!view.dirRemove(
-            keylet::ownerDir(hash_options{(view.seq())}, uHighAccountID),
+            keylet::ownerDir(
+                hash_options{(view.seq()), KEYLET_OWNER_DIR}, uHighAccountID),
             uHighNode,
             sleRippleState->key(),
             false))
@@ -1030,7 +1050,8 @@ offerDelete(ApplyView& view, std::shared_ptr<SLE> const& sle, beast::Journal j)
     uint256 uDirectory = sle->getFieldH256(sfBookDirectory);
 
     if (!view.dirRemove(
-            keylet::ownerDir(hash_options{(view.seq())}, owner),
+            keylet::ownerDir(
+                hash_options{(view.seq()), KEYLET_OWNER_DIR}, owner),
             sle->getFieldU64(sfOwnerNode),
             offerIndex,
             false))
@@ -1039,7 +1060,8 @@ offerDelete(ApplyView& view, std::shared_ptr<SLE> const& sle, beast::Journal j)
     }
 
     if (!view.dirRemove(
-            keylet::page(hash_options{(view.seq())}, uDirectory),
+            keylet::page(
+                hash_options{(view.seq()), KEYLET_DIR_PAGE}, uDirectory),
             sle->getFieldU64(sfBookNode),
             offerIndex,
             false))
@@ -1049,7 +1071,8 @@ offerDelete(ApplyView& view, std::shared_ptr<SLE> const& sle, beast::Journal j)
 
     adjustOwnerCount(
         view,
-        view.peek(keylet::account(hash_options{(view.seq())}, owner)),
+        view.peek(
+            keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, owner)),
         -1,
         j);
 
@@ -1083,7 +1106,10 @@ rippleCredit(
 
     bool const bSenderHigh = uSenderID > uReceiverID;
     auto const index = keylet::line(
-        hash_options{(view.seq())}, uSenderID, uReceiverID, currency);
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        uSenderID,
+        uReceiverID,
+        currency);
 
     assert(!isXRP(uSenderID) && uSenderID != noAccount());
     assert(!isXRP(uReceiverID) && uReceiverID != noAccount());
@@ -1124,7 +1150,8 @@ rippleCredit(
                 uFlags & (!bSenderHigh ? lsfLowNoRipple : lsfHighNoRipple)) !=
                 static_cast<bool>(
                     view.read(keylet::account(
-                                  hash_options{(view.seq())}, uSenderID))
+                                  hash_options{(view.seq()), KEYLET_ACCOUNT},
+                                  uSenderID))
                         ->getFlags() &
                     lsfDefaultRipple) &&
             !(uFlags & (!bSenderHigh ? lsfLowFreeze : lsfHighFreeze)) &&
@@ -1141,8 +1168,8 @@ rippleCredit(
             // Clear the reserve of the sender, possibly delete the line!
             adjustOwnerCount(
                 view,
-                view.peek(
-                    keylet::account(hash_options{(view.seq())}, uSenderID)),
+                view.peek(keylet::account(
+                    hash_options{(view.seq()), KEYLET_ACCOUNT}, uSenderID)),
                 -1,
                 j);
 
@@ -1188,8 +1215,8 @@ rippleCredit(
                     << to_string(uSenderID) << " -> " << to_string(uReceiverID)
                     << " : " << saAmount.getFullText();
 
-    auto const sleAccount =
-        view.peek(keylet::account(hash_options{(view.seq())}, uReceiverID));
+    auto const sleAccount = view.peek(keylet::account(
+        hash_options{(view.seq()), KEYLET_ACCOUNT}, uReceiverID));
     if (!sleAccount)
         return tefINTERNAL;
 
@@ -1317,10 +1344,12 @@ accountSend(
      */
     TER terResult(tesSUCCESS);
     SLE::pointer sender = uSenderID != beast::zero
-        ? view.peek(keylet::account(hash_options{(view.seq())}, uSenderID))
+        ? view.peek(keylet::account(
+              hash_options{(view.seq()), KEYLET_ACCOUNT}, uSenderID))
         : SLE::pointer();
     SLE::pointer receiver = uReceiverID != beast::zero
-        ? view.peek(keylet::account(hash_options{(view.seq())}, uReceiverID))
+        ? view.peek(keylet::account(
+              hash_options{(view.seq()), KEYLET_ACCOUNT}, uReceiverID))
         : SLE::pointer();
 
     if (auto stream = j.trace())
@@ -1402,7 +1431,8 @@ updateTrustLine(
         return false;
     std::uint32_t const flags(state->getFieldU32(sfFlags));
 
-    auto sle = view.peek(keylet::account(hash_options{(view.seq())}, sender));
+    auto sle = view.peek(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, sender));
     if (!sle)
         return false;
 
@@ -1463,7 +1493,10 @@ issueIOU(
     bool bSenderHigh = issue.account > account;
 
     auto const index = keylet::line(
-        hash_options{(view.seq())}, issue.account, account, issue.currency);
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        issue.account,
+        account,
+        issue.currency);
 
     if (auto state = view.peek(index))
     {
@@ -1515,8 +1548,8 @@ issueIOU(
 
     final_balance.setIssuer(noAccount());
 
-    auto const receiverAccount =
-        view.peek(keylet::account(hash_options{(view.seq())}, account));
+    auto const receiverAccount = view.peek(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, account));
     if (!receiverAccount)
         return tefINTERNAL;
 
@@ -1562,7 +1595,7 @@ redeemIOU(
     bool bSenderHigh = account > issue.account;
 
     if (auto state = view.peek(keylet::line(
-            hash_options{(view.seq())},
+            hash_options{(view.seq()), KEYLET_TRUSTLINE},
             account,
             issue.account,
             issue.currency)))
@@ -1626,10 +1659,10 @@ transferXRP(
     assert(from != to);
     assert(amount.native());
 
-    SLE::pointer const sender =
-        view.peek(keylet::account(hash_options{(view.seq())}, from));
-    SLE::pointer const receiver =
-        view.peek(keylet::account(hash_options{(view.seq())}, to));
+    SLE::pointer const sender = view.peek(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, from));
+    SLE::pointer const receiver = view.peek(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, to));
     if (!sender || !receiver)
         return tefINTERNAL;
 

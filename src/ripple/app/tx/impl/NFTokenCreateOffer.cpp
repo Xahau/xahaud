@@ -120,12 +120,14 @@ NFTokenCreateOffer::preclaim(PreclaimContext const& ctx)
     if (!(nftFlags & nft::flagCreateTrustLines) && !amount.native() &&
         nft::getTransferFee(nftokenID))
     {
-        if (!ctx.view.exists(
-                keylet::account(hash_options{(ctx.view.seq())}, issuer)))
+        if (!ctx.view.exists(keylet::account(
+                hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, issuer)))
             return tecNO_ISSUER;
 
         if (!ctx.view.exists(keylet::line(
-                hash_options{(ctx.view.seq())}, issuer, amount.issue())))
+                hash_options{(ctx.view.seq()), KEYLET_TRUSTLINE},
+                issuer,
+                amount.issue())))
             return tecNO_LINE;
 
         if (isFrozen(
@@ -135,8 +137,8 @@ NFTokenCreateOffer::preclaim(PreclaimContext const& ctx)
 
     if (issuer != ctx.tx[sfAccount] && !(nftFlags & nft::flagTransferable))
     {
-        auto const root = ctx.view.read(
-            keylet::account(hash_options{(ctx.view.seq())}, issuer));
+        auto const root = ctx.view.read(keylet::account(
+            hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, issuer));
         assert(root);
 
         if (auto minter = (*root)[~sfNFTokenMinter];
@@ -185,8 +187,8 @@ NFTokenCreateOffer::preclaim(PreclaimContext const& ctx)
     {
         // If a destination is specified, the destination must already be in
         // the ledger.
-        auto const sleDst = ctx.view.read(
-            keylet::account(hash_options{(ctx.view.seq())}, *destination));
+        auto const sleDst = ctx.view.read(keylet::account(
+            hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, *destination));
 
         if (!sleDst)
             return tecNO_DST;
@@ -207,8 +209,8 @@ NFTokenCreateOffer::preclaim(PreclaimContext const& ctx)
         // Check if the owner (buy offer) has disallowed incoming offers
         if (ctx.view.rules().enabled(featureDisallowIncoming))
         {
-            auto const sleOwner = ctx.view.read(
-                keylet::account(hash_options{(ctx.view.seq())}, *owner));
+            auto const sleOwner = ctx.view.read(keylet::account(
+                hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, *owner));
 
             // defensively check
             // it should not be possible to specify owner that doesn't exist
@@ -226,21 +228,22 @@ NFTokenCreateOffer::preclaim(PreclaimContext const& ctx)
 TER
 NFTokenCreateOffer::doApply()
 {
-    if (auto const acct = view().read(
-            keylet::account(hash_options{(view().seq())}, ctx_.tx[sfAccount]));
+    if (auto const acct = view().read(keylet::account(
+            hash_options{(view().seq()), KEYLET_ACCOUNT}, ctx_.tx[sfAccount]));
         mPriorBalance < view().fees().accountReserve((*acct)[sfOwnerCount] + 1))
         return tecINSUFFICIENT_RESERVE;
 
     auto const nftokenID = ctx_.tx[sfNFTokenID];
 
-    Keylet const offerID =
-        keylet::nftoffer(hash_options{(view().seq())}, account_, seqID(ctx_));
+    Keylet const offerID = keylet::nftoffer(
+        hash_options{(view().seq()), KEYLET_NFT_OFFER}, account_, seqID(ctx_));
 
     // Create the offer:
     {
         // Token offers are always added to the owner's owner directory:
         auto const ownerNode = view().dirInsert(
-            keylet::ownerDir(hash_options{(view().seq())}, account_),
+            keylet::ownerDir(
+                hash_options{(view().seq()), KEYLET_OWNER_DIR}, account_),
             offerID,
             describeOwnerDir(account_));
 
@@ -253,8 +256,10 @@ NFTokenCreateOffer::doApply()
         // directory
         auto const offerNode = view().dirInsert(
             isSellOffer
-                ? keylet::nft_sells(hash_options{(view().seq())}, nftokenID)
-                : keylet::nft_buys(hash_options{(view().seq())}, nftokenID),
+                ? keylet::nft_sells(
+                      hash_options{(view().seq()), KEYLET_NFT_SELLS}, nftokenID)
+                : keylet::nft_buys(
+                      hash_options{(view().seq()), KEYLET_NFT_BUYS}, nftokenID),
             offerID,
             [&nftokenID, isSellOffer](std::shared_ptr<SLE> const& sle) {
                 (*sle)[sfFlags] =
@@ -290,7 +295,8 @@ NFTokenCreateOffer::doApply()
     // Update owner count.
     adjustOwnerCount(
         view(),
-        view().peek(keylet::account(hash_options{(view().seq())}, account_)),
+        view().peek(keylet::account(
+            hash_options{(view().seq()), KEYLET_ACCOUNT}, account_)),
         1,
         j_);
 

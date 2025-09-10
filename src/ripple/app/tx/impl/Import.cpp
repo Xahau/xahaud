@@ -891,8 +891,8 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
-    auto const& sle = ctx.view.read(
-        keylet::account(hash_options{(ctx.view.seq())}, ctx.tx[sfAccount]));
+    auto const& sle = ctx.view.read(keylet::account(
+        hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, ctx.tx[sfAccount]));
 
     auto const tt = stpTrans->getTxnType();
     if ((tt == ttSIGNER_LIST_SET || tt == ttREGULAR_KEY_SET) &&
@@ -921,7 +921,8 @@ Import::preclaim(PreclaimContext const& ctx)
 
             // if a signer list is set then it's not blackholed
             auto const signerListKeylet = keylet::signers(
-                hash_options{(ctx.view.seq())}, ctx.tx[sfAccount]);
+                hash_options{(ctx.view.seq()), KEYLET_SIGNERS},
+                ctx.tx[sfAccount]);
             if (ctx.view.exists(signerListKeylet))
                 break;
 
@@ -955,8 +956,8 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
-    auto const& sleVL = ctx.view.read(
-        keylet::import_vlseq(hash_options{(ctx.view.seq())}, vlInfo->second));
+    auto const& sleVL = ctx.view.read(keylet::import_vlseq(
+        hash_options{(ctx.view.seq()), KEYLET_IMPORT_VLSEQ}, vlInfo->second));
     if (sleVL && sleVL->getFieldU32(sfImportSequence) > vlInfo->first)
     {
         JLOG(ctx.j.warn())
@@ -983,8 +984,8 @@ Import::preclaim(PreclaimContext const& ctx)
     PublicKey const pk(makeSlice(*pkHex));
 
     // check on ledger
-    if (auto const unlRep =
-            ctx.view.read(keylet::UNLReport(hash_options{(ctx.view.seq())}));
+    if (auto const unlRep = ctx.view.read(keylet::UNLReport(
+            hash_options{(ctx.view.seq()), KEYLET_UNL_REPORT}));
         unlRep)
     {
         auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
@@ -1180,8 +1181,8 @@ Import::doApply()
     if (!infoVL)
         return tefINTERNAL;
 
-    auto const keyletVL =
-        keylet::import_vlseq(hash_options{(view().seq())}, infoVL->second);
+    auto const keyletVL = keylet::import_vlseq(
+        hash_options{(view().seq()), KEYLET_IMPORT_VLSEQ}, infoVL->second);
     auto sleVL = view().peek(keyletVL);
 
     if (!sleVL)
@@ -1249,7 +1250,8 @@ Import::doApply()
 
     uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
     auto const id = ctx_.tx[sfAccount];
-    auto sle = view().peek(keylet::account(hash_options{(view().seq())}, id));
+    auto sle = view().peek(
+        keylet::account(hash_options{(view().seq()), KEYLET_ACCOUNT}, id));
 
     if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
     {
@@ -1262,7 +1264,8 @@ Import::doApply()
     // start seq if it's not set.
     uint32_t curLgrSeq = view().info().seq;
     uint32_t startLgrSeq = curLgrSeq;
-    auto sleFees = view().peek(keylet::fees(hash_options{(view().seq())}));
+    auto sleFees =
+        view().peek(keylet::fees(hash_options{(view().seq()), KEYLET_FEES}));
     if (sleFees && sleFees->isFieldPresent(sfXahauActivationLgrSeq))
         startLgrSeq = sleFees->getFieldU32(sfXahauActivationLgrSeq);
 
@@ -1320,7 +1323,7 @@ Import::doApply()
                     : 1};
 
         sle = std::make_shared<SLE>(
-            keylet::account(hash_options{(view().seq())}, id));
+            keylet::account(hash_options{(view().seq()), KEYLET_ACCOUNT}, id));
         sle->setAccountID(sfAccount, id);
 
         sle->setFieldU32(sfSequence, seqno);
@@ -1381,7 +1384,8 @@ XRPAmount
 Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     if (!view.exists(keylet::account(
-            hash_options{(view.seq())}, tx.getAccountID(sfAccount))) &&
+            hash_options{(view.seq()), KEYLET_ACCOUNT},
+            tx.getAccountID(sfAccount))) &&
         !tx.isFieldPresent(sfIssuer))
         return XRPAmount{0};
 

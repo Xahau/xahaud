@@ -33,8 +33,11 @@ creditLimit(
 {
     STAmount result({currency, account});
 
-    auto sleRippleState = view.read(
-        keylet::line(hash_options{(view.seq())}, account, issuer, currency));
+    auto sleRippleState = view.read(keylet::line(
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        account,
+        issuer,
+        currency));
 
     if (sleRippleState)
     {
@@ -67,8 +70,11 @@ creditBalance(
 {
     STAmount result({currency, account});
 
-    auto sleRippleState = view.read(
-        keylet::line(hash_options{(view.seq())}, account, issuer, currency));
+    auto sleRippleState = view.read(keylet::line(
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        account,
+        issuer,
+        currency));
 
     if (sleRippleState)
     {

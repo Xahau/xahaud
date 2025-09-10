@@ -133,7 +133,7 @@ LedgerReplayMsgHandler::processProofPathResponse(
     info.hash = replyHash;
 
     uint256 key(reply.key());
-    if (key != keylet::skip(hash_options{(info.seq)}).key)
+    if (key != keylet::skip(hash_options{(info.seq), KEYLET_SKIP_LIST}).key)
     {
         JLOG(journal_.debug())
             << "Bad message: we only support the short skip list for now. "

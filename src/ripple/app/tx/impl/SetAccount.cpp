@@ -194,8 +194,8 @@ SetAccount::preclaim(PreclaimContext const& ctx)
 
     std::uint32_t const uTxFlags = ctx.tx.getFlags();
 
-    auto const sle =
-        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
+    auto const sle = ctx.view.read(
+        keylet::account(hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, id));
     if (!sle)
         return terNO_ACCOUNT;
 
@@ -213,7 +213,9 @@ SetAccount::preclaim(PreclaimContext const& ctx)
     if (bSetRequireAuth && !(uFlagsIn & lsfRequireAuth))
     {
         if (!dirIsEmpty(
-                ctx.view, keylet::ownerDir(hash_options{(ctx.view.seq())}, id)))
+                ctx.view,
+                keylet::ownerDir(
+                    hash_options{(ctx.view.seq()), KEYLET_OWNER_DIR}, id)))
         {
             JLOG(ctx.j.trace()) << "Retry: Owner directory not empty.";
             return (ctx.flags & tapRETRY) ? TER{terOWNERS} : TER{tecOWNERS};
@@ -235,7 +237,8 @@ SetAccount::preclaim(PreclaimContext const& ctx)
 
             if (!dirIsEmpty(
                     ctx.view,
-                    keylet::ownerDir(hash_options{(ctx.view.seq())}, id)))
+                    keylet::ownerDir(
+                        hash_options{(ctx.view.seq()), KEYLET_OWNER_DIR}, id)))
             {
                 JLOG(ctx.j.trace()) << "Owner directory not empty.";
                 return tecOWNERS;
@@ -259,8 +262,8 @@ SetAccount::preclaim(PreclaimContext const& ctx)
 TER
 SetAccount::doApply()
 {
-    auto const sle =
-        view().peek(keylet::account(hash_options{(view().seq())}, account_));
+    auto const sle = view().peek(keylet::account(
+        hash_options{(view().seq()), KEYLET_ACCOUNT}, account_));
     if (!sle)
         return tefINTERNAL;
 
@@ -356,8 +359,8 @@ SetAccount::doApply()
         }
 
         if ((!sle->isFieldPresent(sfRegularKey)) &&
-            (!view().peek(
-                keylet::signers(hash_options{(view().seq())}, account_))))
+            (!view().peek(keylet::signers(
+                hash_options{(view().seq()), KEYLET_SIGNERS}, account_))))
         {
             // Account has no regular key or multi-signer signer list.
             return tecNO_ALTERNATIVE_KEY;

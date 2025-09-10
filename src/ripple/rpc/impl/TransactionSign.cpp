@@ -404,8 +404,8 @@ transactionPreProcessImpl(
     if (verify)
     {
         auto const ledger = app.openLedger().current();
-        sle = ledger->read(
-            keylet::account(hash_options{(ledger->seq())}, srcAddressID));
+        sle = ledger->read(keylet::account(
+            hash_options{(ledger->seq()), KEYLET_ACCOUNT}, srcAddressID));
     }
 
     if (verify && !sle)
@@ -992,8 +992,8 @@ transactionSignFor(
         return preprocResult.first;
 
     {
-        std::shared_ptr<SLE const> account_state = ledger->read(
-            keylet::account(hash_options{(ledger->seq())}, *signerAccountID));
+        std::shared_ptr<SLE const> account_state = ledger->read(keylet::account(
+            hash_options{(ledger->seq()), KEYLET_ACCOUNT}, *signerAccountID));
         // Make sure the account and secret belong together.
         auto const err =
             acctMatchesPubKey(account_state, *signerAccountID, multiSignPubKey);
@@ -1071,8 +1071,8 @@ transactionSubmitMultiSigned(
     if (RPC::contains_error(txJsonResult))
         return std::move(txJsonResult);
 
-    std::shared_ptr<SLE const> sle = ledger->read(
-        keylet::account(hash_options{(ledger->seq())}, srcAddressID));
+    std::shared_ptr<SLE const> sle = ledger->read(keylet::account(
+        hash_options{(ledger->seq()), KEYLET_ACCOUNT}, srcAddressID));
 
     if (!sle)
     {

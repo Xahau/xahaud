@@ -944,7 +944,7 @@ SHAMap::updateGiveItem(
 
     node = unshareNode(std::move(node), nodeID);
 
-    if (node->setItem(item, hash_options{ledgerSeq_}))
+    if (node->setItem(item, hash_options{ledgerSeq_, SHAMAP_LEAF_NODE_HASH}))
         dirtyUp(stack, tag, node);
 
     return true;

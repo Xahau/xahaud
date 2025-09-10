@@ -81,12 +81,14 @@ doAccountNamespace(RPC::JsonContext& context)
     if (!nsID.parseHex(ns))
         return rpcError(rpcINVALID_PARAMS);
 
-    if (!ledger->exists(
-            keylet::account(hash_options{(ledger->seq())}, accountID)))
+    if (!ledger->exists(keylet::account(
+            hash_options{(ledger->seq()), KEYLET_ACCOUNT}, accountID)))
         return rpcError(rpcACT_NOT_FOUND);
 
     if (!ledger->exists(keylet::hookStateDir(
-            hash_options{(ledger->seq())}, accountID, nsID)))
+            hash_options{(ledger->seq()), KEYLET_HOOK_STATE_DIR},
+            accountID,
+            nsID)))
         return rpcError(rpcNAMESPACE_NOT_FOUND);
 
     unsigned int limit;

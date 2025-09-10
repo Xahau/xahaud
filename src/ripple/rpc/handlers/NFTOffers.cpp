@@ -100,8 +100,8 @@ enumerateNFTOffers(
         if (!startAfter.parseHex(marker.asString()))
             return rpcError(rpcINVALID_PARAMS);
 
-        auto const sle = ledger->read(
-            keylet::nftoffer(hash_options{(ledger->seq())}, startAfter));
+        auto const sle = ledger->read(keylet::nftoffer(
+            hash_options{(ledger->seq()), KEYLET_NFT_OFFER}, startAfter));
 
         if (!sle || nftId != sle->getFieldH256(sfNFTokenID))
             return rpcError(rpcINVALID_PARAMS);
@@ -163,7 +163,9 @@ doNFTSellOffers(RPC::JsonContext& context)
     auto const ledgerSeq =
         context.app.getLedgerMaster().getValidatedLedger()->info().seq;
     return enumerateNFTOffers(
-        context, nftId, keylet::nft_sells(hash_options{(ledgerSeq)}, nftId));
+        context,
+        nftId,
+        keylet::nft_sells(hash_options{(ledgerSeq), KEYLET_NFT_SELLS}, nftId));
 }
 
 Json::Value
@@ -180,7 +182,9 @@ doNFTBuyOffers(RPC::JsonContext& context)
     auto const ledgerSeq =
         context.app.getLedgerMaster().getValidatedLedger()->info().seq;
     return enumerateNFTOffers(
-        context, nftId, keylet::nft_buys(hash_options{(ledgerSeq)}, nftId));
+        context,
+        nftId,
+        keylet::nft_buys(hash_options{(ledgerSeq), KEYLET_NFT_BUYS}, nftId));
 }
 
 }  // namespace ripple

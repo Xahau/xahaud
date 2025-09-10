@@ -761,7 +761,7 @@ TxQ::apply(
     // If the account is not currently in the ledger, don't queue its tx.
     auto const account = (*tx)[sfAccount];
     Keylet const accountKey{
-        keylet::account(hash_options{(view.seq())}, account)};
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, account)};
     auto const sleAccount = view.read(accountKey);
 
     if (!sleAccount)
@@ -776,8 +776,8 @@ TxQ::apply(
     SeqProxy const acctSeqProx = SeqProxy::sequence((*sleAccount)[sfSequence]);
     SeqProxy const txSeqProx = tx->getSeqProxy();
     if (txSeqProx.isTicket() &&
-        !view.exists(
-            keylet::ticket(hash_options{(view.seq())}, account, txSeqProx)))
+        !view.exists(keylet::ticket(
+            hash_options{(view.seq()), KEYLET_TICKET}, account, txSeqProx)))
     {
         if (txSeqProx.value() < acctSeqProx.value())
             // The ticket number is low enough that it should already be
@@ -1483,8 +1483,8 @@ TxQ::accept(Application& app, OpenView& view)
     if (view.rules().enabled(featureHooks))
         do
         {
-            Keylet const emittedDirKeylet{
-                keylet::emittedDir(hash_options{(view.seq())})};
+            Keylet const emittedDirKeylet{keylet::emittedDir(
+                hash_options{(view.seq()), KEYLET_EMITTED_DIR})};
             if (dirIsEmpty(view, emittedDirKeylet))
                 break;
 
@@ -1866,8 +1866,8 @@ TxQ::tryDirectApply(
     beast::Journal j)
 {
     auto const account = (*tx)[sfAccount];
-    auto const sleAccount =
-        view.read(keylet::account(hash_options{(view.seq())}, account));
+    auto const sleAccount = view.read(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, account));
 
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
@@ -1995,8 +1995,8 @@ TxQ::getTxRequiredFeeAndSeq(
     auto const baseFee = calculateBaseFee(view, *tx);
     auto const fee = FeeMetrics::scaleFeeLevel(snapshot, view);
 
-    auto const sle =
-        view.read(keylet::account(hash_options{(view.seq())}, account));
+    auto const sle = view.read(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, account));
 
     std::uint32_t const accountSeq = sle ? (*sle)[sfSequence] : 0;
     std::uint32_t const availableSeq = nextQueuableSeqImpl(sle, lock).value();

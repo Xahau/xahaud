@@ -62,8 +62,8 @@ NFTokenCancelOffer::preclaim(PreclaimContext const& ctx)
 
     auto ret = std::find_if(
         ids.begin(), ids.end(), [&ctx, &account](uint256 const& id) {
-            auto const offer = ctx.view.read(
-                keylet::child(hash_options{(ctx.view.seq())}, id));
+            auto const offer = ctx.view.read(keylet::child(
+                hash_options{(ctx.view.seq()), KEYLET_CHILD}, id));
 
             // If id is not in the ledger we assume the offer was consumed
             // before we got here.
@@ -101,8 +101,8 @@ NFTokenCancelOffer::doApply()
 {
     for (auto const& id : ctx_.tx[sfNFTokenOffers])
     {
-        if (auto offer =
-                view().peek(keylet::nftoffer(hash_options{(view().seq())}, id));
+        if (auto offer = view().peek(keylet::nftoffer(
+                hash_options{(view().seq()), KEYLET_NFT_OFFER}, id));
             offer && !nft::deleteTokenOffer(view(), offer))
         {
             JLOG(j_.fatal()) << "Unable to delete token offer " << id

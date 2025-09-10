@@ -67,7 +67,9 @@ doLedgerEntry(RPC::JsonContext& context)
             jvResult[jss::error] = "malformedAddress";
         else
             uNodeIndex =
-                keylet::account(hash_options{(lpLedger->seq())}, *account).key;
+                keylet::account(
+                    hash_options{(lpLedger->seq()), KEYLET_ACCOUNT}, *account)
+                    .key;
     }
     else if (context.params.isMember(jss::check))
     {
@@ -117,7 +119,9 @@ doLedgerEntry(RPC::JsonContext& context)
             else
                 uNodeIndex =
                     keylet::depositPreauth(
-                        hash_options{(lpLedger->seq())}, *owner, *authorized)
+                        hash_options{(lpLedger->seq()), KEYLET_DEPOSIT_PREAUTH},
+                        *owner,
+                        *authorized)
                         .key;
         }
     }
@@ -167,11 +171,12 @@ doLedgerEntry(RPC::JsonContext& context)
                 }
                 else
                 {
-                    uNodeIndex = keylet::page(
-                                     hash_options{(lpLedger->seq())},
-                                     uDirRoot,
-                                     uSubIndex)
-                                     .key;
+                    uNodeIndex =
+                        keylet::page(
+                            hash_options{(lpLedger->seq()), KEYLET_DIR_PAGE},
+                            uDirRoot,
+                            uSubIndex)
+                            .key;
                 }
             }
             else if (context.params[jss::directory].isMember(jss::owner))
@@ -187,9 +192,11 @@ doLedgerEntry(RPC::JsonContext& context)
                 {
                     uNodeIndex =
                         keylet::page(
-                            hash_options{(lpLedger->seq())},
+                            hash_options{(lpLedger->seq()), KEYLET_DIR_PAGE},
                             keylet::ownerDir(
-                                hash_options{(lpLedger->seq())}, *ownerID),
+                                hash_options{
+                                    (lpLedger->seq()), KEYLET_OWNER_DIR},
+                                *ownerID),
                             uSubIndex)
                             .key;
                 }
@@ -226,7 +233,7 @@ doLedgerEntry(RPC::JsonContext& context)
                 jvResult[jss::error] = "malformedOwner";
             else
                 uNodeIndex = keylet::escrow(
-                                 hash_options{(lpLedger->seq())},
+                                 hash_options{(lpLedger->seq()), KEYLET_ESCROW},
                                  *id,
                                  context.params[jss::escrow][jss::seq].asUInt())
                                  .key;
@@ -244,7 +251,9 @@ doLedgerEntry(RPC::JsonContext& context)
                 jvResult[jss::error] = "malformedRequest";
             }
             uNodeIndex =
-                keylet::emittedTxn(hash_options{(lpLedger->seq())}, uNodeIndex)
+                keylet::emittedTxn(
+                    hash_options{(lpLedger->seq()), KEYLET_EMITTED_TXN},
+                    uNodeIndex)
                     .key;
         }
     }
@@ -280,7 +289,9 @@ doLedgerEntry(RPC::JsonContext& context)
             {
                 auto const pk = PublicKey(pkSlice);
                 uNodeIndex =
-                    keylet::import_vlseq(hash_options{(lpLedger->seq())}, pk)
+                    keylet::import_vlseq(
+                        hash_options{(lpLedger->seq()), KEYLET_IMPORT_VLSEQ},
+                        pk)
                         .key;
             }
         }
@@ -311,7 +322,7 @@ doLedgerEntry(RPC::JsonContext& context)
                 jvResult[jss::error] = "malformedAddress";
             else
                 uNodeIndex = keylet::offer(
-                                 hash_options{(lpLedger->seq())},
+                                 hash_options{(lpLedger->seq()), KEYLET_OFFER},
                                  *id,
                                  context.params[jss::offer][jss::seq].asUInt())
                                  .key;
@@ -357,7 +368,10 @@ doLedgerEntry(RPC::JsonContext& context)
                 jvResult[jss::error] = "malformedAddress";
             else
                 uNodeIndex =
-                    keylet::uritoken(hash_options{(lpLedger->seq())}, *id, raw)
+                    keylet::uritoken(
+                        hash_options{(lpLedger->seq()), KEYLET_URI_TOKEN},
+                        *id,
+                        raw)
                         .key;
         }
     }
@@ -398,7 +412,10 @@ doLedgerEntry(RPC::JsonContext& context)
             {
                 uNodeIndex =
                     keylet::line(
-                        hash_options{(lpLedger->seq())}, *id1, *id2, uCurrency)
+                        hash_options{(lpLedger->seq()), KEYLET_TRUSTLINE},
+                        *id1,
+                        *id2,
+                        uCurrency)
                         .key;
             }
         }
@@ -429,7 +446,7 @@ doLedgerEntry(RPC::JsonContext& context)
                 jvResult[jss::error] = "malformedAddress";
             else
                 uNodeIndex = getTicketIndex(
-                    hash_options{(lpLedger->seq())},
+                    hash_options{(lpLedger->seq()), KEYLET_TICKET},
                     *id,
                     context.params[jss::ticket][jss::ticket_seq].asUInt());
         }
@@ -457,7 +474,9 @@ doLedgerEntry(RPC::JsonContext& context)
                 jvResult[jss::error] = "malformedAddress";
             else
                 uNodeIndex =
-                    keylet::hook(hash_options{(lpLedger->seq())}, *id).key;
+                    keylet::hook(
+                        hash_options{(lpLedger->seq()), KEYLET_HOOK}, *id)
+                        .key;
         }
     }
     else if (context.params.isMember(jss::hook_definition))
@@ -472,9 +491,11 @@ doLedgerEntry(RPC::JsonContext& context)
         }
         else
         {
-            uNodeIndex = keylet::hookDefinition(
-                             hash_options{(lpLedger->seq())}, uNodeIndex)
-                             .key;
+            uNodeIndex =
+                keylet::hookDefinition(
+                    hash_options{(lpLedger->seq()), KEYLET_HOOK_DEFINITION},
+                    uNodeIndex)
+                    .key;
         }
     }
     else if (context.params.isMember(jss::hook_state))
@@ -513,12 +534,13 @@ doLedgerEntry(RPC::JsonContext& context)
             }
             else
             {
-                uNodeIndex = keylet::hookState(
-                                 hash_options{(lpLedger->seq())},
-                                 *account,
-                                 uNodeKey,
-                                 uNameSpace)
-                                 .key;
+                uNodeIndex =
+                    keylet::hookState(
+                        hash_options{(lpLedger->seq()), KEYLET_HOOK_STATE},
+                        *account,
+                        uNodeKey,
+                        uNameSpace)
+                        .key;
             }
         }
     }

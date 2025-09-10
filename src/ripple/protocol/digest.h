@@ -58,16 +58,52 @@ enum HashContext : std::uint32_t {
     HOOK_EMITTED_TXN_NONCE = 14,    // Hook emitted transaction nonce generation
     HOOK_LEDGER_NONCE = 15,         // Hook ledger-based nonce generation
     HOOK_UTIL_SHA512H = 16,         // Hook utility sha512h function
-    HOOK_DEFINITION = 17,           // Hook definition bytecode hashing
+    HOOK_DEFINITION = 17,
+
+    // Keylet-specific hash contexts
+    KEYLET_ACCOUNT = 18,
+    KEYLET_AMENDMENTS = 19,
+    KEYLET_BOOK = 20,
+    KEYLET_BOOK_BASE = 21,  // For getBookBase function
+    KEYLET_CHECK = 22,
+    KEYLET_CHILD = 23,
+    KEYLET_DEPOSIT_PREAUTH = 24,
+    KEYLET_DIR_PAGE = 25,
+    KEYLET_EMITTED_DIR = 26,
+    KEYLET_EMITTED_TXN = 27,
+    KEYLET_ESCROW = 28,
+    KEYLET_FEES = 29,
+    KEYLET_HOOK = 30,
+    KEYLET_HOOK_DEFINITION = 31,
+    KEYLET_HOOK_STATE = 32,
+    KEYLET_HOOK_STATE_DIR = 33,
+    KEYLET_IMPORT_VLSEQ = 34,
+    KEYLET_NEGATIVE_UNL = 35,
+    KEYLET_NFT_BUYS = 36,
+    KEYLET_NFT_OFFER = 37,
+    KEYLET_NFT_PAGE = 38,
+    KEYLET_NFT_SELLS = 39,
+    KEYLET_OFFER = 40,
+    KEYLET_OWNER_DIR = 41,
+    KEYLET_PAYCHAN = 42,
+    KEYLET_SIGNERS = 43,
+    KEYLET_SKIP_LIST = 44,
+    KEYLET_TICKET = 45,
+    KEYLET_TRUSTLINE = 46,
+    KEYLET_UNCHECKED = 47,
+    KEYLET_UNL_REPORT = 48,
+    KEYLET_URI_TOKEN = 49,
 
     // Ledger-specific hash contexts (will need migration at activation ledger)
-    LEDGER_HEADER_HASH = 18,      // Ledger header hash calculation
-    SHAMAP_TXN_NODE_HASH = 19,    // SHAMap transaction node hashing
-    SHAMAP_INNER_NODE_HASH = 20,  // SHAMap inner node hashing
-    SHAMAP_LEAF_NODE_HASH = 21,   // SHAMap leaf node hashing
-    TRANSACTION_ID_HASH = 22,     // Transaction ID calculation
-    NODE_OBJECT_VERIFICATION_HASH =
-        23,  // Node object verification in nodestore
+    LEDGER_HEADER_HASH = 50,      // Ledger header hash calculation
+    SHAMAP_TXN_NODE_HASH = 51,    // SHAMap transaction node hashing
+    SHAMAP_INNER_NODE_HASH = 52,  // SHAMap inner node hashing
+    SHAMAP_LEAF_NODE_HASH = 53,   // SHAMap leaf node hashing
+    TRANSACTION_ID_HASH = 54,     // Transaction ID calculation
+    SHARD_NODE_OBJECT_VERIFICATION_HASH =
+        55,  // Node object verification in nodestore
+    SHAMAP_PROOF_PATH_ANY_TREENODE_HASH =
+        56,  // Proof path verification for any tree node type
 };
 
 // Options for hash functions (allows future expansion)

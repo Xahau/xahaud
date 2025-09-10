@@ -235,11 +235,11 @@ SetSignerList::removeFromLedger(
     beast::Journal j)
 {
     auto const accountKeylet =
-        keylet::account(hash_options{(view.seq())}, account);
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, account);
     auto const ownerDirKeylet =
-        keylet::ownerDir(hash_options{(view.seq())}, account);
+        keylet::ownerDir(hash_options{(view.seq()), KEYLET_OWNER_DIR}, account);
     auto const signerListKeylet =
-        keylet::signers(hash_options{(view.seq())}, account);
+        keylet::signers(hash_options{(view.seq()), KEYLET_SIGNERS}, account);
 
     return removeSignersFromLedger(
         app, view, accountKeylet, ownerDirKeylet, signerListKeylet, j);
@@ -325,7 +325,7 @@ TER
 SetSignerList::destroySignerList()
 {
     auto const accountKeylet =
-        keylet::account(hash_options{(view().seq())}, account_);
+        keylet::account(hash_options{(view().seq()), KEYLET_ACCOUNT}, account_);
     // Destroying the signer list is only allowed if either the master key
     // is enabled or there is a regular key.
     SLE::pointer ledgerEntry = view().peek(accountKeylet);
@@ -336,10 +336,10 @@ SetSignerList::destroySignerList()
         (!ledgerEntry->isFieldPresent(sfRegularKey)))
         return tecNO_ALTERNATIVE_KEY;
 
-    auto const ownerDirKeylet =
-        keylet::ownerDir(hash_options{(view().seq())}, account_);
+    auto const ownerDirKeylet = keylet::ownerDir(
+        hash_options{(view().seq()), KEYLET_OWNER_DIR}, account_);
     auto const signerListKeylet =
-        keylet::signers(hash_options{(view().seq())}, account_);
+        keylet::signers(hash_options{(view().seq()), KEYLET_SIGNERS}, account_);
     return removeSignersFromLedger(
         ctx_.app, view(), accountKeylet, ownerDirKeylet, signerListKeylet, j_);
 }

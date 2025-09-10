@@ -55,8 +55,8 @@ doAccountCurrencies(RPC::JsonContext& context)
     }
     auto const accountID{std::move(id.value())};
 
-    if (!ledger->exists(
-            keylet::account(hash_options{(ledger->seq())}, accountID)))
+    if (!ledger->exists(keylet::account(
+            hash_options{(ledger->seq()), KEYLET_ACCOUNT}, accountID)))
         return rpcError(rpcACT_NOT_FOUND);
 
     std::set<Currency> send, receive;

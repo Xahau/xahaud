@@ -83,8 +83,8 @@ TER
 CreateCheck::preclaim(PreclaimContext const& ctx)
 {
     AccountID const dstId{ctx.tx[sfDestination]};
-    auto const sleDst =
-        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, dstId));
+    auto const sleDst = ctx.view.read(
+        keylet::account(hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, dstId));
     if (!sleDst)
     {
         JLOG(ctx.j.warn()) << "Destination account does not exist.";
@@ -127,7 +127,7 @@ CreateCheck::preclaim(PreclaimContext const& ctx)
             {
                 // Check if the issuer froze the line
                 auto const sleTrust = ctx.view.read(keylet::line(
-                    hash_options{(ctx.view.seq())},
+                    hash_options{(ctx.view.seq()), KEYLET_TRUSTLINE},
                     srcId,
                     issuerId,
                     sendMax.getCurrency()));
@@ -144,7 +144,7 @@ CreateCheck::preclaim(PreclaimContext const& ctx)
             {
                 // Check if dst froze the line.
                 auto const sleTrust = ctx.view.read(keylet::line(
-                    hash_options{(ctx.view.seq())},
+                    hash_options{(ctx.view.seq()), KEYLET_TRUSTLINE},
                     issuerId,
                     dstId,
                     sendMax.getCurrency()));
@@ -170,8 +170,8 @@ CreateCheck::preclaim(PreclaimContext const& ctx)
 TER
 CreateCheck::doApply()
 {
-    auto const sle =
-        view().peek(keylet::account(hash_options{(view().seq())}, account_));
+    auto const sle = view().peek(keylet::account(
+        hash_options{(view().seq()), KEYLET_ACCOUNT}, account_));
     if (!sle)
         return tefINTERNAL;
 
@@ -190,8 +190,8 @@ CreateCheck::doApply()
     // Check sequence.  For more explanation see comments in SeqProxy.h.
     std::uint32_t const seq = ctx_.tx.getSeqProxy().value();
 
-    Keylet const checkKeylet =
-        keylet::check(hash_options{(view().seq())}, account_, seqID(ctx_));
+    Keylet const checkKeylet = keylet::check(
+        hash_options{(view().seq()), KEYLET_CHECK}, account_, seqID(ctx_));
 
     auto sleCheck = std::make_shared<SLE>(checkKeylet);
 
@@ -217,7 +217,8 @@ CreateCheck::doApply()
     if (dstAccountId != account_)
     {
         auto const page = view().dirInsert(
-            keylet::ownerDir(hash_options{(view().seq())}, dstAccountId),
+            keylet::ownerDir(
+                hash_options{(view().seq()), KEYLET_OWNER_DIR}, dstAccountId),
             checkKeylet,
             describeOwnerDir(dstAccountId));
 
@@ -233,7 +234,8 @@ CreateCheck::doApply()
 
     {
         auto const page = view().dirInsert(
-            keylet::ownerDir(hash_options{(view().seq())}, account_),
+            keylet::ownerDir(
+                hash_options{(view().seq()), KEYLET_OWNER_DIR}, account_),
             checkKeylet,
             describeOwnerDir(account_));
 

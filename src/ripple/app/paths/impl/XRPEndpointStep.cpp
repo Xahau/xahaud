@@ -204,7 +204,9 @@ private:
     {
         if (ctx.isFirst &&
             !ctx.view.read(keylet::line(
-                hash_options{(ctx.view.seq())}, acc, ctx.strandDeliver)))
+                hash_options{(ctx.view.seq()), KEYLET_TRUSTLINE},
+                acc,
+                ctx.strandDeliver)))
             return -1;
         return 0;
     }
@@ -344,8 +346,8 @@ XRPEndpointStep<TDerived>::check(StrandContext const& ctx) const
         return temBAD_PATH;
     }
 
-    auto sleAcc =
-        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, acc_));
+    auto sleAcc = ctx.view.read(
+        keylet::account(hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, acc_));
     if (!sleAcc)
     {
         JLOG(j_.warn()) << "XRPEndpointStep: can't send or receive XRP from "

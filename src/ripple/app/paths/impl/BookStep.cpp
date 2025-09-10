@@ -600,8 +600,8 @@ BookStep<TIn, TOut, TDerived>::forEachOffer(
             (offer.owner() != offer.issueIn().account))
         {
             auto const& issuerID = offer.issueIn().account;
-            auto const issuer = afView.read(
-                keylet::account(hash_options{(afView.seq())}, issuerID));
+            auto const issuer = afView.read(keylet::account(
+                hash_options{(afView.seq()), KEYLET_ACCOUNT}, issuerID));
             if (issuer && ((*issuer)[sfFlags] & lsfRequireAuth))
             {
                 // Issuer requires authorization.  See if offer owner has that.
@@ -610,7 +610,7 @@ BookStep<TIn, TOut, TDerived>::forEachOffer(
                     issuerID > ownerID ? lsfHighAuth : lsfLowAuth;
 
                 auto const line = afView.read(keylet::line(
-                    hash_options{(afView.seq())},
+                    hash_options{(afView.seq()), KEYLET_TRUSTLINE},
                     ownerID,
                     issuerID,
                     offer.issueIn().currency));
@@ -1082,7 +1082,8 @@ BookStep<TIn, TOut, TDerived>::check(StrandContext const& ctx) const
 
     auto issuerExists = [](ReadView const& view, Issue const& iss) -> bool {
         return isXRP(iss.account) ||
-            view.read(keylet::account(hash_options{(view.seq())}, iss.account));
+            view.read(keylet::account(
+                hash_options{(view.seq()), KEYLET_ACCOUNT}, iss.account));
     };
 
     if (!issuerExists(ctx.view, book_.in) || !issuerExists(ctx.view, book_.out))
@@ -1099,7 +1100,10 @@ BookStep<TIn, TOut, TDerived>::check(StrandContext const& ctx) const
             auto const& cur = book_.in.account;
 
             auto sle = view.read(keylet::line(
-                hash_options{(view.seq())}, *prev, cur, book_.in.currency));
+                hash_options{(view.seq()), KEYLET_TRUSTLINE},
+                *prev,
+                cur,
+                book_.in.currency));
             if (!sle)
                 return terNO_LINE;
             if ((*sle)[sfFlags] &

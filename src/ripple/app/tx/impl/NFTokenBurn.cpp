@@ -68,8 +68,8 @@ NFTokenBurn::preclaim(PreclaimContext const& ctx)
         if (auto const issuer = nft::getIssuer(ctx.tx[sfNFTokenID]);
             issuer != account)
         {
-            if (auto const sle = ctx.view.read(
-                    keylet::account(hash_options{(ctx.view.seq())}, issuer));
+            if (auto const sle = ctx.view.read(keylet::account(
+                    hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, issuer));
                 sle)
             {
                 if (auto const minter = (*sle)[~sfNFTokenMinter];
@@ -104,7 +104,7 @@ NFTokenBurn::doApply()
         return ret;
 
     if (auto issuer = view().peek(keylet::account(
-            hash_options{(view().seq())},
+            hash_options{(view().seq()), KEYLET_ACCOUNT},
             nft::getIssuer(ctx_.tx[sfNFTokenID]))))
     {
         (*issuer)[~sfBurnedNFTokens] =
@@ -121,7 +121,8 @@ NFTokenBurn::doApply()
         std::size_t const deletedSellOffers = nft::removeTokenOffersWithLimit(
             view(),
             keylet::nft_sells(
-                hash_options{(view().seq())}, ctx_.tx[sfNFTokenID]),
+                hash_options{(view().seq()), KEYLET_NFT_SELLS},
+                ctx_.tx[sfNFTokenID]),
             maxDeletableTokenOfferEntries);
 
         if (maxDeletableTokenOfferEntries > deletedSellOffers)
@@ -129,7 +130,8 @@ NFTokenBurn::doApply()
             nft::removeTokenOffersWithLimit(
                 view(),
                 keylet::nft_buys(
-                    hash_options{(view().seq())}, ctx_.tx[sfNFTokenID]),
+                    hash_options{(view().seq()), KEYLET_NFT_BUYS},
+                    ctx_.tx[sfNFTokenID]),
                 maxDeletableTokenOfferEntries - deletedSellOffers);
         }
     }
@@ -139,13 +141,15 @@ NFTokenBurn::doApply()
         nft::removeTokenOffersWithLimit(
             view(),
             keylet::nft_sells(
-                hash_options{(view().seq())}, ctx_.tx[sfNFTokenID]),
+                hash_options{(view().seq()), KEYLET_NFT_SELLS},
+                ctx_.tx[sfNFTokenID]),
             std::numeric_limits<int>::max());
 
         nft::removeTokenOffersWithLimit(
             view(),
             keylet::nft_buys(
-                hash_options{(view().seq())}, ctx_.tx[sfNFTokenID]),
+                hash_options{(view().seq()), KEYLET_NFT_BUYS},
+                ctx_.tx[sfNFTokenID]),
             std::numeric_limits<int>::max());
     }
 

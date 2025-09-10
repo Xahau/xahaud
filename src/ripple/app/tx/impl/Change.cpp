@@ -200,7 +200,8 @@ Change::doApply()
 TER
 Change::applyUNLReport()
 {
-    auto sle = view().peek(keylet::UNLReport(hash_options{(view().seq())}));
+    auto sle = view().peek(
+        keylet::UNLReport(hash_options{(view().seq()), KEYLET_UNL_REPORT}));
 
     auto const seq = view().info().seq;
 
@@ -208,7 +209,7 @@ Change::applyUNLReport()
 
     if (created)
         sle = std::make_shared<SLE>(
-            keylet::UNLReport(hash_options{(view().seq())}));
+            keylet::UNLReport(hash_options{(view().seq()), KEYLET_UNL_REPORT}));
 
     bool const reset = sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
         sle->getFieldU32(sfPreviousTxnLgrSeq) < seq;
@@ -489,7 +490,8 @@ Change::activateXahauGenesis()
     static auto const accid = calcAccountID(
         generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
             .first);
-    auto const kl = keylet::account(hash_options{(sb.seq())}, accid);
+    auto const kl =
+        keylet::account(hash_options{(sb.seq()), KEYLET_ACCOUNT}, accid);
     auto sle = sb.peek(kl);
     if (!sle)
     {
@@ -519,7 +521,8 @@ Change::activateXahauGenesis()
 
         auto accid = *accid_raw;
 
-        auto const kl = keylet::account(hash_options{(sb.seq())}, accid);
+        auto const kl =
+            keylet::account(hash_options{(sb.seq()), KEYLET_ACCOUNT}, accid);
 
         auto sle = sb.peek(kl);
         auto const exists = !!sle;
@@ -562,7 +565,8 @@ Change::activateXahauGenesis()
     sle->setFieldU32(sfFlags, lsfDisableMaster);
 
     // if somehow there's a signerlist we need to delete it
-    if (sb.exists(keylet::signers(hash_options{(sb.seq())}, accid)))
+    if (sb.exists(
+            keylet::signers(hash_options{(sb.seq()), KEYLET_SIGNERS}, accid)))
         SetSignerList::removeFromLedger(ctx_.app, sb, accid, j_);
 
     // Step 4: install genesis hooks
@@ -570,7 +574,7 @@ Change::activateXahauGenesis()
         sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
     sb.update(sle);
 
-    if (sb.exists(keylet::hook(hash_options{(sb.seq())}, accid)))
+    if (sb.exists(keylet::hook(hash_options{(sb.seq()), KEYLET_HOOK}, accid)))
     {
         JLOG(j_.warn()) << "featureXahauGenesis genesis account already has "
                            "hooks object in ledger, bailing";
@@ -635,8 +639,8 @@ Change::activateXahauGenesis()
                 hash_options{HOOK_DEFINITION},
                 ripple::Slice(wasmBytes.data(), wasmBytes.size()));
 
-            auto const kl =
-                keylet::hookDefinition(hash_options{(view().seq())}, hookHash);
+            auto const kl = keylet::hookDefinition(
+                hash_options{(view().seq()), KEYLET_HOOK_DEFINITION}, hookHash);
             if (view().exists(kl))
             {
                 JLOG(j_.warn()) << "featureXahauGenesis genesis hookDefinition "
@@ -690,13 +694,13 @@ Change::activateXahauGenesis()
         }
 
         auto sle = std::make_shared<SLE>(
-            keylet::hook(hash_options{(sb.seq())}, accid));
+            keylet::hook(hash_options{(sb.seq()), KEYLET_HOOK}, accid));
         sle->setFieldArray(sfHooks, hooks);
         sle->setAccountID(sfAccount, accid);
 
         auto const page = sb.dirInsert(
-            keylet::ownerDir(hash_options{(sb.seq())}, accid),
-            keylet::hook(hash_options{(sb.seq())}, accid),
+            keylet::ownerDir(hash_options{(sb.seq()), KEYLET_OWNER_DIR}, accid),
+            keylet::hook(hash_options{(sb.seq()), KEYLET_HOOK}, accid),
             describeOwnerDir(accid));
 
         if (!page)
@@ -721,7 +725,8 @@ Change::activateXahauGenesis()
                          << t.account << " with " << t.members.size()
                          << " members\n";
 
-        auto const hookKL = keylet::hook(hash_options{(sb.seq())}, t.id);
+        auto const hookKL =
+            keylet::hook(hash_options{(sb.seq()), KEYLET_HOOK}, t.id);
         if (sb.exists(hookKL))
         {
             JLOG(j_.warn()) << "featureXahauGenesis layer2 table account "
@@ -754,8 +759,8 @@ Change::activateXahauGenesis()
         sle->setAccountID(sfAccount, t.id);
 
         auto const page = sb.dirInsert(
-            keylet::ownerDir(hash_options{(sb.seq())}, t.id),
-            keylet::hook(hash_options{(sb.seq())}, t.id),
+            keylet::ownerDir(hash_options{(sb.seq()), KEYLET_OWNER_DIR}, t.id),
+            keylet::hook(hash_options{(sb.seq()), KEYLET_HOOK}, t.id),
             describeOwnerDir(t.id));
 
         if (!page)
@@ -770,7 +775,8 @@ Change::activateXahauGenesis()
 
         // blackhole the l2 account
         {
-            auto const kl = keylet::account(hash_options{(sb.seq())}, t.id);
+            auto const kl =
+                keylet::account(hash_options{(sb.seq()), KEYLET_ACCOUNT}, t.id);
             auto sle = sb.peek(kl);
 
             sle->setAccountID(sfRegularKey, noAccount());
@@ -790,7 +796,7 @@ Change::activateXahauGenesis()
     }
 
     // record the start ledger
-    auto sleFees = sb.peek(keylet::fees(hash_options{(sb.seq())}));
+    auto sleFees = sb.peek(keylet::fees(hash_options{(sb.seq()), KEYLET_FEES}));
     sleFees->setFieldU32(sfXahauActivationLgrSeq, sb.info().seq);
     sb.update(sleFees);
 
@@ -804,7 +810,8 @@ Change::activateTrustLinesToSelfFix()
     JLOG(j_.warn()) << "fixTrustLinesToSelf amendment activation code starting";
 
     auto removeTrustLineToSelf = [this](Sandbox& sb, uint256 id) {
-        auto tl = sb.peek(keylet::child(hash_options{(sb.seq())}, id));
+        auto tl =
+            sb.peek(keylet::child(hash_options{(sb.seq()), KEYLET_CHILD}, id));
 
         if (tl == nullptr)
         {
@@ -829,7 +836,8 @@ Change::activateTrustLinesToSelfFix()
         }
 
         if (auto const page = tl->getFieldU64(sfLowNode); !sb.dirRemove(
-                keylet::ownerDir(hash_options{(sb.seq())}, lo.getIssuer()),
+                keylet::ownerDir(
+                    hash_options{(sb.seq()), KEYLET_OWNER_DIR}, lo.getIssuer()),
                 page,
                 tl->key(),
                 false))
@@ -841,7 +849,8 @@ Change::activateTrustLinesToSelfFix()
         }
 
         if (auto const page = tl->getFieldU64(sfHighNode); !sb.dirRemove(
-                keylet::ownerDir(hash_options{(sb.seq())}, hi.getIssuer()),
+                keylet::ownerDir(
+                    hash_options{(sb.seq()), KEYLET_OWNER_DIR}, hi.getIssuer()),
                 page,
                 tl->key(),
                 false))
@@ -855,16 +864,16 @@ Change::activateTrustLinesToSelfFix()
         if (tl->getFlags() & lsfLowReserve)
             adjustOwnerCount(
                 sb,
-                sb.peek(
-                    keylet::account(hash_options{(sb.seq())}, lo.getIssuer())),
+                sb.peek(keylet::account(
+                    hash_options{(sb.seq()), KEYLET_ACCOUNT}, lo.getIssuer())),
                 -1,
                 j_);
 
         if (tl->getFlags() & lsfHighReserve)
             adjustOwnerCount(
                 sb,
-                sb.peek(
-                    keylet::account(hash_options{(sb.seq())}, hi.getIssuer())),
+                sb.peek(keylet::account(
+                    hash_options{(sb.seq()), KEYLET_ACCOUNT}, hi.getIssuer())),
                 -1,
                 j_);
 
@@ -899,7 +908,8 @@ Change::applyAmendment()
 {
     uint256 amendment(ctx_.tx.getFieldH256(sfAmendment));
 
-    auto const k = keylet::amendments(hash_options{(view().seq())});
+    auto const k =
+        keylet::amendments(hash_options{(view().seq()), KEYLET_AMENDMENTS});
 
     SLE::pointer amendmentObject = view().peek(k);
 
@@ -998,7 +1008,7 @@ Change::applyAmendment()
 TER
 Change::applyFee()
 {
-    auto const k = keylet::fees(hash_options{(view().seq())});
+    auto const k = keylet::fees(hash_options{(view().seq()), KEYLET_FEES});
 
     SLE::pointer feeObject = view().peek(k);
 
@@ -1044,7 +1054,8 @@ Change::applyEmitFailure()
         JLOG(j_.warn()) << "HookEmit[" << txnID
                         << "]: ttEmitFailure removing emitted txn";
 
-        auto key = keylet::emittedTxn(hash_options{(view().seq())}, txnID);
+        auto key = keylet::emittedTxn(
+            hash_options{(view().seq()), KEYLET_EMITTED_TXN}, txnID);
 
         auto const& sle = view().peek(key);
 
@@ -1061,7 +1072,8 @@ Change::applyEmitFailure()
         }
 
         if (!view().dirRemove(
-                keylet::emittedDir(hash_options{(view().seq())}),
+                keylet::emittedDir(
+                    hash_options{(view().seq()), KEYLET_EMITTED_DIR}),
                 sle->getFieldU64(sfOwnerNode),
                 key,
                 false))
@@ -1115,7 +1127,8 @@ Change::applyUNLModify()
                     << " seq=" << seq
                     << " validator data:" << strHex(validator);
 
-    auto const k = keylet::negativeUNL(hash_options{(view().seq())});
+    auto const k =
+        keylet::negativeUNL(hash_options{(view().seq()), KEYLET_NEGATIVE_UNL});
     SLE::pointer negUnlObject = view().peek(k);
     if (!negUnlObject)
     {

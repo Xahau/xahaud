@@ -53,8 +53,8 @@ CancelCheck::preflight(PreflightContext const& ctx)
 TER
 CancelCheck::preclaim(PreclaimContext const& ctx)
 {
-    auto const sleCheck = ctx.view.read(
-        keylet::check(hash_options{(ctx.view.seq())}, ctx.tx[sfCheckID]));
+    auto const sleCheck = ctx.view.read(keylet::check(
+        hash_options{(ctx.view.seq()), KEYLET_CHECK}, ctx.tx[sfCheckID]));
     if (!sleCheck)
     {
         JLOG(ctx.j.warn()) << "Check does not exist.";
@@ -89,8 +89,8 @@ CancelCheck::preclaim(PreclaimContext const& ctx)
 TER
 CancelCheck::doApply()
 {
-    auto const sleCheck = view().peek(
-        keylet::check(hash_options{(view().seq())}, ctx_.tx[sfCheckID]));
+    auto const sleCheck = view().peek(keylet::check(
+        hash_options{(view().seq()), KEYLET_CHECK}, ctx_.tx[sfCheckID]));
     if (!sleCheck)
     {
         // Error should have been caught in preclaim.
@@ -108,7 +108,8 @@ CancelCheck::doApply()
     {
         std::uint64_t const page{(*sleCheck)[sfDestinationNode]};
         if (!view().dirRemove(
-                keylet::ownerDir(hash_options{(view().seq())}, dstId),
+                keylet::ownerDir(
+                    hash_options{(view().seq()), KEYLET_OWNER_DIR}, dstId),
                 page,
                 sleCheck->key(),
                 true))
@@ -120,7 +121,8 @@ CancelCheck::doApply()
     {
         std::uint64_t const page{(*sleCheck)[sfOwnerNode]};
         if (!view().dirRemove(
-                keylet::ownerDir(hash_options{(view().seq())}, srcId),
+                keylet::ownerDir(
+                    hash_options{(view().seq()), KEYLET_OWNER_DIR}, srcId),
                 page,
                 sleCheck->key(),
                 true))
@@ -131,8 +133,8 @@ CancelCheck::doApply()
     }
 
     // If we succeeded, update the check owner's reserve.
-    auto const sleSrc =
-        view().peek(keylet::account(hash_options{(view().seq())}, srcId));
+    auto const sleSrc = view().peek(
+        keylet::account(hash_options{(view().seq()), KEYLET_ACCOUNT}, srcId));
     adjustOwnerCount(view(), sleSrc, -1, viewJ);
 
     // Remove check from ledger.

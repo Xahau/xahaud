@@ -71,8 +71,8 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
 
     auto const id = ctx.tx[sfAccount];
 
-    auto const sle =
-        ctx.view.read(keylet::account(hash_options{(ctx.view.seq())}, id));
+    auto const sle = ctx.view.read(
+        keylet::account(hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, id));
     if (!sle)
         return terNO_ACCOUNT;
 
@@ -84,8 +84,8 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
         return temMALFORMED;
 
     if (issuer &&
-        !ctx.view.exists(
-            keylet::account(hash_options{(ctx.view.seq())}, *issuer)))
+        !ctx.view.exists(keylet::account(
+            hash_options{(ctx.view.seq()), KEYLET_ACCOUNT}, *issuer)))
         return tecNO_ISSUER;
 
     return tesSUCCESS;
@@ -94,8 +94,8 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
 TER
 ClaimReward::doApply()
 {
-    auto const sle =
-        view().peek(keylet::account(hash_options{(view().seq())}, account_));
+    auto const sle = view().peek(keylet::account(
+        hash_options{(view().seq()), KEYLET_ACCOUNT}, account_));
     if (!sle)
         return tefINTERNAL;
 

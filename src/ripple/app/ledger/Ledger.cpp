@@ -197,7 +197,7 @@ Ledger::Ledger(
             .first);
     {
         auto const sle = std::make_shared<SLE>(
-            keylet::account(hash_options{(info_.seq)}, id));
+            keylet::account(hash_options{(info_.seq), KEYLET_ACCOUNT}, id));
         sle->setFieldU32(sfSequence, 1);
         sle->setAccountID(sfAccount, id);
         sle->setFieldAmount(sfBalance, info_.drops);
@@ -207,7 +207,7 @@ Ledger::Ledger(
     if (!amendments.empty())
     {
         auto const sle = std::make_shared<SLE>(
-            keylet::amendments(hash_options{(info_.seq)}));
+            keylet::amendments(hash_options{(info_.seq), KEYLET_AMENDMENTS}));
 
         // filter out XahauGenesis, which should be always activated with an
         // EnableAmendment txn
@@ -222,8 +222,8 @@ Ledger::Ledger(
     }
 
     {
-        auto sle =
-            std::make_shared<SLE>(keylet::fees(hash_options{(info_.seq)}));
+        auto sle = std::make_shared<SLE>(
+            keylet::fees(hash_options{(info_.seq), KEYLET_FEES}));
         sle->setFieldU32(sfNetworkID, config.NETWORK_ID);
 
         // Whether featureXRPFees is supported will depend on startup options.
@@ -672,7 +672,8 @@ Ledger::setup()
 
     try
     {
-        if (auto const sle = read(keylet::fees(hash_options{(seq())})))
+        if (auto const sle =
+                read(keylet::fees(hash_options{(seq()), KEYLET_FEES})))
         {
             bool oldFees = false;
             bool newFees = false;
@@ -758,7 +759,8 @@ hash_set<PublicKey>
 Ledger::negativeUNL() const
 {
     hash_set<PublicKey> negUnl;
-    if (auto sle = read(keylet::negativeUNL(hash_options{(seq())}));
+    if (auto sle = read(
+            keylet::negativeUNL(hash_options{(seq()), KEYLET_NEGATIVE_UNL}));
         sle && sle->isFieldPresent(sfDisabledValidators))
     {
         auto const& nUnlData = sle->getFieldArray(sfDisabledValidators);
@@ -783,7 +785,8 @@ Ledger::negativeUNL() const
 std::optional<PublicKey>
 Ledger::validatorToDisable() const
 {
-    if (auto sle = read(keylet::negativeUNL(hash_options{(seq())}));
+    if (auto sle = read(
+            keylet::negativeUNL(hash_options{(seq()), KEYLET_NEGATIVE_UNL}));
         sle && sle->isFieldPresent(sfValidatorToDisable))
     {
         auto d = sle->getFieldVL(sfValidatorToDisable);
@@ -798,7 +801,8 @@ Ledger::validatorToDisable() const
 std::optional<PublicKey>
 Ledger::validatorToReEnable() const
 {
-    if (auto sle = read(keylet::negativeUNL(hash_options{(seq())}));
+    if (auto sle = read(
+            keylet::negativeUNL(hash_options{(seq()), KEYLET_NEGATIVE_UNL}));
         sle && sle->isFieldPresent(sfValidatorToReEnable))
     {
         auto d = sle->getFieldVL(sfValidatorToReEnable);
@@ -813,7 +817,8 @@ Ledger::validatorToReEnable() const
 void
 Ledger::updateNegativeUNL()
 {
-    auto sle = peek(keylet::negativeUNL(hash_options{(seq())}));
+    auto sle =
+        peek(keylet::negativeUNL(hash_options{(seq()), KEYLET_NEGATIVE_UNL}));
     if (!sle)
         return;
 
@@ -947,7 +952,8 @@ Ledger::updateSkipList()
     // update record of every 256th ledger
     if ((prevIndex & 0xff) == 0)
     {
-        auto const k = keylet::skip(hash_options{(seq())}, prevIndex);
+        auto const k =
+            keylet::skip(hash_options{(seq()), KEYLET_SKIP_LIST}, prevIndex);
         auto sle = peek(k);
         std::vector<uint256> hashes;
 
@@ -974,7 +980,7 @@ Ledger::updateSkipList()
     }
 
     // update record of past 256 ledger
-    auto const k = keylet::skip(hash_options{(seq())});
+    auto const k = keylet::skip(hash_options{(seq()), KEYLET_SKIP_LIST});
     auto sle = peek(k);
     std::vector<uint256> hashes;
     bool created;
@@ -1145,7 +1151,8 @@ finishLoadByIndexOrHash(
     if (!ledger)
         return;
 
-    assert(ledger->read(keylet::fees(hash_options{(ledger->seq())})));
+    assert(
+        ledger->read(keylet::fees(hash_options{(ledger->seq()), KEYLET_FEES})));
     ledger->setImmutable();
 
     JLOG(j.trace()) << "Loaded ledger: " << to_string(ledger->info().hash);

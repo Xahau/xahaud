@@ -1516,9 +1516,10 @@ NetworkOPsImp::getOwnerInfo(
     AccountID const& account)
 {
     Json::Value jvObjects(Json::objectValue);
-    auto root = keylet::ownerDir(hash_options{(lpLedger->seq())}, account);
-    auto sleNode =
-        lpLedger->read(keylet::page(hash_options{(lpLedger->seq())}, root));
+    auto root = keylet::ownerDir(
+        hash_options{(lpLedger->seq()), KEYLET_OWNER_DIR}, account);
+    auto sleNode = lpLedger->read(
+        keylet::page(hash_options{(lpLedger->seq()), KEYLET_DIR_PAGE}, root));
     if (sleNode)
     {
         std::uint64_t uNodeDir;
@@ -1527,8 +1528,8 @@ NetworkOPsImp::getOwnerInfo(
         {
             for (auto const& uDirEntry : sleNode->getFieldV256(sfIndexes))
             {
-                auto sleCur = lpLedger->read(
-                    keylet::child(hash_options{(lpLedger->seq())}, uDirEntry));
+                auto sleCur = lpLedger->read(keylet::child(
+                    hash_options{(lpLedger->seq()), KEYLET_CHILD}, uDirEntry));
                 assert(sleCur);
 
                 switch (sleCur->getType())
@@ -1566,7 +1567,9 @@ NetworkOPsImp::getOwnerInfo(
             if (uNodeDir)
             {
                 sleNode = lpLedger->read(keylet::page(
-                    hash_options{(lpLedger->seq())}, root, uNodeDir));
+                    hash_options{(lpLedger->seq()), KEYLET_DIR_PAGE},
+                    root,
+                    uNodeDir));
                 assert(sleNode);
             }
         } while (uNodeDir);
@@ -3806,8 +3809,8 @@ NetworkOPsImp::subAccountHistoryStart(
 {
     subInfo.index_->separationLedgerSeq_ = ledger->seq();
     auto const& accountId = subInfo.index_->accountId_;
-    auto const accountKeylet =
-        keylet::account(hash_options{(ledger->seq())}, accountId);
+    auto const accountKeylet = keylet::account(
+        hash_options{(ledger->seq()), KEYLET_ACCOUNT}, accountId);
     if (!ledger->exists(accountKeylet))
     {
         JLOG(m_journal.debug())
@@ -4247,7 +4250,7 @@ NetworkOPsImp::getBookPage(
 
     std::unordered_map<AccountID, STAmount> umBalance;
     const uint256 uBookBase =
-        getBookBase(hash_options{(lpLedger->seq())}, book);
+        getBookBase(hash_options{(lpLedger->seq()), KEYLET_BOOK_BASE}, book);
     const uint256 uBookEnd = getQualityNext(uBookBase);
     uint256 uTipIndex = uBookBase;
 
@@ -4285,8 +4288,8 @@ NetworkOPsImp::getBookPage(
 
             auto const ledgerIndex = view.succ(uTipIndex, uBookEnd);
             if (ledgerIndex)
-                sleOfferDir = view.read(
-                    keylet::page(hash_options{(view.seq())}, *ledgerIndex));
+                sleOfferDir = view.read(keylet::page(
+                    hash_options{(view.seq()), KEYLET_DIR_PAGE}, *ledgerIndex));
             else
                 sleOfferDir.reset();
 
@@ -4311,8 +4314,8 @@ NetworkOPsImp::getBookPage(
 
         if (!bDone)
         {
-            auto sleOffer = view.read(
-                keylet::offer(hash_options{(view.seq())}, offerIndex));
+            auto sleOffer = view.read(keylet::offer(
+                hash_options{(view.seq()), KEYLET_OFFER}, offerIndex));
 
             if (sleOffer)
             {

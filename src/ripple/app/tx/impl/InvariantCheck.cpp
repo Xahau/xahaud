@@ -775,7 +775,8 @@ TransfersNotFrozen::findIssuer(AccountID const& issuerID, ReadView const& view)
         return it->second;
     }
 
-    return view.read(keylet::account(hash_options{(view.seq())}, issuerID));
+    return view.read(
+        keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, issuerID));
 }
 
 bool

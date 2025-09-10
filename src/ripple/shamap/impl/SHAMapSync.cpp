@@ -842,7 +842,8 @@ SHAMap::verifyProofPath(
                 SHAMapTreeNode::makeFromWire(makeSlice(blob), ledgerSeq);
             if (!node)
                 return false;
-            node->updateHash(hash_options{ledgerSeq});
+            node->updateHash(
+                hash_options{ledgerSeq, SHAMAP_PROOF_PATH_ANY_TREENODE_HASH});
             if (node->getHash() != hash)
                 return false;
 

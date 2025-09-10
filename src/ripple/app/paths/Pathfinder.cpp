@@ -249,8 +249,8 @@ Pathfinder::findPaths(
     bool bSrcXrp = isXRP(mSrcCurrency);
     bool bDstXrp = isXRP(mDstAmount.getCurrency());
 
-    if (!mLedger->exists(
-            keylet::account(hash_options{(mLedger->seq())}, mSrcAccount)))
+    if (!mLedger->exists(keylet::account(
+            hash_options{(mLedger->seq()), KEYLET_ACCOUNT}, mSrcAccount)))
     {
         // We can't even start without a source account.
         JLOG(j_.debug()) << "invalid source account";
@@ -258,15 +258,15 @@ Pathfinder::findPaths(
     }
 
     if ((mEffectiveDst != mDstAccount) &&
-        !mLedger->exists(
-            keylet::account(hash_options{(mLedger->seq())}, mEffectiveDst)))
+        !mLedger->exists(keylet::account(
+            hash_options{(mLedger->seq()), KEYLET_ACCOUNT}, mEffectiveDst)))
     {
         JLOG(j_.debug()) << "Non-existent gateway";
         return false;
     }
 
-    if (!mLedger->exists(
-            keylet::account(hash_options{(mLedger->seq())}, mDstAccount)))
+    if (!mLedger->exists(keylet::account(
+            hash_options{(mLedger->seq()), KEYLET_ACCOUNT}, mDstAccount)))
     {
         // Can't find the destination account - we must be funding a new
         // account.
@@ -724,8 +724,8 @@ Pathfinder::getPathsOut(
     if (!inserted)
         return it->second;
 
-    auto sleAccount =
-        mLedger->read(keylet::account(hash_options{(mLedger->seq())}, account));
+    auto sleAccount = mLedger->read(keylet::account(
+        hash_options{(mLedger->seq()), KEYLET_ACCOUNT}, account));
 
     if (!sleAccount)
         return 0;
@@ -892,7 +892,10 @@ Pathfinder::isNoRipple(
     Currency const& currency)
 {
     auto sleRipple = mLedger->read(keylet::line(
-        hash_options{(mLedger->seq())}, toAccount, fromAccount, currency));
+        hash_options{(mLedger->seq()), KEYLET_TRUSTLINE},
+        toAccount,
+        fromAccount,
+        currency));
 
     auto const flag(
         (toAccount > fromAccount) ? lsfHighNoRipple : lsfLowNoRipple);
@@ -974,8 +977,8 @@ Pathfinder::addLink(
         else
         {
             // search for accounts to add
-            auto const sleEnd = mLedger->read(
-                keylet::account(hash_options{(mLedger->seq())}, uEndAccount));
+            auto const sleEnd = mLedger->read(keylet::account(
+                hash_options{(mLedger->seq()), KEYLET_ACCOUNT}, uEndAccount));
 
             if (sleEnd)
             {

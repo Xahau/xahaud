@@ -74,16 +74,16 @@ doDepositAuthorized(RPC::JsonContext& context)
         return result;
 
     // If source account is not in the ledger it can't be authorized.
-    if (!ledger->exists(
-            keylet::account(hash_options{(ledger->seq())}, srcAcct)))
+    if (!ledger->exists(keylet::account(
+            hash_options{(ledger->seq()), KEYLET_ACCOUNT}, srcAcct)))
     {
         RPC::inject_error(rpcSRC_ACT_NOT_FOUND, result);
         return result;
     }
 
     // If destination account is not in the ledger you can't deposit to it, eh?
-    auto const sleDest =
-        ledger->read(keylet::account(hash_options{(ledger->seq())}, dstAcct));
+    auto const sleDest = ledger->read(keylet::account(
+        hash_options{(ledger->seq()), KEYLET_ACCOUNT}, dstAcct));
     if (!sleDest)
     {
         RPC::inject_error(rpcDST_ACT_NOT_FOUND, result);
@@ -100,7 +100,9 @@ doDepositAuthorized(RPC::JsonContext& context)
         {
             // See if a preauthorization entry is in the ledger.
             auto const sleDepositAuth = ledger->read(keylet::depositPreauth(
-                hash_options{(ledger->seq())}, dstAcct, srcAcct));
+                hash_options{(ledger->seq()), KEYLET_DEPOSIT_PREAUTH},
+                dstAcct,
+                srcAcct));
             depositAuthorized = static_cast<bool>(sleDepositAuth);
         }
     }

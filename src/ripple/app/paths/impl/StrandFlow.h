@@ -721,8 +721,8 @@ flow(
             SetUnion(ofrsToRmOnFail, ofrsToRm);
             for (auto const& o : ofrsToRm)
             {
-                if (auto ok =
-                        sb.peek(keylet::offer(hash_options{(sb.seq())}, o)))
+                if (auto ok = sb.peek(keylet::offer(
+                        hash_options{(sb.seq()), KEYLET_OFFER}, o)))
                     offerDelete(sb, ok, j);
             }
         }

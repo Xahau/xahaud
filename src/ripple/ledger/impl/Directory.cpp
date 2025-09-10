@@ -69,8 +69,8 @@ const_iterator::operator*() const
 {
     assert(index_ != beast::zero);
     if (!cache_)
-        cache_ =
-            view_->read(keylet::child(hash_options{(view_->seq())}, index_));
+        cache_ = view_->read(
+            keylet::child(hash_options{(view_->seq()), KEYLET_CHILD}, index_));
     return *cache_;
 }
 
@@ -108,7 +108,8 @@ const_iterator::next_page()
     }
     else
     {
-        page_ = keylet::page(hash_options{(view_->seq())}, root_, next);
+        page_ = keylet::page(
+            hash_options{(view_->seq()), KEYLET_DIR_PAGE}, root_, next);
         sle_ = view_->read(page_);
         assert(sle_);
         indexes_ = &sle_->getFieldV256(sfIndexes);

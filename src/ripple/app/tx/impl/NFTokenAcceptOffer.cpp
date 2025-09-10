@@ -70,8 +70,8 @@ NFTokenAcceptOffer::preclaim(PreclaimContext const& ctx)
             if (id->isZero())
                 return {nullptr, tecOBJECT_NOT_FOUND};
 
-            auto offerSLE = ctx.view.read(
-                keylet::nftoffer(hash_options{(ctx.view.seq())}, *id));
+            auto offerSLE = ctx.view.read(keylet::nftoffer(
+                hash_options{(ctx.view.seq()), KEYLET_NFT_OFFER}, *id));
 
             if (!offerSLE)
                 return {nullptr, tecOBJECT_NOT_FOUND};
@@ -363,8 +363,8 @@ NFTokenAcceptOffer::doApply()
     auto const loadToken = [this](std::optional<uint256> const& id) {
         std::shared_ptr<SLE> sle;
         if (id)
-            sle = view().peek(
-                keylet::nftoffer(hash_options{(view().seq())}, *id));
+            sle = view().peek(keylet::nftoffer(
+                hash_options{(view().seq()), KEYLET_NFT_OFFER}, *id));
         return sle;
     };
 
@@ -481,8 +481,8 @@ NFTokenAcceptOffer::checkAcceptAsset(
     }
 
     assert(!isXRP(issue.currency));
-    auto const issuerAccount =
-        view.read(keylet::account(hash_options{(view.seq())}, issue.account));
+    auto const issuerAccount = view.read(keylet::account(
+        hash_options{(view.seq()), KEYLET_ACCOUNT}, issue.account));
 
     if (!issuerAccount)
     {
@@ -502,7 +502,10 @@ NFTokenAcceptOffer::checkAcceptAsset(
     }
 
     auto const trustLine = view.read(keylet::line(
-        hash_options{(view.seq())}, id, issue.account, issue.currency));
+        hash_options{(view.seq()), KEYLET_TRUSTLINE},
+        id,
+        issue.account,
+        issue.currency));
 
     if (!trustLine)
     {

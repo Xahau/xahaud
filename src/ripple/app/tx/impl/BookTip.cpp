@@ -25,7 +25,7 @@ namespace ripple {
 BookTip::BookTip(ApplyView& view, Book const& book)
     : view_(view)
     , m_valid(false)
-    , m_book(getBookBase(hash_options{(view.seq())}, book))
+    , m_book(getBookBase(hash_options{(view.seq()), KEYLET_BOOK_BASE}, book))
     , m_end(getQualityNext(m_book))
 {
 }
@@ -58,8 +58,8 @@ BookTip::step(beast::Journal j)
         if (dirFirst(view_, *first_page, dir, di, m_index))
         {
             m_dir = dir->key();
-            m_entry =
-                view_.peek(keylet::offer(hash_options{(view_.seq())}, m_index));
+            m_entry = view_.peek(keylet::offer(
+                hash_options{(view_.seq()), KEYLET_OFFER}, m_index));
             m_quality = Quality(getQuality(*first_page));
             m_valid = true;
 

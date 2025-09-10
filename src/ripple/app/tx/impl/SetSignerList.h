@@ -129,11 +129,11 @@ public:
         XRPAmount const mPriorBalance)
     {
         auto const accountKeylet =
-            keylet::account(hash_options{(view.seq())}, acc);
+            keylet::account(hash_options{(view.seq()), KEYLET_ACCOUNT}, acc);
         auto const ownerDirKeylet =
-            keylet::ownerDir(hash_options{(view.seq())}, acc);
+            keylet::ownerDir(hash_options{(view.seq()), KEYLET_OWNER_DIR}, acc);
         auto const signerListKeylet =
-            keylet::signers(hash_options{(view.seq())}, acc);
+            keylet::signers(hash_options{(view.seq()), KEYLET_SIGNERS}, acc);
 
         // This may be either a create or a replace.  Preemptively remove any
         // old signer list.  May reduce the reserve, so this is done before
