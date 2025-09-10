@@ -212,6 +212,36 @@ Env::ownerCount(Account const& account) const
     return sle->getFieldU32(sfOwnerCount);
 }
 
+PrettyAmount
+Env::balance(Account const& account, MPTIssue const& mptIssue) const
+{
+    MPTID const id = mptIssue.getMptID();
+    if (!id)
+        return {STAmount(mptIssue, 0), account.name()};
+
+    AccountID const issuer = mptIssue.getIssuer();
+    if (account.id() == issuer)
+    {
+        // Issuer balance
+        auto const sle = le(keylet::mptIssuance(id));
+        if (!sle)
+            return {STAmount(mptIssue, 0), account.name()};
+
+        STAmount const amount{mptIssue, sle->getFieldU64(sfOutstandingAmount)};
+        return {amount, lookup(issuer).name()};
+    }
+    else
+    {
+        // Holder balance
+        auto const sle = le(keylet::mptoken(id, account));
+        if (!sle)
+            return {STAmount(mptIssue, 0), account.name()};
+
+        STAmount const amount{mptIssue, sle->getFieldU64(sfMPTAmount)};
+        return {amount, lookup(issuer).name()};
+    }
+}
+
 std::uint32_t
 Env::seq(Account const& account) const
 {
