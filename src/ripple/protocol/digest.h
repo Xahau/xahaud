@@ -112,13 +112,6 @@ struct hash_options
     std::optional<std::uint32_t> ledger_index;
     HashContext classifier;
 
-    // Constructor for ledger sequence only (defaults to LEDGER_INDEX_UNKNOWN
-    // classifier)
-    explicit hash_options(std::uint32_t li)
-        : ledger_index(li), classifier(LEDGER_INDEX_UNKNOWN)
-    {
-    }
-
     // Constructor for classifier only (no ledger index)
     explicit hash_options(HashContext ctx)
         : ledger_index(std::nullopt), classifier(ctx)
