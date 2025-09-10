@@ -15,6 +15,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/STAccount.h>
@@ -110,6 +111,51 @@ struct PseudoTx_test : public beast::unit_test::suite
     }
 
     void
+    testHashMigration()
+    {
+        using namespace jtx;
+
+        // Enable BLAKE3Migration feature
+        FeatureBitset features = supported_amendments();
+        features[featureBLAKE3Migration] = true;
+
+        Env env(*this, features);
+
+        // Create the hash migration pseudo transaction
+        STTx migrationTx(ttHASH_MIGRATION, [&](auto& obj) {
+            obj.setAccountID(sfAccount, AccountID());
+            obj.setFieldU32(sfLedgerSequence, env.closed()->seq() + 1);
+        });
+
+        // Verify it's recognized as a pseudo transaction
+        BEAST_EXPECT(isPseudoTx(migrationTx));
+
+        // Verify it cannot be submitted by users
+        std::string reason;
+        BEAST_EXPECT(!passesLocalChecks(migrationTx, reason));
+        BEAST_EXPECT(reason == "Cannot submit pseudo transactions.");
+
+        // Insert the pseudo transaction into the open ledger
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
+            // This simulates what happens during consensus when
+            // pseudo transactions are injected
+            uint256 txID = migrationTx.getTransactionID();
+            auto s = std::make_shared<ripple::Serializer>();
+            migrationTx.add(*s);
+            env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+            view.rawTxInsert(txID, std::move(s), nullptr);
+
+            return true;
+        });
+
+        // Close the ledger to process the pseudo transaction
+        env.close();
+
+        JLOG(env.journal.info())
+            << "Hash migration pseudo transaction test completed successfully";
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
@@ -119,6 +165,7 @@ struct PseudoTx_test : public beast::unit_test::suite
         testPrevented(all - featureXRPFees);
         testPrevented(all);
         testAllowed();
+        testHashMigration();
     }
 };
 

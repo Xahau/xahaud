@@ -126,6 +126,7 @@ JSS(SetFee);                   // transaction type.
 JSS(SetRemarks);               // transaction type
 JSS(UNLModify);                // transaction type.
 JSS(UNLReport);                // transaction type.
+JSS(HashMigration);            // transaction type.
 JSS(SettleDelay);              // in: TransactionSign
 JSS(SendMax);                  // in: TransactionSign
 JSS(Sequence);                 // in/out: TransactionSign; field.

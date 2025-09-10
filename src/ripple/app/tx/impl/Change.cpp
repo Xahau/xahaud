@@ -41,7 +41,9 @@ Change::preflight(PreflightContext const& ctx)
 {
     auto const ret = preflight0(ctx);
     if (!isTesSuccess(ret))
+    {
         return ret;
+    }
 
     auto account = ctx.tx.getAccountID(sfAccount);
     if (account != beast::zero)
@@ -110,7 +112,6 @@ Change::preflight(PreflightContext const& ctx)
                 return telIMPORT_VL_KEY_NOT_RECOGNISED;
         }
     }
-
     return tesSUCCESS;
 }
 
@@ -170,6 +171,7 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        case ttHASH_MIGRATION:
             return tesSUCCESS;
         default:
             return temUNKNOWN;
@@ -191,6 +193,8 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        case ttHASH_MIGRATION:
+            return applyHashMigration();
         default:
             assert(0);
             return tefFAILURE;
@@ -1085,6 +1089,31 @@ Change::applyEmitFailure()
 
         view().erase(sle);
     } while (0);
+    return tesSUCCESS;
+}
+
+TER
+Change::applyHashMigration()
+{
+    // This pseudo transaction triggers the hash algorithm migration
+    // from SHA-512 Half to BLAKE3.
+
+    JLOG(j_.warn()) << "Hash migration pseudo transaction triggered at ledger "
+                    << view().seq();
+
+    // TODO: Implement the actual state tree rehashing logic here
+    // This is where we would:
+    // 1. Iterate through all state tree nodes
+    // 2. Rehash each node with BLAKE3
+    // 3. Update the tree structure
+    // 4. Set a flag indicating migration is complete
+
+    // For now, this is a placeholder implementation
+    // In a real implementation, we would:
+    // - Call a function to rehash the entire state map
+    // - Set a migration complete flag in the ledger
+    // - Update the global hash algorithm setting
+
     return tesSUCCESS;
 }
 

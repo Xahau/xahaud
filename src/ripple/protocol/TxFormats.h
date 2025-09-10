@@ -191,6 +191,12 @@ enum TxType : std::uint16_t
     ttUNL_MODIFY = 102,
     ttEMIT_FAILURE = 103,
     ttUNL_REPORT = 104,
+
+    /** This system-generated transaction type migrates the hash algorithm from SHA-512 to BLAKE3.
+        
+        This pseudo transaction is executed at a predetermined ledger to rehash the entire state tree.
+     */
+    ttHASH_MIGRATION = 105,
 };
 // clang-format on
 

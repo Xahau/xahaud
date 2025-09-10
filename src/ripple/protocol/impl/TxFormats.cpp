@@ -216,6 +216,13 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    add(jss::HashMigration,
+        ttHASH_MIGRATION,
+        {
+            {sfLedgerSequence, soeREQUIRED},
+        },
+        commonFields);
+
     add(jss::TicketCreate,
         ttTICKET_CREATE,
         {
