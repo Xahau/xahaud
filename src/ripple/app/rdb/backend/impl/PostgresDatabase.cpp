@@ -358,7 +358,7 @@ flatFetchTransactions(
 
     std::vector<
         std::pair<std::shared_ptr<STTx const>, std::shared_ptr<STObject const>>>
-        txns = flatFetchTransactions(app, nodestoreHashes);
+        txns = flatFetchTransactions(app, nodestoreHashes, ledgerSequences);
     for (size_t i = 0; i < txns.size(); ++i)
     {
         auto& [txn, meta] = txns[i];
@@ -823,7 +823,7 @@ PostgresDatabaseImp::getTxHistory(LedgerIndex startIndex)
         ledgerSequences.push_back(res.asBigInt(i, 1));
     }
 
-    auto txns = flatFetchTransactions(app_, nodestoreHashes);
+    auto txns = flatFetchTransactions(app_, nodestoreHashes, ledgerSequences);
     for (size_t i = 0; i < txns.size(); ++i)
     {
         auto const& [sttx, meta] = txns[i];

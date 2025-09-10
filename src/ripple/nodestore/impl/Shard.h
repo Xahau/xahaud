@@ -390,7 +390,7 @@ private:
 
     // Fetches from backend and log errors based on status codes
     [[nodiscard]] std::shared_ptr<NodeObject>
-    verifyFetch(uint256 const& hash) const;
+    verifyFetch(uint256 const& hash, std::uint32_t ledgerSeq) const;
 
     // Open databases if they are closed
     [[nodiscard]] Shard::Count

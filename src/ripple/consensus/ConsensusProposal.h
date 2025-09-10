@@ -23,6 +23,7 @@
 #include <ripple/basics/chrono.h>
 #include <ripple/json/json_value.h>
 #include <ripple/protocol/HashPrefix.h>
+#include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <cstdint>
 #include <optional>
@@ -222,6 +223,7 @@ public:
         if (!signingHash_)
         {
             signingHash_ = sha512Half(
+                hash_options{CONSENSUS_PROPOSAL_HASH},
                 HashPrefix::proposal,
                 std::uint32_t(proposeSeq()),
                 closeTime().time_since_epoch().count(),

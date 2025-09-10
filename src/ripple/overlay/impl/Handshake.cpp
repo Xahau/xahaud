@@ -172,7 +172,9 @@ makeSharedValue(stream_type& ssl, beast::Journal journal)
         return std::nullopt;
     }
 
-    return sha512Half(Slice(result.data(), result.size()));
+    return sha512Half(
+        hash_options{NETWORK_HANDSHAKE_HASH},
+        Slice(result.data(), result.size()));
 }
 
 void

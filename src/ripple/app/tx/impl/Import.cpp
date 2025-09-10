@@ -476,8 +476,10 @@ Import::preflight(PreflightContext const& ctx)
     s.addVL(*tx_meta);
     s.addBitString(tx_hash);
 
-    uint256 const computed_tx_hash_and_meta =
-        sha512Half(HashPrefix::txNode, s.slice());
+    uint256 const computed_tx_hash_and_meta = sha512Half(
+        hash_options{IMPORT_SHAMAP_TXN_NODE_HASH},
+        HashPrefix::txNode,
+        s.slice());
 
     // check if the proof is inside the proof tree/list
     if (!([](Json::Value const& proof, std::string hash) -> bool {
@@ -538,7 +540,7 @@ Import::preflight(PreflightContext const& ctx)
             if (!proof.isObject() && !proof.isArray())
                 return nullhash;
 
-            sha512_half_hasher h;
+            sha512_half_hasher h(hash_options{IMPORT_SHAMAP_INNER_HASH});
             using beast::hash_append;
             hash_append(h, ripple::HashPrefix::innerNode);
 
@@ -612,6 +614,7 @@ Import::preflight(PreflightContext const& ctx)
 
     // compute ledger
     uint256 computedLedgerHash = sha512Half(
+        hash_options{IMPORT_VLCHAIN_HASH},
         HashPrefix::ledgerMaster,
         std::uint32_t(lgr[jss::index].asUInt()),
         *coins,

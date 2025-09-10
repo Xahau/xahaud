@@ -2283,7 +2283,8 @@ PeerImp::onValidatorListMessage(
         return;
     }
 
-    auto const hash = sha512Half(manifest, blobs, version);
+    auto const hash =
+        sha512Half(hash_options{VALIDATOR_LIST_HASH}, manifest, blobs, version);
 
     JLOG(p_journal_.debug())
         << "Received " << messageType << " from " << remote_address_.to_string()
@@ -2578,7 +2579,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         if (!isTrusted && app_.config().RELAY_UNTRUSTED_VALIDATIONS == -1)
             return;
 
-        auto key = sha512Half(makeSlice(m->validation()));
+        auto key = sha512Half(
+            hash_options{PEER_VALIDATION_HASH}, makeSlice(m->validation()));
 
         if (auto [added, relayed] =
                 app_.getHashRouter().addSuppressionPeerWithStatus(key, id_);

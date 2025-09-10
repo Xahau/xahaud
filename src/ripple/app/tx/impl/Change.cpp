@@ -632,6 +632,7 @@ Change::activateXahauGenesis()
             }
 
             auto const hookHash = ripple::sha512Half_s(
+                hash_options{HOOK_DEFINITION},
                 ripple::Slice(wasmBytes.data(), wasmBytes.size()));
 
             auto const kl =
@@ -709,9 +710,11 @@ Change::activateXahauGenesis()
     }
 
     // install hooks on layer 2 tables
-    auto const governHash = ripple::sha512Half_s(ripple::Slice(
-        XahauGenesis::GovernanceHook.data(),
-        XahauGenesis::GovernanceHook.size()));
+    auto const governHash = ripple::sha512Half_s(
+        hash_options{HOOK_DEFINITION},
+        ripple::Slice(
+            XahauGenesis::GovernanceHook.data(),
+            XahauGenesis::GovernanceHook.size()));
     for (auto const& t : l2_entries)
     {
         JLOG(j_.trace()) << "featureXahauGenesis: installing L2 table at: "

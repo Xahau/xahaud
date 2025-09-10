@@ -44,7 +44,10 @@ SHAMapTreeNode::makeTransaction(
     std::uint32_t ledgerSeq)
 {
     auto item = make_shamapitem(
-        sha512Half(hash_options{ledgerSeq}, HashPrefix::transactionID, data),
+        sha512Half(
+            hash_options{ledgerSeq, TRANSACTION_ID_HASH},
+            HashPrefix::transactionID,
+            data),
         data);
 
     if (hashValid)

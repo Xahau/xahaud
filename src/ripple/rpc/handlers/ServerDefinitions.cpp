@@ -449,8 +449,9 @@ private:
         // generate hash
         {
             const std::string out = Json::FastWriter().write(ret);
-            defsHash =
-                ripple::sha512Half(ripple::Slice{out.data(), out.size()});
+            defsHash = ripple::sha512Half(
+                hash_options{LEDGER_INDEX_UNNEEDED},
+                ripple::Slice{out.data(), out.size()});
         }
         return ret;
     }
@@ -520,8 +521,9 @@ doServerDefinitions(RPC::JsonContext& context)
         lastFeatures = features;
         {
             const std::string out = Json::FastWriter().write(features);
-            lastFeatureHash =
-                ripple::sha512Half(ripple::Slice{out.data(), out.size()});
+            lastFeatureHash = ripple::sha512Half(
+                hash_options{LEDGER_INDEX_UNNEEDED},
+                ripple::Slice{out.data(), out.size()});
         }
     }
 

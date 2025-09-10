@@ -3159,14 +3159,16 @@ DEFINE_HOOK_FUNCTION(
                     return d;
                 };
 
-                static std::array<uint8_t, 34> cAmendments =
-                    makeKeyCache(ripple::keylet::amendments(hash_options{0}));
-                static std::array<uint8_t, 34> cFees =
-                    makeKeyCache(ripple::keylet::fees(hash_options{0}));
-                static std::array<uint8_t, 34> cNegativeUNL =
-                    makeKeyCache(ripple::keylet::negativeUNL(hash_options{0}));
-                static std::array<uint8_t, 34> cEmittedDir =
-                    makeKeyCache(ripple::keylet::emittedDir(hash_options{0}));
+                // Cannot statically cache these as hash depends on ledger
+                // sequence
+                auto cAmendments = makeKeyCache(
+                    ripple::keylet::amendments(hash_options{(view.seq())}));
+                auto cFees = makeKeyCache(
+                    ripple::keylet::fees(hash_options{(view.seq())}));
+                auto cNegativeUNL = makeKeyCache(
+                    ripple::keylet::negativeUNL(hash_options{(view.seq())}));
+                auto cEmittedDir = makeKeyCache(
+                    ripple::keylet::emittedDir(hash_options{(view.seq())}));
 
                 WRITE_WASM_MEMORY_AND_RETURN(
                     write_ptr,
@@ -3752,6 +3754,7 @@ DEFINE_HOOK_FUNCTION(
     flags |= (hookCtx.result.hookChainPosition << 2U);
 
     auto hash = ripple::sha512Half(
+        hash_options{HOOK_EMITTED_TXN_NONCE},
         ripple::HashPrefix::emitTxnNonce,
         applyCtx.tx.getTransactionID(),
         hookCtx.emit_nonce_counter++,
@@ -3786,6 +3789,7 @@ DEFINE_HOOK_FUNCTION(
         return TOO_MANY_NONCES;
 
     auto hash = ripple::sha512Half(
+        hash_options{HOOK_LEDGER_NONCE},
         ripple::HashPrefix::hookNonce,
         view.info().seq,
         view.info().parentCloseTime.time_since_epoch().count(),
@@ -3911,7 +3915,9 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    auto hash = ripple::sha512Half(ripple::Slice{memory + read_ptr, read_len});
+    auto hash = ripple::sha512Half(
+        hash_options{HOOK_UTIL_SHA512H},
+        ripple::Slice{memory + read_ptr, read_len});
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, 32, hash.data(), 32, memory, memory_length);

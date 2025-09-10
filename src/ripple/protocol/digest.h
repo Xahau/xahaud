@@ -27,19 +27,71 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <limits>
+#include <optional>
 
 namespace ripple {
 
-// Special ledger_index value for hash operations classification
-constexpr uint32_t LEDGER_INDEX_UNKNOWN =
-    0;  // DANGEROUS - indicates we don't know the ledger context yet
+// Hash context classification - used to identify the purpose of a hash
+// operation
+enum HashContext : std::uint32_t {
+    // Special values
+    LEDGER_INDEX_UNKNOWN =
+        0,  // DANGEROUS - indicates we don't know the ledger context yet
+
+    // Non-ledger hash contexts (will never need migration)
+    LEDGER_INDEX_UNNEEDED = 1,        // Generic non-ledger hashes
+    CRYPTO_KEYS_GENERATION_HASH = 2,  // Key derivation and crypto operations
+    CRYPTO_SIGNATURE_HASH = 3,        // Signature generation/verification
+    FEATURE_HASH = 4,                 // Feature name hashing
+    VALIDATOR_LIST_HASH = 5,          // Validator list hashing
+    NETWORK_HANDSHAKE_HASH = 6,       // Network protocol handshakes
+    SERIALIZER_STOBJECT_HASH = 7,  // STObject hashing (txn IDs, signing hashes)
+    CONSENSUS_PROPOSAL_HASH = 8,   // Consensus proposal signing
+    PEER_VALIDATION_HASH = 9,      // Peer validation suppression/routing
+    FETCH_PACK_CACHE_KEY_HASH = 10,  // Fetch pack cache key verification
+    IMPORT_VLCHAIN_HASH =
+        11,  // Import from other chain (network 0) - ledger hash
+    IMPORT_SHAMAP_TXN_NODE_HASH =
+        12,                         // Import VL chain transaction node hashing
+    IMPORT_SHAMAP_INNER_HASH = 13,  // Import VL chain inner node hashing
+    HOOK_EMITTED_TXN_NONCE = 14,    // Hook emitted transaction nonce generation
+    HOOK_LEDGER_NONCE = 15,         // Hook ledger-based nonce generation
+    HOOK_UTIL_SHA512H = 16,         // Hook utility sha512h function
+    HOOK_DEFINITION = 17,           // Hook definition bytecode hashing
+
+    // Ledger-specific hash contexts (will need migration at activation ledger)
+    LEDGER_HEADER_HASH = 18,      // Ledger header hash calculation
+    SHAMAP_TXN_NODE_HASH = 19,    // SHAMap transaction node hashing
+    SHAMAP_INNER_NODE_HASH = 20,  // SHAMap inner node hashing
+    SHAMAP_LEAF_NODE_HASH = 21,   // SHAMap leaf node hashing
+    TRANSACTION_ID_HASH = 22,     // Transaction ID calculation
+    NODE_OBJECT_VERIFICATION_HASH =
+        23,  // Node object verification in nodestore
+};
 
 // Options for hash functions (allows future expansion)
 struct hash_options
 {
-    std::uint32_t ledger_index;
+    std::optional<std::uint32_t> ledger_index;
+    HashContext classifier;
 
-    explicit hash_options(std::uint32_t li) : ledger_index(li)
+    // Constructor for ledger sequence only (defaults to LEDGER_INDEX_UNKNOWN
+    // classifier)
+    explicit hash_options(std::uint32_t li)
+        : ledger_index(li), classifier(LEDGER_INDEX_UNKNOWN)
+    {
+    }
+
+    // Constructor for classifier only (no ledger index)
+    explicit hash_options(HashContext ctx)
+        : ledger_index(std::nullopt), classifier(ctx)
+    {
+    }
+
+    // Constructor for both ledger sequence and classifier
+    hash_options(std::uint32_t li, HashContext ctx)
+        : ledger_index(li), classifier(ctx)
     {
     }
 };
@@ -311,10 +363,10 @@ public:
 
     using result_type = uint256;
 
-    // Default constructor for backward compatibility
-    basic_sha512_half_hasher() : opts_(LEDGER_INDEX_UNKNOWN)
-    {
-    }
+    // // Default constructor for backward compatibility
+    // basic_sha512_half_hasher() : opts_(LEDGER_INDEX_UNKNOWN)
+    // {
+    // }
 
     // Constructor with hash_options for context-aware hashing
     explicit basic_sha512_half_hasher(hash_options const& opts) : opts_(opts)
@@ -329,15 +381,17 @@ public:
     void
     operator()(void const* data, std::size_t size) noexcept
     {
-        // TODO: When BLAKE3 is added, check opts_.ledger_index here
-        // For now, always use SHA512
+        // TODO: When BLAKE3 is added, check opts_.ledger_index (if present) and
+        // classifier to determine which hash algorithm to use For now, always
+        // use SHA512
         h_(data, size);
     }
 
     explicit operator result_type() noexcept
     {
-        // TODO: When BLAKE3 is added, check opts_.ledger_index here
-        // For now, always use SHA512
+        // TODO: When BLAKE3 is added, check opts_.ledger_index (if present) and
+        // classifier to determine which hash algorithm to use For now, always
+        // use SHA512
         auto const digest = sha512_hasher::result_type(h_);
         return result_type::fromVoid(digest.data());
     }
@@ -373,7 +427,7 @@ sha512Half(hash_options const& opts, Args const&... args)
 
     // TODO: Use opts.ledger_index to potentially switch to blake3 at certain
     // ledger For now, still use sha512_half_hasher
-    sha512_half_hasher h;
+    sha512_half_hasher h(opts);
     using beast::hash_append;
     hash_append(h, args...);
     auto result = static_cast<typename sha512_half_hasher::result_type>(h);
@@ -388,15 +442,9 @@ sha512Half(hash_options const& opts, Args const&... args)
     return result;
 }
 
-/** Returns the SHA512-Half of a series of objects (backward compatibility -
- * non-indexed). */
-template <class... Args>
-sha512_half_hasher::result_type
-sha512Half(Args const&... args)
-{
-    // Use 0 as the default ledger_index for non-indexed operations
-    return sha512Half(hash_options{0}, args...);
-}
+// Removed backward compatibility overload - all callers must provide
+// hash_options to ensure proper hash algorithm selection based on ledger
+// sequence
 
 /** Returns the SHA512-Half of a series of objects (with options).
 
@@ -414,7 +462,7 @@ sha512Half_s(hash_options const& opts, Args const&... args)
 
     // TODO: Use opts.ledger_index to potentially switch to blake3 at certain
     // ledger For now, still use sha512_half_hasher_s
-    sha512_half_hasher_s h;
+    sha512_half_hasher_s h(opts);
     using beast::hash_append;
     hash_append(h, args...);
     auto result = static_cast<typename sha512_half_hasher_s::result_type>(h);
@@ -427,21 +475,6 @@ sha512Half_s(hash_options const& opts, Args const&... args)
         duration, std::memory_order_relaxed);
 
     return result;
-}
-
-/** Returns the SHA512-Half of a series of objects (backward compatibility -
-   non-indexed).
-
-    Postconditions:
-        Temporary memory storing copies of
-        input messages will be cleared.
-*/
-template <class... Args>
-sha512_half_hasher_s::result_type
-sha512Half_s(Args const&... args)
-{
-    // Use 0 as the default ledger_index for non-indexed operations
-    return sha512Half_s(hash_options{0}, args...);
 }
 
 }  // namespace ripple

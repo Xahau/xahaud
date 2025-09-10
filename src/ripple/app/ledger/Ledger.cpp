@@ -66,6 +66,7 @@ calculateLedgerHash(LedgerInfo const& info)
 {
     // VFALCO This has to match addRaw in View.h.
     return sha512Half(
+        hash_options{info.seq, LEDGER_HEADER_HASH},
         HashPrefix::ledgerMaster,
         std::uint32_t(info.seq),
         std::uint64_t(info.drops.drops()),
@@ -639,7 +640,11 @@ Ledger::rawTxInsertWithHash(
     s.addVL(txn->peekData());
     s.addVL(metaData->peekData());
     auto item = make_shamapitem(key, s.slice());
-    auto hash = sha512Half(HashPrefix::txNode, item->slice(), item->key());
+    auto hash = sha512Half(
+        hash_options{seq(), SHAMAP_TXN_NODE_HASH},
+        HashPrefix::txNode,
+        item->slice(),
+        item->key());
     if (!txMap_.addGiveItem(SHAMapNodeType::tnTRANSACTION_MD, std::move(item)))
         LogicError("duplicate_tx: " + to_string(key));
 
@@ -1187,7 +1192,10 @@ loadByHash(uint256 const& ledgerHash, Application& app, bool acquire)
 
 std::vector<
     std::pair<std::shared_ptr<STTx const>, std::shared_ptr<STObject const>>>
-flatFetchTransactions(Application& app, std::vector<uint256>& nodestoreHashes)
+flatFetchTransactions(
+    Application& app,
+    std::vector<uint256>& nodestoreHashes,
+    std::vector<uint32_t> const& ledgerSequences)
 {
     if (!app.config().reporting())
     {
@@ -1221,10 +1229,20 @@ flatFetchTransactions(Application& app, std::vector<uint256>& nodestoreHashes)
         auto& obj = objs[i];
         if (obj)
         {
+            // Ledger sequences must be provided for all transactions
+            if (i >= ledgerSequences.size())
+            {
+                assert(false);
+                Throw<std::runtime_error>(
+                    "flatFetchTransactions: Missing ledger sequence for "
+                    "transaction " +
+                    std::to_string(i));
+            }
+            uint32_t ledgerSeq = ledgerSequences[i];
             auto node = SHAMapTreeNode::makeFromPrefix(
                 makeSlice(obj->getData()),
                 SHAMapHash{nodestoreHash},
-                LEDGER_INDEX_UNKNOWN);
+                ledgerSeq);
             if (!node)
             {
                 assert(false);
@@ -1273,6 +1291,10 @@ flatFetchTransactions(ReadView const& ledger, Application& app)
 
     auto nodestoreHashes = db->getTxHashes(ledger.info().seq);
 
-    return flatFetchTransactions(app, nodestoreHashes);
+    // All transactions are from the same ledger
+    std::vector<uint32_t> ledgerSequences(
+        nodestoreHashes.size(), static_cast<uint32_t>(ledger.info().seq));
+
+    return flatFetchTransactions(app, nodestoreHashes, ledgerSequences);
 }
 }  // namespace ripple

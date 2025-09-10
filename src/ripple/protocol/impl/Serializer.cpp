@@ -193,7 +193,7 @@ Serializer::chop(int bytes)
 uint256
 Serializer::getSHA512Half() const
 {
-    return sha512Half(makeSlice(mData));
+    return sha512Half(hash_options{SERIALIZER_STOBJECT_HASH}, makeSlice(mData));
 }
 
 int

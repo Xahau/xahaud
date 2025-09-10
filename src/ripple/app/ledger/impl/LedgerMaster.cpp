@@ -2255,7 +2255,9 @@ LedgerMaster::getFetchPack(uint256 const& hash)
     if (fetch_packs_.retrieve(hash, data))
     {
         fetch_packs_.del(hash, false);
-        if (hash == sha512Half(makeSlice(data)))
+        if (hash ==
+            sha512Half(
+                hash_options{FETCH_PACK_CACHE_KEY_HASH}, makeSlice(data)))
             return data;
     }
     return std::nullopt;

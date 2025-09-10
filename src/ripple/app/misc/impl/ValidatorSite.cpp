@@ -413,7 +413,8 @@ ValidatorSite::parseJsonResponse(
     auto const manifest = body[jss::manifest].asString();
     assert(version == body[jss::version].asUInt());
     auto const& uri = sites_[siteIdx].activeResource->uri;
-    auto const hash = sha512Half(manifest, blobs, version);
+    auto const hash =
+        sha512Half(hash_options{VALIDATOR_LIST_HASH}, manifest, blobs, version);
     auto const applyResult = app_.validators().applyListsAndBroadcast(
         manifest,
         version,

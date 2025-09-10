@@ -1058,7 +1058,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
     if (root_->isLeaf())
     {  // special case -- root_ is leaf
         root_ = preFlushNode(std::move(root_));
-        root_->updateHash(hash_options{ledgerSeq_});
+        root_->updateHash(hash_options{ledgerSeq_, SHAMAP_LEAF_NODE_HASH});
         root_->unshare();
 
         if (doWrite)
@@ -1124,7 +1124,8 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
                         ++flushed;
 
                         assert(node->cowid() == cowid_);
-                        child->updateHash(hash_options{ledgerSeq_});
+                        child->updateHash(
+                            hash_options{ledgerSeq_, SHAMAP_INNER_NODE_HASH});
                         child->unshare();
 
                         if (doWrite)
@@ -1137,7 +1138,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
         }
 
         // update the hash of this inner node
-        node->updateHashDeep(hash_options{ledgerSeq_});
+        node->updateHashDeep(hash_options{ledgerSeq_, SHAMAP_INNER_NODE_HASH});
 
         // This inner node can now be shared
         node->unshare();

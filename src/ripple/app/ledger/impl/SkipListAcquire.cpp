@@ -21,6 +21,7 @@
 #include <ripple/app/ledger/LedgerReplayer.h>
 #include <ripple/app/ledger/impl/SkipListAcquire.h>
 #include <ripple/app/main/Application.h>
+#include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/core/JobQueue.h>
 #include <ripple/overlay/PeerSet.h>
 
@@ -84,11 +85,22 @@ SkipListAcquire::trigger(std::size_t limit, ScopedLockType& sl)
                 {
                     JLOG(journal_.trace())
                         << "Add a peer " << peer->id() << " for " << hash_;
+
+                    // Look up the ledger sequence from the database
+                    auto info =
+                        app_.getRelationalDatabase().getLedgerInfoByHash(hash_);
+                    if (!info)
+                    {
+                        JLOG(journal_.debug())
+                            << "Cannot find ledger info for " << hash_;
+                        return;
+                    }
+
                     protocol::TMProofPathRequest request;
                     request.set_ledgerhash(hash_.data(), hash_.size());
                     request.set_key(
-                        keylet::skip(hash_options{0}).key.data(),
-                        keylet::skip(hash_options{0}).key.size());
+                        keylet::skip(hash_options{info->seq}).key.data(),
+                        keylet::skip(hash_options{info->seq}).key.size());
                     request.set_type(
                         protocol::TMLedgerMapType::lmACCOUNT_STATE);
                     peerSet_->sendRequest(request, peer);

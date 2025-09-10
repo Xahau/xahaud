@@ -500,7 +500,7 @@ splitMessageParts(
 
         messages.emplace_back(
             std::make_shared<Message>(smallMsg, protocol::mtVALIDATORLIST),
-            sha512Half(smallMsg),
+            sha512Half(hash_options{VALIDATOR_LIST_HASH}, smallMsg),
             1);
         return messages.back().numVLs;
     }
@@ -527,7 +527,7 @@ splitMessageParts(
             messages.emplace_back(
                 std::make_shared<Message>(
                     *smallMsg, protocol::mtVALIDATORLISTCOLLECTION),
-                sha512Half(*smallMsg),
+                sha512Half(hash_options{VALIDATOR_LIST_HASH}, *smallMsg),
                 smallMsg->blobs_size());
             return messages.back().numVLs;
         }
@@ -558,7 +558,7 @@ buildValidatorListMessage(
     assert(Message::totalSize(msg) <= maximiumMessageSize);
     messages.emplace_back(
         std::make_shared<Message>(msg, protocol::mtVALIDATORLIST),
-        sha512Half(msg),
+        sha512Half(hash_options{VALIDATOR_LIST_HASH}, msg),
         1);
     return 1;
 }
@@ -600,7 +600,7 @@ buildValidatorListMessage(
     {
         messages.emplace_back(
             std::make_shared<Message>(msg, protocol::mtVALIDATORLISTCOLLECTION),
-            sha512Half(msg),
+            sha512Half(hash_options{VALIDATOR_LIST_HASH}, msg),
             msg.blobs_size());
         return messages.back().numVLs;
     }
@@ -984,7 +984,8 @@ ValidatorList::applyLists(
 
         cacheValidatorFile(lock, *result.publisherKey);
 
-        pubCollection.fullHash = sha512Half(pubCollection);
+        pubCollection.fullHash =
+            sha512Half(hash_options{VALIDATOR_LIST_HASH}, pubCollection);
 
         result.sequence = *pubCollection.maxSequence;
     }

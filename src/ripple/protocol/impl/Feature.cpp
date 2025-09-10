@@ -247,7 +247,8 @@ FeatureCollections::registerFeature(
             "More features defined than allocated. Adjust numFeatures in "
             "Feature.h.");
 
-        auto const f = sha512Half(Slice(name.data(), name.size()));
+        auto const f = sha512Half(
+            hash_options{FEATURE_HASH}, Slice(name.data(), name.size()));
 
         features.emplace_back(name, f);
 

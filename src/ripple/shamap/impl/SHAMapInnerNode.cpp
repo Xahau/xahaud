@@ -152,7 +152,7 @@ SHAMapInnerNode::makeFullInner(
     if (hashValid)
         ret->hash_ = hash;
     else
-        ret->updateHash(hash_options{ledgerSeq});
+        ret->updateHash(hash_options{ledgerSeq, SHAMAP_INNER_NODE_HASH});
 
     return ret;
 }
@@ -189,7 +189,7 @@ SHAMapInnerNode::makeCompressedInner(Slice data, std::uint32_t ledgerSeq)
     }
 
     ret->resizeChildArrays(ret->getBranchCount());
-    ret->updateHash(hash_options{ledgerSeq});
+    ret->updateHash(hash_options{ledgerSeq, SHAMAP_INNER_NODE_HASH});
     return ret;
 }
 

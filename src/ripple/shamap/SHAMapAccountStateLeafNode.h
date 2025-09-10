@@ -41,7 +41,7 @@ public:
         std::uint32_t ledgerSeq)
         : SHAMapLeafNode(std::move(item), cowid)
     {
-        updateHash(hash_options{ledgerSeq});
+        updateHash(hash_options{ledgerSeq, SHAMAP_LEAF_NODE_HASH});
     }
 
     SHAMapAccountStateLeafNode(

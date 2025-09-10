@@ -488,10 +488,16 @@ flatFetchTransactions(ReadView const& ledger, Application& app);
 // executed concurrently. This function only works in reporting mode.
 // @param nodestoreHashes hashes of the transactions to fetch
 // @param app reference to the Application
+// @param nodestoreHashes vector of nodestore hashes to fetch
+// @param ledgerSequences corresponding ledger sequences for each hash
+// (required)
 // @return vector of (transaction, metadata) pairs
 extern std::vector<
     std::pair<std::shared_ptr<STTx const>, std::shared_ptr<STObject const>>>
-flatFetchTransactions(Application& app, std::vector<uint256>& nodestoreHashes);
+flatFetchTransactions(
+    Application& app,
+    std::vector<uint256>& nodestoreHashes,
+    std::vector<uint32_t> const& ledgerSequences);
 
 /** Deserialize a SHAMapItem containing a single STTx
 

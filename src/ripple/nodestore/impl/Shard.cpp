@@ -673,7 +673,7 @@ Shard::finalize(bool writeSQLite, std::optional<uint256> const& referenceHash)
         if (stop_)
             return false;
 
-        auto nodeObject{verifyFetch(hash)};
+        auto nodeObject{verifyFetch(hash, ledgerSeq)};
         if (!nodeObject)
             return fail("invalid ledger");
 
@@ -1124,11 +1124,12 @@ Shard::verifyLedger(
         return fail("Invalid ledger account hash");
 
     bool error{false};
-    auto visit = [this, &error, &dShard](SHAMapTreeNode const& node) {
+    auto visit = [this, &error, &dShard, &ledger](SHAMapTreeNode const& node) {
         if (stop_)
             return false;
 
-        auto nodeObject{verifyFetch(node.getHash().as_uint256())};
+        auto nodeObject{
+            verifyFetch(node.getHash().as_uint256(), ledger->info().seq)};
         if (!nodeObject || !dShard->store(nodeObject))
             error = true;
 
@@ -1188,7 +1189,7 @@ Shard::verifyLedger(
 }
 
 std::shared_ptr<NodeObject>
-Shard::verifyFetch(uint256 const& hash) const
+Shard::verifyFetch(uint256 const& hash, std::uint32_t ledgerSeq) const
 {
     std::shared_ptr<NodeObject> nodeObject;
     auto fail =
@@ -1207,7 +1208,9 @@ Shard::verifyFetch(uint256 const& hash) const
             case ok:
                 // Verify that the hash of node object matches the payload
                 if (nodeObject->getHash() !=
-                    sha512Half(makeSlice(nodeObject->getData())))
+                    sha512Half(
+                        hash_options{ledgerSeq, NODE_OBJECT_VERIFICATION_HASH},
+                        makeSlice(nodeObject->getData())))
                     return fail("Node object hash does not match payload");
                 return nodeObject;
             case notFound:

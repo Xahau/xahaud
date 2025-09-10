@@ -280,7 +280,10 @@ verify(
         if (*type == KeyType::secp256k1)
         {
             return verifyDigest(
-                publicKey, sha512Half(m), sig, mustBeFullyCanonical);
+                publicKey,
+                sha512Half(hash_options{CRYPTO_SIGNATURE_HASH}, m),
+                sig,
+                mustBeFullyCanonical);
         }
         else if (*type == KeyType::ed25519)
         {

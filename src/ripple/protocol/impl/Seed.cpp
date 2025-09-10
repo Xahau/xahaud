@@ -68,7 +68,7 @@ randomSeed()
 Seed
 generateSeed(std::string const& passPhrase)
 {
-    sha512_half_hasher_s h;
+    sha512_half_hasher_s h(hash_options{CRYPTO_KEYS_GENERATION_HASH});
     h(passPhrase.data(), passPhrase.size());
     auto const digest = sha512_half_hasher::result_type(h);
     return Seed({digest.data(), 16});

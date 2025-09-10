@@ -1567,6 +1567,7 @@ SetHook::setHook()
                 }
 
                 createHookHash = ripple::sha512Half_s(
+                    hash_options{HOOK_DEFINITION},
                     ripple::Slice(wasmBytes.data(), wasmBytes.size()));
 
                 auto keylet = ripple::keylet::hookDefinition(

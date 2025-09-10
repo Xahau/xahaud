@@ -864,7 +864,8 @@ RCLConsensus::Adaptor::validate(
     auto const serialized = v->getSerialized();
 
     // suppress it if we receive it
-    app_.getHashRouter().addSuppression(sha512Half(makeSlice(serialized)));
+    app_.getHashRouter().addSuppression(
+        sha512Half(hash_options{PEER_VALIDATION_HASH}, makeSlice(serialized)));
 
     handleNewValidation(app_, v, "local");
 

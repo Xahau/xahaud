@@ -86,7 +86,8 @@ deriveDeterministicRootKey(Seed const& seed)
     {
         copy_uint32(buf.data() + 16, seq);
 
-        auto const ret = sha512Half(buf);
+        auto const ret =
+            sha512Half(hash_options{CRYPTO_KEYS_GENERATION_HASH}, buf);
 
         if (secp256k1_ec_seckey_verify(secp256k1Context(), ret.data()) == 1)
         {
@@ -145,7 +146,8 @@ private:
         {
             copy_uint32(buf.data() + 37, subseq);
 
-            auto const ret = sha512Half_s(buf);
+            auto const ret =
+                sha512Half_s(hash_options{CRYPTO_KEYS_GENERATION_HASH}, buf);
 
             if (secp256k1_ec_seckey_verify(secp256k1Context(), ret.data()) == 1)
             {
@@ -249,7 +251,7 @@ sign(PublicKey const& pk, SecretKey const& sk, Slice const& m)
             return b;
         }
         case KeyType::secp256k1: {
-            sha512_half_hasher h;
+            sha512_half_hasher h(hash_options{CRYPTO_SIGNATURE_HASH});
             h(m.data(), m.size());
             auto const digest = sha512_half_hasher::result_type(h);
 
@@ -292,7 +294,9 @@ generateSecretKey(KeyType type, Seed const& seed)
 {
     if (type == KeyType::ed25519)
     {
-        auto key = sha512Half_s(Slice(seed.data(), seed.size()));
+        auto key = sha512Half_s(
+            hash_options{CRYPTO_KEYS_GENERATION_HASH},
+            Slice(seed.data(), seed.size()));
         SecretKey sk{Slice{key.data(), key.size()}};
         secure_erase(key.data(), key.size());
         return sk;
