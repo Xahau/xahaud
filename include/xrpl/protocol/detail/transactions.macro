@@ -22,7 +22,7 @@
 #endif
 
 /**
- * TRANSACTION(tag, value, name, delegatable, amendment, fields)
+ * TRANSACTION(tag, value, name, delegatable, amendments, fields)
  *
  * `amendment` is the amendment that must be enabled for the transaction to
  * be valid, or uint256{} if none. It is checked by
