@@ -368,7 +368,58 @@ Every place that creates a ledger key needs to know what ledger it's operating o
 - Consensus code
 
 ## Compilation Strategy
-Start with hash_options{0} everywhere just to get it building, then systematically replace with proper ledger indices.
+NEVER use hash_options{0} - always use proper classification from the HashContext enum in digest.h!
+
+## Quick Reference for Fixing Test Files
+
+### Essential Files to Reference
+1. **@src/ripple/protocol/digest.h** - Lines 37-107 contain the HashContext enum with ALL valid classifiers
+2. **@src/ripple/protocol/Indexes.h** - Shows all keylet function signatures that need hash_options
+
+### Keylet Function Mapping to HashContext
+When you see a keylet function, use the corresponding KEYLET_* enum value:
+```cpp
+keylet::account()        → KEYLET_ACCOUNT
+keylet::amendments()     → KEYLET_AMENDMENTS  
+keylet::book()          → KEYLET_BOOK
+keylet::check()         → KEYLET_CHECK
+keylet::child()         → KEYLET_CHILD
+keylet::depositPreauth() → KEYLET_DEPOSIT_PREAUTH
+keylet::dirPage()       → KEYLET_DIR_PAGE
+keylet::emittedDir()    → KEYLET_EMITTED_DIR
+keylet::emittedTxn()    → KEYLET_EMITTED_TXN
+keylet::escrow()        → KEYLET_ESCROW
+keylet::fees()          → KEYLET_FEES
+keylet::hook()          → KEYLET_HOOK
+keylet::hookDefinition() → KEYLET_HOOK_DEFINITION
+keylet::hookState()     → KEYLET_HOOK_STATE
+keylet::hookStateDir()  → KEYLET_HOOK_STATE_DIR
+keylet::importVLSeq()   → KEYLET_IMPORT_VLSEQ
+keylet::negativeUNL()   → KEYLET_NEGATIVE_UNL
+keylet::nftBuys()       → KEYLET_NFT_BUYS
+keylet::nftOffer()      → KEYLET_NFT_OFFER
+keylet::nftPage()       → KEYLET_NFT_PAGE
+keylet::nftSells()      → KEYLET_NFT_SELLS
+keylet::offer()         → KEYLET_OFFER
+keylet::ownerDir()      → KEYLET_OWNER_DIR
+keylet::payChan()       → KEYLET_PAYCHAN
+keylet::signers()       → KEYLET_SIGNERS
+keylet::skip()          → KEYLET_SKIP_LIST
+keylet::ticket()        → KEYLET_TICKET
+keylet::trustline()     → KEYLET_TRUSTLINE
+keylet::unchecked()     → KEYLET_UNCHECKED
+keylet::UNLReport()     → KEYLET_UNL_REPORT
+keylet::uriToken()      → KEYLET_URI_TOKEN
+```
+
+### Non-Keylet Hash Classifications
+```cpp
+sha512Half() for validator data     → VALIDATOR_LIST_HASH
+sha512Half() for hook code          → HOOK_DEFINITION or LEDGER_INDEX_UNNEEDED
+sha512Half() for signatures         → CRYPTO_SIGNATURE_HASH
+sha512Half() for network protocol   → NETWORK_HANDSHAKE_HASH
+sha512Half_s() for secure hashing   → Same rules apply
+```
 
 ## Key Insights
 
@@ -530,8 +581,7 @@ This solves a major piece of the puzzle - the network layer CAN provide context 
 #### Getting Ledger Sequence in Tests
 Tests typically use `test::jtx::Env` which provides access to ledger context:
 - `env.current()` - Returns a ReadView pointer
-- `env.current()->seq()` - Gets the current ledger sequence
-- Cast to uint32_t: `static_cast<std::uint32_t>(env.current()->seq())`
+- `env.current()->seq()` - Gets the current ledger sequence (already uint32_t)
 
 #### Common Test Patterns
 
@@ -541,7 +591,7 @@ Tests typically use `test::jtx::Env` which provides access to ledger context:
 env.le(keylet::line(alice, bob, currency));
 
 // NEW
-env.le(keylet::line(hash_options{static_cast<std::uint32_t>(env.current()->seq())}, alice, bob, currency));
+env.le(keylet::line(hash_options{env.current()->seq(), KEYLET_TRUSTLINE}, alice, bob, currency));
 ```
 
 ##### Pattern 2: Helper functions need env parameter
@@ -554,7 +604,7 @@ static uint256 getCheckIndex(AccountID const& account, uint32_t seq) {
 
 // NEW
 static uint256 getCheckIndex(test::jtx::Env& env, AccountID const& account, uint32_t seq) {
-    return keylet::check(hash_options{static_cast<std::uint32_t>(env.current()->seq())}, account, seq).key;
+    return keylet::check(hash_options{env.current()->seq(), KEYLET_CHECK}, account, seq).key;
 }
 // Called as: getCheckIndex(env, alice, seq)
 ```

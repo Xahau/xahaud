@@ -115,7 +115,8 @@ class Invariants_test : public beast::unit_test::suite
             {{"XRP net change was positive: 500"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // put a single account in the view and "manufacture" some XRP
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
                 auto amt = sle->getFieldAmount(sfBalance);
@@ -136,7 +137,8 @@ class Invariants_test : public beast::unit_test::suite
             {{"an account root was deleted"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // remove an account from the view
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
                 ac.view().erase(sle);
@@ -162,8 +164,10 @@ class Invariants_test : public beast::unit_test::suite
             {{"account deletion succeeded but deleted multiple accounts"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 // remove two accounts from the view
-                auto const sleA1 = ac.view().peek(keylet::account(A1.id()));
-                auto const sleA2 = ac.view().peek(keylet::account(A2.id()));
+                auto const sleA1 = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
+                auto const sleA2 = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A2.id()));
                 if (!sleA1 || !sleA2)
                     return false;
                 ac.view().erase(sleA1);
@@ -184,7 +188,8 @@ class Invariants_test : public beast::unit_test::suite
              {"XRP net change of -1000000000 doesn't match fee 0"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // replace an entry in the table with an SLE of a different type
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
                 auto sleNew = std::make_shared<SLE>(ltTICKET, sle->key());
@@ -196,15 +201,18 @@ class Invariants_test : public beast::unit_test::suite
             {{"invalid ledger entry type added"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // add an entry in the table with an SLE of an invalid type
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
 
                 // make a dummy escrow ledger entry, then change the type to an
                 // unsupported value so that the valid type invariant check
                 // will fail.
-                auto sleNew = std::make_shared<SLE>(
-                    keylet::escrow(A1, (*sle)[sfSequence] + 2));
+                auto sleNew = std::make_shared<SLE>(keylet::escrow(
+                    hash_options{ac.view().seq(), KEYLET_ESCROW},
+                    A1,
+                    (*sle)[sfSequence] + 2));
 
                 // We don't use ltNICKNAME directly since it's marked deprecated
                 // to prevent accidental use elsewhere.
@@ -223,8 +231,11 @@ class Invariants_test : public beast::unit_test::suite
             {{"an XRP trust line was created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 // create simple trust SLE with xrp currency
-                auto const sleNew = std::make_shared<SLE>(
-                    keylet::line(A1, A2, xrpIssue().currency));
+                auto const sleNew = std::make_shared<SLE>(keylet::line(
+                    hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                    A1,
+                    A2,
+                    xrpIssue().currency));
                 ac.view().insert(sleNew);
                 return true;
             });
@@ -240,8 +251,11 @@ class Invariants_test : public beast::unit_test::suite
             {{"a trust line with deep freeze flag without normal freeze was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                auto const sleNew = std::make_shared<SLE>(
-                    keylet::line(A1, A2, A1["USD"].currency));
+                auto const sleNew = std::make_shared<SLE>(keylet::line(
+                    hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                    A1,
+                    A2,
+                    A1["USD"].currency));
                 sleNew->setFieldAmount(sfLowLimit, A1["USD"](0));
                 sleNew->setFieldAmount(sfHighLimit, A1["USD"](0));
 
@@ -256,8 +270,11 @@ class Invariants_test : public beast::unit_test::suite
             {{"a trust line with deep freeze flag without normal freeze was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                auto const sleNew = std::make_shared<SLE>(
-                    keylet::line(A1, A2, A1["USD"].currency));
+                auto const sleNew = std::make_shared<SLE>(keylet::line(
+                    hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                    A1,
+                    A2,
+                    A1["USD"].currency));
                 sleNew->setFieldAmount(sfLowLimit, A1["USD"](0));
                 sleNew->setFieldAmount(sfHighLimit, A1["USD"](0));
                 std::uint32_t uFlags = 0u;
@@ -271,8 +288,11 @@ class Invariants_test : public beast::unit_test::suite
             {{"a trust line with deep freeze flag without normal freeze was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                auto const sleNew = std::make_shared<SLE>(
-                    keylet::line(A1, A2, A1["USD"].currency));
+                auto const sleNew = std::make_shared<SLE>(keylet::line(
+                    hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                    A1,
+                    A2,
+                    A1["USD"].currency));
                 sleNew->setFieldAmount(sfLowLimit, A1["USD"](0));
                 sleNew->setFieldAmount(sfHighLimit, A1["USD"](0));
                 std::uint32_t uFlags = 0u;
@@ -286,8 +306,11 @@ class Invariants_test : public beast::unit_test::suite
             {{"a trust line with deep freeze flag without normal freeze was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                auto const sleNew = std::make_shared<SLE>(
-                    keylet::line(A1, A2, A1["USD"].currency));
+                auto const sleNew = std::make_shared<SLE>(keylet::line(
+                    hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                    A1,
+                    A2,
+                    A1["USD"].currency));
                 sleNew->setFieldAmount(sfLowLimit, A1["USD"](0));
                 sleNew->setFieldAmount(sfHighLimit, A1["USD"](0));
                 std::uint32_t uFlags = 0u;
@@ -301,8 +324,11 @@ class Invariants_test : public beast::unit_test::suite
             {{"a trust line with deep freeze flag without normal freeze was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                auto const sleNew = std::make_shared<SLE>(
-                    keylet::line(A1, A2, A1["USD"].currency));
+                auto const sleNew = std::make_shared<SLE>(keylet::line(
+                    hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                    A1,
+                    A2,
+                    A1["USD"].currency));
                 sleNew->setFieldAmount(sfLowLimit, A1["USD"](0));
                 sleNew->setFieldAmount(sfHighLimit, A1["USD"](0));
                 std::uint32_t uFlags = 0u;
@@ -360,8 +386,14 @@ class Invariants_test : public beast::unit_test::suite
                                         ApplyContext& ac,
                                         int A1Balance,
                                         int A2Balance) {
-            auto const sleA1 = ac.view().peek(keylet::line(A1, G1["USD"]));
-            auto const sleA2 = ac.view().peek(keylet::line(A2, G1["USD"]));
+            auto const sleA1 = ac.view().peek(keylet::line(
+                hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                A1,
+                G1["USD"]));
+            auto const sleA2 = ac.view().peek(keylet::line(
+                hash_options{ac.view().seq(), KEYLET_TRUSTLINE},
+                A2,
+                G1["USD"]));
 
             sleA1->setFieldAmount(sfBalance, G1["USD"](A1Balance));
             sleA2->setFieldAmount(sfBalance, G1["USD"](A2Balance));
@@ -417,7 +449,8 @@ class Invariants_test : public beast::unit_test::suite
             {{"Cannot return non-native STAmount as XRPAmount"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 // non-native balance
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
                 STAmount nonNative(A2["USD"](51));
@@ -431,7 +464,8 @@ class Invariants_test : public beast::unit_test::suite
              {"XRP net change was positive: 99999999000000001"}},
             [this](Account const& A1, Account const&, ApplyContext& ac) {
                 // balance exceeds genesis amount
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
                 // Use `drops(1)` to bypass a call to STAmount::canonicalize
@@ -447,7 +481,8 @@ class Invariants_test : public beast::unit_test::suite
              {"XRP net change of -1000000001 doesn't match fee 0"}},
             [this](Account const& A1, Account const&, ApplyContext& ac) {
                 // balance is negative
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
                 sle->setFieldAmount(sfBalance, STAmount{1, true});
@@ -497,11 +532,14 @@ class Invariants_test : public beast::unit_test::suite
             {{"offer with a bad amount"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // offer with negative takerpays
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
-                auto sleNew = std::make_shared<SLE>(
-                    keylet::offer(A1.id(), (*sle)[sfSequence]));
+                auto sleNew = std::make_shared<SLE>(keylet::offer(
+                    hash_options{ac.view().seq(), KEYLET_OFFER},
+                    A1.id(),
+                    (*sle)[sfSequence]));
                 sleNew->setAccountID(sfAccount, A1.id());
                 sleNew->setFieldU32(sfSequence, (*sle)[sfSequence]);
                 sleNew->setFieldAmount(sfTakerPays, XRP(-1));
@@ -513,11 +551,14 @@ class Invariants_test : public beast::unit_test::suite
             {{"offer with a bad amount"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // offer with negative takergets
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
-                auto sleNew = std::make_shared<SLE>(
-                    keylet::offer(A1.id(), (*sle)[sfSequence]));
+                auto sleNew = std::make_shared<SLE>(keylet::offer(
+                    hash_options{ac.view().seq(), KEYLET_OFFER},
+                    A1.id(),
+                    (*sle)[sfSequence]));
                 sleNew->setAccountID(sfAccount, A1.id());
                 sleNew->setFieldU32(sfSequence, (*sle)[sfSequence]);
                 sleNew->setFieldAmount(sfTakerPays, A1["USD"](10));
@@ -530,11 +571,14 @@ class Invariants_test : public beast::unit_test::suite
             {{"offer with a bad amount"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // offer XRP to XRP
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
-                auto sleNew = std::make_shared<SLE>(
-                    keylet::offer(A1.id(), (*sle)[sfSequence]));
+                auto sleNew = std::make_shared<SLE>(keylet::offer(
+                    hash_options{ac.view().seq(), KEYLET_OFFER},
+                    A1.id(),
+                    (*sle)[sfSequence]));
                 sleNew->setAccountID(sfAccount, A1.id());
                 sleNew->setFieldU32(sfSequence, (*sle)[sfSequence]);
                 sleNew->setFieldAmount(sfTakerPays, XRP(10));
@@ -555,11 +599,14 @@ class Invariants_test : public beast::unit_test::suite
              {"escrow specifies invalid amount"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // escrow with negative amount
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
-                auto sleNew = std::make_shared<SLE>(
-                    keylet::escrow(A1, (*sle)[sfSequence] + 2));
+                auto sleNew = std::make_shared<SLE>(keylet::escrow(
+                    hash_options{ac.view().seq(), KEYLET_ESCROW},
+                    A1,
+                    (*sle)[sfSequence] + 2));
                 sleNew->setFieldAmount(sfAmount, XRP(-1));
                 ac.view().insert(sleNew);
                 return true;
@@ -570,11 +617,14 @@ class Invariants_test : public beast::unit_test::suite
              {"escrow specifies invalid amount"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
                 // escrow with too-large amount
-                auto const sle = ac.view().peek(keylet::account(A1.id()));
+                auto const sle = ac.view().peek(keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A1.id()));
                 if (!sle)
                     return false;
-                auto sleNew = std::make_shared<SLE>(
-                    keylet::escrow(A1, (*sle)[sfSequence] + 2));
+                auto sleNew = std::make_shared<SLE>(keylet::escrow(
+                    hash_options{ac.view().seq(), KEYLET_ESCROW},
+                    A1,
+                    (*sle)[sfSequence] + 2));
                 // Use `drops(1)` to bypass a call to STAmount::canonicalize
                 // with an invalid value
                 sleNew->setFieldAmount(sfAmount, INITIAL_XRP + drops(1));
@@ -595,7 +645,8 @@ class Invariants_test : public beast::unit_test::suite
                 // Insert a new account root created by a non-payment into
                 // the view.
                 const Account A3{"A3"};
-                Keylet const acctKeylet = keylet::account(A3);
+                Keylet const acctKeylet = keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A3);
                 auto const sleNew = std::make_shared<SLE>(acctKeylet);
                 ac.view().insert(sleNew);
                 return true;
@@ -607,13 +658,15 @@ class Invariants_test : public beast::unit_test::suite
                 // Insert two new account roots into the view.
                 {
                     const Account A3{"A3"};
-                    Keylet const acctKeylet = keylet::account(A3);
+                    Keylet const acctKeylet = keylet::account(
+                        hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A3);
                     auto const sleA3 = std::make_shared<SLE>(acctKeylet);
                     ac.view().insert(sleA3);
                 }
                 {
                     const Account A4{"A4"};
-                    Keylet const acctKeylet = keylet::account(A4);
+                    Keylet const acctKeylet = keylet::account(
+                        hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A4);
                     auto const sleA4 = std::make_shared<SLE>(acctKeylet);
                     ac.view().insert(sleA4);
                 }
@@ -625,7 +678,8 @@ class Invariants_test : public beast::unit_test::suite
             [](Account const&, Account const&, ApplyContext& ac) {
                 // Insert a new account root with the wrong starting sequence.
                 const Account A3{"A3"};
-                Keylet const acctKeylet = keylet::account(A3);
+                Keylet const acctKeylet = keylet::account(
+                    hash_options{ac.view().seq(), KEYLET_ACCOUNT}, A3);
                 auto const sleNew = std::make_shared<SLE>(acctKeylet);
                 sleNew->setFieldU32(sfSequence, ac.view().seq() + 1);
                 ac.view().insert(sleNew);

@@ -40,8 +40,8 @@ struct PayChan_test : public beast::unit_test::suite
         jtx::Account const& dst,
         std::uint32_t seqProxyValue)
     {
-        auto const k =
-            keylet::payChan(hash_options{1}, account, dst, seqProxyValue);
+        auto const k = keylet::payChan(
+            hash_options{1, KEYLET_PAYCHAN}, account, dst, seqProxyValue);
         return k.key;
     }
 
@@ -51,12 +51,15 @@ struct PayChan_test : public beast::unit_test::suite
         jtx::Account const& account,
         jtx::Account const& dst)
     {
-        auto const sle =
-            view.read(keylet::account(hash_options{(view.seq())}, account));
+        auto const sle = view.read(keylet::account(
+            hash_options{(view.seq()), KEYLET_ACCOUNT}, account));
         if (!sle)
             return {};
         auto const k = keylet::payChan(
-            hash_options{(view.seq())}, account, dst, (*sle)[sfSequence] - 1);
+            hash_options{(view.seq()), KEYLET_PAYCHAN},
+            account,
+            dst,
+            (*sle)[sfSequence] - 1);
         return {k.key, view.read(k)};
     }
 
@@ -131,7 +134,10 @@ struct PayChan_test : public beast::unit_test::suite
         jtx::IOU const& iou)
     {
         auto const sle = env.le(keylet::line(
-            hash_options{(env.current()->seq())}, account, gw, iou.currency));
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            account,
+            gw,
+            iou.currency));
         if (sle->isFieldPresent(sfLockedBalance))
             return (*sle)[sfLockedBalance];
         return STAmount(iou, 0);
@@ -146,7 +152,10 @@ struct PayChan_test : public beast::unit_test::suite
     {
         auto const aHigh = account.id() > gw.id();
         auto const sle = env.le(keylet::line(
-            hash_options{(env.current()->seq())}, account, gw, iou.currency));
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            account,
+            gw,
+            iou.currency));
         if (sle && sle->isFieldPresent(aHigh ? sfLowLimit : sfHighLimit))
             return (*sle)[aHigh ? sfLowLimit : sfHighLimit];
         return STAmount(iou, 0);
@@ -160,7 +169,10 @@ struct PayChan_test : public beast::unit_test::suite
         jtx::IOU const& iou)
     {
         auto const sle = env.le(keylet::line(
-            hash_options{(env.current()->seq())}, account, gw, iou.currency));
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            account,
+            gw,
+            iou.currency));
         if (sle && sle->isFieldPresent(sfBalance))
             return (*sle)[sfBalance];
         return STAmount(iou, 0);
@@ -1664,14 +1676,18 @@ struct PayChan_test : public beast::unit_test::suite
         auto inOwnerDir = [](ReadView const& view,
                              Account const& acc,
                              std::shared_ptr<SLE const> const& chan) -> bool {
-            ripple::Dir const ownerDir(view, keylet::ownerDir(acc.id()));
+            ripple::Dir const ownerDir(
+                view,
+                keylet::ownerDir(hash_options{0, KEYLET_OWNER_DIR}, acc.id()));
             return std::find(ownerDir.begin(), ownerDir.end(), chan) !=
                 ownerDir.end();
         };
 
         auto ownerDirCount = [](ReadView const& view,
                                 Account const& acc) -> std::size_t {
-            ripple::Dir const ownerDir(view, keylet::ownerDir(acc.id()));
+            ripple::Dir const ownerDir(
+                view,
+                keylet::ownerDir(hash_options{0, KEYLET_OWNER_DIR}, acc.id()));
             return std::distance(ownerDir.begin(), ownerDir.end());
         };
 
@@ -1780,7 +1796,8 @@ struct PayChan_test : public beast::unit_test::suite
             this->BEAST_EXPECT(
                 isTesSuccess(expectedTer) ==
                 !env.closed()->exists(keylet::account(
-                    hash_options{(env.current()->seq())}, toRm.id())));
+                    hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                    toRm.id())));
         };
 
         auto const alice = Account("alice");
@@ -1901,7 +1918,8 @@ struct PayChan_test : public beast::unit_test::suite
             // Since `fixPayChanRecipientOwnerDir` is not active, can remove bob
             rmAccount(env, bob, carol);
             BEAST_EXPECT(!env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, bob.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                bob.id())));
 
             auto chanBal = channelBalance(*env.current(), chan);
             auto chanAmt = channelAmount(*env.current(), chan);
@@ -1938,7 +1956,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(pay(alice, bob, XRP(20)));
             env.close();
             BEAST_EXPECT(env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, bob.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                bob.id())));
 
             {
                 // alice should be able to claim
@@ -3977,14 +3996,18 @@ struct PayChan_test : public beast::unit_test::suite
         auto inOwnerDir = [](ReadView const& view,
                              Account const& acc,
                              std::shared_ptr<SLE const> const& chan) -> bool {
-            ripple::Dir const ownerDir(view, keylet::ownerDir(acc.id()));
+            ripple::Dir const ownerDir(
+                view,
+                keylet::ownerDir(hash_options{0, KEYLET_OWNER_DIR}, acc.id()));
             return std::find(ownerDir.begin(), ownerDir.end(), chan) !=
                 ownerDir.end();
         };
 
         auto ownerDirCount = [](ReadView const& view,
                                 Account const& acc) -> std::size_t {
-            ripple::Dir const ownerDir(view, keylet::ownerDir(acc.id()));
+            ripple::Dir const ownerDir(
+                view,
+                keylet::ownerDir(hash_options{0, KEYLET_OWNER_DIR}, acc.id()));
             return std::distance(ownerDir.begin(), ownerDir.end());
         };
 
@@ -4118,7 +4141,8 @@ struct PayChan_test : public beast::unit_test::suite
             this->BEAST_EXPECT(
                 isTesSuccess(expectedTer) ==
                 !env.closed()->exists(keylet::account(
-                    hash_options{(env.current()->seq())}, toRm.id())));
+                    hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                    toRm.id())));
         };
 
         auto const alice = Account("alice");
@@ -4281,7 +4305,8 @@ struct PayChan_test : public beast::unit_test::suite
             env.close();
             rmAccount(env, bob, carol);
             BEAST_EXPECT(!env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, bob.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                bob.id())));
 
             auto chanBal = channelBalance(*env.current(), chan);
             auto chanAmt = channelAmount(*env.current(), chan);
@@ -4329,7 +4354,8 @@ struct PayChan_test : public beast::unit_test::suite
             env(pay(gw, bob, USD(10000)));
             env.close();
             BEAST_EXPECT(env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, bob.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                bob.id())));
             {
                 // alice should be able to claim
                 preBob = env.balance(bob, USD.issue());

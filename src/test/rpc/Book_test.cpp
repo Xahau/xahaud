@@ -31,18 +31,21 @@ class Book_test : public beast::unit_test::suite
     getBookDir(jtx::Env& env, Issue const& in, Issue const& out)
     {
         std::string dir;
-        auto uBookBase = getBookBase({in, out});
+        auto uBookBase = getBookBase(
+            hash_options{env.current()->seq(), KEYLET_BOOK_BASE}, {in, out});
         auto uBookEnd = getQualityNext(uBookBase);
         auto view = env.closed();
         auto key = view->succ(uBookBase, uBookEnd);
         if (key)
         {
-            auto sleOfferDir = view->read(keylet::page(key.value()));
+            auto sleOfferDir = view->read(keylet::page(
+                hash_options{view->seq(), KEYLET_DIR_PAGE}, key.value()));
             uint256 offerIndex;
             unsigned int bookEntry;
             cdirFirst(
                 *view, sleOfferDir->key(), sleOfferDir, bookEntry, offerIndex);
-            auto sleOffer = view->read(keylet::offer(offerIndex));
+            auto sleOffer = view->read(keylet::offer(
+                hash_options{view->seq(), KEYLET_OFFER}, offerIndex));
             dir = to_string(sleOffer->getFieldH256(sfBookDirectory));
         }
         return dir;

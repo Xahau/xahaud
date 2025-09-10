@@ -2013,20 +2013,46 @@ private:
         std::string const signature = "This is not really a signature";
         std::uint32_t const version = 1;
 
-        auto const global = sha512Half(manifest, blob, signature, version);
+        auto const global = sha512Half(
+            hash_options{VALIDATOR_LIST_HASH},
+            manifest,
+            blob,
+            signature,
+            version);
         BEAST_EXPECT(!!global);
 
         std::vector<ValidatorBlobInfo> blobVector(1);
         blobVector[0].blob = blob;
         blobVector[0].signature = signature;
-        BEAST_EXPECT(global == sha512Half(manifest, blobVector, version));
-        BEAST_EXPECT(global != sha512Half(signature, blobVector, version));
+        BEAST_EXPECT(
+            global ==
+            sha512Half(
+                hash_options{VALIDATOR_LIST_HASH},
+                manifest,
+                blobVector,
+                version));
+        BEAST_EXPECT(
+            global !=
+            sha512Half(
+                hash_options{VALIDATOR_LIST_HASH},
+                signature,
+                blobVector,
+                version));
 
         {
             std::map<std::size_t, ValidatorBlobInfo> blobMap{
                 {99, blobVector[0]}};
-            BEAST_EXPECT(global == sha512Half(manifest, blobMap, version));
-            BEAST_EXPECT(global != sha512Half(blob, blobMap, version));
+            BEAST_EXPECT(
+                global ==
+                sha512Half(
+                    hash_options{VALIDATOR_LIST_HASH},
+                    manifest,
+                    blobMap,
+                    version));
+            BEAST_EXPECT(
+                global !=
+                sha512Half(
+                    hash_options{VALIDATOR_LIST_HASH}, blob, blobMap, version));
         }
 
         {
@@ -2035,9 +2061,11 @@ private:
             msg1.set_blob(blob);
             msg1.set_signature(signature);
             msg1.set_version(version);
-            BEAST_EXPECT(global == sha512Half(msg1));
+            BEAST_EXPECT(
+                global == sha512Half(hash_options{VALIDATOR_LIST_HASH}, msg1));
             msg1.set_signature(blob);
-            BEAST_EXPECT(global != sha512Half(msg1));
+            BEAST_EXPECT(
+                global != sha512Half(hash_options{VALIDATOR_LIST_HASH}, msg1));
         }
 
         {
@@ -2047,9 +2075,11 @@ private:
             auto& bi = *msg2.add_blobs();
             bi.set_blob(blob);
             bi.set_signature(signature);
-            BEAST_EXPECT(global == sha512Half(msg2));
+            BEAST_EXPECT(
+                global == sha512Half(hash_options{VALIDATOR_LIST_HASH}, msg2));
             bi.set_manifest(manifest);
-            BEAST_EXPECT(global != sha512Half(msg2));
+            BEAST_EXPECT(
+                global != sha512Half(hash_options{VALIDATOR_LIST_HASH}, msg2));
         }
     }
 
@@ -2164,6 +2194,7 @@ private:
                             BEAST_EXPECT(
                                 messageWithHash.hash ==
                                 sha512Half(
+                                    hash_options{VALIDATOR_LIST_HASH},
                                     expectedManifest,
                                     expectedBlob.blob,
                                     expectedBlob.signature,
@@ -2211,7 +2242,11 @@ private:
                         }
                         BEAST_EXPECT(
                             messageWithHash.hash ==
-                            sha512Half(manifest, hashingBlobs, version));
+                            sha512Half(
+                                hash_options{VALIDATOR_LIST_HASH},
+                                manifest,
+                                hashingBlobs,
+                                version));
                     }
                     ++msgIter;
                 }
@@ -2306,7 +2341,11 @@ private:
             BEAST_EXPECT(
                 messageWithHash.hash ==
                 sha512Half(
-                    *expected.manifest, expected.blob, expected.signature, 1));
+                    hash_options{VALIDATOR_LIST_HASH},
+                    *expected.manifest,
+                    expected.blob,
+                    expected.signature,
+                    1));
         }
 
         // Version 2

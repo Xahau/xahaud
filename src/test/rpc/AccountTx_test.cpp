@@ -358,7 +358,12 @@ class AccountTx_test : public beast::unit_test::suite
             env.close();
 
             std::string const payChanIndex{
-                strHex(keylet::payChan(alice, gw, payChanSeq).key)};
+                strHex(keylet::payChan(
+                           hash_options{env.current()->seq(), KEYLET_PAYCHAN},
+                           alice,
+                           gw,
+                           payChanSeq)
+                           .key)};
 
             {
                 Json::Value payChanFund;
@@ -385,10 +390,20 @@ class AccountTx_test : public beast::unit_test::suite
 
         // Check
         {
-            auto const aliceCheckId = keylet::check(alice, env.seq(alice)).key;
+            auto const aliceCheckId =
+                keylet::check(
+                    hash_options{env.current()->seq(), KEYLET_CHECK},
+                    alice,
+                    env.seq(alice))
+                    .key;
             env(check::create(alice, gw, XRP(300)), sig(alie));
 
-            auto const gwCheckId = keylet::check(gw, env.seq(gw)).key;
+            auto const gwCheckId =
+                keylet::check(
+                    hash_options{env.current()->seq(), KEYLET_CHECK},
+                    gw,
+                    env.seq(gw))
+                    .key;
             env(check::create(gw, alice, XRP(200)));
             env.close();
 
@@ -426,12 +441,14 @@ class AccountTx_test : public beast::unit_test::suite
             env(mintURI(alice, uri), sig(alie));
             env.close();
 
-            auto tokenid = [](jtx::Account const& account,
-                              std::string const& uri) {
-                auto const k =
-                    keylet::uritoken(account, Blob(uri.begin(), uri.end()));
-                return k.key;
-            };
+            auto tokenid =
+                [&env](jtx::Account const& account, std::string const& uri) {
+                    auto const k = keylet::uritoken(
+                        hash_options{env.current()->seq(), KEYLET_URI_TOKEN},
+                        account,
+                        Blob(uri.begin(), uri.end()));
+                    return k.key;
+                };
             auto const tid = tokenid(alice, uri);
             std::string const hexid{strHex(tid)};
 
@@ -533,7 +550,9 @@ class AccountTx_test : public beast::unit_test::suite
             // Install Hook - Hash
             auto hh = [&](jtx::Env const& env,
                           jtx::Account const& account) -> uint256 {
-                auto const hook = env.le(keylet::hook(account.id()));
+                auto const hook = env.le(keylet::hook(
+                    hash_options{env.current()->seq(), KEYLET_HOOK},
+                    account.id()));
                 if (hook)
                 {
                     auto const& hooks = hook->getFieldArray(sfHooks);
@@ -660,7 +679,8 @@ class AccountTx_test : public beast::unit_test::suite
         env.close();
 
         // Verify that becky's account root is present.
-        Keylet const beckyAcctKey{keylet::account(becky.id())};
+        Keylet const beckyAcctKey{keylet::account(
+            hash_options{env.current()->seq(), KEYLET_ACCOUNT}, becky.id())};
         BEAST_EXPECT(env.closed()->exists(beckyAcctKey));
 
         // becky does an AccountSet .

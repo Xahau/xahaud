@@ -114,15 +114,21 @@ namespace test {
 
 struct XahauGenesis_test : public beast::unit_test::suite
 {
-    uint256 const acceptHookHash = ripple::sha512Half_s(ripple::Slice(
-        jtx::genesis::AcceptHook.data(),
-        jtx::genesis::AcceptHook.size()));
-    uint256 const governHookHash = ripple::sha512Half_s(ripple::Slice(
-        XahauGenesis::GovernanceHook.data(),
-        XahauGenesis::GovernanceHook.size()));
-    uint256 const rewardHookHash = ripple::sha512Half_s(ripple::Slice(
-        XahauGenesis::RewardHook.data(),
-        XahauGenesis::RewardHook.size()));
+    uint256 const acceptHookHash = ripple::sha512Half_s(
+        hash_options{0, LEDGER_INDEX_UNNEEDED},
+        ripple::Slice(
+            jtx::genesis::AcceptHook.data(),
+            jtx::genesis::AcceptHook.size()));
+    uint256 const governHookHash = ripple::sha512Half_s(
+        hash_options{0, LEDGER_INDEX_UNNEEDED},
+        ripple::Slice(
+            XahauGenesis::GovernanceHook.data(),
+            XahauGenesis::GovernanceHook.size()));
+    uint256 const rewardHookHash = ripple::sha512Half_s(
+        hash_options{0, LEDGER_INDEX_UNNEEDED},
+        ripple::Slice(
+            XahauGenesis::RewardHook.data(),
+            XahauGenesis::RewardHook.size()));
 
     AccountID const genesisAccID = calcAccountID(
         generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
@@ -144,7 +150,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         using namespace jtx;
 
         auto isEnabled = [&](void) -> bool {
-            auto const obj = env.le(keylet::amendments());
+            auto const obj = env.le(keylet::amendments(
+                hash_options{(env.current()->seq()), KEYLET_AMENDMENTS}));
             if (!obj)
                 return false;
             STVector256 amendments = obj->getFieldV256(sfAmendments);
@@ -203,7 +210,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 100000000000000000ULL ==
                 env.app().getLedgerMaster().getClosedLedger()->info().drops);
 
-            auto genesisAccRoot = env.le(keylet::account(genesisAccID));
+            auto genesisAccRoot = env.le(keylet::account(
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                genesisAccID));
             BEAST_REQUIRE(!!genesisAccRoot);
             BEAST_EXPECT(
                 genesisAccRoot->getFieldAmount(sfBalance) ==
@@ -235,14 +244,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 total);
 
         // is the hook array present
-        auto genesisHooksLE = env.le(keylet::hook(genesisAccID));
+        auto genesisHooksLE = env.le(keylet::hook(
+            hash_options{(env.current()->seq()), KEYLET_HOOK}, genesisAccID));
         BEAST_REQUIRE(!!genesisHooksLE);
         auto genesisHookArray = genesisHooksLE->getFieldArray(sfHooks);
         BEAST_EXPECT(genesisHookArray.size() == 2);
 
         // make sure the account root exists and has the correct balance and
         // ownercount
-        auto genesisAccRoot = env.le(keylet::account(genesisAccID));
+        auto genesisAccRoot = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+            genesisAccID));
         BEAST_REQUIRE(!!genesisAccRoot);
         BEAST_EXPECT(
             genesisAccRoot->getFieldAmount(sfBalance) ==
@@ -252,8 +264,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // ensure the definitions are correctly set
         {
             auto const govHash = ripple::sha512Half_s(
+                hash_options{0, LEDGER_INDEX_UNNEEDED},
                 ripple::Slice(GovernanceHook.data(), GovernanceHook.size()));
-            auto const govKL = keylet::hookDefinition(govHash);
+            auto const govKL = keylet::hookDefinition(
+                hash_options{0, KEYLET_HOOK_DEFINITION}, govHash);
             auto govSLE = env.le(govKL);
 
             BEAST_EXPECT(!!govSLE);
@@ -263,6 +277,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 govHash ==
                 ripple::sha512Half_s(
+                    hash_options{0, LEDGER_INDEX_UNNEEDED},
                     ripple::Slice(govVL.data(), govVL.size())));
             BEAST_EXPECT(
                 govSLE->getFieldU64(sfReferenceCount) == 1 + testFlag
@@ -287,8 +302,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 genesisHookArray[0].getFieldH256(sfHookHash) == govHash);
 
             auto const rwdHash = ripple::sha512Half_s(
+                hash_options{0, LEDGER_INDEX_UNNEEDED},
                 ripple::Slice(RewardHook.data(), RewardHook.size()));
-            auto const rwdKL = keylet::hookDefinition(rwdHash);
+            auto const rwdKL = keylet::hookDefinition(
+                hash_options{0, KEYLET_HOOK_DEFINITION}, rwdHash);
             auto rwdSLE = env.le(rwdKL);
 
             BEAST_EXPECT(!!rwdSLE);
@@ -298,6 +315,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 rwdHash ==
                 ripple::sha512Half_s(
+                    hash_options{0, LEDGER_INDEX_UNNEEDED},
                     ripple::Slice(rwdVL.data(), rwdVL.size())));
             BEAST_EXPECT(rwdSLE->getFieldU64(sfReferenceCount) == 1);
             BEAST_EXPECT(
@@ -331,7 +349,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 if (first == 'r')
                 {
                     AccountID id = *parseBase58<AccountID>(rn);
-                    auto acc = env.le(keylet::account(id));
+                    auto acc = env.le(keylet::account(
+                        hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                        id));
                     BEAST_EXPECT(!!acc);
                     auto bal = acc->getFieldAmount(sfBalance);
                     BEAST_EXPECT(bal == STAmount(x));
@@ -344,7 +364,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 BEAST_EXPECT(!!pk);
 
                 AccountID id = calcAccountID(*pk);
-                auto acc = env.le(keylet::account(id));
+                auto acc = env.le(keylet::account(
+                    hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, id));
                 BEAST_EXPECT(!!acc);
                 auto bal = acc->getFieldAmount(sfBalance);
                 BEAST_EXPECT(bal == STAmount(x));
@@ -367,7 +388,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 if (first == 'r')
                 {
                     AccountID id = *parseBase58<AccountID>(rn);
-                    auto acc = env.le(keylet::account(id));
+                    auto acc = env.le(keylet::account(
+                        hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                        id));
                     BEAST_EXPECT(!!acc);
                     auto bal = acc->getFieldAmount(sfBalance);
                     BEAST_EXPECT(bal == STAmount(x));
@@ -384,7 +407,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 BEAST_EXPECT(!!pk);
 
                 AccountID id = calcAccountID(*pk);
-                auto acc = env.le(keylet::account(id));
+                auto acc = env.le(keylet::account(
+                    hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, id));
                 BEAST_EXPECT(!!acc);
                 auto bal = acc->getFieldAmount(sfBalance);
                 BEAST_EXPECT(bal == STAmount(x));
@@ -449,14 +473,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
         }
 
         // check fees object correctly recordsed activation seq
-        auto fees = env.le(keylet::fees());
+        auto fees = env.le(
+            keylet::fees(hash_options{(env.current()->seq()), KEYLET_FEES}));
         BEAST_REQUIRE(!!fees);
         BEAST_EXPECT(
             fees->isFieldPresent(sfXahauActivationLgrSeq) &&
             fees->getFieldU32(sfXahauActivationLgrSeq) == startLgr);
 
         // ensure no signerlist
-        BEAST_EXPECT(!env.le(keylet::signers(genesisAccID)));
+        BEAST_EXPECT(!env.le(keylet::signers(
+            hash_options{(env.current()->seq()), KEYLET_SIGNERS},
+            genesisAccID)));
 
         // ensure correctly blackholed
         BEAST_EXPECT(
@@ -867,7 +894,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(key),
+                    beast::zero));
                 if (DEBUG_XGTEST)
                 {
                     std::cout
@@ -918,6 +948,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
                 env.close();
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     makeStateKey('V', topic1, topic2, 1, acc.id()),
                     beast::zero));
@@ -944,7 +975,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 // if the vote count isn't high enough it will be hte old value
                 // if it's high enough it will be the new value
                 auto entry = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(key),
+                    beast::zero));
 
                 if (!actioned && isOldDataZero)
                 {
@@ -1086,8 +1120,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             env(tx, M(__LINE__), fee(XRP(100)));
             env.close();
 
-            BEAST_EXPECT(
-                !!env.le(ripple::keylet::hookDefinition(acceptHookHash)));
+            BEAST_EXPECT(!!env.le(ripple::keylet::hookDefinition(
+                hash_options{0, KEYLET_HOOK_DEFINITION}, acceptHookHash)));
 
             uint8_t const* data = acceptHookHash.data();
             std::vector<uint8_t> accept_data(data, data + 32);
@@ -1109,7 +1143,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // check if the hook not was installed because we have not given it
             // 100% votes yet
             {
-                auto const hooks = env.le(keylet::hook(env.master.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    env.master.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() == 2);
             }
@@ -1122,7 +1158,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // now check it was installed
             {
-                auto const hooks = env.le(keylet::hook(env.master.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    env.master.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
                     hooks->getFieldArray(sfHooks)[7].isFieldPresent(
@@ -1140,7 +1178,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // now check it's still installed
             {
-                auto const hooks = env.le(keylet::hook(env.master.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    env.master.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
                     hooks->getFieldArray(sfHooks)[7].isFieldPresent(
@@ -1160,7 +1200,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // now check it's still installed
             {
-                auto const hooks = env.le(keylet::hook(env.master.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    env.master.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
                     !hooks->getFieldArray(sfHooks)[7].isFieldPresent(
@@ -1220,7 +1262,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // nothing ...}
 
             {
-                auto const hooksLE = env.le(keylet::hook(env.master.id()));
+                auto const hooksLE = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    env.master.id()));
                 BEAST_EXPECT(
                     !!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 3);
 
@@ -1268,7 +1312,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // check we're back the way we were
             {
-                auto const hooksLE = env.le(keylet::hook(env.master.id()));
+                auto const hooksLE = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    env.master.id()));
                 BEAST_EXPECT(
                     !!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
 
@@ -1290,7 +1336,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             env.close();
             env.close();
             {
-                auto const hooksLE = env.le(keylet::hook(env.master.id()));
+                auto const hooksLE = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    env.master.id()));
                 BEAST_EXPECT(
                     !!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
 
@@ -1320,6 +1368,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // check the membercount is now 4
         {
             auto entry = env.le(keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                 env.master.id(),
                 uint256::fromVoid(member_count_key),
                 beast::zero));
@@ -1344,6 +1393,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // check the membercount is now 3
         {
             auto entry = env.le(keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                 env.master.id(),
                 uint256::fromVoid(member_count_key),
                 beast::zero));
@@ -1362,6 +1412,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // check the membercount is now 2
         {
             auto entry = env.le(keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                 env.master.id(),
                 uint256::fromVoid(member_count_key),
                 beast::zero));
@@ -1381,6 +1432,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // check the membercount is now 2
         {
             auto entry = env.le(keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                 env.master.id(),
                 uint256::fromVoid(member_count_key),
                 beast::zero));
@@ -1399,6 +1451,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // check the membercount is now 2
         {
             auto entry = env.le(keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                 env.master.id(),
                 uint256::fromVoid(member_count_key),
                 beast::zero));
@@ -1422,6 +1475,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // check the membercount is now 2
         {
             auto entry = env.le(keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                 env.master.id(),
                 uint256::fromVoid(member_count_key),
                 beast::zero));
@@ -1462,6 +1516,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             if (!shouldFail)
             {
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     uint256::fromVoid(member_count_key),
                     beast::zero));
@@ -1512,7 +1567,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 key[i] = m6.id().data()[i - 12];
 
             auto entry = env.le(keylet::hookState(
-                env.master.id(), uint256::fromVoid(key), beast::zero));
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                env.master.id(),
+                uint256::fromVoid(key),
+                beast::zero));
             BEAST_EXPECT(
                 !!entry &&
                 entry->getFieldVL(sfHookStateData) ==
@@ -1770,7 +1828,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
             {
                 key[31] = seat;
                 auto entry = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(key),
+                    beast::zero));
 
                 if (!acc)
                 {
@@ -1808,7 +1869,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     key[i] = acc->id().data()[i - 12];
 
                 auto entry = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(key),
+                    beast::zero));
 
                 if (DEBUG_XGTEST)
                 {
@@ -2224,14 +2288,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
         auto const m20 = Account("m20");
         auto const m21 = Account("m21");
 
-        auto const governHookHash = ripple::sha512Half_s(ripple::Slice(
-            XahauGenesis::GovernanceHook.data(),
-            XahauGenesis::GovernanceHook.size()));
+        auto const governHookHash = ripple::sha512Half_s(
+            hash_options{0, LEDGER_INDEX_UNNEEDED},
+            ripple::Slice(
+                XahauGenesis::GovernanceHook.data(),
+                XahauGenesis::GovernanceHook.size()));
 
         // check tables correctly configured
         auto checkL2Table = [&](AccountID const& tableID,
                                 std::vector<Account const*> members) -> void {
-            auto const hookLE = env.le(keylet::hook(tableID));
+            auto const hookLE = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK}, tableID));
             BEAST_EXPECT(!!hookLE);
             uint256 const ns = beast::zero;
             uint8_t mc = 0;
@@ -2251,8 +2318,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                        0, 0, 0, 0, 0, 0, 0, 0, 0, mc};
 
-                    auto const forward = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    auto const forward = env.le(keylet::hookState(
+                        hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                        tableID,
+                        uint256::fromVoid(key),
+                        ns));
                     BEAST_EXPECT(
                         !!forward &&
                         forward->getFieldVL(sfHookStateData) == mVec);
@@ -2262,8 +2332,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     for (int i = 12; i < 32; ++i)
                         key[i] = mVec[i - 12];
 
-                    auto const reverse = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    auto const reverse = env.le(keylet::hookState(
+                        hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                        tableID,
+                        uint256::fromVoid(key),
+                        ns));
                     BEAST_EXPECT(
                         !!reverse &&
                         reverse->getFieldVL(sfHookStateData) ==
@@ -2277,8 +2350,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
                                    0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
                                    0, 0, 0, 0, 0, 0, 0, 0, 'M', 'C'};
-                auto const mcLE = env.le(
-                    keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                auto const mcLE = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    tableID,
+                    uint256::fromVoid(key),
+                    ns));
                 BEAST_EXPECT(
                     !!mcLE &&
                     mcLE->getFieldVL(sfHookStateData) ==
@@ -2291,20 +2367,27 @@ struct XahauGenesis_test : public beast::unit_test::suite
                                    0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
                                    0, 0, 0, 0, 0, 0, 0, 0, 'R', 'R'};
                 {
-                    auto const le = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    auto const le = env.le(keylet::hookState(
+                        hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                        tableID,
+                        uint256::fromVoid(key),
+                        ns));
                     BEAST_EXPECT(!le);
                 }
                 key[31] = 'D';
                 {
-                    auto const le = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    auto const le = env.le(keylet::hookState(
+                        hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                        tableID,
+                        uint256::fromVoid(key),
+                        ns));
                     BEAST_EXPECT(!le);
                 }
             }
 
             // check account has correct ownercount and is blackholed
-            auto const root = env.le(keylet::account(tableID));
+            auto const root = env.le(keylet::account(
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, tableID));
             BEAST_EXPECT(!!root);
             if (root)
             {
@@ -2377,7 +2460,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(key),
+                    beast::zero));
                 if (DEBUG_XGTEST)
                 {
                     std::cout
@@ -2428,6 +2514,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
                 env.close();
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     makeStateKey('V', topic1, topic2, 1, acc.id()),
                     beast::zero));
@@ -2446,7 +2533,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 // if the vote count isn't high enough it will be hte old value
                 // if it's high enough it will be the new value
                 auto entry = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(key),
+                    beast::zero));
 
                 if (!actioned && isOldDataZero)
                 {
@@ -2556,6 +2646,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // check actioning prior to vote
             {
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     layer == 1 ? env.master.id() : table.id(),
                     uint256::fromVoid(key),
                     beast::zero));
@@ -2611,6 +2702,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     shouldFail ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS));
                 env.close();
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     table.id(),
                     makeStateKey('V', topic1, topic2, layer, acc.id()),
                     beast::zero));
@@ -2629,6 +2721,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 // if the vote count isn't high enough it will be hte old value
                 // if it's high enough it will be the new value
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     layer == 1 ? env.master.id() : table.id(),
                     uint256::fromVoid(key),
                     beast::zero));
@@ -2713,6 +2806,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             if (!shouldFail)
             {
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     uint256::fromVoid(member_count_key),
                     beast::zero));
@@ -2768,6 +2862,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             if (!shouldFail)
             {
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     layer == 1 ? env.master.id() : table.id(),
                     uint256::fromVoid(member_count_key),
                     beast::zero));
@@ -2864,7 +2959,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x54U};
                 uint256 ns = beast::zero;
                 auto const counterLE = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(counter_key), ns));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(counter_key),
+                    ns));
 
                 if (DEBUG_XGTEST)
                 {
@@ -2979,7 +3077,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
                 uint256 ns = beast::zero;
                 auto const counterLE = env.le(keylet::hookState(
-                    env.master.id(), uint256::fromVoid(counter_key), ns));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    env.master.id(),
+                    uint256::fromVoid(counter_key),
+                    ns));
 
                 if (DEBUG_XGTEST)
                 {
@@ -3099,6 +3200,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04U};
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     uint256::fromVoid(key.data()),
                     beast::zero));
@@ -3112,6 +3214,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                                          0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
                                          0, 0, 0, 0, 0, 0, 0, 0, 'M', 'C'};
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     uint256::fromVoid(key.data()),
                     beast::zero));
@@ -3148,6 +3251,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04U};
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     uint256::fromVoid(key.data()),
                     beast::zero));
@@ -3159,6 +3263,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                                          0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
                                          0, 0, 0, 0, 0, 0, 0, 0, 'M', 'C'};
                 auto entry = env.le(keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
                     env.master.id(),
                     uint256::fromVoid(key.data()),
                     beast::zero));
@@ -3254,8 +3359,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             env(tx, M(__LINE__), fee(XRP(100)));
             env.close();
 
-            BEAST_EXPECT(
-                !!env.le(ripple::keylet::hookDefinition(acceptHookHash)));
+            BEAST_EXPECT(!!env.le(ripple::keylet::hookDefinition(
+                hash_options{0, KEYLET_HOOK_DEFINITION}, acceptHookHash)));
 
             uint8_t const* data = acceptHookHash.data();
             std::vector<uint8_t> accept_data(data, data + 32);
@@ -3281,7 +3386,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // check if the hook not was installed because we have not given it
             // 100% votes yet
             {
-                auto const hooks = env.le(keylet::hook(t2.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    t2.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() == 1);
             }
@@ -3295,7 +3402,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // now check it was installed
             {
-                auto const hooks = env.le(keylet::hook(t2.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    t2.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
                     hooks->getFieldArray(sfHooks)[7].isFieldPresent(
@@ -3313,7 +3422,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // now check it's still installed
             {
-                auto const hooks = env.le(keylet::hook(t2.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    t2.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
                     hooks->getFieldArray(sfHooks)[7].isFieldPresent(
@@ -3333,7 +3444,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // now check it's still installed
             {
-                auto const hooks = env.le(keylet::hook(t2.id()));
+                auto const hooks = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    t2.id()));
                 BEAST_EXPECT(
                     !!hooks && hooks->getFieldArray(sfHooks).size() > 7 &&
                     !hooks->getFieldArray(sfHooks)[7].isFieldPresent(
@@ -3421,7 +3534,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // ...}
 
             {
-                auto const hooksLE = env.le(keylet::hook(t2.id()));
+                auto const hooksLE = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    t2.id()));
                 BEAST_EXPECT(
                     !!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 3);
 
@@ -3479,7 +3594,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // check we're back the way we were
             {
-                auto const hooksLE = env.le(keylet::hook(t2.id()));
+                auto const hooksLE = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    t2.id()));
                 BEAST_EXPECT(
                     !!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
 
@@ -3502,7 +3619,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             env.close();
             env.close();
             {
-                auto const hooksLE = env.le(keylet::hook(t2.id()));
+                auto const hooksLE = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    t2.id()));
                 BEAST_EXPECT(
                     !!hooksLE && hooksLE->getFieldArray(sfHooks).size() >= 2);
 
@@ -3576,13 +3695,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 // probably multiple emitted txns settling
 
                 // check it was actioned correctly
-                auto genesisHooksLE = env.le(keylet::hook(genesisAccID));
+                auto genesisHooksLE = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    genesisAccID));
                 BEAST_REQUIRE(!!genesisHooksLE);
                 auto genesisHookArray = genesisHooksLE->getFieldArray(sfHooks);
                 BEAST_EXPECT(genesisHookArray.size() >= 3);
-                auto const acceptHash = ripple::sha512Half_s(ripple::Slice(
-                    jtx::genesis::AcceptHook.data(),
-                    jtx::genesis::AcceptHook.size()));
+                auto const acceptHash = ripple::sha512Half_s(
+                    hash_options{0, LEDGER_INDEX_UNNEEDED},
+                    ripple::Slice(
+                        jtx::genesis::AcceptHook.data(),
+                        jtx::genesis::AcceptHook.size()));
                 BEAST_EXPECT(
                     genesisHookArray.size() >= 3 &&
                     genesisHookArray[2].isFieldPresent(sfHookHash) &&
@@ -3611,7 +3734,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
     static std::pair<uint256, std::shared_ptr<SLE const>>
     accountKeyAndSle(ReadView const& view, jtx::Account const& account)
     {
-        auto const k = keylet::account(account);
+        auto const k = keylet::account(
+            hash_options{(view.seq()), KEYLET_ACCOUNT}, account);
         return {k.key, view.read(k)};
     }
 
@@ -3678,7 +3802,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
     bool
     hasUNLReport(jtx::Env const& env)
     {
-        auto const slep = env.le(keylet::UNLReport());
+        auto const slep = env.le(keylet::UNLReport(
+            hash_options{(env.current()->seq()), KEYLET_UNL_REPORT}));
         return slep != nullptr;
     }
 
@@ -3717,7 +3842,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         STAmount const& accumulator,
         NetClock::time_point const& timePoint)
     {
-        auto const sle = env.le(keylet::account(acct));
+        auto const sle = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, acct));
         auto const time = timePoint.time_since_epoch().count();
 
         if (!sle->isFieldPresent(sfRewardLgrFirst) ||
@@ -3747,7 +3873,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
     bool
     expectNoAccountFields(jtx::Env const& env, jtx::Account const& acct)
     {
-        auto const sle = env.le(keylet::account(acct));
+        auto const sle = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, acct));
         if (sle->isFieldPresent(sfRewardLgrFirst))
         {
             return false;

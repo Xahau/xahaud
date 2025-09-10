@@ -157,7 +157,8 @@ struct GenesisMint_test : public beast::unit_test::suite
             auto const initCoins = env.current()->info().drops;
             {
                 auto acc = env.le(keylet::account(
-                    hash_options{(env.current()->seq())}, bob.id()));
+                    hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                    bob.id()));
                 BEAST_EXPECT(
                     acc->getFieldAmount(sfBalance).xrp().drops() ==
                     10000000000ULL);
@@ -182,7 +183,8 @@ struct GenesisMint_test : public beast::unit_test::suite
 
             {
                 auto acc = env.le(keylet::account(
-                    hash_options{(env.current()->seq())}, bob.id()));
+                    hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                    bob.id()));
                 BEAST_EXPECT(
                     acc->getFieldAmount(sfBalance).xrp().drops() ==
                     10123000000ULL);
@@ -198,10 +200,10 @@ struct GenesisMint_test : public beast::unit_test::suite
         // creating accounts
         auto const carol = Account("carol");
         auto const david = Account("david");
-        BEAST_EXPECT(!env.le(
-            keylet::account(hash_options{(env.current()->seq())}, carol.id())));
-        BEAST_EXPECT(!env.le(
-            keylet::account(hash_options{(env.current()->seq())}, david.id())));
+        BEAST_EXPECT(!env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, carol.id())));
+        BEAST_EXPECT(!env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, david.id())));
 
         env(invoke::invoke(
                 invoker,
@@ -228,7 +230,8 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         {
             auto acc = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, carol.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                carol.id()));
             BEAST_EXPECT(
                 acc->getFieldAmount(sfBalance).xrp().drops() == 67890000000ULL);
             BEAST_EXPECT(acc->getFieldU32(sfSequence) == 60);
@@ -236,7 +239,8 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         {
             auto acc = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, david.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                david.id()));
             BEAST_EXPECT(
                 acc->getFieldAmount(sfBalance).xrp().drops() == 12345000000ULL);
             BEAST_EXPECT(acc->getFieldU32(sfSequence) == 60);
@@ -270,8 +274,8 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         for (auto const& [acc, amt, _, __] : mints)
         {
-            auto const le = env.le(
-                keylet::account(hash_options{(env.current()->seq())}, *acc));
+            auto const le = env.le(keylet::account(
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, *acc));
             BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt);
         }
 
@@ -286,8 +290,8 @@ struct GenesisMint_test : public beast::unit_test::suite
 
         for (auto const& [acc, amt, _, __] : mints)
         {
-            auto const le = env.le(
-                keylet::account(hash_options{(env.current()->seq())}, *acc));
+            auto const le = env.le(keylet::account(
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, *acc));
             BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt * 2);
             BEAST_EXPECT(le->getAccountID(sfAccount) == acc);
         }
@@ -308,8 +312,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check the amounts didn't change
         for (auto const& [acc, amt, _, __] : mints)
         {
-            auto const le = env.le(
-                keylet::account(hash_options{(env.current()->seq())}, *acc));
+            auto const le = env.le(keylet::account(
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, *acc));
             BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt * 2);
             if (++i == 512)
                 break;
@@ -392,7 +396,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check that alice has the right balance, and Governance Flags set
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id()));
             BEAST_EXPECT(
                 !!le && le->getFieldAmount(sfBalance) == XRP(10000).value());
             BEAST_EXPECT(
@@ -419,7 +424,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check that bob has the right balance, and Governance Marks set
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, bob.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                bob.id()));
             BEAST_EXPECT(
                 !!le && le->getFieldAmount(sfBalance) == XRP(10123).value());
             BEAST_EXPECT(
@@ -447,7 +453,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, fred.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                fred.id()));
             BEAST_EXPECT(
                 !!le && le->getFieldAmount(sfBalance) == XRP(589).value());
             BEAST_EXPECT(
@@ -480,7 +487,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, greg.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                greg.id()));
             BEAST_EXPECT(
                 !!le && le->getFieldAmount(sfBalance).xrp().drops() == 0);
         }
@@ -504,7 +512,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, greg.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                greg.id()));
             BEAST_EXPECT(
                 !!le && le->getFieldAmount(sfBalance).xrp().drops() == 0);
         }
@@ -528,7 +537,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, greg.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                greg.id()));
             BEAST_EXPECT(
                 !!le && le->getFieldAmount(sfBalance).xrp().drops() == 0);
         }
@@ -553,7 +563,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, greg.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                greg.id()));
             BEAST_EXPECT(
                 !!le &&
                 le->getFieldAmount(sfBalance).xrp().drops() == 10000000ULL);
@@ -608,7 +619,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         // check
         {
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, greg.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                greg.id()));
             BEAST_EXPECT(
                 !!le &&
                 le->getFieldAmount(sfBalance).xrp().drops() == amtResult);
@@ -634,7 +646,8 @@ struct GenesisMint_test : public beast::unit_test::suite
 
             // check balance wasn't changed
             auto const le = env.le(keylet::account(
-                hash_options{(env.current()->seq())}, greg.id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                greg.id()));
             BEAST_EXPECT(
                 !!le &&
                 le->getFieldAmount(sfBalance).xrp().drops() == amtResult);
@@ -662,8 +675,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         env(genesis::mint(env.master, {genesis::GenMint(bob.id(), XRP(123))}),
             ter(temMALFORMED));
 
-        auto const le = env.le(
-            keylet::account(hash_options{(env.current()->seq())}, bob.id()));
+        auto const le = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, bob.id()));
         BEAST_EXPECT(
             !!le &&
             le->getFieldAmount(sfBalance).xrp().drops() == 10000000000ULL);
@@ -685,8 +698,8 @@ struct GenesisMint_test : public beast::unit_test::suite
         env(genesis::mint(alice, {genesis::GenMint(bob.id(), XRP(123))}),
             ter(temMALFORMED));
 
-        auto const le = env.le(
-            keylet::account(hash_options{(env.current()->seq())}, bob.id()));
+        auto const le = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, bob.id()));
         BEAST_EXPECT(
             !!le &&
             le->getFieldAmount(sfBalance).xrp().drops() == 10000000000ULL);

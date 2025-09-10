@@ -193,7 +193,10 @@ Env::balance(Account const& account, Issue const& issue) const
 {
     if (isXRP(issue.currency))
         return balance(account);
-    auto const sle = le(keylet::line(account.id(), issue));
+    auto const sle = le(keylet::line(
+        hash_options{(current()->seq()), KEYLET_TRUSTLINE},
+        account.id(),
+        issue));
     if (!sle)
         return {STAmount(issue, 0), account.name()};
     auto amount = sle->getFieldAmount(sfBalance);
@@ -224,7 +227,8 @@ Env::seq(Account const& account) const
 std::shared_ptr<SLE const>
 Env::le(Account const& account) const
 {
-    return le(keylet::account(account.id()));
+    return le(keylet::account(
+        hash_options{(current()->seq()), KEYLET_ACCOUNT}, account.id()));
 }
 
 std::shared_ptr<SLE const>

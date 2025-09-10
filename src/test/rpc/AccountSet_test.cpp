@@ -442,7 +442,8 @@ public:
             env.app().openLedger().modify(
                 [&gw, transferRate](OpenView& view, beast::Journal j) {
                     // Get the account root we want to hijack.
-                    auto const sle = view.read(keylet::account(gw.id()));
+                    auto const sle = view.read(keylet::account(
+                        hash_options{view.seq(), KEYLET_ACCOUNT}, gw.id()));
                     if (!sle)
                         return false;  // This would be really surprising!
 
@@ -524,19 +525,28 @@ public:
         env.close();
 
         // alice should have an empty directory.
-        BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+        BEAST_EXPECT(dirIsEmpty(
+            *env.closed(),
+            keylet::ownerDir(
+                hash_options{env.closed()->seq(), KEYLET_OWNER_DIR}, alice)));
 
         // Give alice a signer list, then there will be stuff in the directory.
         env(signers(alice, 1, {{bob, 1}}));
         env.close();
-        BEAST_EXPECT(!dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+        BEAST_EXPECT(!dirIsEmpty(
+            *env.closed(),
+            keylet::ownerDir(
+                hash_options{env.closed()->seq(), KEYLET_OWNER_DIR}, alice)));
 
         env(fset(alice, asfRequireAuth), ter(tecOWNERS));
 
         // Remove the signer list.  After that asfRequireAuth should succeed.
         env(signers(alice, test::jtx::none));
         env.close();
-        BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+        BEAST_EXPECT(dirIsEmpty(
+            *env.closed(),
+            keylet::ownerDir(
+                hash_options{env.closed()->seq(), KEYLET_OWNER_DIR}, alice)));
 
         env(fset(alice, asfRequireAuth));
     }

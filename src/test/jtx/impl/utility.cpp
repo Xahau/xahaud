@@ -23,6 +23,7 @@
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/STParsedJSON.h>
 #include <ripple/protocol/UintTypes.h>
+#include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <cstring>
 #include <test/jtx/utility.h>
@@ -67,7 +68,8 @@ fill_seq(Json::Value& jv, ReadView const& view)
     auto const account = parseBase58<AccountID>(jv[jss::Account].asString());
     if (!account)
         Throw<parse_error>("unexpected invalid Account");
-    auto const ar = view.read(keylet::account(*account));
+    auto const ar = view.read(
+        keylet::account(hash_options{view.seq(), KEYLET_ACCOUNT}, *account));
     if (!ar)
         Throw<parse_error>("unexpected missing account root");
     jv[jss::Sequence] = ar->getFieldU32(sfSequence);

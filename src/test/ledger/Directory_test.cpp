@@ -55,7 +55,8 @@ struct Directory_test : public beast::unit_test::suite
     {
         for (std::uint64_t i = 0; i < n; ++i)
         {
-            auto p = std::make_shared<SLE>(keylet::page(base, i));
+            auto p = std::make_shared<SLE>(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, i));
 
             p->setFieldV256(sfIndexes, STVector256{});
 
@@ -103,8 +104,12 @@ struct Directory_test : public beast::unit_test::suite
 
             do
             {
-                auto p =
-                    view->read(keylet::page(keylet::ownerDir(alice), page));
+                auto p = view->read(keylet::page(
+                    hash_options{env.current()->seq(), KEYLET_DIR_PAGE},
+                    keylet::ownerDir(
+                        hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                        alice),
+                    page));
 
                 // Ensure that the entries in the page are sorted
                 auto const& v = p->getFieldV256(sfIndexes);
@@ -118,7 +123,8 @@ struct Directory_test : public beast::unit_test::suite
 
                 for (auto const& e : v)
                 {
-                    auto c = view->read(keylet::child(e));
+                    auto c = view->read(keylet::child(
+                        hash_options{env.current()->seq(), KEYLET_CHILD}, e));
                     BEAST_EXPECT(c);
                     BEAST_EXPECT(c->getFieldU32(sfSequence) >= minSeq);
                     BEAST_EXPECT(c->getFieldU32(sfSequence) < maxSeq);
@@ -158,16 +164,25 @@ struct Directory_test : public beast::unit_test::suite
         env.close();
 
         // alice should have an empty directory.
-        BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+        BEAST_EXPECT(dirIsEmpty(
+            *env.closed(),
+            keylet::ownerDir(
+                hash_options{env.current()->seq(), KEYLET_OWNER_DIR}, alice)));
 
         // Give alice a signer list, then there will be stuff in the directory.
         env(signers(alice, 1, {{bob, 1}}));
         env.close();
-        BEAST_EXPECT(!dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+        BEAST_EXPECT(!dirIsEmpty(
+            *env.closed(),
+            keylet::ownerDir(
+                hash_options{env.current()->seq(), KEYLET_OWNER_DIR}, alice)));
 
         env(signers(alice, jtx::none));
         env.close();
-        BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+        BEAST_EXPECT(dirIsEmpty(
+            *env.closed(),
+            keylet::ownerDir(
+                hash_options{env.current()->seq(), KEYLET_OWNER_DIR}, alice)));
 
         std::vector<IOU> const currencies = [this, &gw]() {
             std::vector<IOU> c;
@@ -191,7 +206,11 @@ struct Directory_test : public beast::unit_test::suite
                 env.close();
             }
 
-            BEAST_EXPECT(!dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+            BEAST_EXPECT(!dirIsEmpty(
+                *env.closed(),
+                keylet::ownerDir(
+                    hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                    alice)));
 
             std::shuffle(cl.begin(), cl.end(), default_prng());
 
@@ -201,7 +220,11 @@ struct Directory_test : public beast::unit_test::suite
                 env.close();
             }
 
-            BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+            BEAST_EXPECT(dirIsEmpty(
+                *env.closed(),
+                keylet::ownerDir(
+                    hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                    alice)));
         }
 
         // Now, Alice creates offers to buy currency, creating
@@ -209,7 +232,11 @@ struct Directory_test : public beast::unit_test::suite
         {
             auto cl = currencies;
 
-            BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+            BEAST_EXPECT(dirIsEmpty(
+                *env.closed(),
+                keylet::ownerDir(
+                    hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                    alice)));
 
             for (auto c : currencies)
             {
@@ -221,7 +248,11 @@ struct Directory_test : public beast::unit_test::suite
                 env.close();
             }
 
-            BEAST_EXPECT(!dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+            BEAST_EXPECT(!dirIsEmpty(
+                *env.closed(),
+                keylet::ownerDir(
+                    hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                    alice)));
 
             // Now fill the offers in a random order. Offer
             // entries will drop, and be replaced by trust
@@ -233,7 +264,11 @@ struct Directory_test : public beast::unit_test::suite
                 env(offer(charlie, XRP(50), c(50)));
                 env.close();
             }
-            BEAST_EXPECT(!dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+            BEAST_EXPECT(!dirIsEmpty(
+                *env.closed(),
+                keylet::ownerDir(
+                    hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                    alice)));
             // Finally, Alice now sends the funds back to
             // Charlie. The implicitly created trust lines
             // should drop away:
@@ -245,7 +280,11 @@ struct Directory_test : public beast::unit_test::suite
                 env.close();
             }
 
-            BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+            BEAST_EXPECT(dirIsEmpty(
+                *env.closed(),
+                keylet::ownerDir(
+                    hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                    alice)));
         }
     }
 
@@ -289,9 +328,15 @@ struct Directory_test : public beast::unit_test::suite
         // should have no entries and be empty:
         {
             Sandbox sb(env.closed().get(), tapNONE);
-            uint256 const bookBase = getBookBase({xrpIssue(), USD.issue()});
+            uint256 const bookBase = getBookBase(
+                hash_options{env.current()->seq(), KEYLET_BOOK_BASE},
+                {xrpIssue(), USD.issue()});
 
-            BEAST_EXPECT(dirIsEmpty(sb, keylet::page(bookBase)));
+            BEAST_EXPECT(dirIsEmpty(
+                sb,
+                keylet::page(
+                    hash_options{env.current()->seq(), KEYLET_DIR_PAGE},
+                    bookBase)));
             BEAST_EXPECT(!sb.succ(bookBase, getQualityNext(bookBase)));
         }
 
@@ -302,7 +347,11 @@ struct Directory_test : public beast::unit_test::suite
             env.trust(USD(0), alice);
             env(pay(alice, gw, alice["USD"](1000)));
             env.close();
-            BEAST_EXPECT(dirIsEmpty(*env.closed(), keylet::ownerDir(alice)));
+            BEAST_EXPECT(dirIsEmpty(
+                *env.closed(),
+                keylet::ownerDir(
+                    hash_options{env.current()->seq(), KEYLET_OWNER_DIR},
+                    alice)));
         }
     }
 
@@ -334,7 +383,8 @@ struct Directory_test : public beast::unit_test::suite
 
             // Insert an item in the middle page:
             {
-                auto p = sb.peek(keylet::page(base, 1));
+                auto p = sb.peek(
+                    keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 1));
                 BEAST_EXPECT(p);
 
                 STVector256 v;
@@ -346,10 +396,16 @@ struct Directory_test : public beast::unit_test::suite
             // Now, try to delete the item from the middle
             // page. This should cause all pages to be deleted:
             BEAST_EXPECT(sb.dirRemove(
-                keylet::page(base, 0), 1, keylet::unchecked(item), false));
-            BEAST_EXPECT(!sb.peek(keylet::page(base, 2)));
-            BEAST_EXPECT(!sb.peek(keylet::page(base, 1)));
-            BEAST_EXPECT(!sb.peek(keylet::page(base, 0)));
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 0),
+                1,
+                keylet::unchecked(item),
+                false));
+            BEAST_EXPECT(!sb.peek(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 2)));
+            BEAST_EXPECT(!sb.peek(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 1)));
+            BEAST_EXPECT(!sb.peek(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 0)));
         }
 
         {
@@ -359,7 +415,8 @@ struct Directory_test : public beast::unit_test::suite
 
             // Now add items on pages 1 and 2:
             {
-                auto p1 = sb.peek(keylet::page(base, 1));
+                auto p1 = sb.peek(
+                    keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 1));
                 BEAST_EXPECT(p1);
 
                 STVector256 v1;
@@ -367,7 +424,8 @@ struct Directory_test : public beast::unit_test::suite
                 p1->setFieldV256(sfIndexes, v1);
                 sb.update(p1);
 
-                auto p2 = sb.peek(keylet::page(base, 2));
+                auto p2 = sb.peek(
+                    keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 2));
                 BEAST_EXPECT(p2);
 
                 STVector256 v2;
@@ -380,16 +438,23 @@ struct Directory_test : public beast::unit_test::suite
             // This should cause pages 2 and 3 to be
             // deleted:
             BEAST_EXPECT(sb.dirRemove(
-                keylet::page(base, 0), 2, keylet::unchecked(item), false));
-            BEAST_EXPECT(!sb.peek(keylet::page(base, 3)));
-            BEAST_EXPECT(!sb.peek(keylet::page(base, 2)));
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 0),
+                2,
+                keylet::unchecked(item),
+                false));
+            BEAST_EXPECT(!sb.peek(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 3)));
+            BEAST_EXPECT(!sb.peek(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 2)));
 
-            auto p1 = sb.peek(keylet::page(base, 1));
+            auto p1 = sb.peek(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 1));
             BEAST_EXPECT(p1);
             BEAST_EXPECT(p1->getFieldU64(sfIndexNext) == 0);
             BEAST_EXPECT(p1->getFieldU64(sfIndexPrevious) == 0);
 
-            auto p0 = sb.peek(keylet::page(base, 0));
+            auto p0 = sb.peek(
+                keylet::page(hash_options{0, KEYLET_DIR_PAGE}, base, 0));
             BEAST_EXPECT(p0);
             BEAST_EXPECT(p0->getFieldU64(sfIndexNext) == 1);
             BEAST_EXPECT(p0->getFieldU64(sfIndexPrevious) == 1);

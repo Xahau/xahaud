@@ -109,7 +109,10 @@ public:
     void
     on_fetch(Map& map, SHAMapHash const& hash, Blob const& blob)
     {
-        BEAST_EXPECT(sha512Half(makeSlice(blob)) == hash.as_uint256());
+        BEAST_EXPECT(
+            sha512Half(
+                hash_options{FETCH_PACK_CACHE_KEY_HASH}, makeSlice(blob)) ==
+            hash.as_uint256());
         map.emplace(hash, blob);
     }
 

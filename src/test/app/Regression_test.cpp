@@ -85,7 +85,8 @@ struct Regression_test : public beast::unit_test::suite
         BEAST_EXPECT(next->info().drops == expectedDrops);
         {
             auto const sle = next->read(keylet::account(
-                hash_options{(env.current()->seq())}, Account("alice").id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                Account("alice").id()));
             BEAST_EXPECT(sle);
             auto balance = sle->getFieldAmount(sfBalance);
 
@@ -108,7 +109,8 @@ struct Regression_test : public beast::unit_test::suite
         }
         {
             auto const sle = next->read(keylet::account(
-                hash_options{(env.current()->seq())}, Account("alice").id()));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                Account("alice").id()));
             BEAST_EXPECT(sle);
             auto balance = sle->getFieldAmount(sfBalance);
 

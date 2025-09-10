@@ -58,7 +58,7 @@ struct SetAuth_test : public beast::unit_test::suite
         env(fset(gw, asfRequireAuth));
         env(auth(gw, "alice", "USD"));
         BEAST_EXPECT(env.le(keylet::line(
-            hash_options{(env.current()->seq())},
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
             Account("alice").id(),
             gw.id(),
             USD.currency)));

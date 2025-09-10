@@ -123,7 +123,9 @@ class BaseFee_test : public beast::unit_test::suite
         std::uint32_t uSequence)
     {
         return keylet::check(
-                   hash_options{(env.current()->seq())}, account, uSequence)
+                   hash_options{(env.current()->seq()), KEYLET_CHECK},
+                   account,
+                   uSequence)
             .key;
     }
 
@@ -447,7 +449,10 @@ class BaseFee_test : public beast::unit_test::suite
         std::uint32_t seqProxyValue)
     {
         auto const k = keylet::payChan(
-            hash_options{(env.current()->seq())}, account, dst, seqProxyValue);
+            hash_options{(env.current()->seq()), KEYLET_PAYCHAN},
+            account,
+            dst,
+            seqProxyValue);
         return k.key;
     }
 

@@ -57,6 +57,7 @@ static uint256
 ledgerHash(LedgerInfo const& info)
 {
     return ripple::sha512Half(
+        hash_options{LEDGER_HEADER_HASH},
         HashPrefix::ledgerMaster,
         std::uint32_t(info.seq),
         std::uint64_t(info.drops.drops()),
@@ -240,7 +241,8 @@ public:
         auto getLedger = std::make_shared<protocol::TMGetLedger>();
         getLedger->set_itype(protocol::liTS_CANDIDATE);
         getLedger->set_ltype(protocol::TMLedgerType::ltACCEPTED);
-        uint256 const hash(ripple::sha512Half(123456789));
+        uint256 const hash(
+            ripple::sha512Half(hash_options{LEDGER_INDEX_UNNEEDED}, 123456789));
         getLedger->set_ledgerhash(hash.begin(), hash.size());
         getLedger->set_ledgerseq(123456789);
         ripple::SHAMapNodeID sha(64, hash);
@@ -255,7 +257,8 @@ public:
     buildLedgerData(uint32_t n, Logs& logs)
     {
         auto ledgerData = std::make_shared<protocol::TMLedgerData>();
-        uint256 const hash(ripple::sha512Half(12356789));
+        uint256 const hash(
+            ripple::sha512Half(hash_options{LEDGER_INDEX_UNNEEDED}, 12356789));
         ledgerData->set_ledgerhash(hash.data(), hash.size());
         ledgerData->set_ledgerseq(123456789);
         ledgerData->set_type(protocol::TMLedgerInfoType::liAS_NODE);
@@ -269,9 +272,12 @@ public:
             auto tk = make_TimeKeeper(logs.journal("TimeKeeper"));
             info.seq = i;
             info.parentCloseTime = tk->now();
-            info.hash = ripple::sha512Half(i);
-            info.txHash = ripple::sha512Half(i + 1);
-            info.accountHash = ripple::sha512Half(i + 2);
+            info.hash =
+                ripple::sha512Half(hash_options{LEDGER_INDEX_UNNEEDED}, i);
+            info.txHash =
+                ripple::sha512Half(hash_options{LEDGER_INDEX_UNNEEDED}, i + 1);
+            info.accountHash =
+                ripple::sha512Half(hash_options{LEDGER_INDEX_UNNEEDED}, i + 2);
             info.parentHash = parentHash;
             info.drops = XRPAmount(10);
             info.closeTimeResolution = tk->now().time_since_epoch();
@@ -295,12 +301,14 @@ public:
                                 TMGetObjectByHash_ObjectType_otTRANSACTION);
         getObject->set_query(true);
         getObject->set_seq(123456789);
-        uint256 hash(ripple::sha512Half(123456789));
+        uint256 hash(
+            ripple::sha512Half(hash_options{LEDGER_INDEX_UNNEEDED}, 123456789));
         getObject->set_ledgerhash(hash.data(), hash.size());
         getObject->set_fat(true);
         for (int i = 0; i < 100; i++)
         {
-            uint256 hash(ripple::sha512Half(i));
+            uint256 hash(
+                ripple::sha512Half(hash_options{LEDGER_INDEX_UNNEEDED}, i));
             auto object = getObject->add_objects();
             object->set_hash(hash.data(), hash.size());
             ripple::SHAMapNodeID sha(64, hash);

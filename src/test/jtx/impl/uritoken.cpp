@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <test/jtx/uritoken.h>
 
@@ -28,7 +29,8 @@ namespace uritoken {
 uint256
 tokenid(jtx::Account const& account, std::string const& uri)
 {
-    auto const k = keylet::uritoken(account, Blob(uri.begin(), uri.end()));
+    auto const k = keylet::uritoken(
+        hash_options{KEYLET_URI_TOKEN}, account, Blob(uri.begin(), uri.end()));
     return k.key;
 }
 

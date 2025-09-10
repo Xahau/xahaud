@@ -40,7 +40,10 @@ balance::operator()(Env& env) const
     }
     else
     {
-        auto const sle = env.le(keylet::line(account_.id(), value_.issue()));
+        auto const sle = env.le(keylet::line(
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            account_.id(),
+            value_.issue()));
         if (none_)
         {
             env.test.expect(!sle);

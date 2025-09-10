@@ -1891,7 +1891,9 @@ class Freeze_test : public beast::unit_test::suite
         std::uint32_t uSequence)
     {
         return keylet::check(
-                   hash_options{(env.current()->seq())}, account, uSequence)
+                   hash_options{(env.current()->seq()), KEYLET_CHECK},
+                   account,
+                   uSequence)
             .key;
     }
 
@@ -1908,7 +1910,9 @@ class Freeze_test : public beast::unit_test::suite
 
         uint256 const sellOfferIndex =
             keylet::nftoffer(
-                hash_options{(env.current()->seq())}, account, env.seq(account))
+                hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                account,
+                env.seq(account))
                 .key;
         env(token::createOffer(account, nftID, currency),
             txflags(tfSellNFToken));

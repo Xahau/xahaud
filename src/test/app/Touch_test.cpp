@@ -110,7 +110,8 @@ private:
     static uint256
     getCheckIndex(AccountID const& alice, std::uint32_t uSequence)
     {
-        return keylet::check(alice, uSequence).key;
+        return keylet::check(hash_options{0, KEYLET_CHECK}, alice, uSequence)
+            .key;
     }
 
     void
@@ -674,7 +675,8 @@ private:
         jtx::Account const& dst,
         std::uint32_t seqProxyValue)
     {
-        auto const k = keylet::payChan(alice, dst, seqProxyValue);
+        auto const k = keylet::payChan(
+            hash_options{0, KEYLET_PAYCHAN}, alice, dst, seqProxyValue);
         return k.key;
     }
 

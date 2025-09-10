@@ -63,7 +63,9 @@ struct Remit_test : public beast::unit_test::suite
     {
         auto const uritSle = view.read({ltURI_TOKEN, tid});
         ripple::Dir const ownerDir(
-            view, keylet::ownerDir(hash_options{(view.seq())}, acct.id()));
+            view,
+            keylet::ownerDir(
+                hash_options{(view.seq()), KEYLET_OWNER_DIR}, acct.id()));
         return std::find(ownerDir.begin(), ownerDir.end(), uritSle) !=
             ownerDir.end();
     }
@@ -72,7 +74,9 @@ struct Remit_test : public beast::unit_test::suite
     ownerDirCount(ReadView const& view, jtx::Account const& acct)
     {
         ripple::Dir const ownerDir(
-            view, keylet::ownerDir(hash_options{(view.seq())}, acct.id()));
+            view,
+            keylet::ownerDir(
+                hash_options{(view.seq()), KEYLET_OWNER_DIR}, acct.id()));
         return std::distance(ownerDir.begin(), ownerDir.end());
     };
 
@@ -102,7 +106,10 @@ struct Remit_test : public beast::unit_test::suite
         jtx::IOU const& iou)
     {
         auto const sle = env.le(keylet::line(
-            hash_options{(env.current()->seq())}, account, gw, iou.currency));
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            account,
+            gw,
+            iou.currency));
         if (sle && sle->isFieldPresent(sfBalance))
             return (*sle)[sfBalance];
         return STAmount(iou, 0);
@@ -114,8 +121,8 @@ struct Remit_test : public beast::unit_test::suite
         jtx::Account const& account,
         std::uint32_t const& sequence)
     {
-        auto const sle = env.le(
-            keylet::account(hash_options{(env.current()->seq())}, account));
+        auto const sle = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, account));
         if (sle && sle->isFieldPresent(sfSequence))
             return (*sle)[sfSequence] == sequence;
         return false;
@@ -128,7 +135,9 @@ struct Remit_test : public beast::unit_test::suite
         std::string const& uri)
     {
         auto const k = keylet::uritoken(
-            hash_options{(view.seq())}, account, Blob(uri.begin(), uri.end()));
+            hash_options{(view.seq()), KEYLET_URI_TOKEN},
+            account,
+            Blob(uri.begin(), uri.end()));
         return {k.key, view.read(k)};
     }
 

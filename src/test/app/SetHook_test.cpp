@@ -69,11 +69,13 @@ using JSSMap =
             return;          \
     }
 
-#define HASH_WASM(x)                                                           \
-    [[maybe_unused]] uint256 const x##_hash =                                  \
-        ripple::sha512Half_s(ripple::Slice(x##_wasm.data(), x##_wasm.size())); \
-    [[maybe_unused]] std::string const x##_hash_str = to_string(x##_hash);     \
-    [[maybe_unused]] Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
+#define HASH_WASM(x)                                                       \
+    [[maybe_unused]] uint256 const x##_hash = ripple::sha512Half_s(        \
+        hash_options{0, LEDGER_INDEX_UNNEEDED},                            \
+        ripple::Slice(x##_wasm.data(), x##_wasm.size()));                  \
+    [[maybe_unused]] std::string const x##_hash_str = to_string(x##_hash); \
+    [[maybe_unused]] Keylet const x##_keylet = keylet::hookDefinition(     \
+        hash_options{0, KEYLET_HOOK_DEFINITION}, x##_hash);
 
 class SetHook0_test : public beast::unit_test::suite
 {
@@ -731,7 +733,9 @@ public:
 
             // check to ensure definition is deleted and hooks object too
             auto const def = env.le(accept_keylet);
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
 
             BEAST_EXPECT(!def);
             BEAST_EXPECT(!hook);
@@ -777,7 +781,9 @@ public:
                 BEAST_REQUIRE(accept2_def);
 
                 // check the hooks array is correct
-                auto const hook = env.le(keylet::hook(Account("alice").id()));
+                auto const hook = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    Account("alice").id()));
                 BEAST_REQUIRE(hook);
 
                 auto const& hooks = hook->getFieldArray(sfHooks);
@@ -827,7 +833,9 @@ public:
                 BEAST_EXPECT(!accept2_def);
 
                 // check the hooks object is gone
-                auto const hook = env.le(keylet::hook(Account("alice").id()));
+                auto const hook = env.le(keylet::hook(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK},
+                    Account("alice").id()));
                 BEAST_EXPECT(!hook);
             }
         }
@@ -900,8 +908,11 @@ public:
                  0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
                 .data());
 
-        auto const stateKeylet =
-            keylet::hookState(Account("alice").id(), key, ns);
+        auto const stateKeylet = keylet::hookState(
+            hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+            Account("alice").id(),
+            key,
+            ns);
 
         // create a namespace
         std::string ns_str =
@@ -945,7 +956,9 @@ public:
             env.close();
 
             // ensure the hook is still installed
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
 
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
@@ -955,8 +968,10 @@ public:
             BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == makestate_hash);
 
             // ensure the directory is gone
-            auto const dirKeylet =
-                keylet::hookStateDir(Account("alice").id(), ns);
+            auto const dirKeylet = keylet::hookStateDir(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE_DIR},
+                Account("alice").id(),
+                ns);
             BEAST_EXPECT(!env.le(dirKeylet));
 
             // ensure the state object is gone
@@ -1051,7 +1066,9 @@ public:
 
             // ensure the directory is still there
             auto const dirKeylet = keylet::hookStateDir(
-                Account("alice").id(), uint256{beast::zero});
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE_DIR},
+                Account("alice").id(),
+                uint256{beast::zero});
             if (fixNS)
             {
                 BEAST_EXPECT(env.le(dirKeylet));
@@ -1081,7 +1098,9 @@ public:
 
             // ensure the directory is gone
             auto const dirKeylet = keylet::hookStateDir(
-                Account("alice").id(), uint256{beast::zero});
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE_DIR},
+                Account("alice").id(),
+                uint256{beast::zero});
             BEAST_EXPECT(!env.le(dirKeylet));
 
             // ensure the owner count is 1
@@ -1357,7 +1376,9 @@ public:
             env.close();
 
             auto const def = env.le(accept_keylet);
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
 
             // check if the hook definition exists
             BEAST_EXPECT(!!def);
@@ -1375,8 +1396,9 @@ public:
             // check if the wasm binary was correctly set
             BEAST_EXPECT(def->isFieldPresent(sfCreateCode));
             auto const& wasm = def->getFieldVL(sfCreateCode);
-            auto const wasm_hash =
-                sha512Half_s(ripple::Slice(wasm.data(), wasm.size()));
+            auto const wasm_hash = sha512Half_s(
+                hash_options{0, LEDGER_INDEX_UNNEEDED},
+                ripple::Slice(wasm.data(), wasm.size()));
             BEAST_EXPECT(wasm_hash == accept_hash);
         }
 
@@ -1395,7 +1417,9 @@ public:
             env.close();
 
             auto const def = env.le(accept_keylet);
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
 
             // check if the hook definition exists
             BEAST_EXPECT(!!def);
@@ -1417,6 +1441,7 @@ public:
         }
 
         auto const rollback_hash = ripple::sha512Half_s(
+            hash_options{0, LEDGER_INDEX_UNNEEDED},
             ripple::Slice(rollback_wasm.data(), rollback_wasm.size()));
 
         // test override
@@ -1429,7 +1454,9 @@ public:
 
             auto const rollback_def = env.le(rollback_keylet);
             auto const accept_def = env.le(accept_keylet);
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
 
             // check if the hook definition exists
             BEAST_EXPECT(rollback_def);
@@ -1450,8 +1477,9 @@ public:
             // check if the wasm binary was correctly set
             BEAST_EXPECT(rollback_def->isFieldPresent(sfCreateCode));
             auto const& wasm = rollback_def->getFieldVL(sfCreateCode);
-            auto const wasm_hash =
-                sha512Half_s(ripple::Slice(wasm.data(), wasm.size()));
+            auto const wasm_hash = sha512Half_s(
+                hash_options{0, LEDGER_INDEX_UNNEEDED},
+                ripple::Slice(wasm.data(), wasm.size()));
             BEAST_EXPECT(wasm_hash == rollback_hash);
 
             // check if the reference count was correctly incremented
@@ -1602,7 +1630,9 @@ public:
             }
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
@@ -1678,7 +1708,9 @@ public:
             }
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
@@ -1729,7 +1761,9 @@ public:
             env.close();
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
@@ -1779,7 +1813,9 @@ public:
             env.close();
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
@@ -1835,7 +1871,9 @@ public:
             env.close();
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
@@ -1882,7 +1920,9 @@ public:
             env.close();
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
@@ -1936,7 +1976,9 @@ public:
             }
 
             // ensure hook still exists and that there was no created new entry
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
             auto const& hooks = hook->getFieldArray(sfHooks);
@@ -1973,7 +2015,9 @@ public:
             env.close();
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
 
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
@@ -2021,7 +2065,9 @@ public:
             env.close();
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
 
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
@@ -2054,7 +2100,9 @@ public:
             env.close();
 
             // ensure hook still exists
-            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            auto const hook = env.le(keylet::hook(
+                hash_options{(env.current()->seq()), KEYLET_HOOK},
+                Account("alice").id()));
             BEAST_REQUIRE(hook);
 
             BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
@@ -5667,9 +5715,11 @@ public:
 
                 // compute the hashes
                 auto computedHash2 = ripple::sha512Half_s(
+                    hash_options{0, LEDGER_INDEX_UNNEEDED},
                     ripple::Slice(hook.data(), hook.size()));
 
                 auto computedHash1 = ripple::sha512Half_s(
+                    hash_options{0, LEDGER_INDEX_UNNEEDED},
                     ripple::Slice(hook2.data(), hook2.size()));
 
                 // ensure the computed hashes match
@@ -6515,6 +6565,7 @@ public:
         BEAST_EXPECT(retStr.size() == 64);
 
         auto const computed_hash_1 = ripple::sha512Half(
+            hash_options{0, LEDGER_INDEX_UNNEEDED},
             ripple::HashPrefix::hookNonce,
             seq,
             llc,
@@ -6523,6 +6574,7 @@ public:
             (uint16_t)0UL,
             alice.id());
         auto const computed_hash_2 = ripple::sha512Half(
+            hash_options{0, LEDGER_INDEX_UNNEEDED},
             ripple::HashPrefix::hookNonce,
             seq,
             llc,
@@ -8677,7 +8729,10 @@ public:
         }
 
         auto const aliceid = Account("alice").id();
-        auto const nsdirkl = keylet::hookStateDir(aliceid, beast::zero);
+        auto const nsdirkl = keylet::hookStateDir(
+            hash_options{(env.current()->seq()), KEYLET_HOOK_STATE_DIR},
+            aliceid,
+            beast::zero);
 
         std::string const invid = std::string(24, '0') + strHex(alice.id());
 
@@ -8689,8 +8744,11 @@ public:
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!nsdir);
 
-            auto const state1 =
-                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                one,
+                beast::zero));
             BEAST_REQUIRE(!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 2);
@@ -8722,8 +8780,11 @@ public:
                 auto const nsdir = env.le(nsdirkl);
                 BEAST_REQUIRE(!nsdir);
 
-                auto const state1 = env.le(
-                    ripple::keylet::hookState(david.id(), one, beast::zero));
+                auto const state1 = env.le(ripple::keylet::hookState(
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    david.id(),
+                    one,
+                    beast::zero));
                 BEAST_REQUIRE(!state1);
 
                 BEAST_EXPECT((*env.le("david"))[sfOwnerCount] == 0);
@@ -8745,8 +8806,11 @@ public:
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!!nsdir);
 
-            auto const state1 =
-                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                one,
+                beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
@@ -8768,8 +8832,11 @@ public:
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!nsdir);
 
-            auto const state1 =
-                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                one,
+                beast::zero));
             BEAST_REQUIRE(!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 2);
@@ -8823,8 +8890,11 @@ public:
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!!nsdir);
 
-            auto const state1 =
-                env.le(ripple::keylet::hookState(aliceid, one, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                one,
+                beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 3);
@@ -9015,15 +9085,21 @@ public:
 
         auto const aliceid = Account("alice").id();
 
-        auto const nsdirkl = keylet::hookStateDir(aliceid, beast::zero);
+        auto const nsdirkl = keylet::hookStateDir(
+            hash_options{(env.current()->seq()), KEYLET_HOOK_STATE_DIR},
+            aliceid,
+            beast::zero);
 
         // ensure there's no way the state or directory exist before we start
         {
             auto const nsdir = env.le(nsdirkl);
             BEAST_REQUIRE(!nsdir);
 
-            auto const state1 = env.le(
-                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                beast::zero,
+                beast::zero));
             BEAST_REQUIRE(!state1);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 0);
@@ -9147,8 +9223,11 @@ public:
             auto const nsdir = env.le(nsdirkl);
             BEAST_EXPECT(!nsdir);
 
-            auto const state1 = env.le(
-                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                beast::zero,
+                beast::zero));
             BEAST_EXPECT(!state1);
 
             // invoke the hook from bob to alice, this will work
@@ -9166,8 +9245,11 @@ public:
 
             BEAST_EXPECT(nsdir->getFieldV256(sfIndexes).size() == 2);
 
-            auto const state1 = env.le(
-                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                beast::zero,
+                beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT(state1->getFieldH256(sfHookStateKey) == beast::zero);
@@ -9182,7 +9264,10 @@ public:
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
 
             auto const state2 = env.le(ripple::keylet::hookState(
-                aliceid, uint256::fromVoid(key2), beast::zero));
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                uint256::fromVoid(key2),
+                beast::zero));
 
             BEAST_REQUIRE(!!state2);
 
@@ -9425,8 +9510,11 @@ public:
 
             BEAST_EXPECT(nsdir->getFieldV256(sfIndexes).size() == 1);
 
-            auto const state1 = env.le(
-                ripple::keylet::hookState(aliceid, beast::zero, beast::zero));
+            auto const state1 = env.le(ripple::keylet::hookState(
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                beast::zero,
+                beast::zero));
             BEAST_REQUIRE(!!state1);
 
             BEAST_EXPECT(state1->getFieldH256(sfHookStateKey) == beast::zero);
@@ -9443,7 +9531,10 @@ public:
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
 
             auto const state2 = env.le(ripple::keylet::hookState(
-                aliceid, uint256::fromVoid(key2), beast::zero));
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                uint256::fromVoid(key2),
+                beast::zero));
 
             BEAST_REQUIRE(!state2);
         }
@@ -9519,7 +9610,10 @@ public:
                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFFU};
 
             auto const state = env.le(ripple::keylet::hookState(
-                aliceid, uint256::fromVoid(key), beast::zero));
+                hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                aliceid,
+                uint256::fromVoid(key),
+                beast::zero));
 
             BEAST_EXPECT(state);
 
@@ -9536,7 +9630,10 @@ public:
             // check the state is still present
             {
                 auto const state = env.le(ripple::keylet::hookState(
-                    aliceid, uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    aliceid,
+                    uint256::fromVoid(key),
+                    beast::zero));
                 BEAST_EXPECT(state);
             }
 
@@ -9554,7 +9651,10 @@ public:
             // check the state is still present
             {
                 auto const state = env.le(ripple::keylet::hookState(
-                    aliceid, uint256::fromVoid(key), beast::zero));
+                    hash_options{(env.current()->seq()), KEYLET_HOOK_STATE},
+                    aliceid,
+                    uint256::fromVoid(key),
+                    beast::zero));
                 BEAST_EXPECT(state);
             }
 

@@ -384,7 +384,10 @@ public:
         env.fund(XRP(10000), alice);
         env.close();
 
-        auto const checkId = keylet::check(env.master, env.seq(env.master));
+        auto const checkId = keylet::check(
+            hash_options{env.current()->seq(), KEYLET_CHECK},
+            env.master,
+            env.seq(env.master));
 
         env(check::create(env.master, alice, XRP(100)));
         env.close();
@@ -1063,7 +1066,8 @@ public:
 
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
-        auto const hook = env.le(keylet::hook(alice.id()));
+        auto const hook = env.le(keylet::hook(
+            hash_options{env.current()->seq(), KEYLET_HOOK}, alice.id()));
         auto const& hooks = hook->getFieldArray(sfHooks);
         uint256 hookHash = hooks[0].getFieldH256(sfHookHash);
 
@@ -1351,7 +1355,12 @@ public:
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
         uint256 const payChanIndex{
-            keylet::payChan(alice, env.master, env.seq(alice) - 1).key};
+            keylet::payChan(
+                hash_options{env.current()->seq(), KEYLET_PAYCHAN},
+                alice,
+                env.master,
+                env.seq(alice) - 1)
+                .key};
         {
             // Request the payment channel using its index.
             Json::Value jvParams;
@@ -1569,8 +1578,10 @@ public:
         {
             // Not a valid ticket requested by index.
             Json::Value jvParams;
-            jvParams[jss::ticket] =
-                to_string(getTicketIndex(env.master, tkt1 - 1));
+            jvParams[jss::ticket] = to_string(getTicketIndex(
+                hash_options{env.current()->seq(), KEYLET_TICKET},
+                env.master,
+                tkt1 - 1));
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
@@ -1579,7 +1590,10 @@ public:
         {
             // First real ticket requested by index.
             Json::Value jvParams;
-            jvParams[jss::ticket] = to_string(getTicketIndex(env.master, tkt1));
+            jvParams[jss::ticket] = to_string(getTicketIndex(
+                hash_options{env.current()->seq(), KEYLET_TICKET},
+                env.master,
+                tkt1));
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
@@ -1598,7 +1612,10 @@ public:
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
             BEAST_EXPECT(
                 jrr[jss::node][jss::index] ==
-                to_string(getTicketIndex(env.master, tkt1 + 1)));
+                to_string(getTicketIndex(
+                    hash_options{env.current()->seq(), KEYLET_TICKET},
+                    env.master,
+                    tkt1 + 1)));
         }
         {
             // Not a valid ticket requested by account and sequence.
@@ -1614,7 +1631,11 @@ public:
         {
             // Request a ticket using an account root entry.
             Json::Value jvParams;
-            jvParams[jss::ticket] = to_string(keylet::account(env.master).key);
+            jvParams[jss::ticket] = to_string(
+                keylet::account(
+                    hash_options{env.current()->seq(), KEYLET_ACCOUNT},
+                    env.master)
+                    .key);
             jvParams[jss::ledger_hash] = ledgerHash;
             Json::Value const jrr = env.rpc(
                 "json", "ledger_entry", to_string(jvParams))[jss::result];
@@ -1696,7 +1717,11 @@ public:
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
         uint256 const uritokenIndex{
-            keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key};
+            keylet::uritoken(
+                hash_options{env.current()->seq(), KEYLET_URI_TOKEN},
+                alice,
+                Blob(uri.begin(), uri.end()))
+                .key};
         {
             // Request the uritoken using its index.
             Json::Value jvParams;
@@ -1779,7 +1804,10 @@ public:
         std::string const ledgerHash{to_string(env.closed()->info().hash)};
 
         auto const pk = PublicKey(makeSlice(*strUnHex(keys[0u])));
-        uint256 const importvlIndex{keylet::import_vlseq(pk).key};
+        uint256 const importvlIndex{
+            keylet::import_vlseq(
+                hash_options{env.current()->seq(), KEYLET_IMPORT_VLSEQ}, pk)
+                .key};
         {
             // Request the import vl using its index.
             Json::Value jvParams;

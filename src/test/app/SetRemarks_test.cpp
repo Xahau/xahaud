@@ -29,7 +29,8 @@ namespace ripple {
 namespace test {
 struct SetRemarks_test : public beast::unit_test::suite
 {
-    // debugRemarks(env, keylet::account(alice).key);
+    // debugRemarks(env, keylet::account(hash_options{0, KEYLET_ACCOUNT},
+    // alice).key);
     void
     debugRemarks(jtx::Env& env, uint256 const& id)
     {
@@ -96,7 +97,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             };
             auto const txResult =
                 withRemarks ? ter(tesSUCCESS) : ter(temDISABLED);
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 txResult);
             env.close();
@@ -129,7 +133,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 txflags(tfClose),
                 fee(XRP(1)),
                 ter(temINVALID_FLAG));
@@ -143,7 +150,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             {
                 marks.push_back({"CAFE", "DEADBEEF", 0});
             }
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -156,7 +166,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             {
                 marks.push_back({"CAFE", "DEADBEEF", 0});
             }
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -169,7 +182,8 @@ struct SetRemarks_test : public beast::unit_test::suite
             Json::Value jv;
             jv[jss::TransactionType] = jss::SetRemarks;
             jv[jss::Account] = alice.human();
-            jv[sfObjectID.jsonName] = strHex(keylet::account(alice).key);
+            jv[sfObjectID.jsonName] = strHex(
+                keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key);
             auto& ja = jv[sfRemarks.getJsonName()];
             for (std::size_t i = 0; i < 1; ++i)
             {
@@ -188,7 +202,10 @@ struct SetRemarks_test : public beast::unit_test::suite
                 {"CAFE", "DEADBEEF", 0},
                 {"CAFE", "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -199,7 +216,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"", "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -211,7 +231,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {name, "DEADBEEF", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -221,7 +244,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", "DEADBEEF", 2},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -232,7 +258,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", std::nullopt, 1},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -243,7 +272,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", "", 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -255,7 +287,10 @@ struct SetRemarks_test : public beast::unit_test::suite
             std::vector<remarks::remark> marks = {
                 {"CAFE", value, 0},
             };
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(temMALFORMED));
             env.close();
@@ -291,8 +326,10 @@ struct SetRemarks_test : public beast::unit_test::suite
         {
             auto const carol = Account("carol");
             env.memoize(carol);
-            auto tx =
-                remarks::setRemarks(carol, keylet::account(carol).key, marks);
+            auto tx = remarks::setRemarks(
+                carol,
+                keylet::account(hash_options{0, KEYLET_ACCOUNT}, carol).key,
+                marks);
             tx[jss::Sequence] = 0;
             env(tx, carol, fee(XRP(1)), ter(terNO_ACCOUNT));
             env.close();
@@ -300,7 +337,10 @@ struct SetRemarks_test : public beast::unit_test::suite
 
         // tecNO_TARGET - object doesnt exist
         {
-            env(remarks::setRemarks(alice, keylet::account(carol).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, carol).key,
+                    marks),
                 fee(XRP(1)),
                 ter(tecNO_TARGET));
             env.close();
@@ -310,14 +350,21 @@ struct SetRemarks_test : public beast::unit_test::suite
         {
             env(deposit::auth(bob, alice));
             env(remarks::setRemarks(
-                    alice, keylet::depositPreauth(bob, alice).key, marks),
+                    alice,
+                    keylet::depositPreauth(
+                        hash_options{0, KEYLET_DEPOSIT_PREAUTH}, bob, alice)
+                        .key,
+                    marks),
                 fee(XRP(1)),
                 ter(tecNO_PERMISSION));
             env.close();
         }
         // tecNO_PERMISSION: issuer != _account
         {
-            env(remarks::setRemarks(alice, keylet::account(bob).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, bob).key,
+                    marks),
                 fee(XRP(1)),
                 ter(tecNO_PERMISSION));
             env.close();
@@ -329,7 +376,9 @@ struct SetRemarks_test : public beast::unit_test::suite
                 {"CAFF", "DEAD", tfImmutable},
             };
             env(remarks::setRemarks(
-                    alice, keylet::account(alice).key, immutableMarks),
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    immutableMarks),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
@@ -339,7 +388,9 @@ struct SetRemarks_test : public beast::unit_test::suite
                 {"CAFF", "DEADBEEF", 0},
             };
             env(remarks::setRemarks(
-                    alice, keylet::account(alice).key, badMarks),
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    badMarks),
                 fee(XRP(1)),
                 ter(tecIMMUTABLE));
             env.close();
@@ -357,11 +408,17 @@ struct SetRemarks_test : public beast::unit_test::suite
                 _marks.push_back({ss.str(), "DEADBEEF", 0});
                 hexValue++;
             }
-            env(remarks::setRemarks(alice, keylet::account(alice).key, _marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    _marks),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
             env.close();
-            env(remarks::setRemarks(alice, keylet::account(alice).key, marks),
+            env(remarks::setRemarks(
+                    alice,
+                    keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key,
+                    marks),
                 fee(XRP(1)),
                 ter(tecTOO_MANY_REMARKS));
             env.close();
@@ -394,7 +451,8 @@ struct SetRemarks_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob);
         env.close();
 
-        auto const id = keylet::account(alice).key;
+        auto const id =
+            keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key;
 
         // Set Remarks
         {
@@ -444,14 +502,20 @@ struct SetRemarks_test : public beast::unit_test::suite
 
         // ltACCOUNT_ROOT
         {
-            auto const id = keylet::account(alice).key;
+            auto const id =
+                keylet::account(hash_options{0, KEYLET_ACCOUNT}, alice).key;
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
             validateRemarks(*env.current(), id, marks);
         }
         // ltOFFER
         {
-            auto const id = keylet::offer(alice, env.seq(alice)).key;
+            auto const id =
+                keylet::offer(
+                    hash_options{(env.current()->seq()), KEYLET_OFFER},
+                    alice,
+                    env.seq(alice))
+                    .key;
             env(offer(alice, XRP(10), USD(10)), fee(XRP(1)));
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
@@ -460,7 +524,12 @@ struct SetRemarks_test : public beast::unit_test::suite
         // ltESCROW
         {
             using namespace std::literals::chrono_literals;
-            auto const id = keylet::escrow(alice, env.seq(alice)).key;
+            auto const id =
+                keylet::escrow(
+                    hash_options{(env.current()->seq()), KEYLET_ESCROW},
+                    alice,
+                    env.seq(alice))
+                    .key;
             env(escrow::create(alice, bob, XRP(10)),
                 escrow::finish_time(env.now() + 1s),
                 fee(XRP(1)));
@@ -470,7 +539,12 @@ struct SetRemarks_test : public beast::unit_test::suite
         }
         // ltTICKET
         {
-            auto const id = keylet::ticket(alice, env.seq(alice) + 1).key;
+            auto const id =
+                keylet::ticket(
+                    hash_options{(env.current()->seq()), KEYLET_TICKET},
+                    alice,
+                    env.seq(alice) + 1)
+                    .key;
             env(ticket::create(alice, 10), fee(XRP(1)));
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
@@ -479,7 +553,13 @@ struct SetRemarks_test : public beast::unit_test::suite
         // ltPAYCHAN
         {
             using namespace std::literals::chrono_literals;
-            auto const id = keylet::payChan(alice, bob, env.seq(alice)).key;
+            auto const id =
+                keylet::payChan(
+                    hash_options{(env.current()->seq()), KEYLET_PAYCHAN},
+                    alice,
+                    bob,
+                    env.seq(alice))
+                    .key;
             auto const pk = alice.pk();
             auto const settleDelay = 100s;
             env(paychan::create(alice, bob, XRP(10), settleDelay, pk),
@@ -490,7 +570,12 @@ struct SetRemarks_test : public beast::unit_test::suite
         }
         // ltCHECK
         {
-            auto const id = keylet::check(alice, env.seq(alice)).key;
+            auto const id =
+                keylet::check(
+                    hash_options{(env.current()->seq()), KEYLET_CHECK},
+                    alice,
+                    env.seq(alice))
+                    .key;
             env(check::create(alice, bob, XRP(10)), fee(XRP(1)));
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
@@ -499,7 +584,13 @@ struct SetRemarks_test : public beast::unit_test::suite
         // ltDEPOSIT_PREAUTH
         {
             env(fset(bob, asfDepositAuth));
-            auto const id = keylet::depositPreauth(alice, bob).key;
+            auto const id =
+                keylet::depositPreauth(
+                    hash_options{
+                        (env.current()->seq()), KEYLET_DEPOSIT_PREAUTH},
+                    alice,
+                    bob)
+                    .key;
             env(deposit::auth(alice, bob), fee(XRP(1)));
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
@@ -509,7 +600,11 @@ struct SetRemarks_test : public beast::unit_test::suite
         {
             std::string const uri(256, 'A');
             auto const id =
-                keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key;
+                keylet::uritoken(
+                    hash_options{(env.current()->seq()), KEYLET_URI_TOKEN},
+                    alice,
+                    Blob(uri.begin(), uri.end()))
+                    .key;
             env(uritoken::mint(alice, uri), fee(XRP(1)));
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
@@ -521,7 +616,12 @@ struct SetRemarks_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice2);
             env.close();
             env.trust(USD(10000), alice2);
-            auto const id = keylet::line(alice2, USD).key;
+            auto const id =
+                keylet::line(
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                    alice2,
+                    USD)
+                    .key;
             env(pay(gw, alice2, USD(1000)));
             env(remarks::setRemarks(gw, id, marks), fee(XRP(1)));
             env.close();
@@ -533,7 +633,12 @@ struct SetRemarks_test : public beast::unit_test::suite
             env.fund(XRP(1000), carol0);
             env.close();
             env.trust(USD(10000), carol0);
-            auto const id = keylet::line(carol0, USD).key;
+            auto const id =
+                keylet::line(
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                    carol0,
+                    USD)
+                    .key;
             env(pay(gw, carol0, USD(1000)));
             env(remarks::setRemarks(gw, id, marks), fee(XRP(1)));
             env.close();
@@ -545,7 +650,12 @@ struct SetRemarks_test : public beast::unit_test::suite
             env.fund(XRP(1000), dan1);
             env.close();
             env.trust(USD(1000), dan1);
-            auto const id = keylet::line(dan1, USD).key;
+            auto const id =
+                keylet::line(
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                    dan1,
+                    USD)
+                    .key;
             env(remarks::setRemarks(gw, id, marks), fee(XRP(1)));
             env.close();
             validateRemarks(*env.current(), id, marks);
@@ -556,7 +666,12 @@ struct SetRemarks_test : public beast::unit_test::suite
             env.fund(XRP(1000), bob0);
             env.close();
             env.trust(USD(1000), bob0);
-            auto const id = keylet::line(bob0, USD).key;
+            auto const id =
+                keylet::line(
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                    bob0,
+                    USD)
+                    .key;
             env(remarks::setRemarks(gw, id, marks), fee(XRP(1)));
             env.close();
             validateRemarks(*env.current(), id, marks);

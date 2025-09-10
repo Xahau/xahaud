@@ -831,11 +831,12 @@ public:
             })",
             jv);
 
-        auto const jv_l = env.le(keylet::line(
-                                     hash_options{(env.current()->seq())},
-                                     Account("bob").id(),
-                                     Account("alice")["USD"].issue()))
-                              ->getJson(JsonOptions::none);
+        auto const jv_l =
+            env.le(keylet::line(
+                       hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                       Account("bob").id(),
+                       Account("alice")["USD"].issue()))
+                ->getJson(JsonOptions::none);
         for (auto it = jv.begin(); it != jv.end(); ++it)
             BEAST_EXPECT(*it == jv_l[it.memberName()]);
     }
@@ -875,11 +876,12 @@ public:
             })",
             jv);
 
-        auto const jv_l = env.le(keylet::line(
-                                     hash_options{(env.current()->seq())},
-                                     Account("bob").id(),
-                                     Account("alice")["USD"].issue()))
-                              ->getJson(JsonOptions::none);
+        auto const jv_l =
+            env.le(keylet::line(
+                       hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                       Account("bob").id(),
+                       Account("alice")["USD"].issue()))
+                ->getJson(JsonOptions::none);
         for (auto it = jv.begin(); it != jv.end(); ++it)
             BEAST_EXPECT(*it == jv_l[it.memberName()]);
 
@@ -887,7 +889,7 @@ public:
         env.trust(Account("alice")["USD"](0), "bob");
         BEAST_EXPECT(
             env.le(keylet::line(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                 Account("bob").id(),
                 Account("alice")["USD"].issue())) == nullptr);
     }
@@ -931,18 +933,19 @@ public:
             })",
             jv);
 
-        auto const jv_l = env.le(keylet::line(
-                                     hash_options{(env.current()->seq())},
-                                     Account("alice").id(),
-                                     Account("bob")["USD"].issue()))
-                              ->getJson(JsonOptions::none);
+        auto const jv_l =
+            env.le(keylet::line(
+                       hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                       Account("alice").id(),
+                       Account("bob")["USD"].issue()))
+                ->getJson(JsonOptions::none);
         for (auto it = jv.begin(); it != jv.end(); ++it)
             BEAST_EXPECT(*it == jv_l[it.memberName()]);
 
         env(pay("alice", "bob", Account("alice")["USD"](50)));
         BEAST_EXPECT(
             env.le(keylet::line(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                 Account("alice").id(),
                 Account("bob")["USD"].issue())) == nullptr);
     }

@@ -94,7 +94,9 @@ class Check_test : public beast::unit_test::suite
         std::uint32_t uSequence)
     {
         return keylet::check(
-                   hash_options{(env.current()->seq())}, account, uSequence)
+                   hash_options{(env.current()->seq()), KEYLET_CHECK},
+                   account,
+                   uSequence)
             .key;
     }
 
@@ -2128,12 +2130,12 @@ class Check_test : public beast::unit_test::suite
                                  IOU const& offerIou,
                                  IOU const& checkIou) {
             auto const offerLine = env.le(keylet::line(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                 acct1,
                 acct2,
                 offerIou.currency));
             auto const checkLine = env.le(keylet::line(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                 acct1,
                 acct2,
                 checkIou.currency));
@@ -2219,7 +2221,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     OF1.currency)) == nullptr);
@@ -2242,7 +2244,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     CK1.currency)) == nullptr);
@@ -2276,7 +2278,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     OF1.currency)) == nullptr);
@@ -2305,7 +2307,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     CK1.currency)) == nullptr);
@@ -2314,13 +2316,13 @@ class Check_test : public beast::unit_test::suite
 
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     bob,
                     OF1.currency)) != nullptr);
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     bob,
                     CK1.currency)) == nullptr);
@@ -2349,7 +2351,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     OF2.currency)) == nullptr);
@@ -2372,7 +2374,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     CK2.currency)) == nullptr);
@@ -2403,7 +2405,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     OF2.currency)) == nullptr);
@@ -2423,7 +2425,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     CK2.currency)) == nullptr);
@@ -2460,7 +2462,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     OF3.currency)) == nullptr);
@@ -2483,7 +2485,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     CK3.currency)) == nullptr);
@@ -2514,7 +2516,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     OF3.currency)) == nullptr);
@@ -2534,7 +2536,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     CK3.currency)) == nullptr);
@@ -2565,7 +2567,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     OF4.currency)) == nullptr);
@@ -2584,7 +2586,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     CK4.currency)) == nullptr);
@@ -2600,13 +2602,13 @@ class Check_test : public beast::unit_test::suite
             // is created.
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     OF4.currency)) == nullptr);
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     alice,
                     CK4.currency)) == nullptr);
@@ -2623,7 +2625,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     OF4.currency)) == nullptr);
@@ -2642,7 +2644,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     CK4.currency)) == nullptr);
@@ -2658,13 +2660,13 @@ class Check_test : public beast::unit_test::suite
             // is created.
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     bob,
                     OF4.currency)) == nullptr);
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw1,
                     bob,
                     CK4.currency)) == nullptr);
@@ -2693,7 +2695,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw2,
                     alice,
                     OF5.currency)) == nullptr);
@@ -2720,7 +2722,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw2,
                     alice,
                     CK5.currency)) == nullptr);
@@ -2737,13 +2739,13 @@ class Check_test : public beast::unit_test::suite
             // is created.
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw2,
                     alice,
                     OF5.currency)) == nullptr);
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw2,
                     alice,
                     CK5.currency)) == nullptr);
@@ -2767,7 +2769,7 @@ class Check_test : public beast::unit_test::suite
             env(offer(bob, OF5(91), XRP(91)), ter(tecNO_LINE));
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw2,
                     bob,
                     OF5.currency)) == nullptr);
@@ -2784,7 +2786,7 @@ class Check_test : public beast::unit_test::suite
             env.close();
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     alice,
                     bob,
                     CK5.currency)) == nullptr);
@@ -2804,13 +2806,13 @@ class Check_test : public beast::unit_test::suite
             // is created.
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw2,
                     bob,
                     OF5.currency)) == nullptr);
             BEAST_EXPECT(
                 env.le(keylet::line(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
                     gw2,
                     bob,
                     CK5.currency)) == nullptr);

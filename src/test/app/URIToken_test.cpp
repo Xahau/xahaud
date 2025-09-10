@@ -39,7 +39,9 @@ struct URIToken_test : public beast::unit_test::suite
         uint256 const& tid)
     {
         auto const uritSle = view.read({ltURI_TOKEN, tid});
-        ripple::Dir const ownerDir(view, keylet::ownerDir(acct.id()));
+        ripple::Dir const ownerDir(
+            view,
+            keylet::ownerDir(hash_options{0, KEYLET_OWNER_DIR}, acct.id()));
         return std::find(ownerDir.begin(), ownerDir.end(), uritSle) !=
             ownerDir.end();
     }
@@ -47,7 +49,9 @@ struct URIToken_test : public beast::unit_test::suite
     static std::size_t
     ownerDirCount(ReadView const& view, jtx::Account const& acct)
     {
-        ripple::Dir const ownerDir(view, keylet::ownerDir(acct.id()));
+        ripple::Dir const ownerDir(
+            view,
+            keylet::ownerDir(hash_options{0, KEYLET_OWNER_DIR}, acct.id()));
         return std::distance(ownerDir.begin(), ownerDir.end());
     };
 
@@ -57,7 +61,10 @@ struct URIToken_test : public beast::unit_test::suite
         jtx::Account const& account,
         std::string const& uri)
     {
-        auto const k = keylet::uritoken(account, Blob(uri.begin(), uri.end()));
+        auto const k = keylet::uritoken(
+            hash_options{0, KEYLET_URI_TOKEN},
+            account,
+            Blob(uri.begin(), uri.end()));
         return {k.key, view.read(k)};
     }
 
@@ -69,7 +76,8 @@ struct URIToken_test : public beast::unit_test::suite
         jtx::IOU const& iou)
     {
         auto const aHigh = account.id() > gw.id();
-        auto const sle = env.le(keylet::line(account, gw, iou.currency));
+        auto const sle = env.le(keylet::line(
+            hash_options{0, KEYLET_TRUSTLINE}, account, gw, iou.currency));
         if (sle && sle->isFieldPresent(aHigh ? sfLowLimit : sfHighLimit))
             return (*sle)[aHigh ? sfLowLimit : sfHighLimit];
         return STAmount(iou, 0);
@@ -111,7 +119,8 @@ struct URIToken_test : public beast::unit_test::suite
         jtx::Account const& gw,
         jtx::IOU const& iou)
     {
-        auto const sle = env.le(keylet::line(account, gw, iou.currency));
+        auto const sle = env.le(keylet::line(
+            hash_options{0, KEYLET_TRUSTLINE}, account, gw, iou.currency));
         if (sle && sle->isFieldPresent(sfBalance))
             return (*sle)[sfBalance];
         return STAmount(iou, 0);
@@ -1496,7 +1505,9 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             this->BEAST_EXPECT(
                 isTesSuccess(expectedTer) ==
-                !env.closed()->exists(keylet::account(toRm.id())));
+                !env.closed()->exists(keylet::account(
+                    hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                    toRm.id())));
         };
 
         auto const alice = Account("alice");

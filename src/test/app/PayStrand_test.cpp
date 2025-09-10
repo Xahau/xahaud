@@ -75,8 +75,11 @@ getTrustFlag(
     Currency const& cur,
     TrustFlag flag)
 {
-    if (auto sle = env.le(
-            keylet::line(hash_options{(env.current()->seq())}, src, dst, cur)))
+    if (auto sle = env.le(keylet::line(
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            src,
+            dst,
+            cur)))
     {
         auto const useHigh = src.id() > dst.id();
         return sle->isFlag(trustFlag(flag, useHigh));
@@ -500,8 +503,8 @@ struct ExistingElementPool
         std::uint64_t totalXRP = 0;
         auto add = [&](auto const& a) {
             // XRP balance
-            auto const sle =
-                v.read(keylet::account(hash_options{(v.seq())}, a));
+            auto const sle = v.read(
+                keylet::account(hash_options{(v.seq()), KEYLET_ACCOUNT}, a));
             if (!sle)
                 return;
             auto const b = (*sle)[sfBalance];
@@ -539,7 +542,8 @@ struct ExistingElementPool
         {
             {
                 // XRP balance
-                auto const ak = keylet::account(hash_options{(v1.seq())}, *ai1);
+                auto const ak = keylet::account(
+                    hash_options{(v1.seq()), KEYLET_ACCOUNT}, *ai1);
                 auto const b1 = xrpBalance(v1, ak);
                 auto const b2 = xrpBalance(v2, ak);
                 totalXRP[0] += b1.mantissa();
@@ -554,8 +558,11 @@ struct ExistingElementPool
                 for (auto const& c : currencies)
                 {
                     // Line balance
-                    auto const lk =
-                        keylet::line(hash_options{(v1.seq())}, *ai1, *ai2, c);
+                    auto const lk = keylet::line(
+                        hash_options{(v1.seq()), KEYLET_TRUSTLINE},
+                        *ai1,
+                        *ai2,
+                        c);
                     auto const b1 = lineBalance(v1, lk);
                     auto const b2 = lineBalance(v2, lk);
                     if (b1 != b2)

@@ -356,12 +356,12 @@ class SHAMapPathProof_test : public beast::unit_test::suite
             BEAST_EXPECT(path);
             if (!path)
                 break;
-            BEAST_EXPECT(map.verifyProofPath(root, k, *path));
+            BEAST_EXPECT(map.verifyProofPath(root, k, *path, 0));
             if (c == 1)
             {
                 // extra node
                 path->insert(path->begin(), path->front());
-                BEAST_EXPECT(!map.verifyProofPath(root, k, *path));
+                BEAST_EXPECT(!map.verifyProofPath(root, k, *path, 0));
                 // wrong key
                 uint256 wrongKey(c + 1);
                 BEAST_EXPECT(!map.getProofPath(wrongKey));
@@ -375,28 +375,28 @@ class SHAMapPathProof_test : public beast::unit_test::suite
         }
 
         // still good
-        BEAST_EXPECT(map.verifyProofPath(rootHash, key, goodPath));
+        BEAST_EXPECT(map.verifyProofPath(rootHash, key, goodPath, 0));
         // empty path
         std::vector<Blob> badPath;
-        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath));
+        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath, 0));
         // too long
         badPath = goodPath;
         badPath.push_back(goodPath.back());
-        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath));
+        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath, 0));
         // bad node
         badPath.clear();
         badPath.emplace_back(100, 100);
-        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath));
+        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath, 0));
         // bad node type
         badPath.clear();
         badPath.push_back(goodPath.front());
         badPath.front().back()--;  // change node type
-        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath));
+        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath, 0));
         // all inner
         badPath.clear();
         badPath = goodPath;
         badPath.erase(badPath.begin());
-        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath));
+        BEAST_EXPECT(!map.verifyProofPath(rootHash, key, badPath, 0));
     }
 };
 

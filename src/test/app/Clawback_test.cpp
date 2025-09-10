@@ -66,7 +66,10 @@ class Clawback_test : public beast::unit_test::suite
         Currency const& cur)
     {
         if (auto sle = env.le(keylet::line(
-                hash_options{(env.current()->seq())}, src, dst, cur)))
+                hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+                src,
+                dst,
+                cur)))
         {
             auto const useHigh = src.id() > dst.id();
             return sle->isFlag(useHigh ? lsfHighFreeze : lsfLowFreeze);
@@ -842,7 +845,10 @@ class Clawback_test : public beast::unit_test::suite
         test::jtx::IOU const& iou)
     {
         auto const sle = env.le(keylet::line(
-            hash_options{(env.current()->seq())}, account, gw, iou.currency));
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            account,
+            gw,
+            iou.currency));
         if (sle->isFieldPresent(sfLockedBalance))
             return (*sle)[sfLockedBalance];
         return STAmount(iou, 0);

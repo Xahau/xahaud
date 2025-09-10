@@ -267,9 +267,14 @@ class Catalogue_test : public beast::unit_test::suite
 
         // Store some key state information before catalogue creation
         auto const sourceLedger = env.closed();
-        auto const bobKeylet = keylet::account(Account("bob").id());
-        auto const charlieKeylet = keylet::account(Account("charlie").id());
+        auto const bobKeylet = keylet::account(
+            hash_options{env.current()->seq(), KEYLET_ACCOUNT},
+            Account("bob").id());
+        auto const charlieKeylet = keylet::account(
+            hash_options{env.current()->seq(), KEYLET_ACCOUNT},
+            Account("charlie").id());
         auto const eurTrustKeylet = keylet::line(
+            hash_options{env.current()->seq(), KEYLET_TRUSTLINE},
             Account("charlie").id(),
             Account("bob").id(),
             Currency(to_currency("EUR")));

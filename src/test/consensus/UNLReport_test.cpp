@@ -1211,7 +1211,8 @@ VerifyUNLRPubKeyAndSeq(
     std::shared_ptr<Ledger const> const& l,
     hash_map<PublicKey, std::uint32_t> nUnlLedgerSeq)
 {
-    auto sle = l->read(keylet::negativeUNL());
+    auto sle = l->read(
+        keylet::negativeUNL(hash_options{l->seq(), KEYLET_NEGATIVE_UNL}));
     if (!sle)
         return false;
     if (!sle->isFieldPresent(sfDisabledValidators))
@@ -1259,14 +1260,16 @@ countUNLRTx(std::shared_ptr<SHAMap> const& txSet)
 bool
 hasUNLReport(jtx::Env const& env)
 {
-    auto const slep = env.le(keylet::UNLReport());
+    auto const slep = env.le(keylet::UNLReport(
+        hash_options{env.current()->seq(), KEYLET_UNL_REPORT}));
     return slep != nullptr;
 }
 
 bool
 isImportVL(jtx::Env const& env, PublicKey const& pk)
 {
-    auto const slep = env.le(keylet::UNLReport());
+    auto const slep = env.le(keylet::UNLReport(
+        hash_options{env.current()->seq(), KEYLET_UNL_REPORT}));
     auto const& vlKeys = slep->getFieldArray(sfImportVLKeys);
     for (auto const& k : vlKeys)
         if (PublicKey(k[sfPublicKey]) == pk)
@@ -1277,7 +1280,8 @@ isImportVL(jtx::Env const& env, PublicKey const& pk)
 bool
 isActiveValidator(jtx::Env const& env, PublicKey const& pk)
 {
-    auto const slep = env.le(keylet::UNLReport());
+    auto const slep = env.le(keylet::UNLReport(
+        hash_options{env.current()->seq(), KEYLET_UNL_REPORT}));
     auto const& activeVLs = slep->getFieldArray(sfActiveValidators);
     for (auto const& k : activeVLs)
         if (PublicKey(k[sfPublicKey]) == pk)

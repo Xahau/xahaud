@@ -96,7 +96,10 @@ public:
         // Now let's check the actual ledger entry to see if PreviousTxnID was
         // set Get the trustline from the ledger
         auto const trustlineKey = keylet::line(
-            hash_options{(env.current()->seq())}, alice, bob, USD.currency);
+            hash_options{(env.current()->seq()), KEYLET_TRUSTLINE},
+            alice,
+            bob,
+            USD.currency);
         auto const sleTrustline = env.le(trustlineKey);
         BEAST_EXPECT(sleTrustline);
 
@@ -275,10 +278,10 @@ public:
         }
 
         // Check account objects were threaded correctly
-        auto const aliceAccount = env.le(
-            keylet::account(hash_options{(env.current()->seq())}, alice));
-        auto const bobAccount =
-            env.le(keylet::account(hash_options{(env.current()->seq())}, bob));
+        auto const aliceAccount = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, alice));
+        auto const bobAccount = env.le(keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, bob));
 
         BEAST_EXPECT(aliceAccount);
         BEAST_EXPECT(bobAccount);

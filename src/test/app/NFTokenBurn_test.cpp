@@ -63,7 +63,9 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             // Create sell offer
             offerIndexes.push_back(
                 keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, owner, env.seq(owner))
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    owner,
+                    env.seq(owner))
                     .key);
             env(token::createOffer(owner, nftokenID, drops(1)),
                 txflags(tfSellNFToken));
@@ -164,7 +166,8 @@ class NFTokenBurn0_test : public beast::unit_test::suite
                 auto xferNFT = [&env, &becky](AcctStat& acct, auto& iter) {
                     uint256 offerIndex =
                         keylet::nftoffer(
-                            hash_options{(env.current()->seq())},
+                            hash_options{
+                                (env.current()->seq()), KEYLET_NFT_OFFER},
                             acct.acct,
                             env.seq(acct.acct))
                             .key;
@@ -565,11 +568,12 @@ class NFTokenBurn0_test : public beast::unit_test::suite
                 env.fund(XRP(1000), acct);
                 env.close();
 
-                offerIndexes.push_back(keylet::nftoffer(
-                                           hash_options{(env.current()->seq())},
-                                           acct,
-                                           env.seq(acct))
-                                           .key);
+                offerIndexes.push_back(
+                    keylet::nftoffer(
+                        hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                        acct,
+                        env.seq(acct))
+                        .key);
                 env(token::createOffer(acct, nftokenID, drops(1)),
                     token::owner(alice));
                 env.close();
@@ -579,13 +583,16 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 BEAST_EXPECT(env.le(keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, offerIndex)));
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    offerIndex)));
             }
 
             // Create one too many offers.
             uint256 const beckyOfferIndex =
                 keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, becky, env.seq(becky))
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    becky,
+                    env.seq(becky))
                     .key;
             env(token::createOffer(becky, nftokenID, drops(1)),
                 token::owner(alice));
@@ -605,7 +612,9 @@ class NFTokenBurn0_test : public beast::unit_test::suite
 
             uint256 const aliceOfferIndex =
                 keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, alice, env.seq(alice))
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    alice,
+                    env.seq(alice))
                     .key;
             env(token::createOffer(alice, nftokenID, drops(1)),
                 txflags(tfSellNFToken));
@@ -625,7 +634,8 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 BEAST_EXPECT(!env.le(keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, offerIndex)));
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    offerIndex)));
             }
 
             // Both alice and becky should have ownerCounts of zero.
@@ -657,13 +667,16 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 BEAST_EXPECT(env.le(keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, offerIndex)));
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    offerIndex)));
             }
 
             // Becky creates a buy offer
             uint256 const beckyOfferIndex =
                 keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, becky, env.seq(becky))
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    becky,
+                    env.seq(becky))
                     .key;
             env(token::createOffer(becky, nftokenID, drops(1)),
                 token::owner(alice));
@@ -678,13 +691,15 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 BEAST_EXPECT(!env.le(keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, offerIndex)));
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    offerIndex)));
             }
 
             // Burning the token should also remove the one buy offer
             // that becky created
             BEAST_EXPECT(!env.le(keylet::nftoffer(
-                hash_options{(env.current()->seq())}, beckyOfferIndex)));
+                hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                beckyOfferIndex)));
 
             // alice and becky should have ownerCounts of zero
             BEAST_EXPECT(ownerCount(env, alice) == 0);
@@ -713,7 +728,8 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 BEAST_EXPECT(env.le(keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, offerIndex)));
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    offerIndex)));
             }
 
             // Burn the token
@@ -725,7 +741,8 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 if (!env.le(keylet::nftoffer(
-                        hash_options{(env.current()->seq())}, offerIndex)))
+                        hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                        offerIndex)))
                     offerDeletedCount++;
             }
 
@@ -761,7 +778,8 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 BEAST_EXPECT(env.le(keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, offerIndex)));
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    offerIndex)));
             }
 
             // becky creates 2 buy offers
@@ -781,7 +799,8 @@ class NFTokenBurn0_test : public beast::unit_test::suite
             for (uint256 const& offerIndex : offerIndexes)
             {
                 BEAST_EXPECT(!env.le(keylet::nftoffer(
-                    hash_options{(env.current()->seq())}, offerIndex)));
+                    hash_options{(env.current()->seq()), KEYLET_NFT_OFFER},
+                    offerIndex)));
             }
 
             // alice should have ownerCount of zero because all her

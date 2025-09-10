@@ -177,9 +177,11 @@ public:
 
             // Verify that alice's account exists but she has no directory.
             BEAST_EXPECT(env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id())));
             BEAST_EXPECT(!env.closed()->exists(keylet::ownerDir(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_OWNER_DIR},
+                alice.id())));
 
             env(acctdelete(alice, becky), fee(acctDelFee));
             verifyDeliveredAmount(env, aliceOldBalance - acctDelFee);
@@ -187,9 +189,11 @@ public:
 
             // Verify that alice's account and directory are actually gone.
             BEAST_EXPECT(!env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id())));
             BEAST_EXPECT(!env.closed()->exists(keylet::ownerDir(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_OWNER_DIR},
+                alice.id())));
 
             // Verify that alice's XRP, minus the fee, was transferred to becky.
             BEAST_EXPECT(
@@ -225,21 +229,26 @@ public:
             // Verify that Carol's account, directory, deposit
             // preauthorization, offer, ticket, and signer list exist.
             BEAST_EXPECT(env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, carol.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                carol.id())));
             BEAST_EXPECT(env.closed()->exists(keylet::ownerDir(
-                hash_options{(env.current()->seq())}, carol.id())));
+                hash_options{(env.current()->seq()), KEYLET_OWNER_DIR},
+                carol.id())));
             BEAST_EXPECT(env.closed()->exists(keylet::depositPreauth(
-                hash_options{(env.current()->seq())}, carol.id(), becky.id())));
+                hash_options{(env.current()->seq()), KEYLET_DEPOSIT_PREAUTH},
+                carol.id(),
+                becky.id())));
             BEAST_EXPECT(env.closed()->exists(keylet::offer(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_OFFER},
                 carol.id(),
                 carolOfferSeq)));
             BEAST_EXPECT(env.closed()->exists(keylet::ticket(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_TICKET},
                 carol.id(),
                 carolTicketSeq)));
             BEAST_EXPECT(env.closed()->exists(keylet::signers(
-                hash_options{(env.current()->seq())}, carol.id())));
+                hash_options{(env.current()->seq()), KEYLET_SIGNERS},
+                carol.id())));
 
             // Delete carol's account even with stuff in her directory.  Show
             // that multisigning for the delete does not increase carol's fee.
@@ -249,21 +258,26 @@ public:
 
             // Verify that Carol's account, directory, and other stuff are gone.
             BEAST_EXPECT(!env.closed()->exists(keylet::account(
-                hash_options{(env.current()->seq())}, carol.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                carol.id())));
             BEAST_EXPECT(!env.closed()->exists(keylet::ownerDir(
-                hash_options{(env.current()->seq())}, carol.id())));
+                hash_options{(env.current()->seq()), KEYLET_OWNER_DIR},
+                carol.id())));
             BEAST_EXPECT(!env.closed()->exists(keylet::depositPreauth(
-                hash_options{(env.current()->seq())}, carol.id(), becky.id())));
+                hash_options{(env.current()->seq()), KEYLET_DEPOSIT_PREAUTH},
+                carol.id(),
+                becky.id())));
             BEAST_EXPECT(!env.closed()->exists(keylet::offer(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_OFFER},
                 carol.id(),
                 carolOfferSeq)));
             BEAST_EXPECT(!env.closed()->exists(keylet::ticket(
-                hash_options{(env.current()->seq())},
+                hash_options{(env.current()->seq()), KEYLET_TICKET},
                 carol.id(),
                 carolTicketSeq)));
             BEAST_EXPECT(!env.closed()->exists(keylet::signers(
-                hash_options{(env.current()->seq())}, carol.id())));
+                hash_options{(env.current()->seq()), KEYLET_SIGNERS},
+                carol.id())));
 
             // Verify that Carol's XRP, minus the fee, was transferred to becky.
             BEAST_EXPECT(
@@ -305,10 +319,13 @@ public:
         incLgrSeqForAccDel(env, alice);
 
         // Verify that both directory nodes exist.
-        Keylet const aliceRootKey{
-            keylet::ownerDir(hash_options{(env.current()->seq())}, alice.id())};
+        Keylet const aliceRootKey{keylet::ownerDir(
+            hash_options{(env.current()->seq()), KEYLET_OWNER_DIR},
+            alice.id())};
         Keylet const alicePageKey{keylet::page(
-            hash_options{(env.current()->seq())}, aliceRootKey, 1)};
+            hash_options{(env.current()->seq()), KEYLET_DIR_PAGE},
+            aliceRootKey,
+            1)};
         BEAST_EXPECT(env.closed()->exists(aliceRootKey));
         BEAST_EXPECT(env.closed()->exists(alicePageKey));
 
@@ -366,7 +383,9 @@ public:
         // deleted.
         uint256 const checkId =
             keylet::check(
-                hash_options{(env.current()->seq())}, alice, env.seq(alice))
+                hash_options{(env.current()->seq()), KEYLET_CHECK},
+                alice,
+                env.seq(alice))
                 .key;
         env(check::create(alice, becky, XRP(1)));
         env.close();
@@ -429,7 +448,7 @@ public:
         env.close();
 
         Keylet const alicePayChanKey{keylet::payChan(
-            hash_options{(env.current()->seq())},
+            hash_options{(env.current()->seq()), KEYLET_PAYCHAN},
             alice,
             becky,
             env.seq(alice))};
@@ -474,7 +493,10 @@ public:
         // amendment passed this should prevent alice from deleting her
         // account.
         Keylet const gwPayChanKey{keylet::payChan(
-            hash_options{(env.current()->seq())}, gw, alice, env.seq(gw))};
+            hash_options{(env.current()->seq()), KEYLET_PAYCHAN},
+            gw,
+            alice,
+            env.seq(gw))};
 
         env(payChanCreate(gw, alice, XRP(68), 4s, env.now() + 2s, alice.pk()));
         env.close();
@@ -515,13 +537,13 @@ public:
         env.close();
 
         // Verify that becky's account root is present.
-        Keylet const beckyAcctKey{
-            keylet::account(hash_options{(env.current()->seq())}, becky.id())};
+        Keylet const beckyAcctKey{keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, becky.id())};
         BEAST_EXPECT(env.closed()->exists(beckyAcctKey));
 
         using namespace std::chrono_literals;
         Keylet const payChanKey{keylet::payChan(
-            hash_options{(env.current()->seq())},
+            hash_options{(env.current()->seq()), KEYLET_PAYCHAN},
             alice,
             becky,
             env.seq(alice))};
@@ -599,8 +621,8 @@ public:
         incLgrSeqForAccDel(env, alice);
 
         // Verify that alice's account root is present.
-        Keylet const aliceAcctKey{
-            keylet::account(hash_options{(env.current()->seq())}, alice.id())};
+        Keylet const aliceAcctKey{keylet::account(
+            hash_options{(env.current()->seq()), KEYLET_ACCOUNT}, alice.id())};
         BEAST_EXPECT(env.closed()->exists(aliceAcctKey));
 
         auto const alicePreDelBal{env.balance(alice)};
@@ -687,25 +709,27 @@ public:
         incLgrSeqForAccDel(env, alice);
 
         // Verify the existence of the expected ledger entries.
-        Keylet const aliceOwnerDirKey{
-            keylet::ownerDir(hash_options{(env.current()->seq())}, alice.id())};
+        Keylet const aliceOwnerDirKey{keylet::ownerDir(
+            hash_options{(env.current()->seq()), KEYLET_OWNER_DIR},
+            alice.id())};
         {
             std::shared_ptr<ReadView const> closed{env.closed()};
             BEAST_EXPECT(closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id())));
             BEAST_EXPECT(closed->exists(aliceOwnerDirKey));
 
             // alice's directory nodes.
             for (std::uint32_t i{0}; i < ((offerCount / 32) + 1); ++i)
                 BEAST_EXPECT(closed->exists(keylet::page(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_DIR_PAGE},
                     aliceOwnerDirKey,
                     i)));
 
             // alice's offers.
             for (std::uint32_t i{0}; i < offerCount; ++i)
                 BEAST_EXPECT(closed->exists(keylet::offer(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_OFFER},
                     alice.id(),
                     offerSeq0 + i)));
         }
@@ -733,20 +757,21 @@ public:
         {
             std::shared_ptr<ReadView const> closed{env.closed()};
             BEAST_EXPECT(!closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id())));
             BEAST_EXPECT(!closed->exists(aliceOwnerDirKey));
 
             // alice's former directory nodes.
             for (std::uint32_t i{0}; i < ((offerCount / 32) + 1); ++i)
                 BEAST_EXPECT(!closed->exists(keylet::page(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_DIR_PAGE},
                     aliceOwnerDirKey,
                     i)));
 
             // alice's former offers.
             for (std::uint32_t i{0}; i < offerCount; ++i)
                 BEAST_EXPECT(!closed->exists(keylet::offer(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_OFFER},
                     alice.id(),
                     offerSeq0 + i)));
         }
@@ -793,9 +818,11 @@ public:
         {
             std::shared_ptr<ReadView const> closed{env.closed()};
             BEAST_EXPECT(closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id())));
             BEAST_EXPECT(closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, gw.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                gw.id())));
         }
     }
 
@@ -837,7 +864,8 @@ public:
         {
             std::shared_ptr<ReadView const> const closed{env.closed()};
             BEAST_EXPECT(closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id())));
             BEAST_EXPECT(env.balance(env.master) == masterBalance);
         }
 
@@ -849,7 +877,8 @@ public:
         {
             std::shared_ptr<ReadView const> closed{env.closed()};
             BEAST_EXPECT(closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, alice.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                alice.id())));
             BEAST_EXPECT(env.balance(env.master) == masterBalance);
         }
     }
@@ -877,11 +906,12 @@ public:
         {
             std::shared_ptr<ReadView const> closed{env.closed()};
             BEAST_EXPECT(closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, bob.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                bob.id())));
             for (std::uint32_t i = 0; i < 250; ++i)
             {
                 BEAST_EXPECT(closed->exists(keylet::ticket(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TICKET},
                     bob.id(),
                     ticketSeq + i)));
             }
@@ -900,11 +930,12 @@ public:
         {
             std::shared_ptr<ReadView const> closed{env.closed()};
             BEAST_EXPECT(!closed->exists(keylet::account(
-                hash_options{(env.current()->seq())}, bob.id())));
+                hash_options{(env.current()->seq()), KEYLET_ACCOUNT},
+                bob.id())));
             for (std::uint32_t i = 0; i < 250; ++i)
             {
                 BEAST_EXPECT(!closed->exists(keylet::ticket(
-                    hash_options{(env.current()->seq())},
+                    hash_options{(env.current()->seq()), KEYLET_TICKET},
                     bob.id(),
                     ticketSeq + i)));
             }
