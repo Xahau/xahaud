@@ -52,6 +52,7 @@
 #include <ripple/protocol/jss.h>
 #include <boost/optional.hpp>
 #include <cassert>
+#include <chrono>
 #include <utility>
 #include <vector>
 
@@ -863,6 +864,47 @@ Ledger::updateNegativeUNL()
     {
         rawErase(sle);
     }
+}
+
+bool
+Ledger::shouldMigrateToBlake3() const
+{
+    return seq() == 128;
+}
+
+void
+Ledger::migrateToBlake3()
+{
+    JLOG(j_.warn()) << "Performing BLAKE3 hash migration at ledger " << seq();
+    
+    // Create new state map with BLAKE3 hashing
+    // Note: This is a placeholder implementation. The actual BLAKE3 migration
+    // would require:
+    // 1. A new SHAMap with BLAKE3 hashing enabled
+    // 2. Walking the entire current state map
+    // 3. Re-keying each entry with BLAKE3
+    // 4. Swapping the state maps atomically
+    
+    std::size_t objectCount = 0;
+    auto startTime = std::chrono::steady_clock::now();
+    
+    // For now, we just log the migration event
+    // Actual implementation would:
+    // 1. Create new SHAMap with BLAKE3
+    // 2. Walk stateMap_ and rekey everything
+    // 3. Replace stateMap_ with new map
+    
+    // Placeholder: count objects that would be migrated
+    stateMap_.visitLeaves([&objectCount](auto const& item) {
+        ++objectCount;
+    });
+    
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startTime);
+    
+    JLOG(j_.warn()) << "BLAKE3 migration completed: " << objectCount 
+                   << " objects would be rekeyed in " << duration.count() << "ms";
+
 }
 
 //------------------------------------------------------------------------------

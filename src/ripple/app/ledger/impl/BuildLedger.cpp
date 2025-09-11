@@ -62,6 +62,13 @@ buildLedgerImpl(
         accum.apply(*built);
     }
 
+    // Check and perform hash migration following the pattern
+    if (built->rules().enabled(featureBLAKE3Migration) && 
+        built->shouldMigrateToBlake3())
+    {
+        built->migrateToBlake3();
+    }
+
     built->updateSkipList();
     {
         // Write the final version of all modified SHAMap

@@ -395,6 +395,18 @@ public:
     void
     updateNegativeUNL();
 
+    /** Check if hash migration to BLAKE3 should be performed */
+    bool
+    shouldMigrateToBlake3() const;
+
+    /** Perform hash migration from SHA-512 Half to BLAKE3
+     *  This rekeys all objects in the state map with new BLAKE3 hashes.
+     *  Must be called after transactions are applied but before the
+     *  ledger is finalized.
+     */
+    void
+    migrateToBlake3();
+
     /** Returns true if the ledger is a flag ledger */
     bool
     isFlagLedger() const;

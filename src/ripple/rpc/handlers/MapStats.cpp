@@ -24,6 +24,8 @@
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/ledger/ReadView.h>
 #include <ripple/protocol/ErrorCodes.h>
+#include <ripple/protocol/LedgerFormats.h>
+#include <ripple/protocol/STLedgerEntry.h>
 #include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/rpc/Context.h>
@@ -41,6 +43,7 @@
 #include <unordered_map>
 
 namespace ripple {
+
 
 Json::Value
 doMapStats(RPC::JsonContext& context)
@@ -180,6 +183,10 @@ doMapStats(RPC::JsonContext& context)
     // Arrays for histogram data (depth 0 to 63 for inner nodes)
     std::array<std::uint64_t, 64> nodesAtDepth{};
     std::array<std::uint64_t, 64> totalChildrenAtDepth{};
+    
+    // Map to track ledger entry types (only for state map)
+    std::unordered_map<LedgerEntryType, std::uint64_t> entryTypeCount;
+    std::unordered_map<LedgerEntryType, std::uint64_t> entryTypeSize;
 
     // We'll use visitNodes and track parent-child relationships to determine
     // depth This is a bit of a hack but works without modifying SHAMap
@@ -235,6 +242,24 @@ doMapStats(RPC::JsonContext& context)
                 if (item)
                 {
                     totalLeafDataSize += item->size();
+                    
+                    // If this is a state map, deserialize to get the ledger entry type
+                    if (analyzeStateMap)
+                    {
+                        try
+                        {
+                            SerialIter sit(item->slice());
+                            auto sle = std::make_shared<SLE const>(sit, item->key());
+                            LedgerEntryType letType = sle->getType();
+                            
+                            entryTypeCount[letType]++;
+                            entryTypeSize[letType] += item->size();
+                        }
+                        catch (...)
+                        {
+                            // If we can't deserialize, just skip this entry's type tracking
+                        }
+                    }
                 }
             }
 
@@ -418,6 +443,49 @@ doMapStats(RPC::JsonContext& context)
             }
         }
         result["index_sha512h_by_namespace"] = namespaceHistogram;
+        
+        // Add ledger entry type statistics (only for state map)
+        if (analyzeStateMap && !entryTypeCount.empty())
+        {
+            Json::Value entryTypes(Json::objectValue);
+            Json::Value entryTypeSizes(Json::objectValue);
+            Json::Value entryTypeAvgSizes(Json::objectValue);
+            
+            for (const auto& [type, count] : entryTypeCount)
+            {
+                std::string name;
+                auto const format = LedgerFormats::getInstance().findByType(type);
+                if (format)
+                {
+                    name = format->getName();
+                }
+                else
+                {
+                    // Unknown type, use numeric value
+                    name = "UNKNOWN_" + std::to_string(static_cast<int>(type));
+                }
+                
+                entryTypes[name] = static_cast<Json::UInt>(count);
+                
+                // Add size information
+                auto sizeIt = entryTypeSize.find(type);
+                if (sizeIt != entryTypeSize.end())
+                {
+                    entryTypeSizes[name] = static_cast<Json::UInt>(sizeIt->second);
+                    
+                    // Calculate average size
+                    if (count > 0)
+                    {
+                        double avgSize = static_cast<double>(sizeIt->second) / count;
+                        entryTypeAvgSizes[name] = avgSize;
+                    }
+                }
+            }
+            
+            result["ledger_entry_types"] = entryTypes;
+            result["ledger_entry_type_bytes"] = entryTypeSizes;
+            result["ledger_entry_type_avg_bytes"] = entryTypeAvgSizes;
+        }
     }
     catch (const std::exception& e)
     {
