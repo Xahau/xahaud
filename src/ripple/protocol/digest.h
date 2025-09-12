@@ -20,6 +20,7 @@
 #ifndef RIPPLE_PROTOCOL_DIGEST_H_INCLUDED
 #define RIPPLE_PROTOCOL_DIGEST_H_INCLUDED
 
+#include <ripple/basics/Slice.h>
 #include <ripple/basics/base_uint.h>
 #include <ripple/crypto/secure_erase.h>
 #include <boost/endian/conversion.hpp>
@@ -135,6 +136,21 @@ struct HashStats
     // Timing statistics (in nanoseconds)
     std::atomic<uint64_t> totalSha512HalfTimeNs{0};
     std::atomic<uint64_t> indexSha512HalfTimeNs{0};
+
+    // Keylet input size tracking
+    // Track total bytes and count for each keylet type (KEYLET_ACCOUNT=18 to
+    // KEYLET_URI_TOKEN=49)
+    static constexpr size_t KEYLET_START = 18;
+    static constexpr size_t KEYLET_END = 49;
+    static constexpr size_t KEYLET_COUNT = KEYLET_END - KEYLET_START + 1;
+
+    struct KeyletStats
+    {
+        std::atomic<uint64_t> totalBytes{0};
+        std::atomic<uint64_t> count{0};
+    };
+
+    std::array<KeyletStats, KEYLET_COUNT> keyletInputStats{};
 
     // Computed property for total index sha512Half calls
     uint64_t
@@ -445,6 +461,31 @@ using sha512_half_hasher_s = detail::basic_sha512_half_hasher<true>;
 
 //------------------------------------------------------------------------------
 
+// Helper to calculate total size of args being hashed
+namespace detail {
+// Simplified version - just count bytes for Slice types
+inline size_t
+getHashSize(const Slice& val)
+{
+    return val.size();
+}
+
+template <typename T>
+size_t
+getHashSize(const T& val)
+{
+    // For other types, use sizeof as approximation
+    return sizeof(val);
+}
+
+template <typename... Args>
+size_t
+getTotalHashSize(const Args&... args)
+{
+    return (getHashSize(args) + ...);
+}
+}  // namespace detail
+
 /** Returns the SHA512-Half of a series of objects (with options). */
 template <class... Args>
 sha512_half_hasher::result_type
@@ -453,6 +494,18 @@ sha512Half(hash_options const& opts, Args const&... args)
     auto start = std::chrono::high_resolution_clock::now();
 
     getHashStats().totalSha512HalfCount.fetch_add(1, std::memory_order_relaxed);
+
+    // Track keylet input sizes
+    if (opts.classifier >= HashStats::KEYLET_START &&
+        opts.classifier <= HashStats::KEYLET_END)
+    {
+        size_t totalSize = detail::getTotalHashSize(args...);
+        size_t keyletIdx = opts.classifier - HashStats::KEYLET_START;
+        getHashStats().keyletInputStats[keyletIdx].totalBytes.fetch_add(
+            totalSize, std::memory_order_relaxed);
+        getHashStats().keyletInputStats[keyletIdx].count.fetch_add(
+            1, std::memory_order_relaxed);
+    }
 
     // TODO: Use opts.ledger_index to potentially switch to blake3 at certain
     // ledger For now, still use sha512_half_hasher
@@ -488,6 +541,18 @@ sha512Half_s(hash_options const& opts, Args const&... args)
     auto start = std::chrono::high_resolution_clock::now();
 
     getHashStats().totalSha512HalfCount.fetch_add(1, std::memory_order_relaxed);
+
+    // Track keylet input sizes
+    if (opts.classifier >= HashStats::KEYLET_START &&
+        opts.classifier <= HashStats::KEYLET_END)
+    {
+        size_t totalSize = detail::getTotalHashSize(args...);
+        size_t keyletIdx = opts.classifier - HashStats::KEYLET_START;
+        getHashStats().keyletInputStats[keyletIdx].totalBytes.fetch_add(
+            totalSize, std::memory_order_relaxed);
+        getHashStats().keyletInputStats[keyletIdx].count.fetch_add(
+            1, std::memory_order_relaxed);
+    }
 
     // TODO: Use opts.ledger_index to potentially switch to blake3 at certain
     // ledger For now, still use sha512_half_hasher_s

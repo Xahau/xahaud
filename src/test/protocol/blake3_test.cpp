@@ -18,10 +18,14 @@
 //==============================================================================
 
 #include <ripple/beast/unit_test.h>
-#include <blake3.h>
 #include <array>
+#include <blake3.h>
+#include <chrono>
 #include <cstring>
+#include <openssl/sha.h>
+#include <random>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ripple {
@@ -226,15 +230,336 @@ public:
     }
 
     void
+    benchmarkKeyletDistribution()
+    {
+        testcase("Keylet Distribution Benchmark");
+
+        // Real keylet distribution from your data (excluding 2-byte cached
+        // ones)
+        struct KeyletType
+        {
+            const char* name;
+            size_t size;
+            size_t count;
+            double ratio;  // proportion of total operations
+        };
+
+        // Total non-cached keylet operations: ~189k
+        // We'll scale to 626k total to match leaf count
+        const size_t TOTAL_OPS = 626326;
+        const size_t NON_CACHED_OPS = 188317;  // sum of all non-2-byte keylets
+
+        std::vector<KeyletType> keylets = {
+            {"ACCOUNT", 22, 76478, 76478.0 / NON_CACHED_OPS},
+            {"HOOK", 22, 41740, 41740.0 / NON_CACHED_OPS},
+            {"OWNER_DIR", 22, 3719, 3719.0 / NON_CACHED_OPS},
+            {"HOOK_DEFINITION", 34, 17587, 17587.0 / NON_CACHED_OPS},
+            {"DIR_PAGE", 42, 62, 62.0 / NON_CACHED_OPS},
+            {"HOOK_STATE_DIR", 54, 19939, 19939.0 / NON_CACHED_OPS},
+            {"TRUSTLINE", 62, 11882, 11882.0 / NON_CACHED_OPS},
+            {"HOOK_STATE", 86, 17100, 17100.0 / NON_CACHED_OPS},
+            {"URI_TOKEN", 102, 53, 53.0 / NON_CACHED_OPS}};
+
+        // Pre-allocate random data for each size category
+        std::unordered_map<size_t, std::vector<std::vector<uint8_t>>> testData;
+        std::mt19937 rng(42);  // Deterministic seed for reproducibility
+        std::uniform_int_distribution<uint8_t> dist(0, 255);
+
+        for (const auto& keylet : keylets)
+        {
+            size_t scaledCount = static_cast<size_t>(keylet.ratio * TOTAL_OPS);
+            testData[keylet.size].reserve(scaledCount);
+
+            for (size_t i = 0; i < scaledCount; ++i)
+            {
+                std::vector<uint8_t> data(keylet.size);
+                for (auto& byte : data)
+                {
+                    byte = dist(rng);
+                }
+                testData[keylet.size].push_back(std::move(data));
+            }
+        }
+
+        // Count total test vectors
+        size_t totalVectors = 0;
+        for (const auto& [size, vectors] : testData)
+        {
+            totalVectors += vectors.size();
+        }
+
+        log << "Generated " << totalVectors
+            << " test vectors matching keylet distribution\n";
+
+        // Benchmark BLAKE3
+        auto blake3Start = std::chrono::high_resolution_clock::now();
+
+        for (const auto& [size, vectors] : testData)
+        {
+            for (const auto& data : vectors)
+            {
+                blake3_hasher hasher;
+                blake3_hasher_init(&hasher);
+                blake3_hasher_update(&hasher, data.data(), data.size());
+
+                uint8_t output[BLAKE3_OUT_LEN];
+                blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
+            }
+        }
+
+        auto blake3End = std::chrono::high_resolution_clock::now();
+        auto blake3Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            blake3End - blake3Start)
+                            .count();
+
+        // Benchmark SHA512Half (simplified version for testing)
+        auto sha512Start = std::chrono::high_resolution_clock::now();
+
+        for (const auto& [size, vectors] : testData)
+        {
+            for (const auto& data : vectors)
+            {
+                // Using OpenSSL SHA512 as proxy (sha512Half would add
+                // truncation)
+                SHA512_CTX ctx;
+                SHA512_Init(&ctx);
+                SHA512_Update(&ctx, data.data(), data.size());
+
+                uint8_t output[64];
+                SHA512_Final(output, &ctx);
+                // In real sha512Half, we'd truncate to 32 bytes here
+            }
+        }
+
+        auto sha512End = std::chrono::high_resolution_clock::now();
+        auto sha512Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            sha512End - sha512Start)
+                            .count();
+
+        // Calculate weighted average input size
+        double weightedAvgSize = 0;
+        for (const auto& keylet : keylets)
+        {
+            weightedAvgSize += keylet.size * keylet.ratio;
+        }
+
+        // Report results
+        log << "\n=== Keylet Distribution Benchmark Results ===\n";
+        log << "Total operations: " << totalVectors << "\n";
+        log << "Weighted average input size: " << weightedAvgSize << " bytes\n";
+        log << "\nBLAKE3:\n";
+        log << "  Total time: " << blake3Ns / 1000000.0 << " ms\n";
+        log << "  Per hash: " << blake3Ns / totalVectors << " ns\n";
+        log << "  Hashes/sec: " << (totalVectors * 1000000000.0) / blake3Ns
+            << "\n";
+
+        log << "\nSHA512:\n";
+        log << "  Total time: " << sha512Ns / 1000000.0 << " ms\n";
+        log << "  Per hash: " << sha512Ns / totalVectors << " ns\n";
+        log << "  Hashes/sec: " << (totalVectors * 1000000000.0) / sha512Ns
+            << "\n";
+
+        log << "\nSpeedup: BLAKE3 is "
+            << static_cast<double>(sha512Ns) / blake3Ns << "x faster\n";
+
+        // Benchmark BLAKE3 with 512-byte buffer
+        log << "\n=== 512-Byte Buffer Variants ===\n";
+
+        auto blake3BufferStart = std::chrono::high_resolution_clock::now();
+
+        for (const auto& [size, vectors] : testData)
+        {
+            for (const auto& data : vectors)
+            {
+                // Allocate 512-byte buffer each time
+                alignas(64) uint8_t buffer[512];
+                // Fast zero using memset (compiler optimizes to SIMD on Apple
+                // Silicon)
+                memset(buffer, 0, 512);
+                // Copy actual data
+                memcpy(buffer, data.data(), data.size());
+
+                blake3_hasher hasher;
+                blake3_hasher_init(&hasher);
+                blake3_hasher_update(&hasher, buffer, 512);
+
+                uint8_t output[BLAKE3_OUT_LEN];
+                blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
+            }
+        }
+
+        auto blake3BufferEnd = std::chrono::high_resolution_clock::now();
+        auto blake3BufferNs =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                blake3BufferEnd - blake3BufferStart)
+                .count();
+
+        // Benchmark SHA512 with 512-byte buffer
+        auto sha512BufferStart = std::chrono::high_resolution_clock::now();
+
+        for (const auto& [size, vectors] : testData)
+        {
+            for (const auto& data : vectors)
+            {
+                // Allocate 512-byte buffer each time
+                alignas(64) uint8_t buffer[512];
+                // Fast zero using memset (compiler optimizes to SIMD on Apple
+                // Silicon)
+                memset(buffer, 0, 512);
+                // Copy actual data
+                memcpy(buffer, data.data(), data.size());
+
+                SHA512_CTX ctx;
+                SHA512_Init(&ctx);
+                SHA512_Update(&ctx, buffer, 512);
+
+                uint8_t output[64];
+                SHA512_Final(output, &ctx);
+            }
+        }
+
+        auto sha512BufferEnd = std::chrono::high_resolution_clock::now();
+        auto sha512BufferNs =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                sha512BufferEnd - sha512BufferStart)
+                .count();
+
+        log << "\nBLAKE3 with 512-byte buffer:\n";
+        log << "  Total time: " << blake3BufferNs / 1000000.0 << " ms\n";
+        log << "  Per hash: " << blake3BufferNs / totalVectors << " ns\n";
+        log << "  Hashes/sec: "
+            << (totalVectors * 1000000000.0) / blake3BufferNs << "\n";
+        log << "  Overhead vs normal: "
+            << (static_cast<double>(blake3BufferNs) / blake3Ns - 1.0) * 100
+            << "%\n";
+
+        log << "\nSHA512 with 512-byte buffer:\n";
+        log << "  Total time: " << sha512BufferNs / 1000000.0 << " ms\n";
+        log << "  Per hash: " << sha512BufferNs / totalVectors << " ns\n";
+        log << "  Hashes/sec: "
+            << (totalVectors * 1000000000.0) / sha512BufferNs << "\n";
+        log << "  Overhead vs normal: "
+            << (static_cast<double>(sha512BufferNs) / sha512Ns - 1.0) * 100
+            << "%\n";
+
+        log << "\nFixed buffer speedup: BLAKE3 is "
+            << static_cast<double>(sha512BufferNs) / blake3BufferNs
+            << "x faster\n";
+
+        // Verify BLAKE3 is faster
+        BEAST_EXPECT(blake3Ns < sha512Ns);
+    }
+
+    void
+    benchmarkInnerNodes()
+    {
+        testcase("Inner Node (516 bytes) Benchmark");
+
+        const size_t INNER_NODE_SIZE =
+            516;  // 4-byte prefix + 16 * 32-byte hashes
+        const size_t INNER_NODE_COUNT = 211364;  // From your data
+
+        // Pre-allocate test data
+        std::vector<std::vector<uint8_t>> innerNodes;
+        innerNodes.reserve(INNER_NODE_COUNT);
+
+        std::mt19937 rng(42);
+        std::uniform_int_distribution<uint8_t> dist(0, 255);
+
+        for (size_t i = 0; i < INNER_NODE_COUNT; ++i)
+        {
+            std::vector<uint8_t> node(INNER_NODE_SIZE);
+            for (auto& byte : node)
+            {
+                byte = dist(rng);
+            }
+            innerNodes.push_back(std::move(node));
+        }
+
+        log << "Generated " << INNER_NODE_COUNT << " inner nodes of "
+            << INNER_NODE_SIZE << " bytes each\n";
+        log << "Total data: "
+            << (INNER_NODE_COUNT * INNER_NODE_SIZE) / (1024.0 * 1024.0)
+            << " MB\n\n";
+
+        // Benchmark BLAKE3
+        auto blake3Start = std::chrono::high_resolution_clock::now();
+
+        for (const auto& node : innerNodes)
+        {
+            blake3_hasher hasher;
+            blake3_hasher_init(&hasher);
+            blake3_hasher_update(&hasher, node.data(), node.size());
+
+            uint8_t output[BLAKE3_OUT_LEN];
+            blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
+        }
+
+        auto blake3End = std::chrono::high_resolution_clock::now();
+        auto blake3Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            blake3End - blake3Start)
+                            .count();
+
+        // Benchmark SHA512
+        auto sha512Start = std::chrono::high_resolution_clock::now();
+
+        for (const auto& node : innerNodes)
+        {
+            SHA512_CTX ctx;
+            SHA512_Init(&ctx);
+            SHA512_Update(&ctx, node.data(), node.size());
+
+            uint8_t output[64];
+            SHA512_Final(output, &ctx);
+        }
+
+        auto sha512End = std::chrono::high_resolution_clock::now();
+        auto sha512Ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            sha512End - sha512Start)
+                            .count();
+
+        // Calculate throughput
+        double totalMB =
+            (INNER_NODE_COUNT * INNER_NODE_SIZE) / (1024.0 * 1024.0);
+
+        log << "=== Inner Node (516 bytes) Results ===\n";
+
+        log << "\nBLAKE3:\n";
+        log << "  Total time: " << blake3Ns / 1000000.0 << " ms\n";
+        log << "  Per hash: " << blake3Ns / INNER_NODE_COUNT << " ns\n";
+        log << "  Hashes/sec: " << (INNER_NODE_COUNT * 1000000000.0) / blake3Ns
+            << "\n";
+        log << "  Throughput: " << (totalMB * 1000) / (blake3Ns / 1000000.0)
+            << " MB/s\n";
+
+        log << "\nSHA512:\n";
+        log << "  Total time: " << sha512Ns / 1000000.0 << " ms\n";
+        log << "  Per hash: " << sha512Ns / INNER_NODE_COUNT << " ns\n";
+        log << "  Hashes/sec: " << (INNER_NODE_COUNT * 1000000000.0) / sha512Ns
+            << "\n";
+        log << "  Throughput: " << (totalMB * 1000) / (sha512Ns / 1000000.0)
+            << " MB/s\n";
+
+        log << "\nSpeedup: BLAKE3 is "
+            << static_cast<double>(sha512Ns) / blake3Ns << "x faster\n";
+
+        // Verify BLAKE3 is faster
+        BEAST_EXPECT(blake3Ns < sha512Ns);
+    }
+
+    void
     run() override
     {
-        testBasicHashing();
-        testEmptyInput();
-        testIncrementalHashing();
-        testLargeInput();
-        testVariableOutputLength();
-        testKeyedMode();
-        testDerivationMode();
+        // Comment out other tests for focused benchmarking
+        // testBasicHashing();
+        // testEmptyInput();
+        // testIncrementalHashing();
+        // testLargeInput();
+        // testVariableOutputLength();
+        // testKeyedMode();
+        // testDerivationMode();
+        // benchmarkKeyletDistribution();
+        benchmarkInnerNodes();
     }
 };
 

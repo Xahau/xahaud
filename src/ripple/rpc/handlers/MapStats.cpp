@@ -37,6 +37,8 @@
 #include <ripple/shamap/SHAMapLeafNode.h>
 #include <ripple/shamap/SHAMapNodeID.h>
 #include <ripple/shamap/SHAMapTreeNode.h>
+#include <blake3.h>
+#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <stack>
@@ -173,6 +175,26 @@ doMapStats(RPC::JsonContext& context)
         }
     }
 
+    // Check for blake3_bench and sha512_bench parameters from command line
+    bool runBlake3Bench = false;
+    bool runSha512Bench = false;
+    if (actualParams.isMember(jss::params) &&
+        actualParams[jss::params].isArray())
+    {
+        for (Json::UInt i = 0; i < actualParams[jss::params].size(); ++i)
+        {
+            auto paramStr = actualParams[jss::params][i].asString();
+            if (paramStr == "blake3_bench")
+            {
+                runBlake3Bench = true;
+            }
+            else if (paramStr == "sha512_bench")
+            {
+                runSha512Bench = true;
+            }
+        }
+    }
+
     const SHAMap& map = analyzeStateMap ? lgr->stateMap() : lgr->txMap();
 
     // Initialize counters
@@ -290,6 +312,404 @@ doMapStats(RPC::JsonContext& context)
             // can't get without modifying SHAMap or using const_cast tricks For
             // now, we'll have to skip the depth histogram
         }
+    }
+
+    // Run BLAKE3 benchmark if requested
+    if (runBlake3Bench)
+    {
+        std::uint64_t blake3LeafCount = 0;
+        std::uint64_t totalBytesHashed = 0;
+        std::uint64_t blake3OnlyNs = 0;  // Time spent only on BLAKE3 operations
+
+        // Start timing for ENTIRE operation (map walk + hashing)
+        auto startTimeTotal = std::chrono::high_resolution_clock::now();
+
+        // Walk the map again and hash all leaf data with BLAKE3
+        try
+        {
+            map.visitNodes([&](SHAMapTreeNode& node) -> bool {
+                if (node.isLeaf())
+                {
+                    blake3LeafCount++;
+                    auto& leaf = static_cast<SHAMapLeafNode&>(node);
+                    auto const& item = leaf.peekItem();
+                    if (item)
+                    {
+                        // Time JUST the BLAKE3 operation
+                        auto hashStart =
+                            std::chrono::high_resolution_clock::now();
+
+                        // Hash the leaf data with BLAKE3
+                        blake3_hasher hasher;
+                        blake3_hasher_init(&hasher);
+                        blake3_hasher_update(
+                            &hasher, item->data(), item->size());
+
+                        // Output buffer for hash (32 bytes)
+                        uint8_t hash[BLAKE3_OUT_LEN];
+                        blake3_hasher_finalize(&hasher, hash, BLAKE3_OUT_LEN);
+
+                        auto hashEnd =
+                            std::chrono::high_resolution_clock::now();
+                        blake3OnlyNs +=
+                            std::chrono::duration_cast<
+                                std::chrono::nanoseconds>(hashEnd - hashStart)
+                                .count();
+
+                        totalBytesHashed += item->size();
+                    }
+                }
+                return true;  // Continue traversal
+            });
+        }
+        catch (const std::exception& e)
+        {
+            result["blake3_bench_error"] = e.what();
+        }
+
+        // End timing for total operation
+        auto endTimeTotal = std::chrono::high_resolution_clock::now();
+        auto totalDurationNs =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                endTimeTotal - startTimeTotal)
+                .count();
+
+        // Calculate map traversal time
+        auto mapTraversalNs = totalDurationNs - blake3OnlyNs;
+
+        // Add BLAKE3 benchmark results - TOTAL operation
+        result["blake3_bench_total"] = Json::objectValue;
+        result["blake3_bench_total"]["duration_ns"] =
+            static_cast<Json::UInt>(totalDurationNs);
+        result["blake3_bench_total"]["duration_ms"] =
+            static_cast<double>(totalDurationNs) / 1000000.0;
+        result["blake3_bench_total"]["leaves_hashed"] =
+            static_cast<Json::UInt>(blake3LeafCount);
+        result["blake3_bench_total"]["bytes_hashed"] =
+            static_cast<Json::UInt>(totalBytesHashed);
+
+        // Add BLAKE3-only timing
+        result["blake3_bench_hash_only"] = Json::objectValue;
+        result["blake3_bench_hash_only"]["duration_ns"] =
+            static_cast<Json::UInt>(blake3OnlyNs);
+        result["blake3_bench_hash_only"]["duration_ms"] =
+            static_cast<double>(blake3OnlyNs) / 1000000.0;
+
+        // Add map traversal timing
+        result["blake3_bench_map_traversal"] = Json::objectValue;
+        result["blake3_bench_map_traversal"]["duration_ns"] =
+            static_cast<Json::UInt>(mapTraversalNs);
+        result["blake3_bench_map_traversal"]["duration_ms"] =
+            static_cast<double>(mapTraversalNs) / 1000000.0;
+
+        // Calculate performance metrics for total operation
+        if (blake3LeafCount > 0 && totalDurationNs > 0)
+        {
+            double hashesPerSecTotal =
+                (static_cast<double>(blake3LeafCount) * 1000000000.0) /
+                totalDurationNs;
+            double mbPerSecTotal =
+                (static_cast<double>(totalBytesHashed) / (1024.0 * 1024.0)) *
+                (1000000000.0 / totalDurationNs);
+
+            result["blake3_bench_total"]["hashes_per_sec"] = hashesPerSecTotal;
+            result["blake3_bench_total"]["mb_per_sec"] = mbPerSecTotal;
+            result["blake3_bench_total"]["ns_per_hash"] =
+                static_cast<double>(totalDurationNs) / blake3LeafCount;
+        }
+
+        // Calculate performance metrics for BLAKE3-only
+        if (blake3LeafCount > 0 && blake3OnlyNs > 0)
+        {
+            double hashesPerSecBlake3 =
+                (static_cast<double>(blake3LeafCount) * 1000000000.0) /
+                blake3OnlyNs;
+            double mbPerSecBlake3 =
+                (static_cast<double>(totalBytesHashed) / (1024.0 * 1024.0)) *
+                (1000000000.0 / blake3OnlyNs);
+
+            result["blake3_bench_hash_only"]["hashes_per_sec"] =
+                hashesPerSecBlake3;
+            result["blake3_bench_hash_only"]["mb_per_sec"] = mbPerSecBlake3;
+            result["blake3_bench_hash_only"]["ns_per_hash"] =
+                static_cast<double>(blake3OnlyNs) / blake3LeafCount;
+        }
+
+        // Add percentage breakdown
+        if (totalDurationNs > 0)
+        {
+            result["blake3_bench_breakdown"] = Json::objectValue;
+            result["blake3_bench_breakdown"]["blake3_percent"] =
+                (static_cast<double>(blake3OnlyNs) / totalDurationNs) * 100.0;
+            result["blake3_bench_breakdown"]["map_traversal_percent"] =
+                (static_cast<double>(mapTraversalNs) / totalDurationNs) * 100.0;
+        }
+    }
+
+    // Run SHA512Half benchmark if requested
+    if (runSha512Bench)
+    {
+        std::uint64_t sha512LeafCount = 0;
+        std::uint64_t totalBytesHashed = 0;
+        std::uint64_t sha512OnlyNs =
+            0;  // Time spent only on SHA512Half operations
+
+        // Start timing for ENTIRE operation (map walk + hashing)
+        auto startTimeTotal = std::chrono::high_resolution_clock::now();
+
+        // Walk the map again and hash all leaf data with SHA512Half
+        try
+        {
+            map.visitNodes([&](SHAMapTreeNode& node) -> bool {
+                if (node.isLeaf())
+                {
+                    sha512LeafCount++;
+                    auto& leaf = static_cast<SHAMapLeafNode&>(node);
+                    auto const& item = leaf.peekItem();
+                    if (item)
+                    {
+                        // Time JUST the SHA512Half operation
+                        auto hashStart =
+                            std::chrono::high_resolution_clock::now();
+
+                        // Hash the leaf data with SHA512Half
+                        // Using LEDGER_INDEX_UNNEEDED for benchmarking
+                        // (non-ledger context)
+                        auto hash = sha512Half(
+                            hash_options{LEDGER_INDEX_UNNEEDED},
+                            Slice(item->data(), item->size()));
+
+                        auto hashEnd =
+                            std::chrono::high_resolution_clock::now();
+                        sha512OnlyNs +=
+                            std::chrono::duration_cast<
+                                std::chrono::nanoseconds>(hashEnd - hashStart)
+                                .count();
+
+                        totalBytesHashed += item->size();
+                    }
+                }
+                return true;  // Continue traversal
+            });
+        }
+        catch (const std::exception& e)
+        {
+            result["sha512_bench_error"] = e.what();
+        }
+
+        // End timing for total operation
+        auto endTimeTotal = std::chrono::high_resolution_clock::now();
+        auto totalDurationNs =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                endTimeTotal - startTimeTotal)
+                .count();
+
+        // Calculate map traversal time
+        auto mapTraversalNs = totalDurationNs - sha512OnlyNs;
+
+        // Add SHA512Half benchmark results - TOTAL operation
+        result["sha512_bench_total"] = Json::objectValue;
+        result["sha512_bench_total"]["duration_ns"] =
+            static_cast<Json::UInt>(totalDurationNs);
+        result["sha512_bench_total"]["duration_ms"] =
+            static_cast<double>(totalDurationNs) / 1000000.0;
+        result["sha512_bench_total"]["leaves_hashed"] =
+            static_cast<Json::UInt>(sha512LeafCount);
+        result["sha512_bench_total"]["bytes_hashed"] =
+            static_cast<Json::UInt>(totalBytesHashed);
+
+        // Add SHA512Half-only timing
+        result["sha512_bench_hash_only"] = Json::objectValue;
+        result["sha512_bench_hash_only"]["duration_ns"] =
+            static_cast<Json::UInt>(sha512OnlyNs);
+        result["sha512_bench_hash_only"]["duration_ms"] =
+            static_cast<double>(sha512OnlyNs) / 1000000.0;
+
+        // Add map traversal timing
+        result["sha512_bench_map_traversal"] = Json::objectValue;
+        result["sha512_bench_map_traversal"]["duration_ns"] =
+            static_cast<Json::UInt>(mapTraversalNs);
+        result["sha512_bench_map_traversal"]["duration_ms"] =
+            static_cast<double>(mapTraversalNs) / 1000000.0;
+
+        // Calculate performance metrics for total operation
+        if (sha512LeafCount > 0 && totalDurationNs > 0)
+        {
+            double hashesPerSecTotal =
+                (static_cast<double>(sha512LeafCount) * 1000000000.0) /
+                totalDurationNs;
+            double mbPerSecTotal =
+                (static_cast<double>(totalBytesHashed) / (1024.0 * 1024.0)) *
+                (1000000000.0 / totalDurationNs);
+
+            result["sha512_bench_total"]["hashes_per_sec"] = hashesPerSecTotal;
+            result["sha512_bench_total"]["mb_per_sec"] = mbPerSecTotal;
+            result["sha512_bench_total"]["ns_per_hash"] =
+                static_cast<double>(totalDurationNs) / sha512LeafCount;
+        }
+
+        // Calculate performance metrics for SHA512Half-only
+        if (sha512LeafCount > 0 && sha512OnlyNs > 0)
+        {
+            double hashesPerSecSha512 =
+                (static_cast<double>(sha512LeafCount) * 1000000000.0) /
+                sha512OnlyNs;
+            double mbPerSecSha512 =
+                (static_cast<double>(totalBytesHashed) / (1024.0 * 1024.0)) *
+                (1000000000.0 / sha512OnlyNs);
+
+            result["sha512_bench_hash_only"]["hashes_per_sec"] =
+                hashesPerSecSha512;
+            result["sha512_bench_hash_only"]["mb_per_sec"] = mbPerSecSha512;
+            result["sha512_bench_hash_only"]["ns_per_hash"] =
+                static_cast<double>(sha512OnlyNs) / sha512LeafCount;
+        }
+
+        // Add percentage breakdown
+        if (totalDurationNs > 0)
+        {
+            result["sha512_bench_breakdown"] = Json::objectValue;
+            result["sha512_bench_breakdown"]["sha512_percent"] =
+                (static_cast<double>(sha512OnlyNs) / totalDurationNs) * 100.0;
+            result["sha512_bench_breakdown"]["map_traversal_percent"] =
+                (static_cast<double>(mapTraversalNs) / totalDurationNs) * 100.0;
+        }
+    }
+
+    // Add keylet hash input size histogram
+    Json::Value keyletHashHistogram(Json::objectValue);
+    auto& hashStats = getHashStats();
+    for (size_t i = 0; i < HashStats::KEYLET_COUNT; ++i)
+    {
+        auto count =
+            hashStats.keyletInputStats[i].count.load(std::memory_order_relaxed);
+        if (count > 0)
+        {
+            auto totalBytes = hashStats.keyletInputStats[i].totalBytes.load(
+                std::memory_order_relaxed);
+            double avgBytes = static_cast<double>(totalBytes) / count;
+
+            // Map keylet index back to HashContext enum value
+            HashContext ctx =
+                static_cast<HashContext>(i + HashStats::KEYLET_START);
+
+            // Get keylet name
+            std::string keyletName;
+            switch (ctx)
+            {
+                case KEYLET_ACCOUNT:
+                    keyletName = "ACCOUNT";
+                    break;
+                case KEYLET_AMENDMENTS:
+                    keyletName = "AMENDMENTS";
+                    break;
+                case KEYLET_BOOK:
+                    keyletName = "BOOK";
+                    break;
+                case KEYLET_BOOK_BASE:
+                    keyletName = "BOOK_BASE";
+                    break;
+                case KEYLET_CHECK:
+                    keyletName = "CHECK";
+                    break;
+                case KEYLET_CHILD:
+                    keyletName = "CHILD";
+                    break;
+                case KEYLET_DEPOSIT_PREAUTH:
+                    keyletName = "DEPOSIT_PREAUTH";
+                    break;
+                case KEYLET_DIR_PAGE:
+                    keyletName = "DIR_PAGE";
+                    break;
+                case KEYLET_EMITTED_DIR:
+                    keyletName = "EMITTED_DIR";
+                    break;
+                case KEYLET_EMITTED_TXN:
+                    keyletName = "EMITTED_TXN";
+                    break;
+                case KEYLET_ESCROW:
+                    keyletName = "ESCROW";
+                    break;
+                case KEYLET_FEES:
+                    keyletName = "FEES";
+                    break;
+                case KEYLET_HOOK:
+                    keyletName = "HOOK";
+                    break;
+                case KEYLET_HOOK_DEFINITION:
+                    keyletName = "HOOK_DEFINITION";
+                    break;
+                case KEYLET_HOOK_STATE:
+                    keyletName = "HOOK_STATE";
+                    break;
+                case KEYLET_HOOK_STATE_DIR:
+                    keyletName = "HOOK_STATE_DIR";
+                    break;
+                case KEYLET_IMPORT_VLSEQ:
+                    keyletName = "IMPORT_VLSEQ";
+                    break;
+                case KEYLET_NEGATIVE_UNL:
+                    keyletName = "NEGATIVE_UNL";
+                    break;
+                case KEYLET_NFT_BUYS:
+                    keyletName = "NFT_BUYS";
+                    break;
+                case KEYLET_NFT_OFFER:
+                    keyletName = "NFT_OFFER";
+                    break;
+                case KEYLET_NFT_PAGE:
+                    keyletName = "NFT_PAGE";
+                    break;
+                case KEYLET_NFT_SELLS:
+                    keyletName = "NFT_SELLS";
+                    break;
+                case KEYLET_OFFER:
+                    keyletName = "OFFER";
+                    break;
+                case KEYLET_OWNER_DIR:
+                    keyletName = "OWNER_DIR";
+                    break;
+                case KEYLET_PAYCHAN:
+                    keyletName = "PAYCHAN";
+                    break;
+                case KEYLET_SIGNERS:
+                    keyletName = "SIGNERS";
+                    break;
+                case KEYLET_SKIP_LIST:
+                    keyletName = "SKIP_LIST";
+                    break;
+                case KEYLET_TICKET:
+                    keyletName = "TICKET";
+                    break;
+                case KEYLET_TRUSTLINE:
+                    keyletName = "TRUSTLINE";
+                    break;
+                case KEYLET_UNCHECKED:
+                    keyletName = "UNCHECKED";
+                    break;
+                case KEYLET_UNL_REPORT:
+                    keyletName = "UNL_REPORT";
+                    break;
+                case KEYLET_URI_TOKEN:
+                    keyletName = "URI_TOKEN";
+                    break;
+                default:
+                    keyletName = "UNKNOWN_" + std::to_string(ctx);
+                    break;
+            }
+
+            Json::Value keyletInfo(Json::objectValue);
+            keyletInfo["count"] = static_cast<Json::UInt>(count);
+            keyletInfo["total_bytes"] = static_cast<Json::UInt>(totalBytes);
+            keyletInfo["avg_bytes"] = avgBytes;
+
+            keyletHashHistogram[keyletName] = keyletInfo;
+        }
+    }
+
+    if (keyletHashHistogram.size() > 0)
+    {
+        result["keylet_hash_input_sizes"] = keyletHashHistogram;
     }
 
     // Build the result JSON
