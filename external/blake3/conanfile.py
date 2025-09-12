@@ -26,7 +26,7 @@ class Blake3Conan(ConanFile):
     default_options = {
         "shared": False,
         "fPIC": True,
-        "simd": True,
+        "simd": False,  # Default to NO SIMD for testing
     }
 
     def config_options(self):
@@ -51,14 +51,27 @@ class Blake3Conan(ConanFile):
         # BLAKE3's CMake options
         tc.variables["BUILD_SHARED_LIBS"] = self.options.shared
         if not self.options.simd:
-            tc.variables["BLAKE3_NO_SSE2"] = True
-            tc.variables["BLAKE3_NO_SSE41"] = True
-            tc.variables["BLAKE3_NO_AVX2"] = True
-            tc.variables["BLAKE3_NO_AVX512"] = True
-            tc.variables["BLAKE3_NO_NEON"] = True
+            # For v1.5.0, we'll need to manually patch the CMakeLists.txt
+            # These flags don't work with the old CMake
+            tc.preprocessor_definitions["BLAKE3_USE_NEON"] = "0"
         tc.generate()
 
     def build(self):
+        # Patch CMakeLists.txt if SIMD is disabled
+        if not self.options.simd:
+            cmake_file = os.path.join(self.source_folder, "c", "CMakeLists.txt")
+            # Read the file
+            with open(cmake_file, 'r') as f:
+                content = f.read()
+            # Replace the ARM detection line to never match
+            content = content.replace(
+                'elseif(CMAKE_SYSTEM_PROCESSOR IN_LIST BLAKE3_ARMv8_NAMES',
+                'elseif(FALSE  # Disabled by conan simd=False'
+            )
+            # Write it back
+            with open(cmake_file, 'w') as f:
+                f.write(content)
+                
         cmake = CMake(self)
         # BLAKE3's C implementation has its CMakeLists.txt in the c/ subdirectory
         cmake.configure(build_script_folder=os.path.join(self.source_folder, "c"))

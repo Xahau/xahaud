@@ -52,6 +52,7 @@ class Xrpl(ConanFile):
         'tests': True,
         'unity': False,
 
+        'blake3:simd': False,  # Disable SIMD for testing
         'cassandra-cpp-driver:shared': False,
         'date:header_only': True,
         'grpc:shared': False,
