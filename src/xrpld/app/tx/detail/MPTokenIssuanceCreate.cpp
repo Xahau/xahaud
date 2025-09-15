@@ -33,6 +33,10 @@ MPTokenIssuanceCreate::checkExtraFeatures(PreflightContext const& ctx)
           ctx.rules.enabled(featureSingleAssetVault)))
         return false;
 
+    if (ctx.tx.isFieldPresent(sfMutableFlags) &&
+        !ctx.rules.enabled(featureDynamicMPT))
+        return false;
+
     return true;
 }
 
@@ -56,6 +60,10 @@ MPTokenIssuanceCreate::preflight(PreflightContext const& ctx)
     // Sequence or a Ticket.
     if (ctx.tx.getSeqProxy() == SeqProxy::sequence(0))
         return temBAD_SEQUENCE;
+
+    if (auto const mutableFlags = ctx.tx[~sfMutableFlags]; mutableFlags &&
+        (!*mutableFlags || *mutableFlags & tfMPTokenIssuanceCreateMutableMask))
+        return temINVALID_FLAG;
 
     if (auto const fee = ctx.tx[~sfTransferFee])
     {
@@ -147,6 +155,9 @@ MPTokenIssuanceCreate::create(
         if (args.domainId)
             (*mptIssuance)[sfDomainID] = *args.domainId;
 
+        if (args.mutableFlags)
+            (*mptIssuance)[sfMutableFlags] = *args.mutableFlags;
+
         view.insert(mptIssuance);
     }
 
@@ -173,6 +184,7 @@ MPTokenIssuanceCreate::doApply()
             .transferFee = tx[~sfTransferFee],
             .metadata = tx[~sfMPTokenMetadata],
             .domainId = tx[~sfDomainID],
+            .mutableFlags = tx[~sfMutableFlags],
         });
     return result ? tesSUCCESS : result.error();
 }
