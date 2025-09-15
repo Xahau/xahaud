@@ -1310,8 +1310,7 @@ PeerImp::handleTransaction(
 
         // Charge strongly for attempting to relay a txn with tfInnerBatchTxn
         // LCOV_EXCL_START
-        if (stx->isFlag(tfInnerBatchTxn) &&
-            getCurrentTransactionRules()->enabled(featureBatch))
+        if (stx->isFlag(tfInnerBatchTxn))
         {
             JLOG(p_journal_.warn()) << "Ignoring Network relayed Tx containing "
                                        "tfInnerBatchTxn (handleTransaction).";
@@ -2884,8 +2883,7 @@ PeerImp::checkTransaction(
 
         // charge strongly for relaying batch txns
         // LCOV_EXCL_START
-        if (stx->isFlag(tfInnerBatchTxn) &&
-            getCurrentTransactionRules()->enabled(featureBatch))
+        if (stx->isFlag(tfInnerBatchTxn))
         {
             JLOG(p_journal_.warn()) << "Ignoring Network relayed Tx containing "
                                        "tfInnerBatchTxn (checkSignature).";
@@ -2899,6 +2897,9 @@ PeerImp::checkTransaction(
             (stx->getFieldU32(sfLastLedgerSequence) <
              app_.getLedgerMaster().getValidLedgerIndex()))
         {
+            JLOG(p_journal_.info())
+                << "Marking transaction " << stx->getTransactionID()
+                << "as BAD because it's expired";
             app_.getHashRouter().setFlags(
                 stx->getTransactionID(), HashRouterFlags::BAD);
             charge(Resource::feeUselessData, "expired tx");
@@ -2955,7 +2956,7 @@ PeerImp::checkTransaction(
             {
                 if (!validReason.empty())
                 {
-                    JLOG(p_journal_.trace())
+                    JLOG(p_journal_.debug())
                         << "Exception checking transaction: " << validReason;
                 }
 
@@ -2982,7 +2983,7 @@ PeerImp::checkTransaction(
         {
             if (!reason.empty())
             {
-                JLOG(p_journal_.trace())
+                JLOG(p_journal_.debug())
                     << "Exception checking transaction: " << reason;
             }
             app_.getHashRouter().setFlags(
