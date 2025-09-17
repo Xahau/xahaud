@@ -62,7 +62,7 @@ MPTokenIssuanceCreate::preflight(PreflightContext const& ctx)
         return temBAD_SEQUENCE;
 
     if (auto const mutableFlags = ctx.tx[~sfMutableFlags]; mutableFlags &&
-        (!*mutableFlags || *mutableFlags & tfMPTokenIssuanceCreateMutableMask))
+        (!*mutableFlags || *mutableFlags & tmfMPTokenIssuanceCreateMutableMask))
         return temINVALID_FLAG;
 
     if (auto const fee = ctx.tx[~sfTransferFee])
