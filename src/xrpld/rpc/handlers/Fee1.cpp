@@ -27,7 +27,7 @@
 
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/FeeUnits.h>
+#include <xrpl/protocol/Units.h>
 namespace ripple {
 
 inline std::optional<XRPAmount>

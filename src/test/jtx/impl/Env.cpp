@@ -227,7 +227,9 @@ Env::balance(Account const& account, MPTIssue const& mptIssue) const
         if (!sle)
             return {STAmount(mptIssue, 0), account.name()};
 
-        STAmount const amount{mptIssue, sle->getFieldU64(sfOutstandingAmount)};
+        // Make it negative
+        STAmount const amount{
+            mptIssue, sle->getFieldU64(sfOutstandingAmount), 0, true};
         return {amount, lookup(issuer).name()};
     }
     else
@@ -240,6 +242,14 @@ Env::balance(Account const& account, MPTIssue const& mptIssue) const
         STAmount const amount{mptIssue, sle->getFieldU64(sfMPTAmount)};
         return {amount, lookup(issuer).name()};
     }
+}
+
+PrettyAmount
+Env::balance(Account const& account, Asset const& asset) const
+{
+    return std::visit(
+        [&](auto const& issue) { return balance(account, issue); },
+        asset.value());
 }
 
 std::uint32_t

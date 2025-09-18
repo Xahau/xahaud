@@ -31,6 +31,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 namespace ripple {
+namespace test {
 
 class Invariants_test : public beast::unit_test::suite
 {
@@ -113,7 +114,7 @@ class Invariants_test : public beast::unit_test::suite
             terActual = ac.checkInvariants(terActual, fee);
             BEAST_EXPECT(terExpect == terActual);
             // Handle both with and without BEAST_ENHANCED_LOGGING
-            auto const msg = sink.messages().str();
+            auto const messages = sink.messages().str();
             bool hasExpectedPrefix = false;
 
 #ifdef BEAST_ENHANCED_LOGGING
@@ -121,20 +122,20 @@ class Invariants_test : public beast::unit_test::suite
             // color codes and start with [file:line]. Just search for the
             // message content.
             hasExpectedPrefix =
-                msg.find("Invariant failed:") != std::string::npos ||
-                msg.find("Transaction caused an exception") !=
+                messages.find("Invariant failed:") != std::string::npos ||
+                messages.find("Transaction caused an exception") !=
                     std::string::npos;
 #else
             // Without BEAST_ENHANCED_LOGGING, messages start directly with the
             // text
-            hasExpectedPrefix = msg.starts_with("Invariant failed:") ||
+            hasExpectedPrefix = messages.starts_with("Invariant failed:") ||
                 msg.starts_with("Transaction caused an exception");
 #endif
 
             BEAST_EXPECT(hasExpectedPrefix);
             for (auto const& m : expect_logs)
             {
-                if (sink.messages().str().find(m) == std::string::npos)
+                if (messages.find(m) == std::string::npos)
                 {
                     // uncomment if you want to log the invariant failure
                     // message
@@ -1343,6 +1344,127 @@ class Invariants_test : public beast::unit_test::suite
     }
 
     void
+    testValidPseudoAccounts()
+    {
+        testcase << "valid pseudo accounts";
+
+        using namespace jtx;
+
+        AccountID pseudoAccountID;
+        Preclose createPseudo =
+            [&, this](Account const& a, Account const& b, Env& env) {
+                PrettyAsset const xrpAsset{xrpIssue(), 1'000'000};
+
+                // Create vault
+                Vault vault{env};
+                auto [tx, vKeylet] =
+                    vault.create({.owner = a, .asset = xrpAsset});
+                env(tx);
+                env.close();
+                if (auto const vSle = env.le(vKeylet); BEAST_EXPECT(vSle))
+                {
+                    pseudoAccountID = vSle->at(sfAccount);
+                }
+
+                return BEAST_EXPECT(env.le(keylet::account(pseudoAccountID)));
+            };
+
+        /* Cases to check
+            "pseudo-account has 0 pseudo-account fields set"
+            "pseudo-account has 2 pseudo-account fields set"
+            "pseudo-account sequence changed"
+            "pseudo-account flags are not set"
+            "pseudo-account has a regular key"
+        */
+        struct Mod
+        {
+            std::string expectedFailure;
+            std::function<void(SLE::pointer&)> func;
+        };
+        auto const mods = std::to_array<Mod>({
+            {
+                "pseudo-account has 0 pseudo-account fields set",
+                [this](SLE::pointer& sle) {
+                    BEAST_EXPECT(sle->at(~sfVaultID));
+                    sle->at(~sfVaultID) = std::nullopt;
+                },
+            },
+            {
+                "pseudo-account sequence changed",
+                [](SLE::pointer& sle) { sle->at(sfSequence) = 12345; },
+            },
+            {
+                "pseudo-account flags are not set",
+                [](SLE::pointer& sle) { sle->at(sfFlags) = lsfNoFreeze; },
+            },
+            {
+                "pseudo-account has a regular key",
+                [](SLE::pointer& sle) {
+                    sle->at(sfRegularKey) = Account("regular").id();
+                },
+            },
+        });
+
+        for (auto const& mod : mods)
+        {
+            doInvariantCheck(
+                {{mod.expectedFailure}},
+                [&](Account const& A1, Account const&, ApplyContext& ac) {
+                    auto sle = ac.view().peek(keylet::account(pseudoAccountID));
+                    if (!sle)
+                        return false;
+                    mod.func(sle);
+                    ac.view().update(sle);
+                    return true;
+                },
+                XRPAmount{},
+                STTx{ttACCOUNT_SET, [](STObject& tx) {}},
+                {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+                createPseudo);
+        }
+        for (auto const pField : getPseudoAccountFields())
+        {
+            // createPseudo creates a vault, so sfVaultID will be set, and
+            // setting it again will not cause an error
+            if (pField == &sfVaultID)
+                continue;
+            doInvariantCheck(
+                {{"pseudo-account has 2 pseudo-account fields set"}},
+                [&](Account const& A1, Account const&, ApplyContext& ac) {
+                    auto sle = ac.view().peek(keylet::account(pseudoAccountID));
+                    if (!sle)
+                        return false;
+
+                    auto const vaultID = ~sle->at(~sfVaultID);
+                    BEAST_EXPECT(vaultID && !sle->isFieldPresent(*pField));
+                    sle->setFieldH256(*pField, *vaultID);
+
+                    ac.view().update(sle);
+                    return true;
+                },
+                XRPAmount{},
+                STTx{ttACCOUNT_SET, [](STObject& tx) {}},
+                {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+                createPseudo);
+        }
+
+        // Take one of the regular accounts and set the sequence to 0, which
+        // will make it look like a pseudo-account
+        doInvariantCheck(
+            {{"pseudo-account has 0 pseudo-account fields set"},
+             {"pseudo-account sequence changed"},
+             {"pseudo-account flags are not set"}},
+            [&](Account const& A1, Account const&, ApplyContext& ac) {
+                auto sle = ac.view().peek(keylet::account(A1.id()));
+                if (!sle)
+                    return false;
+                sle->at(sfSequence) = 0;
+                ac.view().update(sle);
+                return true;
+            });
+    }
+
+    void
     testPermissionedDEX()
     {
         using namespace test::jtx;
@@ -1530,10 +1652,12 @@ public:
         testNFTokenPageInvariants();
         testPermissionedDomainInvariants();
         testLockedBalance();
+        testValidPseudoAccounts();
         testPermissionedDEX();
     }
 };
 
 BEAST_DEFINE_TESTSUITE(Invariants, app, ripple);
 
+}  // namespace test
 }  // namespace ripple

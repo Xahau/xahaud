@@ -251,11 +251,11 @@ class LPTokenTransfer_test : public jtx::AMMTest
 
         // alice's offer can no longer cross with carol's offer
         BEAST_EXPECT(
-            expectLine(env, alice, STAmount{token1, 10'000'000}) &&
-            expectLine(env, alice, STAmount{token2, 10'000'000}));
+            expectHolding(env, alice, STAmount{token1, 10'000'000}) &&
+            expectHolding(env, alice, STAmount{token2, 10'000'000}));
         BEAST_EXPECT(
-            expectLine(env, carol, STAmount{token2, 10'000'000}) &&
-            expectLine(env, carol, STAmount{token1, 10'000'000}));
+            expectHolding(env, carol, STAmount{token2, 10'000'000}) &&
+            expectHolding(env, carol, STAmount{token1, 10'000'000}));
         BEAST_EXPECT(
             expectOffers(env, alice, 1) && expectOffers(env, carol, 0));
     }

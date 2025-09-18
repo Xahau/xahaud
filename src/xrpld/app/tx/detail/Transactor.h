@@ -25,6 +25,7 @@
 #include <xrpld/app/tx/detail/ApplyContext.h>
 
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/beast/utility/WrappedSink.h>
 #include <xrpl/ledger/PaymentSandbox.h>
 #include <xrpl/ledger/detail/ApplyViewBase.h>
 #include <xrpl/protocol/Permissions.h>
@@ -143,6 +144,7 @@ class Transactor
 {
 protected:
     ApplyContext& ctx_;
+    beast::WrappedSink sink_;
     beast::Journal const j_;
 
     AccountID const account_;
