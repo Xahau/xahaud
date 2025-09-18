@@ -16,9 +16,6 @@ Loop: xrpl.protocol xrpld.app
 Loop: xrpld.app xrpld.core
   xrpld.app > xrpld.core
 
-Loop: xrpld.app xrpld.ledger
-  xrpld.app > xrpld.ledger
-
 Loop: xrpld.app xrpld.nodestore
   xrpld.app > xrpld.nodestore
 

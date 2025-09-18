@@ -21,9 +21,9 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/ClaimReward.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>

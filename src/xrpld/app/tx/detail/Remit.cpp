@@ -18,10 +18,10 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/Remit.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/UTF8.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
