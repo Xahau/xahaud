@@ -24,7 +24,6 @@
 #include <xrpld/app/misc/SHAMapStore.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/app/tx/apply.h>
-#include <xrpld/ledger/View.h>
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
@@ -37,6 +36,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/RangeSet.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/LedgerFormats.h>
 #include <xrpl/protocol/RPCErr.h>

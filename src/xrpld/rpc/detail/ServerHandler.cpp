@@ -19,7 +19,6 @@
 
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/ledger/ReadView.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/Role.h>
@@ -39,6 +38,7 @@
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/to_string.h>
+#include <xrpl/ledger/ReadView.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
