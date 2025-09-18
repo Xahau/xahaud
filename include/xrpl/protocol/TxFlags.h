@@ -140,6 +140,8 @@ enum EnableAmendmentFlags : uint32_t {
     tfLostMajority = 0x00020000,
     tfTestSuite = 0x80000000,
 };
+constexpr std::uint32_t tfChangeMask =
+    ~( tfUniversal | tfGotMajority | tfLostMajority | tfTestSuite);
 
 // PaymentChannelClaim flags:
 enum PaymentChannelClaimFlags : uint32_t {
@@ -159,7 +161,8 @@ enum NFTokenMintFlags : uint32_t {
 };
 
 // MPTokenIssuanceCreate flags:
-// NOTE - there is intentionally no flag here for lsfMPTLocked, which this transaction cannot mutate. 
+// Note: tf/lsfMPTLocked is intentionally omitted, since this transaction
+// is not allowed to modify it.
 enum MPTokenIssuanceCreateFlags : uint32_t {
     tfMPTCanLock = lsfMPTCanLock,
     tfMPTRequireAuth = lsfMPTRequireAuth,

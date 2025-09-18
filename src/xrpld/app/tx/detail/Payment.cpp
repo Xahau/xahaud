@@ -431,12 +431,23 @@ Payment::doApply()
 
     if (!sleDst)
     {
+        auto const timeCount =
+            view().info().parentCloseTime.time_since_epoch().count();
         std::uint32_t const seqno{
             view().rules().enabled(featureXahauGenesis)
-                ? view().info().parentCloseTime.time_since_epoch().count()
+                // TEQU:
+                // When creating accounts in GenesisLedger, we previously set
+                // the account Sequence to 0. However, since this conflicts with
+                // the PseudoAccount requirements, we are changing it to 1.
+                // There will be no impact on networks that are already running,
+                // and for future networks, there won't be any impact unless you
+                // create accounts via GenesisLedger.
+                // This specifically addresses an issue that comes up during
+                // unittests.
+                ? (timeCount == 0 ? 1 : timeCount)
                 : view().rules().enabled(featureDeletableAccounts)
-                ? view().seq()
-                : 1};
+                    ? view().seq()
+                    : 1};
 
         // Create the account.
         sleDst = std::make_shared<SLE>(k);

@@ -261,7 +261,10 @@ preflight2(PreflightContext const& ctx)
 //------------------------------------------------------------------------------
 
 Transactor::Transactor(ApplyContext& ctx)
-    : ctx_(ctx), j_(ctx.journal), account_(ctx.tx.getAccountID(sfAccount))
+    : ctx_(ctx)
+    , sink_(ctx.journal, to_short_string(ctx.tx.getTransactionID()) + " ")
+    , j_(sink_)
+    , account_(ctx.tx.getAccountID(sfAccount))
 {
 }
 
@@ -2349,7 +2352,7 @@ Transactor::operator()()
         bool const hasIOURewardClaim =
             view().rules().enabled(featureIOURewardClaim);
         auto const& sfRewardFields =
-            *(ripple::SField::knownCodeToField.at(917511 - has240819));
+            *(ripple::SField::getKnownCodeToField().at(917511 - has240819));
 
         // iterate all affected balances
         for (auto const& node : meta.getFieldArray(sfAffectedNodes))

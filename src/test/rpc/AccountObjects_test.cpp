@@ -39,20 +39,36 @@ namespace test {
 
 static char const* bobs_account_objects[] = {
     R"json({
-  "Account" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
-  "BookDirectory" : "B025997A323F5C3E03DDF1334471F5984ABDE31C59D463525D038D7EA4C68000",
-  "BookNode" : "0",
-  "Flags" : 65536,
-  "LedgerEntryType" : "Offer",
-  "OwnerNode" : "0",
-  "Sequence" : 4,
-  "TakerGets" : {
-    "currency" : "USD",
-    "issuer" : "r32rQHyesiTtdWFU7UJVtff4nCR5SHCbJW",
-    "value" : "1"
-  },
-  "TakerPays" : "100000000",
-  "index" : "A984D036A0E562433A8377CA57D1A1E056E58C0D04818F8DFD3A1AA3F217DD82"
+    "Account" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
+    "BookDirectory" : "50AD0A9E54D2B381288D535EB724E4275FFBF41580D28A925D038D7EA4C68000",
+    "BookNode" : "0",
+    "Flags" : 65536,
+    "LedgerEntryType" : "Offer",
+    "OwnerNode" : "0",
+    "Sequence" : 4,
+    "TakerGets" : {
+        "currency" : "USD",
+        "issuer" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
+        "value" : "1"
+    },
+    "TakerPays" : "100000000",
+    "index" : "A984D036A0E562433A8377CA57D1A1E056E58C0D04818F8DFD3A1AA3F217DD82"
+})json",
+    R"json({
+    "Account" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
+    "BookDirectory" : "B025997A323F5C3E03DDF1334471F5984ABDE31C59D463525D038D7EA4C68000",
+    "BookNode" : "0",
+    "Flags" : 65536,
+    "LedgerEntryType" : "Offer",
+    "OwnerNode" : "0",
+    "Sequence" : 5,
+    "TakerGets" : {
+        "currency" : "USD",
+        "issuer" : "r32rQHyesiTtdWFU7UJVtff4nCR5SHCbJW",
+        "value" : "1"
+    },
+    "TakerPays" : "100000000",
+    "index" : "CAFE32332D752387B01083B60CC63069BA4A969C9730836929F841450F6A718E"
 })json",
     R"json({
     "Balance" : {
@@ -97,22 +113,6 @@ static char const* bobs_account_objects[] = {
     },
     "LowNode" : "0",
     "index" : "D89BC239086183EB9458C396E643795C1134963E6550E682A190A5F021766D43"
-})json",
-    R"json({
-    "Account" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
-    "BookDirectory" : "50AD0A9E54D2B381288D535EB724E4275FFBF41580D28A925D038D7EA4C68000",
-    "BookNode" : "0",
-    "Flags" : 65536,
-    "LedgerEntryType" : "Offer",
-    "OwnerNode" : "0",
-    "Sequence" : 3,
-    "TakerGets" : {
-        "currency" : "USD",
-        "issuer" : "rPMh7Pi9ct699iZUTWaytJUoHcJ7cgyziK",
-        "value" : "1"
-    },
-    "TakerPays" : "100000000",
-    "index" : "E11029302EE744401427793A4F37BCB18F698D55C96851BEC5ABBD6242CF03D7"
 })json"};
 
 class AccountObjects_test : public beast::unit_test::suite
@@ -334,7 +334,7 @@ public:
                 auto& aobj = resp[jss::result][jss::account_objects][i];
                 aobj.removeMember("PreviousTxnID");
                 aobj.removeMember("PreviousTxnLgrSeq");
-                BEAST_EXPECT(aobj == bobj[i + 1]);
+                BEAST_EXPECT(aobj == bobj[i + 2]);
             }
         }
         // test stepped one-at-a-time with limit=1, resume from prev marker

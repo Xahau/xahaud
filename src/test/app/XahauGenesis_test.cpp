@@ -478,6 +478,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this, makeNetworkConfig(21337), features - featureXahauGenesis};
+        env.close();
 
         activate(__LINE__, env, false, false, false);
     }
@@ -509,6 +510,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 *this,
                 makeNetworkConfig(netid),
                 features - featureXahauGenesis};
+            env.close();
             activate(__LINE__, env, false, false, false, true);
         }
 
@@ -518,6 +520,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 *this,
                 makeNetworkConfig(netid),
                 features - featureXahauGenesis};
+            env.close();
             activate(__LINE__, env, false, false, false, false);
         }
     }

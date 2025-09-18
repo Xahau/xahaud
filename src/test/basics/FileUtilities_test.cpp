@@ -33,7 +33,7 @@ public:
     void
     testGetFileContents()
     {
-        using namespace ripple::test::detail;
+        using namespace ripple::detail;
         using namespace boost::system;
 
         constexpr char const* expectedContents =

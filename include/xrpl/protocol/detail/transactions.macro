@@ -22,16 +22,31 @@
 #endif
 
 /**
- * TRANSACTION(tag, value, name, delegatable, amendments, fields)
+ * TRANSACTION(tag, value, name, delegatable, amendments, privileges, fields)
+ *
+ * To ease maintenance, you may replace any unneeded values with "..."
+ * e.g. #define TRANSACTION(tag, value, name, ...)
  *
  * You must define a transactor class in the `ripple` namespace named `name`,
- * and include its header in `src/xrpld/app/tx/detail/applySteps.cpp`.
+ * and include its header alongside the TRANSACTOR definition using this
+ * format:
+ * #if TRANSACTION_INCLUDE
+ * #   include <xrpld/app/tx/detail/HEADER.h>
+ * #endif
+ *
+ * The `privileges` parameter of the TRANSACTION macro is a bitfield
+ * defining which operations the transaction can perform.
+ * The values are defined and used in InvariantCheck.cpp
  */
 
 /** This transaction type executes a payment. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Payment.h>
+#endif
 TRANSACTION(ttPAYMENT, 0, Payment,
     Delegation::delegatable,
     uint256{},
+    createAcct,
     ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED, soeMPTSupported},
@@ -45,9 +60,13 @@ TRANSACTION(ttPAYMENT, 0, Payment,
 }))
 
 /** This transaction type creates an escrow object. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Escrow.h>
+#endif
 TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -61,6 +80,7 @@ TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate,
 TRANSACTION(ttESCROW_FINISH, 2, EscrowFinish,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfOwner, soeREQUIRED},
     {sfOfferSequence, soeOPTIONAL},
@@ -72,9 +92,13 @@ TRANSACTION(ttESCROW_FINISH, 2, EscrowFinish,
 
 
 /** This transaction type adjusts various account settings. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetAccount.h>
+#endif
 TRANSACTION(ttACCOUNT_SET, 3, AccountSet,
     Delegation::notDelegatable,
     uint256{},
+    noPriv,
     ({
     {sfEmailHash, soeOPTIONAL},
     {sfWalletLocator, soeOPTIONAL},
@@ -90,9 +114,13 @@ TRANSACTION(ttACCOUNT_SET, 3, AccountSet,
 }))
 
 /** This transaction type cancels an existing escrow. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Escrow.h>
+#endif
 TRANSACTION(ttESCROW_CANCEL, 4, EscrowCancel,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfOwner, soeREQUIRED},
     {sfOfferSequence, soeOPTIONAL},
@@ -100,9 +128,13 @@ TRANSACTION(ttESCROW_CANCEL, 4, EscrowCancel,
 }))
 
 /** This transaction type sets or clears an account's "regular key". */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetRegularKey.h>
+#endif
 TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey,
     Delegation::notDelegatable,
     uint256{},
+    noPriv,
     ({
     {sfRegularKey, soeOPTIONAL},
 }))
@@ -110,9 +142,13 @@ TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey,
 // 6 deprecated
 
 /** This transaction type creates an offer to trade one asset for another. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CreateOffer.h>
+#endif
 TRANSACTION(ttOFFER_CREATE, 7, OfferCreate,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfTakerPays, soeREQUIRED},
     {sfTakerGets, soeREQUIRED},
@@ -123,9 +159,13 @@ TRANSACTION(ttOFFER_CREATE, 7, OfferCreate,
 }))
 
 /** This transaction type cancels existing offers to trade one asset for another. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CancelOffer.h>
+#endif
 TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfOfferSequence, soeOPTIONAL},
     {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
@@ -134,9 +174,13 @@ TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel,
 // 9 deprecated
 
 /** This transaction type creates a new set of tickets. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CreateTicket.h>
+#endif
 TRANSACTION(ttTICKET_CREATE, 10, TicketCreate,
     Delegation::delegatable,
     featureTicketBatch,
+    noPriv,
     ({
     {sfTicketCount, soeREQUIRED},
 }))
@@ -146,18 +190,26 @@ TRANSACTION(ttTICKET_CREATE, 10, TicketCreate,
 /** This transaction type modifies the signer list associated with an account. */
 // The SignerEntries are optional because a SignerList is deleted by
 // setting the SignerQuorum to zero and omitting SignerEntries.
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetSignerList.h>
+#endif
 TRANSACTION(ttSIGNER_LIST_SET, 12, SignerListSet,
     Delegation::notDelegatable,
     uint256{},
+    noPriv,
     ({
     {sfSignerQuorum, soeREQUIRED},
     {sfSignerEntries, soeOPTIONAL},
 }))
 
 /** This transaction type creates a new unidirectional XRP payment channel. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/PayChan.h>
+#endif
 TRANSACTION(ttPAYCHAN_CREATE, 13, PaymentChannelCreate,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -171,6 +223,7 @@ TRANSACTION(ttPAYCHAN_CREATE, 13, PaymentChannelCreate,
 TRANSACTION(ttPAYCHAN_FUND, 14, PaymentChannelFund,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfChannel, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -181,6 +234,7 @@ TRANSACTION(ttPAYCHAN_FUND, 14, PaymentChannelFund,
 TRANSACTION(ttPAYCHAN_CLAIM, 15, PaymentChannelClaim,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfChannel, soeREQUIRED},
     {sfAmount, soeOPTIONAL},
@@ -191,9 +245,13 @@ TRANSACTION(ttPAYCHAN_CLAIM, 15, PaymentChannelClaim,
 }))
 
 /** This transaction type creates a new check. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CreateCheck.h>
+#endif
 TRANSACTION(ttCHECK_CREATE, 16, CheckCreate,
     Delegation::delegatable,
     featureChecks,
+    noPriv,
     ({
     {sfDestination, soeREQUIRED},
     {sfSendMax, soeREQUIRED},
@@ -203,9 +261,13 @@ TRANSACTION(ttCHECK_CREATE, 16, CheckCreate,
 }))
 
 /** This transaction type cashes an existing check. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CashCheck.h>
+#endif
 TRANSACTION(ttCHECK_CASH, 17, CheckCash,
     Delegation::delegatable,
     featureChecks,
+    noPriv,
     ({
     {sfCheckID, soeREQUIRED},
     {sfAmount, soeOPTIONAL},
@@ -213,17 +275,25 @@ TRANSACTION(ttCHECK_CASH, 17, CheckCash,
 }))
 
 /** This transaction type cancels an existing check. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CancelCheck.h>
+#endif
 TRANSACTION(ttCHECK_CANCEL, 18, CheckCancel,
     Delegation::delegatable,
     featureChecks,
+    noPriv,
     ({
     {sfCheckID, soeREQUIRED},
 }))
 
 /** This transaction type grants or revokes authorization to transfer funds. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DepositPreauth.h>
+#endif
 TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth,
     Delegation::delegatable,
     featureDepositPreauth,
+    noPriv,
     ({
     {sfAuthorize, soeOPTIONAL},
     {sfUnauthorize, soeOPTIONAL},
@@ -232,9 +302,13 @@ TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth,
 }))
 
 /** This transaction type modifies a trustline between two accounts. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetTrust.h>
+#endif
 TRANSACTION(ttTRUST_SET, 20, TrustSet,
     Delegation::delegatable,
     uint256{},
+    noPriv,
     ({
     {sfLimitAmount, soeOPTIONAL},
     {sfQualityIn, soeOPTIONAL},
@@ -242,9 +316,13 @@ TRANSACTION(ttTRUST_SET, 20, TrustSet,
 }))
 
 /** This transaction type deletes an existing account. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DeleteAccount.h>
+#endif
 TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete,
     Delegation::notDelegatable,
     uint256{},
+    mustDeleteAcct,
     ({
     {sfDestination, soeREQUIRED},
     {sfDestinationTag, soeOPTIONAL},
@@ -252,17 +330,25 @@ TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete,
 }))
 
 /** This transaction type installs a hook. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetHook.h>
+#endif
 TRANSACTION(ttHOOK_SET, 22, SetHook,
     Delegation::delegatable,
     featureHooks,
+    noPriv,
     ({
     {sfHooks, soeREQUIRED},
 }))
 
 /** This transaction mints a new NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenMint.h>
+#endif
 TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint,
     Delegation::delegatable,
     featureNonFungibleTokensV1,
+    changeNFTCounts,
     ({
     {sfNFTokenTaxon, soeREQUIRED},
     {sfTransferFee, soeOPTIONAL},
@@ -274,18 +360,26 @@ TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint,
 }))
 
 /** This transaction burns (i.e. destroys) an existing NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenBurn.h>
+#endif
 TRANSACTION(ttNFTOKEN_BURN, 26, NFTokenBurn,
     Delegation::delegatable,
     featureNonFungibleTokensV1,
+    changeNFTCounts,
     ({
     {sfNFTokenID, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
 }))
 
 /** This transaction creates a new offer to buy or sell an NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenCreateOffer.h>
+#endif
 TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer,
     Delegation::delegatable,
     featureNonFungibleTokensV1,
+    noPriv,
     ({
     {sfNFTokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -295,17 +389,25 @@ TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer,
 }))
 
 /** This transaction cancels an existing offer to buy or sell an existing NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenCancelOffer.h>
+#endif
 TRANSACTION(ttNFTOKEN_CANCEL_OFFER, 28, NFTokenCancelOffer,
     Delegation::delegatable,
     featureNonFungibleTokensV1,
+    noPriv,
     ({
     {sfNFTokenOffers, soeREQUIRED},
 }))
 
 /** This transaction accepts an existing offer to buy or sell an existing  NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenAcceptOffer.h>
+#endif
 TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer,
     Delegation::delegatable,
     featureNonFungibleTokensV1,
+    noPriv,
     ({
     {sfNFTokenBuyOffer, soeOPTIONAL},
     {sfNFTokenSellOffer, soeOPTIONAL},
@@ -313,18 +415,26 @@ TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer,
 }))
 
 /** This transaction claws back issued tokens. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Clawback.h>
+#endif
 TRANSACTION(ttCLAWBACK, 30, Clawback,
     Delegation::delegatable,
     featureClawback,
+    noPriv,
     ({
     {sfAmount, soeREQUIRED, soeMPTSupported},
     {sfHolder, soeOPTIONAL},
 }))
 
 /** This transaction claws back tokens from an AMM pool. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMClawback.h>
+#endif
 TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback,
     Delegation::delegatable,
     featureAMMClawback,
+    mayDeleteAcct | overrideFreeze,
     ({
     {sfHolder, soeREQUIRED},
     {sfAsset, soeREQUIRED},
@@ -333,9 +443,13 @@ TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback,
 }))
 
 /** This transaction type creates an AMM instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMCreate.h>
+#endif
 TRANSACTION(ttAMM_CREATE, 35, AMMCreate,
     Delegation::delegatable,
     featureAMM,
+    createPseudoAcct,
     ({
     {sfAmount, soeREQUIRED},
     {sfAmount2, soeREQUIRED},
@@ -343,9 +457,13 @@ TRANSACTION(ttAMM_CREATE, 35, AMMCreate,
 }))
 
 /** This transaction type deposits into an AMM instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMDeposit.h>
+#endif
 TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit,
     Delegation::delegatable,
     featureAMM,
+    noPriv,
     ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -357,9 +475,13 @@ TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit,
 }))
 
 /** This transaction type withdraws from an AMM instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMWithdraw.h>
+#endif
 TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw,
     Delegation::delegatable,
     featureAMM,
+    mayDeleteAcct,
     ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -370,9 +492,13 @@ TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw,
 }))
 
 /** This transaction type votes for the trading fee */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMVote.h>
+#endif
 TRANSACTION(ttAMM_VOTE, 38, AMMVote,
     Delegation::delegatable,
     featureAMM,
+    noPriv,
     ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -380,9 +506,13 @@ TRANSACTION(ttAMM_VOTE, 38, AMMVote,
 }))
 
 /** This transaction type bids for the auction slot */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMBid.h>
+#endif
 TRANSACTION(ttAMM_BID, 39, AMMBid,
     Delegation::delegatable,
     featureAMM,
+    noPriv,
     ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -392,18 +522,26 @@ TRANSACTION(ttAMM_BID, 39, AMMBid,
 }))
 
 /** This transaction type deletes AMM in the empty state */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMDelete.h>
+#endif
 TRANSACTION(ttAMM_DELETE, 40, AMMDelete,
     Delegation::delegatable,
     featureAMM,
+    mustDeleteAcct,
     ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
 }))
 
 /** This transaction mints/burns/buys/sells a URI TOKEN */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/URIToken.h>
+#endif
 TRANSACTION(ttURITOKEN_MINT, 45, URITokenMint,
     Delegation::delegatable,
     featureURIToken,
+    noPriv,
     ({
     {sfURI, soeREQUIRED},
     {sfDigest, soeOPTIONAL},
@@ -414,6 +552,7 @@ TRANSACTION(ttURITOKEN_MINT, 45, URITokenMint,
 TRANSACTION(ttURITOKEN_BURN, 46, URITokenBurn,
     Delegation::delegatable,
     featureURIToken,
+    noPriv,
     ({
     {sfURITokenID, soeREQUIRED},
 }))
@@ -421,6 +560,7 @@ TRANSACTION(ttURITOKEN_BURN, 46, URITokenBurn,
 TRANSACTION(ttURITOKEN_BUY, 47, URITokenBuy,
     Delegation::delegatable,
     featureURIToken,
+    noPriv,
     ({
     {sfURITokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -429,6 +569,7 @@ TRANSACTION(ttURITOKEN_BUY, 47, URITokenBuy,
 TRANSACTION(ttURITOKEN_CREATE_SELL_OFFER, 48, URITokenCreateSellOffer,
     Delegation::delegatable,
     featureURIToken,
+    noPriv,
     ({
     {sfURITokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -438,14 +579,19 @@ TRANSACTION(ttURITOKEN_CREATE_SELL_OFFER, 48, URITokenCreateSellOffer,
 TRANSACTION(ttURITOKEN_CANCEL_SELL_OFFER, 49, URITokenCancelSellOffer,
     Delegation::delegatable,
     featureURIToken,
+    noPriv,
     ({
     {sfURITokenID, soeREQUIRED},
 }))
 
 /** This transactions creates a crosschain sequence number */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/XChainBridge.h>
+#endif
 TRANSACTION(ttXCHAIN_CREATE_CLAIM_ID, 50, XChainCreateClaimID,
     Delegation::delegatable,
     featureXChainBridge,
+    noPriv,
     ({
     {sfXChainBridge, soeREQUIRED},
     {sfSignatureReward, soeREQUIRED},
@@ -456,6 +602,7 @@ TRANSACTION(ttXCHAIN_CREATE_CLAIM_ID, 50, XChainCreateClaimID,
 TRANSACTION(ttXCHAIN_COMMIT, 51, XChainCommit,
     Delegation::delegatable,
     featureXChainBridge,
+    noPriv,
     ({
     {sfXChainBridge, soeREQUIRED},
     {sfXChainClaimID, soeREQUIRED},
@@ -467,6 +614,7 @@ TRANSACTION(ttXCHAIN_COMMIT, 51, XChainCommit,
 TRANSACTION(ttXCHAIN_CLAIM, 52, XChainClaim,
     Delegation::delegatable,
     featureXChainBridge,
+    noPriv,
     ({
     {sfXChainBridge, soeREQUIRED},
     {sfXChainClaimID, soeREQUIRED},
@@ -479,6 +627,7 @@ TRANSACTION(ttXCHAIN_CLAIM, 52, XChainClaim,
 TRANSACTION(ttXCHAIN_ACCOUNT_CREATE_COMMIT, 53, XChainAccountCreateCommit,
     Delegation::delegatable,
     featureXChainBridge,
+    noPriv,
     ({
     {sfXChainBridge, soeREQUIRED},
     {sfDestination, soeREQUIRED},
@@ -490,6 +639,7 @@ TRANSACTION(ttXCHAIN_ACCOUNT_CREATE_COMMIT, 53, XChainAccountCreateCommit,
 TRANSACTION(ttXCHAIN_ADD_CLAIM_ATTESTATION, 54, XChainAddClaimAttestation,
     Delegation::delegatable,
     featureXChainBridge,
+    createAcct,
     ({
     {sfXChainBridge, soeREQUIRED},
 
@@ -506,9 +656,11 @@ TRANSACTION(ttXCHAIN_ADD_CLAIM_ATTESTATION, 54, XChainAddClaimAttestation,
 }))
 
 /** This transaction adds an attestation to an account */
-TRANSACTION(ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION, 55, XChainAddAccountCreateAttestation,
+TRANSACTION(ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION, 55,
+    XChainAddAccountCreateAttestation,
     Delegation::delegatable,
     featureXChainBridge,
+    createAcct,
     ({
     {sfXChainBridge, soeREQUIRED},
 
@@ -529,6 +681,7 @@ TRANSACTION(ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION, 55, XChainAddAccountCreateA
 TRANSACTION(ttXCHAIN_MODIFY_BRIDGE, 56, XChainModifyBridge,
     Delegation::delegatable,
     featureXChainBridge,
+    noPriv,
     ({
     {sfXChainBridge, soeREQUIRED},
     {sfSignatureReward, soeOPTIONAL},
@@ -539,6 +692,7 @@ TRANSACTION(ttXCHAIN_MODIFY_BRIDGE, 56, XChainModifyBridge,
 TRANSACTION(ttXCHAIN_CREATE_BRIDGE, 57, XChainCreateBridge,
     Delegation::delegatable,
     featureXChainBridge,
+    noPriv,
     ({
     {sfXChainBridge, soeREQUIRED},
     {sfSignatureReward, soeREQUIRED},
@@ -546,9 +700,13 @@ TRANSACTION(ttXCHAIN_CREATE_BRIDGE, 57, XChainCreateBridge,
 }))
 
 /** This transaction type creates or updates a DID */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DID.h>
+#endif
 TRANSACTION(ttDID_SET, 58, DIDSet,
     Delegation::delegatable,
     featureDID,
+    noPriv,
     ({
     {sfDIDDocument, soeOPTIONAL},
     {sfURI, soeOPTIONAL},
@@ -559,12 +717,17 @@ TRANSACTION(ttDID_SET, 58, DIDSet,
 TRANSACTION(ttDID_DELETE, 59, DIDDelete,
     Delegation::delegatable,
     featureDID,
+    noPriv,
     ({}))
 
 /** This transaction type creates an Oracle instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetOracle.h>
+#endif
 TRANSACTION(ttORACLE_SET, 60, OracleSet,
     Delegation::delegatable,
     featurePriceOracle,
+    noPriv,
     ({
     {sfOracleDocumentID, soeREQUIRED},
     {sfProvider, soeOPTIONAL},
@@ -575,26 +738,38 @@ TRANSACTION(ttORACLE_SET, 60, OracleSet,
 }))
 
 /** This transaction type deletes an Oracle instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DeleteOracle.h>
+#endif
 TRANSACTION(ttORACLE_DELETE, 61, OracleDelete,
     Delegation::delegatable,
     featurePriceOracle,
+    noPriv,
     ({
     {sfOracleDocumentID, soeREQUIRED},
 }))
 
 /** This transaction type fixes a problem in the ledger state */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/LedgerStateFix.h>
+#endif
 TRANSACTION(ttLEDGER_STATE_FIX, 62, LedgerStateFix,
     Delegation::delegatable,
     fixNFTokenPageLinks,
+    noPriv,
     ({
     {sfLedgerFixType, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
 }))
 
 /** This transaction type creates a MPTokensIssuance instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenIssuanceCreate.h>
+#endif
 TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate,
     Delegation::delegatable,
     featureMPTokensV1,
+    createMPTIssuance,
     ({
     {sfAssetScale, soeOPTIONAL},
     {sfTransferFee, soeOPTIONAL},
@@ -605,17 +780,25 @@ TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate,
 }))
 
 /** This transaction type destroys a MPTokensIssuance instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenIssuanceDestroy.h>
+#endif
 TRANSACTION(ttMPTOKEN_ISSUANCE_DESTROY, 64, MPTokenIssuanceDestroy,
     Delegation::delegatable,
     featureMPTokensV1,
+    destroyMPTIssuance,
     ({
     {sfMPTokenIssuanceID, soeREQUIRED},
 }))
 
 /** This transaction type sets flags on a MPTokensIssuance or MPToken instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenIssuanceSet.h>
+#endif
 TRANSACTION(ttMPTOKEN_ISSUANCE_SET, 65, MPTokenIssuanceSet,
     Delegation::delegatable,
     featureMPTokensV1,
+    noPriv,
     ({
     {sfMPTokenIssuanceID, soeREQUIRED},
     {sfHolder, soeOPTIONAL},
@@ -626,18 +809,26 @@ TRANSACTION(ttMPTOKEN_ISSUANCE_SET, 65, MPTokenIssuanceSet,
 }))
 
 /** This transaction type authorizes a MPToken instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenAuthorize.h>
+#endif
 TRANSACTION(ttMPTOKEN_AUTHORIZE, 66, MPTokenAuthorize,
     Delegation::delegatable,
     featureMPTokensV1,
+    mustAuthorizeMPT,
     ({
     {sfMPTokenIssuanceID, soeREQUIRED},
     {sfHolder, soeOPTIONAL},
 }))
 
 /** This transaction type create an Credential instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Credentials.h>
+#endif
 TRANSACTION(ttCREDENTIAL_CREATE, 67, CredentialCreate,
     Delegation::delegatable,
     featureCredentials,
+    noPriv,
     ({
     {sfSubject, soeREQUIRED},
     {sfCredentialType, soeREQUIRED},
@@ -649,6 +840,7 @@ TRANSACTION(ttCREDENTIAL_CREATE, 67, CredentialCreate,
 TRANSACTION(ttCREDENTIAL_ACCEPT, 68, CredentialAccept,
     Delegation::delegatable,
     featureCredentials,
+    noPriv,
     ({
     {sfIssuer, soeREQUIRED},
     {sfCredentialType, soeREQUIRED},
@@ -658,6 +850,7 @@ TRANSACTION(ttCREDENTIAL_ACCEPT, 68, CredentialAccept,
 TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete,
     Delegation::delegatable,
     featureCredentials,
+    noPriv,
     ({
     {sfSubject, soeOPTIONAL},
     {sfIssuer, soeOPTIONAL},
@@ -665,9 +858,13 @@ TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete,
 }))
 
 /** This transaction type modify a NFToken */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenModify.h>
+#endif
 TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify,
     Delegation::delegatable,
     featureDynamicNFT,
+    noPriv,
     ({
     {sfNFTokenID, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
@@ -675,35 +872,51 @@ TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify,
 }))
 
 /** This transaction type creates or modifies a Permissioned Domain */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/PermissionedDomainSet.h>
+#endif
 TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet,
     Delegation::delegatable,
     featurePermissionedDomains,
+    noPriv,
     ({
     {sfDomainID, soeOPTIONAL},
     {sfAcceptedCredentials, soeREQUIRED},
 }))
 
 /** This transaction type deletes a Permissioned Domain */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/PermissionedDomainDelete.h>
+#endif
 TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete,
     Delegation::delegatable,
     featurePermissionedDomains,
+    noPriv,
     ({
     {sfDomainID, soeREQUIRED},
 }))
 
 /** This transaction type delegates authorized account specified permissions */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DelegateSet.h>
+#endif
 TRANSACTION(ttDELEGATE_SET, 73, DelegateSet,
     Delegation::notDelegatable,
     featurePermissionDelegation,
+    noPriv,
     ({
     {sfAuthorize, soeREQUIRED},
     {sfPermissions, soeREQUIRED},
 }))
 
 /** This transaction creates a single asset vault. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/VaultCreate.h>
+#endif
 TRANSACTION(ttVAULT_CREATE, 74, VaultCreate,
     Delegation::delegatable,
     featureSingleAssetVault,
+    createPseudoAcct | createMPTIssuance,
     ({
     {sfAsset, soeREQUIRED, soeMPTSupported},
     {sfAssetsMaximum, soeOPTIONAL},
@@ -714,9 +927,13 @@ TRANSACTION(ttVAULT_CREATE, 74, VaultCreate,
 }))
 
 /** This transaction updates a single asset vault. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/VaultSet.h>
+#endif
 TRANSACTION(ttVAULT_SET, 75, VaultSet,
     Delegation::delegatable,
     featureSingleAssetVault,
+    noPriv,
     ({
     {sfVaultID, soeREQUIRED},
     {sfAssetsMaximum, soeOPTIONAL},
@@ -725,26 +942,38 @@ TRANSACTION(ttVAULT_SET, 75, VaultSet,
 }))
 
 /** This transaction deletes a single asset vault. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/VaultDelete.h>
+#endif
 TRANSACTION(ttVAULT_DELETE, 76, VaultDelete,
     Delegation::delegatable,
     featureSingleAssetVault,
+    mustDeleteAcct | destroyMPTIssuance,
     ({
     {sfVaultID, soeREQUIRED},
 }))
 
 /** This transaction trades assets for shares with a vault. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/VaultDeposit.h>
+#endif
 TRANSACTION(ttVAULT_DEPOSIT, 77, VaultDeposit,
     Delegation::delegatable,
     featureSingleAssetVault,
+    mayAuthorizeMPT,
     ({
     {sfVaultID, soeREQUIRED},
     {sfAmount, soeREQUIRED, soeMPTSupported},
 }))
 
 /** This transaction trades shares for assets with a vault. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/VaultWithdraw.h>
+#endif
 TRANSACTION(ttVAULT_WITHDRAW, 78, VaultWithdraw,
     Delegation::delegatable,
     featureSingleAssetVault,
+    mayDeleteMPT,
     ({
     {sfVaultID, soeREQUIRED},
     {sfAmount, soeREQUIRED, soeMPTSupported},
@@ -753,9 +982,13 @@ TRANSACTION(ttVAULT_WITHDRAW, 78, VaultWithdraw,
 }))
 
 /** This transaction claws back tokens from a vault. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/VaultClawback.h>
+#endif
 TRANSACTION(ttVAULT_CLAWBACK, 79, VaultClawback,
     Delegation::delegatable,
     featureSingleAssetVault,
+    mayDeleteMPT,
     ({
     {sfVaultID, soeREQUIRED},
     {sfHolder, soeREQUIRED},
@@ -763,27 +996,39 @@ TRANSACTION(ttVAULT_CLAWBACK, 79, VaultClawback,
 }))
 
 /** This transaction type batches together transactions. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Batch.h>
+#endif
 TRANSACTION(ttBATCH, 80, Batch,
     Delegation::notDelegatable,
     featureBatch,
+    noPriv,
     ({
     {sfRawTransactions, soeREQUIRED},
     {sfBatchSigners, soeOPTIONAL},
 }))
 
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Cron.h>
+#endif
 TRANSACTION(ttCRON, 92, Cron,
     Delegation::notDelegatable,
     featureCron,
+    noPriv,
     ({
     {sfOwner, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
 }))
 
 /* Sechedule an alarm for later */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CronSet.h>
+#endif
 TRANSACTION(ttCRON_SET, 93, CronSet,
     Delegation::delegatable,
     featureCron,
+    noPriv,
     ({
     {sfDelaySeconds, soeOPTIONAL},
     {sfRepeatCount, soeOPTIONAL},
@@ -791,9 +1036,13 @@ TRANSACTION(ttCRON_SET, 93, CronSet,
 }))
 
 /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetRemarks.h>
+#endif
 TRANSACTION(ttREMARKS_SET, 94, SetRemarks,
     Delegation::delegatable,
     featureRemarks,
+    noPriv,
     ({
     {sfObjectID, soeREQUIRED},
     {sfRemarks, soeREQUIRED},
@@ -801,9 +1050,13 @@ TRANSACTION(ttREMARKS_SET, 94, SetRemarks,
 
 /* A payment transactor that delivers only the exact amounts specified, creating accounts and TLs as needed 
   * that the sender pays for. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Remit.h>
+#endif
 TRANSACTION(ttREMIT, 95, Remit,
     Delegation::delegatable,
     featureRemit,
+    createAcct,
     ({
     {sfDestination, soeREQUIRED},
     {sfAmounts, soeOPTIONAL},
@@ -818,18 +1071,26 @@ TRANSACTION(ttREMIT, 95, Remit,
 /** This transaction can only be used by the genesis account, which is controlled exclusively by
   * rewards/governance hooks, to print new XRP to be delivered directly to an array of destinations,
   * according to reward schedule */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/GenesisMint.h>
+#endif
 TRANSACTION(ttGENESIS_MINT, 96, GenesisMint,
     Delegation::notDelegatable,
     featureXahauGenesis,
+    createAcct,
     ({
     {sfGenesisMints, soeREQUIRED},
 }))
 
 /** This transaction accepts a proof of burn from an external network as a basis
   * for minting according to featureImport */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Import.h>
+#endif
 TRANSACTION(ttIMPORT, 97, Import,
     Delegation::notDelegatable,
     featureImport,
+    createAcct,
     ({
     {sfBlob, soeREQUIRED},
     {sfIssuer, soeOPTIONAL},
@@ -837,18 +1098,26 @@ TRANSACTION(ttIMPORT, 97, Import,
 
 /** This transaction resets accumulator/counters and claims a reward for holding an average balance
   * from a specified hook */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/ClaimReward.h>
+#endif
 TRANSACTION(ttCLAIM_REWARD, 98, ClaimReward,
     Delegation::delegatable,
     featureBalanceRewards,
+    noPriv,
     ({
     {sfIssuer, soeOPTIONAL},
     {sfClaimCurrency, soeOPTIONAL},
 }))
 
 /** This transaction invokes a hook, providing arbitrary data. Essentially as a 0 drop payment. **/
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Invoke.h>
+#endif
 TRANSACTION(ttINVOKE, 99, Invoke,
     Delegation::delegatable,
     featureHooks,
+    noPriv,
     ({
     {sfBlob, soeOPTIONAL},
     {sfDestination, soeOPTIONAL},
@@ -860,9 +1129,13 @@ TRANSACTION(ttINVOKE, 99, Invoke,
 
     For details, see: https://xrpl.org/amendments.html
  */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Change.h>
+#endif
 TRANSACTION(ttAMENDMENT, 100, EnableAmendment,
     Delegation::notDelegatable,
     uint256{},
+    noPriv,
     ({
     {sfLedgerSequence, soeREQUIRED},
     {sfAmendment, soeREQUIRED},
@@ -874,6 +1147,7 @@ TRANSACTION(ttAMENDMENT, 100, EnableAmendment,
 TRANSACTION(ttFEE, 101, SetFee,
     Delegation::notDelegatable,
     uint256{},
+    noPriv,
     ({
     {sfLedgerSequence, soeOPTIONAL},
     // Old version uses raw numbers
@@ -894,6 +1168,7 @@ TRANSACTION(ttFEE, 101, SetFee,
 TRANSACTION(ttUNL_MODIFY, 102, UNLModify,
     Delegation::notDelegatable,
     uint256{},
+    noPriv,
     ({
     {sfUNLModifyDisabling, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
@@ -903,6 +1178,7 @@ TRANSACTION(ttUNL_MODIFY, 102, UNLModify,
 TRANSACTION(ttEMIT_FAILURE, 103, EmitFailure,
     Delegation::notDelegatable,
     featureHooks,
+    noPriv,
     ({
     {sfLedgerSequence, soeREQUIRED},
     {sfTransactionHash, soeREQUIRED},
@@ -911,6 +1187,7 @@ TRANSACTION(ttEMIT_FAILURE, 103, EmitFailure,
 TRANSACTION(ttUNL_REPORT, 104, UNLReport,
     Delegation::notDelegatable,
     featureXahauGenesis,
+    noPriv,
     ({
     {sfLedgerSequence, soeREQUIRED},
     {sfActiveValidator, soeOPTIONAL},
