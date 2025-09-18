@@ -740,7 +740,17 @@ to_string(base_uint<Bits, Tag> const& a)
 }
 
 template <std::size_t Bits, class Tag>
-std::ostream&
+inline std::string
+to_short_string(base_uint<Bits, Tag> const& a)
+{
+    static_assert(
+        base_uint<Bits, Tag>::bytes > 4,
+        "For 4 bytes or less, use a native type");
+    return strHex(a.cbegin(), a.cbegin() + 4) + "...";
+}
+
+template <std::size_t Bits, class Tag>
+inline std::ostream&
 operator<<(std::ostream& out, base_uint<Bits, Tag> const& u)
 {
     return out << to_string(u);

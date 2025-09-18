@@ -651,7 +651,7 @@ class JSONTxSignatures_test : public beast::unit_test::suite
         // every lookup the table could make is unambiguous
         std::set<std::string> seen;
         bool unique = true;
-        for (auto const& [code, f] : SField::knownCodeToField)
+        for (auto const& [code, f] : SField::getKnownCodeToField())
             if (f->isUseful() && f->isBinary() && f->fieldType < 10000 &&
                 !f->fieldName.empty())
                 unique =

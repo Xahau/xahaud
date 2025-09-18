@@ -629,7 +629,7 @@ jsontx_field(std::string const& name)
 {
     static auto const tbl = [] {
         std::unordered_map<std::string, SField const*> m;
-        for (auto const& [code, f] : SField::knownCodeToField)
+        for (auto const& [code, f] : SField::getKnownCodeToField())
             if (f->isUseful() && f->isBinary() && f->fieldType < 10000 &&
                 !f->fieldName.empty())
             {

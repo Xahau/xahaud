@@ -62,7 +62,8 @@ TxFormats::TxFormats()
 #undef TRANSACTION
 
 #define UNWRAP(...) __VA_ARGS__
-#define TRANSACTION(tag, value, name, delegatable, amendment, fields) \
+#define TRANSACTION(                                              \
+    tag, value, name, delegatable, amendment, privileges, fields) \
     add(jss::name, tag, UNWRAP fields, commonFields);
 
 #include <xrpl/protocol/detail/transactions.macro>
@@ -79,10 +80,10 @@ txRequiredFeature(TxType txType)
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, delegatable, amendment, fields) \
-    case tag:                                                         \
-        if (amendment == uint256{})                                   \
-            return std::nullopt;                                      \
+#define TRANSACTION(tag, value, name, delegatable, amendment, ...) \
+    case tag:                                                      \
+        if (amendment == uint256{})                                \
+            return std::nullopt;                                   \
         return amendment;
 
     switch (txType)
