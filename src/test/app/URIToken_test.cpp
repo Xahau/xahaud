@@ -20,9 +20,9 @@
 #include <test/jtx.h>
 
 #include <xrpld/core/ConfigSections.h>
-#include <xrpld/ledger/Dir.h>
 
 #include <xrpl/basics/chrono.h>
+#include <xrpl/ledger/Dir.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>

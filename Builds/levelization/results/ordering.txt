@@ -2,6 +2,10 @@ libxrpl.basics > xrpl.basics
 libxrpl.crypto > xrpl.basics
 libxrpl.json > xrpl.basics
 libxrpl.json > xrpl.json
+libxrpl.ledger > xrpl.basics
+libxrpl.ledger > xrpl.json
+libxrpl.ledger > xrpl.ledger
+libxrpl.ledger > xrpl.protocol
 libxrpl.net > xrpl.basics
 libxrpl.net > xrpl.net
 libxrpl.protocol > xrpl.basics
@@ -20,12 +24,12 @@ test.app > test.unit_test
 test.app > xrpl.basics
 test.app > xrpld.app
 test.app > xrpld.core
-test.app > xrpld.ledger
 test.app > xrpld.nodestore
 test.app > xrpld.overlay
 test.app > xrpld.rpc
 test.app > xrpl.hook
 test.app > xrpl.json
+test.app > xrpl.ledger
 test.app > xrpl.protocol
 test.app > xrpl.resource
 test.basics > test.jtx
@@ -45,8 +49,8 @@ test.consensus > xrpl.basics
 test.consensus > xrpld.app
 test.consensus > xrpld.consensus
 test.consensus > xrpld.core
-test.consensus > xrpld.ledger
 test.consensus > xrpl.json
+test.consensus > xrpl.ledger
 test.consensus > xrpl.protocol
 test.core > test.jtx
 test.core > test.toplevel
@@ -65,10 +69,10 @@ test.json > xrpl.json
 test.jtx > xrpl.basics
 test.jtx > xrpld.app
 test.jtx > xrpld.core
-test.jtx > xrpld.ledger
 test.jtx > xrpld.rpc
 test.jtx > xrpl.hook
 test.jtx > xrpl.json
+test.jtx > xrpl.ledger
 test.jtx > xrpl.net
 test.jtx > xrpl.protocol
 test.jtx > xrpl.resource
@@ -78,7 +82,7 @@ test.ledger > test.toplevel
 test.ledger > xrpl.basics
 test.ledger > xrpld.app
 test.ledger > xrpld.core
-test.ledger > xrpld.ledger
+test.ledger > xrpl.ledger
 test.ledger > xrpl.protocol
 test.nodestore > test.jtx
 test.nodestore > test.toplevel
@@ -147,6 +151,8 @@ tests.libxrpl > xrpl.basics
 xrpl.hook > xrpl.basics
 xrpl.hook > xrpl.protocol
 xrpl.json > xrpl.basics
+xrpl.ledger > xrpl.basics
+xrpl.ledger > xrpl.protocol
 xrpl.net > xrpl.basics
 xrpl.protocol > xrpl.basics
 xrpl.protocol > xrpl.json
@@ -163,6 +169,7 @@ xrpld.app > xrpld.consensus
 xrpld.app > xrpld.perflog
 xrpld.app > xrpl.hook
 xrpld.app > xrpl.json
+xrpld.app > xrpl.ledger
 xrpld.app > xrpl.net
 xrpld.app > xrpl.resource
 xrpld.conditions > xrpl.basics
@@ -174,9 +181,6 @@ xrpld.core > xrpl.basics
 xrpld.core > xrpl.json
 xrpld.core > xrpl.net
 xrpld.core > xrpl.protocol
-xrpld.ledger > xrpl.basics
-xrpld.ledger > xrpl.json
-xrpld.ledger > xrpl.protocol
 xrpld.nodestore > xrpl.basics
 xrpld.nodestore > xrpld.core
 xrpld.nodestore > xrpld.unity
@@ -197,10 +201,10 @@ xrpld.perflog > xrpl.basics
 xrpld.perflog > xrpl.json
 xrpld.rpc > xrpl.basics
 xrpld.rpc > xrpld.core
-xrpld.rpc > xrpld.ledger
 xrpld.rpc > xrpld.nodestore
 xrpld.rpc > xrpld.shamap
 xrpld.rpc > xrpl.json
+xrpld.rpc > xrpl.ledger
 xrpld.rpc > xrpl.net
 xrpld.rpc > xrpl.protocol
 xrpld.rpc > xrpl.resource

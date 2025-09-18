@@ -28,11 +28,11 @@
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/core/ConfigSections.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 
 #include <string>
