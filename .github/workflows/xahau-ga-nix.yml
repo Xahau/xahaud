@@ -41,8 +41,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
-          # Install specific Conan version needed
-          pip install --upgrade "conan<2"
+          # Install Conan 2
+          pip install --upgrade "conan>=2.0"
 
       - name: Configure ccache
         uses: ./.github/actions/xahau-configure-ccache
@@ -54,18 +54,30 @@ jobs:
 
       - name: Configure Conan
         run: |
-          conan profile new default --detect || true # Ignore error if profile exists
-          conan profile update settings.compiler.cppstd=20 default
-          conan profile update settings.compiler=${{ matrix.compiler }} default
-          conan profile update settings.compiler.libcxx=libstdc++11 default
-          conan profile update env.CC=/usr/bin/${{ matrix.cc }} default
-          conan profile update env.CXX=/usr/bin/${{ matrix.cxx }} default
-          conan profile update conf.tools.build:compiler_executables='{"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}' default
+          # Create the default profile directory if it doesn't exist
+          mkdir -p ~/.conan2/profiles
 
-          # Set compiler version from matrix
-          conan profile update settings.compiler.version=${{ matrix.compiler_version }} default
+          # Create profile with our specific settings
+          cat > ~/.conan2/profiles/default <<EOF
+          [settings]
+          arch=x86_64
+          build_type=Release
+          compiler=${{ matrix.compiler }}
+          compiler.cppstd=20
+          compiler.libcxx=libstdc++11
+          compiler.version=${{ matrix.compiler_version }}
+          os=Linux
+
+          [buildenv]
+          CC=/usr/bin/${{ matrix.cc }}
+          CXX=/usr/bin/${{ matrix.cxx }}
+
+          [conf]
+          tools.build:compiler_executables={"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}
+          EOF
+
           # Display profile for verification
-          conan profile show default
+          conan profile show
 
       - name: Check environment
         run: |

@@ -69,6 +69,7 @@ source /opt/rh/gcc-toolset-11/enable
 export PATH=/usr/local/bin:$PATH
 export CC='ccache gcc' &&
 export CXX='ccache g++' &&
+export HBB_RELEASE_BUILD=1 &&
 echo "-- Build Rippled --" &&
 pwd &&
 
