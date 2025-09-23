@@ -184,9 +184,21 @@ public:
 
     /// state APIs
     // state
-    // state_foreign
+
+    Expected<Bytes, HookReturnCode>
+    state_foreign(
+        uint256 const& key,
+        uint256 const& ns,
+        AccountID const& account) const;
+
     // state_set
-    // state_foreign_set
+
+    Expected<uint64_t, HookReturnCode>
+    state_foreign_set(
+        uint256 const& key,
+        uint256 const& ns,
+        AccountID const& account,
+        Bytes& data) const;
 
     /// slot APIs
     // slot
@@ -238,6 +250,23 @@ private:
 
     inline Expected<uint64_t, HookReturnCode>
     double_to_xfl(double x) const;
+
+    // update the state cache
+    inline std::optional<
+        std::reference_wrapper<std::pair<bool, ripple::Blob> const>>
+    lookup_state_cache(
+        AccountID const& acc,
+        uint256 const& ns,
+        uint256 const& key) const;
+
+    // check the state cache
+    inline Expected<uint64_t, HookReturnCode>
+    set_state_cache(
+        AccountID const& acc,
+        uint256 const& ns,
+        uint256 const& key,
+        Bytes const& data,
+        bool modified) const;
 };
 
 }  // namespace hook

@@ -8,10 +8,10 @@
 #include <ripple/app/tx/impl/ApplyContext.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
+#include <ripple/basics/base_uint.h>
 #include <ripple/protocol/STObject.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/tokens.h>
-#include "ripple/basics/base_uint.h"
 #include <cfenv>
 
 namespace hook {
@@ -629,6 +629,148 @@ HookAPI::ledger_keylet(Keylet const& klLo, Keylet const& klHi) const
     Keylet kl_out{klLo.type, *found};
 
     return kl_out;
+}
+
+Expected<Bytes, HookReturnCode>
+HookAPI::state_foreign(
+    uint256 const& key,
+    uint256 const& ns,
+    AccountID const& account) const
+{
+    // first check if the requested state was previously cached this session
+    auto cacheEntryLookup = lookup_state_cache(account, ns, key);
+    if (cacheEntryLookup)
+    {
+        auto const& cacheEntry = cacheEntryLookup->get();
+
+        return cacheEntry.second;
+    }
+
+    auto hsSLE =
+        hookCtx.applyCtx.view().peek(keylet::hookState(account, key, ns));
+
+    if (!hsSLE)
+        return Unexpected(DOESNT_EXIST);
+
+    Blob b = hsSLE->getFieldVL(sfHookStateData);
+
+    // it exists add it to cache and return it
+    if (!set_state_cache(account, ns, key, b, false).has_value())
+        return Unexpected(INTERNAL_ERROR);  // should never happen
+
+    return b;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::state_foreign_set(
+    uint256 const& key,
+    uint256 const& ns,
+    AccountID const& account,
+    Bytes& data) const
+{
+    // local modifications are always allowed
+    if (account == hookCtx.result.account)
+    {
+        if (auto ret = set_state_cache(account, ns, key, data, true);
+            !ret.has_value())
+            return ret.error();
+
+        return data.size();
+    }
+
+    // execution to here means it's actually a foreign set
+    if (hookCtx.result.foreignStateSetDisabled)
+        return Unexpected(PREVIOUS_FAILURE_PREVENTS_RETRY);
+
+    // first check if we've already modified this state
+    auto cacheEntry = lookup_state_cache(account, ns, key);
+    if (cacheEntry && cacheEntry->get().first)
+    {
+        // if a cache entry already exists and it has already been modified
+        // don't check grants again
+        if (auto ret = set_state_cache(account, ns, key, data, true);
+            !ret.has_value())
+            return ret.error();
+
+        return data.size();
+    }
+
+    // cache miss or cache was present but entry was not marked as previously
+    // modified therefore before continuing we need to check grants
+    auto const sle =
+        hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
+    if (!sle)
+        return Unexpected(INTERNAL_ERROR);
+
+    bool found_auth = false;
+
+    // we do this by iterating the hooks installed on the foreign account and in
+    // turn their grants and namespaces
+    auto const& hooks = sle->getFieldArray(sfHooks);
+    for (auto const& hookObj : hooks)
+    {
+        // skip blank entries
+        if (!hookObj.isFieldPresent(sfHookHash))
+            continue;
+
+        if (!hookObj.isFieldPresent(sfHookGrants))
+            continue;
+
+        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
+
+        if (hookGrants.size() < 1)
+            continue;
+
+        // the grant allows the hook to modify the granter's namespace only
+        if (hookObj.isFieldPresent(sfHookNamespace))
+        {
+            if (hookObj.getFieldH256(sfHookNamespace) != ns)
+                continue;
+        }
+        else
+        {
+            // fetch the hook definition
+            auto const def =
+                hookCtx.applyCtx.view().read(ripple::keylet::hookDefinition(
+                    hookObj.getFieldH256(sfHookHash)));
+            if (!def)  // should never happen except in a rare race condition
+                continue;
+            if (def->getFieldH256(sfHookNamespace) != ns)
+                continue;
+        }
+
+        // this is expensive search so we'll disallow after one failed attempt
+        for (auto const& hookGrantObj : hookGrants)
+        {
+            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
+
+            if (hookGrantObj.getFieldH256(sfHookHash) ==
+                    hookCtx.result.hookHash &&
+                (!hasAuthorizedField ||
+                 hookGrantObj.getAccountID(sfAuthorize) ==
+                     hookCtx.result.account))
+            {
+                found_auth = true;
+                break;
+            }
+        }
+
+        if (found_auth)
+            break;
+    }
+
+    if (!found_auth)
+    {
+        // hook only gets one attempt
+        hookCtx.result.foreignStateSetDisabled = true;
+        return Unexpected(NOT_AUTHORIZED);
+    }
+
+    if (auto ret = set_state_cache(account, ns, key, data, true);
+        !ret.has_value())
+        return ret.error();
+
+    return data.size();
 }
 
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
@@ -1665,6 +1807,160 @@ HookAPI::double_to_xfl(double x) const
     }
 
     return ret;
+}
+
+inline std::optional<
+    std::reference_wrapper<std::pair<bool, ripple::Blob> const>>
+HookAPI::lookup_state_cache(
+    AccountID const& acc,
+    uint256 const& ns,
+    uint256 const& key) const
+{
+    auto& stateMap = hookCtx.result.stateMap;
+    if (stateMap.find(acc) == stateMap.end())
+        return std::nullopt;
+
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
+    if (stateMapAcc.find(ns) == stateMapAcc.end())
+        return std::nullopt;
+
+    auto& stateMapNs = stateMapAcc[ns];
+
+    auto const& ret = stateMapNs.find(key);
+
+    if (ret == stateMapNs.end())
+        return std::nullopt;
+
+    return std::cref(ret->second);
+}
+
+// update the state cache
+inline Expected<uint64_t, HookReturnCode>
+HookAPI::set_state_cache(
+    AccountID const& acc,
+    uint256 const& ns,
+    uint256 const& key,
+    Bytes const& data,
+    bool modified) const
+{
+    auto& stateMap = hookCtx.result.stateMap;
+    auto& view = hookCtx.applyCtx.view();
+
+    if (modified && stateMap.modified_entry_count >= max_state_modifications)
+        return Unexpected(TOO_MANY_STATE_MODIFICATIONS);
+
+    bool const createNamespace = view.rules().enabled(fixXahauV1) &&
+        !view.exists(keylet::hookStateDir(acc, ns));
+
+    if (stateMap.find(acc) == stateMap.end())
+    {
+        // if this is the first time this account has been interacted with
+        // we will compute how many available reserve positions there are
+        auto const& fees = hookCtx.applyCtx.view().fees();
+
+        auto const accSLE = view.read(ripple::keylet::account(acc));
+
+        if (!accSLE)
+            return Unexpected(DOESNT_EXIST);
+
+        STAmount bal = accSLE->getFieldAmount(sfBalance);
+
+        int64_t availableForReserves = bal.xrp().drops() -
+            fees.accountReserve(accSLE->getFieldU32(sfOwnerCount)).drops();
+
+        int64_t increment = fees.increment.drops();
+
+        if (increment <= 0)
+            increment = 1;
+
+        availableForReserves /= increment;
+
+        if (availableForReserves < 1 && modified)
+            return Unexpected(RESERVE_INSUFFICIENT);
+
+        int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
+            ? accSLE->getFieldV256(sfHookNamespaces).size()
+            : 0;
+
+        if (createNamespace)
+        {
+            // overflow should never ever happen but check anyway
+            if (namespaceCount + 1 < namespaceCount)
+                return Unexpected(INTERNAL_ERROR);
+
+            if (++namespaceCount > hook::maxNamespaces())
+                return Unexpected(TOO_MANY_NAMESPACES);
+        }
+
+        stateMap.modified_entry_count++;
+
+        stateMap[acc] = {
+            availableForReserves - 1,
+            namespaceCount,
+            {{ns, {{key, {modified, data}}}}}};
+        return 1;
+    }
+
+    auto& availableForReserves = std::get<0>(stateMap[acc]);
+    auto& namespaceCount = std::get<1>(stateMap[acc]);
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
+    bool const canReserveNew = availableForReserves > 0;
+
+    if (stateMapAcc.find(ns) == stateMapAcc.end())
+    {
+        if (modified)
+        {
+            if (!canReserveNew)
+                return Unexpected(RESERVE_INSUFFICIENT);
+
+            if (createNamespace)
+            {
+                // overflow should never ever happen but check anyway
+                if (namespaceCount + 1 < namespaceCount)
+                    return Unexpected(INTERNAL_ERROR);
+
+                if (namespaceCount + 1 > hook::maxNamespaces())
+                    return Unexpected(TOO_MANY_NAMESPACES);
+
+                namespaceCount++;
+            }
+
+            availableForReserves--;
+            stateMap.modified_entry_count++;
+        }
+
+        stateMapAcc[ns] = {{key, {modified, data}}};
+
+        return 1;
+    }
+
+    auto& stateMapNs = stateMapAcc[ns];
+    if (stateMapNs.find(key) == stateMapNs.end())
+    {
+        if (modified)
+        {
+            if (!canReserveNew)
+                return Unexpected(RESERVE_INSUFFICIENT);
+            availableForReserves--;
+            stateMap.modified_entry_count++;
+        }
+
+        stateMapNs[key] = {modified, data};
+        hookCtx.result.changedStateCount++;
+        return 1;
+    }
+
+    if (modified)
+    {
+        if (!stateMapNs[key].first)
+            hookCtx.result.changedStateCount++;
+
+        stateMap.modified_entry_count++;
+        stateMapNs[key].first = true;
+    }
+
+    stateMapNs[key].second = data;
+    return 1;
 }
 
 }  // namespace hook
