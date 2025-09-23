@@ -585,6 +585,15 @@ HookAPI::ledger_last_hash() const
     return hookCtx.applyCtx.view().info().parentHash;
 }
 
+uint64_t
+HookAPI::ledger_last_time() const
+{
+    return hookCtx.applyCtx.view()
+        .info()
+        .parentCloseTime.time_since_epoch()
+        .count();
+}
+
 Expected<uint256, HookReturnCode>
 HookAPI::ledger_nonce() const
 {
