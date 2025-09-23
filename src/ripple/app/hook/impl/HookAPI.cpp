@@ -364,7 +364,7 @@ HookAPI::otxn_slot(uint32_t slot_into) const
 }
 
 Expected<Blob, HookReturnCode>
-HookAPI::otxn_param(Bytes param_name) const
+HookAPI::otxn_param(Bytes const& param_name) const
 {
     if (param_name.size() < 1)
         return Unexpected(TOO_SMALL);
@@ -567,7 +567,7 @@ HookAPI::hook_pos() const
 }
 
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
-HookAPI::emit(Slice txBlob) const
+HookAPI::emit(Slice const& txBlob) const
 {
     auto& applyCtx = hookCtx.applyCtx;
     auto j = applyCtx.app.journal("View");
@@ -896,7 +896,7 @@ HookAPI::etxn_burden() const
 }
 
 Expected<uint64_t, HookReturnCode>
-HookAPI::etxn_fee_base(ripple::Slice txBlob) const
+HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
 {
     auto& applyCtx = hookCtx.applyCtx;
     auto j = applyCtx.app.journal("View");

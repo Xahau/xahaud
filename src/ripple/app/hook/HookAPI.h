@@ -46,13 +46,13 @@ public:
 
     /// etxn APIs
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
-    emit(Slice txBlob) const;
+    emit(Slice const& txBlob) const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
 
     Expected<uint64_t, HookReturnCode>
-    etxn_fee_base(Slice txBlob) const;
+    etxn_fee_base(Slice const& txBlob) const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_details(uint8_t* out_ptr) const;
@@ -136,7 +136,7 @@ public:
     otxn_slot(uint32_t slot_into) const;
 
     Expected<Blob, HookReturnCode>
-    otxn_param(Bytes param_name) const;
+    otxn_param(Bytes const& param_name) const;
 
     /// hook APIs
     AccountID
