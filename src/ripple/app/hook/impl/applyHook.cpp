@@ -2302,7 +2302,8 @@ DEFINE_HOOK_FUNCNARG(int64_t, ledger_seq)
 {
     HOOK_SETUP();
 
-    return view.info().seq;
+    hook::HookAPI api(hookCtx);
+    return api.ledger_seq();
 
     HOOK_TEARDOWN();
 }
@@ -2320,7 +2321,8 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 32)
         return TOO_SMALL;
 
-    uint256 hash = view.info().parentHash;
+    hook::HookAPI api(hookCtx);
+    auto const hash = api.ledger_last_hash();
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, write_len, hash.data(), 32, memory, memory_length);
@@ -2332,9 +2334,8 @@ DEFINE_HOOK_FUNCNARG(int64_t, ledger_last_time)
 {
     HOOK_SETUP();
 
-    return std::chrono::duration_cast<std::chrono::seconds>(
-               view.info().parentCloseTime.time_since_epoch())
-        .count();
+    hook::HookAPI api(hookCtx);
+    return api.ledger_last_time();
 
     HOOK_TEARDOWN();
 }
@@ -3342,17 +3343,11 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (hookCtx.ledger_nonce_counter > hook_api::max_nonce)
-        return TOO_MANY_NONCES;
-
-    auto hash = ripple::sha512Half(
-        ripple::HashPrefix::hookNonce,
-        view.info().seq,
-        view.info().parentCloseTime.time_since_epoch().count(),
-        view.info().parentHash,
-        applyCtx.tx.getTransactionID(),
-        hookCtx.ledger_nonce_counter++,
-        hookCtx.result.account);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.ledger_nonce();
+    if (!result)
+        return result.error();
+    auto const& hash = result.value();
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, 32, hash.data(), 32, memory, memory_length);
@@ -3392,17 +3387,11 @@ DEFINE_HOOK_FUNCTION(
     if (!klHi)
         return INVALID_ARGUMENT;
 
-    // keylets must be the same type!
-    if ((*klLo).type != (*klHi).type)
-        return DOES_NOT_MATCH;
-
-    std::optional<ripple::uint256> found =
-        view.succ((*klLo).key, (*klHi).key.next());
-
-    if (!found)
-        return DOESNT_EXIST;
-
-    Keylet kl_out{(*klLo).type, *found};
+    hook::HookAPI api(hookCtx);
+    auto const result = api.ledger_keylet(*klLo, *klHi);
+    if (!result)
+        return result.error();
+    auto kl_out = result.value();
 
     return serialize_keylet(kl_out, memory, write_ptr, write_len);
 
@@ -4203,7 +4192,8 @@ DEFINE_HOOK_FUNCNARG(int64_t, fee_base)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    return view.fees().base.drops();
+    hook::HookAPI api(hookCtx);
+    return api.fee_base();
 
     HOOK_TEARDOWN();
 }

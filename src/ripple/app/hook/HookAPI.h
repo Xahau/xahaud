@@ -164,12 +164,23 @@ public:
     hook_pos() const;
 
     /// ledger APIs
-    // fee_base
-    // ledger_seq
-    // ledger_last_hash
-    // ledger_last_time
-    // ledger_nonce
-    // ledger_keylet
+    uint64_t
+    fee_base() const;
+
+    uint32_t
+    ledger_seq() const;
+
+    uint256
+    ledger_last_hash() const;
+
+    uint64_t
+    ledger_last_time() const;
+
+    Expected<uint256, HookReturnCode>
+    ledger_nonce() const;
+
+    Expected<Keylet, HookReturnCode>
+    ledger_keylet(Keylet const& klLo, Keylet const& klHi) const;
 
     /// state APIs
     // state

@@ -11,6 +11,7 @@
 #include <ripple/protocol/STObject.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/tokens.h>
+#include "ripple/basics/base_uint.h"
 #include <cfenv>
 
 namespace hook {
@@ -564,6 +565,61 @@ uint8_t
 HookAPI::hook_pos() const
 {
     return hookCtx.result.hookChainPosition;
+}
+
+uint64_t
+HookAPI::fee_base() const
+{
+    return hookCtx.applyCtx.view().fees().base.drops();
+}
+
+uint32_t
+HookAPI::ledger_seq() const
+{
+    return hookCtx.applyCtx.view().info().seq;
+}
+
+uint256
+HookAPI::ledger_last_hash() const
+{
+    return hookCtx.applyCtx.view().info().parentHash;
+}
+
+Expected<uint256, HookReturnCode>
+HookAPI::ledger_nonce() const
+{
+    auto& view = hookCtx.applyCtx.view();
+    if (hookCtx.ledger_nonce_counter > hook_api::max_nonce)
+        return Unexpected(TOO_MANY_NONCES);
+
+    auto hash = ripple::sha512Half(
+        ripple::HashPrefix::hookNonce,
+        view.info().seq,
+        view.info().parentCloseTime.time_since_epoch().count(),
+        view.info().parentHash,
+        hookCtx.applyCtx.tx.getTransactionID(),
+        hookCtx.ledger_nonce_counter++,
+        hookCtx.result.account);
+
+    return hash;
+}
+
+Expected<Keylet, HookReturnCode>
+HookAPI::ledger_keylet(Keylet const& klLo, Keylet const& klHi) const
+{
+    // keylets must be the same type!
+    if (klLo.type != klHi.type)
+        return Unexpected(DOES_NOT_MATCH);
+
+    std::optional<ripple::uint256> found =
+        hookCtx.applyCtx.view().succ(klLo.key, klHi.key.next());
+
+    if (!found)
+        return Unexpected(DOESNT_EXIST);
+
+    Keylet kl_out{klLo.type, *found};
+
+    return kl_out;
 }
 
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
