@@ -3256,31 +3256,11 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (hook_no == -1)
-    {
-        WRITE_WASM_MEMORY_AND_RETURN(
-            write_ptr,
-            write_len,
-            hookCtx.result.hookHash.data(),
-            32,
-            memory,
-            memory_length);
-    }
-
-    std::shared_ptr<SLE> hookSLE =
-        applyCtx.view().peek(hookCtx.result.hookKeylet);
-    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
-        return INTERNAL_ERROR;
-
-    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
-    if (hook_no >= hooks.size())
-        return DOESNT_EXIST;
-
-    auto const& hook = hooks[hook_no];
-    if (!hook.isFieldPresent(sfHookHash))
-        return DOESNT_EXIST;
-
-    ripple::uint256 const& hash = hook.getFieldH256(sfHookHash);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.hook_hash(hook_no);
+    if (!result)
+        return result.error();
+    auto const& hash = result.value();
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, write_len, hash.data(), hash.size(), memory, memory_length);
@@ -3304,13 +3284,11 @@ DEFINE_HOOK_FUNCTION(
     if (ptr_len < 20)
         return TOO_SMALL;
 
+    hook::HookAPI api(hookCtx);
+    auto const result = api.hook_account();
+
     WRITE_WASM_MEMORY_AND_RETURN(
-        write_ptr,
-        20,
-        hookCtx.result.account.data(),
-        20,
-        memory,
-        memory_length);
+        write_ptr, 20, result.data(), 20, memory, memory_length);
 
     HOOK_TEARDOWN();
 }
@@ -4970,54 +4948,18 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (read_len < 1)
-        return TOO_SMALL;
+    Bytes paramName{read_ptr + memory, read_ptr + read_len + memory};
 
-    if (read_len > 32)
-        return TOO_BIG;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.hook_param(paramName);
 
-    std::vector<uint8_t> paramName{
-        read_ptr + memory, read_ptr + read_len + memory};
+    if (!result)
+        return result.error();
 
-    // first check for overrides set by prior hooks in the chain
-    auto const& overrides = hookCtx.result.hookParamOverrides;
-    if (overrides.find(hookCtx.result.hookHash) != overrides.end())
-    {
-        auto const& params = overrides.at(hookCtx.result.hookHash);
-        if (params.find(paramName) != params.end())
-        {
-            auto const& param = params.at(paramName);
-            if (param.size() == 0)
-                return DOESNT_EXIST;  // allow overrides to "delete" parameters
+    auto const& val = result.value();
 
-            WRITE_WASM_MEMORY_AND_RETURN(
-                write_ptr,
-                write_len,
-                param.data(),
-                param.size(),
-                memory,
-                memory_length);
-        }
-    }
-
-    // next check if there's a param set on this hook
-    auto const& params = hookCtx.result.hookParams;
-    if (params.find(paramName) != params.end())
-    {
-        auto const& param = params.at(paramName);
-        if (param.size() == 0)
-            return DOESNT_EXIST;
-
-        WRITE_WASM_MEMORY_AND_RETURN(
-            write_ptr,
-            write_len,
-            param.data(),
-            param.size(),
-            memory,
-            memory_length);
-    }
-
-    return DOESNT_EXIST;
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, val.data(), val.size(), memory, memory_length);
 
     HOOK_TEARDOWN();
 }
@@ -5040,40 +4982,31 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (kread_len < 1)
-        return TOO_SMALL;
+    {
+        // those checks are also done in the HookAPI
+        // but we need to check them here too for backwards compatibility
+        if (kread_len < 1)
+            return TOO_SMALL;
 
-    if (kread_len > hook::maxHookParameterKeySize())
-        return TOO_BIG;
+        if (kread_len > hook::maxHookParameterKeySize())
+            return TOO_BIG;
 
-    if (hread_len != 32)
-        return INVALID_ARGUMENT;
+        if (hread_len != 32)
+            return INVALID_ARGUMENT;
 
-    if (read_len > hook::maxHookParameterValueSize())
-        return TOO_BIG;
+        if (read_len > hook::maxHookParameterValueSize())
+            return TOO_BIG;
+    }
 
-    std::vector<uint8_t> paramName{
-        kread_ptr + memory, kread_ptr + kread_len + memory};
-    std::vector<uint8_t> paramValue{
-        read_ptr + memory, read_ptr + read_len + memory};
-
+    Bytes paramName{kread_ptr + memory, kread_ptr + kread_len + memory};
+    Bytes paramValue{read_ptr + memory, read_ptr + read_len + memory};
     ripple::uint256 hash = ripple::uint256::fromVoid(memory + hread_ptr);
 
-    if (hookCtx.result.overrideCount >= hook_api::max_params)
-        return TOO_MANY_PARAMS;
-
-    hookCtx.result.overrideCount++;
-
-    auto& overrides = hookCtx.result.hookParamOverrides;
-    if (overrides.find(hash) == overrides.end())
-    {
-        overrides[hash] = std::map<std::vector<uint8_t>, std::vector<uint8_t>>{
-            {std::move(paramName), std::move(paramValue)}};
-    }
-    else
-        overrides[hash][std::move(paramName)] = std::move(paramValue);
-
-    return read_len;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.hook_param_set(hash, paramName, paramValue);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -5094,75 +5027,34 @@ DEFINE_HOOK_FUNCTION(
     if (read_len != 32)
         return INVALID_ARGUMENT;
 
-    if (flags != 0 && flags != 1)
-        return INVALID_ARGUMENT;
-
-    auto& skips = hookCtx.result.hookSkips;
     ripple::uint256 hash = ripple::uint256::fromVoid(memory + read_ptr);
 
-    if (flags == 1)
-    {
-        // delete flag
-        if (skips.find(hash) == skips.end())
-            return DOESNT_EXIST;
-        skips.erase(hash);
-        return 1;
-    }
-
-    // first check if it's already in the skips set
-    if (skips.find(hash) != skips.end())
-        return 1;
-
-    // next check if it's even in this chain
-    std::shared_ptr<SLE> hookSLE =
-        applyCtx.view().peek(hookCtx.result.hookKeylet);
-
-    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
-        return INTERNAL_ERROR;
-
-    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
-    bool found = false;
-    for (auto const& hookObj : hooks)
-    {
-        if (hookObj.isFieldPresent(sfHookHash))
-        {
-            if (hookObj.getFieldH256(sfHookHash) == hash)
-            {
-                found = true;
-                break;
-            }
-        }
-    }
-
-    if (!found)
-        return DOESNT_EXIST;
-
-    // finally add it to the skips list
-    hookCtx.result.hookSkips.emplace(hash);
-    return 1;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.hook_skip(hash, flags);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
 
 DEFINE_HOOK_FUNCNARG(int64_t, hook_pos)
 {
-    return hookCtx.result.hookChainPosition;
+    hook::HookAPI api(hookCtx);
+    return api.hook_pos();
 }
 
 DEFINE_HOOK_FUNCNARG(int64_t, hook_again)
 {
     HOOK_SETUP();
 
-    if (hookCtx.result.executeAgainAsWeak)
-        return ALREADY_SET;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.hook_again();
 
-    if (hookCtx.result.isStrong)
-    {
-        hookCtx.result.executeAgainAsWeak = true;
-        return 1;
-    }
+    if (!result)
+        return result.error();
 
-    return PREREQUISITE_NOT_MET;
+    return result.value();
 
     HOOK_TEARDOWN();
 }

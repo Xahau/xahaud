@@ -396,8 +396,178 @@ HookAPI::otxn_param(Bytes param_name) const
     return Unexpected(DOESNT_EXIST);
 }
 
+AccountID
+HookAPI::hook_account() const
+{
+    return hookCtx.result.account;
+}
+
+Expected<ripple::uint256, HookReturnCode>
+HookAPI::hook_hash(int32_t hook_no) const
+{
+    if (hook_no == -1)
+        return hookCtx.result.hookHash;
+
+    std::shared_ptr<SLE> hookSLE =
+        hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
+    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
+        return Unexpected(INTERNAL_ERROR);
+
+    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
+    if (hook_no >= hooks.size())
+        return Unexpected(DOESNT_EXIST);
+
+    auto const& hook = hooks[hook_no];
+    if (!hook.isFieldPresent(sfHookHash))
+        return Unexpected(DOESNT_EXIST);
+
+    return hook.getFieldH256(sfHookHash);
+}
+
+Expected<int64_t, HookReturnCode>
+HookAPI::hook_again() const
+{
+    if (hookCtx.result.executeAgainAsWeak)
+        return ALREADY_SET;
+
+    if (hookCtx.result.isStrong)
+    {
+        hookCtx.result.executeAgainAsWeak = true;
+        return 1;
+    }
+
+    return PREREQUISITE_NOT_MET;
+}
+
+Expected<Blob, HookReturnCode>
+HookAPI::hook_param(Bytes const& paramName) const
+{
+    if (paramName.size() < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (paramName.size() > 32)
+        return Unexpected(TOO_BIG);
+
+    // first check for overrides set by prior hooks in the chain
+    auto const& overrides = hookCtx.result.hookParamOverrides;
+    if (overrides.find(hookCtx.result.hookHash) != overrides.end())
+    {
+        auto const& params = overrides.at(hookCtx.result.hookHash);
+        if (params.find(paramName) != params.end())
+        {
+            auto const& param = params.at(paramName);
+            if (param.size() == 0)
+                // allow overrides to "delete" parameters
+                return Unexpected(DOESNT_EXIST);
+
+            return param;
+        }
+    }
+
+    // next check if there's a param set on this hook
+    auto const& params = hookCtx.result.hookParams;
+    if (params.find(paramName) != params.end())
+    {
+        auto const& param = params.at(paramName);
+        if (param.size() == 0)
+            return Unexpected(DOESNT_EXIST);
+
+        return param;
+    }
+
+    return Unexpected(DOESNT_EXIST);
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::hook_param_set(
+    uint256 const& hash,
+    Bytes const& paramName,
+    Bytes const& paramValue) const
+{
+    if (paramName.size() < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (paramName.size() > hook::maxHookParameterKeySize())
+        return Unexpected(TOO_BIG);
+
+    if (paramValue.size() > hook::maxHookParameterValueSize())
+        return Unexpected(TOO_BIG);
+
+    if (hookCtx.result.overrideCount >= hook_api::max_params)
+        return Unexpected(TOO_MANY_PARAMS);
+
+    hookCtx.result.overrideCount++;
+
+    auto& overrides = hookCtx.result.hookParamOverrides;
+    if (overrides.find(hash) == overrides.end())
+    {
+        overrides[hash] = std::map<Bytes, Bytes>{
+            {std::move(paramName), std::move(paramValue)}};
+    }
+    else
+        overrides[hash][std::move(paramName)] = std::move(paramValue);
+
+    return paramValue.size();
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::hook_skip(uint256 const& hash, uint32_t flags) const
+{
+    if (flags != 0 && flags != 1)
+        return INVALID_ARGUMENT;
+
+    auto& skips = hookCtx.result.hookSkips;
+
+    if (flags == 1)
+    {
+        // delete flag
+        if (skips.find(hash) == skips.end())
+            return Unexpected(DOESNT_EXIST);
+        skips.erase(hash);
+        return 1;
+    }
+
+    // first check if it's already in the skips set
+    if (skips.find(hash) != skips.end())
+        return 1;
+
+    // next check if it's even in this chain
+    std::shared_ptr<SLE> hookSLE =
+        hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
+
+    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
+        return Unexpected(INTERNAL_ERROR);
+
+    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
+    bool found = false;
+    for (auto const& hookObj : hooks)
+    {
+        if (hookObj.isFieldPresent(sfHookHash))
+        {
+            if (hookObj.getFieldH256(sfHookHash) == hash)
+            {
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found)
+        return Unexpected(DOESNT_EXIST);
+
+    // finally add it to the skips list
+    hookCtx.result.hookSkips.emplace(hash);
+    return 1;
+}
+
+uint8_t
+HookAPI::hook_pos() const
+{
+    return hookCtx.result.hookChainPosition;
+}
+
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
-HookAPI::emit(Slice txBlob)
+HookAPI::emit(Slice txBlob) const
 {
     auto& applyCtx = hookCtx.applyCtx;
     auto j = applyCtx.app.journal("View");

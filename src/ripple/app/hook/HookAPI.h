@@ -46,7 +46,7 @@ public:
 
     /// etxn APIs
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
-    emit(Slice txBlob);
+    emit(Slice txBlob) const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
@@ -139,13 +139,29 @@ public:
     otxn_param(Bytes param_name) const;
 
     /// hook APIs
-    // hook_account
-    // hook_hash
-    // hook_again
-    // hook_param
-    // hook_param_set
-    // hook_skip
-    // hook_pos
+    AccountID
+    hook_account() const;
+
+    Expected<ripple::uint256, HookReturnCode>
+    hook_hash(int32_t hook_no) const;
+
+    Expected<int64_t, HookReturnCode>
+    hook_again() const;
+
+    Expected<Blob, HookReturnCode>
+    hook_param(Bytes const& paramName) const;
+
+    Expected<uint64_t, HookReturnCode>
+    hook_param_set(
+        uint256 const& hash,
+        Bytes const& paramName,
+        Bytes const& paramValue) const;
+
+    Expected<uint64_t, HookReturnCode>
+    hook_skip(uint256 const& hash, uint32_t flags) const;
+
+    uint8_t
+    hook_pos() const;
 
     /// ledger APIs
     // fee_base
