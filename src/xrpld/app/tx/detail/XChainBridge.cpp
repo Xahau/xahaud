@@ -1206,17 +1206,8 @@ toClaim(STTx const& tx)
 
 template <class TAttestation>
 NotTEC
-attestationPreflight(PreflightContext const& ctx)
+attestationpreflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureXChainBridge))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
     if (!publicKeyType(ctx.tx[sfPublicKey]))
         return temMALFORMED;
 
@@ -1237,7 +1228,7 @@ attestationPreflight(PreflightContext const& ctx)
     if (att->sendingAmount.issue() != expectedIssue)
         return temXCHAIN_BAD_PROOF;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 template <class TAttestation>
@@ -1375,15 +1366,6 @@ attestationDoApply(ApplyContext& ctx)
 NotTEC
 XChainCreateBridge::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureXChainBridge))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
     auto const account = ctx.tx[sfAccount];
     auto const reward = ctx.tx[sfSignatureReward];
     auto const minAccountCreate = ctx.tx[~sfMinAccountCreateAmount];
@@ -1453,7 +1435,7 @@ XChainCreateBridge::preflight(PreflightContext const& ctx)
         return temXCHAIN_BRIDGE_BAD_ISSUES;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -1553,18 +1535,15 @@ XChainCreateBridge::doApply()
 
 //------------------------------------------------------------------------------
 
+std::uint32_t
+BridgeModify::getFlagsMask(PreflightContext const& ctx)
+{
+    return tfBridgeModifyMask;
+}
+
 NotTEC
 BridgeModify::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureXChainBridge))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfBridgeModifyMask)
-        return temINVALID_FLAG;
-
     auto const account = ctx.tx[sfAccount];
     auto const reward = ctx.tx[~sfSignatureReward];
     auto const minAccountCreate = ctx.tx[~sfMinAccountCreateAmount];
@@ -1603,7 +1582,7 @@ BridgeModify::preflight(PreflightContext const& ctx)
         return temXCHAIN_BRIDGE_BAD_MIN_ACCOUNT_CREATE_AMOUNT;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -1666,15 +1645,6 @@ BridgeModify::doApply()
 NotTEC
 XChainClaim::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureXChainBridge))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
     STXChainBridge const bridgeSpec = ctx.tx[sfXChainBridge];
     auto const amount = ctx.tx[sfAmount];
 
@@ -1685,7 +1655,7 @@ XChainClaim::preflight(PreflightContext const& ctx)
         return temBAD_AMOUNT;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -1904,15 +1874,6 @@ XChainCommit::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 XChainCommit::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureXChainBridge))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
     auto const amount = ctx.tx[sfAmount];
     auto const bridgeSpec = ctx.tx[sfXChainBridge];
 
@@ -1923,7 +1884,7 @@ XChainCommit::preflight(PreflightContext const& ctx)
         amount.issue() != bridgeSpec.issuingChainIssue())
         return temBAD_ISSUER;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -2018,21 +1979,12 @@ XChainCommit::doApply()
 NotTEC
 XChainCreateClaimID::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureXChainBridge))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
     auto const reward = ctx.tx[sfSignatureReward];
 
     if (!isXRP(reward) || reward.signum() < 0 || !isLegalNet(reward))
         return temXCHAIN_BRIDGE_BAD_REWARD_AMOUNT;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -2133,7 +2085,7 @@ XChainCreateClaimID::doApply()
 NotTEC
 XChainAddClaimAttestation::preflight(PreflightContext const& ctx)
 {
-    return attestationPreflight<Attestations::AttestationClaim>(ctx);
+    return attestationpreflight<Attestations::AttestationClaim>(ctx);
 }
 
 TER
@@ -2153,7 +2105,7 @@ XChainAddClaimAttestation::doApply()
 NotTEC
 XChainAddAccountCreateAttestation::preflight(PreflightContext const& ctx)
 {
-    return attestationPreflight<Attestations::AttestationCreateAccount>(ctx);
+    return attestationpreflight<Attestations::AttestationCreateAccount>(ctx);
 }
 
 TER
@@ -2173,15 +2125,6 @@ XChainAddAccountCreateAttestation::doApply()
 NotTEC
 XChainCreateAccountCommit::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureXChainBridge))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
     auto const amount = ctx.tx[sfAmount];
 
     if (amount.signum() <= 0 || !amount.native())
@@ -2194,7 +2137,7 @@ XChainCreateAccountCommit::preflight(PreflightContext const& ctx)
     if (reward.issue() != amount.issue())
         return temBAD_AMOUNT;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

@@ -51,23 +51,8 @@ using namespace credentials;
 NotTEC
 CredentialCreate::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCredentials))
-    {
-        JLOG(ctx.j.trace()) << "featureCredentials is disabled.";
-        return temDISABLED;
-    }
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto const& tx = ctx.tx;
     auto& j = ctx.j;
-
-    if (tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "CredentialCreate: invalid flags.";
-        return temINVALID_FLAG;
-    }
 
     if (!tx[sfSubject])
     {
@@ -90,7 +75,7 @@ CredentialCreate::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -204,21 +189,6 @@ CredentialCreate::doApply()
 NotTEC
 CredentialDelete::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCredentials))
-    {
-        JLOG(ctx.j.trace()) << "featureCredentials is disabled.";
-        return temDISABLED;
-    }
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "CredentialDelete: invalid flags.";
-        return temINVALID_FLAG;
-    }
-
     auto const subject = ctx.tx[~sfSubject];
     auto const issuer = ctx.tx[~sfIssuer];
 
@@ -246,7 +216,7 @@ CredentialDelete::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -290,21 +260,6 @@ CredentialDelete::doApply()
 NotTEC
 CredentialAccept::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCredentials))
-    {
-        JLOG(ctx.j.trace()) << "featureCredentials is disabled.";
-        return temDISABLED;
-    }
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "CredentialAccept: invalid flags.";
-        return temINVALID_FLAG;
-    }
-
     if (!ctx.tx[sfIssuer])
     {
         JLOG(ctx.j.trace()) << "Malformed transaction: Issuer field zeroed.";
@@ -319,7 +274,7 @@ CredentialAccept::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

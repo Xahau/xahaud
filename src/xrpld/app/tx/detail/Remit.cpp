@@ -54,16 +54,6 @@ Remit::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 Remit::preflight(PreflightContext const& ctx)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-    {
-        // There are no flags (other than universal).
-        JLOG(ctx.j.warn()) << "Malformed transaction: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
-
     AccountID const dstID = ctx.tx.getAccountID(sfDestination);
     AccountID const srcID = ctx.tx.getAccountID(sfAccount);
 
@@ -235,7 +225,7 @@ Remit::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

@@ -44,20 +44,8 @@ SetManifest::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 SetManifest::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureOnChainManifests))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
     auto& j = ctx.j;
-
-    if (tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(j.warn()) << "SetManifest: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
 
     // rules:
     // 1. sfManifest must match the manifest template and be validly signed
@@ -113,7 +101,7 @@ SetManifest::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

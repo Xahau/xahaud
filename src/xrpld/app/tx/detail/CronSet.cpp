@@ -28,23 +28,17 @@
 
 namespace ripple {
 
+uint32_t
+CronSet::getFlagsMask(PreflightContext const& ctx)
+{
+    return tfCronSetMask;
+}
+
 NotTEC
 CronSet::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCron))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
     auto& j = ctx.j;
-
-    if (tx.getFlags() & tfCronSetMask)
-    {
-        JLOG(j.warn()) << "CronSet: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
 
     // DelaySeconds (D), RepeatCount (R), StartTime (S)
     // DRS - Set Cron with Delay and Repeat and StartTime
@@ -124,7 +118,7 @@ CronSet::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

@@ -25,24 +25,15 @@
 
 namespace ripple {
 
+bool
+CancelOffer::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return ctx.rules.enabled(featureHooks) || !ctx.tx.isFieldPresent(sfOfferID);
+}
+
 NotTEC
 CancelOffer::preflight(PreflightContext const& ctx)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    auto const uTxFlags = ctx.tx.getFlags();
-
-    if (uTxFlags & tfUniversalMask)
-    {
-        JLOG(ctx.j.trace()) << "Malformed transaction: "
-                            << "Invalid flags set.";
-        return temINVALID_FLAG;
-    }
-
-    if (!ctx.rules.enabled(featureHooks) && ctx.tx.isFieldPresent(sfOfferID))
-        return temDISABLED;
-
     if ((!ctx.tx.isFieldPresent(sfOfferSequence) &&
          !ctx.tx.isFieldPresent(sfOfferID)) ||
         (ctx.tx.isFieldPresent(sfOfferSequence) &&
@@ -53,7 +44,7 @@ CancelOffer::preflight(PreflightContext const& ctx)
         return temBAD_SEQUENCE;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 //------------------------------------------------------------------------------

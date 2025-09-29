@@ -27,12 +27,15 @@
 
 namespace ripple {
 
+uint32_t
+Invoke::getFlagsMask(PreflightContext const& ctx)
+{
+    return 0;
+}
+
 NotTEC
 Invoke::preflight(PreflightContext const& ctx)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
 
     if (tx.getFieldVL(sfBlob).size() > (128 * 1024))
@@ -42,15 +45,12 @@ Invoke::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
 Invoke::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureHooks))
-        return temDISABLED;
-
     auto const id = ctx.tx[sfAccount];
 
     auto const sle = ctx.view.read(keylet::account(id));
