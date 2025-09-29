@@ -295,6 +295,11 @@ const int64_t float_one_internal =
 using namespace ripple;
 using namespace hook_float;
 
+/// control APIs
+// _g
+// accept
+// rollback
+
 /// util APIs
 // util_raddr
 // util_accid
@@ -334,484 +339,7 @@ HookAPI::util_sha512h(Slice const& data) const
 // sto_emplace
 // sto_erase
 
-Expected<const STBase*, HookReturnCode>
-HookAPI::otxn_field(uint32_t field_id) const
-{
-    SField const& fieldType = ripple::SField::getField(field_id);
-
-    if (fieldType == sfInvalid)
-        return Unexpected(INVALID_FIELD);
-
-    if (!hookCtx.applyCtx.tx.isFieldPresent(fieldType))
-        return Unexpected(DOESNT_EXIST);
-
-    auto const& field = hookCtx.emitFailure
-        ? hookCtx.emitFailure->getField(fieldType)
-        : const_cast<ripple::STTx&>(hookCtx.applyCtx.tx).getField(fieldType);
-
-    return &field;
-}
-
-Expected<uint256, HookReturnCode>
-HookAPI::otxn_id(uint32_t flags) const
-{
-    auto const& txID =
-        (hookCtx.emitFailure && !flags
-             ? hookCtx.applyCtx.tx.getFieldH256(sfTransactionHash)
-             : hookCtx.applyCtx.tx.getTransactionID());
-
-    return txID;
-}
-
-TxType
-HookAPI::otxn_type() const
-{
-    if (hookCtx.emitFailure)
-        return safe_cast<TxType>(
-            hookCtx.emitFailure->getFieldU16(sfTransactionType));
-
-    return hookCtx.applyCtx.tx.getTxnType();
-}
-
-Expected<uint32_t, HookReturnCode>
-HookAPI::otxn_slot(uint32_t slot_into) const
-{
-    if (slot_into > hook_api::max_slots)
-        return Unexpected(INVALID_ARGUMENT);
-
-    // check if we can emplace the object to a slot
-    if (slot_into == 0 && no_free_slots())
-        return Unexpected(NO_FREE_SLOTS);
-
-    if (slot_into == 0)
-    {
-        if (auto found = get_free_slot(); found)
-            slot_into = *found;
-        else
-            return Unexpected(NO_FREE_SLOTS);
-    }
-
-    auto const& st_tx = std::make_shared<ripple::STObject>(
-        hookCtx.emitFailure ? *(hookCtx.emitFailure)
-                            : const_cast<ripple::STTx&>(hookCtx.applyCtx.tx)
-                                  .downcast<ripple::STObject>());
-
-    hookCtx.slot[slot_into] = hook::SlotEntry{.storage = st_tx, .entry = 0};
-
-    hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
-
-    return slot_into;
-}
-
-Expected<Blob, HookReturnCode>
-HookAPI::otxn_param(Bytes const& param_name) const
-{
-    if (param_name.size() < 1)
-        return Unexpected(TOO_SMALL);
-
-    if (param_name.size() > 32)
-        return Unexpected(TOO_BIG);
-
-    if (!hookCtx.applyCtx.tx.isFieldPresent(sfHookParameters))
-        return Unexpected(DOESNT_EXIST);
-
-    auto const& params = hookCtx.applyCtx.tx.getFieldArray(sfHookParameters);
-
-    for (auto const& param : params)
-    {
-        if (!param.isFieldPresent(sfHookParameterName) ||
-            param.getFieldVL(sfHookParameterName) != param_name)
-            continue;
-
-        if (!param.isFieldPresent(sfHookParameterValue))
-            return Unexpected(DOESNT_EXIST);
-
-        auto const& val = param.getFieldVL(sfHookParameterValue);
-        if (val.empty())
-            return Unexpected(DOESNT_EXIST);
-
-        return val;
-    }
-
-    return Unexpected(DOESNT_EXIST);
-}
-
-AccountID
-HookAPI::hook_account() const
-{
-    return hookCtx.result.account;
-}
-
-Expected<ripple::uint256, HookReturnCode>
-HookAPI::hook_hash(int32_t hook_no) const
-{
-    if (hook_no == -1)
-        return hookCtx.result.hookHash;
-
-    std::shared_ptr<SLE> hookSLE =
-        hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
-    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
-        return Unexpected(INTERNAL_ERROR);
-
-    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
-    if (hook_no >= hooks.size())
-        return Unexpected(DOESNT_EXIST);
-
-    auto const& hook = hooks[hook_no];
-    if (!hook.isFieldPresent(sfHookHash))
-        return Unexpected(DOESNT_EXIST);
-
-    return hook.getFieldH256(sfHookHash);
-}
-
-Expected<int64_t, HookReturnCode>
-HookAPI::hook_again() const
-{
-    if (hookCtx.result.executeAgainAsWeak)
-        return ALREADY_SET;
-
-    if (hookCtx.result.isStrong)
-    {
-        hookCtx.result.executeAgainAsWeak = true;
-        return 1;
-    }
-
-    return PREREQUISITE_NOT_MET;
-}
-
-Expected<Blob, HookReturnCode>
-HookAPI::hook_param(Bytes const& paramName) const
-{
-    if (paramName.size() < 1)
-        return Unexpected(TOO_SMALL);
-
-    if (paramName.size() > 32)
-        return Unexpected(TOO_BIG);
-
-    // first check for overrides set by prior hooks in the chain
-    auto const& overrides = hookCtx.result.hookParamOverrides;
-    if (overrides.find(hookCtx.result.hookHash) != overrides.end())
-    {
-        auto const& params = overrides.at(hookCtx.result.hookHash);
-        if (params.find(paramName) != params.end())
-        {
-            auto const& param = params.at(paramName);
-            if (param.size() == 0)
-                // allow overrides to "delete" parameters
-                return Unexpected(DOESNT_EXIST);
-
-            return param;
-        }
-    }
-
-    // next check if there's a param set on this hook
-    auto const& params = hookCtx.result.hookParams;
-    if (params.find(paramName) != params.end())
-    {
-        auto const& param = params.at(paramName);
-        if (param.size() == 0)
-            return Unexpected(DOESNT_EXIST);
-
-        return param;
-    }
-
-    return Unexpected(DOESNT_EXIST);
-}
-
-Expected<uint64_t, HookReturnCode>
-HookAPI::hook_param_set(
-    uint256 const& hash,
-    Bytes const& paramName,
-    Bytes const& paramValue) const
-{
-    if (paramName.size() < 1)
-        return Unexpected(TOO_SMALL);
-
-    if (paramName.size() > hook::maxHookParameterKeySize())
-        return Unexpected(TOO_BIG);
-
-    if (paramValue.size() > hook::maxHookParameterValueSize())
-        return Unexpected(TOO_BIG);
-
-    if (hookCtx.result.overrideCount >= hook_api::max_params)
-        return Unexpected(TOO_MANY_PARAMS);
-
-    hookCtx.result.overrideCount++;
-
-    auto& overrides = hookCtx.result.hookParamOverrides;
-    if (overrides.find(hash) == overrides.end())
-    {
-        overrides[hash] = std::map<Bytes, Bytes>{
-            {std::move(paramName), std::move(paramValue)}};
-    }
-    else
-        overrides[hash][std::move(paramName)] = std::move(paramValue);
-
-    return paramValue.size();
-}
-
-Expected<uint64_t, HookReturnCode>
-HookAPI::hook_skip(uint256 const& hash, uint32_t flags) const
-{
-    if (flags != 0 && flags != 1)
-        return INVALID_ARGUMENT;
-
-    auto& skips = hookCtx.result.hookSkips;
-
-    if (flags == 1)
-    {
-        // delete flag
-        if (skips.find(hash) == skips.end())
-            return Unexpected(DOESNT_EXIST);
-        skips.erase(hash);
-        return 1;
-    }
-
-    // first check if it's already in the skips set
-    if (skips.find(hash) != skips.end())
-        return 1;
-
-    // next check if it's even in this chain
-    std::shared_ptr<SLE> hookSLE =
-        hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
-
-    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
-        return Unexpected(INTERNAL_ERROR);
-
-    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
-    bool found = false;
-    for (auto const& hookObj : hooks)
-    {
-        if (hookObj.isFieldPresent(sfHookHash))
-        {
-            if (hookObj.getFieldH256(sfHookHash) == hash)
-            {
-                found = true;
-                break;
-            }
-        }
-    }
-
-    if (!found)
-        return Unexpected(DOESNT_EXIST);
-
-    // finally add it to the skips list
-    hookCtx.result.hookSkips.emplace(hash);
-    return 1;
-}
-
-uint8_t
-HookAPI::hook_pos() const
-{
-    return hookCtx.result.hookChainPosition;
-}
-
-uint64_t
-HookAPI::fee_base() const
-{
-    return hookCtx.applyCtx.view().fees().base.drops();
-}
-
-uint32_t
-HookAPI::ledger_seq() const
-{
-    return hookCtx.applyCtx.view().info().seq;
-}
-
-uint256
-HookAPI::ledger_last_hash() const
-{
-    return hookCtx.applyCtx.view().info().parentHash;
-}
-
-uint64_t
-HookAPI::ledger_last_time() const
-{
-    return hookCtx.applyCtx.view()
-        .info()
-        .parentCloseTime.time_since_epoch()
-        .count();
-}
-
-Expected<uint256, HookReturnCode>
-HookAPI::ledger_nonce() const
-{
-    auto& view = hookCtx.applyCtx.view();
-    if (hookCtx.ledger_nonce_counter > hook_api::max_nonce)
-        return Unexpected(TOO_MANY_NONCES);
-
-    auto hash = ripple::sha512Half(
-        ripple::HashPrefix::hookNonce,
-        view.info().seq,
-        view.info().parentCloseTime.time_since_epoch().count(),
-        view.info().parentHash,
-        hookCtx.applyCtx.tx.getTransactionID(),
-        hookCtx.ledger_nonce_counter++,
-        hookCtx.result.account);
-
-    return hash;
-}
-
-Expected<Keylet, HookReturnCode>
-HookAPI::ledger_keylet(Keylet const& klLo, Keylet const& klHi) const
-{
-    // keylets must be the same type!
-    if (klLo.type != klHi.type)
-        return Unexpected(DOES_NOT_MATCH);
-
-    std::optional<ripple::uint256> found =
-        hookCtx.applyCtx.view().succ(klLo.key, klHi.key.next());
-
-    if (!found)
-        return Unexpected(DOESNT_EXIST);
-
-    Keylet kl_out{klLo.type, *found};
-
-    return kl_out;
-}
-
-Expected<Bytes, HookReturnCode>
-HookAPI::state_foreign(
-    uint256 const& key,
-    uint256 const& ns,
-    AccountID const& account) const
-{
-    // first check if the requested state was previously cached this session
-    auto cacheEntryLookup = lookup_state_cache(account, ns, key);
-    if (cacheEntryLookup)
-    {
-        auto const& cacheEntry = cacheEntryLookup->get();
-
-        return cacheEntry.second;
-    }
-
-    auto hsSLE =
-        hookCtx.applyCtx.view().peek(keylet::hookState(account, key, ns));
-
-    if (!hsSLE)
-        return Unexpected(DOESNT_EXIST);
-
-    Blob b = hsSLE->getFieldVL(sfHookStateData);
-
-    // it exists add it to cache and return it
-    if (!set_state_cache(account, ns, key, b, false).has_value())
-        return Unexpected(INTERNAL_ERROR);  // should never happen
-
-    return b;
-}
-
-Expected<uint64_t, HookReturnCode>
-HookAPI::state_foreign_set(
-    uint256 const& key,
-    uint256 const& ns,
-    AccountID const& account,
-    Bytes& data) const
-{
-    // local modifications are always allowed
-    if (account == hookCtx.result.account)
-    {
-        if (auto ret = set_state_cache(account, ns, key, data, true);
-            !ret.has_value())
-            return ret.error();
-
-        return data.size();
-    }
-
-    // execution to here means it's actually a foreign set
-    if (hookCtx.result.foreignStateSetDisabled)
-        return Unexpected(PREVIOUS_FAILURE_PREVENTS_RETRY);
-
-    // first check if we've already modified this state
-    auto cacheEntry = lookup_state_cache(account, ns, key);
-    if (cacheEntry && cacheEntry->get().first)
-    {
-        // if a cache entry already exists and it has already been modified
-        // don't check grants again
-        if (auto ret = set_state_cache(account, ns, key, data, true);
-            !ret.has_value())
-            return ret.error();
-
-        return data.size();
-    }
-
-    // cache miss or cache was present but entry was not marked as previously
-    // modified therefore before continuing we need to check grants
-    auto const sle =
-        hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
-    if (!sle)
-        return Unexpected(INTERNAL_ERROR);
-
-    bool found_auth = false;
-
-    // we do this by iterating the hooks installed on the foreign account and in
-    // turn their grants and namespaces
-    auto const& hooks = sle->getFieldArray(sfHooks);
-    for (auto const& hookObj : hooks)
-    {
-        // skip blank entries
-        if (!hookObj.isFieldPresent(sfHookHash))
-            continue;
-
-        if (!hookObj.isFieldPresent(sfHookGrants))
-            continue;
-
-        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
-
-        if (hookGrants.size() < 1)
-            continue;
-
-        // the grant allows the hook to modify the granter's namespace only
-        if (hookObj.isFieldPresent(sfHookNamespace))
-        {
-            if (hookObj.getFieldH256(sfHookNamespace) != ns)
-                continue;
-        }
-        else
-        {
-            // fetch the hook definition
-            auto const def =
-                hookCtx.applyCtx.view().read(ripple::keylet::hookDefinition(
-                    hookObj.getFieldH256(sfHookHash)));
-            if (!def)  // should never happen except in a rare race condition
-                continue;
-            if (def->getFieldH256(sfHookNamespace) != ns)
-                continue;
-        }
-
-        // this is expensive search so we'll disallow after one failed attempt
-        for (auto const& hookGrantObj : hookGrants)
-        {
-            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
-
-            if (hookGrantObj.getFieldH256(sfHookHash) ==
-                    hookCtx.result.hookHash &&
-                (!hasAuthorizedField ||
-                 hookGrantObj.getAccountID(sfAuthorize) ==
-                     hookCtx.result.account))
-            {
-                found_auth = true;
-                break;
-            }
-        }
-
-        if (found_auth)
-            break;
-    }
-
-    if (!found_auth)
-    {
-        // hook only gets one attempt
-        hookCtx.result.foreignStateSetDisabled = true;
-        return Unexpected(NOT_AUTHORIZED);
-    }
-
-    if (auto ret = set_state_cache(account, ns, key, data, true);
-        !ret.has_value())
-        return ret.error();
-
-    return data.size();
-}
-
+/// etxn APIs
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::emit(Slice const& txBlob) const
 {
@@ -1290,6 +818,8 @@ HookAPI::etxn_nonce() const
     return hash;
 }
 
+/// float APIs
+
 using namespace hook_float;
 
 Expected<uint64_t, HookReturnCode>
@@ -1565,6 +1095,8 @@ HookAPI::float_root(uint64_t float1, uint32_t n) const
     return double_to_xfl(result);
 }
 
+/// otxn APIs
+
 uint64_t
 HookAPI::otxn_burden() const
 {
@@ -1625,7 +1157,514 @@ HookAPI::otxn_generation() const
     return hookCtx.generation;
 }
 
-// private
+Expected<const STBase*, HookReturnCode>
+HookAPI::otxn_field(uint32_t field_id) const
+{
+    SField const& fieldType = ripple::SField::getField(field_id);
+
+    if (fieldType == sfInvalid)
+        return Unexpected(INVALID_FIELD);
+
+    if (!hookCtx.applyCtx.tx.isFieldPresent(fieldType))
+        return Unexpected(DOESNT_EXIST);
+
+    auto const& field = hookCtx.emitFailure
+        ? hookCtx.emitFailure->getField(fieldType)
+        : const_cast<ripple::STTx&>(hookCtx.applyCtx.tx).getField(fieldType);
+
+    return &field;
+}
+
+Expected<uint256, HookReturnCode>
+HookAPI::otxn_id(uint32_t flags) const
+{
+    auto const& txID =
+        (hookCtx.emitFailure && !flags
+             ? hookCtx.applyCtx.tx.getFieldH256(sfTransactionHash)
+             : hookCtx.applyCtx.tx.getTransactionID());
+
+    return txID;
+}
+
+TxType
+HookAPI::otxn_type() const
+{
+    if (hookCtx.emitFailure)
+        return safe_cast<TxType>(
+            hookCtx.emitFailure->getFieldU16(sfTransactionType));
+
+    return hookCtx.applyCtx.tx.getTxnType();
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::otxn_slot(uint32_t slot_into) const
+{
+    if (slot_into > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    // check if we can emplace the object to a slot
+    if (slot_into == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    if (slot_into == 0)
+    {
+        if (auto found = get_free_slot(); found)
+            slot_into = *found;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    auto const& st_tx = std::make_shared<ripple::STObject>(
+        hookCtx.emitFailure ? *(hookCtx.emitFailure)
+                            : const_cast<ripple::STTx&>(hookCtx.applyCtx.tx)
+                                  .downcast<ripple::STObject>());
+
+    hookCtx.slot[slot_into] = hook::SlotEntry{.storage = st_tx, .entry = 0};
+
+    hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
+
+    return slot_into;
+}
+
+Expected<Blob, HookReturnCode>
+HookAPI::otxn_param(Bytes const& param_name) const
+{
+    if (param_name.size() < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (param_name.size() > 32)
+        return Unexpected(TOO_BIG);
+
+    if (!hookCtx.applyCtx.tx.isFieldPresent(sfHookParameters))
+        return Unexpected(DOESNT_EXIST);
+
+    auto const& params = hookCtx.applyCtx.tx.getFieldArray(sfHookParameters);
+
+    for (auto const& param : params)
+    {
+        if (!param.isFieldPresent(sfHookParameterName) ||
+            param.getFieldVL(sfHookParameterName) != param_name)
+            continue;
+
+        if (!param.isFieldPresent(sfHookParameterValue))
+            return Unexpected(DOESNT_EXIST);
+
+        auto const& val = param.getFieldVL(sfHookParameterValue);
+        if (val.empty())
+            return Unexpected(DOESNT_EXIST);
+
+        return val;
+    }
+
+    return Unexpected(DOESNT_EXIST);
+}
+
+/// hook APIs
+
+AccountID
+HookAPI::hook_account() const
+{
+    return hookCtx.result.account;
+}
+
+Expected<ripple::uint256, HookReturnCode>
+HookAPI::hook_hash(int32_t hook_no) const
+{
+    if (hook_no == -1)
+        return hookCtx.result.hookHash;
+
+    std::shared_ptr<SLE> hookSLE =
+        hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
+    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
+        return Unexpected(INTERNAL_ERROR);
+
+    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
+    if (hook_no >= hooks.size())
+        return Unexpected(DOESNT_EXIST);
+
+    auto const& hook = hooks[hook_no];
+    if (!hook.isFieldPresent(sfHookHash))
+        return Unexpected(DOESNT_EXIST);
+
+    return hook.getFieldH256(sfHookHash);
+}
+
+Expected<int64_t, HookReturnCode>
+HookAPI::hook_again() const
+{
+    if (hookCtx.result.executeAgainAsWeak)
+        return ALREADY_SET;
+
+    if (hookCtx.result.isStrong)
+    {
+        hookCtx.result.executeAgainAsWeak = true;
+        return 1;
+    }
+
+    return PREREQUISITE_NOT_MET;
+}
+
+Expected<Blob, HookReturnCode>
+HookAPI::hook_param(Bytes const& paramName) const
+{
+    if (paramName.size() < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (paramName.size() > 32)
+        return Unexpected(TOO_BIG);
+
+    // first check for overrides set by prior hooks in the chain
+    auto const& overrides = hookCtx.result.hookParamOverrides;
+    if (overrides.find(hookCtx.result.hookHash) != overrides.end())
+    {
+        auto const& params = overrides.at(hookCtx.result.hookHash);
+        if (params.find(paramName) != params.end())
+        {
+            auto const& param = params.at(paramName);
+            if (param.size() == 0)
+                // allow overrides to "delete" parameters
+                return Unexpected(DOESNT_EXIST);
+
+            return param;
+        }
+    }
+
+    // next check if there's a param set on this hook
+    auto const& params = hookCtx.result.hookParams;
+    if (params.find(paramName) != params.end())
+    {
+        auto const& param = params.at(paramName);
+        if (param.size() == 0)
+            return Unexpected(DOESNT_EXIST);
+
+        return param;
+    }
+
+    return Unexpected(DOESNT_EXIST);
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::hook_param_set(
+    uint256 const& hash,
+    Bytes const& paramName,
+    Bytes const& paramValue) const
+{
+    if (paramName.size() < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (paramName.size() > hook::maxHookParameterKeySize())
+        return Unexpected(TOO_BIG);
+
+    if (paramValue.size() > hook::maxHookParameterValueSize())
+        return Unexpected(TOO_BIG);
+
+    if (hookCtx.result.overrideCount >= hook_api::max_params)
+        return Unexpected(TOO_MANY_PARAMS);
+
+    hookCtx.result.overrideCount++;
+
+    auto& overrides = hookCtx.result.hookParamOverrides;
+    if (overrides.find(hash) == overrides.end())
+    {
+        overrides[hash] = std::map<Bytes, Bytes>{
+            {std::move(paramName), std::move(paramValue)}};
+    }
+    else
+        overrides[hash][std::move(paramName)] = std::move(paramValue);
+
+    return paramValue.size();
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::hook_skip(uint256 const& hash, uint32_t flags) const
+{
+    if (flags != 0 && flags != 1)
+        return INVALID_ARGUMENT;
+
+    auto& skips = hookCtx.result.hookSkips;
+
+    if (flags == 1)
+    {
+        // delete flag
+        if (skips.find(hash) == skips.end())
+            return Unexpected(DOESNT_EXIST);
+        skips.erase(hash);
+        return 1;
+    }
+
+    // first check if it's already in the skips set
+    if (skips.find(hash) != skips.end())
+        return 1;
+
+    // next check if it's even in this chain
+    std::shared_ptr<SLE> hookSLE =
+        hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
+
+    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
+        return Unexpected(INTERNAL_ERROR);
+
+    ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
+    bool found = false;
+    for (auto const& hookObj : hooks)
+    {
+        if (hookObj.isFieldPresent(sfHookHash))
+        {
+            if (hookObj.getFieldH256(sfHookHash) == hash)
+            {
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found)
+        return Unexpected(DOESNT_EXIST);
+
+    // finally add it to the skips list
+    hookCtx.result.hookSkips.emplace(hash);
+    return 1;
+}
+
+uint8_t
+HookAPI::hook_pos() const
+{
+    return hookCtx.result.hookChainPosition;
+}
+
+/// ledger APIs
+
+uint64_t
+HookAPI::fee_base() const
+{
+    return hookCtx.applyCtx.view().fees().base.drops();
+}
+
+uint32_t
+HookAPI::ledger_seq() const
+{
+    return hookCtx.applyCtx.view().info().seq;
+}
+
+uint256
+HookAPI::ledger_last_hash() const
+{
+    return hookCtx.applyCtx.view().info().parentHash;
+}
+
+uint64_t
+HookAPI::ledger_last_time() const
+{
+    return hookCtx.applyCtx.view()
+        .info()
+        .parentCloseTime.time_since_epoch()
+        .count();
+}
+
+Expected<uint256, HookReturnCode>
+HookAPI::ledger_nonce() const
+{
+    auto& view = hookCtx.applyCtx.view();
+    if (hookCtx.ledger_nonce_counter > hook_api::max_nonce)
+        return Unexpected(TOO_MANY_NONCES);
+
+    auto hash = ripple::sha512Half(
+        ripple::HashPrefix::hookNonce,
+        view.info().seq,
+        view.info().parentCloseTime.time_since_epoch().count(),
+        view.info().parentHash,
+        hookCtx.applyCtx.tx.getTransactionID(),
+        hookCtx.ledger_nonce_counter++,
+        hookCtx.result.account);
+
+    return hash;
+}
+
+Expected<Keylet, HookReturnCode>
+HookAPI::ledger_keylet(Keylet const& klLo, Keylet const& klHi) const
+{
+    // keylets must be the same type!
+    if (klLo.type != klHi.type)
+        return Unexpected(DOES_NOT_MATCH);
+
+    std::optional<ripple::uint256> found =
+        hookCtx.applyCtx.view().succ(klLo.key, klHi.key.next());
+
+    if (!found)
+        return Unexpected(DOESNT_EXIST);
+
+    Keylet kl_out{klLo.type, *found};
+
+    return kl_out;
+}
+
+/// state APIs
+
+// state
+
+Expected<Bytes, HookReturnCode>
+HookAPI::state_foreign(
+    uint256 const& key,
+    uint256 const& ns,
+    AccountID const& account) const
+{
+    // first check if the requested state was previously cached this session
+    auto cacheEntryLookup = lookup_state_cache(account, ns, key);
+    if (cacheEntryLookup)
+    {
+        auto const& cacheEntry = cacheEntryLookup->get();
+
+        return cacheEntry.second;
+    }
+
+    auto hsSLE =
+        hookCtx.applyCtx.view().peek(keylet::hookState(account, key, ns));
+
+    if (!hsSLE)
+        return Unexpected(DOESNT_EXIST);
+
+    Blob b = hsSLE->getFieldVL(sfHookStateData);
+
+    // it exists add it to cache and return it
+    if (!set_state_cache(account, ns, key, b, false).has_value())
+        return Unexpected(INTERNAL_ERROR);  // should never happen
+
+    return b;
+}
+
+// state_set
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::state_foreign_set(
+    uint256 const& key,
+    uint256 const& ns,
+    AccountID const& account,
+    Bytes& data) const
+{
+    // local modifications are always allowed
+    if (account == hookCtx.result.account)
+    {
+        if (auto ret = set_state_cache(account, ns, key, data, true);
+            !ret.has_value())
+            return ret.error();
+
+        return data.size();
+    }
+
+    // execution to here means it's actually a foreign set
+    if (hookCtx.result.foreignStateSetDisabled)
+        return Unexpected(PREVIOUS_FAILURE_PREVENTS_RETRY);
+
+    // first check if we've already modified this state
+    auto cacheEntry = lookup_state_cache(account, ns, key);
+    if (cacheEntry && cacheEntry->get().first)
+    {
+        // if a cache entry already exists and it has already been modified
+        // don't check grants again
+        if (auto ret = set_state_cache(account, ns, key, data, true);
+            !ret.has_value())
+            return ret.error();
+
+        return data.size();
+    }
+
+    // cache miss or cache was present but entry was not marked as previously
+    // modified therefore before continuing we need to check grants
+    auto const sle =
+        hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
+    if (!sle)
+        return Unexpected(INTERNAL_ERROR);
+
+    bool found_auth = false;
+
+    // we do this by iterating the hooks installed on the foreign account and in
+    // turn their grants and namespaces
+    auto const& hooks = sle->getFieldArray(sfHooks);
+    for (auto const& hookObj : hooks)
+    {
+        // skip blank entries
+        if (!hookObj.isFieldPresent(sfHookHash))
+            continue;
+
+        if (!hookObj.isFieldPresent(sfHookGrants))
+            continue;
+
+        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
+
+        if (hookGrants.size() < 1)
+            continue;
+
+        // the grant allows the hook to modify the granter's namespace only
+        if (hookObj.isFieldPresent(sfHookNamespace))
+        {
+            if (hookObj.getFieldH256(sfHookNamespace) != ns)
+                continue;
+        }
+        else
+        {
+            // fetch the hook definition
+            auto const def =
+                hookCtx.applyCtx.view().read(ripple::keylet::hookDefinition(
+                    hookObj.getFieldH256(sfHookHash)));
+            if (!def)  // should never happen except in a rare race condition
+                continue;
+            if (def->getFieldH256(sfHookNamespace) != ns)
+                continue;
+        }
+
+        // this is expensive search so we'll disallow after one failed attempt
+        for (auto const& hookGrantObj : hookGrants)
+        {
+            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
+
+            if (hookGrantObj.getFieldH256(sfHookHash) ==
+                    hookCtx.result.hookHash &&
+                (!hasAuthorizedField ||
+                 hookGrantObj.getAccountID(sfAuthorize) ==
+                     hookCtx.result.account))
+            {
+                found_auth = true;
+                break;
+            }
+        }
+
+        if (found_auth)
+            break;
+    }
+
+    if (!found_auth)
+    {
+        // hook only gets one attempt
+        hookCtx.result.foreignStateSetDisabled = true;
+        return Unexpected(NOT_AUTHORIZED);
+    }
+
+    if (auto ret = set_state_cache(account, ns, key, data, true);
+        !ret.has_value())
+        return ret.error();
+
+    return data.size();
+}
+
+/// slot APIs
+// slot
+// slot_clear
+// slot_count
+// slot_set
+// slot_size
+// slot_subarray
+// slot_subfield
+// slot_type
+// slot_float
+
+/// trace APIs
+// trace
+// trace_num
+// trace_float
+
+// meta_slot
+// xpop_slot
+
+/// private
 
 inline int32_t
 HookAPI::no_free_slots() const
