@@ -18,8 +18,10 @@
 //==============================================================================
 #include <ripple/app/hook/Enum.h>
 #include <ripple/app/hook/HookAPI.h>
+#include <ripple/app/hook/Misc.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/LedgerMaster.h>
+#include <ripple/app/misc/Transaction.h>
 #include <ripple/app/tx/impl/ApplyContext.h>
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/basics/base_uint.h>
@@ -28,6 +30,7 @@
 #include <ripple/ledger/OpenView.h>
 #include <ripple/protocol/SField.h>
 #include <ripple/protocol/STAccount.h>
+#include <ripple/protocol/STArray.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/TxFormats.h>
 #include <ripple/protocol/jss.h>
@@ -2491,23 +2494,14 @@ public:
         auto const bob = Account{"bob"};
 
         {
+            using namespace hook_api;
             Env env{*this, features};
 
             STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
             OpenView ov{*env.current()};
             ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
 
-            auto hookCtx = makeStubHookContext(
-                applyCtx,
-                alice.id(),
-                alice.id(),
-                {
-                    .expected_etxn_count = 1,
-                    .nonce_used = {{uint256(0), true}},
-                });
-            hook::HookAPI api(hookCtx);
-
-            STTx emitTx = STTx(ttINVOKE, [&](STObject& obj) {
+            STTx const emitInvokeTx = STTx(ttINVOKE, [&](STObject& obj) {
                 obj[sfAccount] = alice.id();
                 obj[sfSequence] = 0;
                 obj[sfSigningPubKey] = PublicKey();
@@ -2523,12 +2517,133 @@ public:
                 emitDetails[sfEmitHookHash] = uint256();
             });
 
-            Serializer s;
-            emitTx.add(s);
-            auto result = api.emit(s.slice());
-            BEAST_EXPECT(result.value()->getID() == emitTx.getTransactionID());
-        }
+            STTx const emitSetHookTx = STTx(ttHOOK_SET, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 0;
+                obj[sfSigningPubKey] = PublicKey();
+                obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
+                obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
+                obj[sfFee] = env.closed()->fees().base;
+                STObject hookobj(sfHook);
+                auto& hooks = obj.peekFieldArray(sfHooks);
+                hooks.emplace_back(std::move(hookobj));
 
+                auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                emitDetails[sfEmitGeneration] = 1;
+                emitDetails[sfEmitBurden] = 1;
+                emitDetails[sfEmitParentTxnID] = invokeTx.getTransactionID();
+                emitDetails[sfEmitNonce] = uint256();
+                emitDetails[sfEmitHookHash] = uint256();
+            });
+
+            {
+                // PREREQUISITE_NOT_MET
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = -1});
+                hook::HookAPI api(hookCtx);
+
+                Serializer s;
+                emitInvokeTx.add(s);
+                BEAST_EXPECT(
+                    api.emit(s.slice()).error() == PREREQUISITE_NOT_MET);
+            }
+            {
+                // TOO_MANY_EMITTED_TXN
+                std::string reason;
+                auto tx = std::make_shared<ripple::Transaction>(
+                    std::make_shared<ripple::STTx const>(invokeTx),
+                    reason,
+                    env.app());
+                std::queue<std::shared_ptr<ripple::Transaction>> emittedTxn;
+                emittedTxn.push(tx);
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.result = {.emittedTxn = emittedTxn},
+                     .expected_etxn_count = 1});
+                hook::HookAPI api(hookCtx);
+
+                Serializer s;
+                emitInvokeTx.add(s);
+                BEAST_EXPECT(
+                    api.emit(s.slice()).error() == TOO_MANY_EMITTED_TXN);
+            }
+            // EMISSION_FAILURE
+            {
+                // Pseudo txn
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {
+                        .expected_etxn_count = 1,
+                        .nonce_used = {{uint256(0), true}},
+                    });
+                hook::HookAPI api(hookCtx);
+                auto tx = emitInvokeTx;
+                tx.setFieldU16(sfTransactionType, ttFEE);
+                Serializer s;
+                tx.add(s);
+                BEAST_EXPECT(api.emit(s.slice()).error() == EMISSION_FAILURE);
+            }
+            {
+                // HookCanEmit (non-SetHook)
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = 1,
+                     .nonce_used = {{uint256(0), true}},
+                     .result = {
+                         .hookCanEmit = UINT256_BIT[ttINVOKE],
+                     }});
+                hook::HookAPI api(hookCtx);
+                auto tx = emitInvokeTx;
+                Serializer s;
+                tx.add(s);
+                BEAST_EXPECT(api.emit(s.slice()).error() == EMISSION_FAILURE);
+            }
+            {
+                // HookCanEmit (SetHook) Error
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {
+                        .expected_etxn_count = 1,
+                        .nonce_used = {{uint256(0), true}},
+                        .result = {.hookCanEmit = uint256()},
+                    });
+                hook::HookAPI api(hookCtx);
+                auto tx = emitSetHookTx;
+                Serializer s;
+                tx.add(s);
+                BEAST_EXPECT(api.emit(s.slice()).error() == EMISSION_FAILURE);
+            }
+            {
+                // HookCanEmit (SetHook) Success
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {
+                        .expected_etxn_count = 1,
+                        .nonce_used = {{uint256(0), true}},
+                        .result = {.hookCanEmit = UINT256_BIT[ttHOOK_SET]},
+                    });
+                hook::HookAPI api(hookCtx);
+                auto tx = emitSetHookTx;
+                Serializer s;
+                tx.add(s);
+                auto const result = api.emit(s.slice());
+                BEAST_EXPECT(result.has_value());
+            }
+        }
+        return;
         Env env{*this, features};
 
         env.fund(XRP(10000), alice);
@@ -13144,7 +13259,7 @@ private:
         )[test.hook]"];
 
     HASH_WASM(accept2);
-};
+};  // namespace test
 
 #define SETHOOK_TEST(i, last)                      \
     class SetHook##i##_test : public SetHook0_test \

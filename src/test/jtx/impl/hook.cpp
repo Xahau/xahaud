@@ -131,7 +131,7 @@ makeStubHookContext(
             {
                 .hookSetTxnID = result.hookSetTxnID,
                 .hookHash = result.hookHash,
-                .hookCanEmit = ripple::uint256(),
+                .hookCanEmit = result.hookCanEmit,
                 .accountKeylet = keylet::account(hookAccount),
                 .hookKeylet = keylet::hook(hookAccount),
                 .account = hookAccount,
