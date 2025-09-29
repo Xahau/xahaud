@@ -2497,21 +2497,14 @@ public:
             OpenView ov{*env.current()};
             ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
 
-            hook::HookStateMap stateMap;
-            auto hookCtx = hook::HookContext{
-                .applyCtx = applyCtx,
-                .expected_etxn_count = 1,
-                .nonce_used = {{uint256(0), true}},
-                .result =
-                    {
-                        .account = alice.id(),
-                        .accountKeylet = keylet::account(alice),
-                        .hookKeylet = keylet::hook(alice),
-                        .stateMap = stateMap,
-                        .hookParams = {{}},
-                    },
-            };
-
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .nonce_used = {{uint256(0), true}},
+                });
             hook::HookAPI api(hookCtx);
 
             STTx emitTx = STTx(ttINVOKE, [&](STObject& obj) {
