@@ -3064,11 +3064,12 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (read_len != 20)
-        return INVALID_ARGUMENT;
-
-    std::string raddr =
-        encodeBase58Token(TokenType::AccountID, memory + read_ptr, read_len);
+    hook::HookAPI api(hookCtx);
+    auto const result =
+        api.util_raddr(Bytes{memory + read_ptr, memory + read_ptr + read_len});
+    if (!result)
+        return result.error();
+    auto const& raddr = result.value();
 
     if (write_len < raddr.size())
         return TOO_SMALL;
@@ -3119,12 +3120,14 @@ DEFINE_HOOK_FUNCTION(
 
     std::string raddr{buffer};
 
-    auto const result = decodeBase58Token(raddr, TokenType::AccountID);
-    if (result.empty())
-        return INVALID_ARGUMENT;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.util_accid(raddr);
+    if (!result)
+        return result.error();
+    auto const& accountID = result.value();
 
     WRITE_WASM_MEMORY_AND_RETURN(
-        write_ptr, write_len, result.data(), 20, memory, memory_length);
+        write_ptr, write_len, accountID.data(), 20, memory, memory_length);
 
     HOOK_TEARDOWN();
 }

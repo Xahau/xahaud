@@ -305,8 +305,24 @@ using namespace hook_float;
 // rollback
 
 /// util APIs
-// util_raddr
-// util_accid
+Expected<std::string, HookReturnCode>
+HookAPI::util_raddr(Bytes const& accountID) const
+{
+    if (accountID.size() != 20)
+        return Unexpected(INVALID_ARGUMENT);
+
+    return encodeBase58Token(
+        TokenType::AccountID, accountID.data(), accountID.size());
+}
+
+Expected<Bytes, HookReturnCode>
+HookAPI::util_accid(std::string raddress) const
+{
+    auto const result = decodeBase58Token(raddress, TokenType::AccountID);
+    if (result.empty())
+        return Unexpected(INVALID_ARGUMENT);
+    return Bytes(result.data(), result.data() + result.size());
+}
 
 Expected<bool, HookReturnCode>
 HookAPI::util_verify(Slice const& data, Slice const& sig, Slice const& key)

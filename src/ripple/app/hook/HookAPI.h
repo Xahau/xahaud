@@ -31,8 +31,11 @@ public:
     // rollback
 
     /// util APIs
-    // util_raddr
-    // util_accid
+    Expected<std::string, HookReturnCode>
+    util_raddr(Bytes const& accountID) const;
+
+    Expected<Bytes, HookReturnCode>
+    util_accid(std::string raddress) const;
 
     Expected<bool, HookReturnCode>
     util_verify(Slice const& data, Slice const& sig, Slice const& key) const;
