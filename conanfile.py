@@ -113,10 +113,6 @@ class Xrpl(ConanFile):
         if self.settings.compiler == 'apple-clang':
             self.options['boost/*'].visibility = 'global'
 
-        # HBB builds have both manual boost (for WasmEdge) and Conan boost (for the app and deps like nudb/soci)
-        # The linker will deduplicate symbols from both versions
-
-
     def requirements(self):
         # Force sqlite3 version to avoid conflicts with soci
         self.requires('sqlite3/3.42.0', override=True)
