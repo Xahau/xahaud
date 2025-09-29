@@ -33,8 +33,13 @@ public:
     /// util APIs
     // util_raddr
     // util_accid
-    // util_verify
-    // util_sha512h
+
+    Expected<bool, HookReturnCode>
+    util_verify(Slice const& data, Slice const& sig, Slice const& key) const;
+
+    uint256
+    util_sha512h(Slice const& data) const;
+
     // util_keylet
 
     /// sto APIs

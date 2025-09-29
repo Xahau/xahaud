@@ -3173,7 +3173,9 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    auto hash = ripple::sha512Half(ripple::Slice{memory + read_ptr, read_len});
+    hook::HookAPI api(hookCtx);
+    auto const hash =
+        api.util_sha512h(ripple::Slice{memory + read_ptr, read_len});
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, 32, hash.data(), 32, memory, memory_length);
@@ -3891,27 +3893,18 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (kread_len != 33)
-        return INVALID_KEY;
-
-    if (dread_len == 0)
-        return TOO_SMALL;
-
-    if (sread_len < 30)
-        return TOO_SMALL;
-
-    ripple::Slice keyslice{
+    ripple::Slice key{
         reinterpret_cast<const void*>(kread_ptr + memory), kread_len};
     ripple::Slice data{
         reinterpret_cast<const void*>(dread_ptr + memory), dread_len};
     ripple::Slice sig{
         reinterpret_cast<const void*>(sread_ptr + memory), sread_len};
 
-    if (!publicKeyType(keyslice))
-        return INVALID_KEY;
-
-    ripple::PublicKey key{keyslice};
-    return verify(key, data, sig, false) ? 1 : 0;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.util_verify(data, sig, key);
+    if (!result)
+        return result.error();
+    return result.value() ? 1 : 0;
 
     HOOK_TEARDOWN();
 }

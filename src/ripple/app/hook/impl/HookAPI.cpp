@@ -295,6 +295,45 @@ const int64_t float_one_internal =
 using namespace ripple;
 using namespace hook_float;
 
+/// util APIs
+// util_raddr
+// util_accid
+
+Expected<bool, HookReturnCode>
+HookAPI::util_verify(Slice const& data, Slice const& sig, Slice const& key)
+    const
+{
+    if (key.size() != 33)
+        return Unexpected(INVALID_KEY);
+
+    if (data.size() == 0)
+        return Unexpected(TOO_SMALL);
+
+    if (sig.size() < 30)
+        return Unexpected(TOO_SMALL);
+
+    if (!publicKeyType(key))
+        return Unexpected(INVALID_KEY);
+
+    ripple::PublicKey pubkey{key};
+    return ripple::verify(pubkey, data, sig, false);
+}
+
+uint256
+HookAPI::util_sha512h(Slice const& data) const
+{
+    return ripple::sha512Half(data);
+}
+
+// util_keylet
+
+/// sto APIs
+// sto_validate
+// sto_subfield
+// sto_subarray
+// sto_emplace
+// sto_erase
+
 Expected<const STBase*, HookReturnCode>
 HookAPI::otxn_field(uint32_t field_id) const
 {
