@@ -14,6 +14,8 @@
 #include <ripple/protocol/STObject.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/tokens.h>
+#include "ripple/basics/Expected.h"
+#include "test/jtx/utility.h"
 #include <cfenv>
 
 namespace hook {
@@ -335,10 +337,246 @@ HookAPI::util_sha512h(Slice const& data) const
 // util_keylet
 
 /// sto APIs
-// sto_validate
-// sto_subfield
-// sto_subarray
-// sto_emplace
+Expected<bool, HookReturnCode>
+HookAPI::sto_validate(Bytes const& data) const
+{
+    if (data.size() < 2)
+        return Unexpected(TOO_SMALL);
+
+    unsigned char* start = const_cast<unsigned char*>(data.data());
+    unsigned char* upto = start;
+    unsigned char* end = start + data.size();
+
+    for (int i = 0; i < 1024 && upto < end; ++i)
+    {
+        int type = -1, field = -1, payload_start = -1, payload_length = -1;
+        auto const length = get_stobject_length(
+            upto, end, type, field, payload_start, payload_length, 0);
+        if (!length)
+            return 0;
+        upto += length.value();
+    }
+
+    return upto == end ? 1 : 0;
+}
+
+Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
+HookAPI::sto_subfield(Bytes const& data, uint32_t field_id) const
+{
+    if (data.size() < 2)
+        return Unexpected(TOO_SMALL);
+
+    unsigned char* start = const_cast<unsigned char*>(data.data());
+    unsigned char* upto = start;
+    unsigned char* end = start + data.size();
+
+    DBG_PRINTF(
+        "sto_subfield called, looking for field %u type %u\n",
+        field_id & 0xFFFF,
+        (field_id >> 16));
+    for (int j = -5; j < 5; ++j)
+        DBG_PRINTF((j == 0 ? " >%02X< " : "  %02X  "), *(start + j));
+    DBG_PRINTF("\n");
+
+    //    if ((*upto & 0xF0) == 0xE0)
+    //        upto++;
+
+    for (int i = 0; i < 1024 && upto < end; ++i)
+    {
+        int type = -1, field = -1, payload_start = -1, payload_length = -1;
+        auto const length = get_stobject_length(
+            upto, end, type, field, payload_start, payload_length, 0);
+        if (!length)
+            return Unexpected(PARSE_ERROR);
+        if ((type << 16) + field == field_id)
+        {
+            DBG_PRINTF(
+                "sto_subfield returned for field %u type %u\n",
+                field_id & 0xFFFF,
+                (field_id >> 16));
+            for (int j = -5; j < 5; ++j)
+                DBG_PRINTF((j == 0 ? " [%02X] " : "  %02X  "), *(upto + j));
+            DBG_PRINTF("\n");
+
+            if (type == 0xF)  // we return arrays fully formed
+                return std::make_pair(upto - start, length.value());
+
+            // return pointers to all other objects as payloads
+            return std::make_pair(upto - start + payload_start, payload_length);
+        }
+        upto += length.value();
+    }
+
+    if (upto != end)
+        return Unexpected(PARSE_ERROR);
+
+    return Unexpected(DOESNT_EXIST);
+}
+
+Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
+HookAPI::sto_subarray(Bytes const& data, uint32_t index_id) const
+{
+    if (data.size() < 2)
+        return Unexpected(TOO_SMALL);
+
+    unsigned char* start = const_cast<unsigned char*>(data.data());
+    unsigned char* upto = start;
+    unsigned char* end = start + data.size();
+
+    // unwrap the array if it is wrapped,
+    // by removing a byte from the start and end
+    if ((*upto & 0xF0U) == 0xF0U)
+    {
+        upto++;
+        end--;
+    }
+
+    if (upto >= end)
+        return Unexpected(PARSE_ERROR);
+
+    /*
+    DBG_PRINTF("sto_subarray called, looking for index %u\n", index_id);
+    for (int j = -5; j < 5; ++j)
+        printf(( j == 0 ? " >%02X< " : "  %02X  "), *(start + j));
+    DBG_PRINTF("\n");
+    */
+    for (int i = 0; i < 1024 && upto < end; ++i)
+    {
+        int type = -1, field = -1, payload_start = -1, payload_length = -1;
+        auto const length = get_stobject_length(
+            upto, end, type, field, payload_start, payload_length, 0);
+        if (!length)
+            return Unexpected(PARSE_ERROR);
+
+        if (i == index_id)
+        {
+            DBG_PRINTF("sto_subarray returned for index %u\n", index_id);
+            for (int j = -5; j < 5; ++j)
+                DBG_PRINTF(
+                    (j == 0 ? " [%02X] " : "  %02X  "),
+                    *(upto + j + length.value()));
+            DBG_PRINTF("\n");
+
+            return std::make_pair(upto - start, length.value());
+        }
+        upto += length.value();
+    }
+
+    if (upto != end)
+        return Unexpected(PARSE_ERROR);
+
+    return Unexpected(DOESNT_EXIST);
+}
+
+Expected<Bytes, HookReturnCode>
+HookAPI::sto_emplace(
+    Bytes const& source_object,
+    std::optional<Bytes> const& field_object,
+    uint32_t field_id) const
+{
+    // RH TODO: put these constants somewhere (votable?)
+    if (source_object.size() > 1024 * 16)
+        return Unexpected(TOO_BIG);
+
+    if (source_object.size() < 2)
+        return Unexpected(TOO_SMALL);
+
+    if (!field_object.has_value())
+    {
+        // this is a delete operation
+    }
+    else
+    {
+        if (field_object->size() > 4096)
+            return Unexpected(TOO_BIG);
+
+        if (field_object->size() < 2)
+            return Unexpected(TOO_SMALL);
+    }
+
+    std::vector<uint8_t> out(
+        (size_t)(
+            source_object.size() + (field_object ? field_object->size() : 0)),
+        (uint8_t)0);
+    uint8_t* write_ptr = out.data();
+
+    // we must inject the field at the canonical location....
+    // so find that location
+    unsigned char* start = const_cast<unsigned char*>(source_object.data());
+    unsigned char* upto = start;
+    unsigned char* end = start + source_object.size();
+    unsigned char* inject_start = end;
+    unsigned char* inject_end = end;
+
+    DBG_PRINTF(
+        "sto_emplace called, looking for field %u type %u\n",
+        field_id & 0xFFFF,
+        (field_id >> 16));
+    for (int j = -5; j < 5; ++j)
+        DBG_PRINTF((j == 0 ? " >%02X< " : "  %02X  "), *(start + j));
+    DBG_PRINTF("\n");
+
+    for (int i = 0; i < 1024 && upto < end; ++i)
+    {
+        int type = -1, field = -1, payload_start = -1, payload_length = -1;
+        auto const length = get_stobject_length(
+            upto, end, type, field, payload_start, payload_length, 0);
+        if (!length)
+            return Unexpected(PARSE_ERROR);
+        if ((type << 16) + field == field_id)
+        {
+            inject_start = upto;
+            inject_end = upto + length.value();
+            break;
+        }
+        else if ((type << 16) + field > field_id)
+        {
+            inject_start = upto;
+            inject_end = upto;
+            break;
+        }
+        upto += length.value();
+    }
+
+    // if the scan loop ends past the end of the source object
+    // then the source object is invalid/corrupt, so we must
+    // return an error
+    if (upto > end)
+        return Unexpected(PARSE_ERROR);
+
+    // upto is injection point
+    int64_t bytes_written = 0;
+
+    // part 1
+    if (inject_start - start > 0)
+    {
+        size_t len = inject_start - start;
+        memcpy(write_ptr, start, len);
+        bytes_written += len;
+    }
+
+    if (field_object && field_object->size() > 0)
+    {
+        // write the field (or don't if it's a delete operation)
+        memcpy(
+            write_ptr + bytes_written,
+            field_object->data(),
+            field_object->size());
+        bytes_written += field_object->size();
+    }
+
+    // part 2
+    if (end - inject_end > 0)
+    {
+        size_t len = end - inject_end;
+        memcpy(write_ptr + bytes_written, inject_end, len);
+        bytes_written += len;
+    }
+
+    out.resize(bytes_written);
+    return out;
+}
+
 // sto_erase
 
 /// etxn APIs
@@ -2506,5 +2744,200 @@ HookAPI::set_state_cache(
     stateMapNs[key].second = data;
     return 1;
 }
+
+// RH NOTE this is a light-weight stobject parsing function for drilling into a
+// provided serialzied object however it could probably be replaced by an
+// existing class or routine or set of routines in XRPLD Returns object length
+// including header bytes (and footer bytes in the event of array or object)
+// negative indicates error
+inline Expected<
+    int32_t,
+    HookAPI::parse_error>
+HookAPI::get_stobject_length(
+    unsigned char* start,   // in - begin iterator
+    unsigned char* maxptr,  // in - end iterator
+    int& type,              // out - populated by serialized type code
+    int& field,             // out - populated by serialized field code
+    int& payload_start,  // out - the start of actual payload data for this type
+    int& payload_length,  // out - the length of actual payload data for this
+                          // type
+    int recursion_depth)  // used internally
+    const
+{
+    if (recursion_depth > 10)
+        return Unexpected(pe_excessive_nesting);
+
+    unsigned char* end = maxptr;
+    unsigned char* upto = start;
+    int high = *upto >> 4;
+    int low = *upto & 0xF;
+
+    upto++;
+    if (upto >= end)
+        return Unexpected(pe_unexpected_end);
+    if (high > 0 && low > 0)
+    {
+        // common type common field
+        type = high;
+        field = low;
+    }
+    else if (high > 0)
+    {
+        // common type, uncommon field
+        type = high;
+        field = *upto++;
+    }
+    else if (low > 0)
+    {
+        // common field, uncommon type
+        field = low;
+        type = *upto++;
+    }
+    else
+    {
+        // uncommon type and field
+        type = *upto++;
+        if (upto >= end)
+            return Unexpected(pe_unexpected_end);
+        field = *upto++;
+    }
+
+    DBG_PRINTF(
+        "%d get_st_object found field %d type %d\n",
+        recursion_depth,
+        field,
+        type);
+
+    if (upto >= end)
+        return pe_unexpected_end;
+
+    // RH TODO: link this to rippled's internal STObject constants
+    // E.g.:
+    /*
+    int field_code = (safe_cast<int>(type) << 16) | field;
+    auto const& fieldObj = ripple::SField::getField;
+    */
+
+    if (type < 1 || type > 19 || (type >= 9 && type <= 13))
+        return Unexpected(pe_unknown_type_early);
+
+    bool is_vl = (type == 8 /*ACCID*/ || type == 7 || type == 18 || type == 19);
+
+    int length = -1;
+    if (is_vl)
+    {
+        length = *upto++;
+        if (upto >= end)
+            return Unexpected(pe_unexpected_end);
+
+        if (length < 193)
+        {
+            // do nothing
+        }
+        else if (length > 192 && length < 241)
+        {
+            length -= 193;
+            length *= 256;
+            length += *upto++ + 193;
+            if (upto > end)
+                return Unexpected(pe_unexpected_end);
+        }
+        else
+        {
+            int b2 = *upto++;
+            if (upto >= end)
+                return Unexpected(pe_unexpected_end);
+            length -= 241;
+            length *= 65536;
+            length += 12481 + (b2 * 256) + *upto++;
+            if (upto >= end)
+                return Unexpected(pe_unexpected_end);
+        }
+    }
+    else if ((type >= 1 && type <= 5) || type == 16 || type == 17)
+    {
+        length =
+            (type == 1
+                 ? 2
+                 : (type == 2
+                        ? 4
+                        : (type == 3
+                               ? 8
+                               : (type == 4
+                                      ? 16
+                                      : (type == 5
+                                             ? 32
+                                             : (type == 16
+                                                    ? 1
+                                                    : (type == 17 ? 20
+                                                                  : -1)))))));
+    }
+    else if (type == 6) /* AMOUNT */
+    {
+        length = (*upto >> 6 == 1) ? 8 : 48;
+        if (upto >= end)
+            return Unexpected(pe_unexpected_end);
+    }
+
+    if (length > -1)
+    {
+        payload_start = upto - start;
+        payload_length = length;
+        DBG_PRINTF(
+            "%d get_stobject_length field: %d Type: %d VL: %s Len: %d "
+            "Payload_Start: %d Payload_Len: %d\n",
+            recursion_depth,
+            field,
+            type,
+            (is_vl ? "yes" : "no"),
+            length,
+            payload_start,
+            payload_length);
+        return length + (upto - start);
+    }
+
+    if (type == 15 || type == 14) /* Object / Array */
+    {
+        payload_start = upto - start;
+
+        for (int i = 0; i < 1024; ++i)
+        {
+            int subfield = -1, subtype = -1, payload_start_ = -1,
+                payload_length_ = -1;
+            auto const sublength = get_stobject_length(
+                upto,
+                end,
+                subtype,
+                subfield,
+                payload_start_,
+                payload_length_,
+                recursion_depth + 1);
+            DBG_PRINTF(
+                "%d get_stobject_length i %d %d-%d, upto %d sublength %d\n",
+                recursion_depth,
+                i,
+                subtype,
+                subfield,
+                upto - start,
+                sublength);
+            if (!sublength)
+                return Unexpected(pe_unexpected_end);
+            upto += sublength.value();
+            if (upto >= end)
+                return Unexpected(pe_unexpected_end);
+
+            if ((*upto == 0xE1U && type == 0xEU) ||
+                (*upto == 0xF1U && type == 0xFU))
+            {
+                payload_length = upto - start - payload_start;
+                upto++;
+                return (upto - start);
+            }
+        }
+        return Unexpected(pe_excessive_size);
+    }
+
+    return Unexpected(pe_unknown_type_late);
+};
 
 }  // namespace hook

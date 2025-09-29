@@ -43,11 +43,22 @@ public:
     // util_keylet
 
     /// sto APIs
-    // sto_validate
-    // sto_subfield
-    // sto_subarray
-    // sto_emplace
-    // sto_erase
+    Expected<bool, HookReturnCode>
+    sto_validate(Bytes const& data) const;
+
+    Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
+    sto_subfield(Bytes const& data, uint32_t field_id) const;
+
+    Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
+    sto_subarray(Bytes const& data, uint32_t index_id) const;
+
+    Expected<Bytes, HookReturnCode>
+    sto_emplace(
+        Bytes const& source_object,
+        std::optional<Bytes> const& field_object,
+        uint32_t field_id) const;
+
+    // sto_erase: same as sto_emplace with field_object = nullopt
 
     /// etxn APIs
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
@@ -193,7 +204,8 @@ public:
     ledger_keylet(Keylet const& klLo, Keylet const& klHi) const;
 
     /// state APIs
-    // state
+
+    // state: same as state_foreign with ns = 0 and account = hook_account()
 
     Expected<Bytes, HookReturnCode>
     state_foreign(
@@ -201,7 +213,8 @@ public:
         uint256 const& ns,
         AccountID const& account) const;
 
-    // state_set
+    // state_set: same as state_foreign_set with ns = 0 and account =
+    // hook_account()
 
     Expected<uint64_t, HookReturnCode>
     state_foreign_set(
@@ -301,6 +314,30 @@ private:
         uint256 const& key,
         Bytes const& data,
         bool modified) const;
+
+    // these are only used by get_stobject_length below
+    enum parse_error {
+        pe_unexpected_end = -1,
+        pe_unknown_type_early = -2,  // detected early
+        pe_unknown_type_late = -3,   // end of function
+        pe_excessive_nesting = -4,
+        pe_excessive_size = -5
+    };
+
+    inline Expected<
+        int32_t,
+        parse_error>
+    get_stobject_length(
+        unsigned char* start,     // in - begin iterator
+        unsigned char* maxptr,    // in - end iterator
+        int& type,                // out - populated by serialized type code
+        int& field,               // out - populated by serialized field code
+        int& payload_start,       // out - the start of actual payload data for
+                                  // this type
+        int& payload_length,      // out - the length of actual payload data for
+                                  // this type
+        int recursion_depth = 0)  // used internally
+        const;
 };
 
 }  // namespace hook
