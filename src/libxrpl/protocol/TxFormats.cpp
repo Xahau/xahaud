@@ -74,29 +74,6 @@ TxFormats::TxFormats()
 #pragma pop_macro("UNWRAP")
 }
 
-std::optional<uint256>
-txRequiredFeature(TxType txType)
-{
-#pragma push_macro("TRANSACTION")
-#undef TRANSACTION
-
-#define TRANSACTION(tag, value, name, delegatable, amendment, ...) \
-    case tag:                                                      \
-        if (amendment == uint256{})                                \
-            return std::nullopt;                                   \
-        return amendment;
-
-    switch (txType)
-    {
-#include <xrpl/protocol/detail/transactions.macro>
-        default:
-            return std::nullopt;
-    }
-
-#undef TRANSACTION
-#pragma pop_macro("TRANSACTION")
-}
-
 TxFormats const&
 TxFormats::getInstance()
 {

@@ -156,6 +156,7 @@ Import::preflight(PreflightContext const& ctx)
         JLOG(ctx.j.warn()) << "Import: Issuer cannot be the source account.";
         return temMALFORMED;
     }
+
     auto& tx = ctx.tx;
 
     if (!tx.isFieldPresent(sfBlob))

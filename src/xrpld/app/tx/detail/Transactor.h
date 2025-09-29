@@ -406,6 +406,13 @@ protected:
     static bool
     validNumericRange(std::optional<T> value, T max, T min = {});
 
+    template <class T, class Unit>
+    static bool
+    validNumericRange(
+        std::optional<T> value,
+        unit::ValueUnit<Unit, T> max,
+        unit::ValueUnit<Unit, T> min = {});
+
 private:
     std::pair<TER, XRPAmount>
     reset(XRPAmount fee);
@@ -493,7 +500,10 @@ template <class T>
 NotTEC
 Transactor::invokePreflight(PreflightContext const& ctx)
 {
-    auto const feature = txRequiredFeature(ctx.tx.getTxnType());
+    // Using this lookup does NOT require checking the fixDelegateV1_1. The data
+    // exists regardless of whether it is enabled.
+    auto const feature =
+        Permission::getInstance().getTxFeature(ctx.tx.getTxnType());
 
     if (feature && !ctx.rules.enabled(*feature))
         return temDISABLED;
@@ -520,6 +530,16 @@ Transactor::validNumericRange(std::optional<T> value, T max, T min)
     if (!value)
         return true;
     return value >= min && value <= max;
+}
+
+template <class T, class Unit>
+bool
+Transactor::validNumericRange(
+    std::optional<T> value,
+    unit::ValueUnit<Unit, T> max,
+    unit::ValueUnit<Unit, T> min)
+{
+    return validNumericRange(value, max.value(), min.value());
 }
 
 inline static std::variant<uint32_t, uint256>

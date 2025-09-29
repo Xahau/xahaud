@@ -61,6 +61,8 @@ MPTokenIssuanceCreate::preflight(PreflightContext const& ctx)
     if (ctx.tx.getSeqProxy() == SeqProxy::sequence(0))
         return temBAD_SEQUENCE;
 
+    // If the mutable flags field is included, at least one flag must be
+    // specified.
     if (auto const mutableFlags = ctx.tx[~sfMutableFlags]; mutableFlags &&
         (!*mutableFlags || *mutableFlags & tmfMPTokenIssuanceCreateMutableMask))
         return temINVALID_FLAG;

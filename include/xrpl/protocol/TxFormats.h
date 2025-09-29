@@ -95,12 +95,6 @@ public:
     getInstance();
 };
 
-/** Amendment that gates this transaction type, if any (from
-    transactions.macro).
-*/
-std::optional<uint256>
-txRequiredFeature(TxType txType);
-
 }  // namespace ripple
 
 #endif
