@@ -3,6 +3,7 @@
 #include <ripple/app/hook/HookAPI.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/OpenLedger.h>
+#include <ripple/app/ledger/TransactionMaster.h>
 #include <ripple/app/misc/Transaction.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/app/tx/impl/ApplyContext.h>
@@ -1646,15 +1647,303 @@ HookAPI::state_foreign_set(
 }
 
 /// slot APIs
-// slot
-// slot_clear
-// slot_count
-// slot_set
-// slot_size
-// slot_subarray
-// slot_subfield
+
+Expected<const STBase*, HookReturnCode>
+HookAPI::slot(uint32_t slot_no) const
+{
+    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    if (hookCtx.slot[slot_no].entry == 0)
+        return Unexpected(INTERNAL_ERROR);
+
+    return hookCtx.slot[slot_no].entry;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::slot_clear(uint32_t slot_no) const
+{
+    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    hookCtx.slot.erase(slot_no);
+    hookCtx.slot_free.push(slot_no);
+    return 1;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::slot_count(uint32_t slot_no) const
+{
+    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    if (hookCtx.slot[slot_no].entry == 0)
+        return Unexpected(INTERNAL_ERROR);
+
+    if (hookCtx.slot[slot_no].entry->getSType() != STI_ARRAY)
+        return Unexpected(NOT_AN_ARRAY);
+
+    return hookCtx.slot[slot_no].entry->downcast<ripple::STArray>().size();
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
+{
+    if ((data.size() != 32 && data.size() != 34) ||
+        slot_no > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (slot_no == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    std::optional<std::shared_ptr<const ripple::STObject>> slot_value =
+        std::nullopt;
+
+    if (data.size() == 34)
+    {
+        std::optional<ripple::Keylet> kl = unserialize_keylet(data);
+        if (!kl)
+            return Unexpected(DOESNT_EXIST);
+
+        if (kl->key == beast::zero)
+            return Unexpected(DOESNT_EXIST);
+
+        auto const sle = hookCtx.applyCtx.view().read(*kl);
+        if (!sle)
+            return Unexpected(DOESNT_EXIST);
+
+        slot_value = sle;
+    }
+    else if (data.size() == 32)
+    {
+        uint256 hash = ripple::base_uint<256>::fromVoid(data.data());
+
+        ripple::error_code_i ec{ripple::error_code_i::rpcUNKNOWN};
+
+        auto hTx = hookCtx.applyCtx.app.getMasterTransaction().fetch(hash, ec);
+
+        if (auto const* p = std::get_if<std::pair<
+                std::shared_ptr<ripple::Transaction>,
+                std::shared_ptr<ripple::TxMeta>>>(&hTx))
+            slot_value = p->first->getSTransaction();
+        else
+            return Unexpected(DOESNT_EXIST);
+    }
+    else
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (!slot_value.has_value())
+        return Unexpected(DOESNT_EXIST);
+
+    if (slot_no == 0)
+    {
+        if (auto found = get_free_slot(); found)
+            slot_no = *found;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    hookCtx.slot[slot_no] = hook::SlotEntry{.storage = *slot_value, .entry = 0};
+    hookCtx.slot[slot_no].entry = &(*hookCtx.slot[slot_no].storage);
+
+    return slot_no;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::slot_size(uint32_t slot_no) const
+{
+    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    if (hookCtx.slot[slot_no].entry == 0)
+        return Unexpected(INTERNAL_ERROR);
+
+    // RH TODO: this is a very expensive way of computing size, cache it
+    Serializer s;
+    hookCtx.slot[slot_no].entry->add(s);
+    return s.getDataLength();
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_subarray(
+    uint32_t parent_slot,
+    uint32_t array_id,
+    uint32_t new_slot) const
+{
+    if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    if (hookCtx.slot[parent_slot].entry == 0)
+        return Unexpected(INTERNAL_ERROR);
+
+    if (hookCtx.slot[parent_slot].entry->getSType() != STI_ARRAY)
+        return Unexpected(NOT_AN_ARRAY);
+
+    if (new_slot == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    if (new_slot > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    bool copied = false;
+    try
+    {
+        ripple::STArray& parent_obj =
+            const_cast<ripple::STBase&>(*hookCtx.slot[parent_slot].entry)
+                .downcast<ripple::STArray>();
+
+        if (parent_obj.size() <= array_id)
+            return Unexpected(DOESNT_EXIST);
+
+        if (new_slot == 0)
+        {
+            if (auto found = get_free_slot(); found)
+                new_slot = *found;
+            else
+                return Unexpected(NO_FREE_SLOTS);
+        }
+
+        // copy
+        if (new_slot != parent_slot)
+        {
+            copied = true;
+            hookCtx.slot[new_slot] = hookCtx.slot[parent_slot];
+        }
+        hookCtx.slot[new_slot].entry = &(parent_obj[array_id]);
+        return new_slot;
+    }
+    catch (const std::bad_cast& e)
+    {
+        if (copied)
+        {
+            hookCtx.slot.erase(new_slot);
+            hookCtx.slot_free.push(new_slot);
+        }
+        return Unexpected(NOT_AN_ARRAY);
+    }
+
+    return new_slot;
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_subfield(
+    uint32_t parent_slot,
+    uint32_t field_id,
+    uint32_t new_slot) const
+{
+    if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    if (new_slot == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    if (new_slot > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    SField const& fieldCode = ripple::SField::getField(field_id);
+
+    if (fieldCode == sfInvalid)
+        return Unexpected(INVALID_FIELD);
+
+    if (hookCtx.slot[parent_slot].entry == 0)
+        return Unexpected(INTERNAL_ERROR);
+
+    bool copied = false;
+
+    try
+    {
+        ripple::STObject& parent_obj =
+            const_cast<ripple::STBase&>(*hookCtx.slot[parent_slot].entry)
+                .downcast<ripple::STObject>();
+
+        if (!parent_obj.isFieldPresent(fieldCode))
+            return Unexpected(DOESNT_EXIST);
+
+        if (new_slot == 0)
+        {
+            if (auto found = get_free_slot(); found)
+                new_slot = *found;
+            else
+                return Unexpected(NO_FREE_SLOTS);
+        }
+
+        // copy
+        if (new_slot != parent_slot)
+        {
+            copied = true;
+            hookCtx.slot[new_slot] = hookCtx.slot[parent_slot];
+        }
+
+        hookCtx.slot[new_slot].entry = &(parent_obj.getField(fieldCode));
+        return new_slot;
+    }
+    catch (const std::bad_cast& e)
+    {
+        if (copied)
+        {
+            hookCtx.slot.erase(new_slot);
+            hookCtx.slot_free.push(new_slot);
+        }
+        return Unexpected(NOT_AN_OBJECT);
+    }
+}
+
 // slot_type
-// slot_float
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::slot_float(uint32_t slot_no) const
+{
+    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    if (hookCtx.slot[slot_no].entry == 0)
+        return Unexpected(INTERNAL_ERROR);
+
+    try
+    {
+        ripple::STAmount& st_amt =
+            const_cast<ripple::STBase&>(*hookCtx.slot[slot_no].entry)
+                .downcast<ripple::STAmount>();
+
+        int64_t normalized = 0;
+        if (st_amt.native())
+        {
+            ripple::XRPAmount amt = st_amt.xrp();
+            int64_t drops = amt.drops();
+            int32_t exp = -6;
+            // normalize
+            auto const ret = hook_float::normalize_xfl(drops, exp);
+            if (!ret)
+            {
+                if (ret.error() == EXPONENT_UNDERSIZED)
+                    return 0;
+                return Unexpected(ret.error());
+            }
+            normalized = ret.value();
+        }
+        else
+        {
+            ripple::IOUAmount amt = st_amt.iou();
+            auto const ret = make_float(amt);
+            if (!ret)
+            {
+                if (ret.error() == EXPONENT_UNDERSIZED)
+                    return 0;
+                return Unexpected(ret.error());
+            }
+            normalized = ret.value();
+        }
+
+        if (normalized == EXPONENT_UNDERSIZED)
+            /* exponent undersized (underflow) */
+            return 0;  // return 0 in this case
+        return normalized;
+    }
+    catch (const std::bad_cast& e)
+    {
+        return Unexpected(NOT_AN_AMOUNT);
+    }
+}
 
 /// trace APIs
 // trace
@@ -1885,6 +2174,19 @@ HookAPI::double_to_xfl(double x) const
     }
 
     return ret;
+}
+
+std::optional<ripple::Keylet>
+HookAPI::unserialize_keylet(Bytes const& data) const
+{
+    if (data.size() != 34)
+        return {};
+
+    uint16_t ktype = ((uint16_t)data[0] << 8) + ((uint16_t)data[1]);
+
+    return ripple::Keylet{
+        static_cast<LedgerEntryType>(ktype),
+        ripple::uint256::fromVoid(data.data() + 2)};
 }
 
 inline std::optional<

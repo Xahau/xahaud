@@ -1,7 +1,6 @@
 #include <ripple/app/hook/HookAPI.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/OpenLedger.h>
-#include <ripple/app/ledger/TransactionMaster.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/misc/Transaction.h>
@@ -2136,21 +2135,20 @@ DEFINE_HOOK_FUNCTION(
             return TOO_SMALL;
     }
 
-    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
-        return DOESNT_EXIST;
-
-    if (hookCtx.slot[slot_no].entry == 0)
-        return INTERNAL_ERROR;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot(slot_no);
+    if (!result)
+        return result.error();
 
     Serializer s;
-    hookCtx.slot[slot_no].entry->add(s);
+    (*result)->add(s);
 
     WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
         write_ptr,
         write_len,
         s.getDataPtr(),
         s.getDataLength(),
-        hookCtx.slot[slot_no].entry->getSType() == STI_ACCOUNT);
+        (*result)->getSType() == STI_ACCOUNT);
 
     HOOK_TEARDOWN();
 }
@@ -2160,13 +2158,12 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
-        return DOESNT_EXIST;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot_clear(slot_no);
+    if (!result)
+        return result.error();
 
-    hookCtx.slot.erase(slot_no);
-    hookCtx.slot_free.push(slot_no);
-
-    return 1;
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -2176,16 +2173,12 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_count, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
-        return DOESNT_EXIST;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot_count(slot_no);
+    if (!result)
+        return result.error();
 
-    if (hookCtx.slot[slot_no].entry == 0)
-        return INTERNAL_ERROR;
-
-    if (hookCtx.slot[slot_no].entry->getSType() != STI_ARRAY)
-        return NOT_AN_ARRAY;
-
-    return hookCtx.slot[slot_no].entry->downcast<ripple::STArray>().size();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -2203,68 +2196,13 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if ((read_len != 32 && read_len != 34) || slot_into > hook_api::max_slots)
-        return INVALID_ARGUMENT;
+    hook::HookAPI api(hookCtx);
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.slot_set(data, slot_into);
+    if (!result)
+        return result.error();
 
-    // check if we can emplace the object to a slot
-    if (slot_into == 0 && no_free_slots(hookCtx))
-        return NO_FREE_SLOTS;
-
-    std::vector<uint8_t> slot_key{
-        memory + read_ptr, memory + read_ptr + read_len};
-    std::optional<std::shared_ptr<const ripple::STObject>> slot_value =
-        std::nullopt;
-
-    if (read_len == 34)
-    {
-        std::optional<ripple::Keylet> kl =
-            unserialize_keylet(memory + read_ptr, read_len);
-        if (!kl)
-            return DOESNT_EXIST;
-
-        if (kl->key == beast::zero)
-            return DOESNT_EXIST;
-
-        auto const sle = applyCtx.view().read(*kl);
-        if (!sle)
-            return DOESNT_EXIST;
-
-        slot_value = sle;
-    }
-    else if (read_len == 32)
-    {
-        uint256 hash = ripple::base_uint<256>::fromVoid(memory + read_ptr);
-
-        ripple::error_code_i ec{ripple::error_code_i::rpcUNKNOWN};
-
-        auto hTx = applyCtx.app.getMasterTransaction().fetch(hash, ec);
-
-        if (auto const* p = std::get_if<std::pair<
-                std::shared_ptr<ripple::Transaction>,
-                std::shared_ptr<ripple::TxMeta>>>(&hTx))
-            slot_value = p->first->getSTransaction();
-        else
-            return DOESNT_EXIST;
-    }
-    else
-        return DOESNT_EXIST;
-
-    if (!slot_value.has_value())
-        return DOESNT_EXIST;
-
-    if (slot_into == 0)
-    {
-        if (auto found = get_free_slot(hookCtx); found)
-            slot_into = *found;
-        else
-            return NO_FREE_SLOTS;
-    }
-
-    hookCtx.slot[slot_into] =
-        hook::SlotEntry{.storage = *slot_value, .entry = 0};
-    hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
-
-    return slot_into;
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -2274,16 +2212,12 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_size, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
-        return DOESNT_EXIST;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot_size(slot_no);
+    if (!result)
+        return result.error();
 
-    if (hookCtx.slot[slot_no].entry == 0)
-        return INTERNAL_ERROR;
-
-    // RH TODO: this is a very expensive way of computing size, cache it
-    Serializer s;
-    hookCtx.slot[slot_no].entry->add(s);
-    return s.getDataLength();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -2298,57 +2232,12 @@ DEFINE_HOOK_FUNCTION(
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
-        return DOESNT_EXIST;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot_subarray(parent_slot, array_id, new_slot);
+    if (!result)
+        return result.error();
 
-    if (hookCtx.slot[parent_slot].entry == 0)
-        return INTERNAL_ERROR;
-
-    if (hookCtx.slot[parent_slot].entry->getSType() != STI_ARRAY)
-        return NOT_AN_ARRAY;
-
-    if (new_slot == 0 && no_free_slots(hookCtx))
-        return NO_FREE_SLOTS;
-
-    if (new_slot > hook_api::max_slots)
-        return INVALID_ARGUMENT;
-
-    bool copied = false;
-    try
-    {
-        ripple::STArray& parent_obj =
-            const_cast<ripple::STBase&>(*hookCtx.slot[parent_slot].entry)
-                .downcast<ripple::STArray>();
-
-        if (parent_obj.size() <= array_id)
-            return DOESNT_EXIST;
-
-        if (new_slot == 0)
-        {
-            if (auto found = get_free_slot(hookCtx); found)
-                new_slot = *found;
-            else
-                return NO_FREE_SLOTS;
-        }
-
-        // copy
-        if (new_slot != parent_slot)
-        {
-            copied = true;
-            hookCtx.slot[new_slot] = hookCtx.slot[parent_slot];
-        }
-        hookCtx.slot[new_slot].entry = &(parent_obj[array_id]);
-        return new_slot;
-    }
-    catch (const std::bad_cast& e)
-    {
-        if (copied)
-        {
-            hookCtx.slot.erase(new_slot);
-            hookCtx.slot_free.push(new_slot);
-        }
-        return NOT_AN_ARRAY;
-    }
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -2363,61 +2252,12 @@ DEFINE_HOOK_FUNCTION(
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.slot.find(parent_slot) == hookCtx.slot.end())
-        return DOESNT_EXIST;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot_subfield(parent_slot, field_id, new_slot);
+    if (!result)
+        return result.error();
 
-    if (new_slot == 0 && no_free_slots(hookCtx))
-        return NO_FREE_SLOTS;
-
-    if (new_slot > hook_api::max_slots)
-        return INVALID_ARGUMENT;
-
-    SField const& fieldCode = ripple::SField::getField(field_id);
-
-    if (fieldCode == sfInvalid)
-        return INVALID_FIELD;
-
-    if (hookCtx.slot[parent_slot].entry == 0)
-        return INTERNAL_ERROR;
-
-    bool copied = false;
-
-    try
-    {
-        ripple::STObject& parent_obj =
-            const_cast<ripple::STBase&>(*hookCtx.slot[parent_slot].entry)
-                .downcast<ripple::STObject>();
-
-        if (!parent_obj.isFieldPresent(fieldCode))
-            return DOESNT_EXIST;
-
-        if (new_slot == 0)
-        {
-            if (auto found = get_free_slot(hookCtx); found)
-                new_slot = *found;
-            else
-                return NO_FREE_SLOTS;
-        }
-
-        // copy
-        if (new_slot != parent_slot)
-        {
-            copied = true;
-            hookCtx.slot[new_slot] = hookCtx.slot[parent_slot];
-        }
-
-        hookCtx.slot[new_slot].entry = &(parent_obj.getField(fieldCode));
-        return new_slot;
-    }
-    catch (const std::bad_cast& e)
-    {
-        if (copied)
-        {
-            hookCtx.slot.erase(new_slot);
-            hookCtx.slot_free.push(new_slot);
-        }
-        return NOT_AN_OBJECT;
-    }
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -2465,42 +2305,12 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_float, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
-        return DOESNT_EXIST;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot_float(slot_no);
+    if (!result)
+        return result.error();
 
-    if (hookCtx.slot[slot_no].entry == 0)
-        return INTERNAL_ERROR;
-
-    try
-    {
-        ripple::STAmount& st_amt =
-            const_cast<ripple::STBase&>(*hookCtx.slot[slot_no].entry)
-                .downcast<ripple::STAmount>();
-
-        int64_t normalized = 0;
-        if (st_amt.native())
-        {
-            ripple::XRPAmount amt = st_amt.xrp();
-            int64_t drops = amt.drops();
-            int32_t exp = -6;
-            // normalize
-            normalized = hook_float::normalize_xfl(drops, exp);
-        }
-        else
-        {
-            ripple::IOUAmount amt = st_amt.iou();
-            normalized = make_float(amt);
-        }
-
-        if (normalized ==
-            EXPONENT_UNDERSIZED /* exponent undersized (underflow) */)
-            return 0;  // return 0 in this case
-        return normalized;
-    }
-    catch (const std::bad_cast& e)
-    {
-        return NOT_AN_AMOUNT;
-    }
+    return result.value();
 
     HOOK_TEARDOWN();
 }

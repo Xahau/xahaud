@@ -206,15 +206,33 @@ public:
         Bytes& data) const;
 
     /// slot APIs
-    // slot
-    // slot_clear
-    // slot_count
-    // slot_set
-    // slot_size
-    // slot_subarray
-    // slot_subfield
+    Expected<const STBase*, HookReturnCode>
+    slot(uint32_t slot_no) const;
+
+    Expected<uint64_t, HookReturnCode>
+    slot_clear(uint32_t slot_no) const;
+
+    Expected<uint64_t, HookReturnCode>
+    slot_count(uint32_t slot_no) const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_set(Bytes const& data, uint32_t slot_no) const;
+
+    Expected<uint64_t, HookReturnCode>
+    slot_size(uint32_t slot_no) const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_subarray(uint32_t parent_slot, uint32_t array_id, uint32_t new_slot)
+        const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_subfield(uint32_t parent_slot, uint32_t field_id, uint32_t new_slot)
+        const;
+
     // slot_type
-    // slot_float
+
+    Expected<uint64_t, HookReturnCode>
+    slot_float(uint32_t slot_no) const;
 
     /// trace APIs
     // trace
@@ -255,6 +273,9 @@ private:
 
     inline Expected<uint64_t, HookReturnCode>
     double_to_xfl(double x) const;
+
+    std::optional<ripple::Keylet>
+    unserialize_keylet(Bytes const& data) const;
 
     // update the state cache
     inline std::optional<
