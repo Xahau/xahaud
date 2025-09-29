@@ -30,17 +30,19 @@
 
 namespace ripple {
 
+std::uint32_t
+URIToken::getFlagsMask(PreflightContext const& ctx)
+{
+    auto const tt = ctx.tx.getTxnType();
+    if (tt == ttURITOKEN_MINT)
+        return tfURITokenMintMask;
+
+    return tfURITokenNonMintMask;
+}
+
 NotTEC
 URIToken::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureURIToken))
-        return temDISABLED;
-
-    NotTEC const ret{preflight1(ctx)};
-    if (!isTesSuccess(ret))
-        return ret;
-
-    uint32_t flags = ctx.tx.getFlags();
     auto const tt = ctx.tx.getTxnType();
 
     // the validation for amount is the same regardless of which txn is appears
@@ -112,34 +114,12 @@ URIToken::preflight(PreflightContext const& ctx)
         }
     }
 
-    switch (tt)
-    {
-        case ttURITOKEN_MINT: {
-            if (flags & tfURITokenMintMask)
-                return temINVALID_FLAG;
-            break;
-        }
-
-        case ttURITOKEN_CANCEL_SELL_OFFER:
-        case ttURITOKEN_BURN:
-        case ttURITOKEN_BUY:
-        case ttURITOKEN_CREATE_SELL_OFFER: {
-            if (flags & tfURITokenNonMintMask)
-                return temINVALID_FLAG;
-
-            break;
-        }
-
-        default:
-            return tefINTERNAL;
-    }
-
     // specifying self as a destination is always an error
     if (ctx.tx.isFieldPresent(sfDestination) &&
         ctx.tx.getAccountID(sfAccount) == ctx.tx.getAccountID(sfDestination))
         return temREDUNDANT;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

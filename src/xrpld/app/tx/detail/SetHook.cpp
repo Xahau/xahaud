@@ -729,28 +729,16 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
     return tesSUCCESS;
 }
 
+std::uint32_t
+SetHook::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fixInvalidTxFlags) ? tfUniversalMask : 0;
+}
+
 NotTEC
 SetHook::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureHooks))
-    {
-        JLOG(ctx.j.warn()) << "HookSet(" << hook::log::AMENDMENT_DISABLED
-                           << ")[" << HS_ACC()
-                           << "]: Hooks Amendment not enabled!";
-        return temDISABLED;
-    }
-
-    auto const ret = preflight1(ctx);
-    if (!isTesSuccess(ret))
-        return ret;
-
-    if (ctx.rules.enabled(fixInvalidTxFlags) &&
-        ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.trace()) << "SetHook: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
-
     if (!ctx.tx.isFieldPresent(sfHooks))
     {
         JLOG(ctx.j.trace())
@@ -864,7 +852,7 @@ SetHook::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

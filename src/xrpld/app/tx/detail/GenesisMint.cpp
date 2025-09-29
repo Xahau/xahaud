@@ -35,17 +35,17 @@ GenesisMint::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
+uint32_t
+GenesisMint::getFlagsMask(PreflightContext const& ctx)
+{
+    return 0;
+}
+
 NotTEC
 GenesisMint::preflight(PreflightContext const& ctx)
 {
     if (!ctx.rules.enabled(featureHooks))
         return temDISABLED;
-
-    if (!ctx.rules.enabled(featureXahauGenesis))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
 
     auto& tx = ctx.tx;
 
@@ -153,7 +153,7 @@ GenesisMint::preflight(PreflightContext const& ctx)
         alreadySeen.emplace(accid);
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
