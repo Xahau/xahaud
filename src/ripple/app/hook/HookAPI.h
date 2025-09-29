@@ -239,8 +239,11 @@ public:
     // trace_num
     // trace_float
 
-    // meta_slot
-    // xpop_slot
+    Expected<uint32_t, HookReturnCode>
+    meta_slot(uint32_t slot_into) const;
+
+    Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
+    xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const;
 
 private:
     HookContext& hookCtx;

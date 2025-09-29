@@ -7,6 +7,7 @@
 #include <ripple/app/misc/Transaction.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/app/tx/impl/ApplyContext.h>
+#include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/base_uint.h>
@@ -1950,8 +1951,100 @@ HookAPI::slot_float(uint32_t slot_no) const
 // trace_num
 // trace_float
 
-// meta_slot
-// xpop_slot
+Expected<uint32_t, HookReturnCode>
+HookAPI::meta_slot(uint32_t slot_into) const
+{
+    if (!hookCtx.result.provisionalMeta)
+        return Unexpected(PREREQUISITE_NOT_MET);
+
+    if (slot_into > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    // check if we can emplace the object to a slot
+    if (slot_into == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    if (slot_into == 0)
+    {
+        if (auto found = get_free_slot(); found)
+            slot_into = *found;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    hookCtx.slot[slot_into] =
+        hook::SlotEntry{.storage = hookCtx.result.provisionalMeta, .entry = 0};
+
+    hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
+
+    return slot_into;
+}
+
+Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
+HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
+{
+    if (hookCtx.applyCtx.tx.getFieldU16(sfTransactionType) != ttIMPORT)
+        return Unexpected(PREREQUISITE_NOT_MET);
+
+    if (slot_into_tx > hook_api::max_slots ||
+        slot_into_meta > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    size_t free_count = hook_api::max_slots - hookCtx.slot.size();
+
+    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0
+        ? 2
+        : slot_into_tx != 0 && slot_into_meta != 0 ? 0 : 1;
+
+    if (free_count < needed_count)
+        return Unexpected(NO_FREE_SLOTS);
+
+    // if they supply the same slot number for both (other than 0)
+    // they will produce a collision
+    if (needed_count == 0 && slot_into_tx == slot_into_meta)
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (slot_into_tx == 0)
+    {
+        if (no_free_slots())
+            return Unexpected(NO_FREE_SLOTS);
+
+        if (auto found = get_free_slot(); found)
+            slot_into_tx = *found;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    if (slot_into_meta == 0)
+    {
+        if (no_free_slots())
+            return Unexpected(NO_FREE_SLOTS);
+
+        if (auto found = get_free_slot(); found)
+            slot_into_meta = *found;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    auto [tx, meta] =
+        Import::getInnerTxn(hookCtx.applyCtx.tx, hookCtx.applyCtx.journal);
+
+    if (!tx || !meta)
+        return Unexpected(INVALID_TXN);
+
+    hookCtx.slot[slot_into_tx] =
+        hook::SlotEntry{.storage = std::move(tx), .entry = 0};
+
+    hookCtx.slot[slot_into_tx].entry = &(*hookCtx.slot[slot_into_tx].storage);
+
+    hookCtx.slot[slot_into_meta] =
+        hook::SlotEntry{.storage = std::move(meta), .entry = 0};
+
+    hookCtx.slot[slot_into_meta].entry =
+        &(*hookCtx.slot[slot_into_meta].storage);
+
+    return std::make_pair(slot_into_tx, slot_into_meta);
+}
 
 /// private
 
