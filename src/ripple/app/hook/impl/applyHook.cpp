@@ -4253,69 +4253,13 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    uint8_t* upto = memory + read_ptr;
+    Bytes data{read_ptr + memory, read_ptr + read_len + memory};
 
-    if (read_len > 8)
-    {
-        uint8_t hi = memory[read_ptr] >> 4U;
-        uint8_t lo = memory[read_ptr] & 0xFU;
-
-        if (hi == 0 && lo == 0)
-        {
-            // typecode >= 16 && fieldcode >= 16
-            if (read_len < 11)
-                return NOT_AN_OBJECT;
-            upto += 3;
-            read_len -= 3;
-        }
-        else if (hi == 0 || lo == 0)
-        {
-            // typecode >= 16 && fieldcode < 16
-            if (read_len < 10)
-                return NOT_AN_OBJECT;
-            upto += 2;
-            read_len -= 2;
-        }
-        else
-        {
-            // typecode < 16 && fieldcode < 16
-            upto++;
-            read_len--;
-        }
-    }
-
-    if (read_len < 8)
-        return NOT_AN_OBJECT;
-
-    bool is_xrp = (((*upto) & 0b10000000U) == 0);
-    bool is_negative = (((*upto) & 0b01000000U) == 0);
-
-    int32_t exponent = 0;
-
-    if (is_xrp)
-    {
-        // exponent remains 0
-        upto++;
-    }
-    else
-    {
-        exponent = (((*upto++) & 0b00111111U)) << 2U;
-        exponent += ((*upto) >> 6U);
-        exponent -= 97;
-    }
-
-    uint64_t mantissa = (((uint64_t)(*upto++)) & 0b00111111U) << 48U;
-    mantissa += ((uint64_t)*upto++) << 40U;
-    mantissa += ((uint64_t)*upto++) << 32U;
-    mantissa += ((uint64_t)*upto++) << 24U;
-    mantissa += ((uint64_t)*upto++) << 16U;
-    mantissa += ((uint64_t)*upto++) << 8U;
-    mantissa += ((uint64_t)*upto++);
-
-    if (mantissa == 0)
-        return 0;
-
-    return hook_float::normalize_xfl(mantissa, exponent, is_negative);
+    hook::HookAPI api(hookCtx);
+    auto const result = api.float_sto_set(data);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }

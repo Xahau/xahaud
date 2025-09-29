@@ -95,7 +95,12 @@ public:
     float_sum(uint64_t float1, uint64_t float2) const;
 
     // float_sto
+
+    Expected<uint64_t, HookReturnCode>
+    float_sto_set(Bytes const& data) const;
+
     // float_sto_set
+
     Expected<uint64_t, HookReturnCode>
     float_invert(uint64_t float1) const;
 

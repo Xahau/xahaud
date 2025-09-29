@@ -988,6 +988,77 @@ HookAPI::float_sum(uint64_t float1, uint64_t float2) const
     }
 }
 
+// float_sto
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::float_sto_set(Bytes const& data) const
+{
+    uint8_t* upto = const_cast<uint8_t*>(data.data());
+    uint8_t length = data.size();
+
+    if (length > 8)
+    {
+        uint8_t hi = upto[0] >> 4U;
+        uint8_t lo = upto[0] & 0xFU;
+
+        if (hi == 0 && lo == 0)
+        {
+            // typecode >= 16 && fieldcode >= 16
+            if (length < 11)
+                return Unexpected(NOT_AN_OBJECT);
+            upto += 3;
+            length -= 3;
+        }
+        else if (hi == 0 || lo == 0)
+        {
+            // typecode >= 16 && fieldcode < 16
+            if (length < 10)
+                return Unexpected(NOT_AN_OBJECT);
+            upto += 2;
+            length -= 2;
+        }
+        else
+        {
+            // typecode < 16 && fieldcode < 16
+            upto++;
+            length--;
+        }
+    }
+
+    if (length < 8)
+        return Unexpected(NOT_AN_OBJECT);
+
+    bool is_xrp = (((*upto) & 0b10000000U) == 0);
+    bool is_negative = (((*upto) & 0b01000000U) == 0);
+
+    int32_t exponent = 0;
+
+    if (is_xrp)
+    {
+        // exponent remains 0
+        upto++;
+    }
+    else
+    {
+        exponent = (((*upto++) & 0b00111111U)) << 2U;
+        exponent += ((*upto) >> 6U);
+        exponent -= 97;
+    }
+
+    uint64_t mantissa = (((uint64_t)(*upto++)) & 0b00111111U) << 48U;
+    mantissa += ((uint64_t)*upto++) << 40U;
+    mantissa += ((uint64_t)*upto++) << 32U;
+    mantissa += ((uint64_t)*upto++) << 24U;
+    mantissa += ((uint64_t)*upto++) << 16U;
+    mantissa += ((uint64_t)*upto++) << 8U;
+    mantissa += ((uint64_t)*upto++);
+
+    if (mantissa == 0)
+        return 0;
+
+    return hook_float::normalize_xfl(mantissa, exponent, is_negative);
+}
+
 Expected<uint64_t, HookReturnCode>
 HookAPI::float_invert(uint64_t float1) const
 {
