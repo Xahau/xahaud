@@ -95,7 +95,7 @@ struct StubHookContext
     uint32_t generation = 0;
     uint64_t burden = 0;
     std::map<uint32_t, uint32_t> guard_map{};
-    StubHookResult result;
+    StubHookResult result = {};
     std::optional<ripple::STObject> emitFailure = std::nullopt;
     const hook::HookExecutor* module = 0;
 };

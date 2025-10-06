@@ -2456,33 +2456,33 @@ public:
         return applyCtx;
     }
 
-    hook::HookContext
-    createHookContext(
-        AccountID const& hookAccount,
-        AccountID const& otxnAccount,
-        hook::HookContext ctx)
-    {
-        hook::HookContext hookCtx{
-            .applyCtx = ctx.applyCtx,
-            .result =
-                {
-                    .hookSetTxnID = uint256(),
-                    .hookHash = uint256(),
-                    .hookCanEmit = uint256(),
-                    .accountKeylet = keylet::account(otxnAccount),
-                    .hookKeylet = keylet::hook(hookAccount),
-                    .account = otxnAccount,
-                    .otxnAccount = otxnAccount,
-                    .hookNamespace = uint256(),
-                    .stateMap = ctx.result.stateMap,
-                    .hookParamOverrides = {},
-                    .hookParams = {{}},
-                    .hookSkips = {uint256{}},
-                },
-            .module = nullptr};
+    // hook::HookContext
+    // createHookContext(
+    //     AccountID const& hookAccount,
+    //     AccountID const& otxnAccount,
+    //     hook::HookContext ctx)
+    // {
+    //     hook::HookContext hookCtx{
+    //         .applyCtx = ctx.applyCtx,
+    //         .result =
+    //             {
+    //                 .hookSetTxnID = uint256(),
+    //                 .hookHash = uint256(),
+    //                 .hookCanEmit = uint256(),
+    //                 .accountKeylet = keylet::account(otxnAccount),
+    //                 .hookKeylet = keylet::hook(hookAccount),
+    //                 .account = otxnAccount,
+    //                 .otxnAccount = otxnAccount,
+    //                 .hookNamespace = uint256(),
+    //                 .stateMap = ctx.result.stateMap,
+    //                 .hookParamOverrides = {},
+    //                 .hookParams = {{}},
+    //                 .hookSkips = {uint256{}},
+    //             },
+    //         .module = nullptr};
 
-        return hookCtx;
-    }
+    //     return hookCtx;
+    // }
 
     void
     test_emit(FeatureBitset features)
@@ -2563,8 +2563,10 @@ public:
                     applyCtx,
                     alice.id(),
                     alice.id(),
-                    {.result = {.emittedTxn = emittedTxn},
-                     .expected_etxn_count = 1});
+                    {
+                        .expected_etxn_count = 1,
+                        .result = {.emittedTxn = emittedTxn},
+                    });
                 hook::HookAPI api(hookCtx);
 
                 Serializer s;
