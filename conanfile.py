@@ -21,12 +21,9 @@ class Xrpl(ConanFile):
         'static': [True, False],
         'tests': [True, False],
         'unity': [True, False],
+        'with_wasmedge': [True, False],
+        'tool_requires_b2': [True, False],
     }
-
-    import os
-
-    # Check if we're in HBB release build environment
-    IS_HBB_BUILD = os.getenv('HBB_RELEASE_BUILD') == '1'
 
     requires = [
         'date/3.0.1',
@@ -40,10 +37,6 @@ class Xrpl(ConanFile):
         'zlib/1.3.1',
     ]
 
-    # Only include deps that aren't manually installed in HBB
-    if not IS_HBB_BUILD:
-        requires.append('wasmedge/0.11.2@xahaud/stable')
-
     default_options = {
         'assertions': False,
         'coverage': False,
@@ -55,6 +48,8 @@ class Xrpl(ConanFile):
         'static': True,
         'tests': True,
         'unity': False,
+        'with_wasmedge': True,
+        'tool_requires_b2': False,
 
         'cassandra-cpp-driver/*:shared': False,
         'date/*:header_only': True,
@@ -105,8 +100,8 @@ class Xrpl(ConanFile):
         # These provide build tools (protoc, grpc plugins) that run during build
         self.tool_requires('protobuf/3.21.12')
         self.tool_requires('grpc/1.50.1')
-        # Force b2 to build from source for glibc compatibility in HBB builds
-        if self.IS_HBB_BUILD:
+        # Explicitly require b2 (e.g. for building from source for glibc compatibility)
+        if self.options.tool_requires_b2:
             self.tool_requires('b2/5.3.2')
 
     def configure(self):
@@ -118,17 +113,11 @@ class Xrpl(ConanFile):
         self.requires('sqlite3/3.42.0', override=True)
         # Force our custom snappy build for all dependencies
         self.requires('snappy/1.1.10@xahaud/stable', override=True)
-
         # Force boost version for all dependencies to avoid conflicts
-        # NOTE: HBB builds have both manual boost (for WasmEdge) and Conan boost because:
-        #   - WasmEdge is manually built and linked against minimal system boost (filesystem + system)
-        #   - The application itself requires boost (chrono, coroutine, thread, etc.)
-        #   - Dependencies like nudb/soci also require boost components
-        #   - The application and deps use Conan's boost (via CMake toolchain)
-        #   - Both are boost 1.86.0, so symbols are identical (no version conflicts)
-        #   - Static linking means symbols are resolved at link time, not runtime
         self.requires('boost/1.86.0', override=True)
 
+        if self.options.with_wasmedge:
+            self.requires('wasmedge/0.11.2@xahaud/stable')
         if self.options.jemalloc:
             self.requires('jemalloc/5.2.1')
         if self.options.reporting:

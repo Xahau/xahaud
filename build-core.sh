@@ -59,7 +59,8 @@ cd release-build &&
 # The tool_requires('b2/5.3.2') in conanfile.py should force b2 to build from source
 # with the correct toolchain, avoiding the GLIBCXX_3.4.29 issue
 echo "=== Installing dependencies ===" &&
-conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE &&
+conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE \
+  -o with_wasmedge=False -o tool_requires_b2=True &&
 cmake .. -G Ninja \
   -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
   -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
