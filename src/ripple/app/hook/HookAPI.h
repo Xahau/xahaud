@@ -108,12 +108,16 @@ public:
     Expected<uint64_t, HookReturnCode>
     float_sum(uint64_t float1, uint64_t float2) const;
 
-    // float_sto
+    Expected<Bytes, HookReturnCode>
+    float_sto(
+        std::optional<Currency> currency,
+        std::optional<AccountID> issuer,
+        uint64_t float1,
+        uint32_t field_code,
+        uint32_t write_len) const;
 
     Expected<uint64_t, HookReturnCode>
     float_sto_set(Bytes const& data) const;
-
-    // float_sto_set
 
     Expected<uint64_t, HookReturnCode>
     float_invert(uint64_t float1) const;
@@ -217,7 +221,7 @@ public:
         AccountID const& account) const;
 
     // state_set: same as state_foreign_set with ns = 0 and account =
-    // hook_account()
+    // state_set()
 
     Expected<uint64_t, HookReturnCode>
     state_foreign_set(

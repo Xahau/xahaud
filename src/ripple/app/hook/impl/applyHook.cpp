@@ -516,29 +516,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
 namespace hook_float {
 
-// power of 10 LUT for fast integer math
-static int64_t power_of_ten[19] = {
-    1LL,
-    10LL,
-    100LL,
-    1000LL,
-    10000LL,
-    100000LL,
-    1000000LL,
-    10000000LL,
-    100000000LL,
-    1000000000LL,
-    10000000000LL,
-    100000000000LL,
-    1000000000000LL,
-    10000000000000LL,
-    100000000000000LL,
-    1000000000000000LL,  // 15
-    10000000000000000LL,
-    100000000000000000LL,
-    1000000000000000000LL,
-};
-
 using namespace hook_api;
 static int64_t const minMantissa = 1000000000000000ull;
 static int64_t const maxMantissa = 9999999999999999ull;
@@ -649,119 +626,6 @@ make_float(uint64_t mantissa, int32_t exponent, bool neg)
     out = set_exponent(out, exponent);
     out = set_sign(out, neg);
     return out;
-}
-
-/**
- * This function normalizes the mantissa and exponent passed, if it can.
- * It returns the XFL and mutates the supplied manitssa and exponent.
- * If a negative mantissa is provided then the returned XFL has the negative
- * flag set. If there is an overflow error return XFL_OVERFLOW. On underflow
- * returns canonical 0
- */
-template <typename T>
-inline int64_t
-normalize_xfl(T& man, int32_t& exp, bool neg = false)
-{
-    if (man == 0)
-        return 0;
-
-    if (man == std::numeric_limits<int64_t>::min())
-        man++;
-
-    constexpr bool sman = std::is_same<T, int64_t>::value;
-    static_assert(sman || std::is_same<T, uint64_t>());
-
-    if constexpr (sman)
-    {
-        if (man < 0)
-        {
-            man *= -1LL;
-            neg = true;
-        }
-    }
-
-    // mantissa order
-    std::feclearexcept(FE_ALL_EXCEPT);
-    int32_t mo = log10(man);
-    // defensively ensure log10 produces a sane result; we'll borrow the
-    // overflow error code if it didn't
-    if (std::fetestexcept(FE_INVALID))
-        return XFL_OVERFLOW;
-
-    int32_t adjust = 15 - mo;
-
-    if (adjust > 0)
-    {
-        // defensive check
-        if (adjust > 18)
-            return 0;
-        man *= power_of_ten[adjust];
-        exp -= adjust;
-    }
-    else if (adjust < 0)
-    {
-        // defensive check
-        if (-adjust > 18)
-            return XFL_OVERFLOW;
-        man /= power_of_ten[-adjust];
-        exp -= adjust;
-    }
-
-    if (man == 0)
-    {
-        exp = 0;
-        return 0;
-    }
-
-    // even after adjustment the mantissa can be outside the range by one place
-    // improving the math above would probably alleviate the need for these
-    // branches
-    if (man < minMantissa)
-    {
-        if (man == minMantissa - 1LL)
-            man += 1LL;
-        else
-        {
-            man *= 10LL;
-            exp--;
-        }
-    }
-
-    if (man > maxMantissa)
-    {
-        if (man == maxMantissa + 1LL)
-            man -= 1LL;
-        else
-        {
-            man /= 10LL;
-            exp++;
-        }
-    }
-
-    if (exp < minExponent)
-    {
-        man = 0;
-        exp = 0;
-        return 0;
-    }
-
-    if (man == 0)
-    {
-        exp = 0;
-        return 0;
-    }
-
-    if (exp > maxExponent)
-        return XFL_OVERFLOW;
-
-    int64_t ret = make_float((uint64_t)man, exp, neg);
-    if constexpr (sman)
-    {
-        if (neg)
-            man *= -1LL;
-    }
-
-    return ret;
 }
 
 }  // namespace hook_float
@@ -3717,159 +3581,19 @@ DEFINE_HOOK_FUNCTION(
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    uint16_t field = field_code & 0xFFFFU;
-    uint16_t type = field_code >> 16U;
+    hook::HookAPI api(hookCtx);
+    auto const result =
+        api.float_sto(currency, issuer, float1, field_code, write_len);
+    if (!result)
+        return result.error();
 
-    bool is_xrp = field_code == 0;
-    bool is_short =
-        field_code == 0xFFFFFFFFU;  // non-xrp value but do not output header or
-                                    // tail, just amount
-
-    int bytes_needed = 8 +
-        (field == 0 && type == 0
-             ? 0
-             : (field == 0xFFFFU && type == 0xFFFFU
-                    ? 0
-                    : (field < 16 && type < 16
-                           ? 1
-                           : (field >= 16 && type < 16
-                                  ? 2
-                                  : (field < 16 && type >= 16 ? 2 : 3)))));
-
-    int64_t bytes_written = 0;
-
-    if (issuer && !currency)
-        return INVALID_ARGUMENT;
-
-    if (!issuer && currency)
-        return INVALID_ARGUMENT;
-
-    if (issuer)
-    {
-        if (is_xrp)
-            return INVALID_ARGUMENT;
-        if (is_short)
-            return INVALID_ARGUMENT;
-
-        bytes_needed += 40;
-    }
-    else if (!is_xrp && !is_short)
-        return INVALID_ARGUMENT;
-
-    if (bytes_needed > write_len)
-        return TOO_SMALL;
-
-    if (is_xrp || is_short)
-    {
-        // do nothing
-    }
-    else if (field < 16 && type < 16)
-    {
-        *(memory + write_ptr) = (((uint8_t)type) << 4U) + ((uint8_t)field);
-        bytes_written++;
-    }
-    else if (field >= 16 && type < 16)
-    {
-        *(memory + write_ptr) = (((uint8_t)type) << 4U);
-        *(memory + write_ptr + 1) = ((uint8_t)field);
-        bytes_written += 2;
-    }
-    else if (field < 16 && type >= 16)
-    {
-        *(memory + write_ptr) = (((uint8_t)field) << 4U);
-        *(memory + write_ptr + 1) = ((uint8_t)type);
-        bytes_written += 2;
-    }
-    else
-    {
-        *(memory + write_ptr) = 0;
-        *(memory + write_ptr + 1) = ((uint8_t)type);
-        *(memory + write_ptr + 2) = ((uint8_t)field);
-        bytes_written += 3;
-    }
-
-    uint64_t man = get_mantissa(float1);
-    int32_t exp = get_exponent(float1);
-    bool neg = is_negative(float1);
-    uint8_t out[8];
-    if (is_xrp)
-    {
-        int32_t shift = -(exp);
-
-        if (shift > 15)
-            return 0;
-
-        if (shift < 0)
-            return XFL_OVERFLOW;
-
-        if (shift > 0)
-            man /= power_of_ten[shift];
-
-        out[0] = (neg ? 0b00000000U : 0b01000000U);
-        out[0] += (uint8_t)((man >> 56U) & 0b111111U);
-        out[1] = (uint8_t)((man >> 48U) & 0xFF);
-        out[2] = (uint8_t)((man >> 40U) & 0xFF);
-        out[3] = (uint8_t)((man >> 32U) & 0xFF);
-        out[4] = (uint8_t)((man >> 24U) & 0xFF);
-        out[5] = (uint8_t)((man >> 16U) & 0xFF);
-        out[6] = (uint8_t)((man >> 8U) & 0xFF);
-        out[7] = (uint8_t)((man >> 0U) & 0xFF);
-    }
-    else if (man == 0)
-    {
-        out[0] = 0b10000000U;
-        for (int i = 1; i < 8; ++i)
-            out[i] = 0;
-    }
-    else
-    {
-        exp += 97;
-
-        /// encode the rippled floating point sto format
-
-        out[0] = (neg ? 0b10000000U : 0b11000000U);
-        out[0] += (uint8_t)(exp >> 2U);
-        out[1] = ((uint8_t)(exp & 0b11U)) << 6U;
-        out[1] += (((uint8_t)(man >> 48U)) & 0b111111U);
-        out[2] = (uint8_t)((man >> 40U) & 0xFFU);
-        out[3] = (uint8_t)((man >> 32U) & 0xFFU);
-        out[4] = (uint8_t)((man >> 24U) & 0xFFU);
-        out[5] = (uint8_t)((man >> 16U) & 0xFFU);
-        out[6] = (uint8_t)((man >> 8U) & 0xFFU);
-        out[7] = (uint8_t)((man >> 0U) & 0xFFU);
-    }
-
-    WRITE_WASM_MEMORY(
-        bytes_written,
-        write_ptr + bytes_written,
-        write_len - bytes_written,
-        out,
-        8,
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        write_len,
+        (*result).data(),
+        (*result).size(),
         memory,
         memory_length);
-
-    if (!is_xrp && !is_short)
-    {
-        WRITE_WASM_MEMORY(
-            bytes_written,
-            write_ptr + bytes_written,
-            write_len - bytes_written,
-            (*currency).data(),
-            20,
-            memory,
-            memory_length);
-
-        WRITE_WASM_MEMORY(
-            bytes_written,
-            write_ptr + bytes_written,
-            write_len - bytes_written,
-            (*issuer).data(),
-            20,
-            memory,
-            memory_length);
-    }
-
-    return bytes_written;
 
     HOOK_TEARDOWN();
 }

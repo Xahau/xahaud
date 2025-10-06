@@ -1242,7 +1242,146 @@ HookAPI::float_sum(uint64_t float1, uint64_t float2) const
     }
 }
 
-// float_sto
+Expected<Bytes, HookReturnCode>
+HookAPI::float_sto(
+    std::optional<Currency> currency,
+    std::optional<AccountID> issuer,
+    uint64_t float1,
+    uint32_t field_code,
+    uint32_t write_len) const
+{
+    uint16_t field = field_code & 0xFFFFU;
+    uint16_t type = field_code >> 16U;
+
+    bool is_xrp = field_code == 0;
+    bool is_short =
+        field_code == 0xFFFFFFFFU;  // non-xrp value but do not output header or
+                                    // tail, just amount
+
+    int bytes_needed = 8 +
+        (field == 0 && type == 0
+             ? 0
+             : (field == 0xFFFFU && type == 0xFFFFU
+                    ? 0
+                    : (field < 16 && type < 16
+                           ? 1
+                           : (field >= 16 && type < 16
+                                  ? 2
+                                  : (field < 16 && type >= 16 ? 2 : 3)))));
+
+    if (issuer && !currency)
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (!issuer && currency)
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (issuer)
+    {
+        if (is_xrp)
+            return Unexpected(INVALID_ARGUMENT);
+        if (is_short)
+            return Unexpected(INVALID_ARGUMENT);
+
+        bytes_needed += 40;
+    }
+    else if (!is_xrp && !is_short)
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (bytes_needed > write_len)
+        return Unexpected(TOO_SMALL);
+
+    Bytes vec(bytes_needed);
+    uint8_t* write_ptr = vec.data();
+
+    if (is_xrp || is_short)
+    {
+        // do nothing
+    }
+    else if (field < 16 && type < 16)
+    {
+        *write_ptr++ = (((uint8_t)type) << 4U) + ((uint8_t)field);
+    }
+    else if (field >= 16 && type < 16)
+    {
+        *write_ptr++ = (((uint8_t)type) << 4U);
+        *write_ptr++ = ((uint8_t)field);
+    }
+    else if (field < 16 && type >= 16)
+    {
+        *write_ptr++ = (((uint8_t)field) << 4U);
+        *write_ptr++ = ((uint8_t)type);
+    }
+    else
+    {
+        *write_ptr++ = 0;
+        *write_ptr++ = ((uint8_t)type);
+        *write_ptr++ = ((uint8_t)field);
+    }
+
+    uint64_t man = get_mantissa(float1).value();
+    int32_t exp = get_exponent(float1).value();
+    bool neg = is_negative(float1);
+    uint8_t out[8];
+    if (is_xrp)
+    {
+        int32_t shift = -(exp);
+
+        if (shift > 15)
+            // https://github.com/Xahau/xahaud/issues/586
+            return Unexpected(XFL_OVERFLOW);
+
+        if (shift < 0)
+            return Unexpected(XFL_OVERFLOW);
+
+        if (shift > 0)
+            man /= power_of_ten[shift];
+
+        out[0] = (neg ? 0b00000000U : 0b01000000U);
+        out[0] += (uint8_t)((man >> 56U) & 0b111111U);
+        out[1] = (uint8_t)((man >> 48U) & 0xFF);
+        out[2] = (uint8_t)((man >> 40U) & 0xFF);
+        out[3] = (uint8_t)((man >> 32U) & 0xFF);
+        out[4] = (uint8_t)((man >> 24U) & 0xFF);
+        out[5] = (uint8_t)((man >> 16U) & 0xFF);
+        out[6] = (uint8_t)((man >> 8U) & 0xFF);
+        out[7] = (uint8_t)((man >> 0U) & 0xFF);
+    }
+    else if (man == 0)
+    {
+        out[0] = 0b10000000U;
+        for (int i = 1; i < 8; ++i)
+            out[i] = 0;
+    }
+    else
+    {
+        exp += 97;
+
+        /// encode the rippled floating point sto format
+
+        out[0] = (neg ? 0b10000000U : 0b11000000U);
+        out[0] += (uint8_t)(exp >> 2U);
+        out[1] = ((uint8_t)(exp & 0b11U)) << 6U;
+        out[1] += (((uint8_t)(man >> 48U)) & 0b111111U);
+        out[2] = (uint8_t)((man >> 40U) & 0xFFU);
+        out[3] = (uint8_t)((man >> 32U) & 0xFFU);
+        out[4] = (uint8_t)((man >> 24U) & 0xFFU);
+        out[5] = (uint8_t)((man >> 16U) & 0xFFU);
+        out[6] = (uint8_t)((man >> 8U) & 0xFFU);
+        out[7] = (uint8_t)((man >> 0U) & 0xFFU);
+    }
+
+    std::memcpy(write_ptr, out, 8);
+    write_ptr += 8;
+
+    if (!is_xrp && !is_short)
+    {
+        std::memcpy(write_ptr, currency->data(), 20);
+        write_ptr += 20;
+        std::memcpy(write_ptr, issuer->data(), 20);
+    }
+
+    return vec;
+}
 
 Expected<uint64_t, HookReturnCode>
 HookAPI::float_sto_set(Bytes const& data) const
