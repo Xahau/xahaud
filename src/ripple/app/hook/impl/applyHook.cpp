@@ -2131,34 +2131,20 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
-        return DOESNT_EXIST;
+    hook::HookAPI api(hookCtx);
+    auto const result = api.slot_type(slot_no, flags);
+    if (!result)
+        return result.error();
 
-    if (hookCtx.slot[slot_no].entry == 0)
-        return INTERNAL_ERROR;
-    try
+    if (flags == 0)
     {
-        ripple::STBase& obj = const_cast<ripple::STBase&>(
-            *hookCtx.slot[slot_no].entry);  //.downcast<ripple::STBase>();
-        if (flags == 0)
-            return obj.getFName().fieldCode;
-
-        // this flag is for use with an amount field to determine if the amount
-        // is native (xrp)
-        if (flags == 1)
-        {
-            if (obj.getSType() != STI_AMOUNT)
-                return NOT_AN_AMOUNT;
-            return const_cast<ripple::STBase&>(*hookCtx.slot[slot_no].entry)
-                .downcast<ripple::STAmount>()
-                .native();
-        }
-
-        return INVALID_ARGUMENT;
+        auto const base = std::get<0>(*result);
+        return base.getFName().fieldCode;
     }
-    catch (const std::bad_cast& e)
+    else
     {
-        return INTERNAL_ERROR;
+        auto const amount = std::get<1>(*result);
+        return amount.native();
     }
 
     HOOK_TEARDOWN();

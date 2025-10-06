@@ -2353,7 +2353,38 @@ HookAPI::slot_subfield(
     }
 }
 
-// slot_type
+Expected<std::variant<STBase, STAmount>, HookReturnCode>
+HookAPI::slot_type(uint32_t slot_no, uint32_t flags) const
+{
+    if (hookCtx.slot.find(slot_no) == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    if (hookCtx.slot[slot_no].entry == 0)
+        return Unexpected(INTERNAL_ERROR);
+    try
+    {
+        ripple::STBase& obj = const_cast<ripple::STBase&>(
+            *hookCtx.slot[slot_no].entry);  //.downcast<ripple::STBase>();
+        if (flags == 0)
+            return obj;
+
+        // this flag is for use with an amount field to determine if the amount
+        // is native (xrp)
+        if (flags == 1)
+        {
+            if (obj.getSType() != STI_AMOUNT)
+                return Unexpected(NOT_AN_AMOUNT);
+            return const_cast<ripple::STBase&>(*hookCtx.slot[slot_no].entry)
+                .downcast<ripple::STAmount>();
+        }
+
+        return Unexpected(INVALID_ARGUMENT);
+    }
+    catch (const std::bad_cast& e)
+    {
+        return Unexpected(INTERNAL_ERROR);
+    }
+}
 
 Expected<uint64_t, HookReturnCode>
 HookAPI::slot_float(uint32_t slot_no) const

@@ -254,7 +254,8 @@ public:
     slot_subfield(uint32_t parent_slot, uint32_t field_id, uint32_t new_slot)
         const;
 
-    // slot_type
+    Expected<std::variant<STBase, STAmount>, HookReturnCode>
+    slot_type(uint32_t slot_no, uint32_t flags) const;
 
     Expected<uint64_t, HookReturnCode>
     slot_float(uint32_t slot_no) const;
