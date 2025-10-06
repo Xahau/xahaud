@@ -1377,9 +1377,8 @@ DEFINE_HOOK_FUNCTION(
     if (read_len > maxSize)
         return TOO_BIG;
 
-    uint256 ns = nread_len == 0
-        ? hookCtx.result.hookNamespace
-        : ripple::base_uint<256>::fromVoid(memory + nread_ptr);
+    uint256 ns = nread_len == 0 ? hookCtx.result.hookNamespace
+                                : uint256::fromVoid(memory + nread_ptr);
 
     ripple::AccountID acc = aread_len == 20
         ? AccountID::fromVoid(memory + aread_ptr)
@@ -1745,9 +1744,8 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    uint256 ns = nread_len == 0
-        ? hookCtx.result.hookNamespace
-        : ripple::base_uint<256>::fromVoid(memory + nread_ptr);
+    uint256 ns = nread_len == 0 ? hookCtx.result.hookNamespace
+                                : uint256::fromVoid(memory + nread_ptr);
 
     ripple::AccountID acc = is_foreign ? AccountID::fromVoid(memory + aread_ptr)
                                        : hookCtx.result.account;
@@ -2252,8 +2250,7 @@ DEFINE_HOOK_FUNCTION(
                 if (read_len != 32)
                     return INVALID_ARGUMENT;
 
-                base_uint<256> id =
-                    ripple::base_uint<256>::fromVoid(memory + read_ptr);
+                uint256 id = uint256::fromVoid(memory + read_ptr);
 
                 ripple::Keylet kl = keylet_type == keylet_code::CHILD
                     ? ripple::keylet::child(id)
@@ -2358,8 +2355,8 @@ DEFINE_HOOK_FUNCTION(
                     return INVALID_ARGUMENT;
 
                 uint64_t index = (((uint64_t)c) << 32U) + ((uint64_t)d);
-                ripple::Keylet kl = ripple::keylet::page(
-                    ripple::base_uint<256>::fromVoid(memory + a), index);
+                ripple::Keylet kl =
+                    ripple::keylet::page(uint256::fromVoid(memory + a), index);
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
 
@@ -2381,8 +2378,8 @@ DEFINE_HOOK_FUNCTION(
 
                 ripple::Keylet kl = ripple::keylet::hookState(
                     AccountID::fromVoid(memory + aread_ptr),
-                    ripple::base_uint<256>::fromVoid(memory + kread_ptr),
-                    ripple::base_uint<256>::fromVoid(memory + nread_ptr));
+                    uint256::fromVoid(memory + kread_ptr),
+                    uint256::fromVoid(memory + nread_ptr));
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -2406,7 +2403,7 @@ DEFINE_HOOK_FUNCTION(
 
                 ripple::Keylet kl = ripple::keylet::hookStateDir(
                     AccountID::fromVoid(memory + aread_ptr),
-                    ripple::base_uint<256>::fromVoid(memory + nread_ptr));
+                    uint256::fromVoid(memory + nread_ptr));
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
