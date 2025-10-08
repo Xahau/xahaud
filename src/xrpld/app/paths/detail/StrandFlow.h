@@ -168,6 +168,7 @@ flow(
                         // Something is very wrong
                         // throwing out the sandbox can only increase liquidity
                         // yet the limiting is still limiting
+                        // LCOV_EXCL_START
                         JLOG(j.fatal())
                             << "Re-executed limiting step failed. r.first: "
                             << to_string(get<TInAmt>(r.first))
@@ -176,6 +177,7 @@ flow(
                             "ripple::flow : first step re-executing the "
                             "limiting step failed");
                         return Result{strand, std::move(ofrsToRm)};
+                        // LCOV_EXCL_STOP
                     }
                 }
                 else if (!strand[i]->equalOut(r.second, stepOut))
@@ -203,6 +205,7 @@ flow(
                         // Something is very wrong
                         // throwing out the sandbox can only increase liquidity
                         // yet the limiting is still limiting
+                        // LCOV_EXCL_START
 #ifndef NDEBUG
                         JLOG(j.fatal())
                             << "Re-executed limiting step failed. r.second: "
@@ -214,6 +217,7 @@ flow(
                             "ripple::flow : limiting step re-executing the "
                             "limiting step failed");
                         return Result{strand, std::move(ofrsToRm)};
+                        // LCOV_EXCL_STOP
                     }
                 }
 
@@ -239,6 +243,7 @@ flow(
                     // The limits should already have been found, so executing a
                     // strand forward from the limiting step should not find a
                     // new limit
+                    // LCOV_EXCL_START
 #ifndef NDEBUG
                     JLOG(j.fatal())
                         << "Re-executed forward pass failed. r.first: "
@@ -250,6 +255,7 @@ flow(
                         "ripple::flow : non-limiting step re-executing the "
                         "forward pass failed");
                     return Result{strand, std::move(ofrsToRm)};
+                    // LCOV_EXCL_STOP
                 }
                 stepIn = r.second;
             }
@@ -500,8 +506,10 @@ public:
     {
         if (i >= cur_.size())
         {
+            // LCOV_EXCL_START
             UNREACHABLE("ripple::ActiveStrands::get : input out of range");
             return nullptr;
+            // LCOV_EXCL_STOP
         }
         return cur_[i];
     }

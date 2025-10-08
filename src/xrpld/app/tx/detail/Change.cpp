@@ -266,9 +266,11 @@ Change::doApply()
             return applyUNLReport();
         case ttENTROPY:
             return applyEntropy();
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
+            // LCOV_EXCL_STOP
     }
 }
 
