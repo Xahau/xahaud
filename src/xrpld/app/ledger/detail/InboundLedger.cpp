@@ -960,8 +960,10 @@ InboundLedger::takeAsRootNode(Slice const& data, SHAMapAddNode& san)
 
     if (!mHaveHeader)
     {
+        // LCOV_EXCL_START
         UNREACHABLE("ripple::InboundLedger::takeAsRootNode : no ledger header");
         return false;
+        // LCOV_EXCL_STOP
     }
 
     AccountStateSF filter(
@@ -985,8 +987,10 @@ InboundLedger::takeTxRootNode(Slice const& data, SHAMapAddNode& san)
 
     if (!mHaveHeader)
     {
+        // LCOV_EXCL_START
         UNREACHABLE("ripple::InboundLedger::takeTxRootNode : no ledger header");
         return false;
+        // LCOV_EXCL_STOP
     }
 
     TransactionStateSF filter(

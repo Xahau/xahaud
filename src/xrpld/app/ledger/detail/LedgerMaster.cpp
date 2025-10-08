@@ -1447,12 +1447,14 @@ LedgerMaster::findNewLedgersToPublish(
                 }
                 else if (hash->isZero())
                 {
+                    // LCOV_EXCL_START
                     JLOG(m_journal.fatal())
                         << "Ledger: " << valSeq << " does not have hash for "
                         << seq;
                     UNREACHABLE(
                         "ripple::LedgerMaster::findNewLedgersToPublish : "
                         "ledger not found");
+                    // LCOV_EXCL_STOP
                 }
                 else
                 {

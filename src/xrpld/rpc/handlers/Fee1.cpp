@@ -81,9 +81,11 @@ doFee(RPC::JsonContext& context)
         return jvResult;
     }
 
+    // LCOV_EXCL_START
     UNREACHABLE("ripple::doFee : invalid result type");
     RPC::inject_error(rpcINTERNAL, context.params);
     return context.params;
+    // LCOV_EXCL_STOP
 }
 
 }  // namespace ripple
