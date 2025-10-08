@@ -1801,8 +1801,12 @@ SetHook::setHook()
                                 return tecINTERNAL;
                             }
                             else
+                            {
+                                // LCOV_EXCL_START
                                 UNREACHABLE(
                                     "SetHook::hsoCREATE : should never happen");
+                                // LCOV_EXCL_STOP
+                            }
                         }
 
                         // otherwise assign instruction counts

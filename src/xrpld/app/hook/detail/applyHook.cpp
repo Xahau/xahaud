@@ -602,8 +602,10 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttUNL_REPORT: {
             break;
         }
+        // LCOV_EXCL_START
         default: {
             UNREACHABLE("Unknown transaction type");
+            // LCOV_EXCL_STOP
         }
     }
 

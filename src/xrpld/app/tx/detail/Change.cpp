@@ -214,9 +214,11 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
+            // LCOV_EXCL_STOP
     }
 }
 
