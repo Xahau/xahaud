@@ -227,7 +227,7 @@ enum hook_log_code : uint16_t {
     INTERNAL_ERROR = 87,   // an internal error described by the log text
     JS_TEST_FAILURE = 88,  // smoke test of js bytecode failed
     JS_FEE_MISSING = 89,
-    JS_FEE_TOO_HIGH = 90,
+    JS_FEE_OUT_OF_RANGE = 90,
     // RH NOTE: only HookSet msgs got log codes, possibly all Hook log lines
     // should get a code?
 };
@@ -347,6 +347,7 @@ enum ExitType : uint8_t {
     JSVM_ERROR = 4,
     LEDGER_ERROR =
         5,  // if the ledger contained for example a nonsense hookapi number
+    INSTRUCTION_LIMIT_REACHED = 6,
 };
 
 enum CodeType : uint8_t {

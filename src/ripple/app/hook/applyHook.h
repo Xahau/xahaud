@@ -1437,7 +1437,6 @@ public:
         if (JS_IsException(val))
         {
             JS_FreeValue(ctx, val);
-            JS_FreeValue(ctx, obj);
 
             JLOG(j.warn()) << "HookError[" << HC_ACC()
                            << "]: Could not create QUICKJS instance (bytecode "
@@ -1489,6 +1488,12 @@ public:
                              hook_api::ExitType::ROLLBACK))
                     {
                         normal_exit = 1;
+                    }
+                    else if (m == "Instruction limit reached")
+                    {
+                        normal_exit = 1;
+                        hookCtx.result.exitType =
+                            hook_api::ExitType::INSTRUCTION_LIMIT_REACHED;
                     }
                     else
                     {

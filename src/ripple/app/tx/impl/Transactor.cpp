@@ -1264,7 +1264,9 @@ Transactor::executeHookChain(
 
         uint16_t hookApiVersion = hookDef->getFieldU16(sfHookApiVersion);
 
-        uint32_t fee = (uint32_t)(hookDef->getFieldAmount(sfFee).xrp().drops());
+        uint32_t fee = hookObj.isFieldPresent(sfFee)
+            ? (uint32_t)(hookObj.getFieldAmount(sfFee).xrp().drops())
+            : (uint32_t)(hookDef->getFieldAmount(sfFee).xrp().drops());
 
         try
         {
@@ -1413,8 +1415,9 @@ Transactor::doHookCallback(
                  ? hookObj.getFieldH256(sfHookNamespace)
                  : hookDef->getFieldH256(sfHookNamespace));
 
-        uint64_t instructionLimit =
-            hookDef->getFieldAmount(sfFee).xrp().drops();
+        uint32_t instructionLimit = hookObj.isFieldPresent(sfFee)
+            ? (uint32_t)hookObj.getFieldAmount(sfFee).xrp().drops()
+            : (uint32_t)hookDef->getFieldAmount(sfFee).xrp().drops();
 
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
@@ -1699,8 +1702,9 @@ Transactor::doAgainAsWeak(
             return;
         }
 
-        uint32_t instructionLimit =
-            (uint32_t)(hookDef->getFieldAmount(sfFee).xrp().drops());
+        uint32_t instructionLimit = hookObj.isFieldPresent(sfFee)
+            ? (uint32_t)(hookObj.getFieldAmount(sfFee).xrp().drops())
+            : (uint32_t)(hookDef->getFieldAmount(sfFee).xrp().drops());
 
         try
         {

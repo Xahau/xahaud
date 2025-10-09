@@ -299,17 +299,31 @@ public:
         {
             Json::Value iv;
             iv[jss::HookHash] = accept_hash_str;
+            iv[jss::Fee] = "100";
             jv[jss::Hooks][0U][jss::Hook] = iv;
             env(jv,
                 M("Hook Install operation can set extant hook hash"),
                 HSFEE,
                 ter(tesSUCCESS));
             env.close();
+
+            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            BEAST_REQUIRE(hook);
+            BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
+            auto const& hooks = hook->getFieldArray(sfHooks);
+            BEAST_EXPECT(hooks.size() == 1);
+            BEAST_EXPECT(hooks[0].isFieldPresent(sfHookHash));
+            BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == accept_hash);
+
+            // check there Fee exist
+            BEAST_REQUIRE(hooks[0].isFieldPresent(sfFee));
+            BEAST_EXPECT(hooks[0].getFieldAmount(sfFee).xrp().drops() == 100);
         }
 
         // can't set with invalid fee
         {
-            for (STAmount _fee : {drops(0), drops(1000001), bob["USD"](0)})
+            for (STAmount _fee :
+                 {drops(0), drops(1), drops(1000001), bob["USD"](0)})
             {
                 Json::Value iv;
                 iv[jss::HookHash] = accept_hash_str;
@@ -793,7 +807,8 @@ public:
 
         // invalid fee
         {
-            for (STAmount _fee : {drops(0), drops(1000001), bob["USD"](0)})
+            for (STAmount _fee :
+                 {drops(0), drops(1), drops(1000001), bob["USD"](0)})
             {
                 Json::Value iv;
                 iv[jss::CreateCode] = strHex(accept_wasm);
@@ -1040,7 +1055,8 @@ public:
 
         // fee should be set with valid fee
         {
-            for (STAmount _fee : {drops(0), drops(1000001), bob["USD"](0)})
+            for (STAmount _fee :
+                 {drops(0), drops(1), drops(1000001), bob["USD"](0)})
             {
                 Json::Value iv;
                 iv[jss::Fee] = _fee.getJson(JsonOptions::none);
@@ -1363,6 +1379,53 @@ public:
             BEAST_REQUIRE(!hooks[0].isFieldPresent(sfHookParameters));
         }
 
+        // update Fee
+        {
+            Json::Value iv;
+            iv[jss::Fee] = "101";
+
+            jv[jss::Hooks][0U] = Json::Value{};
+            jv[jss::Hooks][0U][jss::Hook] = iv;
+            env(jv, M("Update Fee"), HSFEE);
+            env.close();
+
+            // ensure hook still exists
+            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            BEAST_REQUIRE(hook);
+            BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
+            auto const& hooks = hook->getFieldArray(sfHooks);
+            BEAST_EXPECT(hooks.size() == 1);
+            BEAST_EXPECT(hooks[0].isFieldPresent(sfHookHash));
+            BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == accept_hash);
+
+            // check there Fee exist
+            BEAST_REQUIRE(hooks[0].isFieldPresent(sfFee));
+            BEAST_EXPECT(hooks[0].getFieldAmount(sfFee).xrp().drops() == 101);
+        }
+
+        // reset Fee
+        {
+            Json::Value iv;
+            iv[jss::Fee] = "100";  // HookDefinition value
+
+            jv[jss::Hooks][0U] = Json::Value{};
+            jv[jss::Hooks][0U][jss::Hook] = iv;
+            env(jv, M("Update Fee"), HSFEE);
+            env.close();
+
+            // ensure hook still exists
+            auto const hook = env.le(keylet::hook(Account("alice").id()));
+            BEAST_REQUIRE(hook);
+            BEAST_REQUIRE(hook->isFieldPresent(sfHooks));
+            auto const& hooks = hook->getFieldArray(sfHooks);
+            BEAST_EXPECT(hooks.size() == 1);
+            BEAST_EXPECT(hooks[0].isFieldPresent(sfHookHash));
+            BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == accept_hash);
+
+            // check there Fee does'nt exist
+            BEAST_REQUIRE(!hooks[0].isFieldPresent(sfFee));
+        }
+
         // try to set each type of field on a non existent hook
         {
             Json::Value params{Json::arrayValue};
@@ -1576,6 +1639,75 @@ public:
     //         HSFEE,
     //         ter(temMALFORMED));
     // }
+
+    void
+    testInstructionCount(FeatureBitset features)
+    {
+        testcase("Test InstructionCount");
+        using namespace jtx;
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook = jswasm[R"[test.hook](
+            const Hook = (reserved) => {
+                let num = 0;
+                for (let i = 0; i < 1000; i++){
+                    num++;
+                }
+                return accept("", num);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hsov1(hook, 1, HSDROPS)}}, 0),
+            M("Install InstructionCount Hook"),
+            HSFEE);
+        env.close();
+
+        env(pay(bob, alice, XRP(1)),
+            M("Test InstructionCount Hook"),
+            fee(XRP(1)));
+        env.close();
+
+        auto const meta = env.meta();
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        auto const instructionCount =
+            hookExecutions[0].getFieldU64(sfHookInstructionCount);
+        BEAST_EXPECT(instructionCount == 0x7d5);
+
+        // reset
+        env(ripple::test::jtx::hook(alice, {{hso_delete()}}, 0));
+        env.close();
+
+        env(ripple::test::jtx::hook(
+                alice, {{hsov1(hook, 1, drops(instructionCount - 1))}}, 0),
+            M("Install InstructionCount Hook 2"),
+            HSFEE);
+        env.close();
+
+        env(pay(bob, alice, XRP(1)),
+            M("Test InstructionCount Hook 2"),
+            fee(XRP(1)),
+            ter(tecHOOK_REJECTED));
+        env.close();
+
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+        auto const hookExecutions2 =
+            env.meta()->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions2.size() == 1);
+        auto const instructionCount2 =
+            hookExecutions2[0].getFieldU64(sfHookInstructionCount);
+        BEAST_EXPECT(instructionCount2 == 0x7d4);
+        auto const hookResult = hookExecutions2[0].getFieldU8(sfHookResult);
+        BEAST_EXPECT(
+            hookResult == hook_api::ExitType::INSTRUCTION_LIMIT_REACHED);
+    }
 
     void
     test_accept(FeatureBitset features)
@@ -11110,6 +11242,8 @@ public:
         TEST_TARGET_PATTERN(a, target, testCreate, features);
         TEST_TARGET_PATTERN(a, target, testUpdate, features);
         TEST_TARGET_PATTERN(a, target, testWithTickets, features);
+
+        TEST_TARGET_PATTERN(a, target, testInstructionCount, features);
 
         // // DA TODO: illegalfunc_wasm
         // // TEST_TARGET_PATTERN(a, target, testWasm, features);
