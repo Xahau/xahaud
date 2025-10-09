@@ -44,11 +44,12 @@
 #
 #   This section is used to import the public keys of trusted validator list publishers.
 #   The keys are used to authenticate and accept new lists of trusted validators.
-#   In this example, the key for the publisher "vl.xahau.org" is imported.
 #   Each key is represented as a hexadecimal string.
 # 
 #   Examples:
-#    EDA46E9C39B1389894E690E58914DC1029602870370A0993E5B87C4A24EAF4A8E8
+#	 ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B
+#	 ED42AEC58B701EEBB77356FFFEC26F83C1F0407263530F068C7C73D392C7E06FD1
+#	 ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
 
 # The default validator list publishers that the xahaud instance
 # trusts.
@@ -63,12 +64,13 @@
 https://vl.xahau.org
 
 [validator_list_keys]
-#vl.xahau.org
+# vl.xahau.org
 EDA46E9C39B1389894E690E58914DC1029602870370A0993E5B87C4A24EAF4A8E8
 
 [import_vl_keys]
-# vl.xahau.org
-EDA46E9C39B1389894E690E58914DC1029602870370A0993E5B87C4A24EAF4A8E8
+ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B
+ED42AEC58B701EEBB77356FFFEC26F83C1F0407263530F068C7C73D392C7E06FD1
+ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
 
 # To use the test network (see https://xahau.network/docs/infrastructure/installing-xahaud),
 # use the following configuration instead:
