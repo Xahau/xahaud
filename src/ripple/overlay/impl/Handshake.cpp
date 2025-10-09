@@ -239,8 +239,7 @@ verifyHandshake(
             throw std::runtime_error("Invalid server domain");
     }
 
-    // Check the network. Omitting Network-ID (on either side ours, or theirs)
-    // means NID=0
+    if (auto const iter = headers.find("Network-ID"); iter != headers.end())
     {
         uint32_t peer_nid = 0;
         if (auto const iter = headers.find("Network-ID"); iter != headers.end())
@@ -250,8 +249,10 @@ verifyHandshake(
                 throw std::runtime_error("Invalid peer network identifier");
         }
 
-        uint32_t our_nid = networkID ? *networkID : 0;
-        if (peer_nid != our_nid)
+        if (!beast::lexicalCastChecked(peer_nid, std::string(iter->value())))
+            throw std::runtime_error("Invalid peer network identifier");
+
+        if (networkID && peer_nid != *networkID)
             throw std::runtime_error("Peer is on a different network");
     }
 

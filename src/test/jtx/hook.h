@@ -21,6 +21,7 @@
 #define RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 
 #include <ripple/json/json_value.h>
+#include <ripple/protocol/jss.h>
 #include <optional>
 #include <test/jtx/Account.h>
 
@@ -38,10 +39,40 @@ Json::Value
 hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv) = 0);
 
 Json::Value
+hsov1(
+    std::vector<uint8_t> const& wasmBytes,
+    uint16_t const& apiVersion,
+    STAmount const& fee,
+    void (*f)(Json::Value& jv) = 0);
+
+Json::Value
 hso(std::string const& wasmHex, void (*f)(Json::Value& jv) = 0);
 
 Json::Value
 hso_delete(void (*f)(Json::Value& jv) = 0);
+
+class JSSHasher
+{
+public:
+    size_t
+    operator()(const Json::StaticString& n) const
+    {
+        return std::hash<std::string_view>{}(n.c_str());
+    }
+};
+
+class JSSEq
+{
+public:
+    bool
+    operator()(const Json::StaticString& a, const Json::StaticString& b) const
+    {
+        return a == b;
+    }
+};
+
+using JSSMap =
+    std::unordered_map<Json::StaticString, Json::Value, JSSHasher, JSSEq>;
 
 }  // namespace jtx
 }  // namespace test

@@ -133,6 +133,8 @@ target_link_libraries(ripple_libs INTERFACE
   SQLite::SQLite3
 )
 
+include(deps/quickjs)
+
 ###
 
 include(RippledCore)

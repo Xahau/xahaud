@@ -103,6 +103,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookOn, soeOPTIONAL},
          {sfHookCanEmit, soeOPTIONAL},
          {sfHookApiVersion, soeOPTIONAL},
+         {sfFee, soeOPTIONAL},
          {sfFlags, soeOPTIONAL}});
 
     add(sfHookGrant.jsonName.c_str(),

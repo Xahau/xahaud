@@ -150,6 +150,7 @@ target_link_libraries (xrpl_core
     OpenSSL::Crypto
     Ripple::boost
     wasmedge::wasmedge
+    NIH::quickjs
     Ripple::syslibs
     secp256k1::secp256k1
     ed25519::ed25519
@@ -776,6 +777,9 @@ if (tests)
     src/test/app/ValidatorKeys_test.cpp
     src/test/app/ValidatorList_test.cpp
     src/test/app/ValidatorSite_test.cpp
+    src/test/app/SetHook_test.cpp
+    src/test/app/SetJSHook_test.cpp
+    src/test/app/SetHookTSH_test.cpp
     src/test/app/Wildcard_test.cpp
     src/test/app/XahauGenesis_test.cpp
     src/test/app/tx/apply_test.cpp

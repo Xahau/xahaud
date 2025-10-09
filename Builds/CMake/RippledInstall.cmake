@@ -4,6 +4,7 @@
 
 install (
   TARGETS
+    quickjs
     common
     opts
     ripple_syslibs

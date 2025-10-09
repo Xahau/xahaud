@@ -599,6 +599,7 @@ extern SField const sfImportVLKey;
 extern SField const sfHookEmission;
 extern SField const sfMintURIToken;
 extern SField const sfAmountEntry;
+extern SField const sfGenesisMint;
 extern SField const sfRemark;
 
 // array of objects (common)
@@ -613,7 +614,6 @@ extern SField const sfAffectedNodes;
 extern SField const sfMemos;
 extern SField const sfNFTokens;
 extern SField const sfHooks;
-extern SField const sfGenesisMint;
 
 // array of objects (uncommon)
 extern SField const sfMajorities;

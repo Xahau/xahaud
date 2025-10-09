@@ -66,6 +66,7 @@
 #define SEP_int32_t LPAREN int32_t COMMA
 #define SEP_uint64_t LPAREN uint64_t COMMA
 #define SEP_int64_t LPAREN int64_t COMMA
+#define SEP_JSValue LPAREN JSValue COMMA
 
 #define VAL_uint32_t WasmEdge_ValueGetI32(in[_stack++])
 #define VAL_int32_t WasmEdge_ValueGetI32(in[_stack++])
@@ -88,7 +89,82 @@
 
 #define WASM_VAL_TYPE(T, b) CAT2(TYP_, T)
 
-#define DECLARE_HOOK_FUNCTION(R, F, ...)                      \
+#define HALF_COUNT(...) \
+    HALF_COUNT_IMPL(    \
+        __VA_ARGS__,    \
+        16,             \
+        16,             \
+        15,             \
+        15,             \
+        14,             \
+        14,             \
+        13,             \
+        13,             \
+        12,             \
+        12,             \
+        11,             \
+        11,             \
+        10,             \
+        10,             \
+        9,              \
+        9,              \
+        8,              \
+        8,              \
+        7,              \
+        7,              \
+        6,              \
+        6,              \
+        5,              \
+        5,              \
+        4,              \
+        4,              \
+        3,              \
+        3,              \
+        2,              \
+        2,              \
+        1,              \
+        1,              \
+        0,              \
+        0)
+
+#define HALF_COUNT_IMPL( \
+    _1,                  \
+    _2,                  \
+    _3,                  \
+    _4,                  \
+    _5,                  \
+    _6,                  \
+    _7,                  \
+    _8,                  \
+    _9,                  \
+    _10,                 \
+    _11,                 \
+    _12,                 \
+    _13,                 \
+    _14,                 \
+    _15,                 \
+    _16,                 \
+    _17,                 \
+    _18,                 \
+    _19,                 \
+    _20,                 \
+    _21,                 \
+    _22,                 \
+    _23,                 \
+    _24,                 \
+    _25,                 \
+    _26,                 \
+    _27,                 \
+    _28,                 \
+    _29,                 \
+    _30,                 \
+    _31,                 \
+    _32,                 \
+    N,                   \
+    ...)                 \
+    N
+
+#define DECLARE_WASM_FUNCTION(R, F, ...)                      \
     R F(hook::HookContext& hookCtx,                           \
         WasmEdge_CallingFrameContext const& frameCtx,         \
         __VA_ARGS__);                                         \
@@ -102,7 +178,17 @@
     extern WasmEdge_FunctionTypeContext* WasmFunctionType##F; \
     extern WasmEdge_String WasmFunctionName##F;
 
-#define DECLARE_HOOK_FUNCNARG(R, F)                           \
+#define DECLARE_JS_FUNCNARG(R, F, ...)                                        \
+    extern JSValue JSFunction##F(                                             \
+        JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv); \
+    const int JSFunctionParamCount##F = 0;
+
+#define DECLARE_JS_FUNCTION(R, F, ...)                                        \
+    extern JSValue JSFunction##F(                                             \
+        JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv); \
+    const int JSFunctionParamCount##F = HALF_COUNT(__VA_ARGS__);
+
+#define DECLARE_WASM_FUNCNARG(R, F)                           \
     R F(hook::HookContext& hookCtx,                           \
         WasmEdge_CallingFrameContext const& frameCtx);        \
     extern WasmEdge_Result WasmFunction##F(                   \
@@ -114,7 +200,7 @@
     extern WasmEdge_FunctionTypeContext* WasmFunctionType##F; \
     extern WasmEdge_String WasmFunctionName##F;
 
-#define DEFINE_HOOK_FUNCTION(R, F, ...)                             \
+#define DEFINE_WASM_FUNCTION(R, F, ...)                             \
     WasmEdge_Result hook_api::WasmFunction##F(                      \
         void* data_ptr,                                             \
         const WasmEdge_CallingFrameContext* frameCtx,               \
@@ -151,7 +237,7 @@
         WasmEdge_CallingFrameContext const& frameCtx,               \
         __VA_ARGS__)
 
-#define DEFINE_HOOK_FUNCNARG(R, F)                                           \
+#define DEFINE_WASM_FUNCNARG(R, F)                                           \
     WasmEdge_Result hook_api::WasmFunction##F(                               \
         void* data_ptr,                                                      \
         const WasmEdge_CallingFrameContext* frameCtx,                        \
@@ -177,7 +263,46 @@
         hook::HookContext& hookCtx,                                          \
         WasmEdge_CallingFrameContext const& frameCtx)
 
-#define HOOK_SETUP()                                                 \
+#define VAR_JSASSIGN(T, V)          \
+    if (_stack >= argc)             \
+        returnJS(INVALID_ARGUMENT); \
+    T& V = argv[_stack++]
+
+#define DEFINE_JS_FUNCNARG(R, F, ...)                                        \
+    JSValue hook_api::JSFunction##F(                                         \
+        JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) \
+    {
+#define FORWARD_JS_FUNCTION_CALL(F, ac, av) \
+    hook_api::JSFunction##F(ctx, this_val, ac, av)
+
+#define DEFINE_JS_FUNCTION(R, F, ...)                                        \
+    JSValue hook_api::JSFunction##F(                                         \
+        JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) \
+    {                                                                        \
+        int _stack = 0;                                                      \
+        FOR_VARS(VAR_JSASSIGN, 2, __VA_ARGS__);
+
+#define JS_HOOK_SETUP()                                                 \
+    JSRuntime* rt = JS_GetRuntime(ctx);                                 \
+    hook::HookContext& hookCtx =                                        \
+        *reinterpret_cast<hook::HookContext*>(JS_GetRuntimeOpaque(rt)); \
+    [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;         \
+    [[maybe_unused]] auto& view = applyCtx.view();                      \
+    [[maybe_unused]] auto j = applyCtx.app.journal("View");             \
+    try                                                                 \
+    {
+#define JS_HOOK_TEARDOWN()                                        \
+    }                                                             \
+    catch (const std::exception& e)                               \
+    {                                                             \
+        JLOG(hookCtx.applyCtx.app.journal("View").error())        \
+            << "HookError[" << HC_ACC() << "]: (JS) " << __func__ \
+            << " threw uncaught exception, what=" << e.what();    \
+        return JS_NewInt64(ctx, INTERNAL_ERROR);                  \
+    }                                                             \
+    }
+
+#define WASM_HOOK_SETUP()                                            \
     try                                                              \
     {                                                                \
         [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;  \
@@ -193,14 +318,14 @@
         if (!memoryCtx || !memory || !memory_length)                 \
             return INTERNAL_ERROR;
 
-#define HOOK_TEARDOWN()                                        \
-    }                                                          \
-    catch (const std::exception& e)                            \
-    {                                                          \
-        JLOG(hookCtx.applyCtx.app.journal("View").error())     \
-            << "HookError[" << HC_ACC() << "]: " << __func__   \
-            << " threw uncaught exception, what=" << e.what(); \
-        return INTERNAL_ERROR;                                 \
+#define WASM_HOOK_TEARDOWN()                                        \
+    }                                                               \
+    catch (const std::exception& e)                                 \
+    {                                                               \
+        JLOG(hookCtx.applyCtx.app.journal("View").error())          \
+            << "HookError[" << HC_ACC() << "]: (WASM) " << __func__ \
+            << " threw uncaught exception, what=" << e.what();      \
+        return INTERNAL_ERROR;                                      \
     }
 
 #define WRITE_WASM_MEMORY(                                                  \
@@ -292,6 +417,28 @@
         return (                                                               \
             exit_type == hook_api::ExitType::ACCEPT ? RC_ACCEPT                \
                                                     : RC_ROLLBACK);            \
+    }
+
+#define HOOK_EXIT_JS(error_msg, error_code, exit_type)                      \
+    {                                                                       \
+        int64_t val = 0;                                                    \
+        if (JS_IsNumber(error_code))                                        \
+            JS_ToInt64(ctx, &val, error_code);                              \
+        hookCtx.result.exitCode = val;                                      \
+        hookCtx.result.exitType = exit_type;                                \
+        if (JS_IsString(error_msg))                                         \
+        {                                                                   \
+            size_t len;                                                     \
+            const char* cstr = JS_ToCStringLen(ctx, &len, error_msg);       \
+            if (len > 256)                                                  \
+                len = 256;                                                  \
+            hookCtx.result.exitReason = std::string(cstr, len);             \
+            JS_FreeCString(ctx, cstr);                                      \
+        }                                                                   \
+        return JS_Exit(                                                     \
+            ctx,                                                            \
+            exit_type == hook_api::ExitType::ACCEPT ? "HookExit Accept"     \
+                                                    : "HookExit Rollback"); \
     }
 
 #define WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(                            \
