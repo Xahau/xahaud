@@ -94,6 +94,10 @@ runs:
         fi
         
         # Run CMake configure
+        # Note: conanfile.py hardcodes 'build/generators' as the output path.
+        # If we're in a 'build' folder, Conan detects this and uses just 'generators/'
+        # If we're in '.build' (non-standard), Conan adds the full 'build/generators/'
+        # So we get: .build/build/generators/ with our non-standard folder name
         cmake .. \
           -G "${{ inputs.generator }}" \
           $CCACHE_ARGS \

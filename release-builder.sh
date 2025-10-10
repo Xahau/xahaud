@@ -1,8 +1,10 @@
-#!/bin/bash 
+#!/bin/bash
 # We use set -e and bash with -u to bail on first non zero exit code of any
 # processes launched or upon any unbound variable.
 # We use set -x to print commands before running them to help with
 # debugging.
+
+set -ex
 
 echo "START BUILDING (HOST)"
 
@@ -90,28 +92,36 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
         llvm14-static llvm14-devel && \
     dnf clean all"
 
-# Install Conan and CMake
-RUN /hbb_exe/activate-exec pip3 install "conan==1.66.0" && \
+# Install Conan 2 and CMake
+RUN /hbb_exe/activate-exec pip3 install "conan>=2.0,<3.0" && \
     /hbb_exe/activate-exec wget -q https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1-linux-x86_64.tar.gz -O cmake.tar.gz && \
     mkdir cmake && \
     tar -xzf cmake.tar.gz --strip-components=1 -C cmake && \
     rm cmake.tar.gz
 
-# Install Boost 1.86.0
-RUN /hbb_exe/activate-exec bash -c "cd /tmp && \
+# Dual Boost configuration in HBB environment:
+# - Manual Boost in /usr/local (minimal: for WasmEdge which is pre-built in Docker)
+# - Conan Boost (full: for the application and all dependencies via toolchain)
+#
+# Install minimal Boost 1.86.0 for WasmEdge only (filesystem and its dependencies)
+# The main application will use Conan-provided Boost for all other components
+# IMPORTANT: Understanding Boost linking options:
+#   - link=static: Creates static Boost libraries (.a files) instead of shared (.so files)
+#   - runtime-link=shared: Links Boost libraries against shared libc (glibc)
+# WasmEdge only needs boost::filesystem and boost::system
+RUN /hbb_exe/activate-exec bash -c "echo 'Boost cache bust: v5-minimal' && \
+    rm -rf /usr/local/lib/libboost* /usr/local/include/boost && \
+    cd /tmp && \
     wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz -O boost.tar.gz && \
     mkdir boost && \
     tar -xzf boost.tar.gz --strip-components=1 -C boost && \
     cd boost && \
     ./bootstrap.sh && \
-    ./b2 link=static -j${BUILD_CORES} && \
-    ./b2 install && \
+    ./b2 install \
+        link=static runtime-link=shared -j${BUILD_CORES} \
+        --with-filesystem --with-system && \
     cd /tmp && \
     rm -rf boost boost.tar.gz"
-
-ENV BOOST_ROOT=/usr/local/src/boost_1_86_0
-ENV Boost_LIBRARY_DIRS=/usr/local/lib
-ENV BOOST_INCLUDEDIR=/usr/local/src/boost_1_86_0
 
 ENV CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
 
@@ -155,6 +165,10 @@ RUN cd /tmp && \
     cd build && \
     /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && \
     ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ar /usr/bin/ar && \
+    ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ranlib /usr/bin/ranlib && \
+    echo '=== Binutils version check ===' && \
+    ar --version | head -1 && \
+    ranlib --version | head -1 && \
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr/local \
@@ -176,14 +190,28 @@ RUN cd /tmp && \
 # Set environment variables
 ENV PATH=/usr/local/bin:$PATH
 
-# Configure ccache and Conan
+# Configure ccache and Conan 2
+# NOTE: Using echo commands instead of heredocs because heredocs in Docker RUN commands are finnicky
 RUN /hbb_exe/activate-exec bash -c "ccache -M 10G && \
     ccache -o cache_dir=/cache/ccache && \
     ccache -o compiler_check=content && \
-    conan config set storage.path=/cache/conan && \
-    (conan profile new default --detect || true) && \
-    conan profile update settings.compiler.libcxx=libstdc++11 default && \
-    conan profile update settings.compiler.cppstd=20 default"
+    mkdir -p ~/.conan2 /cache/conan2 /cache/conan2_download /cache/conan2_sources && \
+    echo 'core.cache:storage_path=/cache/conan2' > ~/.conan2/global.conf && \
+    echo 'core.download:download_cache=/cache/conan2_download' >> ~/.conan2/global.conf && \
+    echo 'core.sources:download_cache=/cache/conan2_sources' >> ~/.conan2/global.conf && \
+    conan profile detect --force && \
+    echo '[settings]' > ~/.conan2/profiles/default && \
+    echo 'arch=x86_64' >> ~/.conan2/profiles/default && \
+    echo 'build_type=Release' >> ~/.conan2/profiles/default && \
+    echo 'compiler=gcc' >> ~/.conan2/profiles/default && \
+    echo 'compiler.cppstd=20' >> ~/.conan2/profiles/default && \
+    echo 'compiler.libcxx=libstdc++11' >> ~/.conan2/profiles/default && \
+    echo 'compiler.version=11' >> ~/.conan2/profiles/default && \
+    echo 'os=Linux' >> ~/.conan2/profiles/default && \
+    echo '' >> ~/.conan2/profiles/default && \
+    echo '[conf]' >> ~/.conan2/profiles/default && \
+    echo '# Force building from source for packages with binary compatibility issues' >> ~/.conan2/profiles/default && \
+    echo '*:tools.system.package_manager:mode=build' >> ~/.conan2/profiles/default"
 
 DOCKERFILE_EOF
 )

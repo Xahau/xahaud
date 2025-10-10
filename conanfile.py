@@ -21,22 +21,20 @@ class Xrpl(ConanFile):
         'static': [True, False],
         'tests': [True, False],
         'unity': [True, False],
+        'with_wasmedge': [True, False],
+        'tool_requires_b2': [True, False],
     }
 
     requires = [
-        'boost/1.86.0',
         'date/3.0.1',
         'libarchive/3.6.0',
-        'lz4/1.9.3',
+        'lz4/1.9.4',
         'grpc/1.50.1',
         'nudb/2.0.8',
         'openssl/1.1.1u',
-        'protobuf/3.21.9',
-        'snappy/1.1.10@xahaud/stable',
+        'protobuf/3.21.12',
         'soci/4.0.3@xahaud/stable',
-        'sqlite3/3.42.0',
-        'zlib/1.2.13',
-        'wasmedge/0.11.2',
+        'zlib/1.3.1',
     ]
 
     default_options = {
@@ -50,42 +48,44 @@ class Xrpl(ConanFile):
         'static': True,
         'tests': True,
         'unity': False,
+        'with_wasmedge': True,
+        'tool_requires_b2': False,
 
-        'cassandra-cpp-driver:shared': False,
-        'date:header_only': True,
-        'grpc:shared': False,
-        'grpc:secure': True,
-        'libarchive:shared': False,
-        'libarchive:with_acl': False,
-        'libarchive:with_bzip2': False,
-        'libarchive:with_cng': False,
-        'libarchive:with_expat': False,
-        'libarchive:with_iconv': False,
-        'libarchive:with_libxml2': False,
-        'libarchive:with_lz4': True,
-        'libarchive:with_lzma': False,
-        'libarchive:with_lzo': False,
-        'libarchive:with_nettle': False,
-        'libarchive:with_openssl': False,
-        'libarchive:with_pcreposix': False,
-        'libarchive:with_xattr': False,
-        'libarchive:with_zlib': False,
-        'libpq:shared': False,
-        'lz4:shared': False,
-        'openssl:shared': False,
-        'protobuf:shared': False,
-        'protobuf:with_zlib': True,
-        'rocksdb:enable_sse': False,
-        'rocksdb:lite': False,
-        'rocksdb:shared': False,
-        'rocksdb:use_rtti': True,
-        'rocksdb:with_jemalloc': False,
-        'rocksdb:with_lz4': True,
-        'rocksdb:with_snappy': True,
-        'snappy:shared': False,
-        'soci:shared': False,
-        'soci:with_sqlite3': True,
-        'soci:with_boost': True,
+        'cassandra-cpp-driver/*:shared': False,
+        'date/*:header_only': True,
+        'grpc/*:shared': False,
+        'grpc/*:secure': True,
+        'libarchive/*:shared': False,
+        'libarchive/*:with_acl': False,
+        'libarchive/*:with_bzip2': False,
+        'libarchive/*:with_cng': False,
+        'libarchive/*:with_expat': False,
+        'libarchive/*:with_iconv': False,
+        'libarchive/*:with_libxml2': False,
+        'libarchive/*:with_lz4': True,
+        'libarchive/*:with_lzma': False,
+        'libarchive/*:with_lzo': False,
+        'libarchive/*:with_nettle': False,
+        'libarchive/*:with_openssl': False,
+        'libarchive/*:with_pcreposix': False,
+        'libarchive/*:with_xattr': False,
+        'libarchive/*:with_zlib': False,
+        'libpq/*:shared': False,
+        'lz4/*:shared': False,
+        'openssl/*:shared': False,
+        'protobuf/*:shared': False,
+        'protobuf/*:with_zlib': True,
+        'rocksdb/*:enable_sse': False,
+        'rocksdb/*:lite': False,
+        'rocksdb/*:shared': False,
+        'rocksdb/*:use_rtti': True,
+        'rocksdb/*:with_jemalloc': False,
+        'rocksdb/*:with_lz4': True,
+        'rocksdb/*:with_snappy': True,
+        'snappy/*:shared': False,
+        'soci/*:shared': False,
+        'soci/*:with_sqlite3': True,
+        'soci/*:with_boost': True,
     }
 
     def set_version(self):
@@ -96,11 +96,28 @@ class Xrpl(ConanFile):
             match = next(m for m in matches if m)
             self.version = match.group(1)
 
+    def build_requirements(self):
+        # These provide build tools (protoc, grpc plugins) that run during build
+        self.tool_requires('protobuf/3.21.12')
+        self.tool_requires('grpc/1.50.1')
+        # Explicitly require b2 (e.g. for building from source for glibc compatibility)
+        if self.options.tool_requires_b2:
+            self.tool_requires('b2/5.3.2')
+
     def configure(self):
         if self.settings.compiler == 'apple-clang':
-            self.options['boost'].visibility = 'global'
+            self.options['boost/*'].visibility = 'global'
 
     def requirements(self):
+        # Force sqlite3 version to avoid conflicts with soci
+        self.requires('sqlite3/3.42.0', override=True)
+        # Force our custom snappy build for all dependencies
+        self.requires('snappy/1.1.10@xahaud/stable', override=True)
+        # Force boost version for all dependencies to avoid conflicts
+        self.requires('boost/1.86.0', override=True)
+
+        if self.options.with_wasmedge:
+            self.requires('wasmedge/0.11.2@xahaud/stable')
         if self.options.jemalloc:
             self.requires('jemalloc/5.2.1')
         if self.options.reporting:
