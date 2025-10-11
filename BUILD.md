@@ -33,7 +33,7 @@ git checkout develop
 ## Minimum Requirements
 
 - [Python 3.7](https://www.python.org/downloads/)
-- [Conan 1.55](https://conan.io/downloads.html)
+- [Conan 2.x](https://conan.io/downloads)
 - [CMake 3.16](https://cmake.org/download/)
 
 `rippled` is written in the C++20 dialect and includes the `<concepts>` header.
@@ -65,13 +65,24 @@ can't build earlier Boost versions.
 1. (Optional) If you've never used Conan, use autodetect to set up a default profile.
 
    ```
-   conan profile new default --detect
+   conan profile detect --force
    ```
 
 2. Update the compiler settings.
 
+   For Conan 2, you can edit the profile directly at `~/.conan2/profiles/default`,
+   or use the Conan CLI. Ensure C++20 is set:
+
    ```
-   conan profile update settings.compiler.cppstd=20 default
+   conan profile show
+   ```
+
+   Look for `compiler.cppstd=20` in the output. If it's not set, edit the profile:
+
+   ```
+   # Edit ~/.conan2/profiles/default and ensure these settings exist:
+   [settings]
+   compiler.cppstd=20
    ```
 
    Linux developers will commonly have a default Conan [profile][] that compiles
@@ -80,7 +91,9 @@ can't build earlier Boost versions.
    then you will need to choose the `libstdc++11` ABI.
 
    ```
-   conan profile update settings.compiler.libcxx=libstdc++11 default
+   # In ~/.conan2/profiles/default, ensure:
+   [settings]
+   compiler.libcxx=libstdc++11
    ```
 
    On Windows, you should use the x64 native build tools.
@@ -91,7 +104,9 @@ can't build earlier Boost versions.
    architecture.
 
    ```
-   conan profile update settings.arch=x86_64 default
+   # In ~/.conan2/profiles/default, ensure:
+   [settings]
+   arch=x86_64
    ```
 
 3. (Optional) If you have multiple compilers installed on your platform,
@@ -100,16 +115,18 @@ can't build earlier Boost versions.
    in the generated CMake toolchain file.
 
    ```
-   conan profile update 'conf.tools.build:compiler_executables={"c": "<path>", "cpp": "<path>"}' default
+   # In ~/.conan2/profiles/default, add under [conf] section:
+   [conf]
+   tools.build:compiler_executables={"c": "<path>", "cpp": "<path>"}
    ```
 
-   It should choose the compiler for dependencies as well,
-   but not all of them have a Conan recipe that respects this setting (yet).
-   For the rest, you can set these environment variables:
+   For setting environment variables for dependencies:
 
    ```
-   conan profile update env.CC=<path> default
-   conan profile update env.CXX=<path> default
+   # In ~/.conan2/profiles/default, add under [buildenv] section:
+   [buildenv]
+   CC=<path>
+   CXX=<path>
    ```
 
 4. Export our [Conan recipe for Snappy](./external/snappy).
@@ -117,14 +134,20 @@ can't build earlier Boost versions.
    which allows you to statically link it with GCC, if you want.
 
    ```
-   conan export external/snappy snappy/1.1.10@xahaud/stable
+   conan export external/snappy --version 1.1.10 --user xahaud --channel stable
    ```
 
 5. Export our [Conan recipe for SOCI](./external/soci).
    It patches their CMake to correctly import its dependencies.
 
    ```
-   conan export external/soci soci/4.0.3@xahaud/stable
+   conan export external/soci --version 4.0.3 --user xahaud --channel stable
+   ```
+
+6. Export our [Conan recipe for WasmEdge](./external/wasmedge).
+
+   ```
+   conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable
    ```
 
 ### Build and Test
@@ -259,23 +282,26 @@ and can be helpful for detecting `#include` omissions.
 If you have trouble building dependencies after changing Conan settings,
 try removing the Conan cache.
 
+For Conan 2:
 ```
-rm -rf ~/.conan/data
+rm -rf ~/.conan2/p
+```
+
+Or clear the entire Conan 2 cache:
+```
+conan cache clean "*"
 ```
 
 
-### no std::result_of
+### macOS compilation with Apple Clang 17+
 
-If your compiler version is recent enough to have removed `std::result_of` as
-part of C++20, e.g. Apple Clang 15.0, then you might need to add a preprocessor
-definition to your build.
+If you're on macOS with Apple Clang 17 or newer, you need to add a compiler flag to work around a compilation error in gRPC dependencies.
+
+Edit `~/.conan2/profiles/default` and add under the `[conf]` section:
 
 ```
-conan profile update 'options.boost:extra_b2_flags="define=BOOST_ASIO_HAS_STD_INVOKE_RESULT"' default
-conan profile update 'env.CFLAGS="-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"' default
-conan profile update 'env.CXXFLAGS="-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"' default
-conan profile update 'conf.tools.build:cflags+=["-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"]' default
-conan profile update 'conf.tools.build:cxxflags+=["-DBOOST_ASIO_HAS_STD_INVOKE_RESULT"]' default
+[conf]
+tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
 ```
 
 
