@@ -2434,7 +2434,7 @@ public:
     void
     test_emit(FeatureBitset features)
     {
-        testcase("Test float_emit");
+        testcase("Test emit");
         using namespace jtx;
         Env env{*this, features};
 
