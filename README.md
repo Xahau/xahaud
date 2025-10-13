@@ -2,7 +2,7 @@
 
 **Note:** Throughout this README, references to "we" or "our" pertain to the community and contributors involved in the Xahau network. It does not imply a legal entity or a specific collection of individuals.
 
-[Xahau](https://xahau.network/) is a decentralized cryptographic ledger that builds upon the robust foundation of the XRP Ledger. It inherits the XRP Ledger's Byzantine Fault Tolerant consensus algorithm and enhances it with additional features and functionalities. Developers and users familiar with the XRP Ledger will find that most documentation and tutorials available on [xrpl.org](https://xrpl.org) are relevant and applicable to Xahau, including those related to running validators and managing validator keys. For Xahau specific documentation you can visit our [documentation](https://docs.xahau.network/)
+[Xahau](https://xahau.network/) is a decentralized cryptographic ledger that builds upon the robust foundation of the XRP Ledger. It inherits the XRP Ledger's Byzantine Fault Tolerant consensus algorithm and enhances it with additional features and functionalities. Developers and users familiar with the XRP Ledger will find that most documentation and tutorials available on [xrpl.org](https://xrpl.org) are relevant and applicable to Xahau, including those related to running validators and managing validator keys. For Xahau specific documentation you can visit our [documentation](https://xahau.network/)
 
 ## XAH
 XAH is the public, counterparty-free asset native to Xahau and functions primarily as network gas. Transactions submitted to the Xahau network must supply an appropriate amount of XAH, to be burnt by the network as a fee, in order to be successfully included in a validated ledger. In addition, XAH also acts as a bridge currency within the Xahau DEX. XAH is traded on the open-market and is available for anyone to access. Xahau was created in 2023 with a supply of 600 million units of XAH.
@@ -12,7 +12,7 @@ The server software that powers Xahau is called `xahaud` and is available in thi
 
 ### Build from Source
 
-* [Read the build instructions in our documentation](https://docs.xahau.network/infrastructure/building-xahau)
+* [Read the build instructions in our documentation](https://xahau.network/infrastructure/building-xahau)
 * If you encounter any issues, please [open an issue](https://github.com/xahau/xahaud/issues)
 
 ## Highlights of Xahau
@@ -58,7 +58,7 @@ git-subtree. See those directories' README files for more details.
 
 - **Documentation**: Documentation for XRPL, Xahau and Hooks.
   - [Xrpl Documentation](https://xrpl.org)
-  - [Xahau Documentation](https://docs.xahau.network/)
+  - [Xahau Documentation](https://xahau.network/)
   - [Hooks Technical Documentation](https://xrpl-hooks.readme.io/)
 - **Explorers**: Explore the Xahau ledger using various explorers:
   - [xahauexplorer.com](https://xahauexplorer.com)

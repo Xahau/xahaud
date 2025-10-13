@@ -78,8 +78,9 @@ runs:
     - name: Export custom recipes
       shell: bash
       run: |
-        conan export external/snappy snappy/1.1.10@xahaud/stable
-        conan export external/soci soci/4.0.3@xahaud/stable
+        conan export external/snappy --version 1.1.10 --user xahaud --channel stable
+        conan export external/soci --version 4.0.3 --user xahaud --channel stable
+        conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable
 
     - name: Install dependencies
       shell: bash
