@@ -266,7 +266,7 @@ Transactor::preflight1(PreflightContext const& ctx, std::uint32_t flagMask)
             // transaction because somehow it might end up being locally
             // produced. It's assumed this can only happen due to some strange
             // state in the local instance.
-            return telNON_LOCAL_EMITTED_TXN;
+            return telNON_LOCAL_EMITTED_TXN;  // LCOV_EXCL_LINE
         }
     }
 
@@ -795,13 +795,13 @@ Transactor::checkSeqProxy(
         // this is more strictly enforced in the emit() hook api
         // here this is only acting as a sanity check in case of bugs
         if (!tx.isFieldPresent(sfFirstLedgerSequence))
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
         return tesSUCCESS;
     }
 
     // reserved for emitted tx only at this time
     if (tx.isFieldPresent(sfFirstLedgerSequence))
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // Replay protection comes from sfTime against sfLastTxnTime, which
     // checkPriorTxAndLastLedger enforces; the account Sequence is neither
@@ -1032,15 +1032,19 @@ Transactor::ticketDelete(
     SLE::pointer const sleTicket = view.peek(keylet::ticket(ticketIndex));
     if (!sleTicket)
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Ticket disappeared from ledger.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     std::uint64_t const page{(*sleTicket)[sfOwnerNode]};
     if (!view.dirRemove(keylet::ownerDir(account), page, ticketIndex, true))
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Unable to delete Ticket from owner.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     // Update the account root's TicketCount.  If the ticket count drops to
@@ -1048,8 +1052,10 @@ Transactor::ticketDelete(
     auto sleAccount = view.peek(keylet::account(account));
     if (!sleAccount)
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Could not find Ticket owner account root.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     if (auto ticketCount = (*sleAccount)[~sfTicketCount])
@@ -1061,8 +1067,10 @@ Transactor::ticketDelete(
     }
     else
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "TicketCount field missing from account root.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     // Update the Ticket owner's reserve.
@@ -1192,7 +1200,7 @@ Transactor::checkSign(PreclaimContext const& ctx)
             (ctx.flags & tapPREFLIGHT_EMIT))
             return tesSUCCESS;
 
-        return telNON_LOCAL_EMITTED_TXN;
+        return telNON_LOCAL_EMITTED_TXN;  // LCOV_EXCL_LINE
     }
 
     // wildcard network gets a free pass on all signatures
@@ -1780,9 +1788,11 @@ Transactor::executeHookChain(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Failure: gatherHookParameters failed)";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
 
         bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
@@ -1901,28 +1911,36 @@ Transactor::doHookCallback(
     auto const& hookDef = view().peek(keylet::hookDefinition(callbackHookHash));
     if (!hookDef)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hook def missing on callback";
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hookDef->isFieldPresent(sfHookCallbackFee))
     {
+        // LCOV_EXCL_START
         JLOG(j_.trace()) << "HookInfo[" << callbackAccountID
                          << "]: Callback specified by emitted txn "
                          << "but hook lacks a cbak function, skipping.";
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hooksCallback)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hook missing on callback";
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hooksCallback->isFieldPresent(sfHooks))
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hooks Array missing on callback";
         return;
+        // LCOV_EXCL_STOP
     }
 
     bool found = false;
@@ -1950,9 +1968,11 @@ Transactor::doHookCallback(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Failure: gatherHookParameters failed)";
             return;
+            // LCOV_EXCL_STOP
         }
 
         found = true;
@@ -2005,16 +2025,20 @@ Transactor::doHookCallback(
         }
         catch (std::exception& e)
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "HookError[" << callbackAccountID << "-"
                              << ctx_.tx.getAccountID(sfAccount)
                              << "]: Callback failure " << e.what();
+            // LCOV_EXCL_STOP
         }
     }
 
     if (!found)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[" << callbackAccountID << "]: Hookhash "
                         << callbackHookHash << " not found on callback account";
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -2224,15 +2248,19 @@ Transactor::doAgainAsWeak(
     auto const& hooksArray = view().peek(keylet::hook(hookAccountID));
     if (!hooksArray)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hook missing on aaw account: "
                         << hookAccountID;
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hooksArray->isFieldPresent(sfHooks))
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hooks Array missing on aaw";
         return;
+        // LCOV_EXCL_STOP
     }
 
     auto const& hooks = hooksArray->getFieldArray(sfHooks);
@@ -2253,9 +2281,11 @@ Transactor::doAgainAsWeak(
         auto const& hookDef = view().peek(keylet::hookDefinition(hookHash));
         if (!hookDef)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Hook def missing on aaw, hash: " << hookHash;
             continue;
+            // LCOV_EXCL_STOP
         }
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
@@ -2270,9 +2300,11 @@ Transactor::doAgainAsWeak(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Failure: gatherHookParameters failed)";
             return;
+            // LCOV_EXCL_STOP
         }
 
         try
@@ -2305,9 +2337,11 @@ Transactor::doAgainAsWeak(
         }
         catch (std::exception& e)
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "HookError[" << hookAccountID << "-"
                              << ctx_.tx.getAccountID(sfAccount)
                              << "]: aaw failure " << e.what();
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -2361,7 +2395,7 @@ Transactor::operator()()
          !any(
              ctx_.app.getHashRouter().getFlags(ctx_.tx.getTransactionID()) &
              HashRouterFlags::EMITTED)))
-        return {tecINTERNAL, false};
+        return {tecINTERNAL, false};  // LCOV_EXCL_LINE
 
     if (auto const& trap = ctx_.app.trapTxID();
         trap && *trap == ctx_.tx.getTransactionID())
@@ -2675,17 +2709,17 @@ Transactor::finishApply(
                 auto sle = view().peek(
                     Keylet{ltRIPPLE_STATE, node.getFieldH256(sfLedgerIndex)});
                 if (!sle)
-                    continue;
+                    continue;  // LCOV_EXCL_LINE
                 STObject& previousFields = (const_cast<STObject&>(node))
                                                .getField(sfPreviousFields)
                                                .downcast<STObject>();
                 if (!previousFields.isFieldPresent(sfBalance))
-                    continue;
+                    continue;  // LCOV_EXCL_LINE
 
                 auto balance = previousFields.getFieldAmount(sfBalance);
 
                 if (balance.native())
-                    continue;
+                    continue;  // LCOV_EXCL_LINE
 
                 SField const* sfRewardFields[] = {&sfLowReward, &sfHighReward};
                 for (auto const* sfRewardFieldPtr : sfRewardFields)
@@ -2711,7 +2745,7 @@ Transactor::finishApply(
 
                     // overflow safety
                     if (lgrElapsed > lgrCur || lgrElapsed == 0)
-                        continue;
+                        continue;  // LCOV_EXCL_LINE
 
                     auto accum =
                         reward.getFieldAmount(sfTrustLineRewardAccumulator);
@@ -2751,7 +2785,7 @@ Transactor::finishApply(
                 Keylet{ltACCOUNT_ROOT, node.getFieldH256(sfLedgerIndex)});
 
             if (!sle)
-                continue;
+                continue;  // LCOV_EXCL_LINE
 
             if (!sle->isFieldPresent(sfRewardLgrFirst) ||
                 !sle->isFieldPresent(sfRewardLgrLast) ||
@@ -2763,7 +2797,7 @@ Transactor::finishApply(
                                         .downcast<STObject>();
 
             if (!finalFields.isFieldPresent(sfBalance))
-                continue;
+                continue;  // LCOV_EXCL_LINE
 
             bool const has20261005 = view().rules().enabled(fix20261005);
 
@@ -2798,12 +2832,14 @@ Transactor::finishApply(
             // check for overflow
             if (accumNew < accum)
             {
+                // LCOV_EXCL_START
                 if (has20261005)
                 {
                     sle->setFieldU32(sfRewardLgrLast, lgrCur);
                     view().update(sle);
                 }
                 continue;
+                // LCOV_EXCL_STOP
             }
 
             sle->setFieldU64(sfRewardAccumulator, accumNew);

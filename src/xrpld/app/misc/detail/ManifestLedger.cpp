@@ -57,10 +57,12 @@ writeManifestObjects(
         if (firstID != klMan1.key || !sleMan1 ||
             sleMan1->getAccountID(sfAccount) != id)
         {
+            // LCOV_EXCL_START
             JLOG(j.error()) << "SetManifest: Old manifest object missing or "
                                "misowned (ID1) !! "
                             << strHex(firstID);
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         // Absent when the previous manifest was a revocation.
@@ -71,11 +73,13 @@ writeManifestObjects(
             if (secondID == firstID || !sleMan2 ||
                 sleMan2->getAccountID(sfAccount) != id)
             {
+                // LCOV_EXCL_START
                 JLOG(j.error())
                     << "SetManifest: Old manifest object missing, misowned or "
                        "self-referential (ID2) !! "
                     << strHex(secondID);
                 return tefBAD_LEDGER;
+                // LCOV_EXCL_STOP
             }
             view.erase(sleMan2);
         }
@@ -95,9 +99,11 @@ writeManifestObjects(
     // copies.
     if (view.exists(klMan1) || (klMan2 && view.exists(*klMan2)))
     {
+        // LCOV_EXCL_START
         JLOG(j.error()) << "SetManifest: Manifest keylet already occupied !! "
                         << strHex(klMan1.key);
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     // A master key's first manifest. Also an obj1 written before it carried a
@@ -108,7 +114,11 @@ writeManifestObjects(
             keylet::manifestDir(), klMan1.key, [](std::shared_ptr<SLE> const&) {
             });
         if (!page)
+        {
+            // LCOV_EXCL_START
             return tecDIR_FULL;
+            // LCOV_EXCL_STOP
+        }
     }
 
     // Mirror the manifest losslessly, signatures included, so any node can

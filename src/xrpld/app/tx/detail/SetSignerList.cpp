@@ -228,8 +228,10 @@ SetSignerList::removeSignersFromLedger(
 
     if (!view.dirRemove(ownerDirKeylet, hint, signerListKeylet.key, false))
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Unable to delete SignerList from owner.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     adjustOwnerCount(
@@ -345,7 +347,7 @@ SetSignerList::destroySignerList()
     // is enabled or there is a regular key.
     SLE::pointer ledgerEntry = view().peek(accountKeylet);
     if (!ledgerEntry)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     if ((ledgerEntry->isFlag(lsfDisableMaster)) &&
         (!ledgerEntry->isFieldPresent(sfRegularKey)))

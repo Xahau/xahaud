@@ -141,7 +141,7 @@ public:
 
         auto const sle = view.peek(accountKeylet);
         if (!sle)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         // Compute new reserve.  Verify the account has funds to meet the
         // reserve.
@@ -179,7 +179,7 @@ public:
                         << ": " << (page ? "success" : "failure");
 
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
 
         signerList->setFieldU64(sfOwnerNode, *page);
 
