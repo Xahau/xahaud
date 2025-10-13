@@ -188,7 +188,7 @@ CronSet::doApply()
     AccountID const& id = tx.getAccountID(sfAccount);
     auto sle = view.peek(keylet::account(id));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // in all cases whatsoever, this transaction will delete an existing
     // old cron object and return the owner reserve to the owner.
@@ -200,22 +200,28 @@ CronSet::doApply()
         auto sleCron = view.peek(klOld);
         if (!sleCron)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "CronSet: Cron object didn't exist.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         if (safe_cast<LedgerEntryType>(
                 sleCron->getFieldU16(sfLedgerEntryType)) != ltCRON)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "CronSet: sfCron pointed to non-cron object!!";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         if (!view.dirRemove(
                 keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "CronSet: Ownerdir bad. " << id;
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         view.erase(sleCron);
@@ -251,7 +257,7 @@ CronSet::doApply()
     auto const page =
         view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
     if (!page)
-        return tecDIR_FULL;
+        return tecDIR_FULL;  // LCOV_EXCL_LINE
 
     sleCron->setFieldU64(sfOwnerNode, *page);
 

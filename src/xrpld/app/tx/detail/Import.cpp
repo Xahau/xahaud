@@ -870,7 +870,7 @@ Import::preclaim(PreclaimContext const& ctx)
         return temDISABLED;
 
     if (!ctx.tx.isFieldPresent(sfBlob))
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     if (ctx.tx.isFieldPresent(sfIssuer) &&
         ctx.view.rules().enabled(fixImportIssuer))
@@ -888,18 +888,22 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (!xpop)
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.warn())
             << "Import: during preclaim could not parse xpop, bailing.";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     auto const [stpTrans, meta] = getInnerTxn(ctx.tx, ctx.j, &(*xpop));
 
     if (!stpTrans || !meta || !stpTrans->isFieldPresent(sfSequence))
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.warn()) << "Import: during preclaim could not find "
                               "importSequence, bailing.";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
@@ -959,9 +963,11 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (!vlInfo)
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.warn())
             << "Import: during preclaim could not parse vlInfo, bailing.";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     auto const& sleVL = ctx.view.read(keylet::import_vlseq(vlInfo->second));
@@ -982,11 +988,11 @@ Import::preclaim(PreclaimContext const& ctx)
 
     auto pkHex = strUnHex(strPk);
     if (!pkHex)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const pkType = publicKeyType(makeSlice(*pkHex));
     if (!pkType)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     PublicKey const pk(makeSlice(*pkHex));
 
@@ -1171,7 +1177,7 @@ Import::doApply()
         return temDISABLED;
 
     if (!ctx_.tx.isFieldPresent(sfBlob))
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     //
     // Before starting decode and validate XPOP, update ImportVL seq
@@ -1179,12 +1185,12 @@ Import::doApply()
     auto const xpop = syntaxCheckXPOP(ctx_.tx.getFieldVL(sfBlob), ctx_.journal);
 
     if (!xpop)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const infoVL = getVLInfo(*xpop, ctx_.journal);
 
     if (!infoVL)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const keyletVL = keylet::import_vlseq(infoVL->second);
     auto sleVL = view().peek(keyletVL);
@@ -1206,7 +1212,7 @@ Import::doApply()
         if (current > infoVL->first)
         {
             // should never happen
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
         }
         else if (infoVL->first > current)
         {
@@ -1226,10 +1232,12 @@ Import::doApply()
         !stpTrans->isFieldPresent(sfFee) || !meta ||
         !meta->isFieldPresent(sfTransactionResult))
     {
+        // LCOV_EXCL_START
         JLOG(ctx_.journal.warn())
             << "Import: during apply could not find one of: importSequence, "
                "meta, tx result or fee, bailing.";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     //
@@ -1240,16 +1248,20 @@ Import::doApply()
 
     if (!isXRP(burn) || burn < beast::zero)
     {
+        // LCOV_EXCL_START
         JLOG(ctx_.journal.warn()) << "Import: inner fee was not XRP value.";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     // ensure header is not going to overflow
     if (burn <= beast::zero ||
         burn.xrp() + view().info().drops < view().info().drops)
     {
+        // LCOV_EXCL_START
         JLOG(ctx_.journal.warn()) << "Import: ledger header overflowed\n";
         return tecINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
@@ -1258,9 +1270,11 @@ Import::doApply()
 
     if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
     {
+        // LCOV_EXCL_START
         // make double sure import seq hasn't passed
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     // get xahau genesis start ledger, or just assume the current ledger is the
@@ -1310,8 +1324,10 @@ Import::doApply()
 
     if (finalBal < startBal)
     {
+        // LCOV_EXCL_START
         JLOG(ctx_.journal.warn()) << "Import: overflow finalBal < startBal.";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     if (create)

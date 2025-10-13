@@ -308,17 +308,17 @@ SetRemarks::doApply()
 
     auto const sle = sb.read(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const objID = ctx_.tx[sfObjectID];
     auto sleO = sb.peek(keylet::unchecked(objID));
     if (!sleO)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     std::optional<AccountID> issuer = getRemarksIssuer(sleO);
 
     if (!issuer || *issuer != account_)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const& remarksTxn = ctx_.tx.getFieldArray(sfRemarks);
 
@@ -390,7 +390,7 @@ SetRemarks::doApply()
     }
 
     if (newRemarks.size() > 32)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     if (newRemarks.empty() && sleO->isFieldPresent(sfRemarks))
         sleO->makeFieldAbsent(sfRemarks);

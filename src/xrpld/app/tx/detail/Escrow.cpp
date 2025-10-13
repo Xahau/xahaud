@@ -192,6 +192,9 @@ EscrowCreate::doApply()
     }
     else
     {
+        // This is old code that needs to stay to support replaying old ledgers,
+        // but does not need to be covered by new tests.
+        // LCOV_EXCL_START
         if (ctx_.tx[~sfCancelAfter])
         {
             auto const cancelAfter = ctx_.tx[sfCancelAfter];
@@ -207,12 +210,13 @@ EscrowCreate::doApply()
             if (closeTime.time_since_epoch().count() >= finishAfter)
                 return tecNO_PERMISSION;
         }
+        // LCOV_EXCL_STOP
     }
 
     auto const account = ctx_.tx[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     STAmount const amount{ctx_.tx[sfAmount]};
 
@@ -286,12 +290,12 @@ EscrowCreate::doApply()
         auto const sled =
             ctx_.view().read(keylet::account(ctx_.tx[sfDestination]));
         if (!sled)
-            return tecNO_DST;
+            return tecNO_DST;  // LCOV_EXCL_LINE
         if (((*sled)[sfFlags] & lsfRequireDestTag) &&
             !ctx_.tx[~sfDestinationTag])
             return tecDST_TAG_NEEDED;
 
-        // Obeying the lsfDissalowXRP flag was a bug.  Piggyback on
+        // Obeying the lsfDisallowXRP flag was a bug.  Piggyback on
         // featureDepositAuth to remove the bug.
         if (!ctx_.view().rules().enabled(featureDepositAuth) && isXRP(amount) &&
             ((*sled)[sfFlags] & lsfDisallowXRP))
@@ -324,7 +328,7 @@ EscrowCreate::doApply()
         auto page = ctx_.view().dirInsert(
             keylet::ownerDir(account), escrowKeylet, describeOwnerDir(account));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfOwnerNode] = *page;
     }
 
@@ -334,7 +338,7 @@ EscrowCreate::doApply()
         auto page = ctx_.view().dirInsert(
             keylet::ownerDir(dest), escrowKeylet, describeOwnerDir(dest));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfDestinationNode] = *page;
     }
 
@@ -520,7 +524,7 @@ EscrowFinish::doApply()
         return tecNO_TARGET;
 
     if (fixV1 && slep->getFieldU16(sfLedgerEntryType) != ltESCROW)
-        return tecINTERNAL;
+        return tecINTERNAL;  // LCOV_EXCL_LINE
 
     AccountID const account = (*slep)[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
@@ -543,6 +547,9 @@ EscrowFinish::doApply()
     }
     else
     {
+        // This is old code that needs to stay to support replaying old ledgers,
+        // but does not need to be covered by new tests.
+        // LCOV_EXCL_START
         // Too soon?
         if ((*slep)[~sfFinishAfter] &&
             ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
@@ -554,6 +561,7 @@ EscrowFinish::doApply()
             ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
                 (*slep)[sfCancelAfter])
             return tecNO_PERMISSION;
+        // LCOV_EXCL_STOP
     }
 
     // Check cryptocondition fulfillment
@@ -568,6 +576,7 @@ EscrowFinish::doApply()
         // simply re-run the check.
         if (cb && !any(flags & (SF_CF_INVALID | SF_CF_VALID)))
         {
+            // LCOV_EXCL_START
             auto const fb = ctx_.tx[~sfFulfillment];
 
             if (!fb)
@@ -579,6 +588,7 @@ EscrowFinish::doApply()
                 flags = SF_CF_INVALID;
 
             ctx_.app.getHashRouter().setFlags(id, flags);
+            // LCOV_EXCL_STOP
         }
 
         // If the check failed, then simply return an error
@@ -623,7 +633,7 @@ EscrowFinish::doApply()
             return temDISABLED;
 
         if (!slep->isFieldPresent(sfTransferRate))
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
 
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
         auto const issuerAccID = amount.getIssuer();
@@ -660,8 +670,10 @@ EscrowFinish::doApply()
         if (!ctx_.view().dirRemove(
                 keylet::ownerDir(account), page, k.key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from owner.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -671,8 +683,10 @@ EscrowFinish::doApply()
         if (!ctx_.view().dirRemove(
                 keylet::ownerDir(destID), *optPage, k.key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from recipient.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -682,7 +696,7 @@ EscrowFinish::doApply()
     {
         // compute transfer fee, if any
         if (!slep->isFieldPresent(sfTransferRate))
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
 
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
         auto const issuerAccID = amount.getIssuer();
@@ -798,11 +812,15 @@ EscrowCancel::doApply()
     }
     else
     {
+        // This is old code that needs to stay to support replaying old ledgers,
+        // but does not need to be covered by new tests.
+        // LCOV_EXCL_START
         // Too soon?
         if (!(*slep)[~sfCancelAfter] ||
             ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
                 (*slep)[sfCancelAfter])
             return tecNO_PERMISSION;
+        // LCOV_EXCL_STOP
     }
 
     AccountID const account = (*slep)[sfAccount];
@@ -837,8 +855,10 @@ EscrowCancel::doApply()
         if (!ctx_.view().dirRemove(
                 keylet::ownerDir(account), page, k.key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from owner.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -851,8 +871,10 @@ EscrowCancel::doApply()
                 k.key,
                 true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from recipient.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 

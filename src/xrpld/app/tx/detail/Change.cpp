@@ -178,7 +178,7 @@ Change::preclaim(PreclaimContext const& ctx)
 
             auto const pkType = publicKeyType(makeSlice(pkBlob));
             if (!pkType)
-                return tefINTERNAL;
+                return tefINTERNAL;  // LCOV_EXCL_LINE
 
             PublicKey const pk(makeSlice(pkBlob));
 
@@ -1078,9 +1078,11 @@ Change::applyEmitFailure()
                 key,
                 false))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "HookError[" << txnID
                              << "]: ttEmitFailure (Change) tefBAD_LEDGER";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         view().erase(sle);

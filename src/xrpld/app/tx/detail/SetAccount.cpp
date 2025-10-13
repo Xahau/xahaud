@@ -338,7 +338,7 @@ SetAccount::doApply()
 {
     auto const sle = view().peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     std::uint32_t const uFlagsIn = sle->getFieldU32(sfFlags);
     std::uint32_t uFlagsOut = uFlagsIn;

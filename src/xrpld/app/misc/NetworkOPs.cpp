@@ -3740,6 +3740,9 @@ NetworkOPsImp::addAccountHistoryJob(SubAccountHistoryInfoWeak subInfo)
 
     if (databaseType == DatabaseType::None)
     {
+        // LCOV_EXCL_START
+        UNREACHABLE(
+            "ripple::NetworkOPsImp::addAccountHistoryJob : no database");
         JLOG(m_journal.error())
             << "AccountHistory job for account "
             << toBase58(subInfo.index_->accountId_) << " no database";
@@ -3749,6 +3752,7 @@ NetworkOPsImp::addAccountHistoryJob(SubAccountHistoryInfoWeak subInfo)
             unsubAccountHistory(sptr, subInfo.index_->accountId_, false);
         }
         return;
+        // LCOV_EXCL_STOP
     }
 
     app_.getJobQueue().addJob(
@@ -3848,7 +3852,7 @@ NetworkOPsImp::addAccountHistoryJob(SubAccountHistoryInfoWeak subInfo)
                     // LCOV_EXCL_START
                     default: {
                         UNREACHABLE(
-                            "ripple::NetworkOPsImp::addAccountHistoryJob::"
+                            "ripple::NetworkOPsImp::addAccountHistoryJob : "
                             "getMoreTxns : invalid database type");
                         return {};
                     }
@@ -3913,11 +3917,16 @@ NetworkOPsImp::addAccountHistoryJob(SubAccountHistoryInfoWeak subInfo)
                         getMoreTxns(startLedgerSeq, lastLedgerSeq, marker);
                     if (!dbResult)
                     {
+                        // LCOV_EXCL_START
+                        UNREACHABLE(
+                            "ripple::NetworkOPsImp::addAccountHistoryJob : "
+                            "getMoreTxns failed");
                         JLOG(m_journal.debug())
                             << "AccountHistory job for account "
                             << toBase58(accountId) << " getMoreTxns failed.";
                         send(rpcError(rpcINTERNAL), true);
                         return;
+                        // LCOV_EXCL_STOP
                     }
 
                     auto const& txns = dbResult->first;
@@ -3940,22 +3949,32 @@ NetworkOPsImp::addAccountHistoryJob(SubAccountHistoryInfoWeak subInfo)
                                 tx->getLedger());
                         if (!curTxLedger)
                         {
+                            // LCOV_EXCL_START
+                            UNREACHABLE(
+                                "ripple::NetworkOPsImp::addAccountHistoryJob : "
+                                "getLedgerBySeq failed");
                             JLOG(m_journal.debug())
                                 << "AccountHistory job for account "
                                 << toBase58(accountId) << " no ledger.";
                             send(rpcError(rpcINTERNAL), true);
                             return;
+                            // LCOV_EXCL_STOP
                         }
                         std::shared_ptr<STTx const> stTxn =
                             tx->getSTransaction();
                         if (!stTxn)
                         {
+                            // LCOV_EXCL_START
+                            UNREACHABLE(
+                                "NetworkOPsImp::addAccountHistoryJob : "
+                                "getSTransaction failed");
                             JLOG(m_journal.debug())
                                 << "AccountHistory job for account "
                                 << toBase58(accountId)
                                 << " getSTransaction failed.";
                             send(rpcError(rpcINTERNAL), true);
                             return;
+                            // LCOV_EXCL_STOP
                         }
 
                         auto const mRef = std::ref(*meta);

@@ -83,7 +83,7 @@ CancelOffer::doApply()
 {
     auto const sle = view().read(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const offerSequence = ctx_.tx[~sfOfferSequence];
     auto const offerID = ctx_.tx[~sfOfferID];

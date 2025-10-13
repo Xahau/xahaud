@@ -166,7 +166,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
     auto const sle =
         ctx.view.read(keylet::account(ctx.tx.getAccountID(sfAccount)));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     switch (tt)
     {
@@ -228,12 +228,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
                     STAmount const fee = ctx.tx.getFieldAmount(sfFee).xrp();
 
                     if (needed + fee < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += fee;
 
                     if (needed + purchaseAmount < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += purchaseAmount;
 
@@ -243,7 +243,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
                 else if (purchaseAmount.native() || saleAmount->native())
                 {
                     // should not be able to happen
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
                 }
                 else
                 {
@@ -309,10 +309,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         }
 
+        // LCOV_EXCL_START
         default: {
             JLOG(ctx.j.warn()) << "URIToken txid=" << ctx.tx.getTransactionID()
                                << " preclaim with tt = " << tt << "\n";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -328,7 +330,7 @@ URIToken::doApply()
 
     auto const sle = sb.peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     TxType const& tt = ctx_.tx.getTxnType();
 
@@ -399,7 +401,7 @@ URIToken::doApply()
             sleU->setAccountID(sfIssuer, account_);
 
             if (dest && !saleAmount)
-                return tefINTERNAL;
+                return tefINTERNAL;  // LCOV_EXCL_LINE
 
             if (dest)
                 sleU->setAccountID(sfDestination, *dest);
@@ -423,7 +425,7 @@ URIToken::doApply()
                 << ": " << (page ? "success" : "failure");
 
             if (!page)
-                return tecDIR_FULL;
+                return tecDIR_FULL;  // LCOV_EXCL_LINE
 
             sleU->setFieldU64(sfOwnerNode, *page);
             sb.insert(sleU);
@@ -480,12 +482,12 @@ URIToken::doApply()
                     STAmount const fee = ctx_.tx.getFieldAmount(sfFee).xrp();
 
                     if (needed + fee < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += fee;
 
                     if (needed + purchaseAmount < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += purchaseAmount;
 
@@ -535,7 +537,7 @@ URIToken::doApply()
                                  << (newPage ? "success" : "failure");
 
                 if (!newPage)
-                    return tecDIR_FULL;
+                    return tecDIR_FULL;  // LCOV_EXCL_LINE
 
                 // remove from current owner directory
                 if (!sb.dirRemove(
@@ -544,10 +546,12 @@ URIToken::doApply()
                         kl->key,
                         true))
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.fatal())
                         << "Could not remove URIToken from owner directory";
 
                     return tefBAD_LEDGER;
+                    // LCOV_EXCL_STOP
                 }
 
                 // adjust owner counts
@@ -748,34 +752,42 @@ URIToken::doApply()
                 // the same way now)
                 if (*finSellerBal < *initSellerBal)
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finSellerBal < initSellerBal";
                     return tecINTERNAL;
+                    // LCOV_EXCL_STOP
                 }
 
                 if (*finBuyerBal > *initBuyerBal)
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finBuyerBal > initBuyerBal";
                     return tecINTERNAL;
+                    // LCOV_EXCL_STOP
                 }
 
                 if (*finBuyerBal < beast::zero)
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finBuyerBal < 0";
                     return tecINTERNAL;
+                    // LCOV_EXCL_STOP
                 }
 
                 if (*finSellerBal < beast::zero)
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finSellerBal < 0";
                     return tecINTERNAL;
+                    // LCOV_EXCL_STOP
                 }
 
                 // to this point no ledger changes have been made
@@ -795,9 +807,11 @@ URIToken::doApply()
 
                 if (!newPage)
                 {
+                    // LCOV_EXCL_START
                     // nothing has happened at all and there is nothing to clean
                     // up we can just leave with DIR_FULL
                     return tecDIR_FULL;
+                    // LCOV_EXCL_STOP
                 }
 
                 // Next create destination trustline where applicable. This
@@ -832,10 +846,12 @@ URIToken::doApply()
                         //
                         if (!sb.dirRemove(keylet::ownerDir(account_), *newPage, kl->key, true))
                         {
+                            // LCOV_EXCL_START
                             JLOG(j.fatal())
                                 << "Could not remove URIToken from owner directory";
 
                             return tefBAD_LEDGER;
+                            // LCOV_EXCL_STOP
                         }
 
                         // leave
@@ -858,6 +874,7 @@ URIToken::doApply()
                         kl->key,
                         true))
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.fatal())
                         << "Could not remove URIToken from owner directory";
 
@@ -881,6 +898,7 @@ URIToken::doApply()
                     }
 
                     return tefBAD_LEDGER;
+                    // LCOV_EXCL_STOP
                 }
 
                 // above is all the things that could fail. we now have swapped
@@ -924,7 +942,7 @@ URIToken::doApply()
                     // pass: buyer is issuer, no update required.
                 }
                 else
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 // update the seller's balance
                 if (isXRP(purchaseAmount))
@@ -949,7 +967,7 @@ URIToken::doApply()
                     // pass: seller is issuer, no update required.
                 }
                 else
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 if (sleSrcLine)
                     sb.update(sleSrcLine);
@@ -984,9 +1002,11 @@ URIToken::doApply()
             auto const page = (*sleU)[sfOwnerNode];
             if (!sb.dirRemove(keylet::ownerDir(*owner), page, kl->key, true))
             {
+                // LCOV_EXCL_START
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
                 return tefBAD_LEDGER;
+                // LCOV_EXCL_STOP
             }
 
             sb.erase(sleU);
@@ -1019,7 +1039,7 @@ URIToken::doApply()
         }
 
         default:
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
     }
 }
 
