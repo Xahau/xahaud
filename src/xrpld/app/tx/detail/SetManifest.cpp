@@ -123,7 +123,8 @@ SetManifest::preclaim(PreclaimContext const& ctx)
 
     auto const newManifest = deserializeManifest(newObj, ctx.j);
     if (!newManifest)
-        return tefINTERNAL;  // preflight already parsed this successfully
+        // preflight already parsed this successfully
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // Replay protection. A byte-identical resubmission is rejected as
     // tefALREADY by checkPriorTxAndLastLedger, but sfFee may vary within the
@@ -182,7 +183,7 @@ SetManifest::doApply()
 {
     auto sle = view().peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     STObject const& obj = const_cast<ripple::STTx&>(ctx_.tx)
                               .getField(sfManifest)
@@ -192,7 +193,7 @@ SetManifest::doApply()
 
     // Both of these were established in preflight.
     if (!manifest || calcAccountID(manifest->masterKey) != account_)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // A manifest is stored twice so it can be found from either key:
     //   keylet::manifest(masterKey)  -> obj1, sfManifestID -> obj2
@@ -206,10 +207,12 @@ SetManifest::doApply()
         auto const sleMan1 = view().peek(Keylet{ltMANIFEST, firstID});
         if (!sleMan1 || sleMan1->getAccountID(sfAccount) != account_)
         {
+            // LCOV_EXCL_START
             JLOG(j_.error()) << "SetManifest: Old manifest object missing or "
                                 "misowned (ID1) !! "
                              << strHex(firstID);
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         // Absent when the previous manifest was a revocation.
@@ -220,11 +223,13 @@ SetManifest::doApply()
             if (secondID == firstID || !sleMan2 ||
                 sleMan2->getAccountID(sfAccount) != account_)
             {
+                // LCOV_EXCL_START
                 JLOG(j_.error())
                     << "SetManifest: Old manifest object missing, misowned or "
                        "self-referential (ID2) !! "
                     << strHex(secondID);
                 return tefBAD_LEDGER;
+                // LCOV_EXCL_STOP
             }
             view().erase(sleMan2);
         }
@@ -242,9 +247,11 @@ SetManifest::doApply()
     // copies.
     if (view().exists(klMan1) || (klMan2 && view().exists(*klMan2)))
     {
+        // LCOV_EXCL_START
         JLOG(j_.error()) << "SetManifest: Manifest keylet already occupied !! "
                          << strHex(klMan1.key);
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     // Mirror the manifest losslessly, signatures included, so any node can

@@ -141,7 +141,7 @@ removeNFTokenOfferFromLedger(
     beast::Journal)
 {
     if (!nft::deleteTokenOffer(view, sleDel))
-        return tefBAD_LEDGER;
+        return tefBAD_LEDGER;  // LCOV_EXCL_LINE
 
     return tesSUCCESS;
 }
@@ -391,11 +391,13 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
         if (!sleItem)
         {
             // Directory node has an invalid index.  Bail out.
+            // LCOV_EXCL_START
             JLOG(ctx.j.fatal())
                 << "DeleteAccount: directory node in ledger " << ctx.view.seq()
                 << " has index to object that is missing: "
                 << to_string(dirEntry);
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         LedgerEntryType const nodeType{
@@ -428,7 +430,7 @@ DeleteAccount::doApply()
         dst, "ripple::DeleteAccount::doApply : non-null destination account");
 
     if (!src || !dst)
-        return tefBAD_LEDGER;
+        return tefBAD_LEDGER;  // LCOV_EXCL_LINE
 
     if (ctx_.view().rules().enabled(featureDepositAuth) &&
         ctx_.tx.isFieldPresent(sfCredentialIDs))

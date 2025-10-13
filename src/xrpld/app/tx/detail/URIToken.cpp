@@ -160,7 +160,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
     auto const sle =
         ctx.view.read(keylet::account(ctx.tx.getAccountID(sfAccount)));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     switch (tt)
     {
@@ -220,12 +220,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
                 STAmount const fee = ctx.tx.getFieldAmount(sfFee).xrp();
 
                 if (needed + fee < needed)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 needed += fee;
 
                 if (needed + purchaseAmount < needed)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 needed += purchaseAmount;
 
@@ -235,7 +235,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
             else if (purchaseAmount.native() || saleAmount->native())
             {
                 // should not be able to happen
-                return tecINTERNAL;
+                return tecINTERNAL;  // LCOV_EXCL_LINE
             }
             else
             {
@@ -271,10 +271,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         }
 
+        // LCOV_EXCL_START
         default: {
             JLOG(ctx.j.warn()) << "URIToken txid=" << ctx.tx.getTransactionID()
                                << " preclaim with tt = " << tt << "\n";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -288,7 +290,7 @@ URIToken::doApply()
 
     auto const sle = sb.peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     TxType const& tt = ctx_.tx.getTxnType();
 
@@ -359,7 +361,7 @@ URIToken::doApply()
             sleU->setAccountID(sfIssuer, account_);
 
             if (dest && !saleAmount)
-                return tefINTERNAL;
+                return tefINTERNAL;  // LCOV_EXCL_LINE
 
             if (dest)
                 sleU->setAccountID(sfDestination, *dest);
@@ -383,7 +385,7 @@ URIToken::doApply()
                 << ": " << (page ? "success" : "failure");
 
             if (!page)
-                return tecDIR_FULL;
+                return tecDIR_FULL;  // LCOV_EXCL_LINE
 
             sleU->setFieldU64(sfOwnerNode, *page);
             sb.insert(sleU);
@@ -441,7 +443,7 @@ URIToken::doApply()
                 needed += fee;
 
                 if (needed + purchaseAmount < needed)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 needed += purchaseAmount;
 
@@ -574,9 +576,11 @@ URIToken::doApply()
             auto const page = (*sleU)[sfOwnerNode];
             if (!sb.dirRemove(keylet::ownerDir(*owner), page, kl->key, true))
             {
+                // LCOV_EXCL_START
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
                 return tefBAD_LEDGER;
+                // LCOV_EXCL_STOP
             }
 
             sb.erase(sleU);
@@ -607,7 +611,7 @@ URIToken::doApply()
         }
 
         default:
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
     }
 }
 

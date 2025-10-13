@@ -461,7 +461,7 @@ HookAPI::prepare(Slice const& txBlob) const
     {
         auto ret = etxn_details(details);
         if (!ret || ret.value() < 2)
-            return Unexpected(INTERNAL_ERROR);
+            return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
         // truncate the head and tail (emit details object markers)
         Slice s(
@@ -479,7 +479,7 @@ HookAPI::prepare(Slice const& txBlob) const
         {
             JLOG(j.warn()) << "HookInfo[" << HC_ACC() << "]: Exception in "
                            << __func__ << ": " << ex.what();
-            return Unexpected(INTERNAL_ERROR);
+            return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
         }
     }
 
@@ -492,7 +492,7 @@ HookAPI::prepare(Slice const& txBlob) const
     {
         STParsedJSONObject parsed(std::string(jss::tx_json), json);
         if (!parsed.object.has_value())
-            return Unexpected(INVALID_ARGUMENT);
+            return Unexpected(INVALID_ARGUMENT);  // LCOV_EXCL_LINE
 
         STObject& obj = *(parsed.object);
 
@@ -940,7 +940,7 @@ HookAPI::etxn_details(uint8_t* out_ptr) const
 
     auto hash = etxn_nonce();
     if (!hash.has_value())
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     memcpy(out, hash->data(), 32);
 
@@ -1681,7 +1681,7 @@ HookAPI::hook_hash(int32_t hook_no) const
     std::shared_ptr<SLE> hookSLE =
         hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
     if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
     if (hook_no >= hooks.size())
@@ -1806,7 +1806,7 @@ HookAPI::hook_skip(uint256 const& hash, uint32_t flags) const
         hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
 
     if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     ripple::STArray const& hooks = hookSLE->getFieldArray(sfHooks);
     bool found = false;
@@ -2085,7 +2085,7 @@ HookAPI::slot(uint32_t slot_no) const
         return Unexpected(DOESNT_EXIST);
 
     if (hookCtx.slot[slot_no].entry == 0)
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     return hookCtx.slot[slot_no].entry;
 }
@@ -2108,7 +2108,7 @@ HookAPI::slot_count(uint32_t slot_no) const
         return Unexpected(DOESNT_EXIST);
 
     if (hookCtx.slot[slot_no].entry == 0)
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     if (hookCtx.slot[slot_no].entry->getSType() != STI_ARRAY)
         return Unexpected(NOT_AN_ARRAY);
@@ -2186,7 +2186,7 @@ HookAPI::slot_size(uint32_t slot_no) const
         return Unexpected(DOESNT_EXIST);
 
     if (hookCtx.slot[slot_no].entry == 0)
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     // RH TODO: this is a very expensive way of computing size, cache it
     Serializer s;
@@ -2204,7 +2204,7 @@ HookAPI::slot_subarray(
         return Unexpected(DOESNT_EXIST);
 
     if (hookCtx.slot[parent_slot].entry == 0)
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     if (hookCtx.slot[parent_slot].entry->getSType() != STI_ARRAY)
         return Unexpected(NOT_AN_ARRAY);
@@ -2276,7 +2276,7 @@ HookAPI::slot_subfield(
         return Unexpected(INVALID_FIELD);
 
     if (hookCtx.slot[parent_slot].entry == 0)
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     bool copied = false;
 
@@ -2325,7 +2325,7 @@ HookAPI::slot_type(uint32_t slot_no, uint32_t flags) const
         return Unexpected(DOESNT_EXIST);
 
     if (hookCtx.slot[slot_no].entry == 0)
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
     try
     {
         ripple::STBase& obj = const_cast<ripple::STBase&>(
@@ -2358,7 +2358,7 @@ HookAPI::slot_float(uint32_t slot_no) const
         return Unexpected(DOESNT_EXIST);
 
     if (hookCtx.slot[slot_no].entry == 0)
-        return Unexpected(INTERNAL_ERROR);
+        return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
     try
     {
@@ -2822,7 +2822,7 @@ HookAPI::set_state_cache(
         {
             // overflow should never ever happen but check anyway
             if (namespaceCount + 1 < namespaceCount)
-                return Unexpected(INTERNAL_ERROR);
+                return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
             if (++namespaceCount > hook::maxNamespaces())
                 return Unexpected(TOO_MANY_NAMESPACES);
@@ -2833,7 +2833,7 @@ HookAPI::set_state_cache(
         // sanity check
         if (view.rules().enabled(featureExtendedHookState) &&
             availableForReserves < hookStateScale)
-            return Unexpected(INTERNAL_ERROR);
+            return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
         stateMap[acc] = {
             availableForReserves - hookStateScale,
@@ -2860,7 +2860,7 @@ HookAPI::set_state_cache(
             {
                 // overflow should never ever happen but check anyway
                 if (namespaceCount + 1 < namespaceCount)
-                    return Unexpected(INTERNAL_ERROR);
+                    return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
                 if (namespaceCount + 1 > hook::maxNamespaces())
                     return Unexpected(TOO_MANY_NAMESPACES);
@@ -2870,7 +2870,7 @@ HookAPI::set_state_cache(
 
             if (view.rules().enabled(featureExtendedHookState) &&
                 availableForReserves < hookStateScale)
-                return Unexpected(INTERNAL_ERROR);
+                return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
             availableForReserves -= hookStateScale;
             stateMap.modified_entry_count++;
@@ -2891,7 +2891,7 @@ HookAPI::set_state_cache(
 
             if (view.rules().enabled(featureExtendedHookState) &&
                 availableForReserves < hookStateScale)
-                return Unexpected(INTERNAL_ERROR);
+                return Unexpected(INTERNAL_ERROR);  // LCOV_EXCL_LINE
 
             availableForReserves -= hookStateScale;
             stateMap.modified_entry_count++;
