@@ -3150,15 +3150,15 @@ DEFINE_HOOK_FUNCTION(
                 if (a == 0 || b == 0 || c == 0 || d == 0 || e == 0 || f == 0)
                     return INVALID_ARGUMENT;
 
-                uint32_t hi_ptr = a, hi_len = b, lo_ptr = c, lo_len = d,
+                uint32_t acc1_ptr = a, acc1_len = b, acc2_ptr = c, acc2_len = d,
                          cu_ptr = e, cu_len = f;
 
-                if (NOT_IN_BOUNDS(hi_ptr, hi_len, memory_length) ||
-                    NOT_IN_BOUNDS(lo_ptr, lo_len, memory_length) ||
+                if (NOT_IN_BOUNDS(acc1_ptr, acc1_len, memory_length) ||
+                    NOT_IN_BOUNDS(acc2_ptr, acc2_len, memory_length) ||
                     NOT_IN_BOUNDS(cu_ptr, cu_len, memory_length))
                     return OUT_OF_BOUNDS;
 
-                if (hi_len != 20 || lo_len != 20)
+                if (acc1_len != 20 || acc2_len != 20)
                     return INVALID_ARGUMENT;
 
                 std::optional<Currency> cur =
@@ -3167,8 +3167,8 @@ DEFINE_HOOK_FUNCTION(
                     return INVALID_ARGUMENT;
 
                 auto kl = ripple::keylet::line(
-                    AccountID::fromVoid(memory + hi_ptr),
-                    AccountID::fromVoid(memory + lo_ptr),
+                    AccountID::fromVoid(memory + acc1_ptr),
+                    AccountID::fromVoid(memory + acc2_ptr),
                     *cur);
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
