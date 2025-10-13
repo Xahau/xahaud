@@ -38,8 +38,15 @@ class WasmedgeConan(ConanFile):
             raise ConanInvalidConfiguration("Binaries for this combination of version/os/arch/compiler are not available")
 
     def package_id(self):
-        del self.info.settings.compiler.version
-        self.info.settings.compiler = self._compiler_alias
+        # Make binary compatible across compiler versions (since we're downloading prebuilt)
+        self.info.settings.rm_safe("compiler.version")
+        # Group compilers by their binary compatibility
+        # Note: We must use self.info.settings here, not self.settings (forbidden in Conan 2)
+        compiler_name = str(self.info.settings.compiler)
+        if compiler_name in ["Visual Studio", "msvc"]:
+            self.info.settings.compiler = "Visual Studio"
+        else:
+            self.info.settings.compiler = "gcc"
 
     def build(self):
         # This is packaging binaries so the download needs to be in build

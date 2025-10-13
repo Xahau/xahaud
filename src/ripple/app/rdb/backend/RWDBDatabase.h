@@ -28,9 +28,8 @@ private:
 
     struct AccountTxData
     {
-        AccountTxs transactions;
-        std::map<uint32_t, std::map<uint32_t, size_t>>
-            ledgerTxMap;  // ledgerSeq -> txSeq -> index in transactions
+        std::map<uint32_t, std::vector<AccountTx>>
+            ledgerTxMap;  // ledgerSeq -> vector of transactions
     };
 
     Application& app_;
@@ -65,9 +64,12 @@ public:
             return {};
 
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        if (transactionMap_.empty())
-            return std::nullopt;
-        return transactionMap_.begin()->second.second->getLgrSeq();
+        for (const auto& [ledgerSeq, ledgerData] : ledgers_)
+        {
+            if (!ledgerData.transactions.empty())
+                return ledgerSeq;
+        }
+        return std::nullopt;
     }
 
     std::optional<LedgerIndex>
@@ -163,14 +165,6 @@ public:
             {
                 txIt = accountData.ledgerTxMap.erase(txIt);
             }
-            accountData.transactions.erase(
-                std::remove_if(
-                    accountData.transactions.begin(),
-                    accountData.transactions.end(),
-                    [ledgerSeq](const AccountTx& tx) {
-                        return tx.second->getLgrSeq() < ledgerSeq;
-                    }),
-                accountData.transactions.end());
         }
     }
     std::size_t
@@ -193,7 +187,10 @@ public:
         std::size_t count = 0;
         for (const auto& [_, accountData] : accountTxMap_)
         {
-            count += accountData.transactions.size();
+            for (const auto& [_, txVector] : accountData.ledgerTxMap)
+            {
+                count += txVector.size();
+            }
         }
         return count;
     }
@@ -224,7 +221,8 @@ public:
 
         if (!ledger->info().accountHash.isNonZero())
         {
-            JLOG(j.fatal()) << "AH is zero: " << getJson({*ledger, {}});
+            JLOG(j.fatal())
+                << "AH is zero: " << getJson({*ledger, {}}).asString();
             assert(false);
         }
 
@@ -293,10 +291,7 @@ public:
                         accountTxMap_[account] = AccountTxData();
 
                     auto& accountData = accountTxMap_[account];
-                    accountData.transactions.push_back(accTx);
-                    accountData
-                        .ledgerTxMap[seq][acceptedLedgerTx->getTxnSeq()] =
-                        accountData.transactions.size() - 1;
+                    accountData.ledgerTxMap[seq].push_back(accTx);
                 }
 
                 app_.getMasterTransaction().inLedger(
@@ -451,59 +446,108 @@ public:
         return true;  // In-memory database always has space
     }
 
+    // Red-black tree node overhead per map entry
+    static constexpr size_t MAP_NODE_OVERHEAD = 40;
+
+private:
+    std::uint64_t
+    getBytesUsedLedger_unlocked() const
+    {
+        std::uint64_t size = 0;
+
+        // Count structural overhead of ledger storage including map node
+        // overhead Note: sizeof(LedgerData) includes the map container for
+        // transactions, but not the actual transaction data
+        size += ledgers_.size() *
+            (sizeof(LedgerIndex) + sizeof(LedgerData) + MAP_NODE_OVERHEAD);
+
+        // Add the transaction map nodes inside each ledger (ledger's view of
+        // its transactions)
+        for (const auto& [_, ledgerData] : ledgers_)
+        {
+            size += ledgerData.transactions.size() *
+                (sizeof(uint256) + sizeof(AccountTx) + MAP_NODE_OVERHEAD);
+        }
+
+        // Count the ledger hash to sequence lookup map
+        size += ledgerHashToSeq_.size() *
+            (sizeof(uint256) + sizeof(LedgerIndex) + MAP_NODE_OVERHEAD);
+
+        return size;
+    }
+
+    std::uint64_t
+    getBytesUsedTransaction_unlocked() const
+    {
+        if (!useTxTables_)
+            return 0;
+
+        std::uint64_t size = 0;
+
+        // Count structural overhead of transaction map
+        // sizeof(AccountTx) is just the size of two shared_ptrs (~32 bytes)
+        size += transactionMap_.size() *
+            (sizeof(uint256) + sizeof(AccountTx) + MAP_NODE_OVERHEAD);
+
+        // Add actual transaction and metadata data sizes
+        for (const auto& [_, accountTx] : transactionMap_)
+        {
+            if (accountTx.first)
+                size += accountTx.first->getSTransaction()
+                            ->getSerializer()
+                            .peekData()
+                            .size();
+            if (accountTx.second)
+                size += accountTx.second->getAsObject()
+                            .getSerializer()
+                            .peekData()
+                            .size();
+        }
+
+        // Count structural overhead of account transaction index
+        // The actual transaction data is already counted above from
+        // transactionMap_
+        for (const auto& [accountId, accountData] : accountTxMap_)
+        {
+            size +=
+                sizeof(accountId) + sizeof(AccountTxData) + MAP_NODE_OVERHEAD;
+            for (const auto& [ledgerSeq, txVector] : accountData.ledgerTxMap)
+            {
+                // Use capacity() to account for actual allocated memory
+                size += sizeof(ledgerSeq) + MAP_NODE_OVERHEAD;
+                size += txVector.capacity() * sizeof(AccountTx);
+            }
+        }
+
+        return size;
+    }
+
+public:
     std::uint32_t
     getKBUsedAll() override
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        std::uint32_t size = sizeof(*this);
-        size += ledgers_.size() * (sizeof(LedgerIndex) + sizeof(LedgerData));
-        size +=
-            ledgerHashToSeq_.size() * (sizeof(uint256) + sizeof(LedgerIndex));
-        size += transactionMap_.size() * (sizeof(uint256) + sizeof(AccountTx));
-        for (const auto& [_, accountData] : accountTxMap_)
-        {
-            size += sizeof(AccountID) + sizeof(AccountTxData);
-            size += accountData.transactions.size() * sizeof(AccountTx);
-            for (const auto& [_, innerMap] : accountData.ledgerTxMap)
-            {
-                size += sizeof(uint32_t) +
-                    innerMap.size() * (sizeof(uint32_t) + sizeof(size_t));
-            }
-        }
-        return size / 1024;
+
+        // Total = base object + ledger infrastructure + transaction data
+        std::uint64_t size = sizeof(*this) + getBytesUsedLedger_unlocked() +
+            getBytesUsedTransaction_unlocked();
+
+        return static_cast<std::uint32_t>(size / 1024);
     }
 
     std::uint32_t
     getKBUsedLedger() override
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        std::uint32_t size = 0;
-        size += ledgers_.size() * (sizeof(LedgerIndex) + sizeof(LedgerData));
-        size +=
-            ledgerHashToSeq_.size() * (sizeof(uint256) + sizeof(LedgerIndex));
-        return size / 1024;
+        return static_cast<std::uint32_t>(getBytesUsedLedger_unlocked() / 1024);
     }
 
     std::uint32_t
     getKBUsedTransaction() override
     {
-        if (!useTxTables_)
-            return 0;
-
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        std::uint32_t size = 0;
-        size += transactionMap_.size() * (sizeof(uint256) + sizeof(AccountTx));
-        for (const auto& [_, accountData] : accountTxMap_)
-        {
-            size += sizeof(AccountID) + sizeof(AccountTxData);
-            size += accountData.transactions.size() * sizeof(AccountTx);
-            for (const auto& [_, innerMap] : accountData.ledgerTxMap)
-            {
-                size += sizeof(uint32_t) +
-                    innerMap.size() * (sizeof(uint32_t) + sizeof(size_t));
-            }
-        }
-        return size / 1024;
+        return static_cast<std::uint32_t>(
+            getBytesUsedTransaction_unlocked() / 1024);
     }
 
     void
@@ -605,14 +649,13 @@ public:
              (options.bUnlimited || result.size() < options.limit);
              ++txIt)
         {
-            for (const auto& [txSeq, txIndex] : txIt->second)
+            for (const auto& accountTx : txIt->second)
             {
                 if (skipped < options.offset)
                 {
                     ++skipped;
                     continue;
                 }
-                AccountTx const accountTx = accountData.transactions[txIndex];
                 std::uint32_t const inLedger = rangeCheckedCast<std::uint32_t>(
                     accountTx.second->getLgrSeq());
                 accountTx.first->setStatus(COMMITTED);
@@ -657,8 +700,7 @@ public:
                     ++skipped;
                     continue;
                 }
-                AccountTx const accountTx =
-                    accountData.transactions[innerRIt->second];
+                AccountTx const accountTx = *innerRIt;
                 std::uint32_t const inLedger = rangeCheckedCast<std::uint32_t>(
                     accountTx.second->getLgrSeq());
                 accountTx.first->setLedger(inLedger);
@@ -692,14 +734,14 @@ public:
              (options.bUnlimited || result.size() < options.limit);
              ++txIt)
         {
-            for (const auto& [txSeq, txIndex] : txIt->second)
+            for (const auto& accountTx : txIt->second)
             {
                 if (skipped < options.offset)
                 {
                     ++skipped;
                     continue;
                 }
-                const auto& [txn, txMeta] = accountData.transactions[txIndex];
+                const auto& [txn, txMeta] = accountTx;
                 result.emplace_back(
                     txn->getSTransaction()->getSerializer().peekData(),
                     txMeta->getAsObject().getSerializer().peekData(),
@@ -743,8 +785,7 @@ public:
                     ++skipped;
                     continue;
                 }
-                const auto& [txn, txMeta] =
-                    accountData.transactions[innerRIt->second];
+                const auto& [txn, txMeta] = *innerRIt;
                 result.emplace_back(
                     txn->getSTransaction()->getSerializer().peekData(),
                     txMeta->getAsObject().getSerializer().peekData(),
@@ -816,11 +857,9 @@ public:
             for (; txIt != txEnd; ++txIt)
             {
                 std::uint32_t const ledgerSeq = txIt->first;
-                for (auto seqIt = txIt->second.begin();
-                     seqIt != txIt->second.end();
-                     ++seqIt)
+                std::uint32_t txnSeq = 0;
+                for (const auto& accountTx : txIt->second)
                 {
-                    const auto& [txnSeq, index] = *seqIt;
                     if (lookingForMarker)
                     {
                         if (findLedger == ledgerSeq && findSeq == txnSeq)
@@ -828,7 +867,10 @@ public:
                             lookingForMarker = false;
                         }
                         else
+                        {
+                            ++txnSeq;
                             continue;
+                        }
                     }
                     else if (numberOfResults == 0)
                     {
@@ -837,12 +879,10 @@ public:
                         return {newmarker, total};
                     }
 
-                    Blob rawTxn = accountData.transactions[index]
-                                      .first->getSTransaction()
+                    Blob rawTxn = accountTx.first->getSTransaction()
                                       ->getSerializer()
                                       .peekData();
-                    Blob rawMeta = accountData.transactions[index]
-                                       .second->getAsObject()
+                    Blob rawMeta = accountTx.second->getAsObject()
                                        .getSerializer()
                                        .peekData();
 
@@ -856,6 +896,7 @@ public:
                         std::move(rawMeta));
                     --numberOfResults;
                     ++total;
+                    ++txnSeq;
                 }
             }
         }
@@ -871,11 +912,11 @@ public:
             for (; rtxIt != rtxEnd; ++rtxIt)
             {
                 std::uint32_t const ledgerSeq = rtxIt->first;
+                std::uint32_t txnSeq = rtxIt->second.size() - 1;
                 for (auto innerRIt = rtxIt->second.rbegin();
                      innerRIt != rtxIt->second.rend();
                      ++innerRIt)
                 {
-                    const auto& [txnSeq, index] = *innerRIt;
                     if (lookingForMarker)
                     {
                         if (findLedger == ledgerSeq && findSeq == txnSeq)
@@ -883,7 +924,10 @@ public:
                             lookingForMarker = false;
                         }
                         else
+                        {
+                            --txnSeq;
                             continue;
+                        }
                     }
                     else if (numberOfResults == 0)
                     {
@@ -892,12 +936,11 @@ public:
                         return {newmarker, total};
                     }
 
-                    Blob rawTxn = accountData.transactions[index]
-                                      .first->getSTransaction()
+                    const auto& accountTx = *innerRIt;
+                    Blob rawTxn = accountTx.first->getSTransaction()
                                       ->getSerializer()
                                       .peekData();
-                    Blob rawMeta = accountData.transactions[index]
-                                       .second->getAsObject()
+                    Blob rawMeta = accountTx.second->getAsObject()
                                        .getSerializer()
                                        .peekData();
 
@@ -911,6 +954,7 @@ public:
                         std::move(rawMeta));
                     --numberOfResults;
                     ++total;
+                    --txnSeq;
                 }
             }
         }
