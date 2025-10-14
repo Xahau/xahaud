@@ -480,6 +480,7 @@ REGISTER_FIX    (fixProvisionalDoubleThreading, Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(DeepFreeze,                    Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(IOUIssuerWeakTSH,              Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(Cron,                          Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixInvalidTxFlags,             Supported::yes, VoteBehavior::DefaultYes);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

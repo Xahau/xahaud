@@ -33,6 +33,7 @@
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/STObject.h>
 #include <ripple/protocol/STTx.h>
+#include <ripple/protocol/TxFlags.h>
 #include <algorithm>
 #include <cstdint>
 #include <exception>
@@ -664,6 +665,13 @@ SetHook::preflight(PreflightContext const& ctx)
     auto const ret = preflight1(ctx);
     if (!isTesSuccess(ret))
         return ret;
+
+    if (ctx.rules.enabled(fixInvalidTxFlags) &&
+        ctx.tx.getFlags() & tfUniversalMask)
+    {
+        JLOG(ctx.j.trace()) << "SetHook: Invalid flags set.";
+        return temINVALID_FLAG;
+    }
 
     if (!ctx.tx.isFieldPresent(sfHooks))
     {
