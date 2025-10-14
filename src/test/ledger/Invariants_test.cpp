@@ -23,6 +23,7 @@
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/protocol/STLedgerEntry.h>
 #include <boost/algorithm/string/predicate.hpp>
+#include <regex>
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
 
@@ -90,10 +91,26 @@ class Invariants_test : public beast::unit_test::suite
         {
             terActual = ac.checkInvariants(terActual, fee);
             BEAST_EXPECT(terExpect == terActual);
-            BEAST_EXPECT(
-                sink.messages().str().starts_with("Invariant failed:") ||
-                sink.messages().str().starts_with(
-                    "Transaction caused an exception"));
+            // Handle both with and without BEAST_ENHANCED_LOGGING
+            auto const msg = sink.messages().str();
+            bool hasExpectedPrefix = false;
+
+#ifdef BEAST_ENHANCED_LOGGING
+            // When BEAST_ENHANCED_LOGGING is enabled, messages may include ANSI
+            // color codes and start with [file:line]. Just search for the
+            // message content.
+            hasExpectedPrefix =
+                msg.find("Invariant failed:") != std::string::npos ||
+                msg.find("Transaction caused an exception") !=
+                    std::string::npos;
+#else
+            // Without BEAST_ENHANCED_LOGGING, messages start directly with the
+            // text
+            hasExpectedPrefix = msg.starts_with("Invariant failed:") ||
+                msg.starts_with("Transaction caused an exception");
+#endif
+
+            BEAST_EXPECT(hasExpectedPrefix);
             for (auto const& m : expect_logs)
             {
                 if (sink.messages().str().find(m) == std::string::npos)

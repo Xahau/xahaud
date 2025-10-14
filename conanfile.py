@@ -26,7 +26,7 @@ class Xrpl(ConanFile):
     }
 
     requires = [
-        'date/3.0.1',
+        'date/3.0.3',
         'libarchive/3.6.0',
         'lz4/1.9.4',
         'grpc/1.50.1',
@@ -52,7 +52,7 @@ class Xrpl(ConanFile):
         'tool_requires_b2': False,
 
         'cassandra-cpp-driver/*:shared': False,
-        'date/*:header_only': True,
+        'date/*:header_only': False,
         'grpc/*:shared': False,
         'grpc/*:secure': True,
         'libarchive/*:shared': False,

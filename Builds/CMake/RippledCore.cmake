@@ -50,6 +50,12 @@ target_sources (xrpl_core PRIVATE
   src/ripple/beast/utility/src/beast_Journal.cpp
   src/ripple/beast/utility/src/beast_PropertyStream.cpp)
 
+# Conditionally add enhanced logging source when BEAST_ENHANCED_LOGGING is enabled
+if(DEFINED BEAST_ENHANCED_LOGGING AND BEAST_ENHANCED_LOGGING)
+  target_sources(xrpl_core PRIVATE
+    src/ripple/beast/utility/src/beast_EnhancedLogging.cpp)
+endif()
+
 #[===============================[
     core sources
 #]===============================]
@@ -155,6 +161,13 @@ target_link_libraries (xrpl_core
     ed25519::ed25519
     date::date
     Ripple::opts)
+
+# Link date-tz library when enhanced logging is enabled
+if(DEFINED BEAST_ENHANCED_LOGGING AND BEAST_ENHANCED_LOGGING)
+  if(TARGET date::date-tz)
+    target_link_libraries(xrpl_core PUBLIC date::date-tz)
+  endif()
+endif()
 #[=================================[
    main/core headers installation
 #]=================================]
