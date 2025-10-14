@@ -165,8 +165,8 @@ SetCron::doApply()
             return tefBAD_LEDGER;
         }
 
-        if (safe_cast<TxType>(sleCron->getFieldU16(sfLedgerEntryType)) !=
-            ltCRON)
+        if (safe_cast<LedgerEntryType>(
+                sleCron->getFieldU16(sfLedgerEntryType)) != ltCRON)
         {
             JLOG(j_.warn()) << "SetCron: sfCron pointed to non-cron object!!";
             return tefBAD_LEDGER;

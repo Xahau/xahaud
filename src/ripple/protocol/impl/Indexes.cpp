@@ -444,6 +444,27 @@ uritoken(AccountID const& issuer, Blob const& uri)
             LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
 }
 
+// Constructs an ordered CRON keylet (32 bytes):
+//   [8-byte namespace][4-byte timestamp (big-endian, seconds)][20-byte
+//   AccountID]
+//
+// Properties
+// - Namespacing: first 8 bytes are the most-significant bytes of
+// indexHash(LedgerNameSpace::CRON).
+// - Uniqueness (per ts,acct): exactly ONE cron per (timestamp, AccountID).
+// Insert is upsert (last-write-wins).
+//   This is fine because we only ever allow one cron per account at a time—if
+//   the same (ts,acct) is written, it’s simply an update to that single entry
+//   (idempotent; no duplicate leaves).
+// - Iteration order: chronological by timestamp (BE), then by raw AccountID
+// bytes.
+//   NOTE: raw AccountID ordering may bias priority; consider hashing AccountID
+//   for uniform per-timestamp spread.
+// - Expected accidental prefix collisions (foreign objects sharing the 8-byte
+// namespace): n / 2^64,
+//   assuming uniform high-64-bit distribution of other objects.
+//   Examples: 100M → ~5.4e-12, 1B → ~5.4e-11, 10B → ~5.4e-10, 100B → ~5.4e-9
+//   (negligible).
 Keylet
 cron(uint32_t timestamp, AccountID const& id)
 {

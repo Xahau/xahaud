@@ -1500,8 +1500,8 @@ TxQ::accept(Application& app, OpenView& view)
             if (view.exists(kl))
             {
                 auto sle = view.read(kl);
-                if (safe_cast<TxType>(sle->getFieldU16(sfLedgerEntryType)) ==
-                    ltCRON)
+                if (safe_cast<LedgerEntryType>(
+                        sle->getFieldU16(sfLedgerEntryType)) == ltCRON)
                 {
                     // valid cron object, add it to the list
                     cronAccs.emplace(sle->getAccountID(sfOwner));
