@@ -60,11 +60,37 @@ SetCron::preflight(PreflightContext const& ctx)
     // -R - Invalid
     // -- - Clear any existing cron (succeeds even if there isn't one)
 
-    if (tx.isFieldPresent(sfRepeatCount) && !tx.isFieldPresent(sfDelaySeconds))
+    bool const hasDelay = tx.isFieldPresent(sfDelaySeconds);
+    bool const hasRepeat = tx.isFieldPresent(sfRepeatCount);
+
+    if (hasRepeat && !hasDelay)
     {
         JLOG(j.warn()) << "SetCron: DelaySeconds must also be specified when "
                           "RepeatCount is present.";
         return temMALFORMED;
+    }
+
+    if (hasDelay)
+    {
+        auto delay = tx.getFieldU32(sfDelaySeconds);
+        if (delay > 31536000UL /* 365 days in seconds */)
+        {
+            JLOG(j.debug()) << "SetCron: DelaySeconds was too high. (max 14 "
+                               "days in seconds).";
+            return temMALFORMED;
+        }
+    }
+
+    if (hasRepeat)
+    {
+        auto recur = tx.getFieldU32(sfRepeatCount);
+        if (recur > 256)
+        {
+            JLOG(j.debug())
+                << "SetCron: RepeatCount too high. Limit is 256. Issue "
+                   "new SetCron to increase.";
+            return temMALFORMED;
+        }
     }
 
     return preflight2(ctx);
@@ -81,42 +107,9 @@ SetCron::preclaim(PreclaimContext const& ctx)
     auto const id = ctx.tx[sfAccount];
 
     auto const sle = ctx.view.read(keylet::account(id));
+
     if (!sle)
         return terNO_ACCOUNT;
-
-    bool const hasDelay = ctx.tx.isFieldPresent(sfDelaySeconds);
-    bool const hasRepeat = ctx.tx.isFieldPresent(sfRepeatCount);
-
-    // defensively enforce this even though we did it in preflight
-    if (!hasDelay && hasRepeat)
-        return tefINTERNAL;
-
-    if (!hasDelay)
-    {
-        // delete operation always succeeds even if there's nothing to delete
-        return tesSUCCESS;
-    }
-
-    // set operation
-
-    auto delay = ctx.tx.getFieldU32(sfDelaySeconds);
-    if (delay > 31536000UL /* 365 days in seconds */)
-    {
-        JLOG(j.debug())
-            << "SetCron: DelaySeconds was too high. (max 14 days in seconds).";
-        return tecDELAY_OR_REPEAT_COUNT_TOO_LARGE;
-    }
-
-    if (!hasRepeat)
-        return tesSUCCESS;
-
-    auto recur = ctx.tx.getFieldU32(sfRepeatCount);
-    if (recur > 256)
-    {
-        JLOG(j.debug()) << "SetCron: RepeatCount too high. Limit is 256. Issue "
-                           "new SetCron to increase.";
-        return tecDELAY_OR_REPEAT_COUNT_TOO_LARGE;
-    }
 
     return tesSUCCESS;
 }
@@ -140,7 +133,8 @@ SetCron::doApply()
     if (!isDelete)
     {
         delay = tx.getFieldU32(sfDelaySeconds);
-        recur = tx.getFieldU32(sfRepeatCount);
+        if (tx.isFieldPresent(sfRepeatCount))
+            recur = tx.getFieldU32(sfRepeatCount);
     }
 
     uint32_t currentTime = view.parentCloseTime().time_since_epoch().count();
@@ -251,7 +245,21 @@ XRPAmount
 SetCron::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     auto fee = Transactor::calculateBaseFee(view, tx);
-    return fee;
+
+    // factor a cost based on the total number of txns expected
+    // for RepeatCount of 0 we have this txn (SetCron) and the
+    // single Cron txn (2). For a RepeatCount of 1 we have this txn,
+    // the first time the cron executes, and the second time (3).
+    uint32_t recur = tx.isFieldPresent(sfRepeatCount)
+        ? tx.getFieldU32(sfRepeatCount) + 2
+        : 2;
+
+    auto finalFee = fee * recur;
+
+    if (finalFee < fee)
+        return fee;
+
+    return finalFee;
 }
 
 }  // namespace ripple
