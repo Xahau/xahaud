@@ -19,6 +19,11 @@
 
 #include <ripple/beast/utility/Journal.h>
 #include <cassert>
+#ifdef BEAST_ENHANCED_LOGGING
+#include <ripple/beast/utility/EnhancedLogging.h>
+#include <cstdlib>
+#include <cstring>
+#endif
 
 namespace beast {
 
@@ -131,9 +136,36 @@ Journal::ScopedStream::ScopedStream(
     m_ostream << manip;
 }
 
+#ifdef BEAST_ENHANCED_LOGGING
+Journal::ScopedStream::ScopedStream(
+    Sink& sink,
+    Severity level,
+    const char* file,
+    int line)
+    : m_sink(sink), m_level(level), file_(file), line_(line)
+{
+    // Modifiers applied from all ctors
+    m_ostream << std::boolalpha << std::showbase;
+}
+#endif
+
 Journal::ScopedStream::~ScopedStream()
 {
-    std::string const& s(m_ostream.str());
+    std::string s(m_ostream.str());
+
+#ifdef BEAST_ENHANCED_LOGGING
+    // Add suffix if location is enabled
+    if (file_ && detail::should_show_location() && !s.empty() && s != "\n")
+    {
+        std::ostringstream combined;
+        combined << s;
+        if (!s.empty() && s.back() != ' ')
+            combined << " ";
+        detail::log_write_location_string(combined, file_, line_);
+        s = combined.str();
+    }
+#endif
+
     if (!s.empty())
     {
         if (s == "\n")
@@ -156,5 +188,19 @@ Journal::Stream::operator<<(std::ostream& manip(std::ostream&)) const
 {
     return ScopedStream(*this, manip);
 }
+
+#ifdef BEAST_ENHANCED_LOGGING
+
+// Implementation moved to use new constructor
+Journal::ScopedStream
+Journal::StreamWithLocation::operator<<(
+    std::ostream& manip(std::ostream&)) const
+{
+    // Create a ScopedStream with location info
+    ScopedStream scoped(stream_.sink(), stream_.level(), file_, line_);
+    scoped.ostream() << manip;
+    return scoped;
+}
+#endif
 
 }  // namespace beast

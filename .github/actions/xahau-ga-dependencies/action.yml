@@ -84,6 +84,8 @@ runs:
 
     - name: Install dependencies
       shell: bash
+      env:
+        CONAN_REQUEST_TIMEOUT: 180  # Increase timeout to 3 minutes for slow mirrors
       run: |
         # Create build directory
         mkdir -p ${{ inputs.build_dir }}
