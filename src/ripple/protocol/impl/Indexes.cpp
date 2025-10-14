@@ -481,8 +481,10 @@ cron(uint32_t timestamp, AccountID const& id)
     h[10] = static_cast<uint8_t>((timestamp >> 8) & 0xFFU);
     h[11] = static_cast<uint8_t>((timestamp >> 0) & 0xFFU);
 
+    const uint256 accHash = indexHash(LedgerNameSpace::CRON, timestamp, id);
+
     // final 20 bytes are account ID
-    std::memcpy(h + 12, id.data(), 20);
+    std::memcpy(h + 12, accHash.cdata(), 20);
 
     return {ltCRON, uint256::fromVoid(h)};
 }
