@@ -36,7 +36,6 @@ Cron::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
-
 NotTEC
 Cron::preflight(PreflightContext const& ctx)
 {
@@ -76,9 +75,8 @@ Cron::preflight(PreflightContext const& ctx)
         return temBAD_SEQUENCE;
     }
 
-    return tesSUCCESS;   
+    return tesSUCCESS;
 }
-
 
 TER
 Cron::preclaim(PreclaimContext const& ctx)
@@ -112,7 +110,7 @@ Cron::doApply()
     }
 
     uint256 ptr = sle->getFieldH256(sfCron);
-    Keylet klOld {ltCRON, ptr};
+    Keylet klOld{ltCRON, ptr};
     auto sleCron = view.peek(klOld);
     if (!sleCron)
     {
@@ -122,7 +120,7 @@ Cron::doApply()
 
     uint32_t delay = sleCron->getFieldU32(sfDelaySeconds);
     uint32_t recur = sleCron->getFieldU32(sfRepeatCount);
-    
+
     uint32_t currentTime = view.parentCloseTime().time_since_epoch().count();
 
     // do all this sanity checking before we modify the ledger...
@@ -134,11 +132,12 @@ Cron::doApply()
     // if there are further crons to do then a new one is created at the next
     // time point
 
-    if (!view.dirRemove(keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
+    if (!view.dirRemove(
+            keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
         return tefBAD_LEDGER;
 
     view.erase(sleCron);
-    
+
     if (recur == 0)
     {
         // already at last execution, stop here
@@ -151,9 +150,11 @@ Cron::doApply()
     // more executions remain, so create a new object
 
     Keylet klCron = keylet::cron(afterTime, id);
-    
-    // insert into owner dir, we don't need to check reserve because we've just deleted an object
-    auto const page = view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
+
+    // insert into owner dir, we don't need to check reserve because we've just
+    // deleted an object
+    auto const page =
+        view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
     if (!page)
         return tecDIR_FULL;
 
@@ -164,7 +165,7 @@ Cron::doApply()
     sleCron->setAccountID(sfOwner, id);
 
     sle->setFieldH256(sfCron, klCron.key);
-    
+
     view.insert(sleCron);
     view.update(sle);
 

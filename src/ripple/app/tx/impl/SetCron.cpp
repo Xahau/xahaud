@@ -36,7 +36,6 @@ SetCron::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
-
 NotTEC
 SetCron::preflight(PreflightContext const& ctx)
 {
@@ -60,16 +59,16 @@ SetCron::preflight(PreflightContext const& ctx)
     // D- - Set Cron (once off) with Delay only (repat implicitly 0)
     // -R - Invalid
     // -- - Clear any existing cron (succeeds even if there isn't one)
-    
+
     if (tx.isFieldPresent(sfRepeatCount) && !tx.isFieldPresent(sfDelaySeconds))
     {
-        JLOG(j.warn()) << "SetCron: DelaySeconds must also be specified when RepeatCount is present.";
+        JLOG(j.warn()) << "SetCron: DelaySeconds must also be specified when "
+                          "RepeatCount is present.";
         return temMALFORMED;
     }
 
     return preflight2(ctx);
 }
-
 
 TER
 SetCron::preclaim(PreclaimContext const& ctx)
@@ -103,17 +102,19 @@ SetCron::preclaim(PreclaimContext const& ctx)
     auto delay = ctx.tx.getFieldU32(sfDelaySeconds);
     if (delay > 1209600UL /* 14 days in seconds */)
     {
-        JLOG(j.debug()) << "SetCron: DelaySeconds was too high. (max 14 days in seconds).";
+        JLOG(j.debug())
+            << "SetCron: DelaySeconds was too high. (max 14 days in seconds).";
         return tecDELAY_OR_REPEAT_COUNT_TOO_LARGE;
     }
 
     if (!hasRepeat)
         return tesSUCCESS;
-    
+
     auto recur = ctx.tx.getFieldU32(sfRepeatCount);
     if (recur > 256)
     {
-        JLOG(j.debug()) << "SetCron: RepeatCount too high. Limit is 256. Issue new SetCron to increase.";
+        JLOG(j.debug()) << "SetCron: RepeatCount too high. Limit is 256. Issue "
+                           "new SetCron to increase.";
         return tecDELAY_OR_REPEAT_COUNT_TOO_LARGE;
     }
 
@@ -131,10 +132,11 @@ SetCron::doApply()
     if (isDelete && tx.isFieldPresent(sfRepeatCount))
         return tefINTERNAL;
 
-    // delay can be zero, in which case the cron will usually execute next ledger.
-    uint32_t delay {0};
-    uint32_t recur {0};
-    
+    // delay can be zero, in which case the cron will usually execute next
+    // ledger.
+    uint32_t delay{0};
+    uint32_t recur{0};
+
     if (!isDelete)
     {
         delay = tx.getFieldU32(sfDelaySeconds);
@@ -150,7 +152,6 @@ SetCron::doApply()
     if (afterTime < currentTime)
         return tefINTERNAL;
 
-
     AccountID const& id = tx.getAccountID(sfAccount);
     auto sle = view.peek(keylet::account(id));
     if (!sle)
@@ -161,7 +162,7 @@ SetCron::doApply()
 
     if (sle->isFieldPresent(sfCron))
     {
-        Keylet klOld {ltCRON, sle->getFieldH256(sfCron)};
+        Keylet klOld{ltCRON, sle->getFieldH256(sfCron)};
 
         auto sleCron = view.peek(klOld);
         if (!sleCron)
@@ -169,14 +170,16 @@ SetCron::doApply()
             JLOG(j_.warn()) << "SetCron: Cron object didn't exist.";
             return tefBAD_LEDGER;
         }
-        
-        if (safe_cast<TxType>(sleCron->getFieldU16(sfLedgerEntryType)) != ltCRON)
+
+        if (safe_cast<TxType>(sleCron->getFieldU16(sfLedgerEntryType)) !=
+            ltCRON)
         {
             JLOG(j_.warn()) << "SetCron: sfCron pointed to non-cron object!!";
             return tefBAD_LEDGER;
         }
 
-        if (!view.dirRemove(keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
+        if (!view.dirRemove(
+                keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
         {
             JLOG(j_.warn()) << "SetCron: Ownerdir bad. " << id;
             return tefBAD_LEDGER;
@@ -187,15 +190,16 @@ SetCron::doApply()
         sle->makeFieldAbsent(sfCron);
     }
 
-    // if the operation is a delete (no delay or recur specified then stop here.)
+    // if the operation is a delete (no delay or recur specified then stop
+    // here.)
     if (isDelete)
     {
         view.update(sle);
         return tesSUCCESS;
     }
 
-    // execution to here means we're creating a new Cron object and adding it to the
-    // user's owner dir
+    // execution to here means we're creating a new Cron object and adding it to
+    // the user's owner dir
 
     Keylet klCron = keylet::cron(afterTime, id);
 
@@ -211,26 +215,26 @@ SetCron::doApply()
 
         if (afterFee > mPriorBalance || afterFee < reserve)
             return tecINSUFFICIENT_RESERVE;
-            
+
         // add to owner dir
-        auto const page = view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
+        auto const page =
+            view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
         if (!page)
             return tecDIR_FULL;
-        
+
         adjustOwnerCount(view, sle, 1, j_);
     }
 
-    std::shared_ptr<SLE> sleCron = alreadyExists
-        ? view.peek(klCron)
-        : std::make_shared<SLE>(klCron);
-   
-    // set the fields 
+    std::shared_ptr<SLE> sleCron =
+        alreadyExists ? view.peek(klCron) : std::make_shared<SLE>(klCron);
+
+    // set the fields
     sleCron->setFieldU32(sfDelaySeconds, delay);
     sleCron->setFieldU32(sfRepeatCount, recur);
     sleCron->setAccountID(sfOwner, id);
 
     sle->setFieldH256(sfCron, klCron.key);
-    
+
     view.update(sle);
 
     if (alreadyExists)

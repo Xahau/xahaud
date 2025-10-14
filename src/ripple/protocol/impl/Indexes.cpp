@@ -72,6 +72,7 @@ enum class LedgerNameSpace : std::uint16_t {
     URI_TOKEN = 'U',
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
+    CRON = 'A',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -441,6 +442,28 @@ uritoken(AccountID const& issuer, Blob const& uri)
         ltURI_TOKEN,
         indexHash(
             LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+}
+
+Keylet
+cron(uint32_t timestamp, AccountID const& id)
+{
+    static const uint256 ns = indexHash(LedgerNameSpace::CRON);
+
+    uint8_t h[32];
+
+    // first 8 bytes are the namespacing
+    std::memcpy(h, ns.data(), 8);
+
+    // next 4 bytes are the timestamp in BE
+    h[8] = static_cast<uint8_t>((timestamp >> 24) & 0xFFU);
+    h[9] = static_cast<uint8_t>((timestamp >> 16) & 0xFFU);
+    h[10] = static_cast<uint8_t>((timestamp >> 8) & 0xFFU);
+    h[11] = static_cast<uint8_t>((timestamp >> 0) & 0xFFU);
+
+    // final 20 bytes are account ID
+    std::memcpy(h + 12, id.data(), 20);
+
+    return {ltCRON, uint256::fromVoid(h)};
 }
 
 }  // namespace keylet

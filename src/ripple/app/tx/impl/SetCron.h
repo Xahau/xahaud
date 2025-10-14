@@ -50,7 +50,6 @@ public:
 
     TER
     doApply() override;
-
 };
 
 }  // namespace ripple
