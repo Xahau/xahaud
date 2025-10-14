@@ -100,7 +100,7 @@ SetCron::preclaim(PreclaimContext const& ctx)
     // set operation
 
     auto delay = ctx.tx.getFieldU32(sfDelaySeconds);
-    if (delay > 1209600UL /* 14 days in seconds */)
+    if (delay > 31536000UL /* 365 days in seconds */)
     {
         JLOG(j.debug())
             << "SetCron: DelaySeconds was too high. (max 14 days in seconds).";
