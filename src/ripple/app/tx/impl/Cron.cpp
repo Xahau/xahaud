@@ -160,6 +160,7 @@ Cron::doApply()
 
     sleCron = std::make_shared<SLE>(klCron);
 
+    sleCron->setFieldU64(sfOwnerNode, *page);
     sleCron->setFieldU32(sfDelaySeconds, delay);
     sleCron->setFieldU32(sfRepeatCount, recur - 1);
     sleCron->setAccountID(sfOwner, id);

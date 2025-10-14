@@ -372,7 +372,8 @@ LedgerFormats::LedgerFormats()
         {
             {sfOwner,                soeREQUIRED},
             {sfDelaySeconds,         soeREQUIRED},
-            {sfRepeatCount,          soeREQUIRED}
+            {sfRepeatCount,          soeREQUIRED},
+            {sfOwnerNode,            soeREQUIRED},
         },
         commonFields);
 

@@ -205,6 +205,9 @@ SetCron::doApply()
 
     bool const alreadyExists = view.exists(klCron);
 
+    std::shared_ptr<SLE> sleCron =
+        alreadyExists ? view.peek(klCron) : std::make_shared<SLE>(klCron);
+
     if (!alreadyExists)
     {
         STAmount const reserve{
@@ -222,11 +225,10 @@ SetCron::doApply()
         if (!page)
             return tecDIR_FULL;
 
+        sleCron->setFieldU64(sfOwnerNode, *page);
+
         adjustOwnerCount(view, sle, 1, j_);
     }
-
-    std::shared_ptr<SLE> sleCron =
-        alreadyExists ? view.peek(klCron) : std::make_shared<SLE>(klCron);
 
     // set the fields
     sleCron->setFieldU32(sfDelaySeconds, delay);
