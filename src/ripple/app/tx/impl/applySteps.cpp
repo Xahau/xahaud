@@ -185,6 +185,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<URIToken>(ctx);
         case ttCRON_SET:
             return invoke_preflight_helper<SetCron>(ctx);
+        case ttCRON:
+            return invoke_preflight_helper<Cron>(ctx);
         default:
             assert(false);
             return {temUNKNOWN, TxConsequences{temUNKNOWN}};
@@ -312,6 +314,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<URIToken>(ctx);
         case ttCRON_SET:
             return invoke_preclaim<SetCron>(ctx);
+        case ttCRON:
+            return invoke_preclaim<Cron>(ctx);
         default:
             assert(false);
             return temUNKNOWN;
@@ -401,6 +405,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return URIToken::calculateBaseFee(view, tx);
         case ttCRON_SET:
             return SetCron::calculateBaseFee(view, tx);
+        case ttCRON:
+            return Cron::calculateBaseFee(view, tx);
         default:
             return XRPAmount{0};
     }
@@ -596,6 +602,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttCRON_SET: {
             SetCron p(ctx);
+            return p();
+        }
+        case ttCRON: {
+            Cron p(ctx);
             return p();
         }
         default:

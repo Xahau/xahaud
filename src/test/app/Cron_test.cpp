@@ -20,11 +20,6 @@
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/jss.h>
-#include "ripple/protocol/Indexes.h"
-#include "ripple/protocol/TER.h"
-#include "ripple/protocol/TxFlags.h"
-#include "test/jtx/TestHelpers.h"
-#include "test/jtx/cron.h"
 #include <test/jtx.h>
 
 namespace ripple {
@@ -44,8 +39,6 @@ struct Cron_test : public beast::unit_test::suite
 
         for (bool const withCron : {false, true})
         {
-            // If the BalanceRewards amendment is not enabled, you should not be
-            // able to claim rewards.
             auto const amend = withCron ? features : features - featureCron;
             Env env{*this, amend};
 
@@ -135,7 +128,6 @@ struct Cron_test : public beast::unit_test::suite
         // preflight
 
         // temINVALID_FLAG
-        // can have flag 1 set to opt-out of rewards
         {
             env(cron::set(alice), txflags(tfClose), ter(temINVALID_FLAG));
             env(cron::set(alice),
@@ -253,6 +245,170 @@ struct Cron_test : public beast::unit_test::suite
     }
 
     void
+    testCronExecution(FeatureBitset features)
+    {
+        testcase("cron execution");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+        auto const alice = Account("alice");
+
+        {
+            // test ttCron execution and repeatCount
+            Env env{*this, features | featureCron};
+
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            auto baseTime = env.timeKeeper().now().time_since_epoch().count();
+
+            auto repeatCount = 10;
+
+            env(cron::set(alice),
+                cron::delay(100),
+                cron::repeat(repeatCount),
+                fee(XRP(1)));
+            env.close(10s);
+
+            auto lastCronKeylet =
+                keylet::child(env.le(alice)->getFieldH256(sfCron));
+
+            while (repeatCount >= 0)
+            {
+                // close ledger until 100 seconds has passed
+                while (env.timeKeeper().now().time_since_epoch().count() -
+                           baseTime <
+                       100)
+                {
+                    env.close(10s);
+                    auto txns = env.closed()->txs;
+                    auto size = std::distance(txns.begin(), txns.end());
+                    BEAST_EXPECT(size == 0);
+                }
+
+                // close after 100 seconds passed
+                env.close();
+
+                auto txns = env.closed()->txs;
+                auto size = std::distance(txns.begin(), txns.end());
+                BEAST_EXPECT(size == 1);
+                for (auto it = txns.begin(); it != txns.end(); ++it)
+                {
+                    auto const& tx = *it->first;
+                    // check pseudo txn format
+                    BEAST_EXPECT(tx.getTxnType() == ttCRON);
+                    BEAST_EXPECT(tx.getAccountID(sfAccount) == AccountID());
+                    BEAST_EXPECT(tx.getAccountID(sfOwner) == alice.id());
+                    BEAST_EXPECT(
+                        tx.getFieldU32(sfLedgerSequence) ==
+                        env.closed()->info().seq);
+                    BEAST_EXPECT(tx.getFieldAmount(sfFee) == XRP(0));
+                    BEAST_EXPECT(tx.getFieldVL(sfSigningPubKey).size() == 0);
+
+                    // check old Cron object is deleted
+                    BEAST_EXPECT(!env.le(lastCronKeylet));
+
+                    if (repeatCount > 0)
+                    {
+                        // check new Cron object
+                        auto const cronKeylet =
+                            keylet::child(env.le(alice)->getFieldH256(sfCron));
+                        auto const cronSle = env.le(cronKeylet);
+                        BEAST_EXPECT(cronSle);
+                        BEAST_EXPECT(
+                            cronSle->getFieldU32(sfDelaySeconds) == 100);
+                        BEAST_EXPECT(
+                            cronSle->getFieldU32(sfRepeatCount) ==
+                            --repeatCount);
+                        BEAST_EXPECT(
+                            cronSle->getAccountID(sfOwner) == alice.id());
+
+                        // set new base time
+                        baseTime =
+                            env.timeKeeper().now().time_since_epoch().count();
+                        lastCronKeylet = cronKeylet;
+                    }
+                    else
+                    {
+                        // after all executions, the cron object should be
+                        // deleted
+                        BEAST_EXPECT(!env.le(alice)->isFieldPresent(sfCron));
+                        BEAST_EXPECT(!env.le(lastCronKeylet));
+                        --repeatCount;  // decrement for break double loop
+                    }
+                }
+            }
+        }
+
+        {
+            // test ttCron limit in a ledger
+            Env env{*this, features | featureCron};
+            std::vector<Account> accounts;
+            accounts.reserve(300);
+            for (int i = 0; i < 300; ++i)
+            {
+                auto const& account = accounts.emplace_back(
+                    Account("account_" + std::to_string(i)));
+                accounts.emplace_back(account);
+                env.fund(XRP(10000), account);
+            }
+            env.close();
+
+            for (auto const& account : accounts)
+            {
+                env(cron::set(account), cron::delay(0), fee(XRP(1)));
+            }
+            env.close();
+
+            // proceed ledger
+            env.close();
+            {
+                auto const txns = env.closed()->txs;
+                auto size = std::distance(txns.begin(), txns.end());
+                BEAST_EXPECT(size == 128);
+                for (auto it = txns.begin(); it != txns.end(); ++it)
+                {
+                    auto const& tx = *it->first;
+                    BEAST_EXPECT(tx.getTxnType() == ttCRON);
+                }
+            }
+
+            // proceed ledger
+            env.close();
+            {
+                auto const txns = env.closed()->txs;
+                auto size = std::distance(txns.begin(), txns.end());
+                BEAST_EXPECT(size == 128);
+                for (auto it = txns.begin(); it != txns.end(); ++it)
+                {
+                    auto const& tx = *it->first;
+                    BEAST_EXPECT(tx.getTxnType() == ttCRON);
+                }
+            }
+
+            // proceed ledger
+            env.close();
+            {
+                auto const txns = env.closed()->txs;
+                auto size = std::distance(txns.begin(), txns.end());
+                BEAST_EXPECT(size == 44);
+                for (auto it = txns.begin(); it != txns.end(); ++it)
+                {
+                    auto const& tx = *it->first;
+                    BEAST_EXPECT(tx.getTxnType() == ttCRON);
+                }
+            }
+
+            // proceed ledger
+            env.close();
+            {
+                auto const txns = env.closed()->txs;
+                auto size = std::distance(txns.begin(), txns.end());
+                BEAST_EXPECT(size == 0);
+            }
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -260,6 +416,8 @@ struct Cron_test : public beast::unit_test::suite
         testInvalidPreflight(features);
         testInvalidPreclaim(features);
         testDoApply(features);
+
+        testCronExecution(features);
     }
 
 public:

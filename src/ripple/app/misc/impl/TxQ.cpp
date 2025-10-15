@@ -1489,7 +1489,8 @@ TxQ::accept(Application& app, OpenView& view)
         std::set<AccountID> cronAccs;
 
         auto counter = 0;
-        while (++counter < 128 && klStart < klEnd)
+        // include max 128 cron txns in the ledger
+        while (++counter < 129 && klStart < klEnd)
         {
             std::optional<uint256 const> next = view.succ(klStart, klEnd);
             if (!next.has_value())

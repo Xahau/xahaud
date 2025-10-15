@@ -173,6 +173,12 @@ Cron::doApply()
     return tesSUCCESS;
 }
 
+void
+Cron::preCompute()
+{
+    assert(account_ == beast::zero);
+}
+
 XRPAmount
 Cron::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
