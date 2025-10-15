@@ -10,7 +10,7 @@ inputs:
     required: false
     default: '.build'
   compiler-id:
-    description: 'Unique identifier for compiler/version combination used for cache keys'
+    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx)'
     required: false
     default: ''
   cache_version:
@@ -25,6 +25,13 @@ inputs:
     description: 'Main branch name for restore keys'
     required: false
     default: 'dev'
+  stdlib:
+    description: 'C++ standard library for Conan configuration (note: also in compiler-id)'
+    required: true
+    type: choice
+    options:
+      - libstdcxx
+      - libcxx
 
 outputs:
   cache-hit:
@@ -70,6 +77,7 @@ runs:
         path: |
           ~/.conan
           ~/.conan2
+        # Note: compiler-id format is compiler-version-stdlib[-gccversion]
         key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
         restore-keys: |
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
@@ -84,6 +92,8 @@ runs:
 
     - name: Install dependencies
       shell: bash
+      env:
+        CONAN_REQUEST_TIMEOUT: 180  # Increase timeout to 3 minutes for slow mirrors
       run: |
         # Create build directory
         mkdir -p ${{ inputs.build_dir }}

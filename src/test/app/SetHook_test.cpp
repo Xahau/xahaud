@@ -365,6 +365,35 @@ public:
     }
 
     void
+    testInvalidTxFlags(FeatureBitset features)
+    {
+        testcase("Checks invalid tx flags");
+        using namespace jtx;
+
+        for (bool const withFixInvalidTxFlags : {false, true})
+        {
+            Env env{
+                *this,
+                withFixInvalidTxFlags ? features
+                                      : features - fixInvalidTxFlags};
+
+            auto const alice = Account{"alice"};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            Json::Value jv =
+                ripple::test::jtx::hook(alice, {{{hso_delete()}}}, 0);
+            jv[jss::Flags] = tfUniversalMask;
+
+            env(jv,
+                M("Invalid SetHook flags"),
+                HSFEE,
+                withFixInvalidTxFlags ? ter(temINVALID_FLAG) : ter(tesSUCCESS));
+            env.close();
+        }
+    }
+
+    void
     testGrants(FeatureBitset features)
     {
         testcase("Checks malformed grants on install operation");
@@ -12737,6 +12766,7 @@ public:
         testHooksOwnerDir(features);
         testHooksDisabled(features);
         testTxStructure(features);
+        testInvalidTxFlags(features);
         testInferHookSetOperation();
         testParams(features);
         testGrants(features);

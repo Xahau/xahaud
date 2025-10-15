@@ -27,6 +27,7 @@
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/STObject.h>
 #include <ripple/protocol/STTx.h>
+#include <ripple/protocol/TxFlags.h>
 #include <algorithm>
 #include <cstdint>
 
@@ -80,6 +81,13 @@ SetSignerList::preflight(PreflightContext const& ctx)
 {
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
+
+    if (ctx.rules.enabled(fixInvalidTxFlags) &&
+        (ctx.tx.getFlags() & tfUniversalMask))
+    {
+        JLOG(ctx.j.trace()) << "SetSignerList: invalid flags.";
+        return temINVALID_FLAG;
+    }
 
     auto const result = determineOperation(ctx.tx, ctx.flags, ctx.j);
 
