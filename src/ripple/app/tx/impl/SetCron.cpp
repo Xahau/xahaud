@@ -45,7 +45,7 @@ SetCron::preflight(PreflightContext const& ctx)
     auto& tx = ctx.tx;
     auto& j = ctx.j;
 
-    if (tx.getFlags() & tfUniversalMask)
+    if (tx.getFlags() & tfCronSetMask)
     {
         JLOG(j.warn()) << "SetCron: Invalid flags set.";
         return temINVALID_FLAG;
@@ -55,7 +55,8 @@ SetCron::preflight(PreflightContext const& ctx)
     // DR - Set Cron with Delay and Repeat
     // D- - Set Cron (once off) with Delay only (repat implicitly 0)
     // -R - Invalid
-    // -- - Clear any existing cron (succeeds even if there isn't one)
+    // -- - Clear any existing cron (succeeds even if there isn't one) / with
+    // tfCronUnset flag set
 
     bool const hasDelay = tx.isFieldPresent(sfDelaySeconds);
     bool const hasRepeat = tx.isFieldPresent(sfRepeatCount);
@@ -90,12 +91,33 @@ SetCron::preflight(PreflightContext const& ctx)
         }
     }
 
+    if (tx.isFlag(tfCronUnset))
+    {
+        if (hasDelay || hasRepeat)
+        {
+            JLOG(j.warn()) << "SetCron: tfCronUnset flag cannot be used with "
+                              "DelaySeconds or RepeatCount.";
+            return temMALFORMED;
+        }
+    }
+
     return preflight2(ctx);
 }
 
 TER
 SetCron::preclaim(PreclaimContext const& ctx)
 {
+    if (ctx.tx.isFlag(tfCronUnset))
+    {
+        auto const account = ctx.tx.getAccountID(sfAccount);
+        auto const sle = ctx.view.read(keylet::account(account));
+        if (!sle)
+            return tefINTERNAL;
+
+        if (!sle->isFieldPresent(sfCron))
+            return tecNO_ENTRY;
+    }
+
     return tesSUCCESS;
 }
 
@@ -105,10 +127,7 @@ SetCron::doApply()
     auto& view = ctx_.view();
     auto const& tx = ctx_.tx;
 
-    bool const isDelete = !tx.isFieldPresent(sfDelaySeconds);
-
-    if (isDelete && tx.isFieldPresent(sfRepeatCount))
-        return tefINTERNAL;
+    bool const isDelete = tx.isFlag(tfCronUnset);
 
     // delay can be zero, in which case the cron will usually execute next
     // ledger.

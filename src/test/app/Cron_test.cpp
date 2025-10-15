@@ -140,21 +140,24 @@ struct Cron_test : public beast::unit_test::suite
             // Invalid DelaySeconds and RepeatCount combination
             // (only RepeatCount specified)
             env(cron::set(alice), cron::repeat(256), ter(temMALFORMED));
-            env.close();
 
             // Invalid DelaySeconds
             env(cron::set(alice),
                 cron::delay(365 * 24 * 60 * 60 + 1),
                 cron::repeat(256),
                 ter(temMALFORMED));
-            env.close();
 
             // Invalid RepeatCount
             env(cron::set(alice),
                 cron::delay(365 * 24 * 60 * 60),
                 cron::repeat(257),
                 ter(temMALFORMED));
-            env.close();
+
+            // Invalid tfCronUnset flag
+            env(cron::set(alice),
+                cron::delay(365 * 24 * 60 * 60),
+                txflags(tfCronUnset),
+                ter(temMALFORMED));
         }
     }
 
@@ -165,8 +168,15 @@ struct Cron_test : public beast::unit_test::suite
         using namespace test::jtx;
         using namespace std::literals;
 
-        // no preclaim checks exists
-        BEAST_EXPECT(true);
+        auto const alice = Account("alice");
+        Env env{*this, features | featureCron};
+
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        // Cron does not set
+        env(cron::set(alice), txflags(tfCronUnset), ter(tecNO_ENTRY));
+        env.close();
     }
 
     void
@@ -230,7 +240,10 @@ struct Cron_test : public beast::unit_test::suite
         BEAST_EXPECT(cronSle2->getFieldU32(sfRepeatCount) == 10);
 
         // delete cron
-        env(cron::set(alice), fee(XRP(1)), ter(tesSUCCESS));
+        env(cron::set(alice),
+            fee(XRP(1)),
+            txflags(tfCronUnset),
+            ter(tesSUCCESS));
         env.close();
 
         // owner count decremented
