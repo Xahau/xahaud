@@ -13,21 +13,146 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-job:
+  matrix-setup:
+    runs-on: ubuntu-latest
+    container: python:3-slim
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate build matrix
+        id: set-matrix
+        shell: python
+        run: |
+          import json
+          import os
+          
+          # Full matrix with all 6 compiler configurations
+          # Each configuration includes all parameters needed by the build job
+          full_matrix = [
+              {
+                  "compiler_id": "gcc-11-libstdcxx",
+                  "compiler": "gcc",
+                  "cc": "gcc-11",
+                  "cxx": "g++-11",
+                  "compiler_version": 11,
+                  "stdlib": "libstdcxx",
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "gcc-13-libstdcxx",
+                  "compiler": "gcc",
+                  "cc": "gcc-13",
+                  "cxx": "g++-13",
+                  "compiler_version": 13,
+                  "stdlib": "libstdcxx",
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "clang-14-libstdcxx-gcc11",
+                  "compiler": "clang",
+                  "cc": "clang-14",
+                  "cxx": "clang++-14",
+                  "compiler_version": 14,
+                  "stdlib": "libstdcxx",
+                  "clang_gcc_toolchain": 11,
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "clang-16-libstdcxx-gcc13",
+                  "compiler": "clang",
+                  "cc": "clang-16",
+                  "cxx": "clang++-16",
+                  "compiler_version": 16,
+                  "stdlib": "libstdcxx",
+                  "clang_gcc_toolchain": 13,
+                  "configuration": "Debug"
+              },
+              {
+                  "compiler_id": "clang-17-libcxx",
+                  "compiler": "clang",
+                  "cc": "clang-17",
+                  "cxx": "clang++-17",
+                  "compiler_version": 17,
+                  "stdlib": "libcxx",
+                  "configuration": "Debug"
+              },
+              {
+                  # Clang 18 - testing if it's faster than Clang 17 with libc++
+                  # Requires patching Conan v1 settings.yml to add version 18
+                  "compiler_id": "clang-18-libcxx",
+                  "compiler": "clang",
+                  "cc": "clang-18",
+                  "cxx": "clang++-18",
+                  "compiler_version": 18,
+                  "stdlib": "libcxx",
+                  "configuration": "Debug"
+              }
+          ]
+          
+          # Minimal matrix for PRs and feature branches
+          minimal_matrix = [
+              full_matrix[1],  # gcc-13 (middle-ground gcc)
+              full_matrix[2]   # clang-14 (mature, stable clang)
+          ]
+          
+          # Determine which matrix to use based on the target branch
+          ref = "${{ github.ref }}"
+          base_ref = "${{ github.base_ref }}"  # For PRs, this is the target branch
+          event_name = "${{ github.event_name }}"
+          commit_message = """${{ github.event.head_commit.message }}"""
+          pr_title = """${{ github.event.pull_request.title }}"""
+          
+          # Debug logging
+          print(f"Event: {event_name}")
+          print(f"Ref: {ref}")
+          print(f"Base ref: {base_ref}")
+          print(f"PR title: {pr_title}")
+          print(f"Commit message: {commit_message}")
+          
+          # Check for override tags in commit message or PR title
+          force_full = "[ci-nix-full-matrix]" in commit_message or "[ci-nix-full-matrix]" in pr_title
+          print(f"Force full matrix: {force_full}")
+          
+          # Check if this is targeting a main branch
+          # For PRs: check base_ref (target branch)
+          # For pushes: check ref (current branch)
+          main_branches = ["refs/heads/dev", "refs/heads/release", "refs/heads/candidate"]
+          
+          if force_full:
+              # Override: always use full matrix if tag is present
+              use_full = True
+          elif event_name == "pull_request":
+              # For PRs, base_ref is just the branch name (e.g., "dev", not "refs/heads/dev")
+              # Check if the PR targets release or candidate (more critical branches)
+              use_full = base_ref in ["release", "candidate"]
+          else:
+              # For pushes, ref is the full reference (e.g., "refs/heads/dev")
+              use_full = ref in main_branches
+          
+          # Select the appropriate matrix
+          if use_full:
+              if force_full:
+                  print(f"Using FULL matrix (6 configs) - forced by [ci-nix-full-matrix] tag")
+              else:
+                  print(f"Using FULL matrix (6 configs) - targeting main branch")
+              matrix = full_matrix
+          else:
+              print(f"Using MINIMAL matrix (2 configs) - feature branch/PR")
+              matrix = minimal_matrix
+          
+          # Output the matrix as JSON
+          output = json.dumps({"include": matrix})
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"matrix={output}\n")
+
+  build:
+    needs: matrix-setup
     runs-on: ubuntu-latest
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:
       fail-fast: false
-      matrix:
-        compiler: [gcc]
-        configuration: [Debug]
-        include:
-          - compiler: gcc
-            cc: gcc-13
-            cxx: g++-13
-            compiler_id: gcc-13
-            compiler_version: 13
+      matrix: ${{ fromJSON(needs.matrix-setup.outputs.matrix) }}
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
@@ -41,8 +166,70 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+
+          # Install the specific GCC version needed for Clang
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
+            echo "=== Installing GCC ${{ matrix.clang_gcc_toolchain }} for Clang ==="
+            sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }} libstdc++-${{ matrix.clang_gcc_toolchain }}-dev
+
+            echo "=== GCC versions available after installation ==="
+            ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d"
+          fi
+
+          # For Clang < 16 with --gcc-toolchain, hide newer GCC versions
+          # This is needed because --gcc-toolchain still picks the highest version
+          #
+          # THE GREAT GCC HIDING TRICK (for Clang < 16):
+          # Clang versions before 16 don't have --gcc-install-dir, only --gcc-toolchain
+          # which is deprecated and still uses discovery heuristics that ALWAYS pick
+          # the highest version number. So we play a sneaky game...
+          #
+          # We rename newer GCC versions to very low integers (1, 2, 3...) which makes
+          # Clang think they're ancient GCC versions. Since 11 > 3 > 2 > 1, Clang will
+          # pick GCC 11 over our renamed versions. It's dumb but it works!
+          #
+          # Example: GCC 12→1, GCC 13→2, GCC 14→3, so Clang picks 11 (highest number)
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ] && [ "${{ matrix.compiler_version }}" -lt "16" ]; then
+            echo "=== Hiding GCC versions newer than ${{ matrix.clang_gcc_toolchain }} for Clang < 16 ==="
+            target_version=${{ matrix.clang_gcc_toolchain }}
+            counter=1  # Start with 1 - these will be seen as "GCC version 1, 2, 3" etc
+            for dir in /usr/lib/gcc/x86_64-linux-gnu/*/; do
+              if [ -d "$dir" ]; then
+                version=$(basename "$dir")
+                # Check if version is numeric and greater than target
+                if [[ "$version" =~ ^[0-9]+$ ]] && [ "$version" -gt "$target_version" ]; then
+                  echo "Hiding GCC $version -> renaming to $counter (will be seen as GCC version $counter)"
+                  # Safety check: ensure target doesn't already exist
+                  if [ ! -e "/usr/lib/gcc/x86_64-linux-gnu/$counter" ]; then
+                    sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                  else
+                    echo "ERROR: Cannot rename GCC $version - /usr/lib/gcc/x86_64-linux-gnu/$counter already exists"
+                    exit 1
+                  fi
+                  counter=$((counter + 1))
+                fi
+              fi
+            done
+          fi
+
+          # Verify what Clang will use
+          if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
+            echo "=== Verifying GCC toolchain selection ==="
+            echo "Available GCC versions:"
+            ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d.*[0-9]+$" || true
+
+            echo ""
+            echo "Clang's detected GCC installation:"
+            ${{ matrix.cxx }} -v -E -x c++ /dev/null -o /dev/null 2>&1 | grep "Found candidate GCC installation" || true
+          fi
+
+          # Install libc++ dev packages if using libc++ (not needed for libstdc++)
+          if [ "${{ matrix.stdlib }}" = "libcxx" ]; then
+            sudo apt-get install -y libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
+          fi
+
           # Install Conan 2
-          pip install --upgrade "conan>=2.0"
+          pip install --upgrade "conan>=2.0,<3"
 
       - name: Configure ccache
         uses: ./.github/actions/xahau-configure-ccache
@@ -57,14 +244,21 @@ jobs:
           # Create the default profile directory if it doesn't exist
           mkdir -p ~/.conan2/profiles
 
+          # Determine the correct libcxx based on stdlib parameter
+          if [ "${{ matrix.stdlib }}" = "libcxx" ]; then
+            LIBCXX="libc++"
+          else
+            LIBCXX="libstdc++11"
+          fi
+
           # Create profile with our specific settings
           cat > ~/.conan2/profiles/default <<EOF
           [settings]
           arch=x86_64
-          build_type=Release
+          build_type=${{ matrix.configuration }}
           compiler=${{ matrix.compiler }}
           compiler.cppstd=20
-          compiler.libcxx=libstdc++11
+          compiler.libcxx=${LIBCXX}
           compiler.version=${{ matrix.compiler_version }}
           os=Linux
 
@@ -99,6 +293,7 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: ${{ matrix.stdlib }}
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -111,6 +306,8 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: ${{ matrix.stdlib }}
+          clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
 
       - name: Set artifact name
         id: set-artifact-name
