@@ -3582,7 +3582,7 @@ DEFINE_HOOK_FUNCTION(
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: Transaction preflight failure: "
-                        << preflightResult.ter;
+                        << transHuman(preflightResult.ter);
         return EMISSION_FAILURE;
     }
 
