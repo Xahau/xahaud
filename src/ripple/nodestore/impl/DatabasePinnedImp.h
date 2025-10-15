@@ -45,7 +45,7 @@ namespace NodeStore {
 class DatabasePinnedImp : public DatabaseRotating
 {
 private:
-    DatabaseRotatingImp rotating_;  // Handles memory rotation for hot nodes
+    DatabaseRotatingImp rotating_;  // Handles rotation for hot nodes
     std::shared_ptr<Backend> persistent_;  // NuDB for pinned nodes
 
 public:
