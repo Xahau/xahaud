@@ -19,12 +19,9 @@
 
 #include <ripple/app/tx/impl/SetCron.h>
 #include <ripple/basics/Log.h>
-#include <ripple/core/Config.h>
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/PublicKey.h>
-#include <ripple/protocol/Quality.h>
 #include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/st.h>
 
@@ -75,7 +72,7 @@ SetCron::preflight(PreflightContext const& ctx)
         auto delay = tx.getFieldU32(sfDelaySeconds);
         if (delay > 31536000UL /* 365 days in seconds */)
         {
-            JLOG(j.debug()) << "SetCron: DelaySeconds was too high. (max 14 "
+            JLOG(j.debug()) << "SetCron: DelaySeconds was too high. (max 365 "
                                "days in seconds).";
             return temMALFORMED;
         }
@@ -99,18 +96,6 @@ SetCron::preflight(PreflightContext const& ctx)
 TER
 SetCron::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureCron))
-        return temDISABLED;
-
-    auto& j = ctx.j;
-
-    auto const id = ctx.tx[sfAccount];
-
-    auto const sle = ctx.view.read(keylet::account(id));
-
-    if (!sle)
-        return terNO_ACCOUNT;
-
     return tesSUCCESS;
 }
 
@@ -244,22 +229,27 @@ SetCron::doApply()
 XRPAmount
 SetCron::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    auto fee = Transactor::calculateBaseFee(view, tx);
+    auto const baseFee = Transactor::calculateBaseFee(view, tx);
+
+    auto const hasRepeat = tx.isFieldPresent(sfRepeatCount);
+    auto const hasDelay = tx.isFieldPresent(sfDelaySeconds);
+
+    if (!hasRepeat && !hasDelay)
+        // delete cron
+        return baseFee;
 
     // factor a cost based on the total number of txns expected
     // for RepeatCount of 0 we have this txn (SetCron) and the
     // single Cron txn (2). For a RepeatCount of 1 we have this txn,
     // the first time the cron executes, and the second time (3).
-    uint32_t recur = tx.isFieldPresent(sfRepeatCount)
-        ? tx.getFieldU32(sfRepeatCount) + 2
-        : 2;
+    uint32_t const additionalExpectedExecutions =
+        tx.getFieldU32(sfRepeatCount) + 1;
+    auto const additionalFee = baseFee * additionalExpectedExecutions;
 
-    auto finalFee = fee * recur;
+    if (baseFee + additionalFee < baseFee)
+        return baseFee;
 
-    if (finalFee < fee)
-        return fee;
-
-    return finalFee;
+    return baseFee + additionalFee;
 }
 
 }  // namespace ripple

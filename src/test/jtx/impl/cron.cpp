@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2024 XRPL-Labs
+    Copyright (c) 2025 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,40 +17,40 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_SETCRON_H_INCLUDED
-#define RIPPLE_TX_SETCRON_H_INCLUDED
-
-#include <ripple/app/tx/impl/Transactor.h>
-#include <ripple/basics/Log.h>
-#include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/jss.h>
+#include <test/jtx/cron.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
 
-class SetCron : public Transactor
+namespace cron {
+
+// Set a cron.
+Json::Value
+set(jtx::Account const& account)
 {
-public:
-    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
+    using namespace jtx;
+    Json::Value jv;
+    jv[jss::TransactionType] = jss::SetCron;
+    jv[jss::Account] = account.human();
+    return jv;
+}
 
-    explicit SetCron(ApplyContext& ctx) : Transactor(ctx)
-    {
-    }
+void
+delay::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfDelaySeconds.jsonName] = delay_;
+}
 
-    static XRPAmount
-    calculateBaseFee(ReadView const& view, STTx const& tx);
+void
+repeat::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfRepeatCount.jsonName] = repeat_;
+}
 
-    static TxConsequences
-    makeTxConsequences(PreflightContext const& ctx);
+}  // namespace cron
 
-    static NotTEC
-    preflight(PreflightContext const& ctx);
-
-    static TER
-    preclaim(PreclaimContext const&);
-
-    TER
-    doApply() override;
-};
-
+}  // namespace jtx
+}  // namespace test
 }  // namespace ripple
-
-#endif

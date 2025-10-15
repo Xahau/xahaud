@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2024 XRPL-Labs
+    Copyright (c) 2025 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,40 +17,58 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_SETCRON_H_INCLUDED
-#define RIPPLE_TX_SETCRON_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_CRON_H_INCLUDED
+#define RIPPLE_TEST_JTX_CRON_H_INCLUDED
 
-#include <ripple/app/tx/impl/Transactor.h>
-#include <ripple/basics/Log.h>
-#include <ripple/protocol/Indexes.h>
+#include <test/jtx/Account.h>
+#include <test/jtx/Env.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
 
-class SetCron : public Transactor
+/** Cron operations. */
+namespace cron {
+
+/** Set a cron. */
+Json::Value
+set(jtx::Account const& account);
+
+/** Sets the optional DelaySeconds on a JTx. */
+class delay
 {
-public:
-    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
+private:
+    uint32_t delay_;
 
-    explicit SetCron(ApplyContext& ctx) : Transactor(ctx)
+public:
+    explicit delay(uint32_t delay) : delay_(delay)
     {
     }
 
-    static XRPAmount
-    calculateBaseFee(ReadView const& view, STTx const& tx);
-
-    static TxConsequences
-    makeTxConsequences(PreflightContext const& ctx);
-
-    static NotTEC
-    preflight(PreflightContext const& ctx);
-
-    static TER
-    preclaim(PreclaimContext const&);
-
-    TER
-    doApply() override;
+    void
+    operator()(Env&, JTx& jtx) const;
 };
 
+/** Sets the optional RepeatCount on a JTx. */
+class repeat
+{
+private:
+    uint32_t repeat_;
+
+public:
+    explicit repeat(uint32_t repeat) : repeat_(repeat)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+}  // namespace cron
+
+}  // namespace jtx
+
+}  // namespace test
 }  // namespace ripple
 
-#endif
+#endif  // RIPPLE_TEST_JTX_CRON_H_INCLUDED
