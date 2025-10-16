@@ -108,17 +108,6 @@ SetCron::preflight(PreflightContext const& ctx)
 TER
 SetCron::preclaim(PreclaimContext const& ctx)
 {
-    if (ctx.tx.isFlag(tfCronUnset))
-    {
-        auto const account = ctx.tx.getAccountID(sfAccount);
-        auto const sle = ctx.view.read(keylet::account(account));
-        if (!sle)
-            return tefINTERNAL;
-
-        if (!sle->isFieldPresent(sfCron))
-            return tecNO_ENTRY;
-    }
-
     return tesSUCCESS;
 }
 

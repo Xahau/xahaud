@@ -180,12 +180,8 @@ struct Cron_test : public beast::unit_test::suite
         auto const alice = Account("alice");
         Env env{*this, features | featureCron};
 
-        env.fund(XRP(1000), alice);
-        env.close();
-
-        // Cron does not set
-        env(cron::set(alice), txflags(tfCronUnset), ter(tecNO_ENTRY));
-        env.close();
+        // there is no check in preclaim
+        BEAST_EXPECT(true);
     }
 
     void
@@ -264,6 +260,13 @@ struct Cron_test : public beast::unit_test::suite
 
         // old cron sle is deleted
         BEAST_EXPECT(!env.le(cronKey2));
+
+        // delete cron without object will succeed
+        env(cron::set(alice),
+            fee(XRP(1)),
+            txflags(tfCronUnset),
+            ter(tesSUCCESS));
+        env.close();
     }
 
     void
