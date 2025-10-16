@@ -153,6 +153,8 @@ Change::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         case ttAMENDMENT:
         case ttUNL_MODIFY:
+        case ttEMIT_FAILURE:
+            return tesSUCCESS;
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
                 ctx.app.config().IMPORT_VL_KEYS.empty())
@@ -187,8 +189,6 @@ Change::preclaim(PreclaimContext const& ctx)
 
             return telIMPORT_VL_KEY_NOT_RECOGNISED;
         }
-        case ttEMIT_FAILURE:
-            return tesSUCCESS;
         default:
             return temUNKNOWN;
     }
