@@ -50,7 +50,7 @@ struct Cron_test : public beast::unit_test::suite
 
             auto tx = cron::set(alice);
             // CLAIM
-            env(cron::set(alice), fee(XRP(1)), expectResult);
+            env(cron::set(alice), cron::delay(100), fee(XRP(1)), expectResult);
             env.close();
         }
     }
@@ -102,10 +102,16 @@ struct Cron_test : public beast::unit_test::suite
 
         // delete
         expected = baseFee;
-        env(cron::set(alice), fee(expected - 1), ter(telINSUF_FEE_P));
+        env(cron::set(alice),
+            txflags(tfCronUnset),
+            fee(expected - 1),
+            ter(telINSUF_FEE_P));
         env.close();
 
-        env(cron::set(alice), fee(expected), ter(tesSUCCESS));
+        env(cron::set(alice),
+            txflags(tfCronUnset),
+            fee(expected),
+            ter(tesSUCCESS));
         env.close();
     }
 
@@ -137,6 +143,9 @@ struct Cron_test : public beast::unit_test::suite
 
         // temMALFORMED
         {
+            // Invalid both DelaySeconds and RepeatCount are not specified
+            env(cron::set(alice), ter(temMALFORMED));
+
             // Invalid DelaySeconds and RepeatCount combination
             // (only RepeatCount specified)
             env(cron::set(alice), cron::repeat(256), ter(temMALFORMED));

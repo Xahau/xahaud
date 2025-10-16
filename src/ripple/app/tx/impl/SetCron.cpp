@@ -61,15 +61,25 @@ SetCron::preflight(PreflightContext const& ctx)
     bool const hasDelay = tx.isFieldPresent(sfDelaySeconds);
     bool const hasRepeat = tx.isFieldPresent(sfRepeatCount);
 
-    if (hasRepeat && !hasDelay)
+    if (tx.isFlag(tfCronUnset))
     {
-        JLOG(j.warn()) << "SetCron: DelaySeconds must also be specified when "
-                          "RepeatCount is present.";
-        return temMALFORMED;
+        if (hasDelay || hasRepeat)
+        {
+            JLOG(j.debug()) << "SetCron: tfCronUnset flag cannot be used with "
+                               "DelaySeconds or RepeatCount.";
+            return temMALFORMED;
+        }
     }
-
-    if (hasDelay)
+    else
     {
+        if (!hasDelay)
+        {
+            JLOG(j.debug()) << "SetCron: DelaySeconds must be "
+                               "specified to create a cron.";
+            return temMALFORMED;
+        }
+
+        // check delay is not too high
         auto delay = tx.getFieldU32(sfDelaySeconds);
         if (delay > 31536000UL /* 365 days in seconds */)
         {
@@ -77,27 +87,18 @@ SetCron::preflight(PreflightContext const& ctx)
                                "days in seconds).";
             return temMALFORMED;
         }
-    }
 
-    if (hasRepeat)
-    {
-        auto recur = tx.getFieldU32(sfRepeatCount);
-        if (recur > 256)
+        // check repeat is not too high
+        if (hasRepeat)
         {
-            JLOG(j.debug())
-                << "SetCron: RepeatCount too high. Limit is 256. Issue "
-                   "new SetCron to increase.";
-            return temMALFORMED;
-        }
-    }
-
-    if (tx.isFlag(tfCronUnset))
-    {
-        if (hasDelay || hasRepeat)
-        {
-            JLOG(j.warn()) << "SetCron: tfCronUnset flag cannot be used with "
-                              "DelaySeconds or RepeatCount.";
-            return temMALFORMED;
+            auto recur = tx.getFieldU32(sfRepeatCount);
+            if (recur > 256)
+            {
+                JLOG(j.debug())
+                    << "SetCron: RepeatCount too high. Limit is 256. Issue "
+                       "new SetCron to increase.";
+                return temMALFORMED;
+            }
         }
     }
 
@@ -136,7 +137,8 @@ SetCron::doApply()
 
     if (!isDelete)
     {
-        delay = tx.getFieldU32(sfDelaySeconds);
+        if (tx.isFieldPresent(sfDelaySeconds))
+            delay = tx.getFieldU32(sfDelaySeconds);
         if (tx.isFieldPresent(sfRepeatCount))
             recur = tx.getFieldU32(sfRepeatCount);
     }
@@ -242,9 +244,8 @@ SetCron::calculateBaseFee(ReadView const& view, STTx const& tx)
     auto const baseFee = Transactor::calculateBaseFee(view, tx);
 
     auto const hasRepeat = tx.isFieldPresent(sfRepeatCount);
-    auto const hasDelay = tx.isFieldPresent(sfDelaySeconds);
 
-    if (!hasRepeat && !hasDelay)
+    if (tx.isFlag(tfCronUnset))
         // delete cron
         return baseFee;
 
@@ -253,7 +254,7 @@ SetCron::calculateBaseFee(ReadView const& view, STTx const& tx)
     // single Cron txn (2). For a RepeatCount of 1 we have this txn,
     // the first time the cron executes, and the second time (3).
     uint32_t const additionalExpectedExecutions =
-        tx.getFieldU32(sfRepeatCount) + 1;
+        hasRepeat ? tx.getFieldU32(sfRepeatCount) + 1 : 1;
     auto const additionalFee = baseFee * additionalExpectedExecutions;
 
     if (baseFee + additionalFee < baseFee)
