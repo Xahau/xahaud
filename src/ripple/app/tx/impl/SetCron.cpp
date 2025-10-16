@@ -201,32 +201,26 @@ SetCron::doApply()
 
     Keylet klCron = keylet::cron(afterTime, id);
 
-    bool const alreadyExists = view.exists(klCron);
+    std::shared_ptr<SLE> sleCron = std::make_shared<SLE>(klCron);
 
-    std::shared_ptr<SLE> sleCron =
-        alreadyExists ? view.peek(klCron) : std::make_shared<SLE>(klCron);
+    STAmount const reserve{
+        view.fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
 
-    if (!alreadyExists)
-    {
-        STAmount const reserve{
-            view.fees().accountReserve(sle->getFieldU32(sfOwnerCount) + 1)};
+    STAmount const afterFee =
+        mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp();
 
-        STAmount const afterFee =
-            mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp();
+    if (afterFee > mPriorBalance || afterFee < reserve)
+        return tecINSUFFICIENT_RESERVE;
 
-        if (afterFee > mPriorBalance || afterFee < reserve)
-            return tecINSUFFICIENT_RESERVE;
+    // add to owner dir
+    auto const page =
+        view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
+    if (!page)
+        return tecDIR_FULL;
 
-        // add to owner dir
-        auto const page =
-            view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
-        if (!page)
-            return tecDIR_FULL;
+    sleCron->setFieldU64(sfOwnerNode, *page);
 
-        sleCron->setFieldU64(sfOwnerNode, *page);
-
-        adjustOwnerCount(view, sle, 1, j_);
-    }
+    adjustOwnerCount(view, sle, 1, j_);
 
     // set the fields
     sleCron->setFieldU32(sfDelaySeconds, delay);
@@ -237,10 +231,7 @@ SetCron::doApply()
 
     view.update(sle);
 
-    if (alreadyExists)
-        view.update(sleCron);
-    else
-        view.insert(sleCron);
+    view.insert(sleCron);
 
     return tesSUCCESS;
 }
