@@ -176,7 +176,8 @@ Change::preclaim(PreclaimContext const& ctx)
             PublicKey const pk(makeSlice(pkBlob));
 
             // check on ledger
-            if (auto const unlRep = ctx.view.read(keylet::UNLReport()); unlRep)
+            if (auto const unlRep = ctx.view.read(keylet::UNLReport());
+                    unlRep && unlRep->isFieldPresent(sfImportVLKeys))
             {
                 auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
                 for (auto const& k : vlKeys)
