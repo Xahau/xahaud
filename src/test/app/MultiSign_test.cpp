@@ -1675,7 +1675,6 @@ public:
             env.fund(XRP(1000), alice);
             env.close();
 
-            bool const enabled = features[fixInvalidTxFlags];
             testcase(
                 std::string("SignerListSet flag, fix ") +
                 (withFixInvalidTxFlags ? "enabled" : "disabled"));
