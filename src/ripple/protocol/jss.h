@@ -131,7 +131,6 @@ JSS(UNLReport);             // transaction type.
 JSS(SettleDelay);           // in: TransactionSign
 JSS(SendMax);               // in: TransactionSign
 JSS(Sequence);              // in/out: TransactionSign; field.
-JSS(SetAlarm);
 JSS(SetFlag);                  // field.
 JSS(SetRegularKey);            // transaction type.
 JSS(SetHook);                  // transaction type.
