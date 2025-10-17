@@ -61,6 +61,7 @@ JSS(Clawback);     // transaction type.
 JSS(ClearFlag);    // field.
 JSS(CreateCode);   // field.
 JSS(Cron);
+JSS(CronSet);
 JSS(DeliverMin);         // in: TransactionSign
 JSS(DepositPreauth);     // transaction and ledger type.
 JSS(Destination);        // in: TransactionSign; field.
@@ -132,7 +133,6 @@ JSS(SettleDelay);           // in: TransactionSign
 JSS(SendMax);               // in: TransactionSign
 JSS(Sequence);              // in/out: TransactionSign; field.
 JSS(SetAlarm);
-JSS(SetCron);
 JSS(SetFlag);                  // field.
 JSS(SetRegularKey);            // transaction type.
 JSS(SetHook);                  // transaction type.

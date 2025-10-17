@@ -32,7 +32,7 @@ set(jtx::Account const& account)
 {
     using namespace jtx;
     Json::Value jv;
-    jv[jss::TransactionType] = jss::SetCron;
+    jv[jss::TransactionType] = jss::CronSet;
     jv[jss::Account] = account.human();
     return jv;
 }

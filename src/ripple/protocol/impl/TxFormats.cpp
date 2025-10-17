@@ -481,7 +481,7 @@ TxFormats::TxFormats()
         },
         commonFields);
 
-    add(jss::SetCron,
+    add(jss::CronSet,
         ttCRON_SET,
         {
             {sfDelaySeconds, soeOPTIONAL},
