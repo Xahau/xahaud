@@ -179,7 +179,7 @@ Change::preclaim(PreclaimContext const& ctx)
 
             // check on ledger
             if (auto const unlRep = ctx.view.read(keylet::UNLReport());
-                    unlRep && unlRep->isFieldPresent(sfImportVLKeys))
+                unlRep && unlRep->isFieldPresent(sfImportVLKeys))
             {
                 auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
                 for (auto const& k : vlKeys)
