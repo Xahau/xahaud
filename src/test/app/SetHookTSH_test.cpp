@@ -22,6 +22,7 @@
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/tx/apply.h>
+#include <ripple/basics/StringUtilities.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/PayChan.h>
 #include <ripple/protocol/jss.h>
@@ -749,9 +750,21 @@ private:
         int const& expected,
         uint64_t const& lineno)
     {
+        auto const hashStr =
+            env.tx()->getJson(JsonOptions::none)[jss::hash].asString();
+        uint256 const txHash = uint256::fromVoid(strUnHex(hashStr)->data());
+        testTSHStrongWeak(env, txHash, expected, lineno);
+    }
+
+    void
+    testTSHStrongWeak(
+        jtx::Env& env,
+        uint256 const& txHash,
+        int const& expected,
+        uint64_t const& lineno)
+    {
         Json::Value params;
-        params[jss::transaction] =
-            env.tx()->getJson(JsonOptions::none)[jss::hash];
+        params[jss::transaction] = strHex(txHash);
         auto const jrr = env.rpc("json", "tx", to_string(params));
         auto const meta = jrr[jss::result][jss::meta];
         validateTSHStrongWeak(meta, expected, lineno);
@@ -6251,6 +6264,103 @@ private:
         }
     }
 
+    // CronSet
+    // | otxn | tsh | cset |
+    // |   A  |  A  |  S   |
+    void
+    testCronSetTSH(FeatureBitset features)
+    {
+        testcase("cron set tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            env.fund(XRP(1000), account);
+            env.close();
+
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // cron set
+            env(cron::set(account),
+                cron::delay(100),
+                cron::repeat(1),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+    }
+
+    // | otxn | tsh | cron |
+    // |   -  |  O  |  W   |
+    void
+    testCronTSH(FeatureBitset features)
+    {
+        testcase("cron tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: -
+        // tsh owner
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            env.fund(XRP(1000), account);
+            env.close();
+
+            // cron set
+            env(cron::set(account),
+                cron::delay(100),
+                cron::repeat(1),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // proceed ledger
+            env.close(100s);
+
+            // close ledger
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            auto const txs = env.closed()->txs;
+            BEAST_EXPECT(std::distance(txs.begin(), txs.end()) == 1);
+            auto const tx = txs.begin()->first;
+            BEAST_EXPECT(tx->getTxnType() == ttCRON);
+            testTSHStrongWeak(env, tx->getTransactionID(), expected, __LINE__);
+        }
+    }
     void
     testEmissionOrdering(FeatureBitset features)
     {
@@ -6398,6 +6508,8 @@ private:
         testURITokenCancelSellOfferTSH(features);
         testURITokenCreateSellOfferTSH(features);
         testRemitTSH(features);
+        testCronSetTSH(features);
+        testCronTSH(features);
     }
 
     void
