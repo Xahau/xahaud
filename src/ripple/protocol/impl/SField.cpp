@@ -157,6 +157,8 @@ CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32, 
 
 CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 
+CONSTRUCT_TYPED_SFIELD(sfRepeatCount,           "RepeatCount",          UINT32,    94);
+CONSTRUCT_TYPED_SFIELD(sfDelaySeconds,          "DelaySeconds",         UINT32,    95);
 CONSTRUCT_TYPED_SFIELD(sfXahauActivationLgrSeq, "XahauActivationLgrSeq",UINT32,    96);
 CONSTRUCT_TYPED_SFIELD(sfImportSequence,        "ImportSequence",       UINT32,    97);
 CONSTRUCT_TYPED_SFIELD(sfRewardTime,            "RewardTime",           UINT32,    98);
@@ -239,6 +241,7 @@ CONSTRUCT_TYPED_SFIELD(sfGovernanceFlags,       "GovernanceFlags",      UINT256,
 CONSTRUCT_TYPED_SFIELD(sfGovernanceMarks,       "GovernanceMarks",      UINT256,   98);
 CONSTRUCT_TYPED_SFIELD(sfEmittedTxnID,          "EmittedTxnID",         UINT256,   97);
 CONSTRUCT_TYPED_SFIELD(sfHookCanEmit,           "HookCanEmit",          UINT256,   96);
+CONSTRUCT_TYPED_SFIELD(sfCron,                  "Cron",                 UINT256,   95);
 
 // currency amount (common)
 CONSTRUCT_TYPED_SFIELD(sfAmount,                "Amount",               AMOUNT,     1);

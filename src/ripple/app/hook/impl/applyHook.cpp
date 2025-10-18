@@ -75,6 +75,11 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     switch (tt)
     {
+        case ttCRON: {
+            ADD_TSH(tx.getAccountID(sfOwner), tshWEAK);
+            break;
+        }
+
         case ttREMIT: {
             if (destAcc)
                 ADD_TSH(*destAcc, tshSTRONG);

@@ -149,6 +149,12 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
+    /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
+    ttCRON = 92,
+
+    /* Sechedule an alarm for later */
+    ttCRON_SET = 93,
+
     /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
     ttREMARKS_SET = 94,
 
