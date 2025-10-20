@@ -51,54 +51,86 @@ SetCron::preflight(PreflightContext const& ctx)
         return temINVALID_FLAG;
     }
 
-    // DelaySeconds (D), RepeatCount (R)
-    // DR - Set Cron with Delay and Repeat
-    // D- - Set Cron (once off) with Delay only (repat implicitly 0)
-    // -R - Invalid
-    // -- - Clear any existing cron (succeeds even if there isn't one) / with
+    // StartAfter(s) DelaySeconds (D), RepeatCount (R)
+
+    // SDR - Set Cron with After, Delay and Repeat
+    // SD- - Invalid, if repeat count isn't included then only start or delay
+    // S-R - Invalid
+    // S-- - Set Cron with After for a once off execution
+
+    // -DR - Set Cron with Delay and Repeat
+    // -D- - Set Cron (once off) with Delay only (repat implicitly 0)
+    // --R - Invalid
+    // --- - Clear any existing cron (succeeds even if there isn't one) / with
     // tfCronUnset flag set
 
+    bool const hasStart = tx.isFieldPresent(sfStartAfter);
     bool const hasDelay = tx.isFieldPresent(sfDelaySeconds);
     bool const hasRepeat = tx.isFieldPresent(sfRepeatCount);
 
+    // unset is a special case, handle first
     if (tx.isFlag(tfCronUnset))
     {
-        if (hasDelay || hasRepeat)
+        if (hasDelay || hasRepeat || hasStart)
         {
             JLOG(j.debug()) << "SetCron: tfCronUnset flag cannot be used with "
                                "DelaySeconds or RepeatCount.";
             return temMALFORMED;
         }
+
+        return preflight2(ctx);
     }
-    else
+
+    if (hasStart)
     {
-        if (!hasDelay)
+        if (hasRepeat && hasDelay)
         {
-            JLOG(j.debug()) << "SetCron: DelaySeconds must be "
-                               "specified to create a cron.";
+            // valid, this is a fully specified cron
+            // fall through to validate other fields
+        }
+        else if (!hasRepeat && !hasDelay)
+        {
+            // valid this is a once off cron
+            // no other fields to validate, done
+            return preflight2(ctx);
+        }
+        else
+        {
+            // invalid, must specify both or neither repeat and delay count with
+            // startafter
+            JLOG(j.debug()) << "SetCron: StartAfter can only be used with "
+                               "either both or neither of "
+                               "DelaySeconds and RepeatCount.";
             return temMALFORMED;
         }
+    }
 
-        // check delay is not too high
-        auto delay = tx.getFieldU32(sfDelaySeconds);
-        if (delay > 31536000UL /* 365 days in seconds */)
+    if (!hasDelay)
+    {
+        JLOG(j.debug()) << "SetCron: DelaySeconds or StartAfter must be "
+                           "specified to create a cron.";
+        return temMALFORMED;
+    }
+
+    // check delay is not too high
+    auto delay = tx.getFieldU32(sfDelaySeconds);
+    if (delay > 31536000UL /* 365 days in seconds */)
+    {
+        JLOG(j.debug()) << "SetCron: DelaySeconds was too high. (max 365 "
+                           "days in seconds).";
+        return temMALFORMED;
+    }
+
+    // check repeat is not too high
+    if (hasRepeat)
+    {
+        auto recur = tx.getFieldU32(sfRepeatCount);
+        if (recur > 256)
         {
-            JLOG(j.debug()) << "SetCron: DelaySeconds was too high. (max 365 "
-                               "days in seconds).";
+            JLOG(j.debug())
+                << "SetCron: RepeatCount too high. Limit is 256. Issue "
+                   "new SetCron to increase.";
             return temMALFORMED;
-        }
-
-        // check repeat is not too high
-        if (hasRepeat)
-        {
-            auto recur = tx.getFieldU32(sfRepeatCount);
-            if (recur > 256)
-            {
-                JLOG(j.debug())
-                    << "SetCron: RepeatCount too high. Limit is 256. Issue "
-                       "new SetCron to increase.";
-                return temMALFORMED;
-            }
         }
     }
 
@@ -108,6 +140,32 @@ SetCron::preflight(PreflightContext const& ctx)
 TER
 SetCron::preclaim(PreclaimContext const& ctx)
 {
+    if (ctx.tx.isFieldPresent(sfStartAfter))
+    {
+        uint32_t currentTime =
+            ctx.view.parentCloseTime().time_since_epoch().count();
+        uint32_t afterTime = ctx.tx.getFieldU32(sfStartAfter);
+
+        if (afterTime <= currentTime)
+        {
+            // we'll pass this as though they meant execute asap, similar to a
+            // delay of 0
+            return tesSUCCESS;
+        }
+
+        uint32_t waitSeconds = afterTime - currentTime;
+
+        if (waitSeconds > afterTime)
+            return tefINTERNAL;
+
+        if (waitSeconds >> 31536000UL /* 365 days in seconds */)
+        {
+            JLOG(ctx.j.debug())
+                << "SetCron: DelaySeconds was too high. (max 365 "
+                   "days in seconds).";
+            return tecSTART_AFTER_TOO_HIGH;
+        }
+    }
     return tesSUCCESS;
 }
 
@@ -123,6 +181,7 @@ SetCron::doApply()
     // ledger.
     uint32_t delay{0};
     uint32_t recur{0};
+    uint32_t after{0};
 
     if (!isDelete)
     {
@@ -137,7 +196,10 @@ SetCron::doApply()
     // do all this sanity checking before we modify the ledger...
     // even for a delete operation this will fall through without incident
 
-    uint32_t afterTime = currentTime + delay;
+    uint32_t afterTime = tx.isFieldPresent(sfStartAfter)
+        ? tx.getFieldU32(sfStartAfter)
+        : currentTime + delay;
+
     if (afterTime < currentTime)
         return tefINTERNAL;
 
