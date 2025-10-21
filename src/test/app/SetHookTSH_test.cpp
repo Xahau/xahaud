@@ -6297,6 +6297,7 @@ private:
 
             // cron set
             env(cron::set(account),
+                cron::startTime(0),
                 cron::delay(100),
                 cron::repeat(1),
                 fee(XRP(1)),
@@ -6332,8 +6333,11 @@ private:
             env.fund(XRP(1000), account);
             env.close();
 
+            auto const baseTime =
+                env.current()->parentCloseTime().time_since_epoch().count();
             // cron set
             env(cron::set(account),
+                cron::startTime(baseTime + 100),
                 cron::delay(100),
                 cron::repeat(1),
                 fee(XRP(1)),

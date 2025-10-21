@@ -371,6 +371,7 @@ LedgerFormats::LedgerFormats()
         ltCRON,
         {
             {sfOwner,                soeREQUIRED},
+            {sfStartTime,            soeREQUIRED},
             {sfDelaySeconds,         soeREQUIRED},
             {sfRepeatCount,          soeREQUIRED},
             {sfOwnerNode,            soeREQUIRED},

@@ -34,6 +34,21 @@ namespace cron {
 Json::Value
 set(jtx::Account const& account);
 
+/** Sets the optional StartTime on a JTx. */
+class startTime
+{
+private:
+    uint32_t startTime_;
+
+public:
+    explicit startTime(uint32_t startTime) : startTime_(startTime)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
 /** Sets the optional DelaySeconds on a JTx. */
 class delay
 {

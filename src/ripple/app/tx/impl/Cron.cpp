@@ -121,11 +121,11 @@ Cron::doApply()
     uint32_t delay = sleCron->getFieldU32(sfDelaySeconds);
     uint32_t recur = sleCron->getFieldU32(sfRepeatCount);
 
-    uint32_t currentTime = view.parentCloseTime().time_since_epoch().count();
+    uint32_t lastStartTime = sleCron->getFieldU32(sfStartTime);
 
     // do all this sanity checking before we modify the ledger...
-    uint32_t afterTime = currentTime + delay;
-    if (afterTime < currentTime)
+    uint32_t afterTime = lastStartTime + delay;
+    if (afterTime < lastStartTime)
         return tefINTERNAL;
 
     // in all circumstances the Cron object is deleted...
@@ -163,6 +163,7 @@ Cron::doApply()
     sleCron->setFieldU64(sfOwnerNode, *page);
     sleCron->setFieldU32(sfDelaySeconds, delay);
     sleCron->setFieldU32(sfRepeatCount, recur - 1);
+    sleCron->setFieldU32(sfStartTime, afterTime);
     sleCron->setAccountID(sfOwner, id);
 
     sle->setFieldH256(sfCron, klCron.key);

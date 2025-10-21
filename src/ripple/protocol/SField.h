@@ -412,6 +412,7 @@ extern SF_UINT32 const sfImportSequence;
 extern SF_UINT32 const sfXahauActivationLgrSeq;
 extern SF_UINT32 const sfDelaySeconds;
 extern SF_UINT32 const sfRepeatCount;
+extern SF_UINT32 const sfStartTime;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;

@@ -48,9 +48,13 @@ struct Cron_test : public beast::unit_test::suite
             auto const expectResult =
                 withCron ? ter(tesSUCCESS) : ter(temDISABLED);
 
-            auto tx = cron::set(alice);
             // CLAIM
-            env(cron::set(alice), cron::delay(100), fee(XRP(1)), expectResult);
+            env(cron::set(alice),
+                cron::startTime(0),
+                cron::repeat(100),
+                cron::delay(100),
+                fee(XRP(1)),
+                expectResult);
             env.close();
         }
     }
@@ -70,9 +74,10 @@ struct Cron_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice);
         env.close();
 
-        // create with RepeatCount
+        // create
         auto expected = baseFee * 2 + baseFee * 256;
         env(cron::set(alice),
+            cron::startTime(0),
             cron::delay(356 * 24 * 60 * 60),
             cron::repeat(256),
             fee(expected - 1),
@@ -80,22 +85,9 @@ struct Cron_test : public beast::unit_test::suite
         env.close();
 
         env(cron::set(alice),
+            cron::startTime(0),
             cron::delay(356 * 24 * 60 * 60),
             cron::repeat(256),
-            fee(expected),
-            ter(tesSUCCESS));
-        env.close();
-
-        // create with no RepeatCount
-        expected = baseFee * 2;
-        env(cron::set(alice),
-            cron::delay(356 * 24 * 60 * 60),
-            fee(expected - 1),
-            ter(telINSUF_FEE_P));
-        env.close();
-
-        env(cron::set(alice),
-            cron::delay(356 * 24 * 60 * 60),
             fee(expected),
             ter(tesSUCCESS));
         env.close();
@@ -143,28 +135,45 @@ struct Cron_test : public beast::unit_test::suite
 
         // temMALFORMED
         {
-            // Invalid both DelaySeconds and RepeatCount are not specified
+            // Invalid DelaySeconds and RepeatCount and StartTime are not
+            // specified
             env(cron::set(alice), ter(temMALFORMED));
 
-            // Invalid DelaySeconds and RepeatCount combination
-            // (only RepeatCount specified)
-            env(cron::set(alice), cron::repeat(256), ter(temMALFORMED));
+            // Invalid DelaySeconds and RepeatCount combination with StartTime
+            env(cron::set(alice),
+                cron::startTime(100),
+                cron::delay(356 * 24 * 60 * 60),
+                ter(temMALFORMED));
+            env(cron::set(alice),
+                cron::startTime(100),
+                cron::repeat(256),
+                ter(temMALFORMED));
 
             // Invalid DelaySeconds
             env(cron::set(alice),
+                cron::startTime(100),
                 cron::delay(365 * 24 * 60 * 60 + 1),
                 cron::repeat(256),
                 ter(temMALFORMED));
 
             // Invalid RepeatCount
             env(cron::set(alice),
+                cron::startTime(100),
                 cron::delay(365 * 24 * 60 * 60),
                 cron::repeat(257),
                 ter(temMALFORMED));
 
-            // Invalid tfCronUnset flag
+            // Invalid with tfCronUnset flag
             env(cron::set(alice),
                 cron::delay(365 * 24 * 60 * 60),
+                txflags(tfCronUnset),
+                ter(temMALFORMED));
+            env(cron::set(alice),
+                cron::repeat(100),
+                txflags(tfCronUnset),
+                ter(temMALFORMED));
+            env(cron::set(alice),
+                cron::startTime(100),
                 txflags(tfCronUnset),
                 ter(temMALFORMED));
         }
@@ -179,9 +188,25 @@ struct Cron_test : public beast::unit_test::suite
 
         auto const alice = Account("alice");
         Env env{*this, features | featureCron};
+        env.fund(XRP(1000), alice);
+        env.close();
 
-        // there is no check in preclaim
-        BEAST_EXPECT(true);
+        // Past StartTime
+        env(cron::set(alice),
+            cron::startTime(
+                env.timeKeeper().now().time_since_epoch().count() - 1),
+            fee(XRP(1)),
+            ter(tecEXPIRED));
+        env.close();
+
+        // Too far Future StartTime
+        env(cron::set(alice),
+            cron::startTime(
+                env.timeKeeper().now().time_since_epoch().count() +
+                365 * 24 * 60 * 60 + 1),
+            fee(XRP(1)),
+            ter(tecEXPIRED));
+        env.close();
     }
 
     void
@@ -199,7 +224,10 @@ struct Cron_test : public beast::unit_test::suite
         auto const aliceOwnerCount = ownerCount(env, alice);
 
         // create cron
+        auto parentCloseTime =
+            env.current()->parentCloseTime().time_since_epoch().count();
         env(cron::set(alice),
+            cron::startTime(parentCloseTime + 356 * 24 * 60 * 60),
             cron::delay(356 * 24 * 60 * 60),
             cron::repeat(256),
             fee(XRP(1)),
@@ -219,9 +247,15 @@ struct Cron_test : public beast::unit_test::suite
         BEAST_EXPECT(
             cronSle->getFieldU32(sfDelaySeconds) == 356 * 24 * 60 * 60);
         BEAST_EXPECT(cronSle->getFieldU32(sfRepeatCount) == 256);
+        BEAST_EXPECT(
+            cronSle->getFieldU32(sfStartTime) ==
+            parentCloseTime + 356 * 24 * 60 * 60);
 
         // update cron
+        parentCloseTime =
+            env.current()->parentCloseTime().time_since_epoch().count();
         env(cron::set(alice),
+            cron::startTime(0),
             cron::delay(100),
             cron::repeat(10),
             fee(XRP(1)),
@@ -243,6 +277,7 @@ struct Cron_test : public beast::unit_test::suite
         BEAST_EXPECT(cronSle2);
         BEAST_EXPECT(cronSle2->getFieldU32(sfDelaySeconds) == 100);
         BEAST_EXPECT(cronSle2->getFieldU32(sfRepeatCount) == 10);
+        BEAST_EXPECT(cronSle2->getFieldU32(sfStartTime) == parentCloseTime);
 
         // delete cron
         env(cron::set(alice),
@@ -289,6 +324,7 @@ struct Cron_test : public beast::unit_test::suite
             auto repeatCount = 10;
 
             env(cron::set(alice),
+                cron::startTime(baseTime + 100),
                 cron::delay(100),
                 cron::repeat(repeatCount),
                 fee(XRP(1)));
@@ -311,7 +347,7 @@ struct Cron_test : public beast::unit_test::suite
                 }
 
                 // close after 100 seconds passed
-                env.close();
+                env.close(10s);
 
                 auto txns = env.closed()->txs;
                 auto size = std::distance(txns.begin(), txns.end());
@@ -348,8 +384,7 @@ struct Cron_test : public beast::unit_test::suite
                             cronSle->getAccountID(sfOwner) == alice.id());
 
                         // set new base time
-                        baseTime =
-                            env.timeKeeper().now().time_since_epoch().count();
+                        baseTime = baseTime + 100;
                         lastCronKeylet = cronKeylet;
                     }
                     else
@@ -380,7 +415,7 @@ struct Cron_test : public beast::unit_test::suite
 
             for (auto const& account : accounts)
             {
-                env(cron::set(account), cron::delay(0), fee(XRP(1)));
+                env(cron::set(account), cron::startTime(0), fee(XRP(1)));
             }
             env.close();
 
