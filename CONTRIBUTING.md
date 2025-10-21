@@ -179,7 +179,7 @@ existing maintainer without a vote.
 * [Richard Holland](https://github.com/RichardAH) (XRPL Labs + INFTF)
 * [Denis Angell](https://github.com/dangell7) (XRPL Labs + INFTF)
 * [Wietse Wind](https://github.com/WietseWind) (XRPL Labs + INFTF)
-* [Tequ](https://github.com/tequdev) (Independent + INFTF)
+* [tequ](https://github.com/tequdev) (Independent + INFTF)
 
 
 [1]: https://docs.github.com/en/get-started/quickstart/contributing-to-projects
