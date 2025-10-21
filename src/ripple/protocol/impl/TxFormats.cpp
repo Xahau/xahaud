@@ -486,6 +486,7 @@ TxFormats::TxFormats()
         {
             {sfDelaySeconds, soeOPTIONAL},
             {sfRepeatCount, soeOPTIONAL},
+            {sfStartTime, soeOPTIONAL},
         },
         commonFields);
 }

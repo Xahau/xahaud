@@ -38,6 +38,12 @@ set(jtx::Account const& account)
 }
 
 void
+startTime::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfStartTime.jsonName] = startTime_;
+}
+
+void
 delay::operator()(Env& env, JTx& jt) const
 {
     jt.jv[sfDelaySeconds.jsonName] = delay_;
