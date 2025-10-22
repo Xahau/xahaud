@@ -381,12 +381,6 @@ SHAMapStoreImp::loadPinnedRanges()
     }
 }
 
-// NOTE: Startup cleanup of unpinned ledgers was removed.
-// The async cleanup caused confusing lock contention and performance issues,
-// especially when users tried operations like catalogue_load immediately after
-// startup. The cleanup would hold SQLite write locks for extended periods,
-// causing mysterious multi-second pauses that appeared unrelated to startup.
-
 void
 SHAMapStoreImp::run()
 {

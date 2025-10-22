@@ -266,6 +266,10 @@ public:
         // Always load pinned ranges on startup
         loadPinnedRanges();
 
+        // NOTE: Startup cleanup of unpinned ledgers was removed - it caused
+        // SQLite lock contention and confusing pauses. Database will shrink
+        // incrementally during rotation. Custom tools will provide pruning
+        // management for specialized needs.
         if (deleteInterval_)
         {
             thread_ = std::thread(&SHAMapStoreImp::run, this);
