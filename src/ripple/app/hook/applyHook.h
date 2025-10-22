@@ -99,6 +99,19 @@ DECLARE_HOOK_FUNCTION(
     uint32_t kread_len);
 DECLARE_HOOK_FUNCTION(
     int64_t,
+    util_verify_p256,
+    uint32_t hread_ptr,
+    uint32_t hread_len,
+    uint32_t rread_ptr,
+    uint32_t rread_len,
+    uint32_t sread_ptr,
+    uint32_t sread_len,
+    uint32_t xread_ptr,
+    uint32_t xread_len,
+    uint32_t yread_ptr,
+    uint32_t yread_len);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
     sto_validate,
     uint32_t tread_ptr,
     uint32_t tread_len);
@@ -136,6 +149,13 @@ DECLARE_HOOK_FUNCTION(
 DECLARE_HOOK_FUNCTION(
     int64_t,
     util_sha512h,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
+    util_sha256,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
@@ -802,7 +822,9 @@ public:
         ADD_HOOK_FUNCTION(util_raddr, ctx);
         ADD_HOOK_FUNCTION(util_accid, ctx);
         ADD_HOOK_FUNCTION(util_verify, ctx);
+        ADD_HOOK_FUNCTION(util_verify_p256, ctx);
         ADD_HOOK_FUNCTION(util_sha512h, ctx);
+        ADD_HOOK_FUNCTION(util_sha256, ctx);
         ADD_HOOK_FUNCTION(sto_validate, ctx);
         ADD_HOOK_FUNCTION(sto_subfield, ctx);
         ADD_HOOK_FUNCTION(sto_subarray, ctx);

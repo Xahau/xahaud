@@ -17,6 +17,10 @@
 #include <any>
 #include <cfenv>
 #include <memory>
+#include <openssl/bn.h>
+#include <openssl/ec.h>
+#include <openssl/ecdsa.h>
+#include <openssl/obj_mac.h>
 #include <optional>
 #include <string>
 #include <utility>
@@ -3884,6 +3888,34 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_sha256,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx, view on current stack
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
+        NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    ripple::sha256_hasher h;
+    h(memory + read_ptr, read_len);
+    auto hash = static_cast<ripple::sha256_hasher::result_type>(h);
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
 // these are only used by get_stobject_length below
 enum parse_error : int32_t {
     pe_unexpected_end = -1,
@@ -4615,6 +4647,116 @@ DEFINE_HOOK_FUNCTION(
 
     ripple::PublicKey key{keyslice};
     return verify(key, data, sig, false) ? 1 : 0;
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_verify_p256,
+    uint32_t hread_ptr,  // hash
+    uint32_t hread_len,
+    uint32_t rread_ptr,  // r of signature
+    uint32_t rread_len,
+    uint32_t sread_ptr,  // s of signature
+    uint32_t sread_len,
+    uint32_t xread_ptr,  // x of public key
+    uint32_t xread_len,
+    uint32_t yread_ptr,  // y of public key
+    uint32_t yread_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length) ||
+        NOT_IN_BOUNDS(rread_ptr, rread_len, memory_length) ||
+        NOT_IN_BOUNDS(sread_ptr, sread_len, memory_length) ||
+        NOT_IN_BOUNDS(xread_ptr, xread_len, memory_length) ||
+        NOT_IN_BOUNDS(yread_ptr, yread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (hread_len != 32)
+        return INVALID_ARGUMENT;
+
+    if (rread_len > 32 || sread_len > 32 || xread_len > 32 || yread_len > 32)
+        return TOO_BIG;
+
+    // create curve object
+    EC_GROUP* group = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1);
+    if (!group)
+        return INTERNAL_ERROR;
+
+    // set group to EC_KEY
+    EC_KEY* key = EC_KEY_new();
+    if (!key)
+    {
+        EC_GROUP_free(group);
+        return INTERNAL_ERROR;
+    }
+
+    EC_KEY_set_group(key, group);
+
+    // restore public key point from BIGNUM
+    EC_POINT* point = EC_POINT_new(group);
+    BIGNUM* bn_x = BN_bin2bn(
+        reinterpret_cast<const unsigned char*>(xread_ptr + memory),
+        xread_len,
+        nullptr);
+    BIGNUM* bn_y = BN_bin2bn(
+        reinterpret_cast<const unsigned char*>(yread_ptr + memory),
+        yread_len,
+        nullptr);
+    if (!point || !bn_x || !bn_y ||
+        EC_POINT_set_affine_coordinates_GFp(
+            group, point, bn_x, bn_y, nullptr) != 1 ||
+        EC_KEY_set_public_key(key, point) != 1)
+    {
+        EC_POINT_free(point);
+        BN_free(bn_x);
+        BN_free(bn_y);
+        EC_KEY_free(key);
+        EC_GROUP_free(group);
+        return 0;
+    }
+
+    // pack r/s into ECDSA_SIG structure
+    ECDSA_SIG* sig = ECDSA_SIG_new();
+    BIGNUM* bn_r = BN_bin2bn(
+        reinterpret_cast<const unsigned char*>(rread_ptr + memory),
+        rread_len,
+        nullptr);
+    BIGNUM* bn_s = BN_bin2bn(
+        reinterpret_cast<const unsigned char*>(sread_ptr + memory),
+        sread_len,
+        nullptr);
+    int verified = 0;
+    if (!sig || !bn_r || !bn_s || ECDSA_SIG_set0(sig, bn_r, bn_s) != 1)
+    {
+        // ownership of bn_r, bn_s is transferred to sig
+        verified = 0;
+    }
+    else
+    {
+        // verify
+        verified = ECDSA_do_verify(
+            reinterpret_cast<const unsigned char*>(hread_ptr + memory),
+            hread_len,
+            sig,
+            key);
+    }
+
+    ECDSA_SIG_free(sig);
+    BN_free(bn_r);
+    BN_free(bn_s);
+
+    EC_POINT_free(point);
+    BN_free(bn_x);
+    BN_free(bn_y);
+
+    EC_KEY_free(key);
+    EC_GROUP_free(group);
+
+    return verified ? 1 : 0;
 
     HOOK_TEARDOWN();
 }
