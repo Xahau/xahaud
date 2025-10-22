@@ -21,10 +21,13 @@
 #define RIPPLE_NODESTORE_DATABASEPINNEDIMP_H_INCLUDED
 
 #include <ripple/app/main/Application.h>
+#include <ripple/basics/RangeSet.h>
 #include <ripple/nodestore/Backend.h>
 #include <ripple/nodestore/DatabaseRotating.h>
 #include <ripple/nodestore/NodeObject.h>
 #include <ripple/nodestore/impl/DatabaseRotatingImp.h>
+#include <atomic>
+#include <chrono>
 #include <memory>
 
 namespace ripple {
@@ -45,8 +48,15 @@ namespace NodeStore {
 class DatabasePinnedImp : public DatabaseRotating
 {
 private:
+    Application& app_;  // For accessing LedgerMaster's pinned ranges
     DatabaseRotatingImp rotating_;         // Handles rotation for hot nodes
     std::shared_ptr<Backend> persistent_;  // NuDB for pinned nodes
+
+    // Lock-free cached pinned ranges for backend selection hint
+    // Use std::atomic_load/store free functions for thread-safe access
+    mutable std::shared_ptr<RangeSet<std::uint32_t>> cachedPinnedRanges_;
+    mutable std::atomic<std::chrono::steady_clock::time_point::rep>
+        lastRefresh_{0};
 
 public:
     static constexpr auto JournalName = "DatabasePinned";
@@ -101,6 +111,16 @@ private:
         std::uint32_t ledgerSeq,
         FetchReport& fetchReport,
         bool duplicate) override;
+
+    // Helper methods for backend selection optimization
+    void
+    refreshPinnedRangesCache() const;
+
+    bool
+    likelyPinned(std::uint32_t ledgerSeq) const;
+
+    std::shared_ptr<NodeObject>
+    tryPersistent(uint256 const& hash, FetchReport& fetchReport);
 
     void
     for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override;

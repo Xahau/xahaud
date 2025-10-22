@@ -1038,13 +1038,14 @@ Config::loadFromString(std::string const& fileContents)
                     "pinned_path is required when pinned_type is set");
             }
 
-            // Ensure online_delete is set for rotation
+            // Ensure online_delete is set (pinning without deletion is
+            // redundant)
             if (auto delete_interval = get(db_section, "online_delete", 0);
                 delete_interval == 0)
             {
                 Throw<std::runtime_error>(
-                    "DatabasePinned requires online_delete for memory "
-                    "rotation");
+                    "pinned_type requires online_delete (pinning without "
+                    "deletion is redundant)");
             }
         }
     }
