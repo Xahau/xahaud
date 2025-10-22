@@ -236,8 +236,7 @@ private:
         std::string const& tableName,
         std::function<std::optional<LedgerIndex>()> const& getMinSeq,
         std::function<void(RangeSet<std::uint32_t> const&)> const&
-            deleteInRanges,
-        std::optional<RangeSet<std::uint32_t>> const& complete = std::nullopt);
+            deleteInRanges);
 
     void
     clearCaches(LedgerIndex validatedSeq);

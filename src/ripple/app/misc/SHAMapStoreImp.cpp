@@ -234,7 +234,7 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             // DatabasePinned uses the same rotation backends as
             // DatabaseRotating but adds a persistent backend for pinned nodes
 
-            // Create persistent backend (NuDB) for pinned data
+            // Create persistent backend for pinned data
             Section pinnedConfig = nscfg;
             pinnedConfig.set("type", *nscfg.get("pinned_type"));
             pinnedConfig.set("path", *nscfg.get("pinned_path"));
@@ -665,8 +665,7 @@ SHAMapStoreImp::clearSqlRanges(
     RangeSet<std::uint32_t> const& pinned,
     std::string const& tableName,
     std::function<std::optional<LedgerIndex>()> const& getMinSeq,
-    std::function<void(RangeSet<std::uint32_t> const&)> const& deleteInRanges,
-    std::optional<RangeSet<std::uint32_t>> const& complete)
+    std::function<void(RangeSet<std::uint32_t> const&)> const& deleteInRanges)
 {
     assert(deleteInterval_);
     auto m = getMinSeq();
@@ -678,11 +677,8 @@ SHAMapStoreImp::clearSqlRanges(
         return;
 
     // base window [minSeq, lastRotated-1]
-    RangeSet<std::uint32_t> base;
-    base.insert(range(minSeq, lastRotated - 1));
-
-    // optional: limit to what we believe exists
-    RangeSet<std::uint32_t> target = complete ? (base & *complete) : base;
+    RangeSet<std::uint32_t> target;
+    target.insert(range(minSeq, lastRotated - 1));
 
     // subtract pins -> disjoint deletable intervals
     target -= pinned;
@@ -696,7 +692,6 @@ SHAMapStoreImp::clearSqlRanges(
     JLOG(journal_.debug()) << "Pruning " << tableName
                            << ". Target ranges: " << to_string(target);
 
-    // Process each interval with binary partitioning
     // The deleteInRanges lambda will handle the actual database operations
     deleteInRanges(target);
 
@@ -784,8 +779,7 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
                         std::this_thread::sleep_for(backOff_);
                     }
                 }
-            },
-            std::nullopt);
+            });
         if (healthWait() == stopping)
             return;
 
@@ -817,8 +811,7 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
                         std::this_thread::sleep_for(backOff_);
                     }
                 }
-            },
-            std::nullopt);
+            });
         if (healthWait() == stopping)
             return;
     }
@@ -848,8 +841,7 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
                     std::this_thread::sleep_for(backOff_);
                 }
             }
-        },
-        std::nullopt);
+        });
     if (healthWait() == stopping)
         return;
 }
