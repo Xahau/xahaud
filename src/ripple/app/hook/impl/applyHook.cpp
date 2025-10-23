@@ -1064,7 +1064,8 @@ hook::setHookState(
     ripple::AccountID const& acc,
     ripple::uint256 const& ns,
     ripple::uint256 const& key,
-    ripple::Slice const& data)
+    ripple::Slice const& data,
+    uint16_t capacity)
 {
     auto& view = applyCtx.view();
     auto j = applyCtx.app.journal("View");
@@ -1073,12 +1074,9 @@ hook::setHookState(
     if (!sleAccount)
         return tefINTERNAL;
 
-    // if the blob is too large don't set it
-    uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
-        ? sleAccount->getFieldU16(sfHookStateScale)
-        : 1;
-
-    if (data.size() > hook::maxHookStateDataSize(hookStateScale))
+    // Check if data size fits within capacity
+    uint16_t const maxSize = capacity * 256;
+    if (data.size() > maxSize)
         return temHOOK_DATA_TOO_LARGE;
 
     auto hookStateKeylet = ripple::keylet::hookState(acc, key, ns);
@@ -1116,10 +1114,9 @@ hook::setHookState(
         if (stateCount > 0)
             --stateCount;  // guard this because in the "impossible" event it is
                            // already 0 we'll wrap back to int_max
-        // if removing this state entry would destroy the allotment then reduce
-        // the owner count
-        if (stateCount < oldStateCount)
-            adjustOwnerCount(view, sleAccount, -hookStateScale, j);
+        // Refund reserves based on entry's capacity
+        if (stateCount < oldStateCount && capacity > 0)
+            adjustOwnerCount(view, sleAccount, -static_cast<int>(capacity), j);
 
         if (view.rules().enabled(featureExtendedHookState) && stateCount == 0)
             sleAccount->makeFieldAbsent(sfHookStateCount);
@@ -1151,19 +1148,16 @@ hook::setHookState(
     {
         ++stateCount;
 
-        if (stateCount > oldStateCount)
+        if (stateCount > oldStateCount && capacity > 0)
         {
-            // the hook used its allocated allotment of state entries for its
-            // previous ownercount increment ownercount and give it another
-            // allotment
-
-            ownerCount += hookStateScale;
+            // Lock reserves based on entry's capacity
+            ownerCount += capacity;
             XRPAmount const newReserve{view.fees().accountReserve(ownerCount)};
 
             if (STAmount((*sleAccount)[sfBalance]).xrp() < newReserve)
                 return tecINSUFFICIENT_RESERVE;
 
-            adjustOwnerCount(view, sleAccount, hookStateScale, j);
+            adjustOwnerCount(view, sleAccount, capacity, j);
         }
 
         // update state count
@@ -1173,9 +1167,43 @@ hook::setHookState(
         // create an entry
         hookState = std::make_shared<SLE>(hookStateKeylet);
     }
+    else
+    {
+        // Modifying existing entry - may need to update capacity
+        uint16_t oldCapacity = 1;
+        if (hookState->isFieldPresent(sfHookStateCapacity))
+        {
+            oldCapacity = hookState->getFieldU16(sfHookStateCapacity);
+        }
+        else
+        {
+            // Legacy entry without capacity - calculate from current data
+            auto const& existingData = hookState->getFieldVL(sfHookStateData);
+            oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+        }
+
+        // High water mark: capacity may have grown
+        if (capacity > oldCapacity)
+        {
+            uint16_t const capacityDelta = capacity - oldCapacity;
+            if (capacityDelta > 0)
+            {
+                ownerCount += capacityDelta;
+                XRPAmount const newReserve{view.fees().accountReserve(ownerCount)};
+
+                if (STAmount((*sleAccount)[sfBalance]).xrp() < newReserve)
+                    return tecINSUFFICIENT_RESERVE;
+
+                adjustOwnerCount(view, sleAccount, capacityDelta, j);
+                sleAccount->setFieldU32(sfOwnerCount, ownerCount);
+                view.update(sleAccount);
+            }
+        }
+    }
 
     hookState->setFieldVL(sfHookStateData, data);
     hookState->setFieldH256(sfHookStateKey, key);
+    hookState->setFieldU16(sfHookStateCapacity, capacity);
 
     if (createNew)
     {
@@ -1440,7 +1468,7 @@ std::optional<ripple::uint256> inline make_state_key(std::string_view source)
 
 // check the state cache
 inline std::optional<
-    std::reference_wrapper<std::pair<bool, ripple::Blob> const>>
+    std::reference_wrapper<std::tuple<bool, ripple::Blob, uint16_t> const>>
 lookup_state_cache(
     hook::HookContext& hookCtx,
     ripple::AccountID const& acc,
@@ -1451,7 +1479,7 @@ lookup_state_cache(
     if (stateMap.find(acc) == stateMap.end())
         return std::nullopt;
 
-    auto& stateMapAcc = std::get<3>(stateMap[acc]);
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
     if (stateMapAcc.find(ns) == stateMapAcc.end())
         return std::nullopt;
 
@@ -1484,6 +1512,9 @@ set_state_cache(
     bool const createNamespace = view.rules().enabled(fixXahauV1) &&
         !view.exists(keylet::hookStateDir(acc, ns));
 
+    // Calculate capacity from data size (high water mark approach)
+    uint16_t const newCapacity = data.empty() ? 0 : (data.size() + 255) / 256;
+
     if (stateMap.find(acc) == stateMap.end())
     {
         // new Account Key
@@ -1498,10 +1529,6 @@ set_state_cache(
 
         STAmount bal = accSLE->getFieldAmount(sfBalance);
 
-        uint16_t const hookStateScale = accSLE->isFieldPresent(sfHookStateScale)
-            ? accSLE->getFieldU16(sfHookStateScale)
-            : 1;
-
         int64_t availableForReserves = bal.xrp().drops() -
             fees.accountReserve(accSLE->getFieldU32(sfOwnerCount)).drops();
 
@@ -1512,7 +1539,31 @@ set_state_cache(
 
         availableForReserves /= increment;
 
-        if (availableForReserves < hookStateScale && modified)
+        // Check if this state key exists in ledger to get old capacity
+        uint16_t oldCapacity = 0;
+        auto const hookStateKeylet = ripple::keylet::hookState(acc, key, ns);
+        auto const hsSLE = view.peek(hookStateKeylet);
+        if (hsSLE)
+        {
+            // Entry exists in ledger - get its capacity
+            if (hsSLE->isFieldPresent(sfHookStateCapacity))
+            {
+                oldCapacity = hsSLE->getFieldU16(sfHookStateCapacity);
+            }
+            else
+            {
+                // Legacy entry without capacity field - calculate from data size
+                auto const& existingData = hsSLE->getFieldVL(sfHookStateData);
+                oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+            }
+        }
+
+        // High water mark: only deduct reserves if capacity increases
+        uint16_t const finalCapacity = std::max(newCapacity, oldCapacity);
+        uint16_t const capacityDelta = finalCapacity - oldCapacity;
+
+        // Check if we have enough reserves for this capacity
+        if (availableForReserves < capacityDelta && modified)
             return RESERVE_INSUFFICIENT;
 
         int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
@@ -1533,29 +1584,48 @@ set_state_cache(
 
         // sanity check
         if (view.rules().enabled(featureExtendedHookState) &&
-            availableForReserves < hookStateScale)
+            availableForReserves < capacityDelta)
             return INTERNAL_ERROR;
 
         stateMap[acc] = {
-            availableForReserves - hookStateScale,
+            availableForReserves - capacityDelta,
             namespaceCount,
-            hookStateScale,
-            {{ns, {{key, {modified, data}}}}}};
+            {{ns, {{key, {modified, data, finalCapacity}}}}}};
         return 1;
     }
 
     auto& availableForReserves = std::get<0>(stateMap[acc]);
     auto& namespaceCount = std::get<1>(stateMap[acc]);
-    auto& hookStateScale = std::get<2>(stateMap[acc]);
-    auto& stateMapAcc = std::get<3>(stateMap[acc]);
-    bool const canReserveNew = availableForReserves >= hookStateScale;
+    auto& stateMapAcc = std::get<2>(stateMap[acc]);
 
     if (stateMapAcc.find(ns) == stateMapAcc.end())
     {
-        // new Namespace Key
+        // new Namespace Key - need to check if state key exists in ledger
+        uint16_t oldCapacity = 0;
+        auto const hookStateKeylet = ripple::keylet::hookState(acc, key, ns);
+        auto const hsSLE = view.peek(hookStateKeylet);
+        if (hsSLE)
+        {
+            // Entry exists in ledger - get its capacity
+            if (hsSLE->isFieldPresent(sfHookStateCapacity))
+            {
+                oldCapacity = hsSLE->getFieldU16(sfHookStateCapacity);
+            }
+            else
+            {
+                // Legacy entry without capacity field - calculate from data size
+                auto const& existingData = hsSLE->getFieldVL(sfHookStateData);
+                oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+            }
+        }
+
+        // High water mark: only deduct reserves if capacity increases
+        uint16_t const finalCapacity = std::max(newCapacity, oldCapacity);
+        uint16_t const capacityDelta = finalCapacity - oldCapacity;
+
         if (modified)
         {
-            if (!canReserveNew)
+            if (availableForReserves < capacityDelta)
                 return RESERVE_INSUFFICIENT;
 
             if (createNamespace)
@@ -1571,14 +1641,14 @@ set_state_cache(
             }
 
             if (view.rules().enabled(featureExtendedHookState) &&
-                availableForReserves < hookStateScale)
+                availableForReserves < capacityDelta)
                 return INTERNAL_ERROR;
 
-            availableForReserves -= hookStateScale;
+            availableForReserves -= capacityDelta;
             stateMap.modified_entry_count++;
         }
 
-        stateMapAcc[ns] = {{key, {modified, data}}};
+        stateMapAcc[ns] = {{key, {modified, data, finalCapacity}}};
 
         return 1;
     }
@@ -1586,36 +1656,78 @@ set_state_cache(
     auto& stateMapNs = stateMapAcc[ns];
     if (stateMapNs.find(key) == stateMapNs.end())
     {
-        // new State Key
-        if (modified)
+        // new State Key - need to check if it exists in ledger for oldCapacity
+        uint16_t oldCapacity = 0;
+
+        auto const hookStateKeylet = ripple::keylet::hookState(acc, key, ns);
+        auto const hsSLE = view.peek(hookStateKeylet);
+        if (hsSLE)
         {
-            if (!canReserveNew)
+            // Entry exists in ledger - get its capacity
+            if (hsSLE->isFieldPresent(sfHookStateCapacity))
+            {
+                oldCapacity = hsSLE->getFieldU16(sfHookStateCapacity);
+            }
+            else
+            {
+                // Legacy entry without capacity field - calculate from data size
+                auto const& existingData = hsSLE->getFieldVL(sfHookStateData);
+                oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+            }
+        }
+
+        // High water mark: only deduct reserves if capacity increases
+        uint16_t const finalCapacity = std::max(newCapacity, oldCapacity);
+        uint16_t const capacityDelta = finalCapacity - oldCapacity;
+
+        if (modified && capacityDelta > 0)
+        {
+            if (availableForReserves < capacityDelta)
                 return RESERVE_INSUFFICIENT;
 
             if (view.rules().enabled(featureExtendedHookState) &&
-                availableForReserves < hookStateScale)
+                availableForReserves < capacityDelta)
                 return INTERNAL_ERROR;
 
-            availableForReserves -= hookStateScale;
+            availableForReserves -= capacityDelta;
             stateMap.modified_entry_count++;
         }
 
-        stateMapNs[key] = {modified, data};
+        stateMapNs[key] = {modified, data, finalCapacity};
         hookCtx.result.changedStateCount++;
         return 1;
     }
 
-    // existing State Key
+    // existing State Key in cache
+    auto& cacheEntry = stateMapNs[key];
+    uint16_t const oldCapacity = std::get<2>(cacheEntry);
+    uint16_t const finalCapacity = std::max(newCapacity, oldCapacity);
+    uint16_t const capacityDelta = finalCapacity - oldCapacity;
+
+    // High water mark: only check reserves if capacity increases
+    if (modified && capacityDelta > 0)
+    {
+        if (availableForReserves < capacityDelta)
+            return RESERVE_INSUFFICIENT;
+
+        if (view.rules().enabled(featureExtendedHookState) &&
+            availableForReserves < capacityDelta)
+            return INTERNAL_ERROR;
+
+        availableForReserves -= capacityDelta;
+    }
+
     if (modified)
     {
-        if (!stateMapNs[key].first)
+        if (!std::get<0>(cacheEntry))
             hookCtx.result.changedStateCount++;
 
         stateMap.modified_entry_count++;
-        stateMapNs[key].first = true;
+        std::get<0>(cacheEntry) = true;
     }
 
-    stateMapNs[key].second = data;
+    std::get<1>(cacheEntry) = data;
+    std::get<2>(cacheEntry) = finalCapacity;
     return 1;
 }
 
@@ -1694,16 +1806,10 @@ DEFINE_HOOK_FUNCTION(
         (aread_len && NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length)))
         return OUT_OF_BOUNDS;
 
-    auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
-    if (!sleAccount && view.rules().enabled(featureExtendedHookState))
-        return tefINTERNAL;
-
-    uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
-        ? sleAccount->getFieldU16(sfHookStateScale)
-        : 1;
-
-    uint32_t maxSize = hook::maxHookStateDataSize(hookStateScale);
-    if (read_len > maxSize)
+    // High water mark: capacity determined by actual data size
+    // Maximum absolute limit is 16 * 256 = 4096 bytes
+    constexpr uint32_t maxAbsoluteSize = 16 * 256;
+    if (read_len > maxAbsoluteSize)
         return TOO_BIG;
 
     uint256 ns = nread_len == 0
@@ -1745,7 +1851,7 @@ DEFINE_HOOK_FUNCTION(
 
     // first check if we've already modified this state
     auto cacheEntry = lookup_state_cache(hookCtx, acc, ns, *key);
-    if (cacheEntry && cacheEntry->get().first)
+    if (cacheEntry && std::get<0>(cacheEntry->get()))
     {
         // if a cache entry already exists and it has already been modified
         // don't check grants again
@@ -1846,14 +1952,15 @@ hook::finalizeHookState(
     for (const auto& accEntry : stateMap)
     {
         const auto& acc = accEntry.first;
-        for (const auto& nsEntry : std::get<3>(accEntry.second))
+        for (const auto& nsEntry : std::get<2>(accEntry.second))
         {
             const auto& ns = nsEntry.first;
             for (const auto& cacheEntry : nsEntry.second)
             {
-                bool is_modified = cacheEntry.second.first;
+                bool is_modified = std::get<0>(cacheEntry.second);
                 const auto& key = cacheEntry.first;
-                const auto& blob = cacheEntry.second.second;
+                const auto& blob = std::get<1>(cacheEntry.second);
+                uint16_t capacity = std::get<2>(cacheEntry.second);
                 if (is_modified)
                 {
                     changeCount++;
@@ -1869,7 +1976,7 @@ hook::finalizeHookState(
                     // this entry isn't just cached, it was actually modified
                     auto slice = Slice(blob.data(), blob.size());
 
-                    TER result = setHookState(applyCtx, acc, ns, key, slice);
+                    TER result = setHookState(applyCtx, acc, ns, key, slice, capacity);
 
                     if (!isTesSuccess(result))
                     {
@@ -2190,8 +2297,8 @@ DEFINE_HOOK_FUNCTION(
         WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
             write_ptr,
             write_len,
-            cacheEntry.second.data(),
-            cacheEntry.second.size(),
+            std::get<1>(cacheEntry).data(),
+            std::get<1>(cacheEntry).size(),
             false);
     }
 

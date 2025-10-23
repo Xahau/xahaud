@@ -32,14 +32,14 @@ class HookStateMap : public std::map<
                          std::tuple<
                              int64_t,   // remaining available ownercount
                              int64_t,   // total namespace count
-                             uint16_t,  // hook state scale
                              std::map<
                                  ripple::uint256,  // namespace
                                  std::map<
                                      ripple::uint256,  // key
-                                     std::pair<
-                                         bool,  // is modified from ledger value
-                                         ripple::Blob>>>>>  // the value
+                                     std::tuple<
+                                         bool,          // is modified from ledger value
+                                         ripple::Blob,  // the value
+                                         uint16_t>>>>>  // capacity (high water mark)
 {
 public:
     uint32_t modified_entry_count = 0;  // track the number of total modified
@@ -568,7 +568,8 @@ setHookState(
     ripple::AccountID const& acc,
     ripple::uint256 const& ns,
     ripple::uint256 const& key,
-    ripple::Slice const& data);
+    ripple::Slice const& data,
+    uint16_t capacity);
 
 // write hook execution metadata and remove emitted transaction ledger entries
 ripple::TER

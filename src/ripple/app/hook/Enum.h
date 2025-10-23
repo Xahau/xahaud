@@ -46,14 +46,10 @@ maxHookParameterValueSize(void)
 }
 
 inline uint32_t
-maxHookStateDataSize(uint16_t hookStateScale)
+maxHookStateDataSize(void)
 {
-    if (hookStateScale == 0)
-    {
-        // should not happen, but just in case
-        return 256U;
-    }
-    return 256U * hookStateScale;
+    // With high water mark capacity, maximum is 16 * 256 = 4096 bytes
+    return 16 * 256U;
 }
 
 inline uint32_t

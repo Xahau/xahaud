@@ -68,7 +68,6 @@ LedgerFormats::LedgerFormats()
             {sfGovernanceMarks,      soeOPTIONAL},
             {sfAccountIndex,         soeOPTIONAL},
             {sfTouchCount,           soeOPTIONAL},
-            {sfHookStateScale,       soeOPTIONAL},
             {sfCron,                 soeOPTIONAL},
         },
         commonFields);
@@ -244,9 +243,10 @@ LedgerFormats::LedgerFormats()
     add(jss::HookState,
         ltHOOK_STATE,
         {
-            {sfOwnerNode, soeREQUIRED},   
+            {sfOwnerNode, soeREQUIRED},
             {sfHookStateKey, soeREQUIRED},
             {sfHookStateData, soeREQUIRED},
+            {sfHookStateCapacity, soeOPTIONAL},
         },
         commonFields);
 

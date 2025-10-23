@@ -858,12 +858,12 @@ SetHook::destroyNamespace(
     bool const fixEnabled = ctx.rules.enabled(fixNSDelete);
     bool partialDelete = false;
     uint32_t oldStateCount = sleAccount->getFieldU32(sfHookStateCount);
-    uint16_t scale = sleAccount->isFieldPresent(sfHookStateScale)
-        ? sleAccount->getFieldU16(sfHookStateScale)
-        : 1;
 
+    // With high water mark, we track total capacity of entries being deleted
     std::vector<uint256> toDelete;
+    std::vector<uint16_t> capacities;
     toDelete.reserve(sleDir->getFieldV256(sfIndexes).size());
+    capacities.reserve(sleDir->getFieldV256(sfIndexes).size());
     do
     {
         if (fixEnabled && toDelete.size() >= hook::maxNamespaceDelete())
@@ -900,13 +900,28 @@ SetHook::destroyNamespace(
             return tefBAD_LEDGER;
         }
 
+        // Get capacity before adding to delete list
+        uint16_t capacity = 1;
+        if (sleItem->isFieldPresent(sfHookStateCapacity))
+        {
+            capacity = sleItem->getFieldU16(sfHookStateCapacity);
+        }
+        else
+        {
+            // Legacy entry without capacity - calculate from data size
+            auto const& existingData = sleItem->getFieldVL(sfHookStateData);
+            capacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+        }
+
         toDelete.push_back(uint256::fromVoid(itemKeylet.key.data()));
+        capacities.push_back(capacity);
 
     } while (cdirNext(view, dirKeylet.key, sleDirNode, uDirEntry, dirEntry));
 
     // delete it!
-    for (auto const& itemKey : toDelete)
+    for (size_t i = 0; i < toDelete.size(); ++i)
     {
+        auto const& itemKey = toDelete[i];
         auto const& sleItem = view.peek({ltHOOK_STATE, itemKey});
 
         if (!sleItem)
@@ -958,16 +973,24 @@ SetHook::destroyNamespace(
 
     if (ctx.rules.enabled(fixNSDelete))
     {
-        auto const ownerCount = sleAccount->getFieldU32(sfOwnerCount);
-        if (view.rules().enabled(featureExtendedHookState) &&
-            ownerCount < toDelete.size() * scale)
+        // Sum up total capacity being deleted
+        uint32_t totalCapacity = 0;
+        for (auto const& cap : capacities)
+            totalCapacity += cap;
+
+        if (totalCapacity > 0)
         {
-            JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT
-                                << ")[" << HS_ACC() << "]: DeleteState "
-                                << "OwnerCount less than zero (overflow)";
-            return tefBAD_LEDGER;
+            auto const ownerCount = sleAccount->getFieldU32(sfOwnerCount);
+            if (view.rules().enabled(featureExtendedHookState) &&
+                ownerCount < totalCapacity)
+            {
+                JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT
+                                    << ")[" << HS_ACC() << "]: DeleteState "
+                                    << "OwnerCount less than zero (overflow)";
+                return tefBAD_LEDGER;
+            }
+            adjustOwnerCount(view, sleAccount, -static_cast<int>(totalCapacity), ctx.j);
         }
-        adjustOwnerCount(view, sleAccount, -toDelete.size() * scale, ctx.j);
     }
 
     if (!partialDelete && sleAccount->isFieldPresent(sfHookNamespaces))
