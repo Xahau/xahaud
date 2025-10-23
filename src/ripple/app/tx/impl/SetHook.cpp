@@ -910,7 +910,8 @@ SetHook::destroyNamespace(
         {
             // Legacy entry without capacity - calculate from data size
             auto const& existingData = sleItem->getFieldVL(sfHookStateData);
-            capacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+            capacity =
+                existingData.empty() ? 1 : (existingData.size() + 255) / 256;
         }
 
         toDelete.push_back(uint256::fromVoid(itemKeylet.key.data()));
@@ -989,7 +990,8 @@ SetHook::destroyNamespace(
                                     << "OwnerCount less than zero (overflow)";
                 return tefBAD_LEDGER;
             }
-            adjustOwnerCount(view, sleAccount, -static_cast<int>(totalCapacity), ctx.j);
+            adjustOwnerCount(
+                view, sleAccount, -static_cast<int>(totalCapacity), ctx.j);
         }
     }
 

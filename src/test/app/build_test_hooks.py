@@ -143,17 +143,27 @@ class SourceValidator:
 
     def extract_declarations(self, source: str) -> Tuple[List[str], List[str]]:
         """Extract declared and used function names."""
-        lines = source.split('\n')
+        # Normalize source: collapse whitespace/newlines to handle multi-line declarations
+        normalized = re.sub(r'\s+', ' ', source)
+
         declared = set()
         used = set()
 
-        for line in lines:
-            if re.search(r'(extern|define)\s+', line):
-                matches = re.findall(r'([a-z_-]+)\s*\(', line)
-                declared.update(m for m in matches if m != 'sizeof')
-            else:
-                matches = re.findall(r'([a-z_-]+)\(', line)
-                used.update(m for m in matches if m != 'sizeof' and not m.startswith(('hook', 'cbak')))
+        # Find all extern/define declarations (handles multi-line)
+        # Matches: extern TYPE function_name ( ...
+        decl_pattern = r'(?:extern|define)\s+[a-z0-9_]+\s+([a-z_-]+)\s*\('
+        for match in re.finditer(decl_pattern, normalized):
+            func_name = match.group(1)
+            if func_name != 'sizeof':
+                declared.add(func_name)
+
+        # Find all function calls
+        # Matches: function_name(
+        call_pattern = r'([a-z_-]+)\('
+        for match in re.finditer(call_pattern, normalized):
+            func_name = match.group(1)
+            if func_name != 'sizeof' and not func_name.startswith(('hook', 'cbak')):
+                used.add(func_name)
 
         return sorted(declared), sorted(used)
 

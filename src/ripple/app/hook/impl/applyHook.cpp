@@ -1179,7 +1179,8 @@ hook::setHookState(
         {
             // Legacy entry without capacity - calculate from current data
             auto const& existingData = hookState->getFieldVL(sfHookStateData);
-            oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+            oldCapacity =
+                existingData.empty() ? 1 : (existingData.size() + 255) / 256;
         }
 
         // High water mark: capacity may have grown
@@ -1189,7 +1190,8 @@ hook::setHookState(
             if (capacityDelta > 0)
             {
                 ownerCount += capacityDelta;
-                XRPAmount const newReserve{view.fees().accountReserve(ownerCount)};
+                XRPAmount const newReserve{
+                    view.fees().accountReserve(ownerCount)};
 
                 if (STAmount((*sleAccount)[sfBalance]).xrp() < newReserve)
                     return tecINSUFFICIENT_RESERVE;
@@ -1552,9 +1554,12 @@ set_state_cache(
             }
             else
             {
-                // Legacy entry without capacity field - calculate from data size
+                // Legacy entry without capacity field - calculate from data
+                // size
                 auto const& existingData = hsSLE->getFieldVL(sfHookStateData);
-                oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+                oldCapacity = existingData.empty()
+                    ? 1
+                    : (existingData.size() + 255) / 256;
             }
         }
 
@@ -1613,9 +1618,12 @@ set_state_cache(
             }
             else
             {
-                // Legacy entry without capacity field - calculate from data size
+                // Legacy entry without capacity field - calculate from data
+                // size
                 auto const& existingData = hsSLE->getFieldVL(sfHookStateData);
-                oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+                oldCapacity = existingData.empty()
+                    ? 1
+                    : (existingData.size() + 255) / 256;
             }
         }
 
@@ -1670,9 +1678,12 @@ set_state_cache(
             }
             else
             {
-                // Legacy entry without capacity field - calculate from data size
+                // Legacy entry without capacity field - calculate from data
+                // size
                 auto const& existingData = hsSLE->getFieldVL(sfHookStateData);
-                oldCapacity = existingData.empty() ? 1 : (existingData.size() + 255) / 256;
+                oldCapacity = existingData.empty()
+                    ? 1
+                    : (existingData.size() + 255) / 256;
             }
         }
 
@@ -1976,7 +1987,8 @@ hook::finalizeHookState(
                     // this entry isn't just cached, it was actually modified
                     auto slice = Slice(blob.data(), blob.size());
 
-                    TER result = setHookState(applyCtx, acc, ns, key, slice, capacity);
+                    TER result =
+                        setHookState(applyCtx, acc, ns, key, slice, capacity);
 
                     if (!isTesSuccess(result))
                     {
