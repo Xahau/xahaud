@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <ripple/basics/contract.h>
+#include <ripple/beast/core/LexicalCast.h>
 #include <ripple/nodestore/Factory.h>
 #include <ripple/nodestore/Manager.h>
 #include <ripple/nodestore/impl/DecodedBlob.h>
@@ -31,6 +32,7 @@
 #include <exception>
 #include <memory>
 #include <nudb/nudb.hpp>
+#include <sstream>
 
 namespace ripple {
 namespace NodeStore {
@@ -48,6 +50,7 @@ public:
     size_t const keyBytes_;
     std::size_t const burstSize_;
     std::string const name_;
+    std::size_t const blockSize_;
     nudb::store db_;
     std::atomic<bool> deletePath_;
     Scheduler& scheduler_;
@@ -62,6 +65,7 @@ public:
         , keyBytes_(keyBytes)
         , burstSize_(burstSize)
         , name_(get(keyValues, "path"))
+        , blockSize_(parseBlockSize(name_, keyValues, journal))
         , deletePath_(false)
         , scheduler_(scheduler)
     {
@@ -81,6 +85,7 @@ public:
         , keyBytes_(keyBytes)
         , burstSize_(burstSize)
         , name_(get(keyValues, "path"))
+        , blockSize_(parseBlockSize(name_, keyValues, journal))
         , db_(context)
         , deletePath_(false)
         , scheduler_(scheduler)
@@ -110,6 +115,12 @@ public:
         return name_;
     }
 
+    std::optional<std::size_t>
+    getBlockSize() const override
+    {
+        return blockSize_;
+    }
+
     void
     open(bool createIfMissing, uint64_t appType, uint64_t uid, uint64_t salt)
         override
@@ -137,7 +148,7 @@ public:
                 uid,
                 salt,
                 keyBytes_,
-                nudb::block_size(kp),
+                blockSize_,
                 0.50,
                 ec);
             if (ec == nudb::errc::file_exists)
@@ -361,6 +372,56 @@ public:
     fdRequired() const override
     {
         return 3;
+    }
+
+private:
+    static std::size_t
+    parseBlockSize(
+        std::string const& name,
+        Section const& keyValues,
+        beast::Journal journal)
+    {
+        using namespace boost::filesystem;
+        auto const folder = path(name);
+        auto const kp = (folder / "nudb.key").string();
+
+        std::size_t const defaultSize =
+            nudb::block_size(kp);  // Default 4K from NuDB
+        std::size_t blockSize = defaultSize;
+        std::string blockSizeStr;
+
+        if (!get_if_exists(keyValues, "nudb_block_size", blockSizeStr))
+        {
+            return blockSize;  // Early return with default
+        }
+
+        try
+        {
+            std::size_t const parsedBlockSize =
+                beast::lexicalCastThrow<std::size_t>(blockSizeStr);
+
+            // Validate: must be power of 2 between 4K and 32K
+            if (parsedBlockSize < 4096 || parsedBlockSize > 32768 ||
+                (parsedBlockSize & (parsedBlockSize - 1)) != 0)
+            {
+                std::stringstream s;
+                s << "Invalid nudb_block_size: " << parsedBlockSize
+                  << ". Must be power of 2 between 4096 and 32768.";
+                Throw<std::runtime_error>(s.str());
+            }
+
+            JLOG(journal.info())
+                << "Using custom NuDB block size: " << parsedBlockSize
+                << " bytes";
+            return parsedBlockSize;
+        }
+        catch (std::exception const& e)
+        {
+            std::stringstream s;
+            s << "Invalid nudb_block_size value: " << blockSizeStr
+              << ". Error: " << e.what();
+            Throw<std::runtime_error>(s.str());
+        }
     }
 };
 

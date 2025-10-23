@@ -60,6 +60,7 @@ TxFormats::TxFormats()
             {sfTickSize, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
             {sfNFTokenMinter, soeOPTIONAL},
+            {sfHookStateScale, soeOPTIONAL},
         },
         commonFields);
 
