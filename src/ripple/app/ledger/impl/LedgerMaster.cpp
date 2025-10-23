@@ -968,6 +968,11 @@ LedgerMaster::setFullLedger(
 
     {
         std::lock_guard ml(mCompleteLock);
+        // One-time startup initialization: Copy pinned ledgers to complete
+        // ledgers. This condition can only be true once - after the first
+        // validation, mCompleteLedgers will contain pinned ranges which are
+        // protected from clearing (see clearLedger() check), so
+        // mCompleteLedgers.empty() can never be true again.
         if (mCompleteLedgers.empty() && !mPinnedLedgers.empty())
         {
             mCompleteLedgers.assign(mPinnedLedgers);
