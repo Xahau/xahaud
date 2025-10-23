@@ -354,7 +354,6 @@ extern SF_UINT16 const sfHookStateChangeCount;
 extern SF_UINT16 const sfHookEmitCount;
 extern SF_UINT16 const sfHookExecutionIndex;
 extern SF_UINT16 const sfHookApiVersion;
-extern SF_UINT16 const sfHookStateScale;
 extern SF_UINT16 const sfHookStateCapacity;
 
 // 32-bit integers (common)

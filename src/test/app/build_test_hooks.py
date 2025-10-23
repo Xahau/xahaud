@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -329,36 +330,68 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
 #endif
 """
 
-    def __init__(self, logger: logging.Logger, output_file: Path):
+    def __init__(self, logger: logging.Logger, output_file: Path, cache_dir: Path):
         self.logger = logger
         self.output_file = output_file
+        self.cache_dir = cache_dir
 
-    def write_block(self, out, counter: int, source: str, bytecode: bytes) -> None:
-        """Write a single compiled block."""
-        out.write(f'/* ==== WASM: {counter} ==== */\n')
-        out.write('{ R"[test.hook](')
-        out.write(source)
-        out.write(')[test.hook]",\n{\n')
-        out.write(OutputFormatter.bytes_to_cpp_array(bytecode))
-        out.write('\n}},\n\n')
+    def _get_clang_format_cache_file(self, content_hash: str) -> Path:
+        """Get cache file path for formatted output."""
+        return self.cache_dir / f"formatted_{content_hash}.h"
 
-    def write(self, compiled_blocks: Dict[int, Tuple[str, bytes]]) -> None:
-        """Write all compiled blocks to output file."""
+    def _format_content(self, unformatted_content: str) -> str:
+        """Format content using clang-format via temp file."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.h', delete=False) as tmp:
+            tmp.write(unformatted_content)
+            tmp_path = tmp.name
+
+        try:
+            subprocess.run(['clang-format', '-i', tmp_path], check=True)
+            with open(tmp_path, 'r') as f:
+                return f.read()
+        finally:
+            os.unlink(tmp_path)
+
+    def write(self, compiled_blocks: Dict[int, Tuple[str, bytes]], force_write: bool = False) -> None:
+        """Write all compiled blocks to output file, only if changed."""
+        # Build unformatted content
+        unformatted = []
+        unformatted.append(self.HEADER)
+        for counter in sorted(compiled_blocks.keys()):
+            source, bytecode = compiled_blocks[counter]
+            unformatted.append(f'/* ==== WASM: {counter} ==== */\n')
+            unformatted.append('{ R"[test.hook](')
+            unformatted.append(source)
+            unformatted.append(')[test.hook]",\n{\n')
+            unformatted.append(OutputFormatter.bytes_to_cpp_array(bytecode))
+            unformatted.append('\n}},\n\n')
+        unformatted.append(self.FOOTER)
+        unformatted_content = ''.join(unformatted)
+
+        # Hash the unformatted content
+        content_hash = hashlib.sha256(unformatted_content.encode('utf-8')).hexdigest()
+        cache_file = self._get_clang_format_cache_file(content_hash)
+
+        # Get formatted content (from cache or by formatting)
+        if cache_file.exists():
+            self.logger.info("Using cached clang-format output")
+            formatted_content = cache_file.read_text()
+        else:
+            self.logger.info("Formatting with clang-format")
+            formatted_content = self._format_content(unformatted_content)
+            cache_file.write_text(formatted_content)
+            self.logger.debug(f"Cached formatted output: {content_hash[:16]}...")
+
+        # Check if we need to write (compare with existing file)
+        if not force_write and self.output_file.exists():
+            existing_content = self.output_file.read_text()
+            if existing_content == formatted_content:
+                self.logger.info(f"Output unchanged, skipping write to avoid triggering rebuild")
+                return
+
+        # Write the file
         self.logger.info(f"Writing {self.output_file}")
-
-        with open(self.output_file, 'w') as out:
-            out.write(self.HEADER)
-
-            for counter in sorted(compiled_blocks.keys()):
-                source, bytecode = compiled_blocks[counter]
-                self.write_block(out, counter, source, bytecode)
-
-            out.write(self.FOOTER)
-
-    def format_with_clang(self) -> None:
-        """Format output file with clang-format."""
-        self.logger.info("Formatting with clang-format")
-        subprocess.run(['clang-format', '-i', str(self.output_file)], check=True)
+        self.output_file.write_text(formatted_content)
 
 
 class TestHookBuilder:
@@ -376,7 +409,7 @@ class TestHookBuilder:
         self.cache = CompilationCache(self.logger)
         self.compiler = WasmCompiler(self.logger, self.wasm_dir, self.cache)
         self.extractor = SourceExtractor(self.logger, self.input_file)
-        self.writer = OutputWriter(self.logger, self.output_file)
+        self.writer = OutputWriter(self.logger, self.output_file, self.cache.cache_dir)
 
     def _setup_logging(self) -> logging.Logger:
         """Setup logging with specified level."""
@@ -463,6 +496,7 @@ class TestHookBuilder:
         self.logger.info("Configuration:")
         self.logger.info(f"  Workers: {workers} (CPU count: {os.cpu_count()})")
         self.logger.info(f"  Log level: {self.args.log_level.upper()}")
+        self.logger.info(f"  Force write: {self.args.force_write}")
         self.logger.info(f"  Input: {self.input_file}")
         self.logger.info(f"  Output: {self.output_file}")
         self.logger.info(f"  Cache: {self.cache.cache_dir}")
@@ -477,8 +511,7 @@ class TestHookBuilder:
 
         blocks = self.extractor.extract()
         compiled = self.compile_all_blocks(blocks)
-        self.writer.write(compiled)
-        self.writer.format_with_clang()
+        self.writer.write(compiled, force_write=self.args.force_write)
 
         self.logger.info(f"Successfully generated {self.output_file}")
 
@@ -494,6 +527,7 @@ Examples:
   %(prog)s --log-level=debug        # Build with DEBUG logging
   %(prog)s -j 4                     # Build with 4 workers
   %(prog)s -j 1                     # Build sequentially
+  %(prog)s --force-write            # Always write output (trigger rebuild)
 """
     )
 
@@ -510,6 +544,12 @@ Examples:
         default=0,
         metavar='N',
         help='Parallel workers (default: CPU count)'
+    )
+
+    parser.add_argument(
+        '--force-write',
+        action='store_true',
+        help='Always write output file even if unchanged (triggers rebuild)'
     )
 
     return parser
