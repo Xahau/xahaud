@@ -342,27 +342,7 @@ SHAMapStoreImp::copyNode(std::uint64_t& nodeCount, SHAMapTreeNode const& node)
 void
 SHAMapStoreImp::loadPinnedRanges()
 {
-    // Config option largely for testing and diagnostics
-    Section& section{app_.config().section(ConfigSection::nodeDatabase())};
-
-    // Default to false in standalone mode (unless explicitly configured)
-    // because with in-memory databases, the ledger data won't actually
-    // be available, leading to nonsensical state where ledgers appear
-    // complete but can't be retrieved.
-    bool loadPinned = !app_.config().standalone();
-
-    // Honor explicit configuration - useful for testing
-    get_if_exists(section, "load_complete_ledgers_pinned", loadPinned);
-
-    if (!loadPinned)
-    {
-        JLOG(journal_.info())
-            << "Skipping pinned ranges load "
-               "(load_complete_ledgers_pinned=false"
-            << (app_.config().standalone() ? " - standalone mode" : "") << ")";
-        return;
-    }
-
+    // Always load pinned ranges from state.db if they exist
     auto rangesStr = state_db_.getPinnedRanges();
     if (!rangesStr.empty())
     {
