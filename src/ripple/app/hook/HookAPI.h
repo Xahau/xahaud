@@ -43,7 +43,7 @@ public:
     uint256
     util_sha512h(Slice const& data) const;
 
-    // util_keylet
+    // util_keylet()
 
     /// sto APIs
     Expected<bool, HookReturnCode>
@@ -61,7 +61,7 @@ public:
         std::optional<Bytes> const& field_object,
         uint32_t field_id) const;
 
-    // sto_erase: same as sto_emplace with field_object = nullopt
+    // sto_erase(): same as sto_emplace with field_object = nullopt
 
     /// etxn APIs
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
@@ -212,7 +212,7 @@ public:
 
     /// state APIs
 
-    // state: same as state_foreign with ns = 0 and account = hook_account()
+    // state(): same as state_foreign with ns = 0 and account = hook_account()
 
     Expected<Bytes, HookReturnCode>
     state_foreign(
@@ -220,8 +220,7 @@ public:
         uint256 const& ns,
         AccountID const& account) const;
 
-    // state_set: same as state_foreign_set with ns = 0 and account =
-    // state_set()
+    // state_set(): same as state_foreign_set with ns = 0 and account =
 
     Expected<uint64_t, HookReturnCode>
     state_foreign_set(
