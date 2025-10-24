@@ -72,6 +72,7 @@ enum class LedgerNameSpace : std::uint16_t {
     URI_TOKEN = 'U',
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
+    CRON = 'L',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -441,6 +442,51 @@ uritoken(AccountID const& issuer, Blob const& uri)
         ltURI_TOKEN,
         indexHash(
             LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+}
+
+// Constructs an ordered CRON keylet (32 bytes):
+//   [8-byte namespace][4-byte timestamp (big-endian, seconds)][20-byte
+//   AccountID]
+//
+// Properties
+// - Namespacing: first 8 bytes are the most-significant bytes of
+// indexHash(LedgerNameSpace::CRON).
+// - Uniqueness (per ts,acct): exactly ONE cron per (timestamp, AccountID).
+// Insert is upsert (last-write-wins).
+//   This is fine because we only ever allow one cron per account at a time—if
+//   the same (ts,acct) is written, it’s simply an update to that single entry
+//   (idempotent; no duplicate leaves).
+// - Iteration order: chronological by timestamp (BE), then by raw AccountID
+// bytes.
+//   NOTE: raw AccountID ordering may bias priority; consider hashing AccountID
+//   for uniform per-timestamp spread.
+// - Expected accidental prefix collisions (foreign objects sharing the 8-byte
+// namespace): n / 2^64,
+//   assuming uniform high-64-bit distribution of other objects.
+//   Examples: 100M → ~5.4e-12, 1B → ~5.4e-11, 10B → ~5.4e-10, 100B → ~5.4e-9
+//   (negligible).
+Keylet
+cron(uint32_t timestamp, AccountID const& id)
+{
+    static const uint256 ns = indexHash(LedgerNameSpace::CRON);
+
+    uint8_t h[32];
+
+    // first 8 bytes are the namespacing
+    std::memcpy(h, ns.data(), 8);
+
+    // next 4 bytes are the timestamp in BE
+    h[8] = static_cast<uint8_t>((timestamp >> 24) & 0xFFU);
+    h[9] = static_cast<uint8_t>((timestamp >> 16) & 0xFFU);
+    h[10] = static_cast<uint8_t>((timestamp >> 8) & 0xFFU);
+    h[11] = static_cast<uint8_t>((timestamp >> 0) & 0xFFU);
+
+    const uint256 accHash = indexHash(LedgerNameSpace::CRON, timestamp, id);
+
+    // final 20 bytes are account ID
+    std::memcpy(h + 12, accHash.cdata(), 20);
+
+    return {ltCRON, uint256::fromVoid(h)};
 }
 
 }  // namespace keylet

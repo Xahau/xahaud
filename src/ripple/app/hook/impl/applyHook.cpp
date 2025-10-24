@@ -75,6 +75,11 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     switch (tt)
     {
+        case ttCRON: {
+            ADD_TSH(tx.getAccountID(sfOwner), tshWEAK);
+            break;
+        }
+
         case ttREMIT: {
             if (destAcc)
                 ADD_TSH(*destAcc, tshSTRONG);
@@ -723,12 +728,6 @@ parseCurrency(uint8_t* cu_ptr, uint32_t cu_len)
         return {};
 }
 
-uint32_t
-hook::computeHookStateOwnerCount(uint32_t hookStateCount)
-{
-    return hookStateCount;
-}
-
 inline int64_t
 serialize_keylet(
     ripple::Keylet& kl,
@@ -941,14 +940,18 @@ hook::setHookState(
         return tefINTERNAL;
 
     // if the blob is too large don't set it
-    if (data.size() > hook::maxHookStateDataSize())
+    uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
+        ? sleAccount->getFieldU16(sfHookStateScale)
+        : 1;
+
+    if (data.size() > hook::maxHookStateDataSize(hookStateScale))
         return temHOOK_DATA_TOO_LARGE;
 
     auto hookStateKeylet = ripple::keylet::hookState(acc, key, ns);
     auto hookStateDirKeylet = ripple::keylet::hookStateDir(acc, ns);
 
     uint32_t stateCount = sleAccount->getFieldU32(sfHookStateCount);
-    uint32_t oldStateReserve = computeHookStateOwnerCount(stateCount);
+    uint32_t oldStateCount = stateCount;
 
     auto hookState = view.peek(hookStateKeylet);
 
@@ -979,13 +982,15 @@ hook::setHookState(
         if (stateCount > 0)
             --stateCount;  // guard this because in the "impossible" event it is
                            // already 0 we'll wrap back to int_max
-
         // if removing this state entry would destroy the allotment then reduce
         // the owner count
-        if (computeHookStateOwnerCount(stateCount) < oldStateReserve)
-            adjustOwnerCount(view, sleAccount, -1, j);
+        if (stateCount < oldStateCount)
+            adjustOwnerCount(view, sleAccount, -hookStateScale, j);
 
-        sleAccount->setFieldU32(sfHookStateCount, stateCount);
+        if (view.rules().enabled(featureExtendedHookState) && stateCount == 0)
+            sleAccount->makeFieldAbsent(sfHookStateCount);
+        else
+            sleAccount->setFieldU32(sfHookStateCount, stateCount);
 
         if (nsDestroyed)
             hook::removeHookNamespaceEntry(*sleAccount, ns);
@@ -1012,19 +1017,19 @@ hook::setHookState(
     {
         ++stateCount;
 
-        if (computeHookStateOwnerCount(stateCount) > oldStateReserve)
+        if (stateCount > oldStateCount)
         {
             // the hook used its allocated allotment of state entries for its
             // previous ownercount increment ownercount and give it another
             // allotment
 
-            ++ownerCount;
+            ownerCount += hookStateScale;
             XRPAmount const newReserve{view.fees().accountReserve(ownerCount)};
 
             if (STAmount((*sleAccount)[sfBalance]).xrp() < newReserve)
                 return tecINSUFFICIENT_RESERVE;
 
-            adjustOwnerCount(view, sleAccount, 1, j);
+            adjustOwnerCount(view, sleAccount, hookStateScale, j);
         }
 
         // update state count
@@ -1373,7 +1378,15 @@ DEFINE_HOOK_FUNCTION(
         (aread_len && NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length)))
         return OUT_OF_BOUNDS;
 
-    uint32_t maxSize = hook::maxHookStateDataSize();
+    auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+    if (!sleAccount && view.rules().enabled(featureExtendedHookState))
+        return tefINTERNAL;
+
+    uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
+        ? sleAccount->getFieldU16(sfHookStateScale)
+        : 1;
+
+    uint32_t maxSize = hook::maxHookStateDataSize(hookStateScale);
     if (read_len > maxSize)
         return TOO_BIG;
 
@@ -1422,7 +1435,7 @@ hook::finalizeHookState(
     for (const auto& accEntry : stateMap)
     {
         const auto& acc = accEntry.first;
-        for (const auto& nsEntry : std::get<2>(accEntry.second))
+        for (const auto& nsEntry : std::get<3>(accEntry.second))
         {
             const auto& ns = nsEntry.first;
             for (const auto& cacheEntry : nsEntry.second)
@@ -2467,15 +2480,15 @@ DEFINE_HOOK_FUNCTION(
                 if (a == 0 || b == 0 || c == 0 || d == 0 || e == 0 || f == 0)
                     return INVALID_ARGUMENT;
 
-                uint32_t hi_ptr = a, hi_len = b, lo_ptr = c, lo_len = d,
+                uint32_t acc1_ptr = a, acc1_len = b, acc2_ptr = c, acc2_len = d,
                          cu_ptr = e, cu_len = f;
 
-                if (NOT_IN_BOUNDS(hi_ptr, hi_len, memory_length) ||
-                    NOT_IN_BOUNDS(lo_ptr, lo_len, memory_length) ||
+                if (NOT_IN_BOUNDS(acc1_ptr, acc1_len, memory_length) ||
+                    NOT_IN_BOUNDS(acc2_ptr, acc2_len, memory_length) ||
                     NOT_IN_BOUNDS(cu_ptr, cu_len, memory_length))
                     return OUT_OF_BOUNDS;
 
-                if (hi_len != 20 || lo_len != 20)
+                if (acc1_len != 20 || acc2_len != 20)
                     return INVALID_ARGUMENT;
 
                 std::optional<Currency> cur =
@@ -2484,8 +2497,8 @@ DEFINE_HOOK_FUNCTION(
                     return INVALID_ARGUMENT;
 
                 auto kl = ripple::keylet::line(
-                    AccountID::fromVoid(memory + hi_ptr),
-                    AccountID::fromVoid(memory + lo_ptr),
+                    AccountID::fromVoid(memory + acc1_ptr),
+                    AccountID::fromVoid(memory + acc2_ptr),
                     *cur);
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }

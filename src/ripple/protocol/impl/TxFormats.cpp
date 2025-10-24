@@ -60,6 +60,7 @@ TxFormats::TxFormats()
             {sfTickSize, soeOPTIONAL},
             {sfTicketSequence, soeOPTIONAL},
             {sfNFTokenMinter, soeOPTIONAL},
+            {sfHookStateScale, soeOPTIONAL},
         },
         commonFields);
 
@@ -470,6 +471,23 @@ TxFormats::TxFormats()
         {
             {sfAmount, soeREQUIRED},
             {sfTicketSequence, soeOPTIONAL},
+        },
+        commonFields);
+
+    add(jss::Cron,
+        ttCRON,
+        {
+            {sfOwner, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::CronSet,
+        ttCRON_SET,
+        {
+            {sfDelaySeconds, soeOPTIONAL},
+            {sfRepeatCount, soeOPTIONAL},
+            {sfStartTime, soeOPTIONAL},
         },
         commonFields);
 }

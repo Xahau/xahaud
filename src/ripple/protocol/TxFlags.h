@@ -200,6 +200,12 @@ constexpr std::uint32_t const tfImmutable = 1;
 // Clawback flags:
 constexpr std::uint32_t const tfClawbackMask = ~tfUniversal;
 
+// CronSet Flags:
+enum CronSetFlags : uint32_t {
+    tfCronUnset = 0x00000001,
+};
+constexpr std::uint32_t const tfCronSetMask = ~(tfUniversal | tfCronUnset);
+
 // clang-format on
 
 }  // namespace ripple

@@ -904,7 +904,7 @@ HookAPI::emit(Slice const& txBlob) const
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: Transaction preflight failure: "
-                        << preflightResult.ter;
+                        << transHuman(preflightResult.ter);
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -2788,7 +2788,7 @@ HookAPI::lookup_state_cache(
     if (stateMap.find(acc) == stateMap.end())
         return std::nullopt;
 
-    auto& stateMapAcc = std::get<2>(stateMap[acc]);
+    auto& stateMapAcc = std::get<3>(stateMap[acc]);
     if (stateMapAcc.find(ns) == stateMapAcc.end())
         return std::nullopt;
 
@@ -2833,6 +2833,10 @@ HookAPI::set_state_cache(
 
         STAmount bal = accSLE->getFieldAmount(sfBalance);
 
+        uint16_t const hookStateScale = accSLE->isFieldPresent(sfHookStateScale)
+            ? accSLE->getFieldU16(sfHookStateScale)
+            : 1;
+
         int64_t availableForReserves = bal.xrp().drops() -
             fees.accountReserve(accSLE->getFieldU32(sfOwnerCount)).drops();
 
@@ -2843,7 +2847,7 @@ HookAPI::set_state_cache(
 
         availableForReserves /= increment;
 
-        if (availableForReserves < 1 && modified)
+        if (availableForReserves < hookStateScale && modified)
             return Unexpected(RESERVE_INSUFFICIENT);
 
         int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
@@ -2862,17 +2866,24 @@ HookAPI::set_state_cache(
 
         stateMap.modified_entry_count++;
 
+        // sanity check
+        if (view.rules().enabled(featureExtendedHookState) &&
+            availableForReserves < hookStateScale)
+            return INTERNAL_ERROR;
+
         stateMap[acc] = {
-            availableForReserves - 1,
+            availableForReserves - hookStateScale,
             namespaceCount,
+            hookStateScale,
             {{ns, {{key, {modified, data}}}}}};
         return 1;
     }
 
     auto& availableForReserves = std::get<0>(stateMap[acc]);
     auto& namespaceCount = std::get<1>(stateMap[acc]);
-    auto& stateMapAcc = std::get<2>(stateMap[acc]);
-    bool const canReserveNew = availableForReserves > 0;
+    auto& hookStateScale = std::get<2>(stateMap[acc]);
+    auto& stateMapAcc = std::get<3>(stateMap[acc]);
+    bool const canReserveNew = availableForReserves >= hookStateScale;
 
     if (stateMapAcc.find(ns) == stateMapAcc.end())
     {
@@ -2893,7 +2904,11 @@ HookAPI::set_state_cache(
                 namespaceCount++;
             }
 
-            availableForReserves--;
+            if (view.rules().enabled(featureExtendedHookState) &&
+                availableForReserves < hookStateScale)
+                return Unexpected(INTERNAL_ERROR);
+
+            availableForReserves -= hookStateScale;
             stateMap.modified_entry_count++;
         }
 
@@ -2909,7 +2924,12 @@ HookAPI::set_state_cache(
         {
             if (!canReserveNew)
                 return Unexpected(RESERVE_INSUFFICIENT);
-            availableForReserves--;
+
+            if (view.rules().enabled(featureExtendedHookState) &&
+                availableForReserves < hookStateScale)
+                return Unexpected(INTERNAL_ERROR);
+
+            availableForReserves -= hookStateScale;
             stateMap.modified_entry_count++;
         }
 

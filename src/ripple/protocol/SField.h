@@ -354,6 +354,7 @@ extern SF_UINT16 const sfHookStateChangeCount;
 extern SF_UINT16 const sfHookEmitCount;
 extern SF_UINT16 const sfHookExecutionIndex;
 extern SF_UINT16 const sfHookApiVersion;
+extern SF_UINT16 const sfHookStateScale;
 
 // 32-bit integers (common)
 extern SF_UINT32 const sfNetworkID;
@@ -410,6 +411,9 @@ extern SF_UINT32 const sfRewardLgrLast;
 extern SF_UINT32 const sfFirstNFTokenSequence;
 extern SF_UINT32 const sfImportSequence;
 extern SF_UINT32 const sfXahauActivationLgrSeq;
+extern SF_UINT32 const sfDelaySeconds;
+extern SF_UINT32 const sfRepeatCount;
+extern SF_UINT32 const sfStartTime;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;
@@ -486,6 +490,7 @@ extern SF_UINT256 const sfURITokenID;
 extern SF_UINT256 const sfGovernanceFlags;
 extern SF_UINT256 const sfGovernanceMarks;
 extern SF_UINT256 const sfEmittedTxnID;
+extern SF_UINT256 const sfCron;
 
 // currency amount (common)
 extern SF_AMOUNT const sfAmount;

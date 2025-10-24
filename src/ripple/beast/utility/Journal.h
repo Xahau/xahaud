@@ -146,6 +146,10 @@ private:
 
         ScopedStream(Sink& sink, Severity level);
 
+#ifdef BEAST_ENHANCED_LOGGING
+        ScopedStream(Sink& sink, Severity level, const char* file, int line);
+#endif
+
         template <typename T>
         ScopedStream(Stream const& stream, T const& t);
 
@@ -173,6 +177,10 @@ private:
         Sink& m_sink;
         Severity const m_level;
         std::ostringstream mutable m_ostream;
+#ifdef BEAST_ENHANCED_LOGGING
+        const char* file_ = nullptr;
+        int line_ = 0;
+#endif
     };
 
 #ifndef __INTELLISENSE__
@@ -191,6 +199,33 @@ private:
     //--------------------------------------------------------------------------
 public:
     /** Provide a light-weight way to check active() before string formatting */
+
+#ifdef BEAST_ENHANCED_LOGGING
+    /** Stream with location information that prepends file:line to the first
+     * message */
+    class StreamWithLocation
+    {
+    public:
+        StreamWithLocation(Stream const& stream, const char* file, int line)
+            : file_(file), line_(line), stream_(stream)
+        {
+        }
+
+        /** Override to inject file:line before the first output */
+        template <typename T>
+        ScopedStream
+        operator<<(T const& t) const;
+
+        ScopedStream
+        operator<<(std::ostream& manip(std::ostream&)) const;
+
+    private:
+        const char* file_;
+        int line_;
+        const Stream& stream_;
+    };
+#endif
+
     class Stream
     {
     public:
@@ -254,6 +289,15 @@ public:
         ScopedStream
         operator<<(T const& t) const;
         /** @} */
+
+#ifdef BEAST_ENHANCED_LOGGING
+        /** Create a StreamWithLocation that prepends file:line info */
+        StreamWithLocation
+        withLocation(const char* file, int line) const
+        {
+            return StreamWithLocation(*this, file, line);
+        }
+#endif
 
     private:
         Sink& m_sink;
@@ -354,6 +398,8 @@ static_assert(std::is_nothrow_destructible<Journal>::value == true, "");
 
 //------------------------------------------------------------------------------
 
+//------------------------------------------------------------------------------
+
 template <typename T>
 Journal::ScopedStream::ScopedStream(Journal::Stream const& stream, T const& t)
     : ScopedStream(stream.sink(), stream.level())
@@ -377,6 +423,21 @@ Journal::Stream::operator<<(T const& t) const
 {
     return ScopedStream(*this, t);
 }
+
+#ifdef BEAST_ENHANCED_LOGGING
+//------------------------------------------------------------------------------
+
+template <typename T>
+Journal::ScopedStream
+Journal::StreamWithLocation::operator<<(T const& t) const
+{
+    // Create a ScopedStream with location info
+    ScopedStream scoped(stream_.sink(), stream_.level(), file_, line_);
+    scoped.ostream() << t;
+    return scoped;
+}
+
+#endif
 
 namespace detail {
 

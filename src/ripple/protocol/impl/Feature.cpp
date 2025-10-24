@@ -479,6 +479,9 @@ REGISTER_FEATURE(Clawback,                      Supported::yes, VoteBehavior::De
 REGISTER_FIX    (fixProvisionalDoubleThreading, Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(DeepFreeze,                    Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(IOUIssuerWeakTSH,              Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FEATURE(Cron,                          Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixInvalidTxFlags,             Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(ExtendedHookState,             Supported::yes, VoteBehavior::DefaultNo);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.

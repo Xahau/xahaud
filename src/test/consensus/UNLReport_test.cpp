@@ -357,6 +357,32 @@ class UNLReport_test : public beast::unit_test::suite
             BEAST_EXPECT(isImportVL(env, ivlKeys[0]) == true);
             BEAST_EXPECT(isImportVL(env, ivlKeys[1]) == false);
             BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
+
+            // now test unrecognised keys that are already present in the ledger
+            // object (flap fix)
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
+
+            // insert a ttUNL_REPORT pseudo into the open ledger
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) -> bool {
+                    STTx tx = createUNLRTx(l->seq(), ivlKeys[1], vlKeys[0]);
+                    uint256 txID = tx.getTransactionID();
+                    auto s = std::make_shared<ripple::Serializer>();
+                    tx.add(*s);
+                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    view.rawTxInsert(txID, std::move(s), nullptr);
+                    return true;
+                });
+
+            BEAST_EXPECT(hasUNLReport(env) == true);
+
+            // close the ledger
+            env.close();
+
+            BEAST_EXPECT(isImportVL(env, ivlKeys[0]) == true);
+            BEAST_EXPECT(isImportVL(env, ivlKeys[1]) == false);
+            BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
         }
     }
 

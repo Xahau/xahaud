@@ -1,4 +1,5 @@
 // For documentation please see: https://xrpl-hooks.readme.io/reference/
+// Generated using generate_tts.sh
 #define ttPAYMENT 0
 #define ttESCROW_CREATE 1
 #define ttESCROW_FINISH 2
@@ -8,6 +9,7 @@
 // #define ttNICKNAME_SET 6 // deprecated
 #define ttOFFER_CREATE 7
 #define ttOFFER_CANCEL 8
+// #define ttCONTRACT 9 // deprecated
 #define ttTICKET_CREATE 10
 // #define ttSPINAL_TAP 11 // deprecated
 #define ttSIGNER_LIST_SET 12
@@ -26,11 +28,15 @@
 #define ttNFTOKEN_CREATE_OFFER 27
 #define ttNFTOKEN_CANCEL_OFFER 28
 #define ttNFTOKEN_ACCEPT_OFFER 29
+#define ttCLAWBACK 30
 #define ttURITOKEN_MINT 45
 #define ttURITOKEN_BURN 46
 #define ttURITOKEN_BUY 47
 #define ttURITOKEN_CREATE_SELL_OFFER 48
 #define ttURITOKEN_CANCEL_SELL_OFFER 49
+#define ttCRON 92
+#define ttCRON_SET 93
+#define ttREMARKS_SET 94
 #define ttREMIT 95
 #define ttGENESIS_MINT 96
 #define ttIMPORT 97

@@ -68,6 +68,8 @@ LedgerFormats::LedgerFormats()
             {sfGovernanceMarks,      soeOPTIONAL},
             {sfAccountIndex,         soeOPTIONAL},
             {sfTouchCount,           soeOPTIONAL},
+            {sfHookStateScale,       soeOPTIONAL},
+            {sfCron,                 soeOPTIONAL},
         },
         commonFields);
 
@@ -363,6 +365,17 @@ LedgerFormats::LedgerFormats()
             {sfDestination,          soeOPTIONAL},
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED}
+        },
+        commonFields);
+
+    add(jss::Cron,
+        ltCRON,
+        {
+            {sfOwner,                soeREQUIRED},
+            {sfStartTime,            soeREQUIRED},
+            {sfDelaySeconds,         soeREQUIRED},
+            {sfRepeatCount,          soeREQUIRED},
+            {sfOwnerNode,            soeREQUIRED},
         },
         commonFields);
 

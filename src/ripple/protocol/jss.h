@@ -51,14 +51,16 @@ JSS(Amendments);     // ledger type.
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
 JSS(Blob);
-JSS(Check);              // ledger type.
-JSS(CheckCancel);        // transaction type.
-JSS(CheckCash);          // transaction type.
-JSS(CheckCreate);        // transaction type.
-JSS(ClaimReward);        // transaction type.
-JSS(Clawback);           // transaction type.
-JSS(ClearFlag);          // field.
-JSS(CreateCode);         // field.
+JSS(Check);        // ledger type.
+JSS(CheckCancel);  // transaction type.
+JSS(CheckCash);    // transaction type.
+JSS(CheckCreate);  // transaction type.
+JSS(ClaimReward);  // transaction type.
+JSS(Clawback);     // transaction type.
+JSS(ClearFlag);    // field.
+JSS(CreateCode);   // field.
+JSS(Cron);
+JSS(CronSet);
 JSS(DeliverMin);         // in: TransactionSign
 JSS(DepositPreauth);     // transaction and ledger type.
 JSS(Destination);        // in: TransactionSign; field.
@@ -254,6 +256,7 @@ JSS(coins);
 JSS(children);
 JSS(ctid);  // in/out: Tx RPC
 JSS(cres);
+JSS(cron);
 JSS(currency_a);         // out: BookChanges
 JSS(currency_b);         // out: BookChanges
 JSS(currentShard);       // out: NodeToShardStatus
