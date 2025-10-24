@@ -155,14 +155,43 @@ Journal::ScopedStream::~ScopedStream()
 
 #ifdef BEAST_ENHANCED_LOGGING
     // Add suffix if location is enabled
-    if (file_ && detail::should_show_location() && !s.empty() && s != "\n")
+    if (file_ && detail::should_show_location() && !s.empty())
     {
-        std::ostringstream combined;
-        combined << s;
-        if (!s.empty() && s.back() != ' ')
-            combined << " ";
-        detail::log_write_location_string(combined, file_, line_);
-        s = combined.str();
+        // Single optimized scan from the end
+        size_t const lastNonWhitespace = s.find_last_not_of(" \n\r\t");
+
+        // Skip if message is only whitespace (e.g., just "\n" or "  \n\n")
+        if (lastNonWhitespace != std::string::npos)
+        {
+            // Count only the trailing newlines (tiny range)
+            size_t trailingNewlines = 0;
+            for (size_t i = lastNonWhitespace + 1; i < s.length(); ++i)
+            {
+                if (s[i] == '\n')
+                    ++trailingNewlines;
+            }
+
+            // Build location string once
+            std::ostringstream locStream;
+            detail::log_write_location_string(locStream, file_, line_);
+            std::string const location = locStream.str();
+
+            // Pre-allocate exact size → zero reallocations
+            size_t const finalSize = lastNonWhitespace + 1 + 1 +
+                location.length() + trailingNewlines;
+
+            std::string result;
+            result.reserve(finalSize);
+
+            // Direct string ops (no ostringstream overhead)
+            result.append(s, 0, lastNonWhitespace + 1);
+            result.push_back(' ');
+            result += location;
+            if (trailingNewlines > 0)
+                result.append(trailingNewlines, '\n');
+
+            s = std::move(result);  // Move, no copy
+        }
     }
 #endif
 
