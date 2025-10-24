@@ -1018,35 +1018,32 @@ Config::loadFromString(std::string const& fileContents)
         }
     }
 
-    // Add DatabasePinned validation
-    if (!RUN_STANDALONE)
+    // DatabasePinned validation (applies to all modes including standalone)
+    auto db_section = section(ConfigSection::nodeDatabase());
+    if (db_section.exists("pinned_type"))
     {
-        auto db_section = section(ConfigSection::nodeDatabase());
-        if (db_section.exists("pinned_type"))
+        // Ensure base type is specified
+        if (!db_section.exists("type"))
         {
-            // Ensure base type is specified
-            if (!db_section.exists("type"))
-            {
-                Throw<std::runtime_error>(
-                    "type must be specified when using pinned_type");
-            }
+            Throw<std::runtime_error>(
+                "type must be specified when using pinned_type");
+        }
 
-            // Ensure pinned_path is specified
-            if (!db_section.exists("pinned_path"))
-            {
-                Throw<std::runtime_error>(
-                    "pinned_path is required when pinned_type is set");
-            }
+        // Ensure pinned_path is specified
+        if (!db_section.exists("pinned_path"))
+        {
+            Throw<std::runtime_error>(
+                "pinned_path is required when pinned_type is set");
+        }
 
-            // Ensure online_delete is set (pinning without deletion is
-            // redundant)
-            if (auto delete_interval = get(db_section, "online_delete", 0);
-                delete_interval == 0)
-            {
-                Throw<std::runtime_error>(
-                    "pinned_type requires online_delete (pinning without "
-                    "deletion is redundant)");
-            }
+        // Ensure online_delete is set (pinning without deletion is
+        // redundant)
+        if (auto delete_interval = get(db_section, "online_delete", 0);
+            delete_interval == 0)
+        {
+            Throw<std::runtime_error>(
+                "pinned_type requires online_delete (pinning without "
+                "deletion is redundant)");
         }
     }
 }
