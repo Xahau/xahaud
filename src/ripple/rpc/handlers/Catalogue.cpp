@@ -1265,6 +1265,11 @@ doCatalogueLoad(RPC::JsonContext& context)
                 rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
         }
 
+        // IMPORTANT: Mark as pinned BEFORE saving to database
+        // This ensures isPinned() returns true when saveValidatedLedger checks,
+        // preventing the ledger from being cached in AcceptedLedgerCache
+        context.app.getLedgerMaster().storeLedger(ledger, true);
+
         // Save in database - wait for completion to avoid memory bloat
         // Use promise/future to wait for the async save to complete
         {
@@ -1299,9 +1304,6 @@ doCatalogueLoad(RPC::JsonContext& context)
                         " to SQLite database");
             }
         }
-
-        // Store in ledger master
-        context.app.getLedgerMaster().storeLedger(ledger, true);
 
         if (info.seq == header.max_ledger &&
             context.app.getLedgerMaster().getClosedLedger()->info().seq <
