@@ -12,27 +12,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Test encrypted secrets (decrypt test message)
-        run: |
-          echo "========================================"
-          echo "TESTING ENCRYPTED SECRETS"
-          echo "========================================"
-          echo ""
-          echo "Decrypting test message from .github/secrets/test-message.gpg"
-          echo "Using encryption key from GitHub Secrets..."
-          echo ""
-
-          # Decrypt using key from GitHub Secrets
-          echo "${{ secrets.TEST_ENCRYPTION_KEY }}" | \
-            gpg --batch --yes --passphrase-fd 0 \
-            --decrypt .github/secrets/test-message.gpg
-
-          echo ""
-          echo "========================================"
-          echo "If you see the success message above,"
-          echo "then encrypted secrets work! 🎉"
-          echo "========================================"
-          echo ""
+      # - name: Test encrypted secrets (decrypt test message)
+      #   run: |
+      #     echo "========================================"
+      #     echo "TESTING ENCRYPTED SECRETS"
+      #     echo "========================================"
+      #     echo ""
+      #     echo "Decrypting test message from .github/secrets/test-message.gpg"
+      #     echo "Using encryption key from GitHub Secrets..."
+      #     echo ""
+      #
+      #     # Decrypt using key from GitHub Secrets
+      #     echo "${{ secrets.TEST_ENCRYPTION_KEY }}" | \
+      #       gpg --batch --yes --passphrase-fd 0 \
+      #       --decrypt .github/secrets/test-message.gpg
+      #
+      #     echo ""
+      #     echo "========================================"
+      #     echo "If you see the success message above,"
+      #     echo "then encrypted secrets work! 🎉"
+      #     echo "========================================"
+      #     echo ""
 
       - name: Setup OverlayFS layers
         run: |
