@@ -4311,10 +4311,25 @@ DEFINE_HOOK_FUNCTION(
 
     // unwrap the array if it is wrapped,
     // by removing a byte from the start and end
+    // why here 0xF0?
+    // STI_ARRAY = 0xF0
+    // eg) Signers field value = 0x03 => 0xF3
+    // eg) Amounts field value = 0x5C => 0xF0, 0x5C
     if ((*upto & 0xF0U) == 0xF0U)
     {
-        upto++;
-        end--;
+        if (view.rules().enabled(fixHookAPI20251128) && *upto == 0xF0U)
+        {
+            // field value > 15
+            upto++;
+            upto++;
+            end--;
+        }
+        else
+        {
+            // field value <= 15
+            upto++;
+            end--;
+        }
     }
 
     if (upto >= end)
@@ -4545,6 +4560,30 @@ DEFINE_HOOK_FUNCTION(
                  fread_ptr,
                  fread_ptr + fread_len}))
             return MEM_OVERLAP;
+    }
+
+    if (fread_len > 0 && view.rules().enabled(fixHookAPI20251128))
+    {
+        // inject field should be valid sto object and it's field id should
+        // match the field_id
+        unsigned char* inject_start = (unsigned char*)(memory + fread_ptr);
+        unsigned char* inject_end =
+            (unsigned char*)(memory + fread_ptr + fread_len);
+        int type = -1, field = -1, payload_start = -1, payload_length = -1;
+        int32_t length = get_stobject_length(
+            inject_start,
+            inject_end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            0);
+        if (length < 0)
+            return PARSE_ERROR;
+        if ((type << 16) + field != field_id)
+        {
+            return PARSE_ERROR;
+        }
     }
 
     // we must inject the field at the canonical location....
@@ -4787,7 +4826,12 @@ DEFINE_HOOK_FUNCTION(
         std::unique_ptr<STTx const> stpTrans;
         stpTrans = std::make_unique<STTx const>(std::ref(sitTrans));
 
-        return Transactor::calculateBaseFee(
+        if (!view.rules().enabled(fixHookAPI20251128))
+            return Transactor::calculateBaseFee(
+                       *(applyCtx.app.openLedger().current()), *stpTrans)
+                .drops();
+
+        return invoke_calculateBaseFee(
                    *(applyCtx.app.openLedger().current()), *stpTrans)
             .drops();
     }

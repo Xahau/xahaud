@@ -17,7 +17,9 @@ target_compile_features (common INTERFACE cxx_std_20)
 target_compile_definitions (common
   INTERFACE
     $<$<CONFIG:Debug>:DEBUG _DEBUG>
-    $<$<AND:$<BOOL:${profile}>,$<NOT:$<BOOL:${assert}>>>:NDEBUG>)
+    $<$<AND:$<BOOL:${profile}>,$<NOT:$<BOOL:${assert}>>>:NDEBUG>
+    # TODO: Remove once we have migrated functions from OpenSSL 1.x to 3.x.
+    OPENSSL_SUPPRESS_DEPRECATED)
     # ^^^^ NOTE: CMAKE release builds already have NDEBUG
     # defined, so no need to add it explicitly except for
     # this special case of (profile ON) and (assert OFF)

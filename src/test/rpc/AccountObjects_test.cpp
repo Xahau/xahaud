@@ -1044,6 +1044,22 @@ public:
         }
 
         {
+            // Create a Cron
+            env(cron::set(gw),
+                cron::startTime(env.now().time_since_epoch().count() + 100),
+                cron::delay(100),
+                cron::repeat(200),
+                fee(XRP(1)));
+            env.close();
+        }
+        {
+            // Find the cron.
+            Json::Value const resp = acctObjs(gw, jss::cron);
+            BEAST_EXPECT(acctObjsIsSize(resp, 1));
+            auto const& cron = resp[jss::result][jss::account_objects][0u];
+            BEAST_EXPECT(cron[sfOwner.jsonName] == gw.human());
+        }
+        {
             // See how "deletion_blockers_only" handles gw's directory.
             Json::Value params;
             params[jss::account] = gw.human();

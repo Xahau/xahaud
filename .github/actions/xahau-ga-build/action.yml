@@ -47,6 +47,18 @@ inputs:
     description: 'GCC version to use for Clang toolchain (e.g. 11, 13)'
     required: false
     default: ''
+  ccache_max_size:
+    description: 'Maximum ccache size'
+    required: false
+    default: '2G'
+  ccache_hash_dir:
+    description: 'Whether to include directory paths in hash'
+    required: false
+    default: 'true'
+  ccache_compiler_check:
+    description: 'How to check compiler for changes'
+    required: false
+    default: 'content'
 
 runs:
   using: 'composite'
@@ -59,21 +71,22 @@ runs:
         SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
-    - name: Restore ccache directory for default branch
+    - name: Restore ccache directory for main branch
       if: inputs.ccache_enabled == 'true'
       id: ccache-restore
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-ga-cache-restore
       with:
         path: ~/.ccache-main
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
         restore-keys: |
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        cache-type: ccache-main
 
     - name: Restore ccache directory for current branch
       if: inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
       id: ccache-restore-current-branch
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-ga-cache-restore
       with:
         path: ~/.ccache-current
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
@@ -81,6 +94,40 @@ runs:
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        cache-type: ccache-current
+
+    - name: Configure ccache
+      if: inputs.ccache_enabled == 'true'
+      shell: bash
+      run: |
+        # Create cache directories
+        mkdir -p ~/.ccache-main ~/.ccache-current
+
+        # Configure ccache settings AFTER cache restore (prevents stale cached config)
+        ccache --set-config=max_size=${{ inputs.ccache_max_size }}
+        ccache --set-config=hash_dir=${{ inputs.ccache_hash_dir }}
+        ccache --set-config=compiler_check=${{ inputs.ccache_compiler_check }}
+
+        # Determine if we're on the main branch
+        if [ "${{ steps.safe-branch.outputs.name }}" = "${{ inputs.main_branch }}" ]; then
+          # Main branch: use main branch cache only
+          ccache --set-config=cache_dir="$HOME/.ccache-main"
+          echo "CCACHE_DIR=$HOME/.ccache-main" >> $GITHUB_ENV
+          echo "📦 Main branch: using ~/.ccache-main"
+        else
+          # Feature branch: use current branch cache with main as secondary (read-only fallback)
+          ccache --set-config=cache_dir="$HOME/.ccache-current"
+          ccache --set-config=secondary_storage="file:$HOME/.ccache-main"
+          echo "CCACHE_DIR=$HOME/.ccache-current" >> $GITHUB_ENV
+          echo "📦 Feature branch: using ~/.ccache-current with ~/.ccache-main as secondary"
+        fi
+
+        # Print config for verification
+        echo "=== ccache configuration ==="
+        ccache -p
+
+        # Zero statistics before the build
+        ccache -z
 
     - name: Configure project
       shell: bash
@@ -96,14 +143,27 @@ runs:
         if [ -n "${{ inputs.cxx }}" ]; then
           export CXX="${{ inputs.cxx }}"
         fi
-        
-        
-        # Configure ccache launcher args
-        CCACHE_ARGS=""
+
+        # Create wrapper toolchain that overlays ccache on top of Conan's toolchain
+        # This enables ccache for the main app build without affecting Conan dependency builds
         if [ "${{ inputs.ccache_enabled }}" = "true" ]; then
-          CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          cat > wrapper_toolchain.cmake <<'EOF'
+        # Include Conan's generated toolchain first (sets compiler, flags, etc.)
+        # Note: CMAKE_CURRENT_LIST_DIR is the directory containing this wrapper (.build/)
+        include(${CMAKE_CURRENT_LIST_DIR}/build/generators/conan_toolchain.cmake)
+
+        # Overlay ccache configuration for main application build
+        # This does NOT affect Conan dependency builds (already completed)
+        set(CMAKE_C_COMPILER_LAUNCHER ccache CACHE STRING "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER ccache CACHE STRING "C++ compiler launcher" FORCE)
+        EOF
+          TOOLCHAIN_FILE="wrapper_toolchain.cmake"
+          echo "✅ Created wrapper toolchain with ccache enabled"
+        else
+          TOOLCHAIN_FILE="build/generators/conan_toolchain.cmake"
+          echo "ℹ️  Using Conan toolchain directly (ccache disabled)"
         fi
-        
+
         # Configure C++ standard library if specified
         # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
         # libcxx can be used with clang-17+ which has full C++20 support
@@ -143,33 +203,50 @@ runs:
         # So we get: .build/build/generators/ with our non-standard folder name
         cmake .. \
           -G "${{ inputs.generator }}" \
-          $CCACHE_ARGS \
           ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
-          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
+          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${TOOLCHAIN_FILE} \
           -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} \
           -Dtests=TRUE \
           -Dxrpld=TRUE
+
+    - name: Show ccache config before build
+      if: inputs.ccache_enabled == 'true'
+      shell: bash
+      run: |
+        echo "=========================================="
+        echo "ccache configuration before build"
+        echo "=========================================="
+        ccache -p
+        echo ""
 
     - name: Build project
       shell: bash
       run: |
         cd ${{ inputs.build_dir }}
-        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc)
+
+        # Check for verbose build flag in commit message
+        VERBOSE_FLAG=""
+        if echo "${XAHAU_GA_COMMIT_MSG}" | grep -q '\[ci-ga-cmake-verbose\]'; then
+          echo "🔊 [ci-ga-cmake-verbose] detected - enabling verbose output"
+          VERBOSE_FLAG="-- -v"
+        fi
+
+        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) ${VERBOSE_FLAG}
 
     - name: Show ccache statistics
       if: inputs.ccache_enabled == 'true'
       shell: bash
       run: ccache -s
 
-    - name: Save ccache directory for default branch
-      if: always() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
+    - name: Save ccache directory for main branch
+      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
       uses: actions/cache/save@v4
       with:
         path: ~/.ccache-main
         key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
 
     - name: Save ccache directory for current branch
-      if: always() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
+      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
       uses: actions/cache/save@v4
       with:
         path: ~/.ccache-current
