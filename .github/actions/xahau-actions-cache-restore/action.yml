@@ -1,0 +1,282 @@
+name: 'Xahau Cache Restore (S3 + OverlayFS)'
+description: 'Drop-in replacement for actions/cache/restore using S3 and OverlayFS for delta caching'
+
+inputs:
+  path:
+    description: 'A list of files, directories, and wildcard patterns to cache (currently only single path supported)'
+    required: true
+  key:
+    description: 'An explicit key for restoring the cache'
+    required: true
+  restore-keys:
+    description: 'An ordered list of prefix-matched keys to use for restoring stale cache if no cache hit occurred for key'
+    required: false
+    default: ''
+  s3-bucket:
+    description: 'S3 bucket name for cache storage'
+    required: false
+    default: 'xahaud-github-actions-cache-niq'
+  s3-region:
+    description: 'S3 region'
+    required: false
+    default: 'us-east-1'
+  fail-on-cache-miss:
+    description: 'Fail the workflow if cache entry is not found'
+    required: false
+    default: 'false'
+  lookup-only:
+    description: 'Check if a cache entry exists for the given input(s) without downloading it'
+    required: false
+    default: 'false'
+  use-deltas:
+    description: 'Enable delta caching (download/upload incremental changes). Set to false for base-only caching.'
+    required: false
+    default: 'true'
+  # Note: Composite actions can't access secrets.* directly - must be passed from workflow
+  aws-access-key-id:
+    description: 'AWS Access Key ID for S3 access'
+    required: true
+  aws-secret-access-key:
+    description: 'AWS Secret Access Key for S3 access'
+    required: true
+
+outputs:
+  cache-hit:
+    description: 'A boolean value to indicate an exact match was found for the primary key'
+    value: ${{ steps.restore-cache.outputs.cache-hit }}
+  cache-primary-key:
+    description: 'The key that was used to restore the cache (may be from restore-keys)'
+    value: ${{ steps.restore-cache.outputs.cache-primary-key }}
+  cache-matched-key:
+    description: 'The key that matched (same as cache-primary-key for compatibility)'
+    value: ${{ steps.restore-cache.outputs.cache-primary-key }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Restore cache from S3 with OverlayFS
+      id: restore-cache
+      shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        S3_BUCKET: ${{ inputs.s3-bucket }}
+        S3_REGION: ${{ inputs.s3-region }}
+        CACHE_KEY: ${{ inputs.key }}
+        RESTORE_KEYS: ${{ inputs.restore-keys }}
+        TARGET_PATH: ${{ inputs.path }}
+        FAIL_ON_MISS: ${{ inputs.fail-on-cache-miss }}
+        LOOKUP_ONLY: ${{ inputs.lookup-only }}
+        USE_DELTAS: ${{ inputs.use-deltas }}
+      run: |
+        set -euo pipefail
+
+        echo "=========================================="
+        echo "Xahau Cache Restore (S3 + OverlayFS)"
+        echo "=========================================="
+        echo "Target path: ${TARGET_PATH}"
+        echo "Primary key: ${CACHE_KEY}"
+        echo "S3 bucket: s3://${S3_BUCKET}"
+        echo "Use deltas: ${USE_DELTAS}"
+        echo ""
+
+        # Generate unique cache workspace
+        CACHE_HASH=$(echo "${CACHE_KEY}" | md5sum | cut -d' ' -f1)
+        CACHE_WORKSPACE="/tmp/xahau-cache-${CACHE_HASH}"
+
+        echo "Cache workspace: ${CACHE_WORKSPACE}"
+
+        # Create OverlayFS directory structure
+        mkdir -p "${CACHE_WORKSPACE}"/{base,upper,work,merged}
+
+        # Function to try downloading from S3
+        try_restore_key() {
+          local try_key="$1"
+          local s3_base="s3://${S3_BUCKET}/${try_key}-base.tar.zst"
+
+          echo "Trying cache key: ${try_key}"
+
+          # Check if base exists (one base per key, immutable)
+          echo "Checking for base layer..."
+          if aws s3 ls "${s3_base}" --region "${S3_REGION}" >/dev/null 2>&1; then
+            echo "✓ Found base layer: ${s3_base}"
+
+            if [ "${LOOKUP_ONLY}" = "true" ]; then
+              echo "Lookup-only mode: cache exists, skipping download"
+              return 0
+            fi
+
+            # Download base layer
+            echo "Downloading base layer..."
+            aws s3 cp "${s3_base}" /tmp/cache-base.tar.zst --region "${S3_REGION}" --quiet
+
+            # Extract base layer
+            echo "Extracting base layer..."
+            tar -xf /tmp/cache-base.tar.zst -C "${CACHE_WORKSPACE}/base"
+            rm /tmp/cache-base.tar.zst
+
+            # Query for latest timestamped delta (only if use-deltas enabled)
+            if [ "${USE_DELTAS}" = "true" ]; then
+              echo "Querying for latest delta..."
+              LATEST_DELTA=$(aws s3api list-objects-v2 \
+                --bucket "${S3_BUCKET}" \
+                --prefix "${try_key}-delta-" \
+                --region "${S3_REGION}" \
+                --query 'sort_by(Contents, &LastModified)[-1].Key' \
+                --output text 2>/dev/null || echo "")
+
+              if [ -n "${LATEST_DELTA}" ] && [ "${LATEST_DELTA}" != "None" ]; then
+                echo "✓ Found latest delta: ${LATEST_DELTA}"
+                echo "Downloading delta layer..."
+                aws s3 cp "s3://${S3_BUCKET}/${LATEST_DELTA}" /tmp/cache-delta.tar.zst --region "${S3_REGION}" --quiet
+
+                echo "Extracting delta layer..."
+                tar -xf /tmp/cache-delta.tar.zst -C "${CACHE_WORKSPACE}/upper" 2>/dev/null || true
+                rm /tmp/cache-delta.tar.zst
+              else
+                echo "ℹ No delta layer found (this is fine for first build)"
+              fi
+            else
+              echo "ℹ Delta caching disabled (use-deltas: false)"
+            fi
+
+            return 0
+          else
+            echo "✗ No base layer found for key: ${try_key}"
+            return 1
+          fi
+        }
+
+        # Try primary key first
+        MATCHED_KEY=""
+        EXACT_MATCH="false"
+
+        if try_restore_key "${CACHE_KEY}"; then
+          MATCHED_KEY="${CACHE_KEY}"
+          EXACT_MATCH="true"
+          echo ""
+          echo "🎯 Exact cache hit for key: ${CACHE_KEY}"
+        else
+          # Try restore-keys (prefix matching)
+          if [ -n "${RESTORE_KEYS}" ]; then
+            echo ""
+            echo "Primary key not found, trying restore-keys..."
+
+            # Split restore-keys by newline
+            while IFS= read -r restore_key; do
+              # Skip empty lines
+              [ -z "${restore_key}" ] && continue
+
+              # Trim whitespace
+              restore_key=$(echo "${restore_key}" | xargs)
+
+              if try_restore_key "${restore_key}"; then
+                MATCHED_KEY="${restore_key}"
+                EXACT_MATCH="false"
+                echo ""
+                echo "✓ Cache restored from fallback key: ${restore_key}"
+                break
+              fi
+            done <<< "${RESTORE_KEYS}"
+          fi
+        fi
+
+        # Check if we found anything
+        if [ -z "${MATCHED_KEY}" ]; then
+          echo ""
+          echo "❌ No cache found for key: ${CACHE_KEY}"
+          echo "This is BOOTSTRAP mode - first build for this cache key"
+
+          if [ "${FAIL_ON_MISS}" = "true" ]; then
+            echo "fail-on-cache-miss is enabled, failing workflow"
+            exit 1
+          fi
+
+          # Set outputs for cache miss
+          echo "cache-hit=false" >> $GITHUB_OUTPUT
+          echo "cache-primary-key=" >> $GITHUB_OUTPUT
+
+          # Create empty cache directory for bootstrap
+          mkdir -p "${TARGET_PATH}"
+
+          # Record bootstrap mode for save action
+          # Format: path:workspace:matched_key:primary_key:exact_match:use_deltas
+          # For bootstrap: workspace="bootstrap", matched_key=primary_key, exact_match=false
+          MOUNT_REGISTRY="/tmp/xahau-cache-mounts.txt"
+          echo "${TARGET_PATH}:bootstrap:${CACHE_KEY}:${CACHE_KEY}:false:${USE_DELTAS}" >> "${MOUNT_REGISTRY}"
+
+          echo ""
+          echo "=========================================="
+          echo "Cache restore completed (bootstrap mode)"
+          echo "Created empty cache directory: ${TARGET_PATH}"
+          echo "=========================================="
+          exit 0
+        fi
+
+        # If lookup-only, we're done
+        if [ "${LOOKUP_ONLY}" = "true" ]; then
+          echo "cache-hit=${EXACT_MATCH}" >> $GITHUB_OUTPUT
+          echo "cache-primary-key=${MATCHED_KEY}" >> $GITHUB_OUTPUT
+
+          # Clean up workspace
+          rm -rf "${CACHE_WORKSPACE}"
+
+          echo ""
+          echo "=========================================="
+          echo "Cache lookup completed (lookup-only mode)"
+          echo "=========================================="
+          exit 0
+        fi
+
+        # Mount OverlayFS
+        echo ""
+        echo "Mounting OverlayFS..."
+        sudo mount -t overlay overlay \
+          -o lowerdir="${CACHE_WORKSPACE}/base",upperdir="${CACHE_WORKSPACE}/upper",workdir="${CACHE_WORKSPACE}/work" \
+          "${CACHE_WORKSPACE}/merged"
+
+        # Verify mount
+        if mount | grep -q "${CACHE_WORKSPACE}/merged"; then
+          echo "✓ OverlayFS mounted successfully"
+        else
+          echo "❌ Failed to mount OverlayFS"
+          exit 1
+        fi
+
+        # Create target directory parent if needed
+        TARGET_PARENT=$(dirname "${TARGET_PATH}")
+        mkdir -p "${TARGET_PARENT}"
+
+        # Remove existing target if it exists
+        if [ -e "${TARGET_PATH}" ]; then
+          echo "Removing existing target: ${TARGET_PATH}"
+          rm -rf "${TARGET_PATH}"
+        fi
+
+        # Symlink target path to merged view
+        echo "Creating symlink: ${TARGET_PATH} -> ${CACHE_WORKSPACE}/merged"
+        ln -s "${CACHE_WORKSPACE}/merged" "${TARGET_PATH}"
+
+        # Save mount info for cleanup/save later
+        # Format: path:workspace:matched_key:primary_key:exact_match:use_deltas
+        # This tells save action whether to create new base (partial match) or just delta (exact match)
+        MOUNT_REGISTRY="/tmp/xahau-cache-mounts.txt"
+        echo "${TARGET_PATH}:${CACHE_WORKSPACE}:${MATCHED_KEY}:${CACHE_KEY}:${EXACT_MATCH}:${USE_DELTAS}" >> "${MOUNT_REGISTRY}"
+
+        # Set outputs
+        echo "cache-hit=${EXACT_MATCH}" >> $GITHUB_OUTPUT
+        echo "cache-primary-key=${MATCHED_KEY}" >> $GITHUB_OUTPUT
+
+        # Show statistics
+        echo ""
+        echo "Cache statistics:"
+        echo "  Base layer size:  $(du -sh ${CACHE_WORKSPACE}/base 2>/dev/null | cut -f1 || echo '0')"
+        echo "  Delta layer size: $(du -sh ${CACHE_WORKSPACE}/upper 2>/dev/null | cut -f1 || echo '0')"
+        echo "  Merged view size: $(du -sh ${CACHE_WORKSPACE}/merged 2>/dev/null | cut -f1 || echo '0')"
+
+        echo ""
+        echo "=========================================="
+        echo "Cache restore completed successfully"
+        echo "Exact match: ${EXACT_MATCH}"
+        echo "Matched key: ${MATCHED_KEY}"
+        echo "=========================================="
