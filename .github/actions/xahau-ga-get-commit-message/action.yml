@@ -1,0 +1,73 @@
+name: 'Get Commit Message'
+description: 'Gets commit message for both push and pull_request events and sets XAHAU_GA_COMMIT_MSG env var'
+
+inputs:
+  event-name:
+    description: 'The event name (push or pull_request)'
+    required: true
+  head-commit-message:
+    description: 'The head commit message (for push events)'
+    required: false
+    default: ''
+  pr-head-sha:
+    description: 'The PR head SHA (for pull_request events)'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get commit message and set environment variable
+      shell: python
+      run: |
+        import os
+        import subprocess
+        import secrets
+
+        event_name = "${{ inputs.event-name }}"
+        pr_head_sha = "${{ inputs.pr-head-sha }}"
+
+        print("==========================================")
+        print("Setting XAHAU_GA_COMMIT_MSG environment variable")
+        print("==========================================")
+        print(f"Event: {event_name}")
+
+        if event_name == 'push':
+            # For push events, use the input directly
+            message = """${{ inputs.head-commit-message }}"""
+            print("Source: workflow input (github.event.head_commit.message)")
+        elif event_name == 'pull_request':
+            # For PR events, fetch the specific SHA
+            print(f"Source: git show {pr_head_sha} (fetching PR head commit)")
+
+            # Fetch the PR head commit
+            subprocess.run(
+                ['git', 'fetch', 'origin', pr_head_sha],
+                check=True
+            )
+
+            # Get commit message from the fetched SHA
+            result = subprocess.run(
+                ['git', 'show', '-s', '--format=%B', pr_head_sha],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            message = result.stdout.strip()
+        else:
+            message = ""
+            print(f"Warning: Unknown event type: {event_name}")
+
+        print(f"Commit message (first 100 chars): {message[:100]}")
+
+        # Write to GITHUB_ENV using heredoc with random delimiter (prevents injection attacks)
+        # See: https://securitylab.github.com/resources/github-actions-untrusted-input/
+        delimiter = f"EOF_{secrets.token_hex(16)}"
+
+        with open(os.environ['GITHUB_ENV'], 'a') as f:
+            f.write(f'XAHAU_GA_COMMIT_MSG<<{delimiter}\n')
+            f.write(message)
+            f.write(f'\n{delimiter}\n')
+
+        print(f"✓ XAHAU_GA_COMMIT_MSG set (available to all subsequent steps)")
+        print("==========================================")

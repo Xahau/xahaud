@@ -30,6 +30,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
+
       - name: Install Conan
         run: |
           brew install conan
@@ -78,14 +86,6 @@ jobs:
       - name: Install ccache
         run: brew install ccache
 
-      - name: Configure ccache
-        uses: ./.github/actions/xahau-configure-ccache
-        with:
-          max_size: 2G
-          hash_dir: true
-          compiler_check: content
-          is_main_branch: ${{ github.ref_name == env.MAIN_BRANCH_NAME }}
-
       - name: Check environment
         run: |
           echo "PATH:"
@@ -98,32 +98,12 @@ jobs:
           echo "---- Full Environment ----"
           env
 
-      - name: Configure Conan
+      - name: Detect compiler version
+        id: detect-compiler
         run: |
-          # Create the default profile directory if it doesn't exist
-          mkdir -p ~/.conan2/profiles
-
-          # Detect compiler version
           COMPILER_VERSION=$(clang --version | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
-
-          # Create profile with our specific settings
-          cat > ~/.conan2/profiles/default <<EOF
-          [settings]
-          arch=armv8
-          build_type=Release
-          compiler=apple-clang
-          compiler.cppstd=20
-          compiler.libcxx=libc++
-          compiler.version=${COMPILER_VERSION}
-          os=Macos
-
-          [conf]
-          # Workaround for gRPC with newer Apple Clang
-          tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
-          EOF
-
-          # Display profile for verification
-          conan profile show
+          echo "compiler_version=${COMPILER_VERSION}" >> $GITHUB_OUTPUT
+          echo "Detected Apple Clang version: ${COMPILER_VERSION}"
 
       - name: Install dependencies
         uses: ./.github/actions/xahau-ga-dependencies
@@ -133,6 +113,13 @@ jobs:
           compiler-id: clang
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          os: Macos
+          arch: armv8
+          compiler: apple-clang
+          compiler_version: ${{ steps.detect-compiler.outputs.compiler_version }}
+          stdlib: libcxx
+          aws-access-key-id: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -143,6 +130,9 @@ jobs:
           compiler-id: clang
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: libcxx
+          aws-access-key-id: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
 
       - name: Test
         run: |
