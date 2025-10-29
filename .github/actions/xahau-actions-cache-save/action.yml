@@ -295,14 +295,52 @@ runs:
           echo "Uploading timestamped delta to S3..."
           echo "  Key: ${PRIMARY_KEY}-delta-${TIMESTAMP}-${COMMIT_SHA}.tar.zst"
 
-          # Upload with tag for auto-deletion after 7 days
+          # Upload with tag (deltas cleaned up inline - keep last 10)
           aws s3 cp "${DELTA_TARBALL}" "${S3_DELTA_TIMESTAMPED}" \
             --region "${S3_REGION}" \
             --tagging "type=delta-archive" \
             --quiet
 
           echo "✓ Uploaded: ${S3_DELTA_TIMESTAMPED}"
-          echo "  (tagged for auto-deletion after 7 days)"
+
+          # Inline cleanup: Keep only latest delta (the one we just uploaded)
+          echo ""
+          echo "Cleaning up old deltas (keeping only latest)..."
+
+          # List all deltas for this key, sorted by LastModified (oldest first)
+          ALL_DELTAS=$(aws s3api list-objects-v2 \
+            --bucket "${S3_BUCKET}" \
+            --prefix "${PRIMARY_KEY}-delta-" \
+            --region "${S3_REGION}" \
+            --query 'sort_by(Contents, &LastModified)[*].Key' \
+            --output json 2>/dev/null || echo "[]")
+
+          DELTA_COUNT=$(echo "${ALL_DELTAS}" | jq 'length' 2>/dev/null || echo "0")
+
+          if [ "${DELTA_COUNT}" -gt 1 ]; then
+            # Keep last 1 (newest), delete all older ones (all except last 1 = [0:-1])
+            OLD_DELTAS=$(echo "${ALL_DELTAS}" | jq -r '.[0:-1][]' 2>/dev/null)
+
+            if [ -n "${OLD_DELTAS}" ]; then
+              DELETE_COUNT=$((DELTA_COUNT - 1))
+              echo "  Found ${DELETE_COUNT} old delta(s) to delete"
+
+              # Create delete batch request JSON
+              DELETE_OBJECTS=$(echo "${OLD_DELTAS}" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map({Key: .}) | {Objects: ., Quiet: true}' 2>/dev/null)
+
+              if [ -n "${DELETE_OBJECTS}" ]; then
+                aws s3api delete-objects \
+                  --bucket "${S3_BUCKET}" \
+                  --delete "${DELETE_OBJECTS}" \
+                  --region "${S3_REGION}" \
+                  >/dev/null 2>&1
+
+                echo "✓ Deleted ${DELETE_COUNT} old delta(s)"
+              fi
+            fi
+          else
+            echo "ℹ️  Only ${DELTA_COUNT} delta(s) exist, no cleanup needed"
+          fi
 
           # Cleanup delta tarball
           rm -f "${DELTA_TARBALL}"
