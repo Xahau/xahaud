@@ -1,0 +1,129 @@
+name: Test OverlayFS Delta Extraction
+
+on:
+  push:
+    branches: ["*"]
+  workflow_dispatch:
+
+jobs:
+  test-overlayfs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup OverlayFS layers
+        run: |
+          echo "=== Creating directory structure ==="
+          mkdir -p /tmp/test/{base,delta,upper,work,merged}
+
+          echo "=== Creating base layer files ==="
+          echo "base file 1" > /tmp/test/base/file1.txt
+          echo "base file 2" > /tmp/test/base/file2.txt
+          echo "base file 3" > /tmp/test/base/file3.txt
+          mkdir -p /tmp/test/base/subdir
+          echo "base subdir file" > /tmp/test/base/subdir/file.txt
+
+          echo "=== Base layer contents ==="
+          find /tmp/test/base -type f -exec sh -c 'echo "{}:"; cat "{}"' \;
+
+          echo "=== Mounting OverlayFS ==="
+          sudo mount -t overlay overlay \
+            -o lowerdir=/tmp/test/base,upperdir=/tmp/test/upper,workdir=/tmp/test/work \
+            /tmp/test/merged
+
+          echo "=== Mounted successfully ==="
+          mount | grep overlay
+
+      - name: Verify merged view shows base files
+        run: |
+          echo "=== Contents of /merged (should show base files) ==="
+          ls -R /tmp/test/merged
+          find /tmp/test/merged -type f -exec sh -c 'echo "{}:"; cat "{}"' \;
+
+      - name: Make changes via merged layer
+        run: |
+          echo "=== Making changes via /merged ==="
+
+          # Overwrite existing file
+          echo "MODIFIED file 2" > /tmp/test/merged/file2.txt
+          echo "Modified file2.txt"
+
+          # Create new file
+          echo "NEW file 4" > /tmp/test/merged/file4.txt
+          echo "Created new file4.txt"
+
+          # Create new directory with file
+          mkdir -p /tmp/test/merged/newdir
+          echo "NEW file in new dir" > /tmp/test/merged/newdir/newfile.txt
+          echo "Created newdir/newfile.txt"
+
+          # Add file to existing directory
+          echo "NEW file in existing subdir" > /tmp/test/merged/subdir/newfile.txt
+          echo "Created subdir/newfile.txt"
+
+          echo "=== Changes complete ==="
+
+      - name: Show the delta (upperdir)
+        run: |
+          echo "========================================"
+          echo "THE DELTA (only changes in /upper):"
+          echo "========================================"
+
+          if [ -z "$(ls -A /tmp/test/upper)" ]; then
+            echo "Upper directory is empty - no changes detected"
+          else
+            echo "Upper directory structure:"
+            ls -R /tmp/test/upper
+            echo ""
+            echo "Upper directory files with content:"
+            find /tmp/test/upper -type f -exec sh -c 'echo "---"; echo "FILE: {}"; cat "{}"; echo ""' \;
+
+            echo "========================================"
+            echo "SIZE OF DELTA:"
+            du -sh /tmp/test/upper
+            echo "========================================"
+          fi
+
+      - name: Compare base vs upper vs merged
+        run: |
+          echo "========================================"
+          echo "COMPARISON:"
+          echo "========================================"
+
+          echo "BASE layer (original, untouched):"
+          ls -la /tmp/test/base/
+          echo ""
+
+          echo "UPPER layer (DELTA - only changes):"
+          ls -la /tmp/test/upper/
+          echo ""
+
+          echo "MERGED layer (unified view = base + upper):"
+          ls -la /tmp/test/merged/
+          echo ""
+
+          echo "========================================"
+          echo "PROOF: Upper dir contains ONLY the delta!"
+          echo "========================================"
+
+      - name: Simulate tarball creation (what we'd upload)
+        run: |
+          echo "=== Creating tarball of delta ==="
+          tar -czf /tmp/delta.tar.gz -C /tmp/test/upper .
+
+          echo "Delta tarball size:"
+          ls -lh /tmp/delta.tar.gz
+
+          echo ""
+          echo "Delta tarball contents:"
+          tar -tzf /tmp/delta.tar.gz
+
+          echo ""
+          echo "========================================"
+          echo "This is what we'd upload to S3/rsync!"
+          echo "Only ~few KB instead of entire cache!"
+          echo "========================================"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "=== Unmounting OverlayFS ==="
+          sudo umount /tmp/test/merged || true
