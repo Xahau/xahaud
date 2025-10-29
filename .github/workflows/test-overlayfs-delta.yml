@@ -147,6 +147,34 @@ jobs:
           echo "Only ~few KB instead of entire cache!"
           echo "========================================"
 
+      - name: Upload delta to S3 (actual test!)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_ACCESS_KEY }}
+        run: |
+          echo "========================================"
+          echo "UPLOADING TO S3"
+          echo "========================================"
+
+          # Upload the delta tarball
+          aws s3 cp /tmp/delta.tar.gz \
+            s3://xahaud-github-actions-cache-niq/hello-world-first-test.tar.gz \
+            --region us-east-1
+
+          echo ""
+          echo "✅ Successfully uploaded to S3!"
+          echo "File: s3://xahaud-github-actions-cache-niq/hello-world-first-test.tar.gz"
+          echo ""
+
+          # Verify it exists
+          echo "Verifying upload..."
+          aws s3 ls s3://xahaud-github-actions-cache-niq/hello-world-first-test.tar.gz --region us-east-1
+
+          echo ""
+          echo "========================================"
+          echo "S3 upload test complete! 🚀"
+          echo "========================================"
+
       - name: Cleanup
         if: always()
         run: |
