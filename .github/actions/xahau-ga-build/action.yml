@@ -161,7 +161,8 @@ runs:
       shell: bash
       run: |
         cd ${{ inputs.build_dir }}
-        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc)
+        # TEMPORARY: Add -v to see compile commands for ccache debugging
+        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) -- -v
 
     - name: Show ccache statistics
       if: inputs.ccache_enabled == 'true'
