@@ -134,10 +134,13 @@ runs:
             echo "Uploading base layer to S3..."
             echo "  Key: ${PRIMARY_KEY}-base.tar.zst"
 
-            aws s3 cp "${BASE_TARBALL}" "${S3_BASE_KEY}" \
+            aws s3api put-object \
+              --bucket "${S3_BUCKET}" \
+              --key "${PRIMARY_KEY}-base.tar.zst" \
+              --body "${BASE_TARBALL}" \
+              --tagging 'type=base' \
               --region "${S3_REGION}" \
-              --tagging "type=base" \
-              --quiet
+              >/dev/null
 
             echo "✓ Uploaded: ${S3_BASE_KEY}"
           fi
@@ -178,10 +181,13 @@ runs:
             echo "Uploading new base layer to S3..."
             echo "  Key: ${PRIMARY_KEY}-base.tar.zst"
 
-            aws s3 cp "${BASE_TARBALL}" "${S3_BASE_KEY}" \
+            aws s3api put-object \
+              --bucket "${S3_BUCKET}" \
+              --key "${PRIMARY_KEY}-base.tar.zst" \
+              --body "${BASE_TARBALL}" \
+              --tagging 'type=base' \
               --region "${S3_REGION}" \
-              --tagging "type=base" \
-              --quiet
+              >/dev/null
 
             echo "✓ Uploaded: ${S3_BASE_KEY}"
           fi
@@ -295,11 +301,14 @@ runs:
           echo "Uploading timestamped delta to S3..."
           echo "  Key: ${PRIMARY_KEY}-delta-${TIMESTAMP}-${COMMIT_SHA}.tar.zst"
 
-          # Upload with tag (deltas cleaned up inline - keep last 10)
-          aws s3 cp "${DELTA_TARBALL}" "${S3_DELTA_TIMESTAMPED}" \
+          # Upload with tag (deltas cleaned up inline - keep last 1)
+          aws s3api put-object \
+            --bucket "${S3_BUCKET}" \
+            --key "${PRIMARY_KEY}-delta-${TIMESTAMP}-${COMMIT_SHA}.tar.zst" \
+            --body "${DELTA_TARBALL}" \
+            --tagging 'type=delta-archive' \
             --region "${S3_REGION}" \
-            --tagging "type=delta-archive" \
-            --quiet
+            >/dev/null
 
           echo "✓ Uploaded: ${S3_DELTA_TIMESTAMPED}"
 

@@ -107,6 +107,7 @@ runs:
           # Delete all delta layers for this key
           echo "Deleting all delta layers matching: ${CACHE_KEY}-delta-*"
           DELTA_COUNT=$(aws s3 ls "s3://${S3_BUCKET}/" --region "${S3_REGION}" | grep "${CACHE_KEY}-delta-" | wc -l || echo "0")
+          DELTA_COUNT=$(echo "${DELTA_COUNT}" | tr -d ' \n')  # Trim whitespace
           if [ "${DELTA_COUNT}" -gt 0 ]; then
             aws s3 rm "s3://${S3_BUCKET}/" --recursive \
               --exclude "*" \
