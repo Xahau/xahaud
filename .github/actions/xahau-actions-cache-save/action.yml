@@ -52,6 +52,15 @@ runs:
         echo "S3 bucket: s3://${S3_BUCKET}"
         echo ""
 
+        # Normalize target path (expand tilde and resolve to absolute path)
+        # This ensures consistent path comparison with the mount registry
+        if [[ "${TARGET_PATH}" == ~* ]]; then
+          # Expand tilde manually (works even if directory doesn't exist yet)
+          TARGET_PATH="${HOME}${TARGET_PATH:1}"
+        fi
+        echo "Normalized target path: ${TARGET_PATH}"
+        echo ""
+
         # Find the cache workspace from mount registry
         MOUNT_REGISTRY="/tmp/xahau-cache-mounts.txt"
 
