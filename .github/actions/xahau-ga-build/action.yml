@@ -164,6 +164,24 @@ runs:
         # TEMPORARY: Add -v to see compile commands for ccache debugging
         cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) -- -v
 
+    - name: Debug ccache directory
+      if: inputs.ccache_enabled == 'true'
+      shell: bash
+      run: |
+        echo "=== ccache directory contents ==="
+        ls -laR ~/.ccache || echo "Directory doesn't exist"
+        echo ""
+        echo "=== Disk space ==="
+        df -h ~
+        echo ""
+        echo "=== ccache config ==="
+        ccache --show-config | head -30
+        echo ""
+        echo "=== Directory sizes ==="
+        du -sh ~/.ccache 2>/dev/null || echo "No directory"
+        find ~/.ccache -type f -name "*.conf" -o -type f ! -name "*.conf" 2>/dev/null | head -20 || true
+        echo ""
+
     - name: Show ccache statistics
       if: inputs.ccache_enabled == 'true'
       shell: bash
