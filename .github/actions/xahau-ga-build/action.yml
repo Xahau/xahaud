@@ -93,14 +93,27 @@ runs:
         if [ -n "${{ inputs.cxx }}" ]; then
           export CXX="${{ inputs.cxx }}"
         fi
-        
-        
-        # Configure ccache launcher args
-        CCACHE_ARGS=""
+
+        # Create wrapper toolchain that overlays ccache on top of Conan's toolchain
+        # This enables ccache for the main app build without affecting Conan dependency builds
         if [ "${{ inputs.ccache_enabled }}" = "true" ]; then
-          CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          cat > wrapper_toolchain.cmake <<'EOF'
+# Include Conan's generated toolchain first (sets compiler, flags, etc.)
+# Note: CMAKE_CURRENT_LIST_DIR is the directory containing this wrapper (.build/)
+include(${CMAKE_CURRENT_LIST_DIR}/build/generators/conan_toolchain.cmake)
+
+# Overlay ccache configuration for main application build
+# This does NOT affect Conan dependency builds (already completed)
+set(CMAKE_C_COMPILER_LAUNCHER ccache CACHE STRING "C compiler launcher" FORCE)
+set(CMAKE_CXX_COMPILER_LAUNCHER ccache CACHE STRING "C++ compiler launcher" FORCE)
+EOF
+          TOOLCHAIN_FILE="wrapper_toolchain.cmake"
+          echo "✅ Created wrapper toolchain with ccache enabled"
+        else
+          TOOLCHAIN_FILE="build/generators/conan_toolchain.cmake"
+          echo "ℹ️  Using Conan toolchain directly (ccache disabled)"
         fi
-        
+
         # Configure C++ standard library if specified
         # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
         # libcxx can be used with clang-17+ which has full C++20 support
@@ -140,9 +153,8 @@ runs:
         # So we get: .build/build/generators/ with our non-standard folder name
         cmake .. \
           -G "${{ inputs.generator }}" \
-          $CCACHE_ARGS \
           ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
-          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
+          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${TOOLCHAIN_FILE} \
           -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
 
     - name: Build project
