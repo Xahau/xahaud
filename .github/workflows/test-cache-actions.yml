@@ -4,6 +4,21 @@ on:
   push:
     branches: ["nd-experiment-overlayfs-*"]
   workflow_dispatch:
+    inputs:
+      state_assertion:
+        description: 'Expected state (optional, e.g. "2" to assert state 2)'
+        required: false
+        type: string
+        default: '1'
+      start_state:
+        description: 'Force specific starting state (optional, e.g. "3" to start at state 3)'
+        required: false
+        type: string
+      clear_cache:
+        description: 'Clear cache before running'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,34 +36,48 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Parse Commit Message Tags
-        id: parse-tags
+      - name: Parse Inputs (workflow_dispatch or commit message)
+        id: parse-inputs
         run: |
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          # Priority 1: workflow_dispatch inputs (manual trigger)
+          STATE_ASSERTION="${{ inputs.state_assertion }}"
+          START_STATE="${{ inputs.start_state }}"
+          SHOULD_CLEAR="${{ inputs.clear_cache }}"
 
-          # Parse [state:N] assertion tag (optional)
-          STATE_ASSERTION=""
-          if echo "${COMMIT_MSG}" | grep -qE '\[state:[0-9]+\]'; then
-            STATE_ASSERTION=$(echo "${COMMIT_MSG}" | grep -oE '\[state:[0-9]+\]' | grep -oE '[0-9]+')
-            echo "State assertion found: ${STATE_ASSERTION}"
+          # Priority 2: commit message tags (push event)
+          if [ "${{ github.event_name }}" = "push" ]; then
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+
+            # Parse [state:N] assertion tag (optional, if not provided as input)
+            if [ -z "${STATE_ASSERTION}" ] && echo "${COMMIT_MSG}" | grep -qE '\[state:[0-9]+\]'; then
+              STATE_ASSERTION=$(echo "${COMMIT_MSG}" | grep -oE '\[state:[0-9]+\]' | grep -oE '[0-9]+')
+              echo "State assertion found in commit: ${STATE_ASSERTION}"
+            fi
+
+            # Parse [start-state:N] force tag (optional, if not provided as input)
+            if [ -z "${START_STATE}" ] && echo "${COMMIT_MSG}" | grep -qE '\[start-state:[0-9]+\]'; then
+              START_STATE=$(echo "${COMMIT_MSG}" | grep -oE '\[start-state:[0-9]+\]' | grep -oE '[0-9]+')
+              echo "Start state found in commit: ${START_STATE}"
+            fi
+
+            # Parse [ci-clear-cache] tag (if not provided as input)
+            if [ "${SHOULD_CLEAR}" != "true" ] && echo "${COMMIT_MSG}" | grep -q '\[ci-clear-cache\]'; then
+              SHOULD_CLEAR=true
+              echo "Cache clear requested in commit"
+            fi
           fi
+
+          # Output final values
           echo "state_assertion=${STATE_ASSERTION}" >> "$GITHUB_OUTPUT"
-
-          # Parse [start-state:N] force tag (optional)
-          START_STATE=""
-          if echo "${COMMIT_MSG}" | grep -qE '\[start-state:[0-9]+\]'; then
-            START_STATE=$(echo "${COMMIT_MSG}" | grep -oE '\[start-state:[0-9]+\]' | grep -oE '[0-9]+')
-            echo "Start state found: ${START_STATE}"
-          fi
           echo "start_state=${START_STATE}" >> "$GITHUB_OUTPUT"
-
-          # Parse [ci-clear-cache] tag
-          SHOULD_CLEAR=false
-          if echo "${COMMIT_MSG}" | grep -q '\[ci-clear-cache\]'; then
-            SHOULD_CLEAR=true
-            echo "Cache clear requested"
-          fi
           echo "should_clear=${SHOULD_CLEAR}" >> "$GITHUB_OUTPUT"
+
+          # Log what we're using
+          echo ""
+          echo "Configuration:"
+          [ -n "${STATE_ASSERTION}" ] && echo "  State assertion: ${STATE_ASSERTION}"
+          [ -n "${START_STATE}" ] && echo "  Start state: ${START_STATE}"
+          echo "  Clear cache: ${SHOULD_CLEAR}"
 
       - name: Check S3 State (Before Restore)
         env:
@@ -86,8 +115,8 @@ jobs:
       - name: Auto-Detect State and Validate
         id: state
         env:
-          STATE_ASSERTION: ${{ steps.parse-tags.outputs.state_assertion }}
-          START_STATE: ${{ steps.parse-tags.outputs.start_state }}
+          STATE_ASSERTION: ${{ steps.parse-inputs.outputs.state_assertion }}
+          START_STATE: ${{ steps.parse-inputs.outputs.start_state }}
         run: |
           echo "=========================================="
           echo "State Detection and Validation"
