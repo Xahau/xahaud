@@ -10,7 +10,7 @@
 ## Branches
 
 For a stable release, choose the `master` branch or one of the [tagged
-releases](https://github.com/ripple/rippled/releases).
+releases](https://github.com/Xahau/xahaud/releases).
 
 ```
 git checkout master
@@ -36,7 +36,7 @@ git checkout develop
 - [Conan 2.x](https://conan.io/downloads)
 - [CMake 3.16](https://cmake.org/download/)
 
-`rippled` is written in the C++20 dialect and includes the `<concepts>` header.
+`xahaud` is written in the C++20 dialect and includes the `<concepts>` header.
 The [minimum compiler versions][2] required are:
 
 | Compiler    | Version |
@@ -46,11 +46,11 @@ The [minimum compiler versions][2] required are:
 | Apple Clang | 13.1.6  |
 | MSVC        | 19.23   |
 
-We don't recommend Windows for `rippled` production at this time. As of
-January 2023, Ubuntu has the highest level of quality assurance, testing,
+We don't recommend Windows for `xahaud` production at this time. As of
+November 2025, Ubuntu has the highest level of quality assurance, testing,
 and support.
 
-Windows developers should use Visual Studio 2019. `rippled` isn't
+Windows developers should use Visual Studio 2019. `xahaud` isn't
 compatible with [Boost](https://www.boost.org/) 1.78 or 1.79, and Conan
 can't build earlier Boost versions.
 
@@ -100,7 +100,7 @@ can't build earlier Boost versions.
    An easy way to do that is to run the shortcut "x64 Native Tools Command
    Prompt" for the version of Visual Studio that you have installed.
 
-   Windows developers must also build `rippled` and its dependencies for the x64
+   Windows developers must also build `xahaud` and its dependencies for the x64
    architecture.
 
    ```
@@ -218,9 +218,9 @@ can't build earlier Boost versions.
     cmake -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake ..
     ```
 
-    **Note:** You can pass build options for `rippled` in this step.
+    **Note:** You can pass build options for `xahaud` in this step.
 
-4. Build `rippled`.
+4. Build `xahaud`.
 
    For a single-configuration generator, it will build whatever configuration
    you passed for `CMAKE_BUILD_TYPE`. For a multi-configuration generator,
@@ -239,22 +239,22 @@ can't build earlier Boost versions.
    cmake --build . --config Debug
    ```
 
-5. Test rippled.
+5. Test xahaud.
 
    Single-config generators:
 
    ```
-   ./rippled --unittest
+   ./xahaud --unittest
    ```
 
    Multi-config generators:
 
    ```
-   ./Release/rippled --unittest
-   ./Debug/rippled --unittest
+   ./Release/xahaud --unittest
+   ./Debug/xahaud --unittest
    ```
 
-   The location of `rippled` in your build directory depends on your CMake
+   The location of `xahaud` in your build directory depends on your CMake
    generator. Pass `--help` to see the rest of the command line options.
 
 
