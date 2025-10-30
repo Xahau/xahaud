@@ -9,7 +9,7 @@ on:
         description: 'Expected state (optional, e.g. "2" to assert state 2)'
         required: false
         type: string
-        default: '1'
+        default: '2'
       start_state:
         description: 'Force specific starting state (optional, e.g. "3" to start at state 3)'
         required: false
