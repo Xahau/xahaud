@@ -1,0 +1,261 @@
+name: Test Cache Actions (State Machine)
+
+on:
+  push:
+    branches: ["nd-experiment-overlayfs-*"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-cache-state-machine:
+    runs-on: ubuntu-latest
+    env:
+      CACHE_KEY: test-state-machine-${{ github.ref_name }}
+      CACHE_DIR: /tmp/test-cache
+      S3_BUCKET: xahaud-github-actions-cache-niq
+      S3_REGION: us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse Commit Message Tags
+        id: parse-tags
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+
+          # Parse [state:N] assertion tag (optional)
+          STATE_ASSERTION=""
+          if echo "${COMMIT_MSG}" | grep -qE '\[state:[0-9]+\]'; then
+            STATE_ASSERTION=$(echo "${COMMIT_MSG}" | grep -oE '\[state:[0-9]+\]' | grep -oE '[0-9]+')
+            echo "State assertion found: ${STATE_ASSERTION}"
+          fi
+          echo "state_assertion=${STATE_ASSERTION}" >> "$GITHUB_OUTPUT"
+
+          # Parse [start-state:N] force tag (optional)
+          START_STATE=""
+          if echo "${COMMIT_MSG}" | grep -qE '\[start-state:[0-9]+\]'; then
+            START_STATE=$(echo "${COMMIT_MSG}" | grep -oE '\[start-state:[0-9]+\]' | grep -oE '[0-9]+')
+            echo "Start state found: ${START_STATE}"
+          fi
+          echo "start_state=${START_STATE}" >> "$GITHUB_OUTPUT"
+
+          # Parse [ci-clear-cache] tag
+          SHOULD_CLEAR=false
+          if echo "${COMMIT_MSG}" | grep -q '\[ci-clear-cache\]'; then
+            SHOULD_CLEAR=true
+            echo "Cache clear requested"
+          fi
+          echo "should_clear=${SHOULD_CLEAR}" >> "$GITHUB_OUTPUT"
+
+      - name: Check S3 State (Before Restore)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
+        run: |
+          echo "=========================================="
+          echo "S3 State Check (Before Restore)"
+          echo "=========================================="
+          echo "Cache key: ${CACHE_KEY}"
+          echo ""
+
+          # Check if base exists
+          BASE_EXISTS=false
+          if aws s3 ls "s3://${S3_BUCKET}/${CACHE_KEY}-base.tar.zst" --region "${S3_REGION}" >/dev/null 2>&1; then
+            BASE_EXISTS=true
+          fi
+          echo "Base exists: ${BASE_EXISTS}"
+
+          # Count deltas
+          DELTA_COUNT=$(aws s3 ls "s3://${S3_BUCKET}/" --region "${S3_REGION}" | grep "${CACHE_KEY}-delta-" | wc -l || echo "0")
+          echo "Delta count: ${DELTA_COUNT}"
+
+      - name: Restore Cache
+        uses: ./.github/actions/xahau-actions-cache-restore
+        with:
+          path: ${{ env.CACHE_DIR }}
+          key: ${{ env.CACHE_KEY }}
+          s3-bucket: ${{ env.S3_BUCKET }}
+          s3-region: ${{ env.S3_REGION }}
+          use-deltas: 'true'
+          aws-access-key-id: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
+
+      - name: Auto-Detect State and Validate
+        id: state
+        env:
+          STATE_ASSERTION: ${{ steps.parse-tags.outputs.state_assertion }}
+          START_STATE: ${{ steps.parse-tags.outputs.start_state }}
+        run: |
+          echo "=========================================="
+          echo "State Detection and Validation"
+          echo "=========================================="
+
+          # Create cache directory if it doesn't exist
+          mkdir -p "${CACHE_DIR}"
+
+          # Handle [start-state:N] - force specific state
+          if [ -n "${START_STATE}" ]; then
+            echo "🎯 [start-state:${START_STATE}] detected - forcing state setup"
+
+            # Clear cache and create state files 0 through START_STATE
+            rm -f ${CACHE_DIR}/state*.txt 2>/dev/null || true
+            for i in $(seq 0 ${START_STATE}); do
+              echo "State ${i} - Forced at $(date)" > "${CACHE_DIR}/state${i}.txt"
+              echo "Commit: ${{ github.sha }}" >> "${CACHE_DIR}/state${i}.txt"
+            done
+
+            DETECTED_STATE=${START_STATE}
+            echo "✓ Forced to state ${DETECTED_STATE}"
+          else
+            # Auto-detect state by counting state files
+            STATE_FILES=$(ls ${CACHE_DIR}/state*.txt 2>/dev/null | wc -l)
+            DETECTED_STATE=${STATE_FILES}
+            echo "Auto-detected state: ${DETECTED_STATE} (${STATE_FILES} state files)"
+          fi
+
+          # Show cache contents
+          echo ""
+          echo "Cache contents:"
+          if [ -d "${CACHE_DIR}" ] && [ "$(ls -A ${CACHE_DIR})" ]; then
+            ls -la "${CACHE_DIR}"
+          else
+            echo "(empty)"
+          fi
+
+          # Validate [state:N] assertion if provided
+          if [ -n "${STATE_ASSERTION}" ]; then
+            echo ""
+            echo "Validating assertion: [state:${STATE_ASSERTION}]"
+            if [ "${DETECTED_STATE}" -ne "${STATE_ASSERTION}" ]; then
+              echo "❌ ERROR: State mismatch!"
+              echo "   Expected (from [state:N]): ${STATE_ASSERTION}"
+              echo "   Detected (from cache):     ${DETECTED_STATE}"
+              exit 1
+            fi
+            echo "✓ Assertion passed: detected == expected (${DETECTED_STATE})"
+          fi
+
+          # Output detected state for next steps
+          echo "detected_state=${DETECTED_STATE}" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=========================================="
+
+      - name: Simulate Build (State Transition)
+        env:
+          DETECTED_STATE: ${{ steps.state.outputs.detected_state }}
+        run: |
+          echo "=========================================="
+          echo "Simulating Build (State Transition)"
+          echo "=========================================="
+
+          # Calculate next state
+          NEXT_STATE=$((DETECTED_STATE + 1))
+          echo "Transitioning: State ${DETECTED_STATE} → State ${NEXT_STATE}"
+          echo ""
+
+          # Create state file for next state
+          STATE_FILE="${CACHE_DIR}/state${NEXT_STATE}.txt"
+          echo "State ${NEXT_STATE} - Created at $(date)" > "${STATE_FILE}"
+          echo "Commit: ${{ github.sha }}" >> "${STATE_FILE}"
+          echo "Message: ${{ github.event.head_commit.message }}" >> "${STATE_FILE}"
+
+          echo "✓ Created ${STATE_FILE}"
+
+          # Show final cache state
+          echo ""
+          echo "Final cache contents:"
+          ls -la "${CACHE_DIR}"
+
+          echo ""
+          echo "State files:"
+          cat ${CACHE_DIR}/state*.txt
+
+      - name: Save Cache
+        uses: ./.github/actions/xahau-actions-cache-save
+        with:
+          path: ${{ env.CACHE_DIR }}
+          key: ${{ env.CACHE_KEY }}
+          s3-bucket: ${{ env.S3_BUCKET }}
+          s3-region: ${{ env.S3_REGION }}
+          use-deltas: 'true'
+          aws-access-key-id: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
+
+      - name: Validate S3 State (After Save)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
+          DETECTED_STATE: ${{ steps.state.outputs.detected_state }}
+        run: |
+          echo "=========================================="
+          echo "S3 State Validation (After Save)"
+          echo "=========================================="
+
+          # Calculate next state (what we just saved)
+          NEXT_STATE=$((DETECTED_STATE + 1))
+          echo "Saved state: ${NEXT_STATE}"
+          echo ""
+
+          # Check if base exists
+          if aws s3 ls "s3://${S3_BUCKET}/${CACHE_KEY}-base.tar.zst" --region "${S3_REGION}" >/dev/null 2>&1; then
+            BASE_SIZE=$(aws s3 ls "s3://${S3_BUCKET}/${CACHE_KEY}-base.tar.zst" --region "${S3_REGION}" | awk '{print $3}')
+            echo "✓ Base exists: ${CACHE_KEY}-base.tar.zst (${BASE_SIZE} bytes)"
+          else
+            echo "❌ ERROR: Base should exist after save"
+            exit 1
+          fi
+
+          # List deltas
+          echo ""
+          echo "Delta layers:"
+          DELTAS=$(aws s3 ls "s3://${S3_BUCKET}/" --region "${S3_REGION}" | grep "${CACHE_KEY}-delta-" || echo "")
+          if [ -n "${DELTAS}" ]; then
+            echo "${DELTAS}"
+            DELTA_COUNT=$(echo "${DELTAS}" | wc -l)
+          else
+            echo "(none)"
+            DELTA_COUNT=0
+          fi
+
+          # Validate S3 state
+          echo ""
+          if [ "${DETECTED_STATE}" -eq 0 ]; then
+            # Saved state 1 from bootstrap (state 0 → 1)
+            if [ "${DELTA_COUNT}" -ne 0 ]; then
+              echo "⚠️  WARNING: Bootstrap (state 1) should have 0 deltas, found ${DELTA_COUNT}"
+            else
+              echo "✓ State 1 saved: base exists, 0 deltas"
+            fi
+          else
+            # Saved delta (state N+1)
+            if [ "${DELTA_COUNT}" -ne 1 ]; then
+              echo "⚠️  WARNING: State ${NEXT_STATE} expects 1 delta (inline cleanup), found ${DELTA_COUNT}"
+              echo "This might be OK if multiple builds ran concurrently"
+            else
+              echo "✓ State ${NEXT_STATE} saved: base + 1 delta (old deltas cleaned)"
+            fi
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "✅ State ${DETECTED_STATE} → ${NEXT_STATE} Complete!"
+          echo "=========================================="
+          echo ""
+          echo "Next commit will auto-detect state ${NEXT_STATE}"
+          echo ""
+          echo "Options:"
+          echo "  # Normal (auto-advance)"
+          echo "  git commit -m 'continue testing'"
+          echo ""
+          echo "  # With assertion (validate state)"
+          echo "  git commit -m 'test delta [state:${NEXT_STATE}]'"
+          echo ""
+          echo "  # Clear cache and restart"
+          echo "  git commit -m 'fresh start [ci-clear-cache]'"
+          echo ""
+          echo "  # Jump to specific state"
+          echo "  git commit -m 'jump to state 3 [start-state:3]'"

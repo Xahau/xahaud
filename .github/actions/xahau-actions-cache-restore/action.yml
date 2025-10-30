@@ -68,6 +68,7 @@ runs:
         FAIL_ON_MISS: ${{ inputs.fail-on-cache-miss }}
         LOOKUP_ONLY: ${{ inputs.lookup-only }}
         USE_DELTAS: ${{ inputs.use-deltas }}
+        COMMIT_MSG: ${{ github.event.head_commit.message }}
       run: |
         set -euo pipefail
 
@@ -85,6 +86,42 @@ runs:
         CACHE_WORKSPACE="/tmp/xahau-cache-${CACHE_HASH}"
 
         echo "Cache workspace: ${CACHE_WORKSPACE}"
+
+        # Check for [ci-clear-cache] tag in commit message
+        if echo "${COMMIT_MSG}" | grep -q '\[ci-clear-cache\]'; then
+          echo ""
+          echo "🗑️  [ci-clear-cache] detected in commit message"
+          echo "Clearing cache for key: ${CACHE_KEY}"
+          echo ""
+
+          # Delete base layer
+          S3_BASE_KEY="s3://${S3_BUCKET}/${CACHE_KEY}-base.tar.zst"
+          if aws s3 ls "${S3_BASE_KEY}" --region "${S3_REGION}" >/dev/null 2>&1; then
+            echo "Deleting base layer: ${S3_BASE_KEY}"
+            aws s3 rm "${S3_BASE_KEY}" --region "${S3_REGION}" 2>/dev/null || true
+            echo "✓ Base layer deleted"
+          else
+            echo "ℹ️  No base layer found to delete"
+          fi
+
+          # Delete all delta layers for this key
+          echo "Deleting all delta layers matching: ${CACHE_KEY}-delta-*"
+          DELTA_COUNT=$(aws s3 ls "s3://${S3_BUCKET}/" --region "${S3_REGION}" | grep "${CACHE_KEY}-delta-" | wc -l)
+          if [ "${DELTA_COUNT}" -gt 0 ]; then
+            aws s3 rm "s3://${S3_BUCKET}/" --recursive \
+              --exclude "*" \
+              --include "${CACHE_KEY}-delta-*" \
+              --region "${S3_REGION}" 2>/dev/null || true
+            echo "✓ Deleted ${DELTA_COUNT} delta layer(s)"
+          else
+            echo "ℹ️  No delta layers found to delete"
+          fi
+
+          echo ""
+          echo "✅ Cache cleared successfully"
+          echo "Build will proceed from scratch (bootstrap mode)"
+          echo ""
+        fi
 
         # Create OverlayFS directory structure
         mkdir -p "${CACHE_WORKSPACE}"/{base,upper,work,merged}
