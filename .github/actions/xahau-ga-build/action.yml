@@ -98,15 +98,15 @@ runs:
         # This enables ccache for the main app build without affecting Conan dependency builds
         if [ "${{ inputs.ccache_enabled }}" = "true" ]; then
           cat > wrapper_toolchain.cmake <<'EOF'
-# Include Conan's generated toolchain first (sets compiler, flags, etc.)
-# Note: CMAKE_CURRENT_LIST_DIR is the directory containing this wrapper (.build/)
-include(${CMAKE_CURRENT_LIST_DIR}/build/generators/conan_toolchain.cmake)
+        # Include Conan's generated toolchain first (sets compiler, flags, etc.)
+        # Note: CMAKE_CURRENT_LIST_DIR is the directory containing this wrapper (.build/)
+        include(${CMAKE_CURRENT_LIST_DIR}/build/generators/conan_toolchain.cmake)
 
-# Overlay ccache configuration for main application build
-# This does NOT affect Conan dependency builds (already completed)
-set(CMAKE_C_COMPILER_LAUNCHER ccache CACHE STRING "C compiler launcher" FORCE)
-set(CMAKE_CXX_COMPILER_LAUNCHER ccache CACHE STRING "C++ compiler launcher" FORCE)
-EOF
+        # Overlay ccache configuration for main application build
+        # This does NOT affect Conan dependency builds (already completed)
+        set(CMAKE_C_COMPILER_LAUNCHER ccache CACHE STRING "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER ccache CACHE STRING "C++ compiler launcher" FORCE)
+        EOF
           TOOLCHAIN_FILE="wrapper_toolchain.cmake"
           echo "✅ Created wrapper toolchain with ccache enabled"
         else
