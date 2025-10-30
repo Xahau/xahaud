@@ -32,6 +32,12 @@ inputs:
     options:
       - libstdcxx
       - libcxx
+  aws-access-key-id:
+    description: 'AWS Access Key ID for S3 cache storage'
+    required: true
+  aws-secret-access-key:
+    description: 'AWS Secret Access Key for S3 cache storage'
+    required: true
 
 outputs:
   cache-hit:
@@ -72,16 +78,16 @@ runs:
     - name: Restore Conan cache
       if: inputs.cache_enabled == 'true'
       id: cache-restore-conan
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-actions-cache-restore
       with:
-        path: |
-          ~/.conan
-          ~/.conan2
+        path: ~/.conan2
         # Note: compiler-id format is compiler-version-stdlib[-gccversion]
         key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
         restore-keys: |
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
     - name: Export custom recipes
       shell: bash
@@ -108,9 +114,9 @@ runs:
 
     - name: Save Conan cache
       if: always() && inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true' && steps.check-conanfile-changes.outputs.should-save-conan-cache == 'true'
-      uses: actions/cache/save@v4
+      uses: ./.github/actions/xahau-actions-cache-save
       with:
-        path: |
-          ~/.conan
-          ~/.conan2
-        key: ${{ steps.cache-restore-conan.outputs.cache-primary-key }}
+        path: ~/.conan2
+        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}

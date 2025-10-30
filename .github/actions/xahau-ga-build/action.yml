@@ -47,6 +47,12 @@ inputs:
     description: 'GCC version to use for Clang toolchain (e.g. 11, 13)'
     required: false
     default: ''
+  aws-access-key-id:
+    description: 'AWS Access Key ID for S3 cache storage'
+    required: true
+  aws-secret-access-key:
+    description: 'AWS Secret Access Key for S3 cache storage'
+    required: true
 
 runs:
   using: 'composite'
@@ -62,18 +68,20 @@ runs:
     - name: Restore ccache directory for default branch
       if: inputs.ccache_enabled == 'true'
       id: ccache-restore
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-actions-cache-restore
       with:
         path: ~/.ccache-main
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
         restore-keys: |
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
     - name: Restore ccache directory for current branch
       if: inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
       id: ccache-restore-current-branch
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-actions-cache-restore
       with:
         path: ~/.ccache-current
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
@@ -81,6 +89,8 @@ runs:
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
     - name: Configure project
       shell: bash
@@ -161,14 +171,18 @@ runs:
 
     - name: Save ccache directory for default branch
       if: always() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
-      uses: actions/cache/save@v4
+      uses: ./.github/actions/xahau-actions-cache-save
       with:
         path: ~/.ccache-main
-        key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
+        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
     - name: Save ccache directory for current branch
       if: always() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
-      uses: actions/cache/save@v4
+      uses: ./.github/actions/xahau-actions-cache-save
       with:
         path: ~/.ccache-current
-        key: ${{ steps.ccache-restore-current-branch.outputs.cache-primary-key }}
+        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
