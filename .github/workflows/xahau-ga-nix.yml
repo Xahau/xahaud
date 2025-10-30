@@ -237,7 +237,6 @@ jobs:
           max_size: 2G
           hash_dir: true
           compiler_check: content
-          is_main_branch: ${{ github.ref_name == env.MAIN_BRANCH_NAME }}
 
       - name: Configure Conan
         run: |

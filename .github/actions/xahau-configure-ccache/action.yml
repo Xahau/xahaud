@@ -2,6 +2,10 @@ name: 'Configure ccache'
 description: 'Sets up ccache with consistent configuration'
 
 inputs:
+  cache_dir:
+    description: 'Path to ccache directory'
+    required: false
+    default: '~/.ccache'
   max_size:
     description: 'Maximum cache size'
     required: false
@@ -14,18 +18,6 @@ inputs:
     description: 'How to check compiler for changes'
     required: false
     default: 'content'
-  is_main_branch:
-    description: 'Whether the current branch is the main branch'
-    required: false
-    default: 'false'
-  main_cache_dir:
-    description: 'Path to the main branch cache directory'
-    required: false
-    default: '~/.ccache-main'
-  current_cache_dir:
-    description: 'Path to the current branch cache directory'
-    required: false
-    default: '~/.ccache-current'
 
 runs:
   using: 'composite'
@@ -33,31 +25,20 @@ runs:
     - name: Configure ccache
       shell: bash
       run: |
-        # Create cache directories
-        mkdir -p ${{ inputs.main_cache_dir }} ${{ inputs.current_cache_dir }}
-        
-        # Set compiler check globally
-        ccache -o compiler_check=${{ inputs.compiler_check }}
-        
-        # Use a single config file location
-        mkdir -p ~/.ccache
-        export CONF_PATH="$HOME/.ccache/ccache.conf"
-        
-        # Apply common settings
-        echo "max_size = ${{ inputs.max_size }}" > "$CONF_PATH"
-        echo "hash_dir = ${{ inputs.hash_dir }}" >> "$CONF_PATH"
-        echo "compiler_check = ${{ inputs.compiler_check }}" >> "$CONF_PATH"
-        
-        if [ "${{ inputs.is_main_branch }}" == "true" ]; then
-          # Main branch: use main branch cache
-          ccache --set-config=cache_dir="${{ inputs.main_cache_dir }}"
-          echo "CCACHE_DIR=${{ inputs.main_cache_dir }}" >> $GITHUB_ENV
-        else
-          # Feature branch: use current branch cache with main as secondary
-          ccache --set-config=cache_dir="${{ inputs.current_cache_dir }}"
-          ccache --set-config=secondary_storage="file:${{ inputs.main_cache_dir }}"
-          echo "CCACHE_DIR=${{ inputs.current_cache_dir }}" >> $GITHUB_ENV
-        fi
-        
-        ccache -p # Print config for verification
-        ccache -z # Zero statistics before the build
+        # Create cache directory
+        mkdir -p ${{ inputs.cache_dir }}
+
+        # Configure ccache settings
+        ccache --set-config=cache_dir="${{ inputs.cache_dir }}"
+        ccache --set-config=max_size=${{ inputs.max_size }}
+        ccache --set-config=hash_dir=${{ inputs.hash_dir }}
+        ccache --set-config=compiler_check=${{ inputs.compiler_check }}
+
+        # Export for use by build tools
+        echo "CCACHE_DIR=${{ inputs.cache_dir }}" >> $GITHUB_ENV
+
+        # Print config for verification
+        ccache -p
+
+        # Zero statistics before the build
+        ccache -z
