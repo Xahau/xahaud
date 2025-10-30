@@ -25,17 +25,18 @@ runs:
     - name: Configure ccache
       shell: bash
       run: |
-        # Create cache directory
-        mkdir -p ${{ inputs.cache_dir }}
+        # Use ccache's default cache_dir (~/.ccache) - don't override it
+        # This avoids tilde expansion issues when setting it explicitly
 
-        # Configure ccache settings
-        ccache --set-config=cache_dir="${{ inputs.cache_dir }}"
+        # Create cache directory using ccache's default
+        mkdir -p ~/.ccache
+
+        # Configure ccache settings (but NOT cache_dir - use default)
         ccache --set-config=max_size=${{ inputs.max_size }}
         ccache --set-config=hash_dir=${{ inputs.hash_dir }}
         ccache --set-config=compiler_check=${{ inputs.compiler_check }}
 
-        # Export for use by build tools
-        echo "CCACHE_DIR=${{ inputs.cache_dir }}" >> $GITHUB_ENV
+        # Note: Not setting CCACHE_DIR - let ccache use its default (~/.ccache)
 
         # Print config for verification
         ccache -p
