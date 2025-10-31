@@ -1,5 +1,5 @@
-name: 'Xahau Cache Save (S3 + OverlayFS)'
-description: 'Drop-in replacement for actions/cache/save using S3 and OverlayFS for delta caching'
+name: 'Xahau Cache Save (S3)'
+description: 'Drop-in replacement for actions/cache/save using S3 storage'
 
 inputs:
   path:
@@ -16,10 +16,6 @@ inputs:
     description: 'S3 region'
     required: false
     default: 'us-east-1'
-  use-deltas:
-    description: 'Enable delta caching (download/upload incremental changes). Set to false for base-only caching.'
-    required: false
-    default: 'true'
   # Note: Composite actions can't access secrets.* directly - must be passed from workflow
   aws-access-key-id:
     description: 'AWS Access Key ID for S3 access'
@@ -31,7 +27,7 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Save cache to S3 with OverlayFS delta
+    - name: Save cache to S3
       shell: bash
       env:
         AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
@@ -40,12 +36,11 @@ runs:
         S3_REGION: ${{ inputs.s3-region }}
         CACHE_KEY: ${{ inputs.key }}
         TARGET_PATH: ${{ inputs.path }}
-        USE_DELTAS: ${{ inputs.use-deltas }}
       run: |
         set -euo pipefail
 
         echo "=========================================="
-        echo "Xahau Cache Save (S3 + OverlayFS)"
+        echo "Xahau Cache Save (S3)"
         echo "=========================================="
         echo "Target path: ${TARGET_PATH}"
         echo "Cache key: ${CACHE_KEY}"
@@ -53,346 +48,63 @@ runs:
         echo ""
 
         # Normalize target path (expand tilde and resolve to absolute path)
-        # This ensures consistent path comparison with the mount registry
         if [[ "${TARGET_PATH}" == ~* ]]; then
-          # Expand tilde manually (works even if directory doesn't exist yet)
           TARGET_PATH="${HOME}${TARGET_PATH:1}"
         fi
         echo "Normalized target path: ${TARGET_PATH}"
         echo ""
 
-        # Find the cache workspace from mount registry
-        MOUNT_REGISTRY="/tmp/xahau-cache-mounts.txt"
-
-        if [ ! -f "${MOUNT_REGISTRY}" ]; then
-          echo "⚠️  No cache mounts found (mount registry doesn't exist)"
-          echo "This usually means cache restore was not called, or there was no cache to restore."
+        # Check if target directory exists
+        if [ ! -d "${TARGET_PATH}" ]; then
+          echo "⚠️  Target directory does not exist: ${TARGET_PATH}"
           echo "Skipping cache save."
           exit 0
         fi
 
-        # Find entry for this path
-        # Format: path:workspace:matched_key:primary_key:exact_match:use_deltas
-        # Bootstrap mode: path:bootstrap:key:key:false:true/false (workspace="bootstrap")
-        CACHE_WORKSPACE=""
-        MATCHED_KEY=""
-        PRIMARY_KEY=""
-        EXACT_MATCH=""
-        REGISTRY_USE_DELTAS=""
+        # Use static base name (one base per key, immutable)
+        S3_BASE_KEY="s3://${S3_BUCKET}/${CACHE_KEY}-base.tar.zst"
 
-        while IFS=: read -r mount_path mount_workspace mount_matched_key mount_primary_key mount_exact_match mount_use_deltas; do
-          if [ "${mount_path}" = "${TARGET_PATH}" ]; then
-            CACHE_WORKSPACE="${mount_workspace}"
-            MATCHED_KEY="${mount_matched_key}"
-            PRIMARY_KEY="${mount_primary_key}"
-            EXACT_MATCH="${mount_exact_match}"
-            REGISTRY_USE_DELTAS="${mount_use_deltas}"
-            break
-          fi
-        done < "${MOUNT_REGISTRY}"
-
-        if [ -z "${CACHE_WORKSPACE}" ] && [ -z "${MATCHED_KEY}" ]; then
-          echo "⚠️  No cache entry found for path: ${TARGET_PATH}"
-          echo "This usually means cache restore was not called for this path."
-          echo "Skipping cache save."
+        # Check if base already exists (immutability - first write wins)
+        if aws s3 ls "${S3_BASE_KEY}" --region "${S3_REGION}" >/dev/null 2>&1; then
+          echo "⚠️  Cache already exists: ${S3_BASE_KEY}"
+          echo "Skipping upload (immutability - first write wins, like GitHub Actions)"
+          echo ""
+          echo "=========================================="
+          echo "Cache save completed (already exists)"
+          echo "=========================================="
           exit 0
         fi
 
-        # Determine cache mode
-        if [ "${CACHE_WORKSPACE}" = "bootstrap" ]; then
-          CACHE_MODE="bootstrap"
-          PRIMARY_KEY="${MATCHED_KEY}"  # In bootstrap, matched_key field contains primary key
-          echo "Cache mode: BOOTSTRAP (first build for this key)"
-          echo "Primary key: ${PRIMARY_KEY}"
-        elif [ "${EXACT_MATCH}" = "false" ]; then
-          CACHE_MODE="partial-match"
-          echo "Cache mode: PARTIAL MATCH (restore-key used)"
-          echo "Cache workspace: ${CACHE_WORKSPACE}"
-          echo "Matched key from restore: ${MATCHED_KEY}"
-          echo "Primary key (will save new base): ${PRIMARY_KEY}"
-        else
-          CACHE_MODE="exact-match"
-          echo "Cache mode: EXACT MATCH (cache hit)"
-          echo "Cache workspace: ${CACHE_WORKSPACE}"
-          echo "Matched key: ${MATCHED_KEY}"
-        fi
-        echo "Use deltas: ${REGISTRY_USE_DELTAS}"
+        # Create tarball
+        BASE_TARBALL=$(mktemp /tmp/xahau-cache-XXXXXX.tar.zst)
+
+        echo "Creating cache tarball..."
+        tar -cf - -C "${TARGET_PATH}" . | zstd -3 -T0 -q -o "${BASE_TARBALL}"
+
+        BASE_SIZE=$(du -h "${BASE_TARBALL}" | cut -f1)
+        echo "✓ Cache tarball created: ${BASE_SIZE}"
         echo ""
 
-        # Handle different cache modes
-        if [ "${CACHE_MODE}" = "bootstrap" ]; then
-          # Bootstrap: Save entire cache as base layer (no OverlayFS was used)
-          echo "Bootstrap mode: Creating initial base layer from ${TARGET_PATH}"
+        # Upload to S3
+        echo "Uploading cache to S3..."
+        echo "  Key: ${CACHE_KEY}-base.tar.zst"
 
-          BASE_TARBALL="/tmp/xahau-cache-base-$$.tar.zst"
-          echo "Creating base tarball..."
-          tar -cf - -C "${TARGET_PATH}" . | zstd -3 -T0 -q -o "${BASE_TARBALL}"
+        aws s3api put-object \
+          --bucket "${S3_BUCKET}" \
+          --key "${CACHE_KEY}-base.tar.zst" \
+          --body "${BASE_TARBALL}" \
+          --tagging 'type=base' \
+          --region "${S3_REGION}" \
+          >/dev/null
 
-          BASE_SIZE=$(du -h "${BASE_TARBALL}" | cut -f1)
-          echo "✓ Base tarball created: ${BASE_SIZE}"
-          echo ""
+        echo "✓ Uploaded: ${S3_BASE_KEY}"
 
-          # Use static base name (one base per key, immutable)
-          S3_BASE_KEY="s3://${S3_BUCKET}/${PRIMARY_KEY}-base.tar.zst"
-
-          # Check if base already exists (immutability - first write wins)
-          if aws s3 ls "${S3_BASE_KEY}" --region "${S3_REGION}" >/dev/null 2>&1; then
-            echo "⚠️  Base layer already exists: ${S3_BASE_KEY}"
-            echo "Skipping upload (immutability - first write wins, like GitHub Actions)"
-          else
-            echo "Uploading base layer to S3..."
-            echo "  Key: ${PRIMARY_KEY}-base.tar.zst"
-
-            aws s3api put-object \
-              --bucket "${S3_BUCKET}" \
-              --key "${PRIMARY_KEY}-base.tar.zst" \
-              --body "${BASE_TARBALL}" \
-              --tagging 'type=base' \
-              --region "${S3_REGION}" \
-              >/dev/null
-
-            echo "✓ Uploaded: ${S3_BASE_KEY}"
-          fi
-
-          # Cleanup
-          rm -f "${BASE_TARBALL}"
-
-          echo ""
-          echo "=========================================="
-          echo "Bootstrap cache save completed"
-          echo "Base size: ${BASE_SIZE}"
-          echo "Cache key: ${PRIMARY_KEY}"
-          echo "=========================================="
-          exit 0
-
-        elif [ "${CACHE_MODE}" = "partial-match" ]; then
-          # Partial match: Save merged view as new base ONLY (no delta)
-          # The delta is relative to the OLD base, not the NEW base we're creating
-          echo "Partial match mode: Saving new base layer for primary key"
-          echo "Note: Delta will NOT be saved (it's relative to old base)"
-
-          BASE_TARBALL="/tmp/xahau-cache-base-$$.tar.zst"
-          echo "Creating base tarball from merged view..."
-          tar -cf - -C "${CACHE_WORKSPACE}/merged" . | zstd -3 -T0 -q -o "${BASE_TARBALL}"
-
-          BASE_SIZE=$(du -h "${BASE_TARBALL}" | cut -f1)
-          echo "✓ Base tarball created: ${BASE_SIZE}"
-          echo ""
-
-          # Use static base name (one base per key, immutable)
-          S3_BASE_KEY="s3://${S3_BUCKET}/${PRIMARY_KEY}-base.tar.zst"
-
-          # Check if base already exists (immutability - first write wins)
-          if aws s3 ls "${S3_BASE_KEY}" --region "${S3_REGION}" >/dev/null 2>&1; then
-            echo "⚠️  Base layer already exists: ${S3_BASE_KEY}"
-            echo "Skipping upload (immutability - first write wins, like GitHub Actions)"
-          else
-            echo "Uploading new base layer to S3..."
-            echo "  Key: ${PRIMARY_KEY}-base.tar.zst"
-
-            aws s3api put-object \
-              --bucket "${S3_BUCKET}" \
-              --key "${PRIMARY_KEY}-base.tar.zst" \
-              --body "${BASE_TARBALL}" \
-              --tagging 'type=base' \
-              --region "${S3_REGION}" \
-              >/dev/null
-
-            echo "✓ Uploaded: ${S3_BASE_KEY}"
-          fi
-
-          # Cleanup
-          rm -f "${BASE_TARBALL}"
-
-          # Unmount and cleanup
-          echo ""
-          echo "Cleaning up..."
-          if mount | grep -q "${CACHE_WORKSPACE}/merged"; then
-            sudo umount "${CACHE_WORKSPACE}/merged" || {
-              echo "⚠️  Warning: Failed to unmount ${CACHE_WORKSPACE}/merged"
-              echo "Attempting lazy unmount..."
-              sudo umount -l "${CACHE_WORKSPACE}/merged" || true
-            }
-          fi
-          rm -rf "${CACHE_WORKSPACE}"
-
-          # Remove from registry
-          if [ -f "${MOUNT_REGISTRY}" ]; then
-            grep -v "^${TARGET_PATH}:" "${MOUNT_REGISTRY}" > "${MOUNT_REGISTRY}.tmp" 2>/dev/null || true
-            mv "${MOUNT_REGISTRY}.tmp" "${MOUNT_REGISTRY}" 2>/dev/null || true
-          fi
-
-          echo "✓ Cleanup completed"
-
-          echo ""
-          echo "=========================================="
-          echo "Partial match cache save completed"
-          echo "New base created for: ${PRIMARY_KEY}"
-          echo "Base size: ${BASE_SIZE}"
-          if [ "${REGISTRY_USE_DELTAS}" = "true" ]; then
-            echo "Next exact-match build will create deltas from this base"
-          else
-            echo "Next exact-match build will reuse this base (base-only mode)"
-          fi
-          echo "=========================================="
-          exit 0
-        fi
-
-        # For exact-match ONLY: Save delta (if use-deltas enabled)
-        if [ "${CACHE_MODE}" = "exact-match" ]; then
-          # If deltas are disabled, just cleanup and exit
-          if [ "${REGISTRY_USE_DELTAS}" != "true" ]; then
-            echo "ℹ️  Delta caching disabled (use-deltas: false)"
-            echo "Base already exists for this key, nothing to save."
-
-            # Unmount and cleanup
-            echo ""
-            echo "Cleaning up..."
-            if mount | grep -q "${CACHE_WORKSPACE}/merged"; then
-              sudo umount "${CACHE_WORKSPACE}/merged" 2>/dev/null || true
-            fi
-            rm -rf "${CACHE_WORKSPACE}"
-
-            # Remove from registry
-            if [ -f "${MOUNT_REGISTRY}" ]; then
-              grep -v "^${TARGET_PATH}:" "${MOUNT_REGISTRY}" > "${MOUNT_REGISTRY}.tmp" 2>/dev/null || true
-              mv "${MOUNT_REGISTRY}.tmp" "${MOUNT_REGISTRY}" 2>/dev/null || true
-            fi
-
-            echo ""
-            echo "=========================================="
-            echo "Cache save completed (base-only mode)"
-            echo "=========================================="
-            exit 0
-          fi
-
-          # Check if upper layer has any changes
-          if [ -z "$(ls -A ${CACHE_WORKSPACE}/upper 2>/dev/null)" ]; then
-            echo "ℹ️  No changes detected in upper layer (cache is unchanged)"
-            echo "Skipping delta upload to save bandwidth."
-
-            # Still unmount and cleanup
-            echo ""
-            echo "Cleaning up..."
-            sudo umount "${CACHE_WORKSPACE}/merged" 2>/dev/null || true
-            rm -rf "${CACHE_WORKSPACE}"
-
-            echo ""
-            echo "=========================================="
-            echo "Cache save completed (no changes)"
-            echo "=========================================="
-            exit 0
-          fi
-
-          # Show delta statistics
-          echo "Delta layer statistics:"
-          echo "  Files changed: $(find ${CACHE_WORKSPACE}/upper -type f 2>/dev/null | wc -l)"
-          echo "  Delta size:    $(du -sh ${CACHE_WORKSPACE}/upper 2>/dev/null | cut -f1)"
-          echo ""
-
-          # Create delta tarball from upper layer
-          echo "Creating delta tarball..."
-          DELTA_TARBALL="/tmp/xahau-cache-delta-$$.tar.zst"
-
-          tar -cf - -C "${CACHE_WORKSPACE}/upper" . | zstd -3 -T0 -q -o "${DELTA_TARBALL}"
-
-          DELTA_SIZE=$(du -h "${DELTA_TARBALL}" | cut -f1)
-          echo "✓ Delta tarball created: ${DELTA_SIZE}"
-          echo ""
-
-          # Upload timestamped delta (no overwrites = zero concurrency issues)
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-
-          # Use PRIMARY_KEY for delta (ensures deltas match their base)
-          S3_DELTA_TIMESTAMPED="s3://${S3_BUCKET}/${PRIMARY_KEY}-delta-${TIMESTAMP}-${COMMIT_SHA}.tar.zst"
-
-          echo "Uploading timestamped delta to S3..."
-          echo "  Key: ${PRIMARY_KEY}-delta-${TIMESTAMP}-${COMMIT_SHA}.tar.zst"
-
-          # Upload with tag (deltas cleaned up inline - keep last 1)
-          aws s3api put-object \
-            --bucket "${S3_BUCKET}" \
-            --key "${PRIMARY_KEY}-delta-${TIMESTAMP}-${COMMIT_SHA}.tar.zst" \
-            --body "${DELTA_TARBALL}" \
-            --tagging 'type=delta-archive' \
-            --region "${S3_REGION}" \
-            >/dev/null
-
-          echo "✓ Uploaded: ${S3_DELTA_TIMESTAMPED}"
-
-          # Inline cleanup: Keep only latest delta (the one we just uploaded)
-          echo ""
-          echo "Cleaning up old deltas (keeping only latest)..."
-
-          # List all deltas for this key, sorted by LastModified (oldest first)
-          ALL_DELTAS=$(aws s3api list-objects-v2 \
-            --bucket "${S3_BUCKET}" \
-            --prefix "${PRIMARY_KEY}-delta-" \
-            --region "${S3_REGION}" \
-            --query 'sort_by(Contents, &LastModified)[*].Key' \
-            --output json 2>/dev/null || echo "[]")
-
-          DELTA_COUNT=$(echo "${ALL_DELTAS}" | jq 'length' 2>/dev/null || echo "0")
-
-          if [ "${DELTA_COUNT}" -gt 1 ]; then
-            # Keep last 1 (newest), delete all older ones (all except last 1 = [0:-1])
-            OLD_DELTAS=$(echo "${ALL_DELTAS}" | jq -r '.[0:-1][]' 2>/dev/null)
-
-            if [ -n "${OLD_DELTAS}" ]; then
-              DELETE_COUNT=$((DELTA_COUNT - 1))
-              echo "  Found ${DELETE_COUNT} old delta(s) to delete"
-
-              # Create delete batch request JSON
-              DELETE_OBJECTS=$(echo "${OLD_DELTAS}" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map({Key: .}) | {Objects: ., Quiet: true}' 2>/dev/null)
-
-              if [ -n "${DELETE_OBJECTS}" ]; then
-                aws s3api delete-objects \
-                  --bucket "${S3_BUCKET}" \
-                  --delete "${DELETE_OBJECTS}" \
-                  --region "${S3_REGION}" \
-                  >/dev/null 2>&1
-
-                echo "✓ Deleted ${DELETE_COUNT} old delta(s)"
-              fi
-            fi
-          else
-            echo "ℹ️  Only ${DELTA_COUNT} delta(s) exist, no cleanup needed"
-          fi
-
-          # Cleanup delta tarball
-          rm -f "${DELTA_TARBALL}"
-
-          # Cleanup: Unmount OverlayFS and remove workspace
-          echo ""
-          echo "Cleaning up..."
-
-          if mount | grep -q "${CACHE_WORKSPACE}/merged"; then
-            sudo umount "${CACHE_WORKSPACE}/merged" || {
-              echo "⚠️  Warning: Failed to unmount ${CACHE_WORKSPACE}/merged"
-              echo "Attempting lazy unmount..."
-              sudo umount -l "${CACHE_WORKSPACE}/merged" || true
-            }
-          fi
-
-          # Remove workspace
-          rm -rf "${CACHE_WORKSPACE}"
-        fi
-
-        # Remove from registry
-        if [ -f "${MOUNT_REGISTRY}" ]; then
-          grep -v "^${TARGET_PATH}:" "${MOUNT_REGISTRY}" > "${MOUNT_REGISTRY}.tmp" 2>/dev/null || true
-          mv "${MOUNT_REGISTRY}.tmp" "${MOUNT_REGISTRY}" 2>/dev/null || true
-        fi
-
-        echo "✓ Cleanup completed"
+        # Cleanup
+        rm -f "${BASE_TARBALL}"
 
         echo ""
         echo "=========================================="
         echo "Cache save completed successfully"
-        echo "Mode: ${CACHE_MODE}"
-        echo "Cache key: ${PRIMARY_KEY}"
-        if [ -n "${DELTA_SIZE:-}" ]; then
-          echo "Delta size: ${DELTA_SIZE}"
-        fi
+        echo "Cache size: ${BASE_SIZE}"
+        echo "Cache key: ${CACHE_KEY}"
         echo "=========================================="
