@@ -76,6 +76,7 @@ runs:
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        use-deltas: 'false'  # Disabled: OverlayFS file-level deltas incompatible with ccache's byte-level LRU updates
         aws-access-key-id: ${{ inputs.aws-access-key-id }}
         aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
@@ -193,5 +194,6 @@ runs:
       with:
         path: ~/.ccache
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
+        use-deltas: 'false'  # Disabled: OverlayFS file-level deltas incompatible with ccache's byte-level LRU updates
         aws-access-key-id: ${{ inputs.aws-access-key-id }}
         aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
