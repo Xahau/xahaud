@@ -76,7 +76,7 @@ runs:
         fi
 
         # Create tarball
-        BASE_TARBALL=$(mktemp /tmp/xahau-cache-XXXXXX.tar.zst)
+        BASE_TARBALL="/tmp/xahau-cache-base-$$.tar.zst"
 
         echo "Creating cache tarball..."
         tar -cf - -C "${TARGET_PATH}" . | zstd -3 -T0 -q -o "${BASE_TARBALL}"

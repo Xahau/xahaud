@@ -170,7 +170,7 @@ runs:
 
         # Download and extract cache
         S3_KEY="s3://${S3_BUCKET}/${MATCHED_KEY}-base.tar.zst"
-        TEMP_TARBALL=$(mktemp /tmp/xahau-cache-XXXXXX.tar.zst)
+        TEMP_TARBALL="/tmp/xahau-cache-restore-$$.tar.zst"
 
         echo ""
         echo "Downloading cache..."
