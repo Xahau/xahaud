@@ -274,12 +274,11 @@ runs:
           exit 0
         fi
 
-        # Mount OverlayFS with metacopy=on to prevent copy-up for files opened-but-not-written
-        # This dramatically reduces delta sizes when ccache opens files with O_RDWR but doesn't modify content
+        # Mount OverlayFS
         echo ""
-        echo "Mounting OverlayFS with metacopy=on..."
+        echo "Mounting OverlayFS..."
         sudo mount -t overlay overlay \
-          -o lowerdir="${CACHE_WORKSPACE}/base",upperdir="${CACHE_WORKSPACE}/upper",workdir="${CACHE_WORKSPACE}/work",metacopy=on \
+          -o lowerdir="${CACHE_WORKSPACE}/base",upperdir="${CACHE_WORKSPACE}/upper",workdir="${CACHE_WORKSPACE}/work" \
           "${CACHE_WORKSPACE}/merged"
 
         # Verify mount
