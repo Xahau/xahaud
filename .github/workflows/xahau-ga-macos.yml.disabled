@@ -78,14 +78,6 @@ jobs:
       - name: Install ccache
         run: brew install ccache
 
-      - name: Configure ccache
-        uses: ./.github/actions/xahau-configure-ccache
-        with:
-          max_size: 2G
-          hash_dir: true
-          compiler_check: content
-          is_main_branch: ${{ github.ref_name == env.MAIN_BRANCH_NAME }}
-
       - name: Check environment
         run: |
           echo "PATH:"
@@ -130,6 +122,9 @@ jobs:
           compiler-id: clang
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: libcxx
+          aws-access-key-id: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
 
       - name: Test
         run: |

@@ -47,6 +47,18 @@ inputs:
     description: 'GCC version to use for Clang toolchain (e.g. 11, 13)'
     required: false
     default: ''
+  ccache_max_size:
+    description: 'Maximum ccache size'
+    required: false
+    default: '2G'
+  ccache_hash_dir:
+    description: 'Whether to include directory paths in hash'
+    required: false
+    default: 'true'
+  ccache_compiler_check:
+    description: 'How to check compiler for changes'
+    required: false
+    default: 'content'
   aws-access-key-id:
     description: 'AWS Access Key ID for S3 cache storage'
     required: true
@@ -78,6 +90,31 @@ runs:
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
         aws-access-key-id: ${{ inputs.aws-access-key-id }}
         aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+
+    - name: Configure ccache
+      if: inputs.ccache_enabled == 'true'
+      shell: bash
+      run: |
+        # Use ccache's default cache_dir (~/.ccache) - don't override it
+        # This avoids tilde expansion issues when setting it explicitly
+
+        # Create cache directory using ccache's default
+        mkdir -p ~/.ccache
+
+        # Configure ccache settings (but NOT cache_dir - use default)
+        # This overwrites any cached config to ensure fresh configuration
+        ccache --set-config=max_size=${{ inputs.ccache_max_size }}
+        ccache --set-config=hash_dir=${{ inputs.ccache_hash_dir }}
+        ccache --set-config=compiler_check=${{ inputs.ccache_compiler_check }}
+
+        # Note: Not setting CCACHE_DIR - let ccache use its default (~/.ccache)
+
+        # Print config for verification
+        echo "=== ccache configuration ==="
+        ccache -p
+
+        # Zero statistics before the build
+        ccache -z
 
     - name: Configure project
       shell: bash
@@ -157,30 +194,21 @@ runs:
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${TOOLCHAIN_FILE} \
           -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
 
+    - name: Show ccache config before build
+      if: inputs.ccache_enabled == 'true'
+      shell: bash
+      run: |
+        echo "=========================================="
+        echo "ccache configuration before build"
+        echo "=========================================="
+        ccache -p
+        echo ""
+
     - name: Build project
       shell: bash
       run: |
         cd ${{ inputs.build_dir }}
-        # TEMPORARY: Add -v to see compile commands for ccache debugging
-        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) -- -v
-
-    - name: Debug ccache directory
-      if: inputs.ccache_enabled == 'true'
-      shell: bash
-      run: |
-        echo "=== ccache directory contents ==="
-        ls -laR ~/.ccache || echo "Directory doesn't exist"
-        echo ""
-        echo "=== Disk space ==="
-        df -h ~
-        echo ""
-        echo "=== ccache config ==="
-        ccache --show-config | head -30
-        echo ""
-        echo "=== Directory sizes ==="
-        du -sh ~/.ccache 2>/dev/null || echo "No directory"
-        find ~/.ccache -type f -name "*.conf" -o -type f ! -name "*.conf" 2>/dev/null | head -20 || true
-        echo ""
+        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc)
 
     - name: Show ccache statistics
       if: inputs.ccache_enabled == 'true'

@@ -231,13 +231,6 @@ jobs:
           # Install Conan 2
           pip install --upgrade "conan>=2.0,<3"
 
-      - name: Configure ccache
-        uses: ./.github/actions/xahau-configure-ccache
-        with:
-          max_size: 2G
-          hash_dir: true
-          compiler_check: content
-
       - name: Check environment
         run: |
           echo "PATH:"
