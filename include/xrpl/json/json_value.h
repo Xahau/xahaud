@@ -24,6 +24,7 @@
 #include <xrpl/json/json_forwards.h>
 
 #include <cstring>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -158,9 +159,9 @@ public:
     using ArrayIndex = UInt;
 
     static Value const null;
-    static Int const minInt;
-    static Int const maxInt;
-    static UInt const maxUInt;
+    static constexpr Int minInt = std::numeric_limits<Int>::min();
+    static constexpr Int maxInt = std::numeric_limits<Int>::max();
+    static constexpr UInt maxUInt = std::numeric_limits<UInt>::max();
 
 private:
     class CZString
@@ -262,6 +263,10 @@ public:
     asDouble() const;
     bool
     asBool() const;
+
+    /** Correct absolute value from int or unsigned int */
+    UInt
+    asAbsUInt() const;
 
     // TODO: What is the "empty()" method this docstring mentions?
     /** isNull() tests to see if this field is null.  Don't use this method to
