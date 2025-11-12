@@ -29,6 +29,7 @@
 #include <ripple/app/tx/impl/CreateOffer.h>
 #include <ripple/app/tx/impl/CreateTicket.h>
 #include <ripple/app/tx/impl/Cron.h>
+#include <ripple/app/tx/impl/CronSet.h>
 #include <ripple/app/tx/impl/DeleteAccount.h>
 #include <ripple/app/tx/impl/DepositPreauth.h>
 #include <ripple/app/tx/impl/Escrow.h>
@@ -44,7 +45,6 @@
 #include <ripple/app/tx/impl/Payment.h>
 #include <ripple/app/tx/impl/Remit.h>
 #include <ripple/app/tx/impl/SetAccount.h>
-#include <ripple/app/tx/impl/SetCron.h>
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/SetRegularKey.h>
 #include <ripple/app/tx/impl/SetRemarks.h>
@@ -184,7 +184,7 @@ invoke_preflight(PreflightContext const& ctx)
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preflight_helper<URIToken>(ctx);
         case ttCRON_SET:
-            return invoke_preflight_helper<SetCron>(ctx);
+            return invoke_preflight_helper<CronSet>(ctx);
         case ttCRON:
             return invoke_preflight_helper<Cron>(ctx);
         default:
@@ -313,7 +313,7 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preclaim<URIToken>(ctx);
         case ttCRON_SET:
-            return invoke_preclaim<SetCron>(ctx);
+            return invoke_preclaim<CronSet>(ctx);
         case ttCRON:
             return invoke_preclaim<Cron>(ctx);
         default:
@@ -404,7 +404,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return URIToken::calculateBaseFee(view, tx);
         case ttCRON_SET:
-            return SetCron::calculateBaseFee(view, tx);
+            return CronSet::calculateBaseFee(view, tx);
         case ttCRON:
             return Cron::calculateBaseFee(view, tx);
         default:
@@ -601,7 +601,7 @@ invoke_apply(ApplyContext& ctx)
             return p();
         }
         case ttCRON_SET: {
-            SetCron p(ctx);
+            CronSet p(ctx);
             return p();
         }
         case ttCRON: {
