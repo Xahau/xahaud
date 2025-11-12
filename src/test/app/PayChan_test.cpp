@@ -2237,7 +2237,7 @@ struct PayChan_test : public beast::unit_test::suite
                 // Owner closes, will close after settleDelay
                 env(paychan::claim(alice, chan), txflags(tfClose));
                 env.close();
-                // settle delay hasn't ellapsed. Channels should exist.
+                // settle delay hasn't elapsed. Channels should exist.
                 BEAST_EXPECT(channelExists(*env.current(), chan));
                 auto const closeTime = env.current()->info().parentCloseTime;
                 auto const minExpiration = closeTime + settleDelay;
