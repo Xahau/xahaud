@@ -2784,7 +2784,7 @@ public:
                 BEAST_EXPECT(result.has_value());
             }
         }
-        return;
+
         Env env{*this, features};
 
         env.fund(XRP(10000), alice);
