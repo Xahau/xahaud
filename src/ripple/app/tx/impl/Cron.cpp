@@ -44,7 +44,10 @@ Cron::preflight(PreflightContext const& ctx)
 
     auto const ret = preflight0(ctx);
     if (!isTesSuccess(ret))
+    {
+        JLOG(ctx.j.fatal()) << "Cron: preflight failed";
         return ret;
+    }
 
     auto account = ctx.tx.getAccountID(sfAccount);
     if (account != beast::zero)
@@ -83,6 +86,12 @@ Cron::preclaim(PreclaimContext const& ctx)
 {
     if (!ctx.view.rules().enabled(featureCron))
         return temDISABLED;
+
+    if (ctx.tx.getFieldU32(sfLedgerSequence) != ctx.view.info().seq)
+    {
+        JLOG(ctx.j.fatal()) << "Cron: wrong ledger sequence";
+        return tefFAILURE;
+    }
 
     return tesSUCCESS;
 }
@@ -167,17 +176,17 @@ Cron::doApply()
         return tecDIR_FULL;
     }
 
-    sleCron = std::make_shared<SLE>(klCron);
+    auto newSleCron = std::make_shared<SLE>(klCron);
 
-    sleCron->setFieldU64(sfOwnerNode, *page);
-    sleCron->setFieldU32(sfDelaySeconds, delay);
-    sleCron->setFieldU32(sfRepeatCount, recur - 1);
-    sleCron->setFieldU32(sfStartTime, afterTime);
-    sleCron->setAccountID(sfOwner, id);
+    newSleCron->setFieldU64(sfOwnerNode, *page);
+    newSleCron->setFieldU32(sfDelaySeconds, delay);
+    newSleCron->setFieldU32(sfRepeatCount, recur - 1);
+    newSleCron->setFieldU32(sfStartTime, afterTime);
+    newSleCron->setAccountID(sfOwner, id);
 
     sle->setFieldH256(sfCron, klCron.key);
 
-    view.insert(sleCron);
+    view.insert(newSleCron);
     view.update(sle);
 
     return tesSUCCESS;
