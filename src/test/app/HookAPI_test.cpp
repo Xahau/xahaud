@@ -16,27 +16,10 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
-#include <ripple/app/hook/Enum.h>
 #include <ripple/app/hook/HookAPI.h>
-#include <ripple/app/hook/Misc.h>
-#include <ripple/app/hook/applyHook.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/Transaction.h>
-#include <ripple/app/tx/impl/ApplyContext.h>
-#include <ripple/app/tx/impl/SetHook.h>
-#include <ripple/basics/base_uint.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/json/json_writer.h>
-#include <ripple/ledger/OpenView.h>
-#include <ripple/protocol/SField.h>
 #include <ripple/protocol/STAccount.h>
-#include <ripple/protocol/STArray.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/TxFormats.h>
-#include <ripple/protocol/jss.h>
-#include <test/app/Import_json.h>
 #include <test/jtx.h>
-#include <test/jtx/hook.h>
+#include <vector>
 
 namespace ripple {
 
@@ -168,9 +151,8 @@ public:
                 applyCtx, alice.id(), alice.id(), {.expected_etxn_count = -1});
             hook::HookAPI api(hookCtx);
 
-            Serializer s;
-            emitInvokeTx.add(s);
-            BEAST_EXPECT(api.emit(s.slice()).error() == PREREQUISITE_NOT_MET);
+            auto const result = api.emit(emitInvokeTx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
         }
         {
             // TOO_MANY_EMITTED_TXN
@@ -191,11 +173,27 @@ public:
                 });
             hook::HookAPI api(hookCtx);
 
-            Serializer s;
-            emitInvokeTx.add(s);
-            BEAST_EXPECT(api.emit(s.slice()).error() == TOO_MANY_EMITTED_TXN);
+            auto const result = api.emit(emitInvokeTx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == TOO_MANY_EMITTED_TXN);
         }
         // EMISSION_FAILURE
+        {
+            // Invalid txn
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .nonce_used = {{uint256(0), true}},
+                });
+            hook::HookAPI api(hookCtx);
+            auto tx = emitInvokeTx;
+            Serializer s = tx.getSerializer();
+            s.add8(0);  // invalid value
+            auto const result = api.emit(s.slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
         {
             // Pseudo txn
             auto hookCtx = makeStubHookContext(
@@ -209,9 +207,8 @@ public:
             hook::HookAPI api(hookCtx);
             auto tx = emitInvokeTx;
             tx.setFieldU16(sfTransactionType, ttFEE);
-            Serializer s;
-            tx.add(s);
-            BEAST_EXPECT(api.emit(s.slice()).error() == EMISSION_FAILURE);
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
         }
         {
             // HookCanEmit (non-SetHook)
@@ -226,9 +223,8 @@ public:
                  }});
             hook::HookAPI api(hookCtx);
             auto tx = emitInvokeTx;
-            Serializer s;
-            tx.add(s);
-            BEAST_EXPECT(api.emit(s.slice()).error() == EMISSION_FAILURE);
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
         }
         {
             // HookCanEmit (SetHook) Error
@@ -242,10 +238,8 @@ public:
                     .result = {.hookCanEmit = uint256()},
                 });
             hook::HookAPI api(hookCtx);
-            auto tx = emitSetHookTx;
-            Serializer s;
-            tx.add(s);
-            BEAST_EXPECT(api.emit(s.slice()).error() == EMISSION_FAILURE);
+            auto const result = api.emit(emitSetHookTx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
         }
         {
             // HookCanEmit (SetHook) Success
@@ -260,6 +254,273 @@ public:
                 });
             hook::HookAPI api(hookCtx);
             auto tx = emitSetHookTx;
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.has_value());
+        }
+
+        auto hookCtx = makeStubHookContext(
+            applyCtx,
+            alice.id(),
+            alice.id(),
+            {
+                .expected_etxn_count = 1,
+                .nonce_used = {{uint256(0), true}},
+                .result = {.hookCanEmit = uint256()},
+            });
+        hook::HookAPI api(hookCtx);
+        {
+            // Invalid sfAccount
+            auto tx = emitInvokeTx;
+            {
+                // Missing sfAccount
+                tx.makeFieldAbsent(sfAccount);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfAccount (!= HookAccount)
+                tx.setAccountID(sfAccount, bob.id());
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+        }
+        {
+            // Invalid sfSequence
+            auto tx = emitInvokeTx;
+            {
+                // Missing sfSequence
+                tx.makeFieldAbsent(sfSequence);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfSequence (non-zero)
+                tx.setFieldU32(sfSequence, 1);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+        }
+        {
+            // Invalid sfSigningPubKey
+            auto tx = emitInvokeTx;
+            {
+                // Missing sfSigningPubKey
+                tx.makeFieldAbsent(sfSigningPubKey);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfSigningPubKey (wrong size)
+                for (int i = 1; i < 33; ++i)
+                {
+                    tx.setFieldVL(sfSigningPubKey, std::vector<uint8_t>(i, 0));
+                    auto const result = api.emit(tx.getSerializer().slice());
+                    BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+                }
+            }
+            {
+                // Invalid sfSigningPubKey (non-zero)
+                for (int i = 0; i < 33; ++i)
+                {
+                    auto vec = std::vector<uint8_t>(33, 0);
+                    vec[i] = 1;
+                    tx.setFieldVL(sfSigningPubKey, vec);
+                    auto const result = api.emit(tx.getSerializer().slice());
+                    BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+                }
+            }
+        }
+        {
+            // Invalid sfSigners
+            auto tx = emitInvokeTx;
+            tx.setFieldArray(sfSigners, STArray(sfSigners, 1));
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // Invalid sfTicketSequence
+            auto tx = emitInvokeTx;
+            tx.setFieldU32(sfTicketSequence, 1);
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // Invalid sfAccountTxnID
+            auto tx = emitInvokeTx;
+            tx.setFieldH256(sfAccountTxnID, uint256(1));
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            ;  // Invalid sfEmitDetails
+            {
+                // Missing sfEmitDetails
+                auto tx = emitInvokeTx;
+                tx.makeFieldAbsent(sfEmitDetails);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                std::vector<std::reference_wrapper<SField const>>
+                    detail_fields = {
+                        sfEmitGeneration,
+                        sfEmitBurden,
+                        sfEmitParentTxnID,
+                        sfEmitNonce,
+                        sfEmitHookHash,
+                    };
+                // Missing fields in sfEmitDetails
+                for (auto const& rf : detail_fields)
+                {
+                    SField const& field = rf.get();
+                    auto tx = emitInvokeTx;
+                    auto& details = tx.peekFieldObject(sfEmitDetails);
+                    details.makeFieldAbsent(field);
+                    auto const result = api.emit(tx.getSerializer().slice());
+                    BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+                }
+            }
+            // TODO: test callback
+            {
+                ;  // Invalid sfEmitGeneration
+                {
+                    // Over Max sfEmitGeneration
+                    auto tx = emitInvokeTx;
+                    auto& details = tx.peekFieldObject(sfEmitDetails);
+                    details.setFieldU32(sfEmitGeneration, 11);
+                    auto const result = api.emit(tx.getSerializer().slice());
+                    BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+                }
+                {
+                    // Invalid sfEmitGeneration
+                    auto tx = emitInvokeTx;
+                    auto& details = tx.peekFieldObject(sfEmitDetails);
+                    details.setFieldU32(
+                        sfEmitGeneration, hookCtx.generation + 2);
+                    auto const result = api.emit(tx.getSerializer().slice());
+                    BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+                }
+            }
+            {
+                // Invalid sfEmitBurden
+                auto tx = emitInvokeTx;
+                auto& details = tx.peekFieldObject(sfEmitDetails);
+                BEAST_EXPECT(hookCtx.burden == 0);
+                details.setFieldU64(sfEmitBurden, 2);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfEmitParentTxnID
+                auto tx = emitInvokeTx;
+                auto& details = tx.peekFieldObject(sfEmitDetails);
+                BEAST_EXPECT(applyCtx.tx.getTransactionID() != uint256(1));
+                details.setFieldH256(sfEmitParentTxnID, uint256(1));
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfEmitNonce
+                auto tx = emitInvokeTx;
+                auto& details = tx.peekFieldObject(sfEmitDetails);
+                BEAST_EXPECT(
+                    hookCtx.nonce_used.find(uint256(1)) ==
+                    hookCtx.nonce_used.end());
+                details.setFieldH256(sfEmitNonce, uint256(1));
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            // TODO: test Callback
+            {
+                // Invalid sfEmitHookHash
+                auto tx = emitInvokeTx;
+                auto& details = tx.peekFieldObject(sfEmitDetails);
+                BEAST_EXPECT(hookCtx.result.hookHash != uint256(1));
+                details.setFieldH256(sfEmitHookHash, uint256(1));
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+        }
+        {
+            // Invalid sfTxnSignature
+            auto tx = emitInvokeTx;
+            tx.setFieldVL(sfTxnSignature, std::vector<uint8_t>(1, 0));
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            ;  // Invalid sfLastLedgerSequence
+            {
+                // Missing sfLastLedgerSequence
+                auto tx = emitInvokeTx;
+                tx.makeFieldAbsent(sfLastLedgerSequence);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfLastLedgerSequence
+                // (smaller than next ledger seq)
+                auto tx = emitInvokeTx;
+                auto const currentSeq = applyCtx.view().info().seq;
+                tx.setFieldU32(sfLastLedgerSequence, currentSeq);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfLastLedgerSequence
+                // (greater than current ledger seq + 5)
+                auto tx = emitInvokeTx;
+                auto const currentSeq = applyCtx.view().info().seq;
+                tx.setFieldU32(sfLastLedgerSequence, currentSeq + 6);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+        }
+        {
+            ;  // Invalid sfFirstLedgerSequence
+            {
+                // missing sfFirstLedgerSequence
+                auto tx = emitInvokeTx;
+                tx.makeFieldAbsent(sfFirstLedgerSequence);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfFirstLedgerSequence
+                auto tx = emitInvokeTx;
+                auto const lastLedgerSeq = tx.getFieldU32(sfLastLedgerSequence);
+                tx.setFieldU32(sfFirstLedgerSequence, lastLedgerSeq + 1);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+        }
+        {
+            ;  // Invalid sfFee
+            {
+                // Missing sfFee
+                auto tx = emitInvokeTx;
+                tx.makeFieldAbsent(sfFee);
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            {
+                // Invalid sfFee
+                auto tx = emitInvokeTx;
+                tx.setFieldAmount(sfFee, drops(1));
+                auto const result = api.emit(tx.getSerializer().slice());
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+        }
+        {
+            // Preflight failure
+            auto tx = emitInvokeTx;
+            tx.setFieldVL(sfBlob, std::vector<uint8_t>(128 * 1024 + 1, 1));
+            auto const result = api.emit(tx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // Success
+            auto tx = emitInvokeTx;
             Serializer s;
             tx.add(s);
             auto const result = api.emit(s.slice());
@@ -814,10 +1075,8 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
-        printf("testWithFeatures\n");
         test_accept(features);
         test_rollback(features);
-
         testGuards(features);
 
         test_emit(features);
@@ -913,8 +1172,7 @@ public:
         using namespace test::jtx;
         testWithFeatures(supported_amendments());
     }
-
-};  // namespace test
+};
 
 BEAST_DEFINE_TESTSUITE_PRIO(HookAPI, app, ripple, 2);
 }  // namespace test
