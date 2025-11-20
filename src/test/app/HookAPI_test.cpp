@@ -27,6 +27,21 @@ namespace test {
 
 class HookAPI_test : public beast::unit_test::suite
 {
+private:
+    ApplyContext
+    createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
+    {
+        ApplyContext applyCtx{
+            env.app(),
+            ov,
+            tx,
+            tesSUCCESS,
+            env.current()->fees().base,
+            tapNONE,
+            env.journal};
+        return applyCtx;
+    }
+
 public:
     void
     test_accept(FeatureBitset features)
@@ -51,48 +66,6 @@ public:
 
         BEAST_EXPECT(true);
     }
-
-    ApplyContext
-    createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
-    {
-        ApplyContext applyCtx{
-            env.app(),
-            ov,
-            tx,
-            tesSUCCESS,
-            env.current()->fees().base,
-            tapNONE,
-            env.journal};
-        return applyCtx;
-    }
-
-    // hook::HookContext
-    // createHookContext(
-    //     AccountID const& hookAccount,
-    //     AccountID const& otxnAccount,
-    //     hook::HookContext ctx)
-    // {
-    //     hook::HookContext hookCtx{
-    //         .applyCtx = ctx.applyCtx,
-    //         .result =
-    //             {
-    //                 .hookSetTxnID = uint256(),
-    //                 .hookHash = uint256(),
-    //                 .hookCanEmit = uint256(),
-    //                 .accountKeylet = keylet::account(otxnAccount),
-    //                 .hookKeylet = keylet::hook(hookAccount),
-    //                 .account = otxnAccount,
-    //                 .otxnAccount = otxnAccount,
-    //                 .hookNamespace = uint256(),
-    //                 .stateMap = ctx.result.stateMap,
-    //                 .hookParamOverrides = {},
-    //                 .hookParams = {{}},
-    //                 .hookSkips = {uint256{}},
-    //             },
-    //         .module = nullptr};
-
-    //     return hookCtx;
-    // }
 
     void
     test_emit(FeatureBitset features)
