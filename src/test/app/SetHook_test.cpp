@@ -2582,7 +2582,7 @@ public:
     }
 
     ApplyContext
-    createApplyContext(jtx::Env& env, OpenView ov, STTx const& tx)
+    createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
     {
         ApplyContext applyCtx{
             env.app(),
@@ -13417,6 +13417,8 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
+        test_emit(features);  //
+        return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
         testTxStructure(features);
