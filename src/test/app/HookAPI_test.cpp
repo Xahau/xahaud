@@ -513,8 +513,62 @@ public:
     test_etxn_fee_base(FeatureBitset features)
     {
         testcase("Test etxn_fee_base");
+        using namespace jtx;
+        using namespace hook_api;
 
-        BEAST_EXPECT(true);
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        hook::HookContext hookCtx = makeStubHookContext(
+            applyCtx,
+            alice.id(),
+            alice.id(),
+            {
+                .expected_etxn_count = -1,
+                .nonce_used = {{uint256(0), true}},
+                .result = {.hookCanEmit = uint256()},
+            });
+        hook::HookAPI api(hookCtx);
+
+        // PREREQUISITE_NOT_MET
+        {
+            auto const result =
+                api.etxn_fee_base(invokeTx.getSerializer().slice());
+            BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
+        }
+
+        hookCtx.expected_etxn_count = 1;
+
+        // INVALID_TXN
+        {
+            auto tx = invokeTx;
+            Serializer s = tx.getSerializer();
+            s.add8(0);  // invalid value
+            auto const result = api.etxn_fee_base(s.slice());
+            BEAST_EXPECT(result.error() == INVALID_TXN);
+        }
+        {
+            // SUCCESS
+            auto const result =
+                api.etxn_fee_base(invokeTx.getSerializer().slice());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == env.closed()->fees().base);
+        }
+        {
+            // Fee value
+            auto tx = invokeTx;
+            // add 100 bytes of memo
+            tx.setFieldArray(sfMemos, STArray(sfMemos, 1));
+            auto& memos = tx.peekFieldArray(sfMemos);
+            STObject memo = STObject(sfMemo);
+            memo.setFieldVL(sfMemoData, std::vector<uint8_t>(100, 1));
+            memos.emplace_back(memo);
+            auto const result = api.etxn_fee_base(tx.getSerializer().slice());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == env.closed()->fees().base + 100);
+        }
     }
 
     void
