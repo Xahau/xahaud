@@ -943,14 +943,14 @@ Expected<uint64_t, HookReturnCode>
 HookAPI::etxn_details(uint8_t* out_ptr) const
 {
     if (hookCtx.expected_etxn_count <= -1)
-        return PREREQUISITE_NOT_MET;
+        return Unexpected(PREREQUISITE_NOT_MET);
 
     uint32_t generation = etxn_generation();
 
     auto const burden_result = etxn_burden();
 
     if (!burden_result)
-        return FEE_TOO_LARGE;
+        return Unexpected(FEE_TOO_LARGE);
 
     int64_t burden = burden_result.value();
 
@@ -1101,11 +1101,7 @@ HookAPI::float_multiply(uint64_t float1, uint64_t float2) const
     int32_t exp2 = get_exponent(float2).value();
     bool neg2 = is_negative(float2);
 
-    auto const result =
-        float_multiply_internal_parts(man1, exp1, neg1, man2, exp2, neg2);
-    if (!result)
-        return result.error();
-    return result;
+    return float_multiply_internal_parts(man1, exp1, neg1, man2, exp2, neg2);
 }
 
 Expected<uint64_t, HookReturnCode>
@@ -1747,7 +1743,7 @@ Expected<int64_t, HookReturnCode>
 HookAPI::hook_again() const
 {
     if (hookCtx.result.executeAgainAsWeak)
-        return ALREADY_SET;
+        return Unexpected(ALREADY_SET);
 
     if (hookCtx.result.isStrong)
     {
@@ -1755,7 +1751,7 @@ HookAPI::hook_again() const
         return 1;
     }
 
-    return PREREQUISITE_NOT_MET;
+    return Unexpected(PREREQUISITE_NOT_MET);
 }
 
 Expected<Blob, HookReturnCode>
@@ -1833,7 +1829,7 @@ Expected<uint64_t, HookReturnCode>
 HookAPI::hook_skip(uint256 const& hash, uint32_t flags) const
 {
     if (flags != 0 && flags != 1)
-        return INVALID_ARGUMENT;
+        return Unexpected(INVALID_ARGUMENT);
 
     auto& skips = hookCtx.result.hookSkips;
 
@@ -2593,7 +2589,7 @@ HookAPI::float_multiply_internal_parts(
             return 0;
         if (ret.error() == EXPONENT_OVERSIZED)
             return Unexpected(XFL_OVERFLOW);
-        return ret.error();
+        return Unexpected(ret.error());
     }
     return ret;
 }
@@ -2626,7 +2622,7 @@ HookAPI::float_divide_internal(uint64_t float1, uint64_t float2) const
 {
     bool const hasFix = hookCtx.applyCtx.view().rules().enabled(fixFloatDivide);
     if (float2 == 0)
-        return DIVISION_BY_ZERO;
+        return Unexpected(DIVISION_BY_ZERO);
     if (float1 == 0)
         return 0;
 
@@ -2857,7 +2853,7 @@ HookAPI::set_state_cache(
         // sanity check
         if (view.rules().enabled(featureExtendedHookState) &&
             availableForReserves < hookStateScale)
-            return INTERNAL_ERROR;
+            return Unexpected(INTERNAL_ERROR);
 
         stateMap[acc] = {
             availableForReserves - hookStateScale,
@@ -3003,7 +2999,7 @@ HookAPI::get_stobject_length(
         type);
 
     if (upto >= end)
-        return pe_unexpected_end;
+        return Unexpected(pe_unexpected_end);
 
     // RH TODO: link this to rippled's internal STObject constants
     // E.g.:

@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012-2016 Ripple Labs Inc.
+    Copyright (c) 2025 XRPL-Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 //==============================================================================
 #include <ripple/app/hook/HookAPI.h>
 #include <ripple/protocol/STAccount.h>
+#include <limits>
 #include <test/jtx.h>
 #include <vector>
 
@@ -48,6 +49,7 @@ public:
     {
         testcase("Test accept() hookapi");
 
+        // TODO
         BEAST_EXPECT(true);
     }
 
@@ -56,6 +58,7 @@ public:
     {
         testcase("Test rollback() hookapi");
 
+        // TODO
         BEAST_EXPECT(true);
     }
 
@@ -64,6 +67,7 @@ public:
     {
         testcase("Test guards");
 
+        // TODO
         BEAST_EXPECT(true);
     }
 
@@ -506,7 +510,72 @@ public:
     {
         testcase("Test etxn_details");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // PREREQUISITE_NOT_MET
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            std::array<uint8_t, 256> buffer{};
+            auto const result = api.etxn_details(buffer.data());
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
+        }
+
+        {
+            // FEE_TOO_LARGE (via etxn_burden overflow)
+            StubHookContext stubCtx{
+                .expected_etxn_count = 2,
+                .burden = std::numeric_limits<uint64_t>::max(),
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            std::array<uint8_t, 256> buffer{};
+            auto const result = api.etxn_details(buffer.data());
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
+        }
+
+        {
+            // SUCCESS path length check and nonce increment (no-callback)
+            StubHookContext stubCtx{
+                .expected_etxn_count = 2,
+                .result = {.hookHash = uint256{3}},
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            std::array<uint8_t, 256> buffer{};
+            auto const result = api.etxn_details(buffer.data());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 116);
+            BEAST_EXPECT(hookCtx.emit_nonce_counter == 1);
+        }
+
+        {
+            // SUCCESS path length check and nonce increment (callback)
+            StubHookContext stubCtx{
+                .expected_etxn_count = 2,
+                .result = {.hookHash = uint256{3}, .hasCallback = true},
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            std::array<uint8_t, 256> buffer{};
+            auto const result = api.etxn_details(buffer.data());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 138);
+            BEAST_EXPECT(hookCtx.emit_nonce_counter == 1);
+        }
     }
 
     void
@@ -572,11 +641,164 @@ public:
     }
 
     void
+    test_etxn_burden(FeatureBitset features)
+    {
+        testcase("Test etxn_burden");
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // PREREQUISITE_NOT_MET
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_burden();
+            BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
+        }
+
+        {
+            // FEE_TOO_LARGE (overflow)
+            StubHookContext stubCtx{
+                .expected_etxn_count = 2,
+                .burden = std::numeric_limits<uint64_t>::max(),
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_burden();
+            BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
+        }
+
+        {
+            // SUCCESS
+            StubHookContext stubCtx{.expected_etxn_count = 3, .burden = 5};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_burden();
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 15);
+        }
+    }
+
+    void
+    test_etxn_generation(FeatureBitset features)
+    {
+        testcase("Test etxn_generation");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx baseTx = STTx(ttINVOKE, [&](STObject& obj) {});
+
+        {
+            // Cached generation value
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
+            StubHookContext stubCtx{.generation = 4};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.etxn_generation() == 5);
+        }
+
+        {
+            // No emit details -> otxn_generation() == 0
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.etxn_generation() == 1);
+        }
+
+        {
+            // Emit details supply generation
+            STTx emitTx = STTx(ttINVOKE, [&](STObject& obj) {
+                obj.peekFieldObject(sfEmitDetails)
+                    .setFieldU32(sfEmitGeneration, 2);
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, emitTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.etxn_generation() == 3);
+        }
+    }
+
+    void
     test_etxn_nonce(FeatureBitset features)
     {
         testcase("Test etxn_nonce");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        hook::HookContext hookCtx = makeStubHookContext(
+            applyCtx,
+            alice.id(),
+            alice.id(),
+            {
+                .expected_etxn_count = -1,
+                .nonce_used = {{uint256(0), true}},
+                .result = {.hookCanEmit = uint256()},
+            });
+
+        // TOO_MANY_NONCES
+        {
+            hookCtx.emit_nonce_counter = hook_api::max_nonce + 1;
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_nonce();
+            BEAST_EXPECT(result.error() == TOO_MANY_NONCES);
+        }
+
+        // SUCCESS
+        {
+            hookCtx.emit_nonce_counter = hook_api::max_nonce;
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_nonce();
+            BEAST_EXPECT(result.has_value());
+        }
+
+        {
+            // Flags and cache tracking
+            StubHookContext stubCtx{
+                .nonce_used = {},
+                .result =
+                    {.isCallback = true,
+                     .isStrong = true,
+                     .hookChainPosition = 2},
+            };
+            auto hookCtxNonce =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtxNonce);
+            auto const expectedFlags =
+                static_cast<uint32_t>(0b11U | (2U << 2U));
+            auto const expected = ripple::sha512Half(
+                ripple::HashPrefix::emitTxnNonce,
+                hookCtxNonce.applyCtx.tx.getTransactionID(),
+                hookCtxNonce.emit_nonce_counter,
+                hookCtxNonce.result.account,
+                hookCtxNonce.result.hookHash,
+                expectedFlags);
+            auto const result = api.etxn_nonce();
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == expected);
+            BEAST_EXPECT(hookCtxNonce.emit_nonce_counter == 1);
+            BEAST_EXPECT(hookCtxNonce.nonce_used.count(expected) == 1);
+        }
     }
 
     void
@@ -584,7 +806,52 @@ public:
     {
         testcase("Test etxn_reserve");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // ALREADY_SET
+            StubHookContext stubCtx{.expected_etxn_count = 1};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_reserve(2);
+            BEAST_EXPECT(result.error() == ALREADY_SET);
+        }
+
+        {
+            // TOO_SMALL
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_reserve(0);
+            BEAST_EXPECT(result.error() == TOO_SMALL);
+        }
+
+        {
+            // TOO_BIG
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_reserve(hook_api::max_emit + 1);
+            BEAST_EXPECT(result.error() == TOO_BIG);
+        }
+
+        {
+            // SUCCESS
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.etxn_reserve(3);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(hookCtx.expected_etxn_count == 3);
+        }
     }
 
     void
@@ -592,7 +859,44 @@ public:
     {
         testcase("Test fee_base");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const expected = env.closed()->fees().base.drops();
+        BEAST_EXPECT(api.fee_base() == expected);
+    }
+
+    void
+    ASSERT_FLOAT_EQUAL(hook::HookAPI& api, uint64_t x, uint64_t y)
+    {
+        auto float_exponent = [](uint64_t f) -> int32_t {
+            return ((int32_t)(((f) >> 54U) & 0xFFU)) - 97;
+        };
+        int64_t px = (x);
+        int64_t py = (y);
+        int64_t mx = api.float_mantissa(px).value();
+        int64_t my = api.float_mantissa(py).value();
+        int32_t diffexp = float_exponent(px) - float_exponent(py);
+        if (diffexp == 1)
+            mx *= 10LL;
+        if (diffexp == -1)
+            my *= 10LL;
+        int64_t diffman = mx - my;
+        if (diffman < 0)
+            diffman *= -1LL;
+        if (diffexp < 0)
+            diffexp *= -1;
+        if (diffexp > 1 || diffman > 5000000 || mx < 0 || my < 0)
+            BEAST_EXPECT(false);
+        else
+            BEAST_EXPECT(true);
     }
 
     void
@@ -600,7 +904,67 @@ public:
     {
         testcase("Test float_compare");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace compare_mode;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const testSuccess =
+            [&](uint64_t left, uint64_t right, uint32_t mode) {
+                auto const result = api.float_compare(left, right, mode);
+                BEAST_EXPECT(result.has_value());
+                BEAST_EXPECT(result.value() == 1);
+            };
+
+        auto const testError = [&](uint64_t left,
+                                   uint64_t right,
+                                   uint32_t mode,
+                                   hook::HookReturnCode error) {
+            auto const result = api.float_compare(left, right, mode);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == error);
+        };
+
+        auto const one = api.float_one();
+        auto const two = api.float_set(0, 2).value();
+        auto const three = 6091866696204910592ULL;  // encoded 3.0 from SetHook
+
+        testSuccess(one, one, EQUAL);
+        testSuccess(one, two, LESS);
+        testSuccess(two, one, GREATER);
+        testError(one, two, 0, INVALID_ARGUMENT);
+
+        // Invalid flags
+        testError(one, two, 0b1000U, INVALID_ARGUMENT);
+        testError(one, two, ~0b111U, INVALID_ARGUMENT);
+        testError(one, two, 0b111U, INVALID_ARGUMENT);
+
+        // Relative ordering samples
+        uint64_t largeNegative = 1622844335003378560ULL;  // -154846915
+        uint64_t smallNegative = 1352229899321148800ULL;  // -1.15001111e-7
+        uint64_t smallPositive =
+            5713898440837102138ULL;  // 3.33411333131321e-21
+        uint64_t largePositive = 7749425685711506120ULL;  // 3.234326634253e+92
+
+        testSuccess(largeNegative, smallNegative, LESS);
+        testSuccess(largeNegative, largePositive, LESS);
+        testSuccess(smallNegative, smallPositive, LESS);
+        testSuccess(smallPositive, largePositive, LESS);
+        testSuccess(smallNegative, 0, LESS);
+        testSuccess(largeNegative, 0, LESS);
+        testSuccess(smallPositive, 0, GREATER);
+        testSuccess(largePositive, 0, GREATER);
+
+        // Not-equal flag check
+        testSuccess(two, three, GREATER | LESS);
     }
 
     void
@@ -608,7 +972,215 @@ public:
     {
         testcase("Test float_divide");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace compare_mode;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+
+        // divide by 0
+        BEAST_EXPECT(api.float_divide(one, 0).error() == DIVISION_BY_ZERO);
+        BEAST_EXPECT(api.float_divide(0, one).value() == 0);
+
+        // check 1
+        BEAST_EXPECT(api.float_divide(one, one).value() == one);
+        BEAST_EXPECT(
+            api.float_divide(one, api.float_negate(one)).value() ==
+            api.float_negate(one));
+        BEAST_EXPECT(
+            api.float_divide(api.float_negate(one), one).value() ==
+            api.float_negate(one));
+        BEAST_EXPECT(
+            api.float_divide(api.float_negate(one), api.float_negate(one))
+                .value() == one);
+
+        // 1 / 10 = 0.1
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(one, 6107881094714392576LL).value(),
+            6071852297695428608LL);
+
+        // 123456789 / 1623 = 76067.0295749
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(6234216452170766464LL, 6144532891733356544LL)
+                .value(),
+            6168530993200328528LL);
+
+        // -1.245678451111 / 1.3546984132111e+42 = -9.195245517106014e-43
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(1478426356228633688LL, 6846826132016365020LL)
+                .value(),
+            711756787386903390LL);
+
+        // 9.134546514878452e-81 / 1
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(4638834963451748340LL, one).value(),
+            4638834963451748340LL);
+
+        // 9.134546514878452e-81 / 1.41649684651e+75 = (underflow 0)
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(4638834963451748340LL, 7441363081262569392LL)
+                .value(),
+            0);
+
+        // 1.3546984132111e+42 / 9.134546514878452e-81  = XFL_OVERFLOW
+        BEAST_EXPECT(
+            api.float_divide(6846826132016365020LL, 4638834963451748340LL)
+                .error() == XFL_OVERFLOW);
+
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   3121244226425810900LL /* -4.753284285427668e+91 */,
+                   2135203055881892282LL /* -9.50403176301817e+36 */)
+                .value(),
+            7066645550312560102LL /* 5.001334595622374e+54 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   2473507938381460320LL /* -5.535342582428512e+55 */,
+                   6365869885731270068LL /* 6787211884129716 */)
+                .value(),
+            2187897766692155363LL /* -8.155547044835299e+39 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   1716271542690607496LL /* -49036842898190.16 */,
+                   3137794549622534856LL /* -3.28920897266964e+92 */)
+                .value(),
+            4667220053951274769LL /* 1.490839995440913e-79 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   1588045991926420391LL /* -2778923.092005799 */,
+                   5933338827267685794LL /* 6.601717648113058e-9 */)
+                .value(),
+            1733591650950017206LL /* -420939403974674.2 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   5880783758174228306LL /* 8.089844083101523e-12 */,
+                   1396720886139976383LL /* -0.00009612200909863615 */)
+                .value(),
+            1341481714205255877LL /* -8.416224503589061e-8 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   5567703563029955929LL /* 1.254423600022873e-29 */,
+                   2184969513100691140LL /* -5.227293453371076e+39 */)
+                .value(),
+            236586937995245543LL /* -2.399757371979751e-69 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   7333313065548121054LL /* 1.452872188953566e+69 */,
+                   1755926008837497886LL /* -8529353417745438 */)
+                .value(),
+            2433647177826281173LL /* -1.703379046213333e+53 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   1172441975040622050LL /* -1.50607192429309e-17 */,
+                   6692015311011173216LL /* 8.673463993357152e+33 */)
+                .value(),
+            560182767210134346LL /* -1.736413416192842e-51 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   577964843368607493LL /* -1.504091065184005e-50 */,
+                   6422931182144699580LL /* 9805312769113276000 */)
+                .value(),
+            235721135837751035LL /* -1.533955214485243e-69 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   6039815413139899240LL /* 0.0049919124634346 */,
+                   2117655488444284242LL /* -9.970862834892113e+35 */)
+                .value(),
+            779625635892827768LL /* -5.006499985102456e-39 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   1353563835098586141LL /* -2.483946887437341e-7 */,
+                   6450909070545770298LL /* 175440415122002600000 */)
+                .value(),
+            992207753070525611LL /* -1.415835049016491e-27 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   6382158843584616121LL /* 50617712279937850 */,
+                   5373794957212741595LL /* 5.504201387110363e-40 */)
+                .value(),
+            7088854809772330055LL /* 9.196195545910343e+55 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   2056891719200540975LL /* -3.250289119594799e+32 */,
+                   1754532627802542730LL /* -7135972382790282 */)
+                .value(),
+            6381651867337939070LL /* 45547949813167340 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   5730152450208688630LL /* 1.573724193417718e-20 */,
+                   1663581695074866883LL /* -62570322025.24355 */)
+                .value(),
+            921249452789827075LL /* -2.515128806245891e-31 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   6234301156018475310LL /* 131927173.7708846 */,
+                   2868710604383082256LL /* -4.4212413754468e+77 */)
+                .value(),
+            219156721749007916LL /* -2.983939635224108e-70 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   2691125731495874243LL /* -6.980353583058627e+67 */,
+                   7394070851520237320LL /* 8.16746263262388e+72 */)
+                .value(),
+            1377640825464715759LL /* -0.000008546538744084975 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   5141867696142208039LL /* 7.764120939842599e-53 */,
+                   5369434678231981897LL /* 1.143922406350665e-40 */)
+                .value(),
+            5861466794943198400LL /* 6.7872793615536e-13 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   638296190872832492LL /* -7.792243040963052e-47 */,
+                   5161669734904371378LL /* 9.551761192523954e-52 */)
+                .value(),
+            1557396184145861422LL /* -81579.12330410798 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   2000727145906286285LL /* -1.128911353786061e+29 */,
+                   2096625200460673392LL /* -6.954973360763248e+34 */)
+                .value(),
+            5982403476503576795LL /* 0.000001623171355558107 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_divide(
+                   640472838055334326LL /* -9.968890223464885e-47 */,
+                   5189754252349396763LL /* 1.607481618585371e-50 */)
+                .value(),
+            1537425431139169736LL /* -6201.557833201096 */);
     }
 
     void
@@ -616,7 +1188,103 @@ public:
     {
         testcase("Test float_int");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+
+        // clang-format off
+
+        // check 1
+        BEAST_EXPECT(api.float_int(one, 0, 0).value() == 1LL);
+
+        // check 1.23e-20 always returns 0 (too small to display)
+        BEAST_EXPECT(api.float_int(5729808726015270912LL, 0, 0).value() == 0);
+        BEAST_EXPECT(api.float_int(5729808726015270912LL, 15, 0).value() == 0);
+        BEAST_EXPECT(
+            api.float_int(5729808726015270912LL, 16, 0).error() ==
+            INVALID_ARGUMENT);
+
+        BEAST_EXPECT(api.float_int(one, 15, 0).value() == 1000000000000000LL);
+        BEAST_EXPECT(api.float_int(one, 14, 0).value() == 100000000000000LL);
+        BEAST_EXPECT(api.float_int(one, 13, 0).value() == 10000000000000LL);
+        BEAST_EXPECT(api.float_int(one, 12, 0).value() == 1000000000000LL);
+        BEAST_EXPECT(api.float_int(one, 11, 0).value() == 100000000000LL);
+        BEAST_EXPECT(api.float_int(one, 10, 0).value() == 10000000000LL);
+        BEAST_EXPECT(api.float_int(one, 9, 0).value() == 1000000000LL);
+        BEAST_EXPECT(api.float_int(one, 8, 0).value() == 100000000LL);
+        BEAST_EXPECT(api.float_int(one, 7, 0).value() == 10000000LL);
+        BEAST_EXPECT(api.float_int(one, 6, 0).value() == 1000000LL);
+        BEAST_EXPECT(api.float_int(one, 5, 0).value() == 100000LL);
+        BEAST_EXPECT(api.float_int(one, 4, 0).value() == 10000LL);
+        BEAST_EXPECT(api.float_int(one, 3, 0).value() == 1000LL);
+        BEAST_EXPECT(api.float_int(one, 2, 0).value() == 100LL);
+        BEAST_EXPECT(api.float_int(one, 1, 0).value() == 10LL);
+        BEAST_EXPECT(api.float_int(one, 0, 0).value() == 1LL);
+
+        // normal upper limit on exponent
+        BEAST_EXPECT(api.float_int(6360317241828374919LL, 0, 0).value() == 1234567981234567LL);
+
+        // ask for one decimal above limit
+        BEAST_EXPECT(api.float_int(6360317241828374919LL, 1, 0).error() == TOO_BIG);
+
+        // ask for 15 decimals above limit
+        BEAST_EXPECT(api.float_int(6360317241828374919LL, 15, 0).error() == TOO_BIG);
+
+        // every combination for 1.234567981234567
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 0, 0).value() == 1LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 1, 0).value() == 12LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 2, 0).value() == 123LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 3, 0).value() == 1234LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 4, 0).value() == 12345LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 5, 0).value() == 123456LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 6, 0).value() == 1234567LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 7, 0).value() == 12345679LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 8, 0).value() == 123456798LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 9, 0).value() == 1234567981LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 10, 0).value() == 12345679812LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 11, 0).value() == 123456798123LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 12, 0).value() == 1234567981234LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 13, 0).value() == 12345679812345LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 14, 0).value() == 123456798123456LL);
+        BEAST_EXPECT(api.float_int(6090101264186145159LL, 15, 0).value() == 1234567981234567LL);
+
+        // same with absolute parameter
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 0, 1) .value() ==1LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 1, 1) .value() ==12LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 2, 1) .value() ==123LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 3, 1) .value() ==1234LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 4, 1) .value() ==12345LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 5, 1) .value() ==123456LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 6, 1) .value() ==1234567LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 7, 1) .value() ==12345679LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 8, 1) .value() ==123456798LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 9, 1) .value() ==1234567981LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 10, 1).value() == 12345679812LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 11, 1).value() == 123456798123LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 12, 1).value() == 1234567981234LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 13, 1).value() == 12345679812345LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 14, 1).value() == 123456798123456LL);
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 15, 1).value() == 1234567981234567LL);
+
+        // neg xfl sans absolute parameter
+        BEAST_EXPECT(api.float_int(1478415245758757255LL, 15, 0).error() == CANT_RETURN_NEGATIVE);
+
+        // 1.234567981234567e-16
+        BEAST_EXPECT(api.float_int(5819885286543915399LL, 15, 0).value() == 1LL);
+        for (uint32_t i = 1; i < 15; ++i)
+            BEAST_EXPECT(api.float_int(5819885286543915399LL, i, 0).value() == 0);
+
+        // clang-format on
     }
 
     void
@@ -624,7 +1292,48 @@ public:
     {
         testcase("Test float_invert");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // divide by 0
+        BEAST_EXPECT(api.float_invert(0).error() == DIVISION_BY_ZERO);
+
+        // check 1
+        BEAST_EXPECT(
+            api.float_invert(api.float_one()).value() == api.float_one());
+
+        // 1 / 10 = 0.1
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_invert(6107881094714392576LL).value(),
+            6071852297695428608LL);
+
+        // 1 / 123 = 0.008130081300813009
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_invert(6126125493223874560LL).value(),
+            6042953581977277649LL);
+
+        // 1 / 1234567899999999 = 8.100000008100007e-16
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_invert(6360317241747140351LL).value(),
+            5808736320061298855LL);
+
+        // 1/ 1*10^-81 = 10**81
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_invert(4630700416936869888LL).value(),
+            7540018576963469311LL);
     }
 
     void
@@ -632,7 +1341,56 @@ public:
     {
         testcase("Test float_log");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // check 0 is not allowed
+        BEAST_EXPECT(api.float_log(0).error() == INVALID_ARGUMENT);
+
+        // log10( 846513684968451 ) = 14.92763398342338
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_log(6349533412187342878LL).value(),
+            6108373858112734914LL);
+
+        // log10 ( -1000 ) = invalid (complex not supported)
+        BEAST_EXPECT(
+            api.float_log(1532223873305968640LL).error() ==
+            COMPLEX_NOT_SUPPORTED);
+
+        // log10 (1000) == 3
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_log(6143909891733356544LL).value(),
+            6091866696204910592LL);
+
+        // log10 (0.112381) == -0.949307107740766
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_log(6071976107695428608LL).value(),
+            1468659350345448364LL);
+
+        // log10 (0.00000000000000001123) = -16.94962024373854221
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_log(5783744921543716864LL).value(),
+            1496890038311378526LL);
+
+        // log10(100000000000000000000000000000000000000000000000000000000000000)
+        // = 62
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_log(7206759403792793600LL).value(),
+            6113081094714392576LL);
     }
 
     void
@@ -640,7 +1398,113 @@ public:
     {
         testcase("Test float_mantissa");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // test canonical zero
+        BEAST_EXPECT(api.float_mantissa(0).value() == 0);
+
+        // test one, negative one
+        {
+            BEAST_EXPECT(
+                api.float_mantissa(api.float_one()).value() ==
+                1000000000000000LL);
+            BEAST_EXPECT(
+                api.float_mantissa(api.float_negate(api.float_one())).value() ==
+                1000000000000000LL);
+        }
+
+        // test random numbers
+        {
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       4763370308433150973LL /* 7.569101929907197e-74 */)
+                    .value() == 7569101929907197LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       668909658849475214LL /* -2.376913998641806e-45 */)
+                    .value() == 2376913998641806LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       962271544155031248LL /* -7.508423152486096e-29 */)
+                    .value() == 7508423152486096LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       7335644976228470276LL /* 3.784782869302788e+69 */)
+                    .value() == 3784782869302788LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       2837780149340315954LL /* -9.519583351644467e+75 */)
+                    .value() == 9519583351644466LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       2614004940018599738LL /* -1.917156143712058e+63 */)
+                    .value() == 1917156143712058LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       4812250541755005603LL /* 2.406139723315875e-71 */)
+                    .value() == 2406139723315875LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       5140304866732560580LL /* 6.20129153019514e-53 */)
+                    .value() == 6201291530195140LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       1124677839589482624LL /* -7.785132001599617e-20 */)
+                    .value() == 7785132001599616LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       5269336076015865585LL /* 9.131711247126257e-46 */)
+                    .value() == 9131711247126257LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       2296179634826760368LL /* -8.3510241225484e+45 */)
+                    .value() == 8351024122548400LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       1104028240398536470LL /* -5.149931320135446e-21 */)
+                    .value() == 5149931320135446LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       2691222059222981864LL /* -7.076681310166248e+67 */)
+                    .value() == 7076681310166248LL);
+            BEAST_EXPECT(
+                api.float_mantissa(6113256168823855946LL /* 63.7507410946337 */)
+                    .value() == 6375074109463370LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       311682216630003626LL /* -5.437441968809898e-65 */)
+                    .value() == 5437441968809898LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       794955605753965262LL /* -2.322071336757966e-38 */)
+                    .value() == 2322071336757966LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       204540636400815950LL /* -6.382252796514126e-71 */)
+                    .value() == 6382252796514126LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       5497195278343034975LL /* 2.803732951029855e-33 */)
+                    .value() == 2803732951029855LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       1450265914369875626LL /* -0.09114033611316906 */)
+                    .value() == 9114033611316906LL);
+            BEAST_EXPECT(
+                api.float_mantissa(
+                       7481064015089962668LL /* 5.088633654939308e+77 */)
+                    .value() == 5088633654939308LL);
+        }
     }
 
     void
@@ -648,7 +1512,170 @@ public:
     {
         testcase("Test float_mulratio");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+        auto const neg_one = api.float_negate(one);
+
+        // multiply by 0
+        BEAST_EXPECT(api.float_mulratio(one, 0, 0, 1).value() == 0);
+        BEAST_EXPECT(api.float_mulratio(0, 0, 1, 1).value() == 0);
+
+        // check 1
+        BEAST_EXPECT(api.float_mulratio(one, 0, 1, 1).value() == one);
+        BEAST_EXPECT(api.float_mulratio(neg_one, 0, 1, 1).value() == neg_one);
+
+        // check overflow
+        // 1e+95 * 1e+95
+        BEAST_EXPECT(
+            api.float_mulratio(7801234554605699072LL, 0, 0xFFFFFFFFUL, 1)
+                .error() == XFL_OVERFLOW);
+        // 1e+95 * 10
+        BEAST_EXPECT(
+            api.float_mulratio(7801234554605699072LL, 0, 10, 1).error() ==
+            XFL_OVERFLOW);
+        // -1e+95 * 10
+        BEAST_EXPECT(
+            api.float_mulratio(3189548536178311168LL, 0, 10, 1).error() ==
+            XFL_OVERFLOW);
+
+        // identity
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(3189548536178311168LL, 0, 1, 1).value(),
+            3189548536178311168LL);
+
+        // random mulratios
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   2296131684119423544LL, 0U, 2210828011U, 2814367554U)
+                .value(),
+            2294351094683836182LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   565488225163275031LL, 0U, 2373474507U, 4203973264U)
+                .value(),
+            562422045628095449LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   2292703263479286183LL, 0U, 3170020147U, 773892643U)
+                .value(),
+            2307839765178024100LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   758435948837102675LL, 0U, 3802740780U, 1954123588U)
+                .value(),
+            760168290112163547LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   3063742137774439410LL, 0U, 2888815591U, 4122448592U)
+                .value(),
+            3053503824756415637LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   974014561126802184LL, 0U, 689168634U, 3222648522U)
+                .value(),
+            957408554638995792LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   2978333847445611553LL, 0U, 1718558513U, 2767410870U)
+                .value(),
+            2976075722223325259LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   6577058837932757648LL, 0U, 1423256719U, 1338068927U)
+                .value(),
+            6577173649752398013LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   2668681541248816636LL, 0U, 345215754U, 4259223936U)
+                .value(),
+            2650183845127530219LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   651803640367065917LL, 0U, 327563234U, 1191613855U)
+                .value(),
+            639534906402789368LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   3154958130393015979LL, 0U, 1304112625U, 3024066701U)
+                .value(),
+            3153571282364880740LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   1713286099776800976LL, 0U, 1902151138U, 2927030061U)
+                .value(),
+            1712614441093927706LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   2333142120591277120LL, 0U, 914099656U, 108514965U)
+                .value(),
+            2349692988167140475LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   995968561418010814LL, 0U, 1334462574U, 846156977U)
+                .value(),
+            998955931389416094LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   6276035843030312442LL, 0U, 2660687613U, 236740983U)
+                .value(),
+            6294920527635363073LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   7333118474702086419LL, 0U, 46947714U, 2479204760U)
+                .value(),
+            7298214153648998535LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   2873297486994296492LL, 0U, 880591893U, 436034100U)
+                .value(),
+            2884122995598532757LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   1935815261812737573LL, 0U, 3123665800U, 3786746543U)
+                .value(),
+            1934366328810191207LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   7249556282125616118LL, 0U, 2378803159U, 2248850590U)
+                .value(),
+            7250005170160875417LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_mulratio(
+                   311005347529659996LL, 0U, 992915590U, 2433548552U)
+                .value(),
+            308187142737041830LL);
     }
 
     void
@@ -656,7 +1683,342 @@ public:
     {
         testcase("Test float_multiply");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+        auto const neg_one = api.float_negate(one);
+
+        // multiply by 0
+        BEAST_EXPECT(api.float_multiply(one, 0).value() == 0);
+        BEAST_EXPECT(api.float_multiply(0, one).value() == 0);
+
+        // check 1
+        BEAST_EXPECT(api.float_multiply(one, one).value() == one);
+        BEAST_EXPECT(api.float_multiply(one, neg_one).value() == neg_one);
+        BEAST_EXPECT(api.float_multiply(neg_one, one).value() == neg_one);
+        BEAST_EXPECT(api.float_multiply(neg_one, neg_one).value() == one);
+
+        // check overflow
+        // 1e+95 * 1e+95
+        BEAST_EXPECT(
+            api.float_multiply(7801234554605699072LL, 7801234554605699072LL)
+                .error() == XFL_OVERFLOW);
+        // 1e+95 * 10
+        BEAST_EXPECT(
+            api.float_multiply(7801234554605699072LL, 6107881094714392576LL)
+                .error() == XFL_OVERFLOW);
+        BEAST_EXPECT(
+            api.float_multiply(6107881094714392576LL, 7801234554605699072LL)
+                .error() == XFL_OVERFLOW);
+        // -1e+95 * 10
+        BEAST_EXPECT(
+            api.float_multiply(3189548536178311168LL, 6107881094714392576LL)
+                .error() == XFL_OVERFLOW);
+
+        // identity
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(3189548536178311168LL, one).value(),
+            3189548536178311168LL);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(one, 3189548536178311168LL).value(),
+            3189548536178311168LL);
+
+        // random multiplications
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   7791757438262485039LL /* 9.537282166267951e+94 */,
+                   4759088999670263908LL /* 3.287793167020132e-74 */)
+                .value(),
+            6470304726017852129LL /* 3.135661113819873e+21 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   7534790022873909775LL /* 4.771445910440463e+80 */,
+                   1017891960669847079LL /* -9.085644138855975e-26 */)
+                .value(),
+            2472307761756037979LL /* -4.335165957006171e+55 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2813999069907898454LL /* -3.75290242870895e+74 */,
+                   4962524721184225460LL /* 8.56513107667986e-63 */)
+                .value(),
+            1696567870013294731LL /* -3214410121988.235 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2151742066453140308LL /* -8.028643824784212e+37 */,
+                   437647738130579252LL /* -5.302173903011636e-58 */)
+                .value(),
+            5732835652591705549LL /* 4.256926576434637e-20 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   5445302332922546340LL /* 4.953983058987172e-36 */,
+                   7770966530708354172LL /* 6.760773121619068e+93 */)
+                .value(),
+            7137051085305881332LL /* 3.349275551015668e+58 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2542989542826132533LL /* -2.959352989172789e+59 */,
+                   6308418769944702613LL /* 3379291626008.213 */)
+                .value(),
+            2775217422137696934LL /* -1.000051677471398e+72 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   5017652318929433511LL /* 9.649533293441959e-60 */,
+                   6601401767766764916LL /* 8.131913296358772e+28 */)
+                .value(),
+            5538267259220228820LL /* 7.846916809259732e-31 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   892430323307269235LL /* -9.724796342652019e-33 */,
+                   1444078017997143500LL /* -0.0292613723858478 */)
+                .value(),
+            5479222755754111850LL /* 2.845608871588714e-34 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   7030632722283214253LL /* 5.017303585240493e+52 */,
+                   297400838197636668LL /* -9.170462045924924e-66 */)
+                .value(),
+            1247594596364389994LL /* -4.601099210133098e-13 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1321751204165279730LL /* -6.700112973094898e-9 */,
+                   2451801790748530375LL /* -1.843593458980551e+54 */)
+                .value(),
+            6918764256086244704LL /* 1.235228445162848e+46 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2055496484261758590LL /* -1.855054180812414e+32 */,
+                   2079877890137711361LL /* -8.222061547283201e+33 */)
+                .value(),
+
+            7279342234795540005LL /* 1.525236964818469e+66 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2439875962311968674LL /* -7.932163531900834e+53 */,
+                   4707485682591872793LL /* 5.727671617074969e-77 */)
+                .value(),
+            1067392794851803610LL /* -4.543282792366554e-23 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6348574818322812800LL /* 750654298515443.2 */,
+                   6474046245013515838LL /* 6.877180109483582e+21 */)
+                .value(),
+            6742547427357110773LL /* 5.162384810848757e+36 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1156137305783593424LL /* -3.215801176746448e-18 */,
+                   351790564990861307LL /* -9.516993310703611e-63 */)
+                .value(),
+            4650775291275116747LL /* 3.060475828764875e-80 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   5786888485280994123LL /* 4.266563737277259e-17 */,
+                   6252137323085080394LL /* 1141040294.831946 */)
+                .value(),
+            5949619829273756852LL /* 4.868321144702132e-8 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2078182880999439640LL /* -6.52705240901148e+33 */,
+                   1662438186251269392LL /* -51135233789.26864 */)
+                .value(),
+            6884837854131013998LL /* 3.33762350889611e+44 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1823781083140711248LL /* -43268336830308640000 */,
+                   1120252241608199010LL /* -3.359534020316002e-20 */)
+                .value(),
+
+            6090320310700749729LL /* 1.453614495839137 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6617782604883935174LL /* 6.498351904047046e+29 */,
+                   6185835042802056262LL /* 689635.404973575 */)
+                .value(),
+            6723852137583788319LL /* 4.481493547008287e+35 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   333952667495151166LL /* -9.693494324475454e-64 */,
+                   1556040883317758614LL /* -68026.1150230799 */)
+                .value(),
+            5032611291744396930LL /* 6.594107598923394e-59 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2326968399632616779LL /* -3.110991909440843e+47 */,
+                   707513695207834635LL /* -4.952153338037259e-43 */)
+                .value(),
+            6180479299649214949LL /* 154061.0896894437 */);
+
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1271003508324696477LL /* -9.995612660957597e-12 */,
+                   5321949753651889765LL /* 7.702193354704484e-43 */)
+                .value(),
+            512101972406838314LL /* -7.698814141342762e-54 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1928646740923345323LL /* -1.106100408773035e+25 */,
+                   4639329980209973352LL /* 9.629563273103463e-81 */)
+                .value(),
+            487453886143282122LL /* -1.065126387268554e-55 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6023906813956669432LL /* 0.0007097711789686777 */,
+                   944348444470060009LL /* -7.599721976996842e-30 */)
+                .value(),
+            888099590592064434LL /* -5.394063627447218e-33 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6580290597764062787LL /* 5.035141803138627e+27 */,
+                   6164319297265300034LL /* 33950.07022461506 */)
+                .value(),
+            6667036882686408593LL /* 1.709434178074513e+32 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2523439530503240484LL /* -1.423739175762724e+58 */,
+                   5864448766677980801LL /* 9.769251096336e-13 */)
+                .value(),
+            2307233895764065602LL /* -1.39088655037165e+46 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6760707453987140465LL /* 5.308012931396465e+37 */,
+                   5951641080643457645LL /* 6.889572514402925e-8 */)
+                .value(),
+            6632955645489194550LL /* 3.656993999824438e+30 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6494270716308443375LL /* 9.087252894929135e+22 */,
+                   564752637895553836LL /* -6.306284101612332e-51 */)
+                .value(),
+            978508199357889360LL /* -5.730679845862224e-28 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6759145618427534062LL /* 3.746177371790062e+37 */,
+                   4721897842483633304LL /* 2.125432999353496e-76 */)
+                .value(),
+            5394267403342547165LL /* 7.962249007433949e-39 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1232673571201806425LL /* -7.694472557031513e-14 */,
+                   6884256144221925318LL /* 2.75591359980743e+44 */)
+                .value(),
+            2037747561727791012LL /* -2.12053015632682e+31 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1427694775835421031LL /* -0.004557293586344295 */,
+                   4883952867277976402LL /* 2.050871208358738e-67 */)
+                .value(),
+            225519204318055258LL /* -9.34642220427145e-70 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   5843509949864662087LL /* 6.84483279249927e-14 */,
+                   5264483986612843822LL /* 4.279621844104494e-46 */)
+                .value(),
+            5028946513739275800LL /* 2.929329593802264e-59 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   6038444022009738988LL /* 0.003620521333274348 */,
+                   7447499078040748850LL /* 7.552493624689458e+75 */)
+                .value(),
+            7406652183825856093LL /* 2.734396428760669e+73 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   939565473697468970LL /* -2.816751204405802e-30 */,
+                   1100284903077087966LL /* -1.406593998686942e-21 */)
+                .value(),
+            5174094397561240825LL /* 3.962025339911417e-51 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   5694071830210473617LL /* 1.521901214166673e-22 */,
+                   5536709154363579683LL /* 6.288811952610595e-31 */)
+                .value(),
+            5143674525748709391LL /* 9.570950546343951e-53 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   600729862341871819LL /* -6.254711528966347e-49 */,
+                   6330630279715378440LL /* 75764028872020.56 */)
+                .value(),
+            851415551394320910LL /* -4.738821448667662e-35 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1876763139233864902LL /* -3.265694247738566e+22 */,
+                   4849561230315278754LL /* 3.688031264625058e-69 */)
+                .value(),
+            649722744589988028LL /* -1.204398248636604e-46 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   3011947542126279863LL /* -3.542991042788535e+85 */,
+                   1557732559110376235LL /* -84942.87294925611 */)
+                .value(),
+            7713172080438368541LL /* 3.009518380079389e+90 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   5391579936313268788LL /* 5.274781978155572e-39 */,
+                   1018647290024655822LL /* -9.840973493664718e-26 */)
+                .value(),
+            329450072133864644LL /* -5.190898963188932e-64 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   2815029221608845312LL /* -4.783054129655808e+74 */,
+                   4943518985822088837LL /* 7.57379422402522e-64 */)
+                .value(),
+            1678961648155863225LL /* -362258677403.8713 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_multiply(
+                   1377509900308195934LL /* -0.00000841561358756515 */,
+                   7702104197062186199LL /* 9.95603351337903e+89 */)
+                .value(),
+            2998768765665354000LL /* -8.378613091344656e+84 */);
     }
 
     void
@@ -664,7 +2026,42 @@ public:
     {
         testcase("Test float_negate");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+
+        // test canonical zero
+        BEAST_EXPECT(api.float_negate(0) == 0);
+
+        // test double negation
+        {
+            BEAST_EXPECT(api.float_negate(one) != one);
+            BEAST_EXPECT(api.float_negate(api.float_negate(one)) == one);
+        }
+
+        // test random numbers
+        {
+            // +/- 3.463476342523e+22
+            BEAST_EXPECT(
+                api.float_negate(6488646939756037240LL) ==
+                1876960921328649336LL);
+
+            BEAST_EXPECT(api.float_negate(one) == 1478180677777522688LL);
+
+            BEAST_EXPECT(
+                api.float_negate(1838620299498162368LL) ==
+                6450306317925550272LL);
+        }
     }
 
     void
@@ -672,7 +2069,20 @@ public:
     {
         testcase("Test float_one");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+        BEAST_EXPECT(one == 6089866696204910592ULL);
     }
 
     void
@@ -680,7 +2090,41 @@ public:
     {
         testcase("Test float_root");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace compare_mode;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+
+        // sqrt 1 is 1
+        ASSERT_FLOAT_EQUAL(api, api.float_root(one, 2).value(), one);
+
+        // sqrt 9 is 3
+        auto const nine = 6097866696204910592LL;
+        auto const three = 6091866696204910592LL;
+        ASSERT_FLOAT_EQUAL(api, api.float_root(nine, 2).value(), three);
+
+        // cube root of 1000 is 10
+        auto const thousand = 6143909891733356544LL;
+        auto const ten = 6107881094714392576LL;
+        ASSERT_FLOAT_EQUAL(api, api.float_root(thousand, 3).value(), ten);
+
+        // sqrt of negative is "complex not supported error"
+        auto const negative_one = 1478180677777522688LL;
+        BEAST_EXPECT(
+            api.float_root(negative_one, 2).error() == COMPLEX_NOT_SUPPORTED);
+
+        // tenth root of 0 is 0
+        ASSERT_FLOAT_EQUAL(api, api.float_root(0, 10).value(), 0);
     }
 
     void
@@ -688,7 +2132,90 @@ public:
     {
         testcase("Test float_set");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // zero mantissa should return canonical zero
+        BEAST_EXPECT(api.float_set(-5, 0).value() == 0);
+        BEAST_EXPECT(api.float_set(50, 0).value() == 0);
+        BEAST_EXPECT(api.float_set(-50, 0).value() == 0);
+        BEAST_EXPECT(api.float_set(0, 0).value() == 0);
+
+        // an exponent lower than -96 should produce an invalid float error
+        BEAST_EXPECT(api.float_set(-97, 1).error() == INVALID_FLOAT);
+
+        // an exponent larger than +96 should produce an invalid float error
+        BEAST_EXPECT(api.float_set(+97, 1).error() == INVALID_FLOAT);
+
+        BEAST_EXPECT(
+            api.float_set(-5, 6541432897943971LL).value() ==
+            6275552114197674403LL);
+        BEAST_EXPECT(
+            api.float_set(-83, 7906202688397446LL).value() ==
+            4871793800248533126LL);
+        BEAST_EXPECT(
+            api.float_set(76, 4760131426754533LL).value() ==
+            7732937091994525669LL);
+        BEAST_EXPECT(
+            api.float_set(37, -8019384286534438LL).value() ==
+            2421948784557120294LL);
+        BEAST_EXPECT(
+            api.float_set(50, 5145342538007840LL).value() ==
+            7264947941859247392LL);
+        BEAST_EXPECT(
+            api.float_set(-70, 4387341302202416LL).value() ==
+            5102462119485603888LL);
+        BEAST_EXPECT(
+            api.float_set(-26, -1754544005819476LL).value() ==
+            1280776838179040340LL);
+        BEAST_EXPECT(
+            api.float_set(36, 8261761545780560LL).value() ==
+            7015862781734272336LL);
+        BEAST_EXPECT(
+            api.float_set(35, 7975622850695472LL).value() ==
+            6997562244529705264LL);
+        BEAST_EXPECT(
+            api.float_set(17, -4478222822793996LL).value() ==
+            2058119652903740172LL);
+        BEAST_EXPECT(
+            api.float_set(-53, 5506604247857835LL).value() ==
+            5409826157092453035LL);
+        BEAST_EXPECT(
+            api.float_set(-60, 5120164869507050LL).value() ==
+            5283338928147728362LL);
+        BEAST_EXPECT(
+            api.float_set(41, 5176113875683063LL).value() ==
+            7102849126611584759LL);
+        BEAST_EXPECT(
+            api.float_set(-54, -3477931844992923LL).value() ==
+            778097067752718235LL);
+        BEAST_EXPECT(
+            api.float_set(21, 6345031894305479LL).value() ==
+            6743730074440567495LL);
+        BEAST_EXPECT(
+            api.float_set(-23, 5091583691147091LL).value() ==
+            5949843091820201811LL);
+        BEAST_EXPECT(
+            api.float_set(-33, 7509684078851678LL).value() ==
+            5772117207113086558LL);
+        BEAST_EXPECT(
+            api.float_set(-72, -1847771838890268LL).value() ==
+            452207734575939868LL);
+        BEAST_EXPECT(
+            api.float_set(71, -9138413713437220LL).value() ==
+            3035557363306410532LL);
+        BEAST_EXPECT(
+            api.float_set(28, 4933894067102586LL).value() ==
+            6868419726179738490LL);
     }
 
     void
@@ -696,7 +2223,87 @@ public:
     {
         testcase("Test float_sign");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // test canonical zero
+        BEAST_EXPECT(api.float_sign(0) == 0);
+
+        // test one
+        auto const one = api.float_one();
+        BEAST_EXPECT(api.float_sign(one) == 0);
+        BEAST_EXPECT(api.float_sign(api.float_negate(one)) == 1);
+
+        // test random numbers
+        BEAST_EXPECT(
+            api.float_sign(7248434512952957686LL /* 6.646312141200119e+64 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(889927818394811978LL /* -7.222291430194763e-33 */) ==
+            1LL);
+        BEAST_EXPECT(
+            api.float_sign(5945816149233111421LL /* 1.064641104056701e-8 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(6239200145838704863LL /* 621826155.7938399 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(6992780785042190360LL /* 3.194163363180568e+50 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(6883099933108789087LL /* 1.599702486671199e+44 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(890203738162163464LL /* -7.498211197546248e-33 */) ==
+            1LL);
+        BEAST_EXPECT(
+            api.float_sign(4884803073052080964LL /* 2.9010769824633e-67 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(
+                2688292350356944394LL /* -4.146972444128778e+67 */) == 1LL);
+        BEAST_EXPECT(
+            api.float_sign(4830109852288093280LL /* 2.251051746921568e-70 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(294175951907940320LL /* -5.945575756228576e-66 */) ==
+            1LL);
+        BEAST_EXPECT(
+            api.float_sign(7612037404955382316LL /* 9.961233953985069e+84 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(7520840929603658997LL /* 8.83675114967167e+79 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(4798982086157926282LL /* 7.152082635718538e-72 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(689790136568817905LL /* -5.242993208502513e-44 */) ==
+            1LL);
+        BEAST_EXPECT(
+            api.float_sign(5521738045011558042LL /* 9.332101110070938e-32 */) ==
+            0LL);
+        BEAST_EXPECT(
+            api.float_sign(728760820583452906LL /* -8.184880204173546e-42 */) ==
+            1LL);
+        BEAST_EXPECT(
+            api.float_sign(2272937984362856794LL /* -3.12377216812681e+44 */) ==
+            1LL);
+        BEAST_EXPECT(
+            api.float_sign(1445723661896317830LL /* -0.0457178113775911 */) ==
+            1LL);
+        BEAST_EXPECT(
+            api.float_sign(5035721527359772724LL /* 9.704343214299189e-59 */) ==
+            0LL);
     }
 
     void
@@ -704,7 +2311,27 @@ public:
     {
         testcase("Test float_sto");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        uint64_t const xfl = 6198187654261802496ULL;  // 1234567.0 as in SetHook
+        // XRP serialization
+        auto const ser = api.float_sto(std::nullopt, std::nullopt, xfl, 0, 8);
+        BEAST_EXPECT(ser.has_value());
+        auto const parsed = api.float_sto_set(ser.value());
+        BEAST_EXPECT(parsed.has_value());
+        BEAST_EXPECT(
+            api.float_compare(parsed.value(), xfl, compare_mode::EQUAL)
+                .value() == 1);
     }
 
     void
@@ -712,7 +2339,31 @@ public:
     {
         testcase("Test float_sto_set");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace hook;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // Not enough bytes
+        BEAST_EXPECT(
+            api.float_sto_set(Bytes{1, 2, 3}).error() == NOT_AN_OBJECT);
+
+        uint64_t const xfl = 6198187654261802496ULL;  // 1234567.0 as in SetHook
+        auto const ser = api.float_sto(std::nullopt, std::nullopt, xfl, 0, 8);
+        BEAST_EXPECT(ser.has_value());
+        auto const parsed = api.float_sto_set(ser.value());
+        BEAST_EXPECT(parsed.has_value());
+        BEAST_EXPECT(
+            api.float_compare(parsed.value(), xfl, compare_mode::EQUAL)
+                .value() == 1);
     }
 
     void
@@ -720,7 +2371,180 @@ public:
     {
         testcase("Test float_sum");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const one = api.float_one();
+        auto const neg_one = api.float_negate(api.float_one());
+
+        // 1 + 1 = 2
+        ASSERT_FLOAT_EQUAL(
+            api, 6090866696204910592LL, api.float_sum(one, one).value());
+
+        // 1 - 1 = 0
+        ASSERT_FLOAT_EQUAL(api, 0, api.float_sum(one, neg_one).value());
+        // 45678 + 0.345678 = 45678.345678
+        ASSERT_FLOAT_EQUAL(
+            api,
+            6165492124810638528LL,
+            api.float_sum(6165492090242838528LL, 6074309077695428608LL)
+                .value());
+        // -151864512641 + 100000000000000000 = 99999848135487359
+        ASSERT_FLOAT_EQUAL(
+            api,
+            6387097057170171072LL,
+            api.float_sum(1676857706508234512LL, 6396111470866104320LL)
+                .value());
+        // auto generated random sums
+        ASSERT_FLOAT_EQUAL(
+            api,
+            7607324992379065667 /* 5.248821377668419e+84 */,
+            api.float_sum(
+                   95785354843184473 /* -5.713362295774553e-77 */,
+                   7607324992379065667 /* 5.248821377668419e+84 */)
+                .value());
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   1011203427860697296 /* -2.397111329706192e-26 */,
+                   7715811566197737722 /* 5.64900413944857e+90 */)
+                .value(),
+            7715811566197737722 /* 5.64900413944857e+90 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   6507979072644559603 /* 4.781210721563379e+23 */,
+                   422214339164556094 /* -7.883173446470462e-59 */)
+                .value(),
+            6507979072644559603 /* 4.781210721563379e+23 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   129493221419941559 /* -3.392431853567671e-75 */,
+                   6742079437952459317 /* 4.694395406197301e+36 */)
+                .value(),
+            6742079437952459317 /* 4.694395406197301e+36 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   5172806703808250354 /* 2.674331586920946e-51 */,
+                   3070396690523275533 /* -7.948943911338253e+88 */)
+                .value(),
+            3070396690523275533 /* -7.948943911338253e+88 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   2440992231195047997 /* -9.048432414980156e+53 */,
+                   4937813945440933271 /* 1.868753842869655e-64 */)
+                .value(),
+            2440992231195047996 /* -9.048432414980156e+53 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   7351918685453062372 /* 2.0440935844129e+70 */,
+                   6489541496844182832 /* 4.358033430668592e+22 */)
+                .value(),
+            7351918685453062372 /* 2.0440935844129e+70 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   4960621423606196948 /* 6.661833498651348e-63 */,
+                   6036716382996689576 /* 0.001892882320224936 */)
+                .value(),
+            6036716382996689576 /* 0.001892882320224936 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   1342689232407435206 /* -9.62374270576839e-8 */,
+                   5629833007898276923 /* 9.340672939897915e-26 */)
+                .value(),
+            1342689232407435206 /* -9.62374270576839e-8 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   7557687707019793516 /* 9.65473154684222e+81 */,
+                   528084028396448719 /* -5.666471621471183e-53 */)
+                .value(),
+            7557687707019793516 /* 9.65473154684222e+81 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   130151633377050812 /* -4.050843810676924e-75 */,
+                   2525286695563827336 /* -3.270904236349576e+58 */)
+                .value(),
+            2525286695563827336 /* -3.270904236349576e+58 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   5051914485221832639 /* 7.88290256687712e-58 */,
+                   7518727241611221951 /* 6.723063157234623e+79 */)
+                .value(),
+            7518727241611221951 /* 6.723063157234623e+79 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   3014788764095798870 /* -6.384213012307542e+85 */,
+                   7425019819707800346 /* 3.087633801222938e+74 */)
+                .value(),
+            3014788764095767995 /* -6.384213012276667e+85 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   4918950856932792129 /* 1.020063844210497e-65 */,
+                   7173510242188034581 /* 3.779635414204949e+60 */)
+                .value(),
+            7173510242188034581 /* 3.779635414204949e+60 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   20028000442705357 /* -2.013601933223373e-81 */,
+                   95248745393457140 /* -5.17675284604722e-77 */)
+                .value(),
+            95248946753650462 /* -5.176954206240542e-77 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   5516870225060928024 /* 4.46428115944092e-32 */,
+                   7357202055584617194 /* 7.327463715967722e+70 */)
+                .value(),
+            7357202055584617194 /* 7.327463715967722e+70 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   2326103538819088036 /* -2.2461310959121e+47 */,
+                   1749360946246242122 /* -1964290826489674 */)
+                .value(),
+            2326103538819088036 /* -2.2461310959121e+47 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   1738010758208819410 /* -862850129854894.6 */,
+                   2224610859005732191 /* -8.83984233944816e+41 */)
+                .value(),
+            2224610859005732192 /* -8.83984233944816e+41 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   4869534730307487904 /* 5.647132747352224e-68 */,
+                   2166841923565712115 /* -5.114102427874035e+38 */)
+                .value(),
+            2166841923565712115 /* -5.114102427874035e+38 */);
+        ASSERT_FLOAT_EQUAL(
+            api,
+            api.float_sum(
+                   1054339559322014937 /* -9.504445772059864e-24 */,
+                   1389511416678371338 /* -0.0000240273144825857 */)
+                .value(),
+            1389511416678371338 /* -0.0000240273144825857 */);
     }
 
     void
@@ -728,7 +2552,19 @@ public:
     {
         testcase("Test hook_account");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        StubHookContext stubCtx{};
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+        hook::HookAPI api(hookCtx);
+
+        BEAST_EXPECT(api.hook_account() == alice.id());
     }
 
     void
@@ -736,7 +2572,47 @@ public:
     {
         testcase("Test hook_again");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // Already requested
+            StubHookContext stubCtx{};
+            stubCtx.result.executeAgainAsWeak = true;
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            BEAST_EXPECT(hookCtx.result.executeAgainAsWeak);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.hook_again().error() == ALREADY_SET);
+        }
+        {
+            // Strong hook requests weak re-exec
+            StubHookContext stubCtx{};
+            stubCtx.result.isStrong = true;
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(!hookCtx.result.executeAgainAsWeak);
+            auto const result = api.hook_again();
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 1);
+            BEAST_EXPECT(hookCtx.result.executeAgainAsWeak);
+        }
+
+        {
+            // Not strong -> prerequisite not met
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            BEAST_EXPECT(!hookCtx.result.executeAgainAsWeak);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.hook_again().error() == PREREQUISITE_NOT_MET);
+        }
     }
 
     void
@@ -744,6 +2620,22 @@ public:
     {
         testcase("Test hook_hash");
 
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        uint256 const expectedHash{2};
+        StubHookContext stubCtx{
+            .result = {.hookHash = expectedHash},
+        };
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+        hook::HookAPI api(hookCtx);
+
+        // TODO
         BEAST_EXPECT(true);
     }
 
@@ -752,7 +2644,70 @@ public:
     {
         testcase("Test hook_param");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace hook;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // TOO_SMALL / TOO_BIG
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.hook_param({}).error() == TOO_SMALL);
+            BEAST_EXPECT(api.hook_param(Bytes(33, 1)).error() == TOO_BIG);
+        }
+
+        // {
+        //     // Hook params map
+        //     Bytes const name{'k'};
+        //     Bytes const value{1, 2, 3};
+        //     StubHookContext stubCtx{
+        //         .result = {
+        //             .hookParams = {{{name, value}}},
+        //         }};
+        //     auto hookCtx =
+        //         makeStubHookContext(applyCtx, alice.id(), alice.id(),
+        //         stubCtx);
+        //     hook::HookAPI api(hookCtx);
+        //     auto const result = api.hook_param(name);
+        //     BEAST_EXPECT(result.has_value());
+        //     BEAST_EXPECT(result.value() == value);
+        // }
+
+        {
+            // Override deletion wins
+            Bytes const name{'d'};
+            StubHookContext stubCtx{};
+            stubCtx.result.hookParamOverrides = {
+                {stubCtx.result.hookHash, {{name, Bytes{}}}}};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.hook_param(name).error() == DOESNT_EXIST);
+        }
+
+        {
+            // Override takes precedence
+            Bytes const name{'o'};
+            Bytes const overrideValue{9};
+            StubHookContext stubCtx{};
+            stubCtx.result.hookParams =
+                std::map<Bytes, Bytes>{{name, Bytes{1}}};  // base value
+            stubCtx.result.hookParamOverrides = {
+                {stubCtx.result.hookHash, {{name, overrideValue}}}};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.hook_param(name);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == overrideValue);
+        }
     }
 
     void
@@ -760,7 +2715,64 @@ public:
     {
         testcase("Test hook_param_set");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace hook;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hash = uint256{7};
+
+        {
+            // TOO_SMALL
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(
+                api.hook_param_set(hash, {}, Bytes{1}).error() == TOO_SMALL);
+        }
+
+        {
+            // TOO_BIG key/value and TOO_MANY_PARAMS
+            StubHookContext stubCtx{};
+            stubCtx.result.overrideCount = hook_api::max_params;
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(
+                api.hook_param_set(
+                       hash,
+                       Bytes(hook::maxHookParameterKeySize() + 1, 1),
+                       Bytes{})
+                    .error() == TOO_BIG);
+            BEAST_EXPECT(
+                api.hook_param_set(
+                       hash,
+                       Bytes{1},
+                       Bytes(hook::maxHookParameterValueSize() + 1, 1))
+                    .error() == TOO_BIG);
+            BEAST_EXPECT(
+                api.hook_param_set(hash, Bytes{1}, Bytes{1}).error() ==
+                TOO_MANY_PARAMS);
+        }
+
+        {
+            // SUCCESS and override stored
+            Bytes const name{'x'};
+            Bytes const value{5, 6};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.hook_param_set(hash, name, value);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == value.size());
+            BEAST_EXPECT(hookCtx.result.overrideCount == 1);
+            BEAST_EXPECT(
+                hookCtx.result.hookParamOverrides[hash].at(name) == value);
+        }
     }
 
     void
@@ -768,7 +2780,20 @@ public:
     {
         testcase("Test hook_pos");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        StubHookContext stubCtx{};
+        stubCtx.result.hookChainPosition = 3;
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+        hook::HookAPI api(hookCtx);
+
+        BEAST_EXPECT(api.hook_pos() == 3);
     }
 
     void
@@ -776,6 +2801,19 @@ public:
     {
         testcase("Test hook_skip");
 
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // TODO
         BEAST_EXPECT(true);
     }
 
@@ -784,6 +2822,19 @@ public:
     {
         testcase("Test ledger_keylet");
 
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // TODO
         BEAST_EXPECT(true);
     }
 
@@ -792,7 +2843,17 @@ public:
     {
         testcase("Test ledger_last_hash");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        BEAST_EXPECT(api.ledger_last_hash() == ov.info().parentHash);
     }
 
     void
@@ -800,7 +2861,19 @@ public:
     {
         testcase("Test ledger_last_time");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        auto const expected =
+            ov.info().parentCloseTime.time_since_epoch().count();
+        BEAST_EXPECT(api.ledger_last_time() == expected);
     }
 
     void
@@ -808,7 +2881,46 @@ public:
     {
         testcase("Test ledger_nonce");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // TOO_MANY_NONCES
+            StubHookContext stubCtx{
+                .ledger_nonce_counter =
+                    static_cast<uint16_t>(hook_api::max_nonce + 1)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.ledger_nonce();
+            BEAST_EXPECT(result.error() == TOO_MANY_NONCES);
+        }
+
+        {
+            // SUCCESS
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const info = hookCtx.applyCtx.view().info();
+            auto const expected = ripple::sha512Half(
+                ripple::HashPrefix::hookNonce,
+                info.seq,
+                info.parentCloseTime.time_since_epoch().count(),
+                info.parentHash,
+                hookCtx.applyCtx.tx.getTransactionID(),
+                hookCtx.ledger_nonce_counter,
+                hookCtx.result.account);
+            auto const result = api.ledger_nonce();
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == expected);
+            BEAST_EXPECT(hookCtx.ledger_nonce_counter == 1);
+        }
     }
 
     void
@@ -816,7 +2928,17 @@ public:
     {
         testcase("Test ledger_seq");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        BEAST_EXPECT(api.ledger_seq() == ov.info().seq);
     }
 
     void
@@ -836,11 +2958,154 @@ public:
     }
 
     void
+    test_otxn_burden(FeatureBitset features)
+    {
+        testcase("Test otxn_burden");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx baseTx = STTx(ttINVOKE, [&](STObject& obj) {});
+
+        {
+            // Cached burden
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
+            StubHookContext stubCtx{.burden = 7};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_burden() == 7);
+        }
+
+        {
+            // No sfEmitDetails
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_burden() == 1);
+        }
+
+        {
+            // sfEmitDetails without sfEmitBurden
+            STTx tx = STTx(ttINVOKE, [&](STObject& obj) {
+                obj.peekFieldObject(sfEmitDetails);
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, tx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_burden() == 1);
+        }
+
+        {
+            // sfEmitBurden with high bit set is masked
+            STTx tx = STTx(ttINVOKE, [&](STObject& obj) {
+                auto& details = obj.peekFieldObject(sfEmitDetails);
+                details.setFieldU64(
+                    sfEmitBurden, (static_cast<uint64_t>(1) << 63) | 25);
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, tx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const burden = api.otxn_burden();
+            BEAST_EXPECT(burden == 25);
+            BEAST_EXPECT(api.otxn_burden() == burden);
+        }
+    }
+
+    void
+    test_otxn_generation(FeatureBitset features)
+    {
+        testcase("Test otxn_generation");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx baseTx = STTx(ttINVOKE, [&](STObject& obj) {});
+
+        {
+            // Cached generation
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
+            StubHookContext stubCtx{.generation = 9};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_generation() == 9);
+        }
+
+        {
+            // No sfEmitDetails
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_generation() == 0);
+        }
+
+        {
+            // sfEmitDetails without sfEmitGeneration
+            STTx tx = STTx(ttINVOKE, [&](STObject& obj) {
+                obj.peekFieldObject(sfEmitDetails);
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, tx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_generation() == 0);
+        }
+
+        {
+            // sfEmitGeneration present
+            STTx tx = STTx(ttINVOKE, [&](STObject& obj) {
+                obj.peekFieldObject(sfEmitDetails)
+                    .setFieldU32(sfEmitGeneration, 4);
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, tx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_generation() == 4);
+            BEAST_EXPECT(api.otxn_generation() == 4);
+        }
+    }
+
+    void
     test_otxn_field(FeatureBitset features)
     {
         testcase("Test otxn_field");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx tx =
+            STTx(ttINVOKE, [&](STObject& obj) { obj[sfAccount] = alice.id(); });
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, tx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // TODO: INVALID_FIELD now returns DOESNT_EXIST
+        // BEAST_EXPECT(api.otxn_field(0).error() == INVALID_FIELD);
+        BEAST_EXPECT(
+            api.otxn_field(sfDestination.getCode()).error() == DOESNT_EXIST);
+        auto const result = api.otxn_field(sfAccount.getCode());
+        BEAST_EXPECT(result.has_value());
+        auto const* acct = dynamic_cast<STAccount const*>(result.value());
+        BEAST_EXPECT(acct != nullptr);
+        BEAST_EXPECT(acct->value() == alice.id());
     }
 
     void
@@ -848,7 +3113,43 @@ public:
     {
         testcase("Test otxn_id");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+
+        {
+            STTx tx = STTx(ttINVOKE, [&](STObject& obj) {});
+            auto const txID = tx.getTransactionID();
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, tx);
+            // Originating transaction ID
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.otxn_id(0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == txID);
+        }
+
+        {
+            STTx tx = STTx(ttEMIT_FAILURE, [&](STObject& obj) {
+                obj.setFieldH256(sfTransactionHash, uint256{5});
+            });
+            STTx emitFailedTx = STTx(ttINVOKE, [&](STObject& obj) {});
+            auto const txID = tx.getTransactionID();
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, tx);
+            // Emit failure transaction ID
+            StubHookContext stubCtx{.emitFailure = emitFailedTx};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(
+                api.otxn_id(0).value() == tx.getFieldH256(sfTransactionHash));
+            // flags bypass emitFailure
+            BEAST_EXPECT(api.otxn_id(1).value() == txID);
+        }
     }
 
     void
@@ -856,7 +3157,69 @@ public:
     {
         testcase("Test otxn_slot");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx tx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, tx);
+
+        {
+            // Invalid slot argument
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.otxn_slot(hook_api::max_slots + 1);
+            BEAST_EXPECT(result.error() == INVALID_ARGUMENT);
+        }
+
+        {
+            // No free slots
+            StubHookContext stubCtx{};
+            for (uint32_t i = 1; i <= hook_api::max_slots; ++i)
+                stubCtx.slot[i] = hook::SlotEntry{};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            for (uint32_t i = 1; i <= hook_api::max_slots; ++i)
+                hookCtx.slot[i] = hook::SlotEntry{};
+            BEAST_EXPECT(stubCtx.slot.size() == hook_api::max_slots);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_slot(0).error() == NO_FREE_SLOTS);
+        }
+
+        {
+            // SUCCESS allocate new slot (slot = 0)
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            for (uint32_t i = 1; i <= 111; ++i)
+                hookCtx.slot[i] = hook::SlotEntry{};
+            BEAST_EXPECT(!hookCtx.slot.contains(112));
+            hook::HookAPI api(hookCtx);
+            auto const result = api.otxn_slot(0);
+            BEAST_EXPECT(result.has_value());
+            auto const newSlot = result.value();
+            BEAST_EXPECT(newSlot == 112);
+            BEAST_EXPECT(hookCtx.slot.contains(112));
+            BEAST_EXPECT(hookCtx.slot[112].entry != nullptr);
+            // TODO: test slot content
+        }
+
+        {
+            // SUCCESS allocate new slot (slot != 0)
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            BEAST_EXPECT(!hookCtx.slot.contains(200));
+            hook::HookAPI api(hookCtx);
+            auto const result = api.otxn_slot(200);
+            BEAST_EXPECT(result.has_value());
+            auto const newSlot = result.value();
+            BEAST_EXPECT(newSlot == 200);
+            BEAST_EXPECT(hookCtx.slot.contains(200));
+            BEAST_EXPECT(hookCtx.slot[newSlot].entry != nullptr);
+            // TODO: test slot content
+        }
     }
 
     void
@@ -864,7 +3227,30 @@ public:
     {
         testcase("Test otxn_type");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx tx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, tx);
+
+        {
+            STObject failure(sfHook);
+            failure.setFieldU16(sfTransactionType, ttACCOUNT_SET);
+            StubHookContext stubCtx{.emitFailure = failure};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_type() == ttACCOUNT_SET);
+        }
+
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.otxn_type() == ttINVOKE);
+        }
     }
 
     void
@@ -872,7 +3258,52 @@ public:
     {
         testcase("Test otxn_param");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace hook;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+
+        // Build tx with hook parameters
+        STTx tx = STTx(ttINVOKE, [&](STObject& obj) {
+            STArray params{sfHookParameters, 2};
+            {
+                STObject p{sfHookParameter};
+                p.setFieldVL(sfHookParameterName, Bytes{'a'});
+                p.setFieldVL(sfHookParameterValue, Bytes{1, 2});
+                params.emplace_back(std::move(p));
+            }
+            {
+                STObject p{sfHookParameter};
+                p.setFieldVL(sfHookParameterName, Bytes{'b'});
+                // missing value to test DOESNT_EXIST
+                params.emplace_back(std::move(p));
+            }
+            {
+                STObject p{sfHookParameter};
+                p.setFieldVL(sfHookParameterName, Bytes{'c'});
+                // empty value to test DOESNT_EXIST
+                p.setFieldVL(sfHookParameterValue, Bytes{});
+                params.emplace_back(std::move(p));
+            }
+            obj.setFieldArray(sfHookParameters, params);
+        });
+
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, tx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        BEAST_EXPECT(api.otxn_param({}).error() == TOO_SMALL);
+        BEAST_EXPECT(api.otxn_param(Bytes(33, 1)).error() == TOO_BIG);
+        auto const result = api.otxn_param(Bytes{'a'});
+        BEAST_EXPECT(result.has_value());
+        BEAST_EXPECT(result.value() == Bytes({1, 2}));
+        BEAST_EXPECT(api.otxn_param(Bytes{'b'}).error() == DOESNT_EXIST);
+        BEAST_EXPECT(api.otxn_param(Bytes{'c'}).error() == DOESNT_EXIST);
+        BEAST_EXPECT(api.otxn_param(Bytes{'d'}).error() == DOESNT_EXIST);
     }
 
     void
@@ -1002,7 +3433,6 @@ public:
 
         BEAST_EXPECT(true);
     }
-
     void
     test_sto_subarray(FeatureBitset features)
     {
@@ -1107,10 +3537,10 @@ public:
         testGuards(features);
 
         test_emit(features);
-        // test_etxn_burden(features);
-        // test_etxn_generation(features);
-        // test_otxn_burden(features);
-        // test_otxn_generation(features);
+        test_etxn_burden(features);
+        test_etxn_generation(features);
+        test_otxn_burden(features);
+        test_otxn_generation(features);
         test_etxn_details(features);
         test_etxn_fee_base(features);
         test_etxn_nonce(features);
