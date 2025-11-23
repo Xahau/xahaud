@@ -1,21 +1,9 @@
 // Implementation of decoupled Hook APIs for emit and related helpers.
 
 #include <ripple/app/hook/HookAPI.h>
-#include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/ledger/TransactionMaster.h>
-#include <ripple/app/misc/Transaction.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/app/tx/impl/ApplyContext.h>
 #include <ripple/app/tx/impl/Import.h>
-#include <ripple/app/tx/impl/Transactor.h>
-#include <ripple/basics/Log.h>
-#include <ripple/basics/base_uint.h>
-#include <ripple/protocol/STObject.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/tokens.h>
-#include "ripple/basics/Expected.h"
-#include "test/jtx/utility.h"
 #include <cfenv>
 
 namespace hook {

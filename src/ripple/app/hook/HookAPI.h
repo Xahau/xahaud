@@ -1,14 +1,5 @@
 #include <ripple/app/hook/Enum.h>
-#include <ripple/app/tx/impl/ApplyContext.h>
-#include <ripple/basics/Blob.h>
-#include <ripple/basics/Expected.h>
-#include <ripple/basics/Slice.h>
-#include <ripple/protocol/STTx.h>
-
 #include <ripple/app/misc/Transaction.h>
-#include <ripple/basics/base_uint.h>
-#include <ripple/protocol/TxFormats.h>
-#include <cstdint>
 
 namespace hook {
 using namespace ripple;
