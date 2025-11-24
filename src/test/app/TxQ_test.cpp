@@ -5052,7 +5052,7 @@ public:
         testMultiTxnPerAccount(all);
         // fragile: hardcoded ordering by txID XOR parentHash
         // parentHash < txTree Hash < txMeta < PreviousTxnID
-        testTieBreaking(all - fixProvisionalDoubleThreading);
+        testTieBreaking(all - fixProvisionalDoubleThreading - fixEtxnFeeBase);
         testAcctTxnID(all);
         testMaximum(all);
         testUnexpectedBalanceChange(all);
@@ -5072,7 +5072,8 @@ public:
         testExpirationReplacement(all);
         // fragile: hardcoded ordering by txID XOR parentHash
         // parentHash < txTree Hash < txMeta < PreviousTxnID
-        testFullQueueGapFill(all - fixProvisionalDoubleThreading);
+        testFullQueueGapFill(
+            all - fixProvisionalDoubleThreading - fixEtxnFeeBase);
         testSignAndSubmitSequence(all);
         testAccountInfo(all);
         testServerInfo(all);

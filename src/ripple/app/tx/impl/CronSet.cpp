@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/impl/SetCron.h>
+#include <ripple/app/tx/impl/CronSet.h>
 #include <ripple/basics/Log.h>
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
@@ -28,13 +28,13 @@
 namespace ripple {
 
 TxConsequences
-SetCron::makeTxConsequences(PreflightContext const& ctx)
+CronSet::makeTxConsequences(PreflightContext const& ctx)
 {
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
 NotTEC
-SetCron::preflight(PreflightContext const& ctx)
+CronSet::preflight(PreflightContext const& ctx)
 {
     if (!ctx.rules.enabled(featureCron))
         return temDISABLED;
@@ -47,7 +47,7 @@ SetCron::preflight(PreflightContext const& ctx)
 
     if (tx.getFlags() & tfCronSetMask)
     {
-        JLOG(j.warn()) << "SetCron: Invalid flags set.";
+        JLOG(j.warn()) << "CronSet: Invalid flags set.";
         return temINVALID_FLAG;
     }
 
@@ -69,7 +69,7 @@ SetCron::preflight(PreflightContext const& ctx)
         // delete operation
         if (hasDelay || hasRepeat || hasStartTime)
         {
-            JLOG(j.debug()) << "SetCron: tfCronUnset flag cannot be used with "
+            JLOG(j.debug()) << "CronSet: tfCronUnset flag cannot be used with "
                                "DelaySeconds, RepeatCount or StartTime.";
             return temMALFORMED;
         }
@@ -81,7 +81,7 @@ SetCron::preflight(PreflightContext const& ctx)
         if (!hasStartTime)
         {
             JLOG(j.debug())
-                << "SetCron: StartTime is required. Use StartTime=0 for "
+                << "CronSet: StartTime is required. Use StartTime=0 for "
                    "immediate execution, or specify a future timestamp.";
             return temMALFORMED;
         }
@@ -89,7 +89,7 @@ SetCron::preflight(PreflightContext const& ctx)
         if ((!hasDelay && hasRepeat) || (hasDelay && !hasRepeat))
         {
             JLOG(j.debug())
-                << "SetCron: DelaySeconds and RepeatCount must both be present "
+                << "CronSet: DelaySeconds and RepeatCount must both be present "
                    "for recurring crons, or both absent for one-off crons.";
             return temMALFORMED;
         }
@@ -101,7 +101,7 @@ SetCron::preflight(PreflightContext const& ctx)
             if (delay > 31536000UL /* 365 days in seconds */)
             {
                 JLOG(j.debug())
-                    << "SetCron: DelaySeconds was too high. (max 365 "
+                    << "CronSet: DelaySeconds was too high. (max 365 "
                        "days in seconds).";
                 return temMALFORMED;
             }
@@ -114,7 +114,7 @@ SetCron::preflight(PreflightContext const& ctx)
             if (recur == 0)
             {
                 JLOG(j.debug())
-                    << "SetCron: RepeatCount must be greater than 0."
+                    << "CronSet: RepeatCount must be greater than 0."
                        "For one-time execution, omit DelaySeconds and "
                        "RepeatCount.";
                 return temMALFORMED;
@@ -122,8 +122,8 @@ SetCron::preflight(PreflightContext const& ctx)
             if (recur > 256)
             {
                 JLOG(j.debug())
-                    << "SetCron: RepeatCount too high. Limit is 256. Issue "
-                       "new SetCron to increase.";
+                    << "CronSet: RepeatCount too high. Limit is 256. Issue "
+                       "new CronSet to increase.";
                 return temMALFORMED;
             }
         }
@@ -133,7 +133,7 @@ SetCron::preflight(PreflightContext const& ctx)
 }
 
 TER
-SetCron::preclaim(PreclaimContext const& ctx)
+CronSet::preclaim(PreclaimContext const& ctx)
 {
     if (ctx.tx.isFieldPresent(sfStartTime) &&
         ctx.tx.getFieldU32(sfStartTime) != 0)
@@ -146,7 +146,7 @@ SetCron::preclaim(PreclaimContext const& ctx)
 
         if (startTime < parentCloseTime)
         {
-            JLOG(ctx.j.debug()) << "SetCron: StartTime must be in the future "
+            JLOG(ctx.j.debug()) << "CronSet: StartTime must be in the future "
                                    "(or 0 for immediate execution)";
             return tecEXPIRED;
         }
@@ -154,7 +154,7 @@ SetCron::preclaim(PreclaimContext const& ctx)
         if (startTime > ctx.view.parentCloseTime().time_since_epoch().count() +
                 365 * 24 * 60 * 60)
         {
-            JLOG(ctx.j.debug()) << "SetCron: StartTime is too far in the "
+            JLOG(ctx.j.debug()) << "CronSet: StartTime is too far in the "
                                    "future (max 365 days).";
             return tecEXPIRED;
         }
@@ -163,7 +163,7 @@ SetCron::preclaim(PreclaimContext const& ctx)
 }
 
 TER
-SetCron::doApply()
+CronSet::doApply()
 {
     auto& view = ctx_.view();
     auto const& tx = ctx_.tx;
@@ -205,21 +205,21 @@ SetCron::doApply()
         auto sleCron = view.peek(klOld);
         if (!sleCron)
         {
-            JLOG(j_.warn()) << "SetCron: Cron object didn't exist.";
+            JLOG(j_.warn()) << "CronSet: Cron object didn't exist.";
             return tefBAD_LEDGER;
         }
 
         if (safe_cast<LedgerEntryType>(
                 sleCron->getFieldU16(sfLedgerEntryType)) != ltCRON)
         {
-            JLOG(j_.warn()) << "SetCron: sfCron pointed to non-cron object!!";
+            JLOG(j_.warn()) << "CronSet: sfCron pointed to non-cron object!!";
             return tefBAD_LEDGER;
         }
 
         if (!view.dirRemove(
                 keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
         {
-            JLOG(j_.warn()) << "SetCron: Ownerdir bad. " << id;
+            JLOG(j_.warn()) << "CronSet: Ownerdir bad. " << id;
             return tefBAD_LEDGER;
         }
 
@@ -278,7 +278,7 @@ SetCron::doApply()
 }
 
 XRPAmount
-SetCron::calculateBaseFee(ReadView const& view, STTx const& tx)
+CronSet::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     auto const baseFee = Transactor::calculateBaseFee(view, tx);
 
@@ -290,7 +290,7 @@ SetCron::calculateBaseFee(ReadView const& view, STTx const& tx)
         tx.isFieldPresent(sfRepeatCount) ? tx.getFieldU32(sfRepeatCount) : 0;
 
     // factor a cost based on the total number of txns expected
-    // for RepeatCount of 0 we have this txn (SetCron) and the
+    // for RepeatCount of 0 we have this txn (CronSet) and the
     // single Cron txn (2). For a RepeatCount of 1 we have this txn,
     // the first time the cron executes, and the second time (3).
     uint32_t const additionalExpectedExecutions = 1 + repeatCount;

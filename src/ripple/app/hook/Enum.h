@@ -278,8 +278,7 @@ enum keylet_code : uint32_t {
     NFT_OFFER = 23,
     HOOK_DEFINITION = 24,
     HOOK_STATE_DIR = 25,
-    LAST_KLTYPE_V0 = HOOK_DEFINITION,
-    LAST_KLTYPE_V1 = HOOK_STATE_DIR,
+    CRON = 26
 };
 }
 
