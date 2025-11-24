@@ -1914,7 +1914,7 @@ public:
             ASSERT_FLOAT_EQUAL(
                 api,
                 api.float_sum(std::get<0>(test), std::get<1>(test)).value(),
-                std::get<1>(test));
+                std::get<2>(test));
         }
     }
 
@@ -2682,7 +2682,46 @@ public:
     {
         testcase("Test slot");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Missing slot
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot(1).error() == DOESNT_EXIST);
+        }
+
+        // Present slot pointing to an STAmount field
+        {
+            printf("test\n");
+            STObject obj(sfGeneric);
+            obj.setFieldAmount(sfAmount, drops(1));
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = hook::SlotEntry{.storage = storage, .entry = 0};
+            stubCtx.slot[1].entry = &(*stubCtx.slot[1].storage);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.slot(1);
+            BEAST_EXPECT(result.has_value());
+
+            Serializer s;
+            (*result)->add(s);
+
+            STObject resultObj{s.slice(), sfGeneric};
+            printf(
+                "resultObj: %s\n",
+                resultObj.getJson(JsonOptions::none).toStyledString().c_str());
+        }
     }
 
     void
@@ -2690,7 +2729,36 @@ public:
     {
         testcase("Test slot_clear");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Missing slot
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_clear(1).error() == DOESNT_EXIST);
+        }
+
+        // Clear existing slot and push to free queue
+        {
+            STObject obj(sfGeneric);
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[2] = {.storage = storage, .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_clear(2).has_value());
+            BEAST_EXPECT(hookCtx.slot.find(2) == hookCtx.slot.end());
+            BEAST_EXPECT(!hookCtx.slot_free.empty());
+        }
     }
 
     void
@@ -2698,7 +2766,51 @@ public:
     {
         testcase("Test slot_count");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Nonexistent
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_count(1).error() == DOESNT_EXIST);
+        }
+
+        // Not an array
+        {
+            STObject obj(sfGeneric);
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_count(1).error() == NOT_AN_ARRAY);
+        }
+
+        // Array count
+        {
+            STArray arr{sfGeneric};
+            arr.emplace_back(STObject(sfGeneric));
+            arr.emplace_back(STObject(sfGeneric));
+            auto storage = std::make_shared<STArray const>(arr);
+            StubHookContext stubCtx{};
+            stubCtx.slot[3] = {
+                .storage =
+                    std::reinterpret_pointer_cast<const STObject>(storage),
+                .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_count(3).value() == 2);
+        }
     }
 
     void
@@ -2706,7 +2818,50 @@ public:
     {
         testcase("Test slot_float");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Missing slot
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_float(1).error() == DOESNT_EXIST);
+        }
+
+        // Not an amount
+        {
+            STObject obj(sfGeneric);
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_float(1).error() == NOT_AN_AMOUNT);
+        }
+
+        // Native amount
+        {
+            STObject obj(sfGeneric);
+            obj.setFieldAmount(sfAmount, drops(10));
+            auto storage = std::make_shared<STObject const>(obj);
+            auto* amtPtr = &storage->getFieldAmount(sfAmount);
+            StubHookContext stubCtx{};
+            stubCtx.slot[2] = {.storage = storage, .entry = amtPtr};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.slot_float(2);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() != 0);
+        }
     }
 
     void
@@ -2714,7 +2869,26 @@ public:
     {
         testcase("Test slot_set");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // Invalid argument (wrong size)
+        BEAST_EXPECT(
+            api.slot_set(Bytes{1, 2, 3}, 0).error() == INVALID_ARGUMENT);
+        // Invalid argument (slot_no beyond max)
+        BEAST_EXPECT(
+            api.slot_set(Bytes(32, 0), hook_api::max_slots + 1).error() ==
+            INVALID_ARGUMENT);
     }
 
     void
@@ -2722,7 +2896,35 @@ public:
     {
         testcase("Test slot_size");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Missing slot
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_size(1).error() == DOESNT_EXIST);
+        }
+
+        // Size of STObject
+        {
+            STObject obj(sfGeneric);
+            obj.setFieldAmount(sfAmount, drops(1));
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_size(1).value() > 0);
+        }
     }
 
     void
@@ -2730,7 +2932,42 @@ public:
     {
         testcase("Test slot_subarray");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Missing parent
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_subarray(1, 0, 0).error() == DOESNT_EXIST);
+        }
+
+        // Valid subarray extraction
+        {
+            STArray arr{sfGeneric};
+            arr.emplace_back(STObject(sfGeneric));
+            arr.emplace_back(STObject(sfGeneric));
+            auto storage = std::make_shared<STArray const>(arr);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = {
+                .storage =
+                    std::reinterpret_pointer_cast<const STObject>(storage),
+                .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.slot_subarray(1, 1, 0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() != 0);
+            BEAST_EXPECT(hookCtx.slot[result.value()].entry != nullptr);
+        }
     }
 
     void
@@ -2738,7 +2975,74 @@ public:
     {
         testcase("Test slot_subfield");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Missing parent
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(
+                api.slot_subfield(1, sfAccount.getCode(), 0).error() ==
+                DOESNT_EXIST);
+        }
+
+        // No free slots
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            for (int i = 0; i < hook_api::max_slots; i++)
+                hookCtx.slot[i] = hook::SlotEntry{};
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(
+                api.slot_subfield(1, sfAccount.getCode(), 0).error() ==
+                NO_FREE_SLOTS);
+            BEAST_EXPECT(
+                api.slot_subfield(
+                       1, sfAccount.getCode(), hook_api::max_slots + 1)
+                    .error() == INVALID_ARGUMENT);
+        }
+
+        // Invalid field
+        {
+            STObject obj(sfGeneric);
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(
+                api.slot_subfield(1, ((99U << 16U) + 99U), 0).error() ==
+                INVALID_FIELD);
+            BEAST_EXPECT(
+                api.slot_subfield(1, sfAccount.getCode(), 0).error() ==
+                DOESNT_EXIST);
+        }
+
+        // Valid field
+        {
+            STObject obj(sfGeneric);
+            obj.setFieldAmount(sfAmount, drops(1));
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.slot_subfield(1, sfAmount.getCode(), 0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() != 0);
+            BEAST_EXPECT(hookCtx.slot[result.value()].entry != nullptr);
+            // test the amount bytes
+        }
     }
 
     void
@@ -2746,7 +3050,51 @@ public:
     {
         testcase("Test slot_type");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // Missing slot
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            BEAST_EXPECT(api.slot_type(1, 0).error() == DOESNT_EXIST);
+        }
+
+        // Generic object
+        {
+            STObject obj(sfGeneric);
+            obj.setFieldAmount(sfAmount, drops(5));
+            auto storage = std::make_shared<STObject const>(obj);
+            StubHookContext stubCtx{};
+            stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.slot_type(1, 0);
+            BEAST_EXPECT(result.has_value());
+        }
+
+        // Amount with flag 1
+        {
+            STObject obj(sfGeneric);
+            obj.setFieldAmount(sfAmount, drops(7));
+            auto storage = std::make_shared<STObject const>(obj);
+            auto* amtPtr = &storage->getFieldAmount(sfAmount);
+            StubHookContext stubCtx{};
+            stubCtx.slot[2] = {.storage = storage, .entry = amtPtr};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            hook::HookAPI api(hookCtx);
+            auto const result = api.slot_type(2, 1);
+            BEAST_EXPECT(result.has_value());
+        }
     }
 
     void
