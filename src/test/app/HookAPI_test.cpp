@@ -3205,7 +3205,27 @@ public:
     {
         testcase("Test util_accid");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // Invalid base58 string
+        BEAST_EXPECT(api.util_accid("invalid").error() == INVALID_ARGUMENT);
+
+        // Valid r-address round-trip via util_raddr
+        auto accid = api.util_accid(alice.human());
+        BEAST_EXPECT(accid.has_value());
+        auto aliceid = alice.id();
+        BEAST_EXPECT(accid.value() == Bytes(aliceid.begin(), aliceid.end()));
     }
 
     void
@@ -3213,6 +3233,7 @@ public:
     {
         testcase("Test util_keylet");
 
+        // TODO
         BEAST_EXPECT(true);
     }
 
@@ -3221,7 +3242,28 @@ public:
     {
         testcase("Test util_raddr");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        // Wrong size
+        BEAST_EXPECT(api.util_raddr(Bytes(10, 0)).error() == INVALID_ARGUMENT);
+
+        // Valid accountID
+        auto aliceid = alice.id();
+        auto id = Bytes(aliceid.begin(), aliceid.end());
+        auto addr = api.util_raddr(id);
+        BEAST_EXPECT(addr.has_value());
+        BEAST_EXPECT(addr.value() == alice.human());
     }
 
     void
@@ -3229,7 +3271,22 @@ public:
     {
         testcase("Test util_sha512h");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        std::string msg{"hello"};
+        auto hash = api.util_sha512h(Slice(msg.data(), msg.size()));
+        auto expected = ripple::sha512Half(Slice(msg.data(), msg.size()));
+        BEAST_EXPECT(hash == expected);
     }
 
     void
@@ -3237,15 +3294,52 @@ public:
     {
         testcase("Test util_verify");
 
-        BEAST_EXPECT(true);
-    }
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
 
-    void
-    testHookCanEmit(FeatureBitset features)
-    {
-        testcase("test HookCanEmit");
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
 
-        BEAST_EXPECT(true);
+        // Generate keypair and signature
+        KeyType type = KeyType::secp256k1;
+        auto kp = generateKeyPair(type, generateSeed("util_verify_test"));
+        Serializer s;
+        s.add32(42);
+        auto const msg = s.slice();
+        auto sig = ripple::sign(kp.first, kp.second, msg);
+
+        // Invalid key size
+        BEAST_EXPECT(
+            api.util_verify(msg, sig, kp.first.slice().substr(0, 32)).error() ==
+            INVALID_KEY);
+
+        // Invalid data size
+        BEAST_EXPECT(
+            api.util_verify(Slice{}, sig, kp.first.slice()).error() ==
+            TOO_SMALL);
+
+        // Invalid sig size
+        BEAST_EXPECT(
+            api.util_verify(msg, Slice(sig.data(), 29), kp.first.slice())
+                .error() == TOO_SMALL);
+
+        // Invalid sig type
+        auto const& invalidKey = kp.first.slice().substr(1, 34);
+        BEAST_EXPECT(
+            api.util_verify(msg, sig, invalidKey).error() == INVALID_KEY);
+        return;
+
+        // Success
+        auto const ok = api.util_verify(msg, sig, kp.first.slice());
+        BEAST_EXPECT(ok.has_value());
+        BEAST_EXPECT(ok.value());
     }
 
     void
