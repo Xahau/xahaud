@@ -264,8 +264,6 @@ jobs:
           cc: ${{ matrix.cc }}
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
-          aws-access-key-id: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -280,8 +278,6 @@ jobs:
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: ${{ matrix.stdlib }}
           clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
-          aws-access-key-id: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.XAHAUD_GITHUB_ACTIONS_CACHE_NIQ_AWS_ACCESS_KEY }}
 
       - name: Set artifact name
         id: set-artifact-name

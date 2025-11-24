@@ -54,12 +54,6 @@ inputs:
     options:
       - libstdcxx
       - libcxx
-  aws-access-key-id:
-    description: 'AWS Access Key ID for S3 cache storage'
-    required: true
-  aws-secret-access-key:
-    description: 'AWS Secret Access Key for S3 cache storage'
-    required: true
 
 outputs:
   cache-hit:
@@ -69,20 +63,24 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Clear Conan cache if requested via commit message
+      if: inputs.cache_enabled == 'true'
+      uses: ./.github/actions/xahau-ga-clear-cache
+      with:
+        cache-key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.py') }}-${{ inputs.configuration }}
+        cache-type: Conan
 
     - name: Restore Conan cache
       if: inputs.cache_enabled == 'true'
       id: cache-restore-conan
-      uses: ./.github/actions/xahau-ga-cache-restore
+      uses: actions/cache/restore@v4
       with:
         path: ~/.conan2
         # Note: compiler-id format is compiler-version-stdlib[-gccversion]
-        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
+        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.py') }}-${{ inputs.configuration }}
         restore-keys: |
-          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
+          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.py') }}-
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
-        aws-access-key-id: ${{ inputs.aws-access-key-id }}
-        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
     - name: Configure Conan
       shell: bash
@@ -161,9 +159,7 @@ runs:
 
     - name: Save Conan cache
       if: success() && inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true'
-      uses: ./.github/actions/xahau-ga-cache-save
+      uses: actions/cache/save@v4
       with:
         path: ~/.conan2
-        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
-        aws-access-key-id: ${{ inputs.aws-access-key-id }}
-        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        key: ${{ steps.cache-restore-conan.outputs.cache-primary-key }}

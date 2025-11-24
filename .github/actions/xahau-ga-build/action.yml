@@ -59,12 +59,6 @@ inputs:
     description: 'How to check compiler for changes'
     required: false
     default: 'content'
-  aws-access-key-id:
-    description: 'AWS Access Key ID for S3 cache storage'
-    required: true
-  aws-secret-access-key:
-    description: 'AWS Secret Access Key for S3 cache storage'
-    required: true
 
 runs:
   using: 'composite'
@@ -77,37 +71,62 @@ runs:
         SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
-    - name: Restore ccache directory
+    - name: Clear ccache if requested via commit message
+      if: inputs.ccache_enabled == 'true'
+      uses: ./.github/actions/xahau-ga-clear-cache
+      with:
+        cache-key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
+        cache-type: ccache
+        additional-keys: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
+
+    - name: Restore ccache directory for main branch
       if: inputs.ccache_enabled == 'true'
       id: ccache-restore
-      uses: ./.github/actions/xahau-ga-cache-restore
+      uses: actions/cache/restore@v4
       with:
-        path: ~/.ccache
+        path: ~/.ccache-main
+        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
+          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+
+    - name: Restore ccache directory for current branch
+      if: inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
+      id: ccache-restore-current-branch
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.ccache-current
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
         restore-keys: |
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
-        aws-access-key-id: ${{ inputs.aws-access-key-id }}
-        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
 
     - name: Configure ccache
       if: inputs.ccache_enabled == 'true'
       shell: bash
       run: |
-        # Use ccache's default cache_dir (~/.ccache) - don't override it
-        # This avoids tilde expansion issues when setting it explicitly
+        # Create cache directories
+        mkdir -p ~/.ccache-main ~/.ccache-current
 
-        # Create cache directory using ccache's default
-        mkdir -p ~/.ccache
-
-        # Configure ccache settings (but NOT cache_dir - use default)
-        # This overwrites any cached config to ensure fresh configuration
+        # Configure ccache settings AFTER cache restore (prevents stale cached config)
         ccache --set-config=max_size=${{ inputs.ccache_max_size }}
         ccache --set-config=hash_dir=${{ inputs.ccache_hash_dir }}
         ccache --set-config=compiler_check=${{ inputs.ccache_compiler_check }}
 
-        # Note: Not setting CCACHE_DIR - let ccache use its default (~/.ccache)
+        # Determine if we're on the main branch
+        if [ "${{ steps.safe-branch.outputs.name }}" = "${{ inputs.main_branch }}" ]; then
+          # Main branch: use main branch cache only
+          ccache --set-config=cache_dir="$HOME/.ccache-main"
+          echo "CCACHE_DIR=$HOME/.ccache-main" >> $GITHUB_ENV
+          echo "📦 Main branch: using ~/.ccache-main"
+        else
+          # Feature branch: use current branch cache with main as secondary (read-only fallback)
+          ccache --set-config=cache_dir="$HOME/.ccache-current"
+          ccache --set-config=secondary_storage="file:$HOME/.ccache-main"
+          echo "CCACHE_DIR=$HOME/.ccache-current" >> $GITHUB_ENV
+          echo "📦 Feature branch: using ~/.ccache-current with ~/.ccache-main as secondary"
+        fi
 
         # Print config for verification
         echo "=== ccache configuration ==="
@@ -223,11 +242,16 @@ runs:
       shell: bash
       run: ccache -s
 
-    - name: Save ccache directory
-      if: success() && inputs.ccache_enabled == 'true'
-      uses: ./.github/actions/xahau-ga-cache-save
+    - name: Save ccache directory for main branch
+      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
+      uses: actions/cache/save@v4
       with:
-        path: ~/.ccache
-        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
-        aws-access-key-id: ${{ inputs.aws-access-key-id }}
-        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        path: ~/.ccache-main
+        key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
+
+    - name: Save ccache directory for current branch
+      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.ccache-current
+        key: ${{ steps.ccache-restore-current-branch.outputs.cache-primary-key }}
