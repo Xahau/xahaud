@@ -63,17 +63,10 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Clear Conan cache if requested via commit message
-      if: inputs.cache_enabled == 'true'
-      uses: ./.github/actions/xahau-ga-clear-cache
-      with:
-        cache-key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.py') }}-${{ inputs.configuration }}
-        cache-type: Conan
-
     - name: Restore Conan cache
       if: inputs.cache_enabled == 'true'
       id: cache-restore-conan
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-ga-cache-restore
       with:
         path: ~/.conan2
         # Note: compiler-id format is compiler-version-stdlib[-gccversion]
@@ -81,6 +74,7 @@ runs:
         restore-keys: |
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.py') }}-
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        cache-type: Conan
 
     - name: Configure Conan
       shell: bash

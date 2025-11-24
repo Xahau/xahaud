@@ -71,29 +71,22 @@ runs:
         SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
-    - name: Clear ccache if requested via commit message
-      if: inputs.ccache_enabled == 'true'
-      uses: ./.github/actions/xahau-ga-clear-cache
-      with:
-        cache-key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
-        cache-type: ccache
-        additional-keys: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
-
     - name: Restore ccache directory for main branch
       if: inputs.ccache_enabled == 'true'
       id: ccache-restore
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-ga-cache-restore
       with:
         path: ~/.ccache-main
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
         restore-keys: |
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        cache-type: ccache-main
 
     - name: Restore ccache directory for current branch
       if: inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
       id: ccache-restore-current-branch
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-ga-cache-restore
       with:
         path: ~/.ccache-current
         key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
@@ -101,6 +94,7 @@ runs:
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
           ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        cache-type: ccache-current
 
     - name: Configure ccache
       if: inputs.ccache_enabled == 'true'

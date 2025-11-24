@@ -1,0 +1,56 @@
+name: 'Cache Restore'
+description: 'Restores cache with optional clearing based on commit message tags'
+
+inputs:
+  path:
+    description: 'A list of files, directories, and wildcard patterns to cache'
+    required: true
+  key:
+    description: 'An explicit key for restoring the cache'
+    required: true
+  restore-keys:
+    description: 'An ordered list of prefix-matched keys to use for restoring stale cache if no cache hit occurred for key'
+    required: false
+    default: ''
+  cache-type:
+    description: 'Type of cache (for logging purposes, e.g., "ccache-main", "Conan")'
+    required: false
+    default: 'cache'
+  fail-on-cache-miss:
+    description: 'Fail the workflow if cache entry is not found'
+    required: false
+    default: 'false'
+  lookup-only:
+    description: 'Check if a cache entry exists for the given input(s) without downloading it'
+    required: false
+    default: 'false'
+
+outputs:
+  cache-hit:
+    description: 'A boolean value to indicate an exact match was found for the primary key'
+    value: ${{ steps.restore-cache.outputs.cache-hit }}
+  cache-primary-key:
+    description: 'The key that was used to restore the cache'
+    value: ${{ steps.restore-cache.outputs.cache-primary-key }}
+  cache-matched-key:
+    description: 'The key that was used to restore the cache (exact or prefix match)'
+    value: ${{ steps.restore-cache.outputs.cache-matched-key }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clear cache if requested via commit message
+      uses: ./.github/actions/xahau-ga-clear-cache
+      with:
+        cache-key: ${{ inputs.key }}
+        cache-type: ${{ inputs.cache-type }}
+
+    - name: Restore cache
+      id: restore-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+        fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
+        lookup-only: ${{ inputs.lookup-only }}
