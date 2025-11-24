@@ -24,6 +24,10 @@ inputs:
     description: 'Check if a cache entry exists for the given input(s) without downloading it'
     required: false
     default: 'false'
+  additional-clear-keys:
+    description: 'Additional cache keys to clear (newline separated)'
+    required: false
+    default: ''
 
 outputs:
   cache-hit:
@@ -40,10 +44,96 @@ runs:
   using: 'composite'
   steps:
     - name: Clear cache if requested via commit message
-      uses: ./.github/actions/xahau-ga-clear-cache
-      with:
-        cache-key: ${{ inputs.key }}
-        cache-type: ${{ inputs.cache-type }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        echo "=========================================="
+        echo "${{ inputs.cache-type }} cache clear tag detection"
+        echo "=========================================="
+        echo "Searching for: [ci-ga-clear-cache] or [ci-ga-clear-cache:*]"
+        echo ""
+
+        CACHE_KEY="${{ inputs.key }}"
+
+        # Extract search terms if present (e.g., "ccache" from "[ci-ga-clear-cache:ccache]")
+        SEARCH_TERMS=$(echo "${XAHAU_GA_COMMIT_MSG}" | grep -o '\[ci-ga-clear-cache:[^]]*\]' | sed 's/\[ci-ga-clear-cache://;s/\]//' || echo "")
+
+        SHOULD_CLEAR=false
+
+        if [ -n "${SEARCH_TERMS}" ]; then
+          # Search terms provided - check if THIS cache key matches ALL terms (AND logic)
+          echo "🔍 [ci-ga-clear-cache:${SEARCH_TERMS}] detected"
+          echo "Checking if cache key matches search terms..."
+          echo "  Cache key: ${CACHE_KEY}"
+          echo "  Search terms: ${SEARCH_TERMS}"
+          echo ""
+
+          MATCHES=true
+          for term in ${SEARCH_TERMS}; do
+            if ! echo "${CACHE_KEY}" | grep -q "${term}"; then
+              MATCHES=false
+              echo "  ✗ Key does not contain '${term}'"
+              break
+            else
+              echo "  ✓ Key contains '${term}'"
+            fi
+          done
+
+          if [ "${MATCHES}" = "true" ]; then
+            echo ""
+            echo "✅ Cache key matches all search terms - will clear cache"
+            SHOULD_CLEAR=true
+          else
+            echo ""
+            echo "⏭️  Cache key doesn't match search terms - skipping cache clear"
+          fi
+        elif echo "${XAHAU_GA_COMMIT_MSG}" | grep -q '\[ci-ga-clear-cache\]'; then
+          # No search terms - always clear this job's cache
+          echo "🗑️  [ci-ga-clear-cache] detected in commit message"
+          echo "Clearing ${{ inputs.cache-type }} cache for key: ${CACHE_KEY}"
+          SHOULD_CLEAR=true
+        fi
+
+        if [ "${SHOULD_CLEAR}" = "true" ]; then
+          echo ""
+          echo "Deleting ${{ inputs.cache-type }} caches via GitHub API..."
+
+          # Delete primary cache key
+          echo "Checking for cache: ${CACHE_KEY}"
+          if gh cache list --key "${CACHE_KEY}" --json key --jq '.[].key' | grep -q "${CACHE_KEY}"; then
+            echo "  Deleting: ${CACHE_KEY}"
+            gh cache delete "${CACHE_KEY}" || true
+            echo "  ✓ Deleted"
+          else
+            echo "  ℹ️  Not found"
+          fi
+
+          # Delete additional keys if provided
+          if [ -n "${{ inputs.additional-clear-keys }}" ]; then
+            echo ""
+            echo "Checking additional keys..."
+            while IFS= read -r key; do
+              [ -z "${key}" ] && continue
+              echo "Checking for cache: ${key}"
+              if gh cache list --key "${key}" --json key --jq '.[].key' | grep -q "${key}"; then
+                echo "  Deleting: ${key}"
+                gh cache delete "${key}" || true
+                echo "  ✓ Deleted"
+              else
+                echo "  ℹ️  Not found"
+              fi
+            done <<< "${{ inputs.additional-clear-keys }}"
+          fi
+
+          echo ""
+          echo "✅ ${{ inputs.cache-type }} cache cleared successfully"
+          echo "Build will proceed from scratch"
+        else
+          echo ""
+          echo "ℹ️  No ${{ inputs.cache-type }} cache clear requested"
+        fi
+        echo "=========================================="
 
     - name: Restore cache
       id: restore-cache
