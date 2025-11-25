@@ -466,7 +466,7 @@ uritoken(AccountID const& issuer, Blob const& uri)
 //   Examples: 100M → ~5.4e-12, 1B → ~5.4e-11, 10B → ~5.4e-10, 100B → ~5.4e-9
 //   (negligible).
 Keylet
-cron(uint32_t timestamp, AccountID const& id)
+cron(uint32_t timestamp, std::optional<AccountID> const& id)
 {
     static const uint256 ns = indexHash(LedgerNameSpace::CRON);
 
@@ -481,7 +481,14 @@ cron(uint32_t timestamp, AccountID const& id)
     h[10] = static_cast<uint8_t>((timestamp >> 8) & 0xFFU);
     h[11] = static_cast<uint8_t>((timestamp >> 0) & 0xFFU);
 
-    const uint256 accHash = indexHash(LedgerNameSpace::CRON, timestamp, id);
+    if (!id.has_value())
+    {
+        // final 20 bytes are zero
+        std::memset(h + 12, 0, 20);
+        return {ltCRON, uint256::fromVoid(h)};
+    }
+
+    const uint256 accHash = indexHash(LedgerNameSpace::CRON, timestamp, *id);
 
     // final 20 bytes are account ID
     std::memcpy(h + 12, accHash.cdata(), 20);

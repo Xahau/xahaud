@@ -927,7 +927,13 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         SerialIter sitTrans(txBlob);
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
-        return Transactor::calculateBaseFee(
+
+        if (!hookCtx.applyCtx.view().rules().enabled(fixEtxnFeeBase))
+            return Transactor::calculateBaseFee(
+                       *(applyCtx.app.openLedger().current()), *stpTrans)
+                .drops();
+
+        return invoke_calculateBaseFee(
                    *(applyCtx.app.openLedger().current()), *stpTrans)
             .drops();
     }
