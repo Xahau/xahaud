@@ -2903,17 +2903,6 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 34)
         return TOO_SMALL;
 
-    bool const v1 = applyCtx.view().rules().enabled(featureHooksUpdate1);
-
-    if (keylet_type == 0)
-        return INVALID_ARGUMENT;
-
-    auto const last =
-        v1 ? keylet_code::LAST_KLTYPE_V1 : keylet_code::LAST_KLTYPE_V0;
-
-    if (keylet_type > last)
-        return INVALID_ARGUMENT;
-
     try
     {
         switch (keylet_type)
@@ -3015,7 +3004,8 @@ DEFINE_HOOK_FUNCTION(
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
 
-            // keylets that take 20 byte account id, and 4 byte uint
+            // keylets that take 20 byte account id, and (4 byte uint for 32
+            // byte hash)
             case keylet_code::OFFER:
             case keylet_code::CHECK:
             case keylet_code::ESCROW:
@@ -3054,6 +3044,33 @@ DEFINE_HOOK_FUNCTION(
                         : keylet_type == keylet_code::NFT_OFFER
                             ? ripple::keylet::nftoffer(id, seq)
                             : ripple::keylet::offer(id, seq);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+                // keylets that take 20 byte account id, and 4 byte uint
+            case keylet_code::CRON: {
+                if (!applyCtx.view().rules().enabled(featureCron))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+                if (e != 0 || f != 0 || d != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID id = AccountID::fromVoid(memory + read_ptr);
+
+                uint32_t seq = c;
+
+                ripple::Keylet kl = ripple::keylet::cron(seq, id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
@@ -3105,6 +3122,9 @@ DEFINE_HOOK_FUNCTION(
             }
 
             case keylet_code::HOOK_STATE_DIR: {
+                if (!applyCtx.view().rules().enabled(featureHooksUpdate1))
+                    return INVALID_ARGUMENT;
+
                 if (a == 0 || b == 0 || c == 0 || d == 0)
                     return INVALID_ARGUMENT;
 
@@ -3279,7 +3299,7 @@ DEFINE_HOOK_FUNCTION(
         return INTERNAL_ERROR;
     }
 
-    return NO_SUCH_KEYLET;
+    return INVALID_ARGUMENT;
 
     HOOK_TEARDOWN();
 }

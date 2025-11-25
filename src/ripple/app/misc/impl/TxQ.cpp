@@ -1482,9 +1482,13 @@ TxQ::accept(Application& app, OpenView& view)
     {
         uint32_t currentTime =
             view.parentCloseTime().time_since_epoch().count();
-        uint256 klStart = keylet::cron(0, AccountID(beast::zero)).key;
-        uint256 const klEnd =
-            keylet::cron(currentTime + 1, AccountID(beast::zero)).key;
+        bool fixCron = view.rules().enabled(fixCronStacking);
+        std::optional<AccountID> accountID = std::nullopt;
+        if (!fixCron)
+            accountID = AccountID(beast::zero);
+
+        uint256 klStart = keylet::cron(0, accountID).key;
+        uint256 const klEnd = keylet::cron(currentTime + 1, accountID).key;
 
         std::set<AccountID> cronAccs;
 

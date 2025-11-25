@@ -11147,6 +11147,7 @@ public:
             #define KEYLET_PAYCHAN 21
             #define KEYLET_EMITTED_TXN 22
             #define KEYLET_NFT_OFFER 23
+            #define KEYLET_CRON 26
             #define ASSERT(x)\
                 if (!(x))\
                     rollback((uint32_t)#x, sizeof(#x), __LINE__);
@@ -11209,6 +11210,9 @@ public:
                 // Test min size
                 ASSERT(util_keylet((uint32_t)buf, 33, KEYLET_SKIP, 0,0,0,0,0,0) == TOO_SMALL);
 
+                // Invalid keylet type
+                ASSERT(util_keylet((uint32_t)buf, 34, 0, 0,0,0,0,0,0) == INVALID_ARGUMENT);
+                ASSERT(util_keylet((uint32_t)buf, 34, 0x99999999, 0,0,0,0,0,0) == INVALID_ARGUMENT);
 
                 // Test one of each type
                 ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK,
@@ -11651,6 +11655,17 @@ public:
                     0,0
                 )));
 
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_CRON, SBUF(a), 1, 0, 0, 0)));
+                {
+                    uint8_t ans[] =
+                    {
+                        0x00U,0x41U,0xF7U,0xB6U,0x45U,0x43U,0x61U,0x87U,0xCCU,0x61U,
+                        0x00U,0x00U,0x00U,0x01U,0x0AU,0x45U,0x80U,0x75U,0x7CU,0xDAU,
+                        0xD9U,0x16U,0x7EU,0xEEU,0xC1U,0x3CU,0x6CU,0x15U,0xD5U,0x17U,
+                        0xE2U,0x72U,0x9EU,0xC8
+                    };
+                    ASSERT_KL_EQ(ans);
+                }
                 accept(0,0,0);
             }
         )[test.hook]"];

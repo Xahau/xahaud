@@ -458,6 +458,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/CreateOffer.cpp
   src/ripple/app/tx/impl/CreateTicket.cpp
   src/ripple/app/tx/impl/Cron.cpp
+  src/ripple/app/tx/impl/CronSet.cpp
   src/ripple/app/tx/impl/DeleteAccount.cpp
   src/ripple/app/tx/impl/DepositPreauth.cpp
   src/ripple/app/tx/impl/Escrow.cpp
@@ -475,7 +476,6 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/Payment.cpp
   src/ripple/app/tx/impl/Remit.cpp
   src/ripple/app/tx/impl/SetAccount.cpp
-  src/ripple/app/tx/impl/SetCron.cpp
   src/ripple/app/tx/impl/SetHook.cpp
   src/ripple/app/tx/impl/SetRemarks.cpp
   src/ripple/app/tx/impl/SetRegularKey.cpp
