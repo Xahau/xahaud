@@ -18,6 +18,8 @@
 //==============================================================================
 #include <ripple/app/hook/HookAPI.h>
 #include <ripple/protocol/STAccount.h>
+#include "ripple/protocol/Indexes.h"
+#include "test/jtx/cron.h"
 #include <limits>
 #include <test/jtx.h>
 #include <tuple>
@@ -2207,6 +2209,10 @@ public:
 
         auto const alice = Account{"alice"};
         Env env{*this, features};
+        env.fund(XRP(10000), alice);
+        env.close();
+        env(cron::set(alice), cron::startTime(1000), fee(XRP(1)));
+        env.close();
         STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
         OpenView ov{*env.current()};
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
@@ -2214,8 +2220,31 @@ public:
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
         hook::HookAPI api(hookCtx);
 
-        // TODO
-        BEAST_EXPECT(true);
+        {
+            // does not match
+            auto const result = api.ledger_keylet(
+                keylet::account(alice), keylet::ownerDir(alice));
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == DOES_NOT_MATCH);
+        }
+        {
+            // does not exist
+            auto const result =
+                api.ledger_keylet(keylet::cron(100), keylet::cron(101));
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == DOESNT_EXIST);
+        }
+
+        // Success case
+        {
+            auto const lo = keylet::cron(1000);
+            auto const hi = keylet::cron(1001);
+            auto const result = api.ledger_keylet(lo, hi);
+            BEAST_EXPECT(result.has_value());
+            auto const expected = keylet::cron(1000, alice);
+            BEAST_EXPECT(result.value().type == expected.type);
+            BEAST_EXPECT(result.value().key == expected.key);
+        }
     }
 
     void
