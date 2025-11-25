@@ -3017,7 +3017,11 @@ HookAPI::get_stobject_length(
     if (type < 1 || type > 19 || (type >= 9 && type <= 13))
         return Unexpected(pe_unknown_type_early);
 
-    bool is_vl = (type == 8 /*ACCID*/ || type == 7 || type == 18 || type == 19);
+    bool is_vl =
+        (type == SerializedTypeID::STI_ACCOUNT ||
+         type == SerializedTypeID::STI_VL ||
+         type == SerializedTypeID::STI_PATHSET ||
+         type == SerializedTypeID::STI_VECTOR256);
 
     int length = -1;
     if (is_vl)
@@ -3052,23 +3056,35 @@ HookAPI::get_stobject_length(
     }
     else if ((type >= 1 && type <= 5) || type == 16 || type == 17)
     {
-        length =
-            (type == 1
-                 ? 2
-                 : (type == 2
-                        ? 4
-                        : (type == 3
-                               ? 8
-                               : (type == 4
-                                      ? 16
-                                      : (type == 5
-                                             ? 32
-                                             : (type == 16
-                                                    ? 1
-                                                    : (type == 17 ? 20
-                                                                  : -1)))))));
+        switch (type)
+        {
+            case SerializedTypeID::STI_UINT16:
+                length = 2;
+                break;
+            case SerializedTypeID::STI_UINT32:
+                length = 4;
+                break;
+            case SerializedTypeID::STI_UINT64:
+                length = 8;
+                break;
+            case SerializedTypeID::STI_UINT128:
+                length = 16;
+                break;
+            case SerializedTypeID::STI_UINT256:
+                length = 32;
+                break;
+            case SerializedTypeID::STI_UINT8:
+                length = 1;
+                break;
+            case SerializedTypeID::STI_UINT160:
+                length = 20;
+                break;
+            default:
+                length = -1;
+                break;
+        }
     }
-    else if (type == 6) /* AMOUNT */
+    else if (type == SerializedTypeID::STI_AMOUNT)
     {
         length = (*upto >> 6 == 1) ? 8 : 48;
         if (upto >= end)
@@ -3092,7 +3108,8 @@ HookAPI::get_stobject_length(
         return length + (upto - start);
     }
 
-    if (type == 15 || type == 14) /* Object / Array */
+    if (type == SerializedTypeID::STI_OBJECT ||
+        type == SerializedTypeID::STI_ARRAY)
     {
         payload_start = upto - start;
 

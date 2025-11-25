@@ -3321,7 +3321,382 @@ public:
     {
         testcase("Test sto_emplace");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        {
+            // Invalid argument (wrong source_object size)
+            auto const small = Bytes(1, 0);
+            auto const large = Bytes(1024 * 16 + 1, 0);
+
+            auto const small_result =
+                api.sto_emplace(small, std::nullopt, sfAccount.getCode());
+            BEAST_EXPECT(!small_result.has_value());
+            BEAST_EXPECT(small_result.error() == TOO_SMALL);
+
+            auto const large_result =
+                api.sto_emplace(large, std::nullopt, sfAccount.getCode());
+            BEAST_EXPECT(!large_result.has_value());
+            BEAST_EXPECT(large_result.error() == TOO_BIG);
+        }
+
+        {
+            // Invalid argument (wrong field_object size)
+            auto const source = Bytes(16, 0);
+            auto const small = Bytes(1, 0);
+            auto const large = Bytes(4096 + 1, 0);
+
+            auto const small_result =
+                api.sto_emplace(source, small, sfAccount.getCode());
+            BEAST_EXPECT(!small_result.has_value());
+            BEAST_EXPECT(small_result.error() == TOO_SMALL);
+
+            auto const large_result =
+                api.sto_emplace(source, large, sfAccount.getCode());
+            BEAST_EXPECT(!large_result.has_value());
+            BEAST_EXPECT(large_result.error() == TOO_BIG);
+        }
+
+        {
+            // TODO: test parse error
+        }
+
+        {
+            // Success
+            auto const source_object =
+                Bytes({0x81U, 0x14U, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       0,     0,     0, 0, 0, 0, 0, 0, 0, 0, 0});
+            // Account: "<ZERO_ACCOUNT>"
+            auto const field_object =
+                Bytes({0x24U, 0x00U, 0x00U, 0x00U, 0x00U});
+            // Sequence: 0
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfSequence.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            BEAST_EXPECT(
+                result.value() ==
+                Bytes({0x24U, 0x00U, 0x00U, 0x00U, 0x00U, 0x81U, 0x14U, 0, 0,
+                       0,     0,     0,     0,     0,     0,     0,     0, 0,
+                       0,     0,     0,     0,     0,     0,     0,     0, 0}));
+        }
+
+        auto const _source_object =
+            Bytes({0x81U, 0x14U, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                   0,     0,     0, 0, 0, 0, 0, 0, 0, 0, 0});
+        {
+            // use UINT16
+            auto source_object = _source_object;
+            auto field_object = Bytes({0x10U, 0x10U, 0x00U, 0x01U});
+            // Version: 1
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfVersion.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            field_object.insert(
+                field_object.end(), source_object.begin(), source_object.end());
+            BEAST_EXPECT(result.value() == field_object);
+        }
+
+        {
+            // use UINT32
+            auto source_object = _source_object;
+            auto field_object = Bytes({0x24U, 0x00U, 0x00U, 0x00U, 0x01U});
+            // Sequence: 1
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfSequence.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            field_object.insert(
+                field_object.end(), source_object.begin(), source_object.end());
+            BEAST_EXPECT(result.value() == field_object);
+        }
+
+        {
+            // use UINT64
+            auto source_object = _source_object;
+            auto field_object = Bytes(
+                {0x36U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x01U});
+            // ExchangeRate: 1
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfExchangeRate.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            field_object.insert(
+                field_object.end(), source_object.begin(), source_object.end());
+            BEAST_EXPECT(result.value() == field_object);
+        }
+
+        {
+            // use UINT128
+            auto source_object = _source_object;
+            auto field_object = Bytes(
+                {0x41U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U});
+            // EmailHash: 1
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfEmailHash.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            field_object.insert(
+                field_object.end(), source_object.begin(), source_object.end());
+            BEAST_EXPECT(result.value() == field_object);
+        }
+
+        {
+            // use UINT256
+            auto source_object = _source_object;
+            auto field_object = Bytes(
+                {0x5EU, 0x00U, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 0,     0,     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+            // ObjectID:
+            // "0000000000000000000000000000000000000000000000000000000000000000"
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfObjectID.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            field_object.insert(
+                field_object.end(), source_object.begin(), source_object.end());
+            BEAST_EXPECT(result.value() == field_object);
+        }
+
+        {
+            // use AMOUNT
+            auto source_object = _source_object;
+
+            auto nativeamount = Bytes(
+                {0x61U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
+                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
+                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
+                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
+                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
+                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U});
+            auto iouamount = Bytes(
+                {0x61U,
+                 0x99U,
+                 0x99U,
+                 0x99U,
+                 0x99U,
+                 0x99U,
+                 0x99U,
+                 0x99U,
+                 0x99U});
+
+            for (auto field_object : {nativeamount, iouamount})
+            {
+                auto const result = api.sto_emplace(
+                    source_object, field_object, sfAmount.getCode());
+                BEAST_EXPECT(result.has_value());
+                BEAST_EXPECT(
+                    result.value().size() ==
+                    source_object.size() + field_object.size());
+                field_object.insert(
+                    field_object.end(),
+                    source_object.begin(),
+                    source_object.end());
+                BEAST_EXPECT(result.value() == field_object);
+            }
+        }
+
+        {
+            // OBJECT
+            auto source_object = _source_object;
+            auto field_object = Bytes(
+                {0xE0U,
+                 0x5BU,
+                 0x61U,
+                 0x40U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x00U,
+                 0x64U,
+                 0xE1U});
+            // {"AmountEntry": {"Amount": "100"}}
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfAmountEntry.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            source_object.insert(
+                source_object.end(), field_object.begin(), field_object.end());
+            BEAST_EXPECT(result.value() == source_object);
+        }
+
+        {
+            // ARRAY
+            auto source_object = _source_object;
+            auto field_object = Bytes(
+                {0xF9U,
+                 0xEAU,
+                 0x7DU,
+                 0x04U,
+                 0xDEU,
+                 0xADU,
+                 0xBEU,
+                 0xEFU,
+                 0xE1U,
+                 0xF1U});
+            // {"Memos": [{"Memo":{ "MemoData": "DEADBEEF" }}]}
+
+            auto const result =
+                api.sto_emplace(source_object, field_object, sfMemos.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            source_object.insert(
+                source_object.end(), field_object.begin(), field_object.end());
+            BEAST_EXPECT(result.value() == source_object);
+        }
+
+        {
+            // UINT8
+            auto source_object = _source_object;
+            auto field_object = Bytes({0x00U, 0x10U, 0x10U, 0x01U});
+            // {"TickSize": 1}
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfTickSize.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            source_object.insert(
+                source_object.end(), field_object.begin(), field_object.end());
+            BEAST_EXPECT(result.value() == source_object);
+        }
+
+        {
+            // UINT160
+            auto source_object = _source_object;
+            auto field_object =
+                Bytes({0x01U, 0x11U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                       0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x55U, 0x53U,
+                       0x44U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U});
+            // {"TakerPaysCurrency": "0000000000000000000000005553440000000000"}
+
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfTakerPaysCurrency.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            source_object.insert(
+                source_object.end(), field_object.begin(), field_object.end());
+            BEAST_EXPECT(result.value() == source_object);
+        }
+
+        {
+            // PATHSET
+            auto source_object = _source_object;
+            auto field_object = Bytes(
+                {0x01U, 0x12U, 0x30U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x55U, 0x53U, 0x44U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x05U, 0x4FU, 0x6FU, 0x78U,
+                 0x4AU, 0x58U, 0xF9U, 0xEFU, 0xB0U, 0xA9U, 0xEBU, 0x90U, 0xB8U,
+                 0x34U, 0x64U, 0xF9U, 0xD1U, 0x66U, 0x46U, 0x19U, 0x00U});
+            // {"Paths": [[{ "currency": "USD", "issuer":
+            // "rVnYNK9yuxBz4uP8zC8LEFokM2nqH3poc" }]]}
+
+            auto const result =
+                api.sto_emplace(source_object, field_object, sfPaths.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            source_object.insert(
+                source_object.end(), field_object.begin(), field_object.end());
+            BEAST_EXPECT(result.value() == source_object);
+        }
+
+        {
+            // VECTOR256
+            auto source_object = _source_object;
+            auto field_object = Bytes(
+                {0x03U, 0x13U, 0x20U, 0x42U, 0x42U, 0x6CU, 0x4DU, 0x4FU, 0x10U,
+                 0x09U, 0xEEU, 0x67U, 0x08U, 0x0AU, 0x9BU, 0x79U, 0x65U, 0xB4U,
+                 0x46U, 0x56U, 0xD7U, 0x71U, 0x4DU, 0x10U, 0x4AU, 0x72U, 0xF9U,
+                 0xB4U, 0x36U, 0x9FU, 0x97U, 0xABU, 0xF0U, 0x44U, 0xEEU});
+            // {"Amendments":["42426C4D4F1009EE67080A9B7965B44656D7714D104A72F9B4369F97ABF044EE"]}
+
+            auto const result =
+                api.sto_emplace(source_object, field_object, sfPaths.getCode());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(
+                result.value().size() ==
+                source_object.size() + field_object.size());
+            source_object.insert(
+                source_object.end(), field_object.begin(), field_object.end());
+            BEAST_EXPECT(result.value() == source_object);
+        }
+
+        {
+            // UINT96
+        }
+
+        {
+            // UINT384
+        }
+
+        {
+            // UINT512
+        }
     }
 
     void
