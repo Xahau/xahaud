@@ -19,13 +19,17 @@ runs:
   steps:
     - name: Get commit message and set environment variable
       shell: python
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
+        import json
         import os
-        import subprocess
         import secrets
+        import urllib.request
 
         event_name = "${{ inputs.event-name }}"
         pr_head_sha = "${{ inputs.pr-head-sha }}"
+        repository = "${{ github.repository }}"
 
         print("==========================================")
         print("Setting XAHAU_GA_COMMIT_MSG environment variable")
@@ -36,24 +40,21 @@ runs:
             # For push events, use the input directly
             message = """${{ inputs.head-commit-message }}"""
             print("Source: workflow input (github.event.head_commit.message)")
-        elif event_name == 'pull_request':
-            # For PR events, fetch the specific SHA
-            print(f"Source: git show {pr_head_sha} (fetching PR head commit)")
-
-            # Fetch the PR head commit
-            subprocess.run(
-                ['git', 'fetch', 'origin', pr_head_sha],
-                check=True
-            )
-
-            # Get commit message from the fetched SHA
-            result = subprocess.run(
-                ['git', 'show', '-s', '--format=%B', pr_head_sha],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            message = result.stdout.strip()
+        elif event_name == 'pull_request' and pr_head_sha:
+            # For PR events, fetch via GitHub API
+            print(f"Source: GitHub API (fetching commit {pr_head_sha})")
+            try:
+                url = f"https://api.github.com/repos/{repository}/commits/{pr_head_sha}"
+                req = urllib.request.Request(url, headers={
+                    "Accept": "application/vnd.github.v3+json",
+                    "Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}"
+                })
+                with urllib.request.urlopen(req) as response:
+                    data = json.load(response)
+                    message = data["commit"]["message"]
+            except Exception as e:
+                print(f"Failed to fetch commit message: {e}")
+                message = ""
         else:
             message = ""
             print(f"Warning: Unknown event type: {event_name}")
