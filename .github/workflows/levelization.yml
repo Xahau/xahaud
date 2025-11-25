@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   check:
-    runs-on: [self-hosted, generic]
+    runs-on: ubuntu-22.04
     env:
       CLANG_VERSION: 10
     steps:
