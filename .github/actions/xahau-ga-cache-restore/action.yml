@@ -1,0 +1,146 @@
+name: 'Cache Restore'
+description: 'Restores cache with optional clearing based on commit message tags'
+
+inputs:
+  path:
+    description: 'A list of files, directories, and wildcard patterns to cache'
+    required: true
+  key:
+    description: 'An explicit key for restoring the cache'
+    required: true
+  restore-keys:
+    description: 'An ordered list of prefix-matched keys to use for restoring stale cache if no cache hit occurred for key'
+    required: false
+    default: ''
+  cache-type:
+    description: 'Type of cache (for logging purposes, e.g., "ccache-main", "Conan")'
+    required: false
+    default: 'cache'
+  fail-on-cache-miss:
+    description: 'Fail the workflow if cache entry is not found'
+    required: false
+    default: 'false'
+  lookup-only:
+    description: 'Check if a cache entry exists for the given input(s) without downloading it'
+    required: false
+    default: 'false'
+  additional-clear-keys:
+    description: 'Additional cache keys to clear (newline separated)'
+    required: false
+    default: ''
+
+outputs:
+  cache-hit:
+    description: 'A boolean value to indicate an exact match was found for the primary key'
+    value: ${{ steps.restore-cache.outputs.cache-hit }}
+  cache-primary-key:
+    description: 'The key that was used to restore the cache'
+    value: ${{ steps.restore-cache.outputs.cache-primary-key }}
+  cache-matched-key:
+    description: 'The key that was used to restore the cache (exact or prefix match)'
+    value: ${{ steps.restore-cache.outputs.cache-matched-key }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clear cache if requested via commit message
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        echo "=========================================="
+        echo "${{ inputs.cache-type }} cache clear tag detection"
+        echo "=========================================="
+        echo "Searching for: [ci-ga-clear-cache] or [ci-ga-clear-cache:*]"
+        echo ""
+
+        CACHE_KEY="${{ inputs.key }}"
+
+        # Extract search terms if present (e.g., "ccache" from "[ci-ga-clear-cache:ccache]")
+        SEARCH_TERMS=$(echo "${XAHAU_GA_COMMIT_MSG}" | grep -o '\[ci-ga-clear-cache:[^]]*\]' | sed 's/\[ci-ga-clear-cache://;s/\]//' || echo "")
+
+        SHOULD_CLEAR=false
+
+        if [ -n "${SEARCH_TERMS}" ]; then
+          # Search terms provided - check if THIS cache key matches ALL terms (AND logic)
+          echo "🔍 [ci-ga-clear-cache:${SEARCH_TERMS}] detected"
+          echo "Checking if cache key matches search terms..."
+          echo "  Cache key: ${CACHE_KEY}"
+          echo "  Search terms: ${SEARCH_TERMS}"
+          echo ""
+
+          MATCHES=true
+          for term in ${SEARCH_TERMS}; do
+            if ! echo "${CACHE_KEY}" | grep -q "${term}"; then
+              MATCHES=false
+              echo "  ✗ Key does not contain '${term}'"
+              break
+            else
+              echo "  ✓ Key contains '${term}'"
+            fi
+          done
+
+          if [ "${MATCHES}" = "true" ]; then
+            echo ""
+            echo "✅ Cache key matches all search terms - will clear cache"
+            SHOULD_CLEAR=true
+          else
+            echo ""
+            echo "⏭️  Cache key doesn't match search terms - skipping cache clear"
+          fi
+        elif echo "${XAHAU_GA_COMMIT_MSG}" | grep -q '\[ci-ga-clear-cache\]'; then
+          # No search terms - always clear this job's cache
+          echo "🗑️  [ci-ga-clear-cache] detected in commit message"
+          echo "Clearing ${{ inputs.cache-type }} cache for key: ${CACHE_KEY}"
+          SHOULD_CLEAR=true
+        fi
+
+        if [ "${SHOULD_CLEAR}" = "true" ]; then
+          echo ""
+          echo "Deleting ${{ inputs.cache-type }} caches via GitHub API..."
+
+          # Delete primary cache key
+          echo "Checking for cache: ${CACHE_KEY}"
+          if gh cache list --key "${CACHE_KEY}" --json key --jq '.[].key' | grep -q "${CACHE_KEY}"; then
+            echo "  Deleting: ${CACHE_KEY}"
+            gh cache delete "${CACHE_KEY}" || true
+            echo "  ✓ Deleted"
+          else
+            echo "  ℹ️  Not found"
+          fi
+
+          # Delete additional keys if provided
+          if [ -n "${{ inputs.additional-clear-keys }}" ]; then
+            echo ""
+            echo "Checking additional keys..."
+            while IFS= read -r key; do
+              [ -z "${key}" ] && continue
+              echo "Checking for cache: ${key}"
+              if gh cache list --key "${key}" --json key --jq '.[].key' | grep -q "${key}"; then
+                echo "  Deleting: ${key}"
+                gh cache delete "${key}" || true
+                echo "  ✓ Deleted"
+              else
+                echo "  ℹ️  Not found"
+              fi
+            done <<< "${{ inputs.additional-clear-keys }}"
+          fi
+
+          echo ""
+          echo "✅ ${{ inputs.cache-type }} cache cleared successfully"
+          echo "Build will proceed from scratch"
+        else
+          echo ""
+          echo "ℹ️  No ${{ inputs.cache-type }} cache clear requested"
+        fi
+        echo "=========================================="
+
+    - name: Restore cache
+      id: restore-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+        fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
+        lookup-only: ${{ inputs.lookup-only }}
