@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   matrix-setup:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, generic]
     container: python:3-slim
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
