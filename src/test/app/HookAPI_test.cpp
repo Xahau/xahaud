@@ -17,10 +17,11 @@
 */
 //==============================================================================
 #include <ripple/app/hook/HookAPI.h>
+#include <ripple/basics/StringUtilities.h>
+#include <ripple/json/json_writer.h>
 #include <ripple/protocol/STAccount.h>
-#include "ripple/protocol/Indexes.h"
-#include "test/jtx/cron.h"
 #include <limits>
+#include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <tuple>
 #include <vector>
@@ -2421,7 +2422,89 @@ public:
     {
         testcase("Test xpop_slot");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        auto const alice = Account{"alice"};
+
+        Env env{*this, features};
+
+        STTx invokeTx = STTx(ttIMPORT, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        {
+            STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            // invalid transaction type
+            auto const result = api.xpop_slot(0, 0);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
+        }
+
+        {
+            // invalid slot number
+            auto const result1 = api.xpop_slot(hook_api::max_slots + 1, 0);
+            BEAST_EXPECT(!result1.has_value());
+            BEAST_EXPECT(result1.error() == INVALID_ARGUMENT);
+
+            auto const result2 = api.xpop_slot(0, hook_api::max_slots + 1);
+            BEAST_EXPECT(!result2.has_value());
+            BEAST_EXPECT(result2.error() == INVALID_ARGUMENT);
+        }
+
+        {
+            // no free slots
+            for (uint32_t i = 1; i <= hook_api::max_slots - 1; ++i)
+                hookCtx.slot[i] = hook::SlotEntry{};
+            hook::HookAPI api(hookCtx);
+            auto const result = api.xpop_slot(0, 0);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == NO_FREE_SLOTS);
+        }
+
+        {
+            // same slot number for both
+            auto const result = api.xpop_slot(1, 1);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == INVALID_ARGUMENT);
+        }
+
+        // TODO: test INVALID_TXN
+
+        {
+            // Success
+            auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
+            std::string xpopStr = Json::FastWriter().write(xpopJson);
+            STTx invokeTx = STTx(ttIMPORT, [&](STObject& obj) {
+                obj.setFieldVL(sfBlob, *strUnHex(strHex(xpopStr)));
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            auto const result = api.xpop_slot(0, 0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value().first == 1);
+            BEAST_EXPECT(result.value().second == 2);
+            Serializer stx, smeta;
+            hookCtx.slot[1].entry->add(stx);
+            hookCtx.slot[2].entry->add(smeta);
+            stx.getData();
+            smeta.getData();
+
+            std::string blob = strHex(stx.getData());
+            std::string meta = strHex(smeta.getData());
+            BEAST_EXPECT(xpopJson["transaction"]["blob"] == blob);
+            BEAST_EXPECT(xpopJson["transaction"]["meta"] == meta);
+        }
     }
 
     void
