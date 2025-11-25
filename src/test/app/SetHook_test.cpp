@@ -3137,12 +3137,8 @@ public:
         testcase("Test etxn_fee_base");
         using namespace jtx;
 
-        Env env{*this, features};
-
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
-        env.fund(XRP(10000), alice);
-        env.fund(XRP(10000), bob);
 
         TestHook hook = wasm[R"[test.hook](
             #include <stdint.h>
@@ -3159,6 +3155,23 @@ public:
             #define ASSERT(x)\
                 if (!(x))\
                     rollback((uint32_t)#x, sizeof(#x), __LINE__);
+
+            // {
+            //     "TransactionType": "Invoke",
+            //     "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+            //     "Blob": "DEADBEEF",
+            //     "Sequence": 0,
+            //     "Fee": "0",
+            //     "SigningPubKey": ""
+            // }
+            uint8_t tx[48] = {
+                0x12U,0x00U,0x63U,0x24U,0x00U,0x00U,0x00U,0x00U,0x68U,0x40U,
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x73U,0x00U,0x70U,
+                0x1AU,0x04U,0xDEU,0xADU,0xBEU,0xEFU,0x81U,0x14U,0xAEU,0x12U,
+                0x3AU,0x85U,0x56U,0xF3U,0xCFU,0x91U,0x15U,0x47U,0x11U,0x37U,
+                0x6AU,0xFBU,0x0FU,0x89U,0x4FU,0x83U,0x2BU,0x3DU
+            };
+
             int64_t hook(uint32_t reservmaed )
             {
                 _g(1,1);
@@ -3173,18 +3186,49 @@ public:
                 etxn_reserve(1);
                 ASSERT(etxn_fee_base((uint32_t)det, 116) == INVALID_TXN);
 
-                return accept(0,0,0);
+                int64_t fee = etxn_fee_base((uint32_t)tx, sizeof(tx));
+                return accept(0,0,fee);
             }
         )[test.hook]"];
 
-        // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set etxn_fee_base"),
-            HSFEE);
-        env.close();
+        for (auto hasFix : {true, false})
+        {
+            auto f = features;
+            if (!hasFix)
+                f = f - fixEtxnFeeBase;
 
-        // invoke the hook
-        env(pay(bob, alice, XRP(1)), M("test etxn_fee_base"), fee(XRP(1)));
+            Env env{*this, f};
+
+            env.fund(XRP(10000), alice);
+            env.fund(XRP(10000), bob);
+            // install the hook on alice
+            auto hsobj = hso(hook, overrideFlag);
+            hsobj[jss::HookOn] =
+                "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFF"
+                "FE";  // payment high
+            env(ripple::test::jtx::hook(alice, {{hsobj}}, 0),
+                M("set etxn_fee_base"),
+                HSFEE);
+            env.close();
+
+            // invoke the hook
+            env(pay(bob, alice, XRP(1)), M("test etxn_fee_base"), fee(XRP(1)));
+            env.close();
+
+            BEAST_EXPECT(env.meta());
+            auto const meta = env.meta();
+            // sfHookExecution
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+            auto const hookExecution = hookExecutions[0];
+            BEAST_REQUIRE(hookExecution.isFieldPresent(sfHookReturnCode));
+            auto const returnCode = hookExecution.getFieldU64(sfHookReturnCode);
+            if (hasFix)
+                BEAST_EXPECT(returnCode == 14);
+            else
+                BEAST_EXPECT(returnCode == 10);
+        }
     }
 
     void

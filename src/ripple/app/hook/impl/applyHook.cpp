@@ -4709,7 +4709,12 @@ DEFINE_HOOK_FUNCTION(
         std::unique_ptr<STTx const> stpTrans;
         stpTrans = std::make_unique<STTx const>(std::ref(sitTrans));
 
-        return Transactor::calculateBaseFee(
+        if (!view.rules().enabled(fixEtxnFeeBase))
+            return Transactor::calculateBaseFee(
+                       *(applyCtx.app.openLedger().current()), *stpTrans)
+                .drops();
+
+        return invoke_calculateBaseFee(
                    *(applyCtx.app.openLedger().current()), *stpTrans)
             .drops();
     }
