@@ -168,7 +168,7 @@ jobs:
 
   build:
     needs: matrix-setup
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, generic]
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:

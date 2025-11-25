@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 2 # Only get the last 2 commits, to avoid fetching all history
 
   build:
-    runs-on: [self-hosted, vanity]
+    runs-on: [self-hosted, xahaud-build]
     needs: [checkout]
     defaults:
       run:
@@ -74,7 +74,7 @@ jobs:
           fi
 
   tests:
-    runs-on: [self-hosted, vanity]
+    runs-on: [self-hosted, xahaud-build]
     needs: [build, checkout]
     defaults:
       run:
@@ -84,7 +84,7 @@ jobs:
         run: /bin/bash docker-unit-tests.sh
 
   cleanup:
-    runs-on: [self-hosted, vanity]
+    runs-on: [self-hosted, xahaud-build]
     needs: [tests, checkout]
     if: always()
     steps:
