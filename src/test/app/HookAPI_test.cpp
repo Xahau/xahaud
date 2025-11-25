@@ -2355,7 +2355,65 @@ public:
     {
         testcase("Test meta_slot");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        env.fund(XRP(10000), alice);
+
+        env(noop(alice));
+        env.close();
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx = makeStubHookContext(
+            applyCtx,
+            alice.id(),
+            alice.id(),
+            {.result = {.provisionalMeta = env.meta()}});
+        hook::HookAPI api(hookCtx);
+
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            hook::HookAPI api(hookCtx);
+            // prerequisite not met
+            auto const result = api.meta_slot(0);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
+        }
+
+        {
+            // invalid argument
+            auto const result = api.meta_slot(hook_api::max_slots + 1);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == INVALID_ARGUMENT);
+        }
+
+        {
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.result = {.provisionalMeta = env.meta()}});
+            for (uint32_t i = 1; i <= hook_api::max_slots; ++i)
+                hookCtx.slot[i] = hook::SlotEntry{};
+            // no free slots
+            hook::HookAPI api(hookCtx);
+            auto const result = api.meta_slot(0);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == NO_FREE_SLOTS);
+        }
+
+        {
+            hook::HookAPI api(hookCtx);
+            auto const result = api.meta_slot(0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 1);
+
+            BEAST_EXPECT(*hookCtx.slot[1].entry == *env.meta());
+        }
     }
 
     void
