@@ -624,11 +624,14 @@ public:
             auto const result =
                 api.etxn_fee_base(invokeTx.getSerializer().slice());
             BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(result.value() == env.closed()->fees().base);
+            auto const baseFee = env.closed()->fees().base;
+            BEAST_EXPECT(result.value() == baseFee);
         }
         {
             // Fee value
             auto tx = invokeTx;
+            // add 100 bytes of blob
+            tx.setFieldVL(sfBlob, std::vector<uint8_t>(100, 1));
             // add 100 bytes of memo
             tx.setFieldArray(sfMemos, STArray(sfMemos, 1));
             auto& memos = tx.peekFieldArray(sfMemos);
@@ -637,7 +640,13 @@ public:
             memos.emplace_back(memo);
             auto const result = api.etxn_fee_base(tx.getSerializer().slice());
             BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(result.value() == env.closed()->fees().base + 100);
+            auto const baseFee = env.closed()->fees().base;
+            auto const blobSize = 100;
+            auto const memoSize = 100;
+            if (env.closed()->rules().enabled(fixEtxnFeeBase))
+                BEAST_EXPECT(result.value() == baseFee + blobSize + memoSize);
+            else
+                BEAST_EXPECT(result.value() == baseFee + memoSize);
         }
     }
 
@@ -3345,6 +3354,7 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
+        using namespace test::jtx;
         test_accept(features);
         test_rollback(features);
         testGuards(features);
@@ -3355,6 +3365,7 @@ public:
         test_otxn_burden(features);
         test_otxn_generation(features);
         test_etxn_details(features);
+        test_etxn_fee_base(features - fixEtxnFeeBase);
         test_etxn_fee_base(features);
         test_etxn_nonce(features);
         test_etxn_reserve(features);
