@@ -18,10 +18,11 @@ runs:
   using: 'composite'
   steps:
     - name: Get commit message and set environment variable
-      shell: python
+      shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        python3 - << 'PY'
         import json
         import os
         import secrets
@@ -72,3 +73,4 @@ runs:
 
         print(f"✓ XAHAU_GA_COMMIT_MSG set (available to all subsequent steps)")
         print("==========================================")
+        PY
