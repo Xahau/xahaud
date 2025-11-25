@@ -207,7 +207,7 @@ jobs:
           sudo apt install software-properties-common
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
           sudo apt update
-          sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          sudo apt-get install -y cmake ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
 
           # Install the specific GCC version needed for Clang
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
