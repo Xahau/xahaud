@@ -216,7 +216,8 @@ jobs:
           add-apt-repository ppa:ubuntu-toolchain-r/test -y
           apt update
           apt-get install -y cmake ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
-          apt-get install -y perl # apt-get install -y perl
+          apt-get install -y perl # for openssl build
+          apt-get install -y libsqlite3-dev # for xahaud build
 
           # Install the specific GCC version needed for Clang
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
