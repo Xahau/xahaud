@@ -324,6 +324,8 @@ jobs:
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: ${{ matrix.stdlib }}
           clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
+          cache_enabled: 'false' # Disable caching for self hosted runner
+          ccache_max_size: '100G'
 
       - name: Set artifact name
         id: set-artifact-name
