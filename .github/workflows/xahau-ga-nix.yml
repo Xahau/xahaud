@@ -172,9 +172,9 @@ jobs:
     container:
       image: ubuntu:24.04
       volumes:
-        - /home/runner/.conan2:/root/.conan2
-        - /home/runner/.ccache-main:/root/.ccache-main
-        - /home/runner/.ccache-current:/root/.ccache-current
+        - /home/runner/.conan2:/github/home/.conan2
+        - /home/runner/.ccache-main:/github/home/.ccache-main
+        - /home/runner/.ccache-current:/github/home/.ccache-current
       options: --privileged
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
