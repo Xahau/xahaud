@@ -189,8 +189,9 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y python3 python-is-python3
           fi
-          if ! which pip3 > /dev/null 2>&1; then
-            sudo apt-get install -y python3-pip
+          if ! which pipx > /dev/null 2>&1; then
+            sudo apt-get install -y pipx
+            pipx ensurepath
           fi
 
       - name: Get commit message
@@ -271,7 +272,7 @@ jobs:
           fi
 
           # Install Conan 2
-          pip3 install --upgrade "conan>=2.0,<3"
+          sudo pipx install "conan>=2.0,<3"
 
       - name: Check environment
         run: |
