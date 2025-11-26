@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   matrix-setup:
-    runs-on: [self-hosted, generic]
+    runs-on: [self-hosted, generic, 24.04]
     container: python:3-slim
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -168,7 +168,7 @@ jobs:
 
   build:
     needs: matrix-setup
-    runs-on: [self-hosted, generic]
+    runs-on: [self-hosted, generic, 24.04]
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:
