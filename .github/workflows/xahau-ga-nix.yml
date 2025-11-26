@@ -216,6 +216,7 @@ jobs:
           add-apt-repository ppa:ubuntu-toolchain-r/test -y
           apt update
           apt-get install -y cmake ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          apt-get install -y perl # apt-get install -y perl
 
           # Install the specific GCC version needed for Clang
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
@@ -280,6 +281,7 @@ jobs:
 
           # Install Conan 2
           pipx install "conan>=2.0,<3"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Check environment
         run: |
@@ -306,6 +308,7 @@ jobs:
           cc: ${{ matrix.cc }}
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
+          cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
