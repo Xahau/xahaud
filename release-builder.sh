@@ -128,9 +128,6 @@ ENV CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
 ENV LLVM_DIR=/usr/lib64/llvm14/lib/cmake/llvm
 ENV WasmEdge_LIB=/usr/local/lib64/libwasmedge.a
 
-ENV CC='ccache gcc'
-ENV CXX='ccache g++'
-
 # Install LLD
 RUN /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && \
     cd /tmp && \
@@ -189,6 +186,7 @@ RUN cd /tmp && \
 
 # Set environment variables
 ENV PATH=/usr/local/bin:$PATH
+ENV PATH=/usr/lib/ccache:$PATH
 
 # Configure ccache and Conan 2
 # NOTE: Using echo commands instead of heredocs because heredocs in Docker RUN commands are finnicky
