@@ -64,8 +64,8 @@ jobs:
                   "cc": "clang-14",
                   "cxx": "clang++-14",
                   "compiler_version": 14,
-                  "stdlib": "libstdcxx",
-                  "clang_gcc_toolchain": 13,
+                  "stdlib": "libcxx",
+                  # "clang_gcc_toolchain": 11,
                   "configuration": "Debug"
               },
               {
@@ -74,8 +74,8 @@ jobs:
                   "cc": "clang-16",
                   "cxx": "clang++-16",
                   "compiler_version": 16,
-                  "stdlib": "libstdcxx",
-                  "clang_gcc_toolchain": 13,
+                  "stdlib": "libcxx",
+                  # "clang_gcc_toolchain": 13,
                   "configuration": "Debug"
               },
               {
