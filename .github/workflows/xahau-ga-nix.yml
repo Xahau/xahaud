@@ -185,7 +185,6 @@ jobs:
         - /home/runner/.ccache-current:/github/home/.ccache-current
       options: >-
         --privileged
-        --name xahaud-ci-${{ matrix.compiler_id }}
     defaults:
       run:
         shell: bash
@@ -202,32 +201,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
-      - name: Install python if not installed
-        run: |
-          if ! which python3 > /dev/null 2>&1; then
-            apt-get update
-            apt-get install -y python3 python-is-python3
-          fi
-          if ! which pipx > /dev/null 2>&1; then
-            apt-get install -y pipx
-            pipx ensurepath
-          fi
-
-      - name: Get commit message
-        id: get-commit-message
-        uses: ./.github/actions/xahau-ga-get-commit-message
-        with:
-          event-name: ${{ github.event_name }}
-          head-commit-message: ${{ github.event.head_commit.message }}
-          pr-head-sha: ${{ github.event.pull_request.head.sha }}
 
       - name: Install build dependencies
         run: |
           apt-get update
           apt-get install -y software-properties-common
           add-apt-repository ppa:ubuntu-toolchain-r/test -y
-          apt update
+          apt-get update
+          apt-get install -y python3 python-is-python3 pipx
+          pipx ensurepath
           apt-get install -y cmake ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
           apt-get install -y perl # for openssl build
           apt-get install -y libsqlite3-dev # for xahaud build
@@ -308,6 +290,14 @@ jobs:
           which ccache && ccache --version || echo "ccache not found"
           echo "---- Full Environment ----"
           env
+
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
 
       - name: Install dependencies
         uses: ./.github/actions/xahau-ga-dependencies
