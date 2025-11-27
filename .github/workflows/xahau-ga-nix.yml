@@ -180,7 +180,7 @@ jobs:
     container:
       image: ubuntu:24.04
       volumes:
-        - /home/runner/.conan2:/github/home/.conan2
+        - /home/runner/.conan-cache:/.conan-cache
         - /home/runner/.ccache-main:/github/home/.ccache-main
         - /home/runner/.ccache-current:/github/home/.ccache-current
       options: >-
@@ -196,7 +196,6 @@ jobs:
       # Bump this number to invalidate all caches globally.
       CACHE_VERSION: 3
       MAIN_BRANCH_NAME: dev
-      CONAN_PROFILES_PATH: /github/home/.conan-profiles # isolated from the host environment (volumes)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -321,7 +320,6 @@ jobs:
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
           cache_enabled: 'false' # Disable caching for self hosted runner
-          conan_profiles_path: ${{ env.CONAN_PROFILES_PATH }}
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build

@@ -54,10 +54,6 @@ inputs:
     options:
       - libstdcxx
       - libcxx
-  conan_profiles_path:
-    description: 'Conan profiles path'
-    required: false
-    default: '~/.conan2/profiles'
 
 outputs:
   cache-hit:
@@ -83,8 +79,13 @@ runs:
     - name: Configure Conan
       shell: bash
       run: |
+        mkdir -p /.conan-cache/conan2 /.conan-cache/conan2_download /.conan-cache/conan2_sources
+        echo 'core.cache:storage_path=/.conan-cache/conan2' > ~/.conan2/global.conf
+        echo 'core.download:download_cache=/.conan-cache/conan2_download' >> ~/.conan2/global.conf
+        echo 'core.sources:download_cache=/.conan-cache/conan2_sources' >> ~/.conan2/global.conf
+
         # Create the default profile directory if it doesn't exist
-        mkdir -p  ${{ inputs.conan_profiles_path }}
+        mkdir -p ~/.conan2/profiles
 
         # Determine the correct libcxx based on stdlib parameter
         if [ "${{ inputs.stdlib }}" = "libcxx" ]; then
@@ -95,7 +96,7 @@ runs:
 
         # Create profile with our specific settings
         # This overwrites any cached profile to ensure fresh configuration
-        cat > ${{ inputs.conan_profiles_path }}/default <<EOF
+        cat > ~/.conan2/profiles/default <<EOF
         [settings]
         arch=${{ inputs.arch }}
         build_type=${{ inputs.configuration }}
@@ -108,7 +109,7 @@ runs:
 
         # Add buildenv and conf sections for Linux (not needed for macOS)
         if [ "${{ inputs.os }}" = "Linux" ] && [ -n "${{ inputs.cc }}" ]; then
-          cat >> ${{ inputs.conan_profiles_path }}/default <<EOF
+          cat >> ~/.conan2/profiles/default <<EOF
 
         [buildenv]
         CC=/usr/bin/${{ inputs.cc }}
@@ -121,16 +122,13 @@ runs:
 
         # Add macOS-specific conf if needed
         if [ "${{ inputs.os }}" = "Macos" ]; then
-          cat >> ${{ inputs.conan_profiles_path }}/default <<EOF
+          cat >> ~/.conan2/profiles/default <<EOF
 
         [conf]
         # Workaround for gRPC with newer Apple Clang
         tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
         EOF
         fi
-
-        # Display profile path for verification
-        conan profile path default
 
         # Display profile for verification
         conan profile show
