@@ -15,7 +15,7 @@ env:
 
 jobs:
   checkout:
-    runs-on: [self-hosted, xahaud-build]
+    runs-on: [self-hosted, vanity]
     outputs:
       checkout_path: ${{ steps.vars.outputs.checkout_path }}
     steps:

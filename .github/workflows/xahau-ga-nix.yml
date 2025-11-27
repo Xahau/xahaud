@@ -19,6 +19,14 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: escape double quotes
+        id: escape
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          ESCAPED_PR_TITLE="${PR_TITLE//\"/\\\"}"
+          echo "title=${ESCAPED_PR_TITLE}" >> "$GITHUB_OUTPUT"
       - name: Generate build matrix
         id: set-matrix
         shell: python
@@ -102,7 +110,7 @@ jobs:
           ref = "${{ github.ref }}"
           base_ref = "${{ github.base_ref }}"  # For PRs, this is the target branch
           event_name = "${{ github.event_name }}"
-          pr_title = """${{ github.event.pull_request.title }}"""
+          pr_title = """${{ steps.escape.outputs.title }}"""
           pr_head_sha = "${{ github.event.pull_request.head.sha }}"
 
           # Get commit message - for PRs, fetch via API since head_commit.message is empty
