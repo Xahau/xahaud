@@ -183,7 +183,9 @@ jobs:
         - /home/runner/.conan2:/github/home/.conan2
         - /home/runner/.ccache-main:/github/home/.ccache-main
         - /home/runner/.ccache-current:/github/home/.ccache-current
-      options: --privileged
+      options: >-
+        --privileged
+        --name xahaud-ci-${{ matrix.compiler_id }}
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:
