@@ -360,3 +360,19 @@ jobs:
              echo "Error: rippled executable not found in ${{ env.build_dir }}"
              exit 1
           fi
+    
+  debug-containers:
+    runs-on: [self-hosted, generic, 24.04]
+    if: always()
+    needs: [build]
+    steps:
+      - name: Cleanup current container on job completion
+        run: |
+          echo "=== Current containers ==="
+          docker ps -a
+          
+          # echo "=== Job completed, marking container for cleanup ==="
+          # CURRENT_CONTAINER_ID="${{ steps.container-info.outputs.container_id }}"
+          # echo "Current container ID: ${CURRENT_CONTAINER_ID}"
+          # docker container update --label-add "xahau-ci-completed=true" "$CURRENT_CONTAINER_ID" 2>/dev/null || true
+          # echo "Container marked as completed. It will be cleaned up in the next run."
