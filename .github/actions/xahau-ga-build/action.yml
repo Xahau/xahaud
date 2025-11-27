@@ -107,6 +107,11 @@ runs:
         # Create cache directories
         mkdir -p ~/.ccache-main ~/.ccache-current
 
+        # Keep config separate from cache_dir so configs aren't swapped when CCACHE_DIR changes between steps
+        mkdir -p ~/.config/ccache
+        export CCACHE_CONFIGPATH="$HOME/.config/ccache/ccache.conf"
+        echo "CCACHE_CONFIGPATH=$CCACHE_CONFIGPATH" >> $GITHUB_ENV
+
         # Configure ccache settings AFTER cache restore (prevents stale cached config)
         ccache --set-config=max_size=${{ inputs.ccache_max_size }}
         ccache --set-config=hash_dir=${{ inputs.ccache_hash_dir }}
