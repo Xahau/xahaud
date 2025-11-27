@@ -149,6 +149,7 @@ if (use_gold AND is_gcc)
        required to make gold play nicely with jemalloc.
     #]=========================================================]
   if (("${LD_VERSION}" MATCHES "GNU gold") AND (NOT jemalloc))
+    message(STATUS "Using gold linker")
     target_link_libraries (common
       INTERFACE
         -fuse-ld=gold
@@ -170,6 +171,7 @@ if (use_lld)
     COMMAND ${CMAKE_CXX_COMPILER} -fuse-ld=lld -Wl,--version
     ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
   if ("${LD_VERSION}" MATCHES "LLD")
+    message(STATUS "Using lld linker")
     target_link_libraries (common INTERFACE -fuse-ld=lld)
   endif ()
   unset (LD_VERSION)

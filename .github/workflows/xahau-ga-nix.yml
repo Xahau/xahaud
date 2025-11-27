@@ -5,6 +5,7 @@ on:
     branches: ["dev", "candidate", "release"]
   pull_request:
     branches: ["dev", "candidate", "release"]
+  workflow_dispatch:
   schedule:
     - cron: '0 0 * * *'
 
@@ -279,6 +280,9 @@ jobs:
           pipx install "conan>=2.0,<3"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
+          # Add ccache PATH
+          echo "/usr/lib/ccache" >> $GITHUB_PATH
+
       - name: Check environment
         run: |
           echo "PATH:"
@@ -320,8 +324,8 @@ jobs:
           generator: Ninja
           configuration: ${{ matrix.configuration }}
           build_dir: ${{ env.build_dir }}
-          cc: ${{ matrix.cc }}
-          cxx: ${{ matrix.cxx }}
+          # cc: ${{ matrix.cc }}
+          # cxx: ${{ matrix.cxx }}
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
