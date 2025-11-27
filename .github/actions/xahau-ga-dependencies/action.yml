@@ -129,6 +129,9 @@ runs:
         EOF
         fi
 
+        # Display profile path for verification
+        conan profile path default
+
         # Display profile for verification
         conan profile show
 
