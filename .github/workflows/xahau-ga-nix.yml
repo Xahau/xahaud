@@ -186,6 +186,9 @@ jobs:
       options: >-
         --privileged
         --name xahaud-ci-${{ matrix.compiler_id }}
+    defaults:
+      run:
+        shell: bash
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:
