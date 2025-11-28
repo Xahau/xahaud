@@ -20,6 +20,9 @@
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/json/json_writer.h>
 #include <ripple/protocol/STAccount.h>
+#include "ripple/protocol/Indexes.h"
+#include "test/jtx/genesis.h"
+#include "test/jtx/hook.h"
 #include <limits>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
@@ -2004,9 +2007,23 @@ public:
         testcase("Test hook_hash");
 
         using namespace jtx;
+        using namespace hook_api;
 
         auto const alice = Account{"alice"};
         Env env{*this, features};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        env(hook(
+                alice,
+                {{
+                    hso(genesis::AcceptHook),
+                    hso(genesis::MintTestHook),
+                }},
+                0),
+            fee(XRP(100)));
+        env.close();
+
         STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
         OpenView ov{*env.current()};
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
@@ -2018,8 +2035,39 @@ public:
             makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
         hook::HookAPI api(hookCtx);
 
-        // TODO
-        BEAST_EXPECT(true);
+        {
+            // current hook hash
+            auto const result = api.hook_hash(-1);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == expectedHash);
+        }
+
+        {
+            // Does not exist
+            auto const result = api.hook_hash(2);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == DOESNT_EXIST);
+        }
+
+        {
+            // Success index = 0
+            auto const wasm = genesis::AcceptHook;
+            auto const hash =
+                ripple::sha512Half_s(ripple::Slice(wasm.data(), wasm.size()));
+            auto const result = api.hook_hash(0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == hash);
+        }
+
+        {
+            // Success index = 1
+            auto const wasm = genesis::MintTestHook;
+            auto const hash =
+                ripple::sha512Half_s(ripple::Slice(wasm.data(), wasm.size()));
+            auto const result = api.hook_hash(1);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == hash);
+        }
     }
 
     void
