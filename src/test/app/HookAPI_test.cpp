@@ -20,9 +20,6 @@
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/json/json_writer.h>
 #include <ripple/protocol/STAccount.h>
-#include "ripple/protocol/Indexes.h"
-#include "test/jtx/genesis.h"
-#include "test/jtx/hook.h"
 #include <limits>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
