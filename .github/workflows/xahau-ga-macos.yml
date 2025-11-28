@@ -129,6 +129,7 @@ jobs:
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: libcxx
+          ccache_max_size: '100G'
 
       - name: Test
         run: |
