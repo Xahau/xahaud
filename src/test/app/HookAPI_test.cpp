@@ -3885,7 +3885,59 @@ public:
     {
         testcase("Test sto_subfield");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        {
+            // Invalid data size
+            BEAST_EXPECT(api.sto_subfield(Bytes{}, 0).error() == TOO_SMALL);
+            BEAST_EXPECT(api.sto_subfield(Bytes{0x00}, 0).error() == TOO_SMALL);
+        }
+
+        {
+            // Invalid data
+            BEAST_EXPECT(
+                api.sto_subfield(Bytes{0xFF, 0xFF, 0xFF, 0xFF}, 0).error() ==
+                PARSE_ERROR);
+        }
+
+        {
+            // doesn't found
+            // { Memo: {MemoData: "BEEF"} }
+            auto const memos = *strUnHex("EA7D02BEEFE1");
+            BEAST_EXPECT(
+                api.sto_subfield(memos, sfMemoData.getCode()).error() ==
+                DOESNT_EXIST);
+            // { AmountEntry: {Amount: "100"} }
+            auto const amounts = *strUnHex("E05B614000000000000064E1");
+            BEAST_EXPECT(
+                api.sto_subfield(amounts, sfAmount.getCode()).error() ==
+                DOESNT_EXIST);
+        }
+
+        {
+            // success
+            // { Memo: {MemoData: "BEEF"} }
+            auto const memos = *strUnHex("EA7D02BEEFE1");
+            BEAST_EXPECT(
+                api.sto_subfield(memos, sfMemo.getCode()).value() ==
+                std::make_pair(1, 4));
+            // { AmountEntry: {Amount: "100"} }
+            auto const amounts = *strUnHex("E05B614000000000000064E1");
+            BEAST_EXPECT(
+                api.sto_subfield(amounts, sfAmountEntry.getCode()).value() ==
+                std::make_pair(2, 9));
+        }
     }
 
     void
