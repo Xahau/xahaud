@@ -183,8 +183,6 @@ jobs:
         - /home/runner/.conan-cache:/.conan-cache
         - /home/runner/.ccache-main:/github/home/.ccache-main
         - /home/runner/.ccache-current:/github/home/.ccache-current
-      options: >-
-        --privileged
     defaults:
       run:
         shell: bash
