@@ -17,8 +17,8 @@ inputs:
     description: 'Cache version for invalidation'
     required: false
     default: '1'
-  cache_enabled:
-    description: 'Whether to use caching'
+  gha_cache_enabled:
+    description: 'Whether to use actions/cache (disable for self-hosted with volume mounts)'
     required: false
     default: 'true'
   main_branch:
@@ -64,7 +64,7 @@ runs:
   using: 'composite'
   steps:
     - name: Restore Conan cache
-      if: inputs.cache_enabled == 'true'
+      if: inputs.gha_cache_enabled == 'true'
       id: cache-restore-conan
       uses: ./.github/actions/xahau-ga-cache-restore
       with:
@@ -77,7 +77,7 @@ runs:
         cache-type: Conan
 
     - name: Configure Conan cache paths
-      if: inputs.cache_enabled == 'false'
+      if: inputs.gha_cache_enabled == 'false'
       shell: bash
       # For self-hosted runners, register cache paths to be used as volumes
       # This allows the cache to be shared between containers
@@ -163,7 +163,7 @@ runs:
           ..
 
     - name: Save Conan cache
-      if: success() && inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true'
+      if: success() && inputs.gha_cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: ~/.conan2

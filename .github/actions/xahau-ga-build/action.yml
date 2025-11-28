@@ -28,8 +28,8 @@ inputs:
     description: 'Cache version for invalidation'
     required: false
     default: '1'
-  cache_enabled:
-    description: 'Whether to use cache'
+  gha_cache_enabled:
+    description: 'Whether to use actions/cache (disable for self-hosted with volume mounts)'
     required: false
     default: 'true'
   ccache_enabled:
