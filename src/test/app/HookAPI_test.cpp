@@ -3945,7 +3945,59 @@ public:
     {
         testcase("Test sto_validate");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        BEAST_EXPECT(api.sto_validate(Bytes{}).error() == TOO_SMALL);
+        BEAST_EXPECT(api.sto_validate(Bytes{0x00}).error() == TOO_SMALL);
+
+        // { Memo: {MemoData: "BEEF"} }
+        auto const memos = *strUnHex("EA7D02BEEFE1");
+        // { AmountEntry: {Amount: "100"} }
+        auto const amounts = *strUnHex("E05B614000000000000064E1");
+        // { Memo: {MemoData: "BEEF"} }
+        auto const memo = *strUnHex("EA7D02BEEFE1");
+        // { AmountEntry: {Amount: "100"} }
+        auto const amountEntry = *strUnHex("E05B614000000000000064E1");
+
+        BEAST_EXPECT(api.sto_validate(memos).value() == true);
+        BEAST_EXPECT(api.sto_validate(amounts).value() == true);
+        BEAST_EXPECT(api.sto_validate(memo).value() == true);
+        BEAST_EXPECT(api.sto_validate(amountEntry).value() == true);
+
+        // Invalid data
+        BEAST_EXPECT(
+            api.sto_validate(Bytes{0xFF, 0xFF, 0xFF, 0xFF}).value() == false);
+
+        Bytes const i_memos(&memos[0], &memos[memos.size() - 1]);
+        Bytes const i_amounts(&amounts[0], &amounts[amounts.size() - 1]);
+        Bytes const i_memo(&memo[0], &memo[memo.size() - 1]);
+        Bytes const i_amountEntry(
+            &amountEntry[0], &amountEntry[amountEntry.size() - 1]);
+        BEAST_EXPECT(api.sto_validate(i_memos).value() == false);
+        BEAST_EXPECT(api.sto_validate(i_amounts).value() == false);
+        BEAST_EXPECT(api.sto_validate(i_memo).value() == false);
+        BEAST_EXPECT(api.sto_validate(i_amountEntry).value() == false);
+
+        Bytes const i2_memos(&memos[1], &memos[memos.size()]);
+        Bytes const i2_amounts(&amounts[1], &amounts[amounts.size()]);
+        Bytes const i2_memo(&memo[1], &memo[memo.size()]);
+        Bytes const i2_amountEntry(
+            &amountEntry[1], &amountEntry[amountEntry.size()]);
+        BEAST_EXPECT(api.sto_validate(i_memos).value() == false);
+        BEAST_EXPECT(api.sto_validate(i_amounts).value() == false);
+        BEAST_EXPECT(api.sto_validate(i_memo).value() == false);
+        BEAST_EXPECT(api.sto_validate(i_amountEntry).value() == false);
     }
 
     void
