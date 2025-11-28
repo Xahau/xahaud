@@ -10163,15 +10163,16 @@ public:
     {
         testcase("Test sto_emplace");
         using namespace jtx;
-
-        Env env{*this, features};
-
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
-        env.fund(XRP(10000), alice);
-        env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        {
+            Env env{*this, features};
+
+            env.fund(XRP(10000), alice);
+            env.fund(XRP(10000), bob);
+
+            TestHook hook = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -10342,14 +10343,92 @@ public:
             }
         )[test.hook]"];
 
-        // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set sto_emplace"),
-            HSFEE);
-        env.close();
+            // install the hook on alice
+            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+                M("set sto_emplace"),
+                HSFEE);
+            env.close();
 
-        // invoke the hook
-        env(pay(bob, alice, XRP(1)), M("test sto_emplace"), fee(XRP(1)));
+            // invoke the hook
+            env(pay(bob, alice, XRP(1)), M("test sto_emplace"), fee(XRP(1)));
+        }
+
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g       (uint32_t id, uint32_t maxiter);
+                #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+                extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t sto_emplace (
+                    uint32_t write_ptr, uint32_t write_len,                                                                            
+                    uint32_t sread_ptr, uint32_t sread_len,                                                                            
+                    uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id );
+                #define PARSE_ERROR -18
+                #define ASSERT(x)\
+                    if (!(x))\
+                        rollback((uint32_t)#x, sizeof(#x), __LINE__);
+                #define sfSequence ((2U << 16U) + 4U)
+                #define sfAmount ((6U << 16U) + 1U)
+                
+                // {"Account": <zero account>}
+                uint8_t sto[] = {0x81U, 0x14U, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+                // {"Sequence": 1}
+                uint8_t ins[] = {0x24U, 0x00U, 0x00U, 0x00U, 0x01U};
+
+                uint8_t buf[1024];
+
+                int64_t hook(uint32_t reserved )
+                {
+                    _g(1,1);
+
+                    // check inject field should be valid sto object and it's field id should
+                    // match the field_id
+                    ASSERT(sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), sfSequence) > 0);
+                    int64_t result = sto_emplace(buf, sizeof(buf), sto, sizeof(sto), ins, sizeof(ins), sfAmount);
+
+                    accept(0,0,result);
+                }
+            )[test.hook]"];
+
+            for (auto f : {features, features - fixStoEmplaceFieldIdCheck})
+            {
+                Env env{*this, f};
+                bool const hasFix =
+                    env.current()->rules().enabled(fixStoEmplaceFieldIdCheck);
+
+                env.fund(XRP(10000), alice);
+                env.fund(XRP(10000), bob);
+
+                // install the hook on alice
+                env(ripple::test::jtx::hook(
+                        alice, {{hso(hook, overrideFlag)}}, 0),
+                    M("set sto_emplace"),
+                    HSFEE);
+                env.close();
+
+                // invoke the hook
+                env(pay(bob, alice, XRP(1)),
+                    M("test sto_emplace"),
+                    fee(XRP(1)));
+                env.close();
+                auto meta = env.meta();
+                BEAST_REQUIRE(meta);
+                BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+                auto const hookExecutions =
+                    meta->getFieldArray(sfHookExecutions);
+                BEAST_REQUIRE(hookExecutions.size() == 1);
+
+                if (hasFix)
+                    BEAST_EXPECT(
+                        hookExecutions[0].getFieldU64(sfHookReturnCode) ==
+                        0x8000000000000000ULL + 18);
+                else
+                    BEAST_EXPECT(
+                        hookExecutions[0].getFieldU64(sfHookReturnCode) > 0);
+            }
+        }
     }
 
     void

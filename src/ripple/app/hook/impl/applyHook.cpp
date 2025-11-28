@@ -4469,6 +4469,30 @@ DEFINE_HOOK_FUNCTION(
             return MEM_OVERLAP;
     }
 
+    if (fread_len > 0 && view.rules().enabled(fixStoEmplaceFieldIdCheck))
+    {
+        // inject field should be valid sto object and it's field id should
+        // match the field_id
+        unsigned char* inject_start = (unsigned char*)(memory + fread_ptr);
+        unsigned char* inject_end =
+            (unsigned char*)(memory + fread_ptr + fread_len);
+        int type = -1, field = -1, payload_start = -1, payload_length = -1;
+        int32_t length = get_stobject_length(
+            inject_start,
+            inject_end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            0);
+        if (length < 0)
+            return PARSE_ERROR;
+        if ((type << 16) + field != field_id)
+        {
+            return PARSE_ERROR;
+        }
+    }
+
     // we must inject the field at the canonical location....
     // so find that location
     unsigned char* start = (unsigned char*)(memory + sread_ptr);
