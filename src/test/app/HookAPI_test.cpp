@@ -3486,11 +3486,9 @@ public:
         {
             // Success
             auto const source_object =
-                Bytes({0x81U, 0x14U, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       0,     0,     0, 0, 0, 0, 0, 0, 0, 0, 0});
+                *strUnHex("81140000000000000000000000000000000000000000");
             // Account: "<ZERO_ACCOUNT>"
-            auto const field_object =
-                Bytes({0x24U, 0x00U, 0x00U, 0x00U, 0x00U});
+            auto const field_object = *strUnHex("2400000000");
             // Sequence: 0
 
             auto const result = api.sto_emplace(
@@ -3501,18 +3499,16 @@ public:
                 source_object.size() + field_object.size());
             BEAST_EXPECT(
                 result.value() ==
-                Bytes({0x24U, 0x00U, 0x00U, 0x00U, 0x00U, 0x81U, 0x14U, 0, 0,
-                       0,     0,     0,     0,     0,     0,     0,     0, 0,
-                       0,     0,     0,     0,     0,     0,     0,     0, 0}));
+                *strUnHex(
+                    "240000000081140000000000000000000000000000000000000000"));
         }
 
         auto const _source_object =
-            Bytes({0x81U, 0x14U, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0,     0,     0, 0, 0, 0, 0, 0, 0, 0, 0});
+            *strUnHex("81140000000000000000000000000000000000000000");
         {
             // use UINT16
             auto source_object = _source_object;
-            auto field_object = Bytes({0x10U, 0x10U, 0x00U, 0x01U});
+            auto field_object = *strUnHex("10100001");
             // Version: 1
 
             auto const result = api.sto_emplace(
@@ -3529,7 +3525,7 @@ public:
         {
             // use UINT32
             auto source_object = _source_object;
-            auto field_object = Bytes({0x24U, 0x00U, 0x00U, 0x00U, 0x01U});
+            auto field_object = *strUnHex("2400000001");
             // Sequence: 1
 
             auto const result = api.sto_emplace(
@@ -3546,16 +3542,7 @@ public:
         {
             // use UINT64
             auto source_object = _source_object;
-            auto field_object = Bytes(
-                {0x36U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x01U});
+            auto field_object = *strUnHex("360000000001");
             // ExchangeRate: 1
 
             auto const result = api.sto_emplace(
@@ -3572,24 +3559,7 @@ public:
         {
             // use UINT128
             auto source_object = _source_object;
-            auto field_object = Bytes(
-                {0x41U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U});
+            auto field_object = *strUnHex("4100000000000000000000000000000000");
             // EmailHash: 1
 
             auto const result = api.sto_emplace(
@@ -3606,9 +3576,9 @@ public:
         {
             // use UINT256
             auto source_object = _source_object;
-            auto field_object = Bytes(
-                {0x5EU, 0x00U, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                 0,     0,     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+            auto field_object = *strUnHex(
+                "5E000000000000000000000000000000000000000000000000000000000000"
+                "0000");
             // ObjectID:
             // "0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -3627,23 +3597,10 @@ public:
             // use AMOUNT
             auto source_object = _source_object;
 
-            auto nativeamount = Bytes(
-                {0x61U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
-                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
-                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
-                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
-                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U, 0x99U,
-                 0x99U, 0x99U, 0x99U, 0x99U, 0x99U});
-            auto iouamount = Bytes(
-                {0x61U,
-                 0x99U,
-                 0x99U,
-                 0x99U,
-                 0x99U,
-                 0x99U,
-                 0x99U,
-                 0x99U,
-                 0x99U});
+            auto nativeamount = *strUnHex(
+                "61999999999999999999999999999999999999999999999999999999999999"
+                "99999999999999999999999999999999999999");
+            auto iouamount = *strUnHex("619999999999999999");
 
             for (auto field_object : {nativeamount, iouamount})
             {
@@ -3664,19 +3621,7 @@ public:
         {
             // OBJECT
             auto source_object = _source_object;
-            auto field_object = Bytes(
-                {0xE0U,
-                 0x5BU,
-                 0x61U,
-                 0x40U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x00U,
-                 0x64U,
-                 0xE1U});
+            auto field_object = *strUnHex("E05B614000000000000064E1");
             // {"AmountEntry": {"Amount": "100"}}
 
             auto const result = api.sto_emplace(
@@ -3693,17 +3638,7 @@ public:
         {
             // ARRAY
             auto source_object = _source_object;
-            auto field_object = Bytes(
-                {0xF9U,
-                 0xEAU,
-                 0x7DU,
-                 0x04U,
-                 0xDEU,
-                 0xADU,
-                 0xBEU,
-                 0xEFU,
-                 0xE1U,
-                 0xF1U});
+            auto field_object = *strUnHex("F9EA7D04DEADBEEFE1F1");
             // {"Memos": [{"Memo":{ "MemoData": "DEADBEEF" }}]}
 
             auto const result =
@@ -3720,7 +3655,7 @@ public:
         {
             // UINT8
             auto source_object = _source_object;
-            auto field_object = Bytes({0x00U, 0x10U, 0x10U, 0x01U});
+            auto field_object = *strUnHex("00101001");
             // {"TickSize": 1}
 
             auto const result = api.sto_emplace(
@@ -3738,9 +3673,7 @@ public:
             // UINT160
             auto source_object = _source_object;
             auto field_object =
-                Bytes({0x01U, 0x11U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-                       0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x55U, 0x53U,
-                       0x44U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U});
+                *strUnHex("01110000000000000000000000005553440000000000");
             // {"TakerPaysCurrency": "0000000000000000000000005553440000000000"}
 
             auto const result = api.sto_emplace(
@@ -3757,12 +3690,9 @@ public:
         {
             // PATHSET
             auto source_object = _source_object;
-            auto field_object = Bytes(
-                {0x01U, 0x12U, 0x30U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x55U, 0x53U, 0x44U,
-                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x05U, 0x4FU, 0x6FU, 0x78U,
-                 0x4AU, 0x58U, 0xF9U, 0xEFU, 0xB0U, 0xA9U, 0xEBU, 0x90U, 0xB8U,
-                 0x34U, 0x64U, 0xF9U, 0xD1U, 0x66U, 0x46U, 0x19U, 0x00U});
+            auto field_object = *strUnHex(
+                "0112300000000000000000000000005553440000000000054F6F784A58F9EF"
+                "B0A9EB90B83464F9D166461900");
             // {"Paths": [[{ "currency": "USD", "issuer":
             // "rVnYNK9yuxBz4uP8zC8LEFokM2nqH3poc" }]]}
 
@@ -3780,11 +3710,9 @@ public:
         {
             // VECTOR256
             auto source_object = _source_object;
-            auto field_object = Bytes(
-                {0x03U, 0x13U, 0x20U, 0x42U, 0x42U, 0x6CU, 0x4DU, 0x4FU, 0x10U,
-                 0x09U, 0xEEU, 0x67U, 0x08U, 0x0AU, 0x9BU, 0x79U, 0x65U, 0xB4U,
-                 0x46U, 0x56U, 0xD7U, 0x71U, 0x4DU, 0x10U, 0x4AU, 0x72U, 0xF9U,
-                 0xB4U, 0x36U, 0x9FU, 0x97U, 0xABU, 0xF0U, 0x44U, 0xEEU});
+            auto field_object = *strUnHex(
+                "03132042426C4D4F1009EE67080A9B7965B44656D7714D104A72F9B4369F97"
+                "ABF044EE");
             // {"Amendments":["42426C4D4F1009EE67080A9B7965B44656D7714D104A72F9B4369F97ABF044EE"]}
 
             auto const result =
