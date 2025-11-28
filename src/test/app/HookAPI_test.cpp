@@ -2237,15 +2237,79 @@ public:
 
         auto const alice = Account{"alice"};
         Env env{*this, features};
+        env.fund(XRP(10000), alice);
+        env.close();
+        env(hook(alice, {{hso(genesis::AcceptHook)}}, 0), fee(XRP(1)));
+        env.close();
+
         STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
         OpenView ov{*env.current()};
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
-        auto hookCtx =
-            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto hookCtx = makeStubHookContext(
+            applyCtx,
+            alice.id(),
+            alice.id(),
+            {
+                .result = {.hookSkips = {uint256{123}, uint256{456}}},
+            });
         hook::HookAPI api(hookCtx);
 
-        // TODO
-        BEAST_EXPECT(true);
+        {
+            // INVALID_ARGUMENT
+            auto const result = api.hook_skip(uint256{0}, 2);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == INVALID_ARGUMENT);
+        }
+
+        {
+            // DOESNT_EXIST
+            auto const result = api.hook_skip(uint256{1}, 0);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == DOESNT_EXIST);
+        }
+
+        {
+            // with Delete flag (1)
+            auto result = api.hook_skip(uint256{0}, 1);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == DOESNT_EXIST);
+            BEAST_EXPECT(hookCtx.result.hookSkips.size() == 2);
+
+            result = api.hook_skip(uint256{123}, 1);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 1);
+            BEAST_EXPECT(hookCtx.result.hookSkips.size() == 1);
+        }
+
+        {
+            // already skipped
+            auto result = api.hook_skip(uint256{456}, 0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 1);
+            BEAST_EXPECT(hookCtx.result.hookSkips.size() == 1);
+        }
+
+        {
+            // doesn't found
+            auto result = api.hook_skip(uint256{123}, 0);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == DOESNT_EXIST);
+            BEAST_EXPECT(hookCtx.result.hookSkips.size() == 1);
+        }
+
+        {
+            // success
+            auto const wasm = genesis::AcceptHook;
+            auto const hash =
+                ripple::sha512Half_s(ripple::Slice(wasm.data(), wasm.size()));
+            auto result = api.hook_skip(hash, 0);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == 1);
+            BEAST_EXPECT(hookCtx.result.hookSkips.size() == 2);
+            BEAST_EXPECT(
+                hookCtx.result.hookSkips.find(hash) !=
+                hookCtx.result.hookSkips.end());
+        }
     }
 
     void
