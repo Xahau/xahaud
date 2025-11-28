@@ -133,7 +133,12 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        Env env{*this, envconfig(), features};
+        Env env{
+            *this,
+            envconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled};
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -186,9 +191,11 @@ struct GenesisMint_test : public beast::unit_test::suite
                     10123000000ULL);
             }
             auto const postCoins = env.current()->info().drops;
+            auto const txnFee =
+                env.current()->rules().enabled(fixEtxnFeeBase) ? 0 : 10;
             BEAST_EXPECT(
                 initCoins - 1'000'000 /* txn fee */
-                    - 10              /* emitted txn fee */
+                    - txnFee          /* emitted txn fee */
                     + 123'000'000     /* minted */
                 == postCoins);
         }
@@ -622,8 +629,11 @@ struct GenesisMint_test : public beast::unit_test::suite
                 le->getFieldAmount(sfBalance).xrp().drops() == amtResult);
 
             auto const postCoins = env.current()->info().drops;
+            auto const txnFee =
+                env.current()->rules().enabled(fixEtxnFeeBase) ? 0 : 10;
             BEAST_EXPECT(
-                initCoins - 1'000'000 /* txn fee  */ - 10 /* emitted txn fee */
+                initCoins - 1'000'000 /* txn fee  */ -
+                    txnFee /* emitted txn fee */
                 == postCoins);
         }
     }
@@ -689,6 +699,7 @@ public:
         auto const sa = supported_amendments();
         testWithFeats(sa);
         testWithFeats(sa - fixXahauV1);
+        testWithFeats(sa - fixEtxnFeeBase);
     }
 };
 

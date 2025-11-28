@@ -290,7 +290,9 @@ public:
     {
         testcase("ledger_entry Request AccountRoot");
         using namespace test::jtx;
-        Env env{*this, supported_amendments() - featureXahauGenesis};
+        Env env{
+            *this,
+            supported_amendments() - featureXahauGenesis - fixEtxnFeeBase};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
         env.close();
@@ -2171,7 +2173,7 @@ public:
                 return cfg;
             }),
             supported_amendments() - featureXahauGenesis -
-                fixProvisionalDoubleThreading};
+                fixProvisionalDoubleThreading - fixEtxnFeeBase};
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";
