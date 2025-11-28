@@ -190,7 +190,7 @@ jobs:
           apt-get install -y python3 python-is-python3 pipx cmake ninja-build ccache perl libsqlite3-dev
 
   build:
-    needs: matrix-setup
+    needs: [matrix-setup, apt-cache]
     runs-on: [self-hosted, generic, 20.04]
     container:
       image: ubuntu:24.04
@@ -199,7 +199,7 @@ jobs:
         - /home/runner/.ccache-main:/github/home/.ccache-main
         - /home/runner/.ccache-current:/github/home/.ccache-current
         # apt cache as readonly
-        - /home/runner/.apt-cache:/var/cache/apt:ro
+        - /home/runner/.apt-cache:/apt-cache-ro:ro
     defaults:
       run:
         shell: bash
@@ -216,6 +216,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Seed apt cache
+        run: |
+          # prepare apt cache directory
+          mkdir -p /var/cache/apt/archives
+
+          # copy existing .deb files from apt cache
+          if [ -d /apt-cache-ro/archives ]; then
+            # don't overwrite if already exists
+            rsync -a /apt-cache-ro/archives/ /var/cache/apt/archives/ || true
+          fi
 
       - name: Install build dependencies
         run: |
