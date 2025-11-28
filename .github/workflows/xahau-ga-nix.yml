@@ -223,10 +223,8 @@ jobs:
           mkdir -p /var/cache/apt/archives
 
           # copy existing .deb files from apt cache
-          if [ -d /apt-cache-ro/archives ]; then
-            # don't overwrite if already exists
-            rsync -a /apt-cache-ro/archives/ /var/cache/apt/archives/ || true
-          fi
+          mkdir -p /var/cache/apt/archives
+          cp -a /apt-cache-ro/archives/. /var/cache/apt/archives/
 
       - name: Install build dependencies
         run: |
