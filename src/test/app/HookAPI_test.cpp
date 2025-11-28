@@ -3823,7 +3823,61 @@ public:
     {
         testcase("Test sto_subarray");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        hook::HookAPI api(hookCtx);
+
+        {
+            // Invalid data size
+            BEAST_EXPECT(api.sto_subarray(Bytes{}, 0).error() == TOO_SMALL);
+            BEAST_EXPECT(api.sto_subarray(Bytes{0x00}, 0).error() == TOO_SMALL);
+        }
+
+        {
+            // Invalid: wrapped but size = 0 ([])
+            // { Memos: [] }
+            BEAST_EXPECT(
+                api.sto_subarray(Bytes{0xF9, 0xF1}, 0).error() == PARSE_ERROR);
+            // { Amounts: [] }
+            BEAST_EXPECT(
+                api.sto_subarray(Bytes{0xF0, 0x5C, 0xF1}, 0).error() ==
+                PARSE_ERROR);
+        }
+
+        {
+            // doesn't found
+            // { Memos: [{Memo: {MemoData: "BEEF"}}] }
+            auto const memos = *strUnHex("F9EA7D02BEEFE1F1");
+            BEAST_EXPECT(api.sto_subarray(memos, 2).error() == DOESNT_EXIST);
+            // { Amounts: [{AmountEntry: {Amount: "100"}}] }
+            auto const amounts = *strUnHex("F05CE05B614000000000000064E1F1");
+            // TODO: fix this
+            // BEAST_EXPECT(api.sto_subarray(amounts, 2).error() ==
+            // DOESNT_EXIST);
+        }
+
+        {
+            // success
+            // { Memos: [{Memo: {MemoData: "BEEF"}}] }
+            auto const memos = *strUnHex("F9EA7D02BEEFE1F1");
+            BEAST_EXPECT(
+                api.sto_subarray(memos, 0).value() == std::make_pair(1, 6));
+            // { Amounts: [{AmountEntry: {Amount: "100"}}] }
+            auto const amounts = *strUnHex("F05CE05B614000000000000064E1F1");
+            // TODO: fix this
+            // BEAST_EXPECT(
+            //     api.sto_subarray(amounts, 0).value() == std::make_pair(2,
+            //     12));
+        }
     }
 
     void
