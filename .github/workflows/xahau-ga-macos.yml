@@ -20,7 +20,7 @@ jobs:
           - Ninja
         configuration:
           - Debug
-    runs-on: macos-15-xlarge
+    runs-on: macos-15
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
