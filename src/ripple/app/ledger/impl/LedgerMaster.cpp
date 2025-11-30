@@ -1012,7 +1012,7 @@ LedgerMaster::checkAccept(uint256 const& hash, std::uint32_t seq)
         valCount = validations.size();
         auto const quorum = app_.validators().quorum();
 
-        JLOG(m_journal.warn())
+        JLOG(jPartialSync_.warn())
             << "checkAccept: hash=" << hash << " seq=" << seq
             << " valCount=" << valCount << " quorum=" << quorum
             << " mLastValidLedger.seq=" << mLastValidLedger.second;
@@ -1022,10 +1022,17 @@ LedgerMaster::checkAccept(uint256 const& hash, std::uint32_t seq)
             std::lock_guard ml(m_mutex);
             if (seq > mLastValidLedger.second)
             {
-                JLOG(m_journal.warn())
-                    << "checkAccept: setting mLastValidLedger to seq=" << seq;
+                JLOG(jPartialSync_.warn())
+                    << "checkAccept: QUORUM REACHED - setting mLastValidLedger"
+                    << " seq=" << seq << " hash=" << hash;
                 mLastValidLedger = std::make_pair(hash, seq);
             }
+        }
+        else
+        {
+            JLOG(jPartialSync_.debug())
+                << "checkAccept: quorum not reached, need " << quorum
+                << " have " << valCount;
         }
 
         if (seq == mValidLedgerSeq)

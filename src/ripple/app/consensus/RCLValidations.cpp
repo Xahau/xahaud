@@ -216,6 +216,23 @@ handleNewValidation(
                 app.getLedgerMaster().checkAccept(hash, seq);
             }
         }
+        else
+        {
+            // Partial sync debug: only log untrusted validations during startup
+            // (before we have any validated ledger)
+            auto [lastHash, lastSeq] =
+                app.getLedgerMaster().getLastValidatedLedger();
+            if (lastSeq == 0)
+            {
+                auto jPartialSync = app.journal("PartialSync");
+                auto const quorum = app.validators().quorum();
+                auto const unlSize = app.validators().count();
+                JLOG(jPartialSync.debug())
+                    << "validation NOT trusted: seq=" << seq << " hash=" << hash
+                    << " unlSize=" << unlSize << " quorum=" << quorum
+                    << " (masterKey=" << (masterKey ? "found" : "none") << ")";
+            }
+        }
         return;
     }
 
