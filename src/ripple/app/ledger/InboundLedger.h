@@ -81,6 +81,13 @@ public:
         return mLedger;
     }
 
+    /** Returns true if we have the ledger header (may still be incomplete). */
+    bool
+    hasHeader() const
+    {
+        return mHaveHeader;
+    }
+
     std::uint32_t
     getSeq() const
     {
@@ -176,9 +183,11 @@ private:
     clock_type::time_point mLastAction;
 
     std::shared_ptr<Ledger> mLedger;
+    //@@start state-tracking-members
     bool mHaveHeader;
     bool mHaveState;
     bool mHaveTransactions;
+    //@@end state-tracking-members
     bool mSignaled;
     bool mByHash;
     std::uint32_t mSeq;

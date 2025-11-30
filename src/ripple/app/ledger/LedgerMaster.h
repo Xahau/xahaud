@@ -300,6 +300,14 @@ public:
         return !mValidLedger.empty();
     }
 
+    //! Get the hash/seq of the last validated ledger (even if not resident).
+    std::pair<uint256, LedgerIndex>
+    getLastValidatedLedger()
+    {
+        std::lock_guard lock(m_mutex);
+        return mLastValidLedger;
+    }
+
     // Returns the minimum ledger sequence in SQL database, if any.
     std::optional<LedgerIndex>
     minSqlSeq();

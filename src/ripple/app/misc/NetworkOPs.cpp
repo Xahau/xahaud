@@ -819,11 +819,13 @@ NetworkOPsImp::isNeedNetworkLedger()
     return needNetworkLedger_;
 }
 
+//@@start is-full-check
 inline bool
 NetworkOPsImp::isFull()
 {
     return !needNetworkLedger_ && (mMode == OperatingMode::FULL);
 }
+//@@end is-full-check
 
 std::string
 NetworkOPsImp::getHostId(bool forAdmin)
@@ -1700,6 +1702,14 @@ NetworkOPsImp::checkLastClosedLedger(
     if (!switchLedgers)
         return false;
 
+    // Safety check: can't acquire a ledger with an invalid hash
+    if (!closedLedger.isNonZero())
+    {
+        JLOG(m_journal.warn())
+            << "checkLastClosedLedger: closedLedger hash is zero, skipping";
+        return false;
+    }
+
     auto consensus = m_ledgerMaster.getLedgerByHash(closedLedger);
 
     if (!consensus)
@@ -1903,6 +1913,7 @@ NetworkOPsImp::endConsensus()
     // timing to make sure there shouldn't be a newer LCL. We need this
     // information to do the next three tests.
 
+    //@@start mode-transitions
     if (((mMode == OperatingMode::CONNECTED) ||
          (mMode == OperatingMode::SYNCING)) &&
         !ledgerChange)
@@ -1928,8 +1939,11 @@ NetworkOPsImp::endConsensus()
             setMode(OperatingMode::FULL);
         }
     }
+    //@@end mode-transitions
 
+    //@@start consensus-gate
     beginConsensus(networkClosed);
+    //@@end consensus-gate
 }
 
 void

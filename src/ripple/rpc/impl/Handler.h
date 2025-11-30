@@ -107,6 +107,7 @@ conditionMet(Condition condition_required, T& context)
         return rpcEXPIRED_VALIDATOR_LIST;
     }
 
+    //@@start network-condition-check
     if ((condition_required & NEEDS_NETWORK_CONNECTION) &&
         (context.netOps.getOperatingMode() < OperatingMode::SYNCING))
     {
@@ -117,6 +118,7 @@ conditionMet(Condition condition_required, T& context)
             return rpcNO_NETWORK;
         return rpcNOT_SYNCED;
     }
+    //@@end network-condition-check
 
     if (!context.app.config().standalone() &&
         condition_required & NEEDS_CURRENT_LEDGER)

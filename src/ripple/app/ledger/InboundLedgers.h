@@ -56,6 +56,14 @@ public:
     virtual std::shared_ptr<InboundLedger>
     find(LedgerHash const& hash) = 0;
 
+    /** Get a partial ledger (has header but may be incomplete).
+        Used for partial sync mode - allows RPC queries against
+        ledgers that are still being acquired.
+        @return The ledger if header exists and not failed, nullptr otherwise.
+    */
+    virtual std::shared_ptr<Ledger const>
+    getPartialLedger(uint256 const& hash) = 0;
+
     // VFALCO TODO Remove the dependency on the Peer object.
     //
     virtual bool

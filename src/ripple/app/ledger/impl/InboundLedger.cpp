@@ -413,6 +413,7 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
         }
     }
 
+    //@@start completion-check
     if (mHaveTransactions && mHaveState)
     {
         JLOG(journal_.debug()) << "Had everything locally";
@@ -420,6 +421,7 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
         assert(mLedger->read(keylet::fees()));
         mLedger->setImmutable();
     }
+    //@@end completion-check
 }
 
 /** Called with a lock by the PeerSet when the timer expires

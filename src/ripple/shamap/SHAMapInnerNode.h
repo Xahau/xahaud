@@ -200,6 +200,7 @@ SHAMapInnerNode::isEmptyBranch(int m) const
     return (isBranch_ & (1 << m)) == 0;
 }
 
+//@@start full-below-methods
 inline bool
 SHAMapInnerNode::isFullBelow(std::uint32_t generation) const
 {
@@ -211,6 +212,7 @@ SHAMapInnerNode::setFullBelowGen(std::uint32_t gen)
 {
     fullBelowGen_ = gen;
 }
+//@@end full-below-methods
 
 }  // namespace ripple
 #endif

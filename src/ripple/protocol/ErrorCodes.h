@@ -61,10 +61,12 @@ enum error_code_i {
     rpcAMENDMENT_BLOCKED = 14,
 
     // Networking
+    //@@start network-error-codes
     rpcNO_CLOSED = 15,
     rpcNO_CURRENT = 16,
     rpcNO_NETWORK = 17,
     rpcNOT_SYNCED = 18,
+    //@@end network-error-codes
 
     // Ledger state
     rpcACT_NOT_FOUND = 19,

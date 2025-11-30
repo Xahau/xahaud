@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/ledger/InboundLedgers.h>
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/LedgerToJson.h>
 #include <ripple/app/ledger/OpenLedger.h>
@@ -566,6 +567,11 @@ getLedger(T& ledger, uint256 const& ledgerHash, Context& context)
 {
     ledger = context.ledgerMaster.getLedgerByHash(ledgerHash);
     if (ledger == nullptr)
+    {
+        // Partial sync fallback: try to get incomplete ledger being acquired
+        ledger = context.app.getInboundLedgers().getPartialLedger(ledgerHash);
+    }
+    if (ledger == nullptr)
         return {rpcLGR_NOT_FOUND, "ledgerNotFound"};
     return Status::OK;
 }
@@ -605,6 +611,14 @@ getLedger(T& ledger, uint32_t ledgerIndex, Context& context)
         }
     }
 
+    // Partial sync fallback: try to get incomplete ledger being acquired
+    if (ledger == nullptr)
+    {
+        auto hash = context.ledgerMaster.getHashBySeq(ledgerIndex);
+        if (hash.isNonZero())
+            ledger = context.app.getInboundLedgers().getPartialLedger(hash);
+    }
+
     if (ledger == nullptr)
         return {rpcLGR_NOT_FOUND, "ledgerNotFound"};
 
@@ -627,19 +641,36 @@ template <class T>
 Status
 getLedger(T& ledger, LedgerShortcut shortcut, Context& context)
 {
-    if (isValidatedOld(
-            context.ledgerMaster,
-            context.app.config().standalone() ||
-                context.app.config().reporting()))
-    {
-        if (context.apiVersion == 1)
-            return {rpcNO_NETWORK, "InsufficientNetworkMode"};
-        return {rpcNOT_SYNCED, "notSynced"};
-    }
+    //@@start sync-validation
+    // TODO: Re-enable for production. Disabled for partial sync testing.
+    // if (isValidatedOld(
+    //         context.ledgerMaster,
+    //         context.app.config().standalone() ||
+    //             context.app.config().reporting()))
+    // {
+    //     if (context.apiVersion == 1)
+    //         return {rpcNO_NETWORK, "InsufficientNetworkMode"};
+    //     return {rpcNOT_SYNCED, "notSynced"};
+    // }
+    //@@end sync-validation
 
     if (shortcut == LedgerShortcut::VALIDATED)
     {
         ledger = context.ledgerMaster.getValidatedLedger();
+
+        // Partial sync fallback: try to get incomplete validated ledger
+        if (ledger == nullptr)
+        {
+            auto [hash, seq] = context.ledgerMaster.getLastValidatedLedger();
+            JLOG(context.j.warn())
+                << "Partial sync: getValidatedLedger null, trying hash=" << hash
+                << " seq=" << seq;
+            if (hash.isNonZero())
+                ledger = context.app.getInboundLedgers().getPartialLedger(hash);
+            JLOG(context.j.warn()) << "Partial sync: getPartialLedger returned "
+                                   << (ledger ? "ledger" : "null");
+        }
+
         if (ledger == nullptr)
         {
             if (context.apiVersion == 1)

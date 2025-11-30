@@ -126,6 +126,12 @@ public:
         return {};
     }
 
+    virtual std::shared_ptr<Ledger const>
+    getPartialLedger(uint256 const& hash) override
+    {
+        return {};
+    }
+
     virtual bool
     gotLedgerData(
         LedgerHash const& ledgerHash,

@@ -193,6 +193,15 @@ public:
         return ret;
     }
 
+    std::shared_ptr<Ledger const>
+    getPartialLedger(uint256 const& hash) override
+    {
+        auto inbound = find(hash);
+        if (inbound && inbound->hasHeader() && !inbound->isFailed())
+            return inbound->getLedger();
+        return nullptr;
+    }
+
     /*
     This gets called when
         "We got some data from an inbound ledger"

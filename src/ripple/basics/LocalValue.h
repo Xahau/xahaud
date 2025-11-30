@@ -33,6 +33,7 @@ struct LocalValues
     explicit LocalValues() = default;
 
     bool onCoro = true;
+    void* coroPtr = nullptr;  // Pointer to owning JobQueue::Coro (if any)
 
     struct BasicValue
     {
@@ -127,6 +128,17 @@ LocalValue<T>::operator*()
             .emplace(this, std::make_unique<detail::LocalValues::Value<T>>(t_))
             .first->second->get());
 }
+
+// Returns pointer to current coroutine if running inside one, nullptr otherwise
+inline void*
+getCurrentCoroPtr()
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        return lvs->coroPtr;
+    return nullptr;
+}
+
 }  // namespace ripple
 
 #endif

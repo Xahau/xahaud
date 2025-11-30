@@ -29,6 +29,7 @@
 #include <boost/coroutine/all.hpp>
 #include <boost/range/begin.hpp>  // workaround for boost 1.72 bug
 #include <boost/range/end.hpp>    // workaround for boost 1.72 bug
+#include <atomic>
 
 namespace ripple {
 
@@ -69,6 +70,7 @@ public:
         std::condition_variable cv_;
         boost::coroutines::asymmetric_coroutine<void>::pull_type coro_;
         boost::coroutines::asymmetric_coroutine<void>::push_type* yield_;
+        std::atomic<bool> yielding_{false};  // For postAndYield synchronization
 #ifndef NDEBUG
         bool finished_ = false;
 #endif
@@ -136,6 +138,14 @@ public:
         /** Waits until coroutine returns from the user function. */
         void
         join();
+
+        /** Combined post and yield for poll-wait patterns.
+            Safely schedules resume before yielding, avoiding race conditions.
+            @return true if successfully posted and yielded, false if job queue
+           stopping.
+        */
+        bool
+        postAndYield();
     };
 
     using JobFunction = std::function<void()>;
