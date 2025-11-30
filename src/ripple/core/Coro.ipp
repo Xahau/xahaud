@@ -188,6 +188,26 @@ JobQueue::Coro::postAndYield()
     return true;
 }
 
+inline bool
+JobQueue::Coro::sleepFor(std::chrono::milliseconds delay)
+{
+    {
+        std::lock_guard lk(mutex_run_);
+        running_ = true;
+    }
+
+    // Create a detached thread that sleeps and then posts resume job
+    // This frees up the job queue thread during the sleep
+    std::thread([sp = shared_from_this(), delay]() {
+        std::this_thread::sleep_for(delay);
+        // Post a job to resume the coroutine
+        sp->post();
+    }).detach();
+
+    yield();
+    return true;
+}
+
 }  // namespace ripple
 
 #endif

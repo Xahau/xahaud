@@ -209,8 +209,9 @@ SHAMap::finishFetch(
 
                 while (steady_clock::now() < deadline)
                 {
-                    // Sleep for the poll interval
-                    std::this_thread::sleep_for(pollInterval);
+                    // Sleep for the poll interval (yields coroutine, frees job
+                    // thread)
+                    coro->sleepFor(pollInterval);
 
                     // Try to fetch from cache/db again
                     if (auto obj = f_.db().fetchNodeObject(

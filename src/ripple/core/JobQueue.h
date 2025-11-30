@@ -146,6 +146,14 @@ public:
         */
         bool
         postAndYield();
+
+        /** Sleep for a duration without blocking the job queue thread.
+            Yields the coroutine and schedules resume after the delay.
+            @param delay The duration to sleep.
+            @return true if successfully slept, false if job queue stopping.
+        */
+        bool
+        sleepFor(std::chrono::milliseconds delay);
     };
 
     using JobFunction = std::function<void()>;

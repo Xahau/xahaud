@@ -38,7 +38,6 @@
 
 #include <ripple/resource/Fees.h>
 #include <regex>
-#include <thread>
 
 namespace ripple {
 namespace RPC {
@@ -677,12 +676,11 @@ getLedger(T& ledger, LedgerShortcut shortcut, Context& context)
                     << " seq=" << seq;
 
                 // Poll-wait for validations to arrive (up to ~10 seconds)
-                if (hash.isZero())
+                if (hash.isZero() && context.coro)
                 {
                     for (int i = 0; i < 100 && hash.isZero(); ++i)
                     {
-                        std::this_thread::sleep_for(
-                            std::chrono::milliseconds(100));
+                        context.coro->sleepFor(std::chrono::milliseconds(100));
                         std::tie(hash, seq) =
                             context.ledgerMaster.getNetworkObservedLedger();
                     }
@@ -708,10 +706,9 @@ getLedger(T& ledger, LedgerShortcut shortcut, Context& context)
 
                     // Poll-wait for the ledger header (up to ~10 seconds)
                     int i = 0;
-                    for (; i < 100 && !ledger; ++i)
+                    for (; i < 100 && !ledger && context.coro; ++i)
                     {
-                        std::this_thread::sleep_for(
-                            std::chrono::milliseconds(100));
+                        context.coro->sleepFor(std::chrono::milliseconds(100));
                         ledger =
                             context.app.getInboundLedgers().getPartialLedger(
                                 hash);
