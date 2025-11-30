@@ -132,6 +132,11 @@ public:
         return {};
     }
 
+    virtual void
+    addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) override
+    {
+    }
+
     virtual bool
     gotLedgerData(
         LedgerHash const& ledgerHash,

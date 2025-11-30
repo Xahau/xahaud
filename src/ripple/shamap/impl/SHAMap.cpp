@@ -197,15 +197,20 @@ SHAMap::finishFetch(
                 constexpr auto timeout = 30s;
                 auto const deadline = steady_clock::now() + timeout;
 
+                // Linear backoff for re-requests: 50ms, 100ms, 150ms... up to
+                // 2s
+                auto nextRequestDelay = 50ms;
+                constexpr auto maxRequestDelay = 2000ms;
+                constexpr auto backoffStep = 50ms;
+                auto nextRequestTime = steady_clock::now() + nextRequestDelay;
+
                 JLOG(journal_.debug())
                     << "finishFetch: waiting for node " << hash;
 
                 while (steady_clock::now() < deadline)
                 {
-                    // Yield and reschedule - allows other work to happen
-                    // and gives time for the node to arrive
-                    if (!coro->postAndYield())
-                        break;  // Job queue is stopping
+                    // Sleep for the poll interval
+                    std::this_thread::sleep_for(pollInterval);
 
                     // Try to fetch from cache/db again
                     if (auto obj = f_.db().fetchNodeObject(
@@ -220,8 +225,17 @@ SHAMap::finishFetch(
                         return node;
                     }
 
-                    // Re-request in case it got lost
-                    f_.missingNodeAcquireBySeq(ledgerSeq_, hash.as_uint256());
+                    // Re-request with priority using linear backoff
+                    auto now = steady_clock::now();
+                    if (now >= nextRequestTime)
+                    {
+                        f_.missingNodeAcquireBySeq(
+                            ledgerSeq_, hash.as_uint256(), true /*prioritize*/);
+                        // Increase delay for next request (linear backoff)
+                        if (nextRequestDelay < maxRequestDelay)
+                            nextRequestDelay += backoffStep;
+                        nextRequestTime = now + nextRequestDelay;
+                    }
                 }
 
                 JLOG(journal_.warn())

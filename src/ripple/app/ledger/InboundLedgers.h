@@ -64,6 +64,15 @@ public:
     virtual std::shared_ptr<Ledger const>
     getPartialLedger(uint256 const& hash) = 0;
 
+    /** Add a priority node hash for immediate fetching.
+        Used by partial sync mode to prioritize specific nodes
+        needed by queries.
+        @param ledgerSeq The ledger sequence being acquired
+        @param nodeHash The specific node hash to prioritize
+    */
+    virtual void
+    addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) = 0;
+
     // VFALCO TODO Remove the dependency on the Peer object.
     //
     virtual bool

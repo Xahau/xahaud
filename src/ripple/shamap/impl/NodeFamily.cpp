@@ -66,9 +66,13 @@ NodeFamily::reset()
 }
 
 void
-NodeFamily::missingNodeAcquireBySeq(std::uint32_t seq, uint256 const& nodeHash)
+NodeFamily::missingNodeAcquireBySeq(
+    std::uint32_t seq,
+    uint256 const& nodeHash,
+    bool prioritize)
 {
-    JLOG(j_.error()) << "Missing node in " << seq;
+    JLOG(j_.error()) << "Missing node in " << seq << " hash=" << nodeHash
+                     << (prioritize ? " [PRIORITY]" : "");
     if (app_.config().reporting())
     {
         std::stringstream ss;
@@ -76,6 +80,10 @@ NodeFamily::missingNodeAcquireBySeq(std::uint32_t seq, uint256 const& nodeHash)
            << " object hash " << nodeHash;
         Throw<std::runtime_error>(ss.str());
     }
+
+    // Add priority for the specific node hash needed by the query
+    if (prioritize && nodeHash.isNonZero())
+        app_.getInboundLedgers().addPriorityNode(seq, nodeHash);
 
     std::unique_lock<std::mutex> lock(maxSeqMutex_);
     if (maxSeq_ == 0)

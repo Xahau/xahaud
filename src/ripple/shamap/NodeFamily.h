@@ -83,7 +83,10 @@ public:
     reset() override;
 
     void
-    missingNodeAcquireBySeq(std::uint32_t seq, uint256 const& hash) override;
+    missingNodeAcquireBySeq(
+        std::uint32_t seq,
+        uint256 const& hash,
+        bool prioritize = false) override;
 
     void
     missingNodeAcquireByHash(uint256 const& hash, std::uint32_t seq) override

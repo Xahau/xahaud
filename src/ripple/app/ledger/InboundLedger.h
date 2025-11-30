@@ -114,6 +114,12 @@ public:
     void
     runData();
 
+    /** Add a node hash to the priority queue for immediate fetching.
+        Used by partial sync mode to prioritize nodes needed by queries.
+    */
+    void
+    addPriorityHash(uint256 const& hash);
+
     void
     touch()
     {
@@ -194,6 +200,9 @@ private:
     Reason const mReason;
 
     std::set<uint256> mRecentNodes;
+
+    // Priority nodes to fetch immediately (for partial sync queries)
+    std::set<uint256> priorityHashes_;
 
     SHAMapAddNode mStats;
 

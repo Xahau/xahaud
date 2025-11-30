@@ -153,10 +153,16 @@ ShardFamily::reset()
 }
 
 void
-ShardFamily::missingNodeAcquireBySeq(std::uint32_t seq, uint256 const& nodeHash)
+ShardFamily::missingNodeAcquireBySeq(
+    std::uint32_t seq,
+    uint256 const& nodeHash,
+    bool prioritize)
 {
-    std::ignore = nodeHash;
     JLOG(j_.error()) << "Missing node in ledger sequence " << seq;
+
+    // Add priority for the specific node hash needed by the query
+    if (prioritize && nodeHash.isNonZero())
+        app_.getInboundLedgers().addPriorityNode(seq, nodeHash);
 
     std::unique_lock<std::mutex> lock(maxSeqMutex_);
     if (maxSeq_ == 0)

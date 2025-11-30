@@ -178,8 +178,26 @@ handleNewValidation(
     auto const outcome =
         validations.add(calcNodeID(masterKey.value_or(signingKey)), val);
 
+    if (j.has_value())
+    {
+        JLOG(j->warn()) << "handleNewValidation: seq=" << seq
+                        << " hash=" << hash << " trusted=" << val->isTrusted()
+                        << " outcome="
+                        << (outcome == ValStatus::current
+                                ? "current"
+                                : outcome == ValStatus::stale
+                                    ? "stale"
+                                    : outcome == ValStatus::badSeq ? "badSeq"
+                                                                   : "other");
+    }
+
     if (outcome == ValStatus::current)
     {
+        // For partial sync: track the network-observed ledger from ANY
+        // validation (not just trusted). This allows queries before
+        // trusted validators are fully configured.
+        app.getLedgerMaster().setNetworkObservedLedger(hash, seq);
+
         if (val->isTrusted())
         {
             // Was: app.getLedgerMaster().checkAccept(hash, seq);

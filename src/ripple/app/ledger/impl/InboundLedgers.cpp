@@ -202,6 +202,37 @@ public:
         return nullptr;
     }
 
+    void
+    addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) override
+    {
+        std::shared_ptr<InboundLedger> inbound;
+        {
+            ScopedLockType sl(mLock);
+            // Find inbound ledger by sequence (need to iterate)
+            for (auto const& [hash, ledger] : mLedgers)
+            {
+                if (ledger->getSeq() == ledgerSeq && !ledger->isFailed() &&
+                    !ledger->isComplete())
+                {
+                    inbound = ledger;
+                    break;
+                }
+            }
+        }
+
+        if (inbound)
+        {
+            inbound->addPriorityHash(nodeHash);
+            JLOG(j_.warn()) << "PRIORITY: added node " << nodeHash
+                            << " for ledger seq " << ledgerSeq;
+        }
+        else
+        {
+            JLOG(j_.warn()) << "PRIORITY: no inbound ledger for seq "
+                            << ledgerSeq << " (node " << nodeHash << ")";
+        }
+    }
+
     /*
     This gets called when
         "We got some data from an inbound ledger"

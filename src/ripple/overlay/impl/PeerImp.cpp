@@ -2751,6 +2751,12 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMGetObjectByHash> const& m)
         bool pLDo = true;
         bool progress = false;
 
+        // For state/transaction node requests, store directly to db
+        // (not fetch pack) so partial sync queries can find them immediately
+        bool const directStore =
+            packet.type() == protocol::TMGetObjectByHash::otSTATE_NODE ||
+            packet.type() == protocol::TMGetObjectByHash::otTRANSACTION_NODE;
+
         for (int i = 0; i < packet.objects_size(); ++i)
         {
             const protocol::TMIndexedObject& obj = packet.objects(i);
@@ -2783,10 +2789,33 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMGetObjectByHash> const& m)
                 {
                     uint256 const hash{obj.hash()};
 
-                    app_.getLedgerMaster().addFetchPack(
-                        hash,
-                        std::make_shared<Blob>(
-                            obj.data().begin(), obj.data().end()));
+                    if (directStore)
+                    {
+                        // Store directly to node store for immediate
+                        // availability
+                        auto const hotType =
+                            (packet.type() ==
+                             protocol::TMGetObjectByHash::otSTATE_NODE)
+                            ? hotACCOUNT_NODE
+                            : hotTRANSACTION_NODE;
+
+                        JLOG(p_journal_.warn())
+                            << "PRIORITY: received node " << hash << " for seq "
+                            << pLSeq << " storing to db";
+
+                        app_.getNodeStore().store(
+                            hotType,
+                            Blob(obj.data().begin(), obj.data().end()),
+                            hash,
+                            pLSeq);
+                    }
+                    else
+                    {
+                        app_.getLedgerMaster().addFetchPack(
+                            hash,
+                            std::make_shared<Blob>(
+                                obj.data().begin(), obj.data().end()));
+                    }
                 }
             }
         }

@@ -38,6 +38,7 @@
 
 #include <ripple/resource/Fees.h>
 #include <regex>
+#include <thread>
 
 namespace ripple {
 namespace RPC {
@@ -663,10 +664,64 @@ getLedger(T& ledger, LedgerShortcut shortcut, Context& context)
         {
             auto [hash, seq] = context.ledgerMaster.getLastValidatedLedger();
             JLOG(context.j.warn())
-                << "Partial sync: getValidatedLedger null, trying hash=" << hash
-                << " seq=" << seq;
+                << "Partial sync: getValidatedLedger null, trying trusted hash="
+                << hash << " seq=" << seq;
+
+            // If no trusted validations yet, try network-observed ledger
+            if (hash.isZero())
+            {
+                std::tie(hash, seq) =
+                    context.ledgerMaster.getNetworkObservedLedger();
+                JLOG(context.j.warn())
+                    << "Partial sync: trying network-observed hash=" << hash
+                    << " seq=" << seq;
+
+                // Poll-wait for validations to arrive (up to ~10 seconds)
+                if (hash.isZero())
+                {
+                    for (int i = 0; i < 100 && hash.isZero(); ++i)
+                    {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(100));
+                        std::tie(hash, seq) =
+                            context.ledgerMaster.getNetworkObservedLedger();
+                    }
+                    if (hash.isNonZero())
+                    {
+                        JLOG(context.j.warn())
+                            << "Partial sync: got network-observed hash="
+                            << hash << " seq=" << seq;
+                    }
+                }
+            }
+
             if (hash.isNonZero())
+            {
                 ledger = context.app.getInboundLedgers().getPartialLedger(hash);
+                // If no InboundLedger exists yet, trigger acquisition and wait
+                if (!ledger)
+                {
+                    JLOG(context.j.warn())
+                        << "Partial sync: acquiring ledger " << hash;
+                    context.app.getInboundLedgers().acquire(
+                        hash, seq, InboundLedger::Reason::CONSENSUS);
+
+                    // Poll-wait for the ledger header (up to ~10 seconds)
+                    int i = 0;
+                    for (; i < 100 && !ledger; ++i)
+                    {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(100));
+                        ledger =
+                            context.app.getInboundLedgers().getPartialLedger(
+                                hash);
+                    }
+                    JLOG(context.j.warn())
+                        << "Partial sync: poll-wait completed after " << i
+                        << " iterations, ledger="
+                        << (ledger ? "found" : "null");
+                }
+            }
             JLOG(context.j.warn()) << "Partial sync: getPartialLedger returned "
                                    << (ledger ? "ledger" : "null");
         }

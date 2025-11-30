@@ -187,6 +187,7 @@ LedgerMaster::LedgerMaster(
     beast::Journal journal)
     : app_(app)
     , m_journal(journal)
+    , jPartialSync_(app.journal("PartialSync"))
     , mLedgerHistory(collector, app)
     , standalone_(app_.config().standalone())
     , fetch_depth_(
@@ -1009,11 +1010,22 @@ LedgerMaster::checkAccept(uint256 const& hash, std::uint32_t seq)
         auto validations = app_.validators().negativeUNLFilter(
             app_.getValidations().getTrustedForLedger(hash, seq));
         valCount = validations.size();
-        if (valCount >= app_.validators().quorum())
+        auto const quorum = app_.validators().quorum();
+
+        JLOG(m_journal.warn())
+            << "checkAccept: hash=" << hash << " seq=" << seq
+            << " valCount=" << valCount << " quorum=" << quorum
+            << " mLastValidLedger.seq=" << mLastValidLedger.second;
+
+        if (valCount >= quorum)
         {
             std::lock_guard ml(m_mutex);
             if (seq > mLastValidLedger.second)
+            {
+                JLOG(m_journal.warn())
+                    << "checkAccept: setting mLastValidLedger to seq=" << seq;
                 mLastValidLedger = std::make_pair(hash, seq);
+            }
         }
 
         if (seq == mValidLedgerSeq)

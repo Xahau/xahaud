@@ -190,6 +190,15 @@ InboundLedger::update(std::uint32_t seq)
     touch();
 }
 
+void
+InboundLedger::addPriorityHash(uint256 const& hash)
+{
+    ScopedLockType sl(mtx_);
+    priorityHashes_.insert(hash);
+    JLOG(journal_.debug()) << "Added priority hash " << hash << " for ledger "
+                           << hash_;
+}
+
 bool
 InboundLedger::checkLocal()
 {
@@ -586,6 +595,43 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
             JLOG(journal_.warn()) << " failed local for " << hash_;
             return;
         }
+    }
+
+    // Handle priority hashes immediately (for partial sync queries)
+    if (mHaveHeader && !priorityHashes_.empty())
+    {
+        JLOG(journal_.warn()) << "PRIORITY: trigger() sending "
+                              << priorityHashes_.size() << " priority requests";
+
+        protocol::TMGetObjectByHash tmBH;
+        tmBH.set_query(true);
+        tmBH.set_type(protocol::TMGetObjectByHash::otSTATE_NODE);
+        tmBH.set_ledgerhash(hash_.begin(), hash_.size());
+
+        for (auto const& h : priorityHashes_)
+        {
+            JLOG(journal_.warn()) << "PRIORITY: requesting node " << h;
+            protocol::TMIndexedObject* io = tmBH.add_objects();
+            io->set_hash(h.begin(), h.size());
+            if (mSeq != 0)
+                io->set_ledgerseq(mSeq);
+        }
+
+        // Send to all peers in our peer set
+        auto packet = std::make_shared<Message>(tmBH, protocol::mtGET_OBJECTS);
+        auto const& peerIds = mPeerSet->getPeerIds();
+        std::size_t sentCount = 0;
+        for (auto id : peerIds)
+        {
+            if (auto p = app_.overlay().findPeerByShortID(id))
+            {
+                p->send(packet);
+                ++sentCount;
+            }
+        }
+        JLOG(journal_.warn()) << "PRIORITY: sent to " << sentCount << " peers";
+
+        priorityHashes_.clear();
     }
 
     protocol::TMGetLedger tmGL;

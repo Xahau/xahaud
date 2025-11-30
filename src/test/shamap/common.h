@@ -105,8 +105,10 @@ public:
     }
 
     void
-    missingNodeAcquireBySeq(std::uint32_t refNum, uint256 const& nodeHash)
-        override
+    missingNodeAcquireBySeq(
+        std::uint32_t refNum,
+        uint256 const& nodeHash,
+        bool prioritize = false) override
     {
         Throw<std::runtime_error>("missing node");
     }
